@@ -1,0 +1,31 @@
+docs/reference/api/deploy.md
+  s_1cbb8f9d8ae59c::t_2790bab6dbc1c6 3,19,21
+packages/void/src/deploy.ts
+  s_77824b01a12d99::t_6aa6f6c52b1f2e 14,18-19,31,40-78
+packages/void/test/unit/deploy-artifact-preparation.test.ts
+  s_77824b01a12d99::t_7575b9eef64422 70,85-149
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "53364686eabaaec162d67699284f129b3e956541",
+  "prompts": {},
+  "sessions": {
+    "s_1cbb8f9d8ae59c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1377d-23d1-7ba3-a10f-199c8e386545",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    },
+    "s_77824b01a12d99": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a12dbe-f04a-71b1-acbd-3d132f151fae",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
