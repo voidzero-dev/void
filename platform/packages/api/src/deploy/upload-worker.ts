@@ -433,6 +433,9 @@ export async function uploadDeploymentWorker(input: {
       // A streamed body is sent once, so each attempt reopens the modules.
       const upload = workerUploadBody(metadata, workerFiles);
       let cfResponse: Response;
+      let cfBody: string;
+      // The request and its response body are retried together: a connection
+      // that drops while the body is read fails like one that drops earlier.
       try {
         cfResponse = await fetch(input.workerUploadUrl!, {
           method: 'PUT',
@@ -443,6 +446,7 @@ export async function uploadDeploymentWorker(input: {
           },
           body: withKnownLength(upload.stream, upload.length),
         });
+        cfBody = await cfResponse.text();
       } catch (error) {
         // A module that fails its size or digest check stops the body before
         // its closing boundary. Report that, not the transport error it causes,
@@ -464,13 +468,12 @@ export async function uploadDeploymentWorker(input: {
       }
 
       if (!cfResponse.ok) {
-        const error = await cfResponse.text();
         const fields = {
           attempt,
           maxAttempts,
           latencyMs: Date.now() - attemptStart,
           status: cfResponse.status,
-          bodyPreview: error.slice(0, 500),
+          bodyPreview: cfBody.slice(0, 500),
         };
         // Only 5xx is retried. A 429 stays final: the install shares one API
         // token, and Cloudflare blocks it for minutes once it hits the limit.
@@ -478,11 +481,10 @@ export async function uploadDeploymentWorker(input: {
           logger.warn('worker_upload', 'attempt_failed', fields);
           return undefined;
         }
-        logger.error('worker_upload', 'attempt_failed', new Error(error), fields);
-        throw new Error(`worker upload failed: ${error}`);
+        logger.error('worker_upload', 'attempt_failed', new Error(cfBody), fields);
+        throw new Error(`worker upload failed: ${cfBody}`);
       }
 
-      const cfBody = await cfResponse.text();
       if (isCfAssetPlainText(cfBody)) {
         logger.warn('worker_upload', 'attempt_failed', {
           attempt,

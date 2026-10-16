@@ -2542,6 +2542,55 @@ describe('POST /projects/:id/deploy', () => {
       expect(uploadCalls).toBe(4);
     });
 
+    // The headers arrive, then the connection drops while the body is read.
+    const brokenBodyResponse = (status: number) =>
+      new Response(
+        new ReadableStream({
+          pull(controller) {
+            controller.error(new TypeError('terminated'));
+          },
+        }),
+        { status },
+      );
+
+    it('retries worker upload when the response body fails after a 5xx', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-5xx-body-retry');
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          return uploadCalls === 1 ? brokenBodyResponse(503) : cfSuccess({});
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+    });
+
+    it('retries worker upload when a 2xx response body fails', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-2xx-body-retry');
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          return uploadCalls === 1 ? brokenBodyResponse(200) : cfSuccess({});
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+    });
+
     it.each([400, 429])('does not retry a worker upload rejected with %i', async (status) => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id, `worker-upload-rejected-${status}`);
