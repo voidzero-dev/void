@@ -26,7 +26,7 @@ function readManifest(dir: string): PackageManifest | undefined {
 type PnpApi = { resolveToUnqualified(request: string, issuer: string): string | null };
 
 /** The directory Node loads `name` from for code in `fromDir`. Ignores `exports`. */
-function findInstalledPackage(name: string, fromDir: string): string | undefined {
+export function findInstalledPackage(name: string, fromDir: string): string | undefined {
   // A Yarn Plug'n'Play install has no node_modules. Under `yarn`, its runtime adds
   // `findPnpApi` to `node:module` and serves the packages' files from its archives.
   const pnp = (module as { findPnpApi?: (path: string) => PnpApi | null }).findPnpApi?.(fromDir);

@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import mime from 'mime';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import { isFileServingAllowed, type Plugin } from 'vite';
-import { findVoidDependentPackages } from './installed-packages.ts';
+import { findInstalledPackage, findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 
 /** Imports that require CF bindings and are not available in Node.js mode. */
@@ -322,5 +322,34 @@ export function nodeTargetPlugin(
     },
   };
 
-  return [guardPlugin, cloudflareModulesPlugin];
+  // void/og renders with takumi-js, which loads a native addon that a bundle cannot carry. A build
+  // leaves a package that resolves from the app root to the runtime. With pnpm, void's own
+  // dependency does not, so it would be bundled and every image would fail to render.
+  const imageRendererPlugin: Plugin = {
+    name: 'void:node-target-image-renderer',
+    apply: 'build',
+    enforce: 'pre',
+    resolveId: {
+      filter: { id: /^takumi-js(?:\/|$)/ },
+      handler() {
+        const root = this.environment.config.root;
+        if (findInstalledPackage('takumi-js', root)) {
+          return;
+        }
+        throw new Error(
+          `void/og needs takumi-js in your app's dependencies with target '${target}', so the ` +
+            `build leaves its native renderer to ${RUNTIME_NAMES[target]}. Install it, for example ` +
+            'with `npm install takumi-js`.',
+        );
+      },
+    },
+  };
+
+  return [guardPlugin, cloudflareModulesPlugin, imageRendererPlugin];
 }
+
+const RUNTIME_NAMES: Record<NodeTarget, string> = {
+  node: 'Node.js',
+  bun: 'Bun',
+  deno: 'Deno',
+};

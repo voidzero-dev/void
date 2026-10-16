@@ -1,0 +1,197 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
+import { ImageResponse } from '../../src/runtime/og.ts';
+
+const card = '<div style="display:flex;width:100%;height:100%;background:#fff">Hello</div>';
+
+async function pngSize(response: Response) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+  return { width: view.getUint32(16), height: view.getUint32(20) };
+}
+
+// A css2 answer with a Latin subset and one that covers the Japanese test text.
+const NOTO_SANS_JP_CSS = `/* [0] */
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 400;
+  src: url(https://fonts.gstatic.com/noto-sans-jp/kana.woff2) format('woff2');
+  unicode-range: U+3040-309F, U+4E16, U+754C;
+}
+/* latin */
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 400;
+  src: url(https://fonts.gstatic.com/noto-sans-jp/latin.woff2) format('woff2');
+  unicode-range: U+0000-00FF, U+0131;
+}
+`;
+
+function stubFetch(handler: (url: string) => Response | Promise<Response>) {
+  const requests: Array<string> = [];
+  vi.stubGlobal(
+    'fetch',
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = input instanceof Request ? input.url : String(input);
+      requests.push(url);
+      return handler(url);
+    }),
+  );
+  return requests;
+}
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+});
+
+describe('ImageResponse', () => {
+  it('renders a 1200x630 PNG by default', async () => {
+    const response = new ImageResponse(card);
+    expect(response).toBeInstanceOf(Response);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+  });
+
+  it('renders React-style elements and runs each function component once', async () => {
+    const Title = vi.fn(({ text }: { text: string }) => ({
+      type: 'span',
+      props: { children: text },
+    }));
+    const response = new ImageResponse(
+      {
+        type: 'div',
+        props: { style: { display: 'flex' }, children: { type: Title, props: { text: 'Hello' } } },
+      },
+      { width: 600, height: 315 },
+    );
+    expect(await pngSize(response)).toEqual({ width: 600, height: 315 });
+    expect(Title).toHaveBeenCalledOnce();
+  });
+
+  // Builds cache images for a year: test/integration/og-image.test.ts.
+  it('does not cache images during development', () => {
+    expect(new ImageResponse(card).headers.get('cache-control')).toBe('no-cache, no-store');
+  });
+
+  it('keeps the status and headers it is given', () => {
+    const response = new ImageResponse(card, {
+      status: 201,
+      statusText: 'Created',
+      headers: { 'cache-control': 'public, max-age=60', 'x-image': 'card' },
+    });
+    expect(response.status).toBe(201);
+    expect(response.statusText).toBe('Created');
+    expect(response.headers.get('cache-control')).toBe('public, max-age=60');
+    expect(response.headers.get('x-image')).toBe('card');
+    expect(response.headers.get('content-type')).toBe('image/png');
+  });
+
+  it('labels other formats with their content type', async () => {
+    const response = new ImageResponse(card, { format: 'jpeg' });
+    expect(response.headers.get('content-type')).toBe('image/jpeg');
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+  });
+
+  it('draws box borders with debug', async () => {
+    const plain = new Uint8Array(await new ImageResponse(card).arrayBuffer());
+    const debug = new Uint8Array(await new ImageResponse(card, { debug: true }).arrayBuffer());
+    expect(debug).not.toEqual(plain);
+  });
+
+  it('errors the body when the image cannot render', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const response = new ImageResponse(card, { fonts: [new Uint8Array([1, 2, 3])] });
+    await expect(response.arrayBuffer()).rejects.toThrow();
+    expect(logged).toHaveBeenCalledWith('void/og: failed to render the image.', expect.anything());
+  });
+});
+
+describe('ImageResponse fallback fonts', () => {
+  it('requests no font for Latin text', async () => {
+    const requests = stubFetch(() => new Response(null, { status: 500 }));
+    await new ImageResponse(card).arrayBuffer();
+    expect(requests).toEqual([]);
+  });
+
+  it('downloads only the non-Latin subsets of the Japanese family', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch((url) =>
+      url.startsWith('https://fonts.googleapis.com/')
+        ? new Response(NOTO_SANS_JP_CSS, { headers: { 'content-type': 'text/css' } })
+        : new Response(null, { status: 404 }),
+    );
+    const response = new ImageResponse('<div style="display:flex">Hello こんにちは世界</div>');
+    // The font file is missing, so the image renders without it.
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+    expect(requests).toHaveLength(2);
+    const css = new URL(requests[0]!);
+    expect(css.origin + css.pathname).toBe('https://fonts.googleapis.com/css2');
+    expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@400']);
+    expect(requests[1]).toBe('https://fonts.gstatic.com/noto-sans-jp/kana.woff2');
+    expect(warned).toHaveBeenCalledWith(
+      'void/og: could not download Noto Sans JP. Rendering without it.',
+      expect.anything(),
+    );
+  });
+
+  it('uses the Simplified Chinese family for Han text without kana or Hangul', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 503 }));
+    await new ImageResponse('<div style="display:flex">你好世界</div>').arrayBuffer();
+    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans SC:wght@400']);
+  });
+
+  it('renders without fallback fonts when Google Fonts cannot be reached', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    stubFetch(() => {
+      throw new TypeError('fetch failed');
+    });
+    const response = new ImageResponse('<div style="display:flex">안녕하세요</div>');
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+    expect(warned).toHaveBeenCalledWith(
+      'void/og: could not load Noto Sans KR from Google Fonts.',
+      expect.anything(),
+    );
+  });
+});
+
+describe('void/og on Node.js targets', () => {
+  let root: string | undefined;
+  afterEach(() => {
+    if (root) {
+      rmSync(root, { recursive: true, force: true });
+      root = undefined;
+    }
+  });
+
+  function resolveRenderer() {
+    const plugin = nodeTargetPlugin('node').find(
+      (candidate) => candidate.name === 'void:node-target-image-renderer',
+    )!;
+    const resolveId = plugin.resolveId as { handler: (this: unknown, id: string) => unknown };
+    return resolveId.handler.call({ environment: { config: { root } } }, 'takumi-js/helpers');
+  }
+
+  it('fails the build when the app cannot load takumi-js itself', () => {
+    root = mkdtempSync(join(tmpdir(), 'void-og-node-'));
+    expect(resolveRenderer).toThrow(
+      "void/og needs takumi-js in your app's dependencies with target 'node'",
+    );
+  });
+
+  it("leaves takumi-js to Node.js when it is in the app's dependencies", () => {
+    root = mkdtempSync(join(tmpdir(), 'void-og-node-'));
+    mkdirSync(join(root, 'node_modules', 'takumi-js'), { recursive: true });
+    writeFileSync(join(root, 'node_modules', 'takumi-js', 'package.json'), '{"name":"takumi-js"}');
+    expect(resolveRenderer()).toBeUndefined();
+  });
+});
