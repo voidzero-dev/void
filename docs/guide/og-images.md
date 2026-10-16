@@ -53,7 +53,7 @@ export const GET = defineHandler(async (c) => {
 
 `GET /og/hello-world` now returns a 1200 × 630 PNG.
 
-JSX in image modules compiles with React, so your app needs `react`. Elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
+JSX works in React apps. In Vue, Svelte, and Solid apps, pass an HTML string instead, as shown in [Without React](#without-react). Elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
 
 ### Without React
 
@@ -108,7 +108,7 @@ Emoji and remote `<img>` sources are downloaded while the image renders.
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes a script that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, or Greek, Void downloads the matching Noto Sans font from Google Fonts while rendering. If the download fails, the image renders without those characters.
+Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, or accented letters like Ł and ş, Void downloads the matching Noto Sans font from Google Fonts while rendering. If the download fails, the image renders without those characters.
 
 To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data, as in `next/og`:
 
@@ -144,7 +144,7 @@ export const head = defineHead<Props>((c, props) => {
 
 ## Cache generated images
 
-Each request renders the image again, which uses several milliseconds of CPU time, more for large images. [Workers Free allows 10 ms per request](../reference/config.md#worker). Cache image routes with [revalidation](./edge/revalidation.md):
+Each request renders the image again. A 1200 × 630 image takes around 10 ms of CPU time, more for large or text-heavy images, and the first render in a new Worker instance takes around 100 ms. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so cache image routes with [revalidation](./edge/revalidation.md):
 
 ```json
 {
@@ -173,12 +173,12 @@ Then:
 - Read the request from Hono's context: `c.req.url`, `c.req.param()`, and `c.req.query()`.
 - Void draws images with Takumi rather than Satori, so layout can differ slightly. See [Takumi vs. Satori](https://takumi.kane.tw/docs/comparison-to-satori).
 
-## Node.js and Bun
+## Node.js, Bun, and Deno
 
-On the [Node.js and Bun targets](../integrations/nodejs-bun-deno.md), add `takumi-js` to your app's dependencies:
+On the [Node.js, Bun, and Deno targets](../integrations/nodejs-bun-deno.md), add `takumi-js` to your app's `dependencies`, not `devDependencies`, so production installs include it:
 
 ```sh
 npm install takumi-js
 ```
 
-The build then leaves Takumi's native renderer to the runtime. Without it, the build fails and names this step.
+If the build cannot find a version of `takumi-js` that Void supports, it fails and prints the command to install one.

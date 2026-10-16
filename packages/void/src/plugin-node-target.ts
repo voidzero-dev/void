@@ -1,5 +1,6 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
+import { findPackageJSON } from 'node:module';
 import { pathToFileURL } from 'node:url';
 import { dirname, join, relative } from 'pathslash';
 import type { Plugin } from 'vite';
@@ -260,9 +261,10 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
     },
   };
 
-  // void/og renders with takumi-js, which loads a native addon that a bundle cannot carry. A build
-  // leaves a package that resolves from the app root to the runtime. With pnpm, void's own
-  // dependency does not, so it would be bundled and every image would fail to render.
+  // void/og renders with takumi-js, which loads its renderer from files next to its own code (a
+  // native addon on Node.js and Bun) that a bundle cannot carry. A build leaves a package that
+  // resolves from the app root to the runtime, so the app must install a version that void/og
+  // supports. With pnpm, void's own copy does not resolve from the root and would be bundled.
   const imageRendererPlugin: Plugin = {
     name: 'void:node-target-image-renderer',
     apply: 'build',
@@ -270,14 +272,17 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
     resolveId: {
       filter: { id: /^takumi-js(?:\/|$)/ },
       handler() {
-        const root = this.environment.config.root;
-        if (findInstalledPackage('takumi-js', root)) {
+        const range = readTakumiRange();
+        const installed = findInstalledPackage('takumi-js', this.environment.config.root);
+        const version = installed && readPackageVersion(installed);
+        if (version && satisfiesCaret(version, range)) {
           return;
         }
+        const found = version ? ` The app has takumi-js ${version}.` : '';
         throw new Error(
-          `void/og needs takumi-js in your app's dependencies with target '${target}', so the ` +
-            `build leaves its native renderer to ${RUNTIME_NAMES[target]}. Install it, for example ` +
-            'with `npm install takumi-js`.',
+          `void/og needs takumi-js@${range} in your app's dependencies with target '${target}', so ` +
+            `the build leaves it to ${RUNTIME_NAMES[target]}.${found} Install it, for example with ` +
+            `\`npm install takumi-js@${range}\`.`,
         );
       },
     },
@@ -291,3 +296,36 @@ const RUNTIME_NAMES: Record<NodeTarget, string> = {
   bun: 'Bun',
   deno: 'Deno',
 };
+
+/** The takumi-js range void/og is built and tested against, from void's package.json. */
+function readTakumiRange(): string {
+  const manifest = findPackageJSON(import.meta.url);
+  return readPackageManifest(manifest!).dependencies!['takumi-js']!;
+}
+
+function readPackageVersion(dir: string): string | undefined {
+  return readPackageManifest(join(dir, 'package.json')).version;
+}
+
+function readPackageManifest(path: string): {
+  version?: string;
+  dependencies?: Record<string, string>;
+} {
+  return JSON.parse(readFileSync(path, 'utf8'));
+}
+
+/** Whether `version` is in the caret `range` (a major version above 0, as takumi-js uses). */
+function satisfiesCaret(version: string, range: string): boolean {
+  const parse = (value: string) => /^\^?(\d+)\.(\d+)\.(\d+)/.exec(value)?.slice(1).map(Number);
+  const actual = parse(version);
+  const minimum = parse(range);
+  if (!actual || !minimum || actual[0] !== minimum[0]) {
+    return false;
+  }
+  for (const part of [1, 2]) {
+    if (actual[part] !== minimum[part]) {
+      return actual[part]! > minimum[part]!;
+    }
+  }
+  return true;
+}

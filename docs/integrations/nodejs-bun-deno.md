@@ -104,7 +104,7 @@ For browser code, use Vite's `import.meta.env.VITE_*` values. These are embedded
 
 ### Open Graph images
 
-On Node.js and Bun, [`void/og`](../guide/og-images.md) needs `takumi-js` in your app's `dependencies`. See [Node.js and Bun](../guide/og-images.md#node-js-and-bun).
+[`void/og`](../guide/og-images.md) needs `takumi-js` in your app's `dependencies`. See [Node.js, Bun, and Deno](../guide/og-images.md#node-js-bun-and-deno).
 
 ### No Cloudflare bindings
 

@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import voidManifest from '../../package.json' with { type: 'json' };
 import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
 import { ImageResponse } from '../../src/runtime/og.ts';
 
@@ -14,7 +15,8 @@ async function pngSize(response: Response) {
   return { width: view.getUint32(16), height: view.getUint32(20) };
 }
 
-// A css2 answer with a Latin subset and one that covers the Japanese test text.
+// A css2 answer shaped like Google Fonts': a numbered subset can mix ASCII with
+// common CJK characters, and the Latin subset covers Latin-1.
 const NOTO_SANS_JP_CSS = `/* [0] */
 @font-face {
   font-family: 'Noto Sans JP';
@@ -23,13 +25,21 @@ const NOTO_SANS_JP_CSS = `/* [0] */
   src: url(https://fonts.gstatic.com/noto-sans-jp/kana.woff2) format('woff2');
   unicode-range: U+3040-309F, U+4E16, U+754C;
 }
+/* [118] */
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 400;
+  src: url(https://fonts.gstatic.com/noto-sans-jp/common.woff2) format('woff2');
+  unicode-range: U+20-22, U+27-2A, U+2C-38, U+41-47, U+61-7B, U+3001, U+65E5;
+}
 /* latin */
 @font-face {
   font-family: 'Noto Sans JP';
   font-style: normal;
   font-weight: 400;
   src: url(https://fonts.gstatic.com/noto-sans-jp/latin.woff2) format('woff2');
-  unicode-range: U+0000-00FF, U+0131;
+  unicode-range: U+0000-00FF, U+0131, U+2000-206F;
 }
 `;
 
@@ -107,6 +117,16 @@ describe('ImageResponse', () => {
     expect(debug).not.toEqual(plain);
   });
 
+  it('accepts the deprecated stylesheets option beside a style element', async () => {
+    // takumi warns that the option is deprecated.
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const response = new ImageResponse(
+      '<style>.card { background: #000 }</style><div class="card" style="display:flex">Hi</div>',
+      { stylesheets: ['.card { color: #fff }'] },
+    );
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+  });
+
   it('errors the body when the image cannot render', async () => {
     const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
     const response = new ImageResponse(card, { fonts: [new Uint8Array([1, 2, 3])] });
@@ -122,25 +142,35 @@ describe('ImageResponse fallback fonts', () => {
     expect(requests).toEqual([]);
   });
 
-  it('downloads only the non-Latin subsets of the Japanese family', async () => {
+  it('keeps Latin text off the Japanese family', async () => {
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch((url) =>
       url.startsWith('https://fonts.googleapis.com/')
         ? new Response(NOTO_SANS_JP_CSS, { headers: { 'content-type': 'text/css' } })
         : new Response(null, { status: 404 }),
     );
-    const response = new ImageResponse('<div style="display:flex">Hello こんにちは世界</div>');
-    // The font file is missing, so the image renders without it.
+    const response = new ImageResponse('<div style="display:flex">Hello こんにちは日本</div>');
+    // The font files are missing, so the image renders without them.
     expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
-    expect(requests).toHaveLength(2);
     const css = new URL(requests[0]!);
     expect(css.origin + css.pathname).toBe('https://fonts.googleapis.com/css2');
     expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@400']);
-    expect(requests[1]).toBe('https://fonts.gstatic.com/noto-sans-jp/kana.woff2');
+    // The subset that mixes ASCII with 日 still serves 日; the Latin subset is never fetched.
+    expect(requests.slice(1).sort()).toEqual([
+      'https://fonts.gstatic.com/noto-sans-jp/common.woff2',
+      'https://fonts.gstatic.com/noto-sans-jp/kana.woff2',
+    ]);
     expect(warned).toHaveBeenCalledWith(
       'void/og: could not download Noto Sans JP. Rendering without it.',
       expect.anything(),
     );
+  });
+
+  it('uses Noto Sans for accented Latin letters that Geist lacks', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 503 }));
+    await new ImageResponse('<div style="display:flex">Łódź</div>').arrayBuffer();
+    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans:wght@400']);
   });
 
   it('uses the Simplified Chinese family for Han text without kana or Hangul', async () => {
@@ -181,17 +211,34 @@ describe('void/og on Node.js targets', () => {
     return resolveId.handler.call({ environment: { config: { root } } }, 'takumi-js/helpers');
   }
 
+  // The range void/og declares; the app must install a version in it.
+  const range = voidManifest.dependencies['takumi-js'];
+
+  function installTakumi(version: string) {
+    root ??= mkdtempSync(join(tmpdir(), 'void-og-node-'));
+    mkdirSync(join(root, 'node_modules', 'takumi-js'), { recursive: true });
+    writeFileSync(
+      join(root, 'node_modules', 'takumi-js', 'package.json'),
+      JSON.stringify({ name: 'takumi-js', version }),
+    );
+  }
+
   it('fails the build when the app cannot load takumi-js itself', () => {
     root = mkdtempSync(join(tmpdir(), 'void-og-node-'));
     expect(resolveRenderer).toThrow(
-      "void/og needs takumi-js in your app's dependencies with target 'node'",
+      `void/og needs takumi-js@${range} in your app's dependencies with target 'node'`,
     );
   });
 
-  it("leaves takumi-js to Node.js when it is in the app's dependencies", () => {
-    root = mkdtempSync(join(tmpdir(), 'void-og-node-'));
-    mkdirSync(join(root, 'node_modules', 'takumi-js'), { recursive: true });
-    writeFileSync(join(root, 'node_modules', 'takumi-js', 'package.json'), '{"name":"takumi-js"}');
+  it('fails the build when the app has a takumi-js that void/og does not support', () => {
+    installTakumi('2.15.2');
+    expect(resolveRenderer).toThrow('The app has takumi-js 2.15.2.');
+    installTakumi('3.0.0');
+    expect(resolveRenderer).toThrow('The app has takumi-js 3.0.0.');
+  });
+
+  it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
+    installTakumi(range.replace(/^\^/, ''));
     expect(resolveRenderer()).toBeUndefined();
   });
 });
