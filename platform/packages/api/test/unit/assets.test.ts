@@ -807,6 +807,44 @@ describe('createAssetUploadSession', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
+  const timeoutError = () =>
+    new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+
+  it('gives each attempt a fresh timeout signal', async () => {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      if (signals.length === 1) {
+        throw timeoutError();
+      }
+      return Response.json({ result: { jwt: 'retry-jwt', buckets: [] } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, {
+      retryDelayMs: 0,
+    });
+
+    expect(result).toEqual({ jwt: 'retry-jwt', buckets: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
+  });
+
+  it('reports a timeout after the last attempt', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw timeoutError();
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
+    ).rejects.toThrow('did not finish within 60 seconds');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
   it('throws the last 5xx response after exhausting retries', async () => {
     const fetchMock = vi.fn(async () => new Response('Bad Gateway', { status: 502 }));
     vi.stubGlobal('fetch', fetchMock);

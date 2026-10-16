@@ -477,7 +477,19 @@ export async function uploadDeploymentWorker(input: {
   // Set once an attempt fails after Cloudflare may already have saved it.
   let maybeSaved = false;
   // A replay only rewrites this deployment's own script: the name is unique
-  // per deployment.
+  // per deployment. Every attempt sends the same body, so a saved script with
+  // the uploaded migration tag is this upload.
+  const savedDespiteFailure = async (fields: Record<string, unknown>) => {
+    const saved = await workerScriptSaved(
+      input.workerUploadUrl!,
+      cfHeaders,
+      durableObjectMigrations?.new_tag,
+    );
+    if (saved) {
+      logger.warn('worker_upload', 'saved_despite_failure', fields);
+    }
+    return saved;
+  };
   await retryWithBackoff(
     async (attempt) => {
       const attemptStart = Date.now();
@@ -510,7 +522,20 @@ export async function uploadDeploymentWorker(input: {
           throw new Error(`worker upload failed (HTTP ${cfResponse.status})`, { cause: error });
         }
         const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError';
+        const cause = failure ?? error;
+        const fields = {
+          attempt,
+          maxAttempts,
+          latencyMs: Date.now() - attemptStart,
+          code: timedOut ? 'timeout' : 'transport',
+          status: cfResponse?.status,
+          err: cause instanceof Error ? cause.message : String(cause),
+        };
         if (lastAttempt) {
+          // This attempt or an earlier one may have been saved.
+          if (await savedDespiteFailure(fields)) {
+            return true;
+          }
           // The timer also covers the module reads that feed the body.
           throw (
             failure ??
@@ -523,15 +548,7 @@ export async function uploadDeploymentWorker(input: {
           );
         }
         maybeSaved = true;
-        const cause = failure ?? error;
-        logger.warn('worker_upload', 'attempt_failed', {
-          attempt,
-          maxAttempts,
-          latencyMs: Date.now() - attemptStart,
-          code: timedOut ? 'timeout' : 'transport',
-          status: cfResponse?.status,
-          err: cause instanceof Error ? cause.message : String(cause),
-        });
+        logger.warn('worker_upload', 'attempt_failed', fields);
         return undefined;
       }
 
@@ -551,21 +568,13 @@ export async function uploadDeploymentWorker(input: {
           return undefined;
         }
         // A replay of a saved upload fails: the assets completion token is
-        // single-use and the migration tag has already moved.
+        // single-use and the migration tag has already moved. A 5xx here ends
+        // the last attempt, which may itself have been saved.
         const code = maybeSaved ? savedUploadReplayCode(cfBody) : undefined;
         if (
-          code !== undefined &&
-          (await workerScriptSaved(
-            input.workerUploadUrl!,
-            cfHeaders,
-            durableObjectMigrations?.new_tag,
-          ))
+          (cfResponse.status >= 500 || code !== undefined) &&
+          (await savedDespiteFailure({ ...fields, cfCode: code }))
         ) {
-          logger.warn('worker_upload', 'saved_by_earlier_attempt', {
-            attempt,
-            status: cfResponse.status,
-            code,
-          });
           return true;
         }
         logger.error('worker_upload', 'attempt_failed', new Error(cfBody), fields);
