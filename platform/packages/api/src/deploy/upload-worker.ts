@@ -516,11 +516,6 @@ export async function uploadDeploymentWorker(input: {
         if (failure instanceof WorkerModuleIntegrityError) {
           throw failure;
         }
-        // A 4xx stays final even when its body drops. Any other failure is
-        // retried.
-        if (cfResponse && !cfResponse.ok && cfResponse.status < 500) {
-          throw new Error(`worker upload failed (HTTP ${cfResponse.status})`, { cause: error });
-        }
         const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError';
         const cause = failure ?? error;
         const fields = {
@@ -531,6 +526,14 @@ export async function uploadDeploymentWorker(input: {
           status: cfResponse?.status,
           err: cause instanceof Error ? cause.message : String(cause),
         };
+        // A 4xx stays final even when its body drops, unless it replays an
+        // upload that was saved. Any other failure is retried.
+        if (cfResponse && !cfResponse.ok && cfResponse.status < 500) {
+          if (maybeSaved && (await savedDespiteFailure(fields))) {
+            return true;
+          }
+          throw new Error(`worker upload failed (HTTP ${cfResponse.status})`, { cause: error });
+        }
         if (lastAttempt) {
           // This attempt or an earlier one may have been saved.
           if (await savedDespiteFailure(fields)) {

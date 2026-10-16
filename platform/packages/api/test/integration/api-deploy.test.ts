@@ -2866,6 +2866,41 @@ describe('POST /projects/:id/deploy', () => {
       expect(dispatchScriptReads(cf)).toBe(1);
     });
 
+    it('treats an upload saved before a replay whose 4xx body drops as done', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-saved-4xx-body');
+      const savedLogs = captureSavedUploadLogs();
+      let uploadCalls = 0;
+      const cf: MockCfApiHandle = mockCfApi({
+        uploadWorker: async (url, init) => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            await saveScript(cf, url, init);
+            throw new TypeError('fetch failed');
+          }
+          return brokenBodyResponse(400);
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+      expect(savedLogs()).toEqual([
+        expect.objectContaining({
+          attempt: 1,
+          maxAttempts: 4,
+          latencyMs: expect.any(Number),
+          code: 'transport',
+          status: 400,
+          err: 'terminated',
+        }),
+      ]);
+    });
+
     it('treats an upload saved before the last attempt times out as done', async () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id, 'worker-upload-saved-timeout');
