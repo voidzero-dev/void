@@ -96,6 +96,10 @@ const scheduledPointerCleanups = new Set<string>();
 
 const scheduledPreviewPointerCleanups = new Set<string>();
 
+// Vite resolves the config, and so calls voidPlugin(), once per build
+// environment; print each `images` config warning once per process.
+const printedImageConfigWarnings = new Set<string>();
+
 /** Returns the Vite plugins that build and serve a Void app for its configured target. */
 export function voidPlugin(options?: {
   persistTo?: string;
@@ -122,7 +126,10 @@ export function voidPlugin(options?: {
     ? TYPED_CONFIG_FILE
     : LEGACY_CONFIG_FILE;
   for (const warning of getImageConfigWarnings(config.images, configFile)) {
-    voidWarn(warning);
+    if (!printedImageConfigWarnings.has(warning)) {
+      printedImageConfigWarnings.add(warning);
+      voidWarn(warning);
+    }
   }
   const projectCloudflareConfigPath = !isNodeTarget(config.target)
     ? materializeCloudflareConfig(root)

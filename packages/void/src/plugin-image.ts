@@ -4,9 +4,14 @@ import MagicString from 'magic-string';
 import { basename, relative } from 'pathslash';
 import { normalizePath, type ConfigEnv, type Plugin } from 'vite';
 import { isNodeTarget, type VoidConfig } from './config.ts';
-import { isImageOptimizerActive, resolveImageConfig, toClientImageConfig } from './image-config.ts';
+import {
+  compileLocalPattern,
+  isImageOptimizerActive,
+  resolveImageConfig,
+  toClientImageConfig,
+} from './image-config.ts';
 import { readImageSize, type ImageSize } from './image-size.ts';
-import { IMAGE_REGISTRY_KEY, type ResolvedImageConfig } from './image/config.ts';
+import { IMAGE_REGISTRY_KEY, type ImageConfig, type ResolvedImageConfig } from './image/config.ts';
 
 /** Registers the `images` config and `images.loaderFile` for `void/image` in each environment. */
 export const IMAGE_CONFIG_MODULE_ID = 'virtual:void/image-config';
@@ -17,6 +22,23 @@ const STATIC_IMAGE_QUERY = /[?&]image(?:&|$)/;
 
 /** Extensions Vite turns into asset URLs without `assetsInclude` (`KNOWN_ASSET_TYPES`). */
 const VITE_IMAGE_ASSET = /\.(?:apng|bmp|png|jpe?g|jfif|pjpeg|pjp|gif|svg|ico|webp|avif|cur)$/i;
+
+/** Vite's dev server URL prefix for a file by absolute path. */
+const VITE_FS_PREFIX = '/@fs/';
+
+/**
+ * The dev server serves an imported file from its source path, which the
+ * `/assets/**` pattern added to user `images.localPatterns` (built files)
+ * does not match. With user patterns, dev `?image` imports use the file's
+ * `/@fs/` URL instead and the dev config allows that prefix, so static imports
+ * stay allowed. Patterns only apply to the default loader.
+ */
+function usesFsStaticImageUrls(
+  resolved: ResolvedImageConfig,
+  images: ImageConfig | undefined,
+): boolean {
+  return resolved.dev && images?.localPatterns !== undefined && isImageOptimizerActive(resolved);
+}
 
 function cleanId(id: string): string {
   return id.replace(/[?#].*$/s, '');
@@ -60,8 +82,9 @@ export function resolveImageConfigForCommand(
   options: Pick<ImagePluginOptions, 'images' | 'target' | 'output' | 'configFile'>,
   env: Pick<ConfigEnv, 'command' | 'isPreview'>,
 ): ResolvedImageConfig {
+  let resolved: ResolvedImageConfig;
   try {
-    return resolveImageConfig(options.images, {
+    resolved = resolveImageConfig(options.images, {
       root,
       dev: env.command === 'serve' && env.isPreview !== true,
       target: options.target,
@@ -77,6 +100,12 @@ export function resolveImageConfigForCommand(
       cause: error,
     });
   }
+  if (usesFsStaticImageUrls(resolved, options.images)) {
+    resolved.localPatterns.push(
+      compileLocalPattern({ pathname: `${VITE_FS_PREFIX}**`, search: '' }),
+    );
+  }
+  return resolved;
 }
 
 /**
@@ -122,13 +151,27 @@ export function generateImageConfigModule(
   return lines.join('\n') + '\n';
 }
 
-/** The module for `<file>?image`: Vite's asset URL plus the intrinsic size (`StaticImageData`). */
+/**
+ * The module for `<file>?image`: Vite's asset URL plus the intrinsic size
+ * (`StaticImageData`). With `fsUrl` (dev, see `usesFsStaticImageUrls`), `src`
+ * is the file's `/@fs/` URL.
+ */
 export function generateStaticImageModule(
   file: string,
   size: Pick<ImageSize, 'width' | 'height'>,
+  fsUrl = false,
 ): string {
   // Other image types (HEIC) are not Vite assets unless `assetsInclude` lists them.
   const specifier = VITE_IMAGE_ASSET.test(file) ? file : `${file}?url`;
+  if (fsUrl) {
+    const src = VITE_FS_PREFIX + file.replace(/^\/+/, '');
+    // The import lets the dev server serve the file from `/@fs/` even outside
+    // `server.fs.allow`, as for Vite's own URL (`safeModulePaths`).
+    return (
+      `import ${JSON.stringify(specifier)};\n` +
+      `export default { src: ${JSON.stringify(src)}, width: ${size.width}, height: ${size.height} };\n`
+    );
+  }
   return (
     `import src from ${JSON.stringify(specifier)};\n` +
     `export default { src, width: ${size.width}, height: ${size.height} };\n`
@@ -261,7 +304,11 @@ export function imagePlugin(
         }
         this.addWatchFile(file);
         imageSources.add(source);
-        return generateStaticImageModule(file, size);
+        return generateStaticImageModule(
+          file,
+          size,
+          current !== undefined && usesFsStaticImageUrls(current, options.images),
+        );
       },
     },
     transform: {
