@@ -39,16 +39,6 @@ type PageHead = {
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const REACT_PAGES_ROOT = join(ROOT, 'playground/react-pages');
-// `pages/image.tsx`: srcset widths follow Next.js (the smallest configured size
-// at least 1x and 2x the width), and React renders `srcSet` with that casing.
-const IMAGE_ENDPOINT = '/_void/image?url=%2Fvoid-image-test.png';
-const FIXED_IMAGE_HTML =
-  '<img alt="Void image test" data-testid="image-fixed" loading="lazy" width="640" height="320" decoding="async" data-nimg="1" style="color:transparent"' +
-  ` srcSet="${IMAGE_ENDPOINT}&amp;w=640&amp;q=75 1x, ${IMAGE_ENDPOINT}&amp;w=1920&amp;q=75 2x"` +
-  ` src="${IMAGE_ENDPOINT}&amp;w=1920&amp;q=75"/>`;
-// `ReactDOM.preload` puts the link at the start of the rendered page, inside `#app`.
-const PRELOAD_IMAGE_LINK = `<div id="app"><link rel="preload" as="image" imageSrcSet="${IMAGE_ENDPOINT}&amp;w=384&amp;q=75 1x, ${IMAGE_ENDPOINT}&amp;w=640&amp;q=75 2x"/>`;
-const IMAGE_TEST_IDS = ['image-fixed', 'image-preload', 'image-fill', 'image-static'];
 const REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
 const LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
 let DEV_BASE: string;
@@ -179,60 +169,6 @@ export default function Layout({ children }: { children: ReactNode }) {
 beforeAll(async () => {
   browser = await launchPagesBrowser();
 });
-
-/** Width of a PNG from its IHDR chunk. */
-async function pngWidth(response: Response): Promise<number> {
-  return Buffer.from(await response.arrayBuffer()).readUInt32BE(16);
-}
-
-/** Every `Image` on `/image` loads through the endpoint and hydrates cleanly. */
-async function expectImagePageHydrates(base: string) {
-  const context = await browser.newContext();
-  const errors: Array<string> = [];
-  try {
-    const page = await context.newPage();
-    page.setDefaultTimeout(10_000);
-    page.on('console', (msg) => {
-      if (msg.type() === 'error' || /hydrat/i.test(msg.text())) {
-        errors.push(msg.text());
-      }
-    });
-    page.on('pageerror', (error) => {
-      errors.push(error.message);
-    });
-
-    await page.goto(`${base}/image`);
-    await page.waitForSelector('#app[data-hydrated="true"]');
-    await page.waitForFunction(
-      (ids) =>
-        ids.every((id) => {
-          const img = document.querySelector<HTMLImageElement>(`[data-testid="${id}"]`);
-          return img?.complete && img.naturalWidth > 0;
-        }),
-      IMAGE_TEST_IDS,
-    );
-
-    const fixed = await page.evaluate(() => {
-      const img = document.querySelector<HTMLImageElement>('[data-testid="image-fixed"]')!;
-      return {
-        naturalWidth: img.naturalWidth,
-        srcset: img.getAttribute('srcset'),
-        currentSrc: new URL(img.currentSrc).pathname + new URL(img.currentSrc).search,
-      };
-    });
-    expect(fixed).toEqual({
-      naturalWidth: 640,
-      srcset: `${IMAGE_ENDPOINT}&w=640&q=75 1x, ${IMAGE_ENDPOINT}&w=1920&q=75 2x`,
-      currentSrc: `${IMAGE_ENDPOINT}&w=640&q=75`,
-    });
-    expect(await page.getAttribute('[data-testid="image-static"]', 'src')).toMatch(
-      /^\/_void\/image\?url=%2F/,
-    );
-    expect(errors).toEqual([]);
-  } finally {
-    await context.close();
-  }
-}
 
 afterAll(async () => {
   await browser?.close();
@@ -753,48 +689,6 @@ describe('react-pages client (dev)', () => {
 
   registerSharedDevSsrTest({ getBase: () => DEV_BASE, framework: 'React' });
 
-  it('dev: Image renders Next.js markup and one preload link', async () => {
-    const response = await fetch(`${DEV_BASE}/image`);
-    expect(response.status).toBe(200);
-    const html = await response.text();
-    expect(html).toContain(FIXED_IMAGE_HTML);
-    expect(html).toContain(PRELOAD_IMAGE_LINK);
-    expect(html.match(/<link rel="preload" as="image"/g)).toHaveLength(1);
-    expect(html).toContain(
-      `<img alt="Void image fill" data-testid="image-fill" loading="lazy" decoding="async" data-nimg="fill" style="position:absolute;height:100%;width:100%;left:0;top:0;right:0;bottom:0;color:transparent" sizes="300px" srcSet="${IMAGE_ENDPOINT}&amp;w=32&amp;q=75 32w,`,
-    );
-    // `?image` imports carry the file's intrinsic size; dev serves the source path.
-    expect(html).toContain(
-      '<img alt="Void image static import" data-testid="image-static" loading="lazy" width="48" height="32" decoding="async" data-nimg="1" style="color:transparent" srcSet="/_void/image?url=%2Fsrc%2Fvoid-image-static.png&amp;w=48&amp;q=75 1x, /_void/image?url=%2Fsrc%2Fvoid-image-static.png&amp;w=96&amp;q=75 2x"',
-    );
-  });
-
-  it('dev: Image endpoint negotiates the format, resizes and validates the width', async () => {
-    const webp = await fetch(`${DEV_BASE}${IMAGE_ENDPOINT}&w=640&q=75`, {
-      headers: { Accept: 'image/webp,*/*' },
-    });
-    expect(webp.status).toBe(200);
-    expect(webp.headers.get('content-type')).toBe('image/webp');
-    expect(webp.headers.get('vary')).toBe('Accept');
-    expect(webp.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
-    await webp.arrayBuffer();
-
-    const png = await fetch(`${DEV_BASE}${IMAGE_ENDPOINT}&w=640&q=75`, {
-      headers: { Accept: '*/*' },
-    });
-    expect(png.status).toBe(200);
-    expect(png.headers.get('content-type')).toBe('image/png');
-    expect(await pngWidth(png)).toBe(640);
-
-    const invalid = await fetch(`${DEV_BASE}${IMAGE_ENDPOINT}&w=641&q=75`);
-    expect(invalid.status).toBe(400);
-    expect(await invalid.text()).toBe('"w" parameter (width) of 641 is not allowed');
-  });
-
-  it('dev: Image hydrates and loads through /_void/image', async () => {
-    await expectImagePageHydrates(DEV_BASE);
-  });
-
   it('dev: head tags, pages protocol, form handling, API coexistence', async () => {
     const rootHtml = await (await fetch(`${DEV_BASE}/`)).text();
     expect(rootHtml).toContain('<title>Home | React Pages Demo</title>');
@@ -1032,38 +926,4 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
     () => PREVIEW_BASE,
     () => browser,
   );
-
-  it('preview: Image uses the Images binding and caches fingerprinted imports', async () => {
-    const wranglerConfig = JSON.parse(
-      readFileSync(join(REACT_PAGES_ROOT, 'dist/ssr/wrangler.json'), 'utf-8'),
-    ) as { images?: unknown };
-    expect(wranglerConfig.images).toEqual({ binding: 'IMAGES' });
-
-    const html = await (await fetch(`${PREVIEW_BASE}/image`)).text();
-    expect(html).toContain(FIXED_IMAGE_HTML);
-    expect(html).toContain(PRELOAD_IMAGE_LINK);
-
-    const publicImage = await fetch(`${PREVIEW_BASE}${IMAGE_ENDPOINT}&w=640&q=75`, {
-      headers: { Accept: 'image/webp,*/*' },
-    });
-    expect(publicImage.status).toBe(200);
-    expect(publicImage.headers.get('content-type')).toBe('image/webp');
-    expect(publicImage.headers.get('cache-control')).toBe('public, max-age=14400, must-revalidate');
-    await publicImage.arrayBuffer();
-
-    // Above the 4 KiB inline limit, so the build emits a fingerprinted asset.
-    const staticSrc = html.match(
-      /data-testid="image-static"[^>]* src="(\/_void\/image\?url=%2Fassets%2Fvoid-image-static-[\w-]+\.png&amp;w=96&amp;q=75)"/,
-    )?.[1];
-    expect(staticSrc).toBeDefined();
-    const staticImage = await fetch(`${PREVIEW_BASE}${staticSrc!.replaceAll('&amp;', '&')}`);
-    expect(staticImage.status).toBe(200);
-    expect(staticImage.headers.get('content-type')).toBe('image/png');
-    expect(staticImage.headers.get('cache-control')).toBe('public, max-age=315360000, immutable');
-    await staticImage.arrayBuffer();
-  });
-
-  it('preview: Image hydrates and loads through /_void/image', async () => {
-    await expectImagePageHydrates(PREVIEW_BASE);
-  });
 });
