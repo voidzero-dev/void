@@ -33,6 +33,12 @@ const CARD_COMPONENT = `export function card(title: string) {
 }
 `;
 
+// Miniflare types its own Response, without Cloudflare's `cf`.
+type Runtime = {
+  dispatchFetch(input: string): Promise<Response>;
+  dispose(): Promise<void>;
+};
+
 const fixtures: Array<string> = [];
 
 /** An app inside the workspace, so Vite serves the linked packages, outside its package globs. */
@@ -149,7 +155,7 @@ describe('void/og in a Cloudflare app', () => {
   });
 
   describe('build', () => {
-    let runtime: Miniflare | undefined;
+    let runtime: Runtime | undefined;
     afterAll(async () => {
       await runtime?.dispose();
     });
@@ -167,7 +173,7 @@ describe('void/og in a Cloudflare app', () => {
           modules,
           modulesRoot: output,
         }),
-      );
+      ) as unknown as Runtime;
       await expectImage(await runtime.dispatchFetch('http://localhost/api/og'), BUILD_HEADER);
       await expectImage(await runtime.dispatchFetch('http://localhost/api/card'), BUILD_HEADER);
     });
