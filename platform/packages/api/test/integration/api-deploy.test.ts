@@ -54,9 +54,11 @@ import {
   createTestProjectSecret,
   mockCfApi,
   cfSuccess,
+  cfError,
   readAllEvents,
   CF_ACCOUNT_ID,
   JWT_SECRET,
+  type MockCfApiHandle,
   type TestEnv,
 } from './helpers.ts';
 import { setTestDb } from './setup.ts';
@@ -2286,6 +2288,7 @@ describe('POST /projects/:id/deploy', () => {
   });
 
   it('retries plain-text asset upload response and succeeds on next attempt', async () => {
+    mockSetTimeout();
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'asset-text-test');
     let uploadCalls = 0;
@@ -2613,6 +2616,331 @@ describe('POST /projects/:id/deploy', () => {
       expect(error.step).toBe('worker_upload');
       expect(error.message).toContain('worker upload failed:');
       expect(uploadCalls).toBe(1);
+    });
+
+    it.each([400, 429])(
+      'does not retry a worker upload rejected with %i when its body drops',
+      async (status) => {
+        const user = await createTestUser(env.db);
+        const project = await createTestProject(
+          env.db,
+          user.id,
+          `worker-upload-rejected-body-${status}`,
+        );
+        let uploadCalls = 0;
+        mockCfApi({
+          uploadWorker: () => {
+            uploadCalls++;
+            return brokenBodyResponse(status);
+          },
+        });
+
+        const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+        expect(res.status).toBe(200);
+        const events = parseDeployStream(await res.text());
+        const error = requireEvent<ErrorEvent>(events, 'error');
+        expect(error.step).toBe('worker_upload');
+        expect(error.message).toContain(`worker upload failed (HTTP ${status})`);
+        expect(uploadCalls).toBe(1);
+      },
+    );
+
+    const timeoutError = () =>
+      new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+
+    it('retries a worker upload attempt that times out', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-timeout-retry');
+      const signals: Array<AbortSignal | null | undefined> = [];
+      mockCfApi({
+        uploadWorker: (_url, init) => {
+          signals.push(init?.signal);
+          if (signals.length === 1) {
+            throw timeoutError();
+          }
+          return cfSuccess({});
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(signals).toHaveLength(2);
+      expect(signals[0]).toBeInstanceOf(AbortSignal);
+      expect(signals[1]).toBeInstanceOf(AbortSignal);
+      // Each attempt has its own timer.
+      expect(signals[1]).not.toBe(signals[0]);
+    });
+
+    it('reports a timeout after the last worker upload attempt', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-timeout-fail');
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          throw timeoutError();
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(error.message).toContain('did not finish within 120 seconds');
+      expect(uploadCalls).toBe(4);
+    });
+
+    // Cloudflare stores the script, but the platform never sees its answer.
+    async function saveScript(
+      cf: MockCfApiHandle,
+      url: string,
+      init: RequestInit | undefined,
+      migrationTag?: string,
+    ): Promise<string | undefined> {
+      const metadata = JSON.parse(await ((init!.body as FormData).get('metadata') as Blob).text());
+      return cf.seedHostScript({
+        scriptName: url.slice(url.lastIndexOf('/') + 1),
+        migrationTag: migrationTag ?? metadata.migrations?.new_tag,
+        bindings: metadata.bindings,
+        metadata,
+      }).migration_tag;
+    }
+
+    const tokenConsumed = () => cfError('Completion token has already been consumed', 400, 100312);
+    const tagMoved = () =>
+      cfError("Actor migration tag precondition failed, got tag ''", 412, 10079);
+
+    const dispatchScriptReads = (cf: MockCfApiHandle) =>
+      cf.mock.calls.filter((args: Array<unknown>) => {
+        const init = args[1] as RequestInit | undefined;
+        return (
+          (init?.method ?? 'GET') === 'GET' &&
+          /\/workers\/dispatch\/namespaces\/[^/]+\/scripts\/[^/]+$/.test(String(args[0]))
+        );
+      }).length;
+
+    const websocketManifest = {
+      version: 3,
+      bindings: {},
+      websocket: {
+        routes: [
+          {
+            pattern: '/ws/chat/:room',
+            filePath: 'routes/ws/chat/[room].ws.ts',
+            className: 'WsChatRoomWs',
+            bindingName: 'CHAT_ROOM',
+            mode: 'room',
+            hasAuthGate: false,
+          },
+        ],
+        classes: ['WsChatRoomWs'],
+        migrations: [{ tag: 'ws-v1', newClasses: ['WsChatRoomWs'] }],
+      },
+    };
+
+    it('treats an upload saved before a 5xx as done', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-saved-5xx');
+      let uploadCalls = 0;
+      const cf: MockCfApiHandle = mockCfApi({
+        uploadWorker: async (url, init) => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            await saveScript(cf, url, init);
+            return new Response('service unavailable', { status: 503 });
+          }
+          return tokenConsumed();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('treats a saved migration tag as done', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-saved-tag');
+      let uploadCalls = 0;
+      let savedTag: string | undefined;
+      const cf: MockCfApiHandle = mockCfApi({
+        uploadWorker: async (url, init) => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            savedTag = await saveScript(cf, url, init);
+            throw new TypeError('fetch failed');
+          }
+          return tagMoved();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, { manifest: websocketManifest }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(savedTag).toBe('ws-v1');
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('treats an upload saved before a plain-text reply as done', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-saved-text');
+      let uploadCalls = 0;
+      const cf: MockCfApiHandle = mockCfApi({
+        uploadWorker: async (url, init) => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            await saveScript(cf, url, init);
+            return new Response('Assets have already been uploaded.');
+          }
+          return tokenConsumed();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('does not check for a saved upload after an unrelated rejection', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-other-rejection');
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          return uploadCalls === 1
+            ? new Response('service unavailable', { status: 503 })
+            : cfError('Uncaught SyntaxError', 400, 10021);
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(error.message).toContain('worker upload failed:');
+      expect(error.message).toContain('10021');
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(0);
+    });
+
+    it('fails when the saved migration tag differs', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-other-tag');
+      let uploadCalls = 0;
+      const cf: MockCfApiHandle = mockCfApi({
+        uploadWorker: async (url, init) => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            await saveScript(cf, url, init, 'ws-v0');
+            return new Response('service unavailable', { status: 503 });
+          }
+          return tagMoved();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, { manifest: websocketManifest }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(error.message).toContain('worker upload failed:');
+      expect(error.message).toContain('10079');
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('fails when the script was not saved', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-not-saved');
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          return uploadCalls === 1
+            ? new Response('service unavailable', { status: 503 })
+            : tokenConsumed();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(error.message).toContain('worker upload failed:');
+      expect(error.message).toContain('100312');
+      expect(uploadCalls).toBe(2);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('does not check for a saved upload without an earlier unclear failure', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-first-rejected');
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          return tokenConsumed();
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(error.message).toContain('100312');
+      expect(uploadCalls).toBe(1);
+      expect(dispatchScriptReads(cf)).toBe(0);
     });
 
     it('polls readiness probe before dispatching migrations', async () => {
