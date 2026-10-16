@@ -99,9 +99,10 @@ export const R2_HEAD_VERIFY_CONCURRENCY = 20;
 // stores. A fresh retained/in-flight hash snapshot is taken for every batch.
 export const ASSET_GC_LOCK_BATCH = 100;
 
-// Retention is post-cutover and best-effort. Bound all eviction + orphan work
-// across one request so cleanup can never consume the Worker's 1,000 external
-// operation budget before the already-live deployment emits `done`.
+// Retention is post-cutover and best effort. Cap the asset hashes one deploy
+// evicts or sweeps (each costs up to a KV delete and an R2 head) so eviction
+// only briefly delays the `done` event, and the orphan sweep that runs in
+// `waitUntil` after the response stays short.
 export const ASSET_GC_MAX_HASHES_PER_DEPLOY = 200;
 
 // Per-blake3 / per-md5 validation: 32 lowercase hex characters.

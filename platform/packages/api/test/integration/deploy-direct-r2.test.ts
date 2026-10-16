@@ -55,6 +55,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function mockSetTimeout() {
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    fn: TimerHandler,
+    ...args: Array<unknown>
+  ) => nativeSetTimeout(fn, 0, ...args)) as typeof setTimeout);
+}
+
 // Synthetic 32-hex blake3 / md5 strings. Real hashes round-trip through the
 // presigner unchanged; the deploy pipeline only validates shape (32 hex)
 // and looks up bytes by `assets/${projectId}/${blake3}`. Tests put the
@@ -2192,11 +2201,7 @@ describe('direct Worker module upload', () => {
       return originalGet(getKey, options);
     });
     // Skip the retry backoff.
-    const nativeSetTimeout = globalThis.setTimeout;
-    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
-      fn: TimerHandler,
-      ...args: Array<unknown>
-    ) => nativeSetTimeout(fn, 0, ...args)) as typeof setTimeout);
+    mockSetTimeout();
 
     const events = await readAllEvents(
       await finalize(project.id, { workerInput: { id, modules } }),
@@ -2207,6 +2212,7 @@ describe('direct Worker module upload', () => {
   });
 
   it('reopens every module when Cloudflare asks for the upload again', async () => {
+    mockSetTimeout();
     const project = await createTestProject(env.db, user.id, 'wu-retry');
     const files = {
       'index.js': new TextEncoder().encode('export default {};'),
