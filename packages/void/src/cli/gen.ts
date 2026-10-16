@@ -808,20 +808,23 @@ function writeVueSsr(root: string): void {
   writeIfNotExists(
     join(ssrDir, 'main.ssr.ts'),
     `import { createSSRApp } from "vue";
-import { renderToString } from "vue/server-renderer";
+import { renderToString, type SSRContext } from "vue/server-renderer";
 import { defineRender } from "void";
 import App from "./App.vue";
 
 export default defineRender(async (c, assetTags) => {
   const app = createSSRApp(App);
-  const appHtml = await renderToString(app);
+  // \`Image\` from @void/vue collects its <link rel="preload"> tags here.
+  const ssrContext: SSRContext = {};
+  const appHtml = await renderToString(app, ssrContext);
+  const imagePreloads = ssrContext.__voidImagePreloads?.render() ?? "";
   const html = \`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>App</title>
-    \${assetTags.css}\${assetTags.preloads}
+    \${imagePreloads}\${assetTags.css}\${assetTags.preloads}
   </head>
   <body>
     <div id="app">\${appHtml}</div>
@@ -873,14 +876,14 @@ import { defineRender } from "void";
 import App from "./App.svelte";
 
 export default defineRender(async (c, assetTags) => {
-  const { html: appHtml } = render(App);
+  const { head, body: appHtml } = render(App);
   const html = \`<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>App</title>
-    \${assetTags.css}\${assetTags.preloads}
+    \${head}\${assetTags.css}\${assetTags.preloads}
   </head>
   <body>
     <div id="app">\${appHtml}</div>

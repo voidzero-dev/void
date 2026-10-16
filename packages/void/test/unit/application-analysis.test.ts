@@ -244,6 +244,17 @@ describe('image optimizer analysis', () => {
     expect(analysis.bindingNames).toBeUndefined();
   });
 
+  it('requires the Images binding for next/image aliased to @void/react/image', () => {
+    const applicationRoot = root();
+    source(
+      applicationRoot,
+      'pages/index.tsx',
+      'import Image from "next/image"; export default () => <Image src="/a.png" alt="" />;',
+    );
+    const analysis = analyzeApplicationSync(applicationRoot, { config: {}, environment: 'prod' });
+    expect(analysis.bindings).toMatchObject({ needsImages: true, usesImageOptimizer: true });
+  });
+
   it.each<[string, VoidConfig]>([
     ['unoptimized', { images: { unoptimized: true } }],
     ['a custom loader', { images: { loader: 'custom' } }],
@@ -353,6 +364,25 @@ describe('vinext image optimizer analysis', () => {
     );
     expect(analysis.bindings.needsImages).toBe(false);
   });
+
+  it.each([false, true])(
+    'leaves next/image to vinext without the Cloudflare optimizer (App Router: %s)',
+    (appRouter) => {
+      const applicationRoot = vinextApp(
+        'import vinext from "vinext"; import { voidPlugin } from "void"; export default { plugins: [voidPlugin(), vinext()] };',
+        appRouter,
+      );
+      source(
+        applicationRoot,
+        appRouter ? 'app/hero.tsx' : 'pages/index.tsx',
+        'import Image from "next/image"; export default () => <Image src="/a.png" alt="" />;',
+      );
+      const analysis = analyzeApplicationSync(applicationRoot, { config: {} });
+      expect(analysis.framework?.name).toBe(appRouter ? 'vinext-app' : 'vinext-pages');
+      expect(analysis.bindings.needsImages).toBe(false);
+      expect(analysis.bindingNames).toBeUndefined();
+    },
+  );
 
   it('ignores the optimizer import outside vinext apps', () => {
     const applicationRoot = root();
