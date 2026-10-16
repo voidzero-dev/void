@@ -147,6 +147,32 @@ it(
   REAL_CF_TIMEOUT_MS,
 );
 
+it('reads a version that cf returns without bindings as one with no bindings', async () => {
+  const prepared = await output();
+  try {
+    const runner = createCfVersionRunner({
+      output: prepared,
+      workerName: 'void-test',
+      runCf: () => ({
+        status: 0,
+        stdout: JSON.stringify({ id: 'version-id', number: 35 }),
+        stderr: '',
+      }),
+      verifyResources: async () => {
+        throw new Error('A read must not provision or probe resources');
+      },
+    });
+    const result = await runner(
+      { type: 'versions.view', versionId: 'version-id', workerName: 'void-test' },
+      { capture: true },
+    );
+    expect(result.status).toBe(0);
+    expect(result.data).toMatchObject({ bindings: [], resources: { bindings: [] } });
+  } finally {
+    await prepared.dispose();
+  }
+});
+
 it(
   'preserves real cf provider codes so a missing Worker can reach its first upload',
   async () => {
