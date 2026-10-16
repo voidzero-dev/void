@@ -19,6 +19,12 @@ export type VoidAuthRuntimeOptions = {
   providers: Array<VoidAuthProvider> | null;
   userConfig?: VoidAuthConfig;
   dev?: boolean;
+  /**
+   * Exact request paths the session middleware leaves alone, like Void's
+   * internal `/__*` routes: the image optimizer endpoint, whose responses are
+   * public and cached.
+   */
+  skipPaths?: ReadonlyArray<string>;
 };
 
 export type VoidAuthEnv = Record<string, unknown> & {
@@ -532,10 +538,11 @@ export function createVoidAuthRuntime(
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<void> {
-    // Skip auth for internal routes (cron, queue, migration, binding proxy).
+    // Skip auth for internal routes (cron, queue, migration, binding proxy) and
+    // the image optimizer: no session lookup and no Set-Cookie on public images.
     // Still set user/session to null so downstream middleware that checks
     // these context variables gets the expected sentinel (not undefined).
-    if (c.req.path.startsWith('/__')) {
+    if (c.req.path.startsWith('/__') || runtime.skipPaths?.includes(c.req.path)) {
       c.set('user', null);
       c.set('session', null);
       return next();

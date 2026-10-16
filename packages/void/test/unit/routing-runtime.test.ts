@@ -273,6 +273,23 @@ describe('typed Worker fetch execution', () => {
     expect(env.__VOID_ISR_DEPLOYMENT_ID).toBe('existing');
     expect(handle).toHaveBeenCalledTimes(1);
   });
+  it('never sends ISR bypass paths such as the image optimizer through the cache', async () => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const fetch = worker({
+      isr: { deploymentId: 'deploy-one', bypassPaths: ['/_void/image'], handle },
+    });
+    const response = await fetch(
+      new Request('https://one.test/_void/image?url=%2Fhero.png&w=64&q=75'),
+      { ISR_CACHE: {} },
+      context,
+    );
+    expect(response.status).toBe(404);
+    expect(handle).not.toHaveBeenCalled();
+    expect(
+      await (await fetch(new Request('https://one.test/app'), { ISR_CACHE: {} }, context)).text(),
+    ).toBe('cache');
+    expect(handle).toHaveBeenCalledTimes(1);
+  });
   it('hides capabilities through property lookup, membership, enumeration and descriptors only when selected', () => {
     const env = { __VOID_TOKEN: 'private', VOID_NORMAL: 'public', ISR_CACHE: 'user-cache' };
     const publicEnv = filterInternalBindings(env, ['__VOID_']);

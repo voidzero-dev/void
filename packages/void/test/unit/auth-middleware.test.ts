@@ -416,3 +416,38 @@ describe('cross-origin cookie sessions', () => {
     expect(warn).not.toHaveBeenCalled();
   });
 });
+
+describe('runVoidAuthMiddleware skipped paths', () => {
+  it('skips the session lookup and auth headers for the image optimizer path only', async () => {
+    const authHeaders = new Headers();
+    authHeaders.append('set-cookie', 'session=refresh; Path=/');
+    mocks.getSession.mockResolvedValue({ response: null, headers: authHeaders });
+    mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession } });
+    const app = new Hono<{ Variables: { user: unknown; session: unknown } }>();
+    app.use(async (c, next) => {
+      await runtime.runVoidAuthMiddleware(
+        c,
+        next,
+        { ...authRuntimeOptions, skipPaths: ['/_void/image'] },
+        {} as never,
+      );
+    });
+    app.get('/_void/image', (c) => c.json({ user: c.get('user'), session: c.get('session') }));
+    app.get('/page', (c) => c.text('page'));
+    const init = { headers: { cookie: 'session=abc' } };
+    const env = { BETTER_AUTH_SECRET: 'test-secret' };
+
+    const image = await app.request(
+      'http://localhost/_void/image?url=%2Fa.png&w=64&q=75',
+      init,
+      env,
+    );
+    expect(await image.json()).toEqual({ user: null, session: null });
+    expect(image.headers.getSetCookie()).toEqual([]);
+    expect(mocks.betterAuth).not.toHaveBeenCalled();
+
+    const page = await app.request('http://localhost/page', init, env);
+    expect(page.headers.getSetCookie()).toEqual(['session=refresh; Path=/']);
+    expect(mocks.getSession).toHaveBeenCalledTimes(1);
+  });
+});

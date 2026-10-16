@@ -192,6 +192,8 @@ export type WorkerFetchOptions = {
   ) => Promise<Response>;
   isr?: {
     deploymentId: string;
+    /** Request paths that never enter the ISR cache, such as the image optimizer endpoint. */
+    bypassPaths?: ReadonlyArray<string>;
     handle: (
       request: Request,
       env: RuntimeEnvironment,
@@ -251,7 +253,8 @@ export function createWorkerFetch(
         if (
           options.isr &&
           env.ISR_CACHE &&
-          request.headers.get('upgrade')?.toLowerCase() !== 'websocket'
+          request.headers.get('upgrade')?.toLowerCase() !== 'websocket' &&
+          !options.isr.bypassPaths?.includes(url.pathname)
         ) {
           const cached = await options.isr.handle(request, env, ctx, render);
           if (cached) {
