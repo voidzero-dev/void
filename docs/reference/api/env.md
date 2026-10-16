@@ -45,6 +45,6 @@ Non-client keys are server values and use remote secret storage in production. `
 /// <reference types="void/env" />
 ```
 
-Declares the `Cloudflare.Env` namespace with `DB`, `KV`, `STORAGE`, `AI`, and `SANDBOX` binding types.
+Declares the `Cloudflare.Env` namespace with `DB`, `KV`, `STORAGE`, `AI`, `IMAGES`, and `SANDBOX` binding types.
 
 For handler context variables such as `c.set()` and `c.get()`, augment [`CloudContextVariables`](./types.md#cloudcontextvariables). This is separate from `Cloudflare.Env`, which types worker bindings. Framework adapters such as `@void/vue`, `@void/react`, and `@void/svelte` also augment `CloudContextVariables` to add the `shared` key used by `useShared()`.
