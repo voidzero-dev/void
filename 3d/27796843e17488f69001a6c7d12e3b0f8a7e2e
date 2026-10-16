@@ -1,0 +1,39 @@
+docs/guide/deployment.md
+  s_f572b1deb5ef86::t_237e8d99096712 38
+docs/reference/cli/database.md
+  s_f572b1deb5ef86::t_0a76f343b85394 105
+docs/reference/cli/project.md
+  s_f572b1deb5ef86::t_c9f3688f0720e9 172,182-183
+packages/void/src/cli/db.ts
+  s_f572b1deb5ef86::t_f3d942b1c84157 1480-1482,1484-1486,1498,1503-1506
+packages/void/src/cli/help.ts
+  s_f572b1deb5ef86::t_1c76196fe980f5 776-785
+packages/void/src/cli/project-args.ts
+  s_f572b1deb5ef86::t_8164eec5efade6 33-37,114,267-291
+packages/void/src/cli/project-cmd.ts
+  s_f572b1deb5ef86::t_3ce60873cb6d9a 88
+packages/void/src/cli/rollback.ts
+  s_f572b1deb5ef86::t_03939c76dc4441 7-11,14-15,17-18,115-119,190,219,238
+packages/void/test/unit/db-migrate.test.ts
+  s_f572b1deb5ef86::t_573b9f493cdb14 460-461,481,563-564,577-601
+packages/void/test/unit/project-args.test.ts
+  s_f572b1deb5ef86::t_bea78a44d185ea 318-352
+packages/void/test/unit/rollback-platform.test.ts
+  s_f572b1deb5ef86::t_f163c2eb1c234c 1-103
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3d27796843e17488f69001a6c7d12e3b0f8a7e2e",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
