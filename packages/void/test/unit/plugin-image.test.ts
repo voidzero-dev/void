@@ -6,7 +6,8 @@ import type { ConfigEnv, EnvironmentOptions, ResolvedConfig, UserConfig } from '
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { resolveImageConfig, toClientImageConfig } from '../../src/image-config.ts';
 import { IMAGE_REGISTRY_KEY } from '../../src/image/config.ts';
-import { getImageConfig } from '../../src/image/index.ts';
+import { getImageConfig, getImageProps } from '../../src/image/index.ts';
+import { validateImageParams } from '../../src/image/optimizer/validate.ts';
 import {
   generateImageConfigModule,
   imagePlugin,
@@ -369,5 +370,66 @@ describe('imagePlugin ?image imports', () => {
     const { root, plugin } = setup();
     expect(load(plugin, join(root, 'src', 'hero.png'))).toBeUndefined();
     expect(load(plugin, `${join(root, 'src', 'hero.png')}?imagery`)).toBeUndefined();
+  });
+
+  it('keeps dev imports allowed by user localPatterns through their /@fs/ URL', () => {
+    const root = createRoot();
+    const file = join(root, 'src', 'hero.png').replaceAll('\\', '/');
+    copyFileSync(PNG_FIXTURE, file);
+    const images = { localPatterns: [{ pathname: '/photos/**', search: '' }] };
+    const plugin = createPlugin(root, { images });
+    (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+      root,
+    } as ResolvedConfig);
+    runConfig(plugin, SERVE);
+    const src = `/@fs/${file.replace(/^\/+/, '')}`;
+
+    expect(load(plugin, `${file}?image`)).toBe(
+      `import ${JSON.stringify(file)};\nexport default { src: ${JSON.stringify(src)}, width: 100, height: 50 };\n`,
+    );
+    const resolved = plugin.api.getConfig()!;
+    (globalThis as Record<PropertyKey, unknown>)[IMAGE_REGISTRY_KEY] = {
+      config: toClientImageConfig(resolved, 'client'),
+      loader: undefined,
+    };
+    // Vite's own dev URL for the file is its source path, which the patterns do not list.
+    expect(() => getImageProps({ src: '/src/hero.png', alt: '', width: 100, height: 50 })).toThrow(
+      'does not match `images.localPatterns`',
+    );
+    expect(getImageProps({ src: { src, width: 100, height: 50 }, alt: '' }).props.src).toBe(
+      `/_void/image?url=${encodeURIComponent(src)}&w=256&q=75`,
+    );
+    expect(
+      validateImageParams(new URLSearchParams({ url: src, w: '256', q: '75' }), resolved),
+    ).not.toHaveProperty('errorMessage');
+  });
+
+  it('keeps Vite URLs for builds and for dev without user localPatterns', () => {
+    const root = createRoot();
+    const file = join(root, 'src', 'hero.png').replaceAll('\\', '/');
+    copyFileSync(PNG_FIXTURE, file);
+    const viteUrl = `import src from ${JSON.stringify(file)};\nexport default { src, width: 100, height: 50 };\n`;
+    const images = { localPatterns: [{ pathname: '/photos/**', search: '' }] };
+    const options = { images, configFile: 'void.config.ts' };
+
+    for (const [pluginOptions, env] of [
+      [{ images }, BUILD],
+      [{ images }, PREVIEW],
+      [{}, SERVE],
+      [{ images: { ...images, unoptimized: true } }, SERVE],
+    ] as const) {
+      const plugin = createPlugin(root, pluginOptions);
+      (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+        root,
+      } as ResolvedConfig);
+      runConfig(plugin, env);
+      expect(load(plugin, `${file}?image`)).toBe(viteUrl);
+    }
+    expect(
+      resolveImageConfigForCommand(root, options, BUILD).localPatterns.map((p) => p.pathname),
+    ).toEqual(['/photos/**', '/assets/**']);
+    expect(
+      resolveImageConfigForCommand(root, options, SERVE).localPatterns.map((p) => p.pathname),
+    ).toEqual(['/photos/**', '/assets/**', '/@fs/**']);
   });
 });

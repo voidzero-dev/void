@@ -239,12 +239,18 @@ describe('voidPlugin image optimizer wiring', () => {
 
   it('warns once about ignored and deprecated images keys', async () => {
     const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    await createPlugins(
-      createProjectRoot({ images: { domains: ['cdn.example.com'], maximumDiskCacheSize: 0 } }),
-    );
+    const root = createProjectRoot({
+      images: { domains: ['cdn.example.com'], maximumDiskCacheSize: 0 },
+    });
+    // `vite build` resolves the config, and calls voidPlugin(), once per environment.
+    await createPlugins(root);
+    await createPlugins(root);
     const messages = log.mock.calls.map((call) => String(call[0]));
 
     expect(messages.filter((message) => message.includes('images.domains'))).toHaveLength(1);
+    expect(
+      messages.filter((message) => message.includes('images.maximumDiskCacheSize')),
+    ).toHaveLength(1);
     expect(messages.join('\n')).toContain('Please update void.json to protect your application');
     expect(messages.join('\n')).toContain('"images.maximumDiskCacheSize" in void.json is ignored');
   });
