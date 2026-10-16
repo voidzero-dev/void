@@ -1,0 +1,35 @@
+docs/reference/cli/database.md
+  s_f572b1deb5ef86::t_e7572c291858a2 95-96,101-102
+packages/void/src/cli/db-args.ts
+  s_f572b1deb5ef86::t_6b2f6954c8bd62 58-62,107,142,147-177,199,258-261,270,273-274,276,279
+packages/void/src/cli/db.ts
+  s_f572b1deb5ef86::t_99ab369ee4ea70 215,1427,1430-1431,1434,1437-1441,1443-1444
+packages/void/src/cli/deploy-cloudflare-migrate.ts
+  s_f572b1deb5ef86::t_040b76f44d9661 16,158
+packages/void/src/cli/deploy-migrations.ts
+  s_f572b1deb5ef86::t_babab2bfdceb0c 617-618,667
+packages/void/src/cli/help.ts
+  s_f572b1deb5ef86::t_c08b4807b65ce2 1303-1304,1312-1315
+packages/void/test/unit/db-args.test.ts
+  s_f572b1deb5ef86::t_93f2ee5904e032 215-230,234-235,237-239
+packages/void/test/unit/db-migrate.test.ts
+  s_f572b1deb5ef86::t_2a9edb6dcf85f9 552-576,579-581,583,591,593,600
+packages/void/test/unit/deploy-migrations-restore-point.test.ts
+  s_f572b1deb5ef86::t_c39c01332574db 157-169
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "27f1a46b62c1e3cc6ec3fc3c0923f9b88644336c",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
