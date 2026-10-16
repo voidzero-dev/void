@@ -4,7 +4,7 @@
  * Takumi does the rendering (Wasm on workerd, its native addon on Node). This
  * module only adds what `next/og` callers expect on top: a 1200×630 default
  * size, the `cache-control` header, `debug`, and Noto fallback fonts for
- * scripts that Takumi's built-in Geist (Latin only) cannot draw.
+ * text that Takumi's built-in Geist (ASCII and Latin-1) cannot draw.
  */
 import { render, type Node, type RenderInput, type RenderOptions } from 'takumi-js';
 import { collectCodepoints, googleFonts, type FontSubset } from 'takumi-js/helpers';
@@ -41,7 +41,7 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/\p{sc=Telugu}/u, 'Noto Sans Telugu'],
   [/\p{sc=Kannada}/u, 'Noto Sans Kannada'],
   [/\p{sc=Malayalam}/u, 'Noto Sans Malayalam'],
-  [/[\p{sc=Cyrillic}\p{sc=Greek}\u1E00-\u1EFF]/u, 'Noto Sans'],
+  [/[\p{sc=Cyrillic}\p{sc=Greek}\u0100-\u024F\u1E00-\u1EFF]/u, 'Noto Sans'],
 ];
 
 /**
@@ -94,7 +94,11 @@ async function renderImage(element: RenderInput, options: RenderOptions): Promis
   const renderNode = (fonts?: RenderOptions['fonts']) =>
     render(node, {
       ...options,
-      ...(css.length > 0 && { css: [...toList(options.css), ...css] }),
+      // takumi rejects `css` beside its deprecated `stylesheets`, so fold them.
+      ...(css.length > 0 && {
+        css: [...toList(options.css ?? options.stylesheets), ...css],
+        stylesheets: undefined,
+      }),
       ...(fonts && { fonts }),
     });
   const fallback = await fallbackFonts(node);
@@ -154,19 +158,29 @@ async function fallbackFonts(node: Node): Promise<Array<FontSubset>> {
     console.warn(`void/og: could not load ${families.join(', ')} from Google Fonts.`, error);
     return [];
   }
-  return (
-    subsets
-      // Registered fonts come before Geist, so keep their Latin subsets out:
-      // Latin text stays on the default font, as it does with `next/og`.
-      .filter((subset) => !subset.unicodeRange.some(([start, end]) => start <= 0x41 && 0x41 <= end))
-      .map((subset) => ({
-        ...subset,
-        data: () =>
-          subset.data().catch((cause: unknown) => {
-            throw new FallbackFontError(`void/og: could not download ${subset.name}.`, { cause });
-          }),
-      }))
-  );
+  // Registered fonts come before Geist, so keep ASCII and Latin-1 on the
+  // default font, as `next/og` does: skip each family's Latin subset, and take
+  // Latin-1 out of the others, which can mix ASCII with common CJK characters.
+  return subsets.flatMap((subset) => {
+    if (subset.unicodeRange.some(([start, end]) => start <= 0x20 && 0x7e <= end)) {
+      return [];
+    }
+    const unicodeRange = subset.unicodeRange
+      .filter(([, end]) => end > 0xff)
+      .map(([start, end]): [number, number] => [Math.max(start, 0x100), end]);
+    // An empty range covers everything, so only drop a subset that had ranges.
+    if (unicodeRange.length === 0 && subset.unicodeRange.length > 0) {
+      return [];
+    }
+    return {
+      ...subset,
+      unicodeRange,
+      data: () =>
+        subset.data().catch((cause: unknown) => {
+          throw new FallbackFontError(`void/og: could not download ${subset.name}.`, { cause });
+        }),
+    };
+  });
 }
 
 function isDevelopment(): boolean {
