@@ -584,16 +584,17 @@ export function createCfVersionRunner(options: {
         return result;
       }
       const version = result.data;
-      if (
-        !record(version) ||
-        version.id !== operation.versionId ||
-        !Array.isArray(version.bindings)
-      ) {
+      if (!record(version) || version.id !== operation.versionId) {
+        return failed('The Cloudflare Worker version was not readable.');
+      }
+      // cf omits `bindings` for a version that has none.
+      const bindings = version.bindings ?? [];
+      if (!Array.isArray(bindings)) {
         return failed('The Cloudflare Worker version was not readable.');
       }
       return {
         ...result,
-        data: { ...version, resources: { bindings: version.bindings } },
+        data: { ...version, bindings, resources: { bindings } },
       };
     }
 
