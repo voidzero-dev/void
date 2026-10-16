@@ -301,7 +301,10 @@ export async function renderPage(pageObj, assetTags) {
     }
   });
 
-  const html = await renderToString(app);
+  // \`Image\` collects its <link rel="preload" as="image"> tags in the SSR context.
+  const ssrContext = {};
+  const html = await renderToString(app, ssrContext);
+  const imagePreloads = ssrContext.__voidImagePreloads ? ssrContext.__voidImagePreloads.render() : "";
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -309,7 +312,7 @@ export async function renderPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}</head>
+<head>\${headHtml}\${imagePreloads}\${assetTags.css}\${assetTags.preloads}</head>
 <body\${bodyAttrs}>
   <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
   <div id="app">\${html}</div>

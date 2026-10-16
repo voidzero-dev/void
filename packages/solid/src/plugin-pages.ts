@@ -177,7 +177,8 @@ function generateRendererModule(scan: PageScanResult, pagesDir: string): string 
   return `
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
-import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, ImagePreloadContext } from "@void/solid";
+import { createImagePreloadCollector } from "void/image";
 import { createSsrRouter, idleNavigationState } from "void/pages-client";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 import { serializePageData } from "void/pages-server";
@@ -191,30 +192,39 @@ export async function renderPage(pageObj, assetTags) {
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
+  const imagePreloads = createImagePreloadCollector();
+
+  // Image preloads go into <head>. The client entry wraps its tree in the same
+  // provider: every component consumes a hydration key, so both trees need it.
   function ServerApp() {
-    return createComponent(SharedContext.Provider, {
-      value: pageObj.shared || {},
+    return createComponent(ImagePreloadContext.Provider, {
+      value: imagePreloads,
       get children() {
-        return createComponent(ErrorsContext.Provider, {
-          value: pageObj.errors || {},
+        return createComponent(SharedContext.Provider, {
+          value: pageObj.shared || {},
           get children() {
-            return createComponent(RouterContext.Provider, {
-              value: createSsrRouter(pageObj.url || "/", pageObj.params || {}),
+            return createComponent(ErrorsContext.Provider, {
+              value: pageObj.errors || {},
               get children() {
-                return createComponent(NavigationContext.Provider, {
-                  value: () => idleNavigationState(),
+                return createComponent(RouterContext.Provider, {
+                  value: createSsrRouter(pageObj.url || "/", pageObj.params || {}),
                   get children() {
-                    return createComponent(ParamsContext.Provider, {
-                      value: pageObj.params || {},
+                    return createComponent(NavigationContext.Provider, {
+                      value: () => idleNavigationState(),
                       get children() {
-                        // Build layout chain inside providers so contexts are available
-                        let element = createComponent(PageComponent, pageObj.props);
-                        for (let i = layoutComponents.length - 1; i >= 0; i--) {
-                          const Layout = layoutComponents[i];
-                          const child = element;
-                          element = createComponent(Layout, { get children() { return child; } });
-                        }
-                        return element;
+                        return createComponent(ParamsContext.Provider, {
+                          value: pageObj.params || {},
+                          get children() {
+                            // Build layout chain inside providers so contexts are available
+                            let element = createComponent(PageComponent, pageObj.props);
+                            for (let i = layoutComponents.length - 1; i >= 0; i--) {
+                              const Layout = layoutComponents[i];
+                              const child = element;
+                              element = createComponent(Layout, { get children() { return child; } });
+                            }
+                            return element;
+                          }
+                        });
                       }
                     });
                   }
@@ -237,7 +247,7 @@ export async function renderPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}\${generateHydrationScript()}</head>
+<head>\${headHtml}\${imagePreloads.render()}\${assetTags.css}\${assetTags.preloads}\${generateHydrationScript()}</head>
 <body\${bodyAttrs}>
   <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
   <div id="app">\${html}</div>
@@ -259,7 +269,7 @@ function generateClientEntry(
 import { createSignal, createComponent, createMemo, mergeProps, untrack, batch } from "solid-js";
 import { createMutable } from "solid-js/store";
 import { hydrate, render } from "solid-js/web";
-import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, setActionRouter } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, ImagePreloadContext, setActionRouter } from "@void/solid";
 import { createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
@@ -359,23 +369,30 @@ function renderSlot(depth) {
   });
 }
 
+// The server renderer provides an image preload collector here; this
+// provider (null in the browser) keeps the hydration keys of both trees equal.
 function App() {
-  return createComponent(SharedContext.Provider, {
-    value: shared,
+  return createComponent(ImagePreloadContext.Provider, {
+    value: null,
     get children() {
-      return createComponent(ErrorsContext.Provider, {
-        value: errors,
+      return createComponent(SharedContext.Provider, {
+        value: shared,
         get children() {
-          return createComponent(RouterContext.Provider, {
-            value: reactiveRouter,
+          return createComponent(ErrorsContext.Provider, {
+            value: errors,
             get children() {
-              return createComponent(ParamsContext.Provider, {
-                get value() { return routeParams(); },
+              return createComponent(RouterContext.Provider, {
+                value: reactiveRouter,
                 get children() {
-                  return createComponent(NavigationContext.Provider, {
-                    value: navigation,
+                  return createComponent(ParamsContext.Provider, {
+                    get value() { return routeParams(); },
                     get children() {
-                      return renderSlot(0);
+                      return createComponent(NavigationContext.Provider, {
+                        value: navigation,
+                        get children() {
+                          return renderSlot(0);
+                        }
+                      });
                     }
                   });
                 }

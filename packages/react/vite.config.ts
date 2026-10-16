@@ -4,6 +4,7 @@ export default defineConfig({
   pack: {
     entry: [
       'src/index.ts',
+      'src/image.ts',
       'src/plugin.ts',
       'src/runtime/pages-client.ts',
       'src/runtime/pages-server.ts',

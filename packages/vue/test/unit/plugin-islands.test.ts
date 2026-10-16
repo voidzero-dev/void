@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
+import { IMAGE_PAGE_PRELOADS, importRendererWithImagePage } from './image-page-fixture.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_islands_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
@@ -269,5 +270,43 @@ import Sidebar from "./Sidebar.vue" with { island: "load" }
     const clientEntry = loadClientEntry();
 
     expect(clientEntry).not.toContain('Sidebar');
+  });
+});
+
+describe('islandsPlugin renderer image preloads', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('renders with an SSR context and puts Image preloads in <head> before CSS', async () => {
+    writeFile('index.island.vue', `<template><div>Home</div></template>`);
+    const { buildStart, loadRenderer } = setupPlugin();
+    await buildStart();
+    const renderer = loadRenderer();
+    if (!renderer) {
+      throw new Error('Expected the islands renderer module.');
+    }
+    expect(renderer).toContain('const html = await renderToString(app, ssrContext);');
+    expect(renderer).toContain('<head>${headHtml}${imagePreloads}${assetTags.css}');
+
+    const { renderIslandPage } = (await importRendererWithImagePage(
+      renderer,
+      join(PAGES_DIR, 'index.island.vue'),
+      TMP,
+    )) as {
+      renderIslandPage: (pageObj: unknown, assetTags: Record<string, string>) => Promise<string>;
+    };
+    const html = await renderIslandPage(
+      { component: 'index', props: {}, head: { title: 'Home' } },
+      { css: '<link rel="stylesheet" href="/app.css">', preloads: '', body: '' },
+    );
+    expect(html).toContain(
+      `<head><title>Home</title>${IMAGE_PAGE_PRELOADS}<link rel="stylesheet" href="/app.css"></head>`,
+    );
+    expect(html).toContain('<main><img alt="LCP" width="800"');
   });
 });

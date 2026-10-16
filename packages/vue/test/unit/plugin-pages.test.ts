@@ -2,6 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
+import { IMAGE_PAGE_PRELOADS, importRendererWithImagePage } from './image-page-fixture.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
@@ -78,5 +79,57 @@ describe('pagesPlugin dev HMR', () => {
     const renderer = await load('\0virtual:void-pages-renderer');
 
     expect(renderer).toContain('"test": () => import');
+  });
+});
+
+describe('pagesPlugin renderer image preloads', () => {
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('renders with an SSR context and puts Image preloads in <head> before CSS', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+    await getHookHandler(plugin.buildStart).call({});
+    const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+    if (!renderer) {
+      throw new Error('Expected the pages renderer module.');
+    }
+    expect(renderer).toContain('const html = await renderToString(app, ssrContext);');
+    expect(renderer).toContain(
+      '<head>${headHtml}${imagePreloads}${assetTags.css}${assetTags.preloads}</head>',
+    );
+
+    const { renderPage } = (await importRendererWithImagePage(
+      renderer,
+      join(PAGES_DIR, 'index.vue'),
+      TMP,
+    )) as {
+      renderPage: (pageObj: unknown, assetTags: Record<string, string>) => Promise<string>;
+    };
+    const assetTags = {
+      css: '<link rel="stylesheet" href="/app.css">',
+      preloads: '<link rel="modulepreload" href="/app.js">',
+      body: '<script type="module" src="/app.js"></script>',
+    };
+    const html = await renderPage(
+      { component: 'index', props: {}, url: '/', params: {}, shared: {}, head: { title: 'Home' } },
+      assetTags,
+    );
+    expect(html).toContain(
+      `<head><title>Home</title>${IMAGE_PAGE_PRELOADS}${assetTags.css}${assetTags.preloads}</head>`,
+    );
+    expect(html.match(/rel="preload" as="image"/g)).toHaveLength(2);
+
+    const plain = await renderPage(
+      { component: 'index', props: {}, url: '/', params: {}, shared: {} },
+      assetTags,
+    );
+    expect(plain).toContain(`<head>${IMAGE_PAGE_PRELOADS}${assetTags.css}`);
   });
 });

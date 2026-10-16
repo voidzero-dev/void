@@ -34,6 +34,9 @@ function setupPlugin() {
     loadClientEntry(): string | undefined {
       return plugin.load.handler('\0virtual:void-islands-client');
     },
+    loadRenderer(): string | undefined {
+      return plugin.load.handler('\0virtual:void-islands-renderer');
+    },
   };
 }
 
@@ -123,5 +126,32 @@ export default function Layout(props) { return <div>{props.children}</div>; }`,
     const clientEntry = loadClientEntry();
 
     expect(clientEntry).not.toContain('Sidebar');
+  });
+});
+
+describe('islandsPlugin — image preloads', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('collects preloads per request and puts them into <head>', async () => {
+    writeFile('index.island.tsx', `export default function Home() { return <div>Home</div>; }`);
+
+    const { buildStart, loadRenderer } = setupPlugin();
+    await buildStart();
+    const renderer = loadRenderer() ?? '';
+    const serverApp = renderer.slice(renderer.indexOf('function ServerApp() {'));
+
+    expect(renderer).toContain('import { createImagePreloadCollector } from "void/image";');
+    expect(renderer).toMatch(/import \{[^}]*\bImagePreloadContext\b[^}]*\} from "@void\/solid";/);
+    expect(
+      renderer.indexOf('const imagePreloads = createImagePreloadCollector();'),
+    ).toBeGreaterThan(renderer.indexOf('export async function renderIslandPage('));
+    expect(/createComponent\(([\w.]+)/.exec(serverApp)?.[1]).toBe('ImagePreloadContext.Provider');
+    expect(renderer).toContain('<head>${headHtml}${imagePreloads.render()}${assetTags.css}');
   });
 });
