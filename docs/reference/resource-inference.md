@@ -21,7 +21,7 @@ Void automatically detects which Cloudflare resources your project uses by scann
 | `VOID_LIVE`      | `DurableObjectNamespace`   | `import { defineLiveStream } from "void/live"`                                                                                                                     | n/a                                                                            |
 | filename-derived | `DurableObjectNamespace`   | A default-exported `defineDurableState()` module in `durable-objects/`                                                                                             | n/a                                                                            |
 
-`Image` and `getImageProps` add `IMAGES` in native Void apps only while the default `/_void/image` endpoint serves images. They don't with `images.unoptimized`, a custom or `cloudflare` loader, `output: "static"`, or a non-Cloudflare `target`. Type-only imports never add a binding. See [Images](../guide/images.md#deployment).
+`Image` and `getImageProps` add `IMAGES` in native Void apps only while the default `/_void/image` endpoint serves images. They don't with `images.unoptimized`, a custom or `cloudflare` loader, `output: "static"`, or a non-Cloudflare `target`. Type-only imports never add a binding. `next/image` imports count as `@void/react/image` imports, for apps that [alias `next/image`](../guide/images.md#migrating-from-next-image). See [Images](../guide/images.md#deployment).
 
 Auth detection also triggers when importing the `auth` specifier from `void/client` or a framework-specific client subpath such as `void/client/react` (but not when importing only `fetch`).
 

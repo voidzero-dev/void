@@ -598,7 +598,7 @@ export default defineConfig({
 });
 ```
 
-Void detects image usage from `@void/*` imports, so with the alias also set `inference.bindings.images` to `true`. The alias only affects bundling; TypeScript still has to resolve `next/image` on its own.
+Void detects image usage from `next/image` imports too, so the alias needs no other configuration. The alias only affects bundling; TypeScript still has to resolve `next/image` on its own.
 
 Move the `images` object from `next.config.js` to `void.config.ts`. The keys, types, and defaults are the same, and loader functions and `loaderFile` modules work unchanged.
 

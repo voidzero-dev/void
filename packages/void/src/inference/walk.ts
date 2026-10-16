@@ -20,7 +20,11 @@ export type InferredBindings = {
    * while the default `/_void/image` optimizer is configured.
    */
   needsImages?: boolean;
-  /** `Image` or `getImageProps` from a Void adapter or an image subpath. */
+  /**
+   * `Image` or `getImageProps` from a Void adapter, an image subpath, or
+   * `next/image`. Only Void apps act on it (`isImageOptimizerEnabled`), so
+   * framework apps such as vinext, which own `next/image`, are unaffected.
+   */
   usesImageOptimizer?: boolean;
 };
 
@@ -33,9 +37,12 @@ const ENV_BINDING_RE = /\benv\s*\.\s*(DB|KV|STORAGE|QUEUE_\w+|AI|SANDBOX|IMAGES)
 /** Adapter entries whose `Image` and `getImageProps` exports render through the optimizer. */
 const IMAGE_ADAPTER_SOURCES = new Set(['@void/react', '@void/vue', '@void/svelte', '@void/solid']);
 const IMAGE_EXPORT_NAMES = new Set(['Image', 'getImageProps']);
+const REACT_IMAGE_EXPORTS: ReadonlySet<string> = new Set(['default', 'Image', 'getImageProps']);
 /** Exports that render through the optimizer, per image subpath. */
 const IMAGE_SUBPATH_EXPORTS: Record<string, ReadonlySet<string>> = {
-  '@void/react/image': new Set(['default', 'Image', 'getImageProps']),
+  '@void/react/image': REACT_IMAGE_EXPORTS,
+  // Void apps migrating from Next.js alias it to `@void/react/image`.
+  'next/image': REACT_IMAGE_EXPORTS,
   // The other `void/image` exports are loader and config helpers.
   'void/image': new Set(['getImageProps']),
 };
@@ -160,6 +167,7 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
         break;
       case 'void/image':
       case '@void/react/image':
+      case 'next/image':
         // Static references are checked per specifier in `usesImageExports`;
         // a literal dynamic import may read any export.
         if (dynamic) {

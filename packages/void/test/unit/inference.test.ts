@@ -270,6 +270,14 @@ describe('inferBindingsFromSource image usage', () => {
     "export { getImageProps } from 'void/image';",
     "const load = () => import('void/image');",
     "const load = () => import('@void/react/image');",
+    // `next/image` aliased to `@void/react/image` when migrating from Next.js.
+    "import Image from 'next/image';",
+    "import NextImage, { getImageProps } from 'next/image';",
+    "import { getImageProps } from 'next/image';",
+    "import { Image } from 'next/image';",
+    "import * as Next from 'next/image';\nexport const View = () => <Next.default src='/a.png' alt='' />;",
+    "export { default as Image } from 'next/image';",
+    "const load = () => import('next/image');",
   ])('detects %s', (code) => {
     expect(usesImage(code)).toBe(true);
   });
@@ -292,7 +300,11 @@ describe('inferBindingsFromSource image usage', () => {
     "import * as Void from '@void/react';\nexport const View = () => <Void.Link href='/' />;",
     "import * as Void from '@void/react';\nexport const value = other.Void.Image;",
     "import { Image } from './components/image';",
-    "import { Image } from 'next/image';",
+    "import type Image from 'next/image';",
+    "import type { ImageProps } from 'next/image';",
+    "import 'next/image';",
+    "import * as Next from 'next/image';\nexport type Props = Next.ImageProps;",
+    "import Image from 'next/legacy/image';",
     "import Image from '@void/vue/image';",
   ])('ignores %s', (code) => {
     expect(usesImage(code)).toBe(false);
