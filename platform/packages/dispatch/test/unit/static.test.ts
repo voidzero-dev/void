@@ -189,6 +189,60 @@ describe('resolveStaticPath', () => {
       });
     });
 
+    it.each(['[...slug]', '%5B...slug%5D', '%5b...slug%5d', '[...slug%5D', '%5B...slug]'])(
+      'resolves a Next.js chunk with square brackets requested as %s before the SPA fallback',
+      (filename) => {
+        const path = '/_next/static/chunks/pages/package/[...slug]-abc123.js';
+        expect(
+          resolveStaticPath(
+            `/_next/static/chunks/pages/package/${filename}-abc123.js`,
+            { [path]: 'hash_chunk', '/index.html': 'hash_index' },
+            { html_handling: 'none', not_found_handling: 'single-page-application' },
+          ),
+        ).toEqual({ path, hash: 'hash_chunk' });
+      },
+    );
+
+    it('resolves encoded brackets with spaces and UTF-8 in directory and file names', () => {
+      const path = '/files/[café docs]/[[...slug]].js';
+      expect(
+        resolveStaticPath(
+          '/files/%5Bcaf%C3%A9%20docs%5D/%5B%5B...slug%5D%5D.js',
+          { [path]: 'hash_chunk' },
+          { html_handling: 'none' },
+        ),
+      ).toEqual({ path, hash: 'hash_chunk' });
+    });
+
+    it('prefers a literal percent-encoded bracket filename over the decoded key', () => {
+      const path = '/files/%5Bslug%5D.js';
+      expect(
+        resolveStaticPath(
+          path,
+          { [path]: 'raw_hit', '/files/[slug].js': 'decoded_hit' },
+          { html_handling: 'none' },
+        ),
+      ).toEqual({ path, hash: 'raw_hit' });
+    });
+
+    it.each([
+      '/assets%2F%5Bslug%5D.js',
+      '/%61ssets/%5Bslug%5D.js',
+      '/%5F%5Fvoid/%5Bslug%5D.js',
+      '/assets/%2e%2e/%5Bslug%5D.js',
+      '/assets/%255Bslug%255D.js',
+      '/assets/%5Bslug%5D%2.js',
+    ])('does not relax other encoding guards for bracketed paths: %s', (path) => {
+      const guarded = {
+        '/assets/[slug].js': 'hash_asset',
+        '/__void/[slug].js': 'hash_internal',
+        '/assets/../[slug].js': 'hash_dot',
+        '/assets/%5Bslug%5D.js': 'hash_percent',
+        '/assets/[slug]%2.js': 'hash_malformed',
+      };
+      expect(resolveStaticPath(path, guarded, { html_handling: 'none' })).toBeNull();
+    });
+
     it('still prefers an exact raw match over the decoded key', () => {
       // A file whose name literally contains "%20" must win on the raw path.
       const literal: Record<string, string> = {
@@ -205,9 +259,9 @@ describe('resolveStaticPath', () => {
       expect(resolveStaticPath('/bad%2', m, { html_handling: 'none' })).toBeNull();
     });
 
-    it('only honors decodings a conformant URL must encode (canonical-encoding guard)', () => {
-      // The decoded fallback must accept ONLY percent-encodings that a conformant
-      // URL is required to use (space, #, UTF-8, …). An over-encoded spelling of
+    it('rejects encoded separators, ordinary path text, and dot segments', () => {
+      // Apart from square brackets, the decoded fallback only accepts encodings
+      // a URL requires (space, #, UTF-8, …). An over-encoded spelling of
       // ordinary path text — %2F for '/', %61 for 'a', %5F for '_', %2e%2e for
       // '..' — must be rejected: otherwise a request could reconstruct a guarded
       // path (`/assets%2Fapp.js`, `/%61ssets/app.js`, `/%5F%5Fvoid/secret.js`)

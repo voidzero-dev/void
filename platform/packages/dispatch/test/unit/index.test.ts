@@ -6376,6 +6376,47 @@ describe('static deployment caching (KV/R2)', () => {
     }
   });
 
+  it.each([undefined, '_next/static'])(
+    'serves encoded Next.js chunks before HTML fallback with hashedAssetsPrefix=%s',
+    async (hashedAssetsPrefix) => {
+      const path = '/_next/static/chunks/pages/package/[...slug]-abc123.js';
+      const body = 'self.webpackChunk_N_E = [];';
+      const { env } = createStaticDeployEnv({
+        routing: {
+          workerName: '',
+          projectId: 'proj-1',
+          staticDeploymentId: 'deploy-abc',
+          version: 'deploy-abc',
+          hashedAssetsPrefix,
+          fallbackRules: [{ source: '/*', destination: '/index.html', status: 200 }],
+        },
+        manifest: { [path]: 'hash_chunk', '/index.html': 'hash_index' },
+        assets: {
+          hash_chunk: { body, contentType: 'text/javascript; charset=utf-8' },
+          hash_index: { body: '<!DOCTYPE html><title>Fallback</title>', contentType: 'text/html' },
+        },
+      });
+
+      for (const pathname of [path, path.replace('[', '%5B').replace(']', '%5D')]) {
+        // Check both the initial storage response and the cached response.
+        for (let attempt = 0; attempt < 2; attempt++) {
+          const ctx = createCtx();
+          const response = await app.fetch(
+            new Request(`https://test.void.app${pathname}`),
+            env,
+            ctx,
+          );
+          expect(response.status).toBe(200);
+          expect(response.headers.get('Content-Type')).toBe('text/javascript; charset=utf-8');
+          expect(await response.text()).toBe(body);
+          await Promise.all(
+            (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]),
+          );
+        }
+      }
+    },
+  );
+
   it('serves a hashed asset whose filename contains a space (%20-encoded request)', async () => {
     // Regression: the oxc.rs hero `.riv` 404'd. The manifest key is the decoded
     // on-disk path (literal space), but the browser requests it `%20`-encoded and
