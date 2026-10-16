@@ -1,0 +1,61 @@
+docs/.vitepress/redirects/reference-cli.json
+  s_f572b1deb5ef86::t_9ce3bd46c76c78 62
+docs/guide/deployment.md
+  s_f572b1deb5ef86::t_d6350b7b054468 38
+docs/integrations/cloudflare.md
+  s_f572b1deb5ef86::t_da82cb74644281 186
+docs/reference/cli.md
+  s_f572b1deb5ef86::t_a13f5f91e07299 50
+docs/reference/cli/database.md
+  s_f572b1deb5ef86::t_5dbce04ac6e719 92-104
+docs/reference/cli/project.md
+  s_f572b1deb5ef86::t_b2a0fb742f2c87 182
+packages/deploy-cloudflare/src/operations.ts
+  s_f572b1deb5ef86::t_8b061e19607eb0 13-18
+packages/void/src/cli/cf-command-values.ts
+  s_f572b1deb5ef86::t_aed896ac878c65 14-18
+packages/void/src/cli/cloudflare-operation-process.ts
+  s_f572b1deb5ef86::t_8a620a764e7c44 17,311-319,695-702,705-717
+packages/void/src/cli/cloudflare-operations.ts
+  s_f572b1deb5ef86::t_d0a90bec0cc654 276-290
+packages/void/src/cli/db-args.ts
+  s_f572b1deb5ef86::t_a7f3d52e70a8c7 2,44-60,99-103,118,136,160-161,170,219-248
+packages/void/src/cli/db.ts
+  s_f572b1deb5ef86::t_4faa80e8ad081c 214-215,1424-1487
+packages/void/src/cli/deploy-migrations.ts
+  s_f572b1deb5ef86::t_aa2bd9972e2f61 2,18,20,22,605-610,625-626,637-641,645,653-654,656-659,663-665,667,683-684,691-693,706-707,717,730
+packages/void/src/cli/help.ts
+  s_f572b1deb5ef86::t_7efabb378a7494 1184-1187,1299-1327,1524
+packages/void/src/cli/rollback.ts
+  s_f572b1deb5ef86::t_34ed27d82407a2 224-230
+packages/void/test/unit/cli-help.test.ts
+  s_f572b1deb5ef86::t_028d731e302954 133-141
+packages/void/test/unit/cloudflare-deploy.test.ts
+  s_f572b1deb5ef86::t_0a71544c28b330 3254-3265,4140,7899,7928-7935,7948-7953
+packages/void/test/unit/cloudflare-operation-process-d1.test.ts
+  s_f572b1deb5ef86::t_0ccdd9f16663dd 6,8-11,87-89,105-109,122,128,131-137,141-223,225,228,230-231,233-235
+packages/void/test/unit/cloudflare-operations.test.ts
+  s_f572b1deb5ef86::t_1e3d697fb987a8 21,627-648
+packages/void/test/unit/db-args.test.ts
+  s_f572b1deb5ef86::t_995be263974e30 202-227,230
+packages/void/test/unit/db-migrate.test.ts
+  s_f572b1deb5ef86::t_6197e1680af872 10,30-31,148,156-157,395-564
+packages/void/test/unit/deploy-migrations-restore-point.test.ts
+  s_f572b1deb5ef86::t_b61d30404de6e4 1-2,11-14,18,20,25-37,39,41-42,60,64-76,86-154,157-158
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3f96ae65c737de6ce9d8a5c0cc77adc768458adb",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
