@@ -340,3 +340,9 @@ See [Markdown Pages](../../guide/pages-routing/markdown.md) for setup and framew
 Each Pages adapter exports `Form`. Pass the object returned by `useForm()` as `form`; `method` defaults to `post`. It renders validation and action errors, preserves controlled input, and respects known quota retry deadlines without submitting automatically. `renderError` customizes action-error presentation; Svelte uses a snippet. See [Actions and Forms](../../guide/pages-routing/actions-and-forms.md).
 
 Pass `{ throwOnError: false }` as the third argument to `useForm()` to show HTTP failures inline. Validation errors populate `form.errors`; other HTTP failures populate `form.error`. React also calls `onError`. Unexpected failures still throw, and cancelled submissions don't set a form error. See [Handling action errors](../../guide/pages-routing/actions-and-forms.md#validation-errors).
+
+## Image
+
+Each Pages adapter exports `Image` and `getImageProps()`. They accept the props of `next/image` in Next.js 16 and render the same `<img>` markup, served by the `/_void/image` endpoint or a configured loader. Event and attribute names follow each framework: `@load` and `@error` in Vue, `onload` and `onerror` in Svelte, and `onLoad` and `onError` in React and Solid.
+
+`@void/react/image` has the same exports as the `next/image` module: `Image` as the default export, `getImageProps`, and the `ImageProps`, `ImageLoader`, `ImageLoaderProps`, and `StaticImageData` types. Configure images with [`images`](../config.md#images). See [Images](../../guide/images.md) for usage.
