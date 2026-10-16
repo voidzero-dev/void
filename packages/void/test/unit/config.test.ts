@@ -261,6 +261,30 @@ describe('readConfig', () => {
     cleanup();
   });
 
+  it('accepts boolean and string inference.bindings.images', () => {
+    for (const images of [true, false, 'PHOTOS']) {
+      setup(JSON.stringify({ inference: { bindings: { images } } }));
+      expect(readConfig(tmpDir).inference?.bindings?.images).toBe(images);
+      cleanup();
+    }
+  });
+
+  it('throws on invalid images binding value', () => {
+    setup(JSON.stringify({ inference: { bindings: { images: ['IMAGES'] } } }));
+    expect(() => readConfig(tmpDir)).toThrow(
+      '"inference.bindings.images" in void.json must be a boolean or a string custom binding name.',
+    );
+    cleanup();
+  });
+
+  it('lists images among the valid inference bindings', () => {
+    setup(JSON.stringify({ inference: { bindings: { image: true } } }));
+    expect(() => readConfig(tmpDir)).toThrow(
+      "Unknown binding 'image' in void.json. Valid: db, kv, storage, ai, email, images.",
+    );
+    cleanup();
+  });
+
   it('accepts sandbox boolean and object config', () => {
     setup(JSON.stringify({ sandbox: true }));
     expect(readConfig(tmpDir).sandbox).toBe(true);
@@ -1466,12 +1490,19 @@ describe('resolveBindingNames', () => {
   });
 
   it('returns all custom names', () => {
-    expect(resolveBindingNames({ db: 'D', kv: 'K', storage: 'S', ai: 'A' })).toEqual({
+    expect(resolveBindingNames({ db: 'D', kv: 'K', storage: 'S', ai: 'A', images: 'I' })).toEqual({
       d1: 'D',
       kv: 'K',
       r2: 'S',
       ai: 'A',
+      images: 'I',
     });
+  });
+
+  it('returns a custom Images binding name alone', () => {
+    expect(resolveBindingNames({ images: 'PHOTOS' })).toEqual({ images: 'PHOTOS' });
+    expect(resolveBindingNames({ images: true })).toBeUndefined();
+    expect(resolveBindingNames({ images: false })).toBeUndefined();
   });
 });
 

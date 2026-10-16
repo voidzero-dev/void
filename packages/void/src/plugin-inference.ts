@@ -133,6 +133,10 @@ function extractAstroFrontmatter(code: string): string {
 export function inferBindingsFromFile(file: string, code: string): InferredBindings {
   const filename = file.split('/').pop() ?? 'unknown.ts';
   if (/\.(?:vue|svelte)$/.test(filename)) {
+    // Every image signal (`Image`, `getImageProps`, `*/image`, `IMAGES`) contains "image".
+    if (!/image/i.test(code)) {
+      return mergeBindings([]);
+    }
     const blocks = scriptBlocks(code, filename).map((block) =>
       inferBindingsFromSource(block.source, block.filename),
     );

@@ -1,6 +1,7 @@
 import { type WorkerConfig } from '@cloudflare/vite-plugin';
 import { appendSqliteClassMigration } from '@void/deploy-core';
 import { type ApplicationAnalysis } from './application-analysis.ts';
+import { isImageOptimizerEnabled } from './application-features.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
 import {
   findBindingNameOwner,
@@ -16,7 +17,13 @@ import {
   shouldBindWorkersAi,
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
-import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
+import {
+  DEFAULT_IMAGES_BINDING,
+  hasBinding,
+  resolveImagesBindingName,
+  shouldBindImages,
+  shouldInjectEmailDevInboxVar,
+} from './plugin-binding-utils.ts';
 import { type EnvSchemaFacts } from './plugin-env-schema.ts';
 import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
 import { DEV_INBOX_ENV_VAR, DEV_INBOX_TOKEN_ENV_VAR } from './runtime/email/dev-inbox.ts';
@@ -59,6 +66,23 @@ function currentMigrations(
 ): Array<DurableObjectMigration> {
   const current = result.migrations ?? (resolved as Record<string, unknown>).migrations;
   return Array.isArray(current) ? (current as Array<DurableObjectMigration>) : [];
+}
+
+/** The label of another binding that already uses the Images binding's name. */
+function imagesBindingNameOwner(
+  resolved: WorkerConfig,
+  result: Record<string, unknown>,
+  name: string,
+): string | undefined {
+  try {
+    return (
+      findBindingNameOwner(result, 'images', name) ??
+      findBindingNameOwner(resolved as Record<string, unknown>, 'images', name)
+    );
+  } catch {
+    // A malformed field is Wrangler's to report; this check only names a collision.
+    return undefined;
+  }
 }
 
 export function mergeWorkerBindings(
@@ -485,6 +509,40 @@ export function mergeWorkerBindings(
       vars.__VOID_REMOTE = '1';
       result.vars = vars;
     }
+  }
+
+  // Cloudflare Images for `/_void/image` (and `env.IMAGES` reads). Miniflare
+  // transforms images locally, so serve and build emit the same binding.
+  const resolvedImages = (resolved as { images?: unknown }).images;
+  const imagesBindingName = resolveImagesBindingName(resolvedImages, bindingNames?.images);
+  let imagesBound = resolvedImages !== undefined;
+  if (shouldBindImages(bindings.needsImages, resolvedImages, result.images)) {
+    const owner = imagesBindingNameOwner(resolved, result, imagesBindingName);
+    if (owner === undefined) {
+      result.images = { binding: imagesBindingName };
+      imagesBound = true;
+    } else if (
+      (bindings.usesImageOptimizer && isImageOptimizerEnabled(config, application.framework)) ||
+      config.inference?.bindings?.images !== undefined
+    ) {
+      throw new Error(
+        `images: the Cloudflare Images binding '${imagesBindingName}' conflicts with the ${owner} ` +
+          `binding of the same name. Set "inference.bindings.images" in void.config.ts to another ` +
+          'binding name, or to false to serve original images.',
+      );
+    }
+    // Otherwise only an `env.IMAGES` read asked for it, and it reads the user's own binding.
+  }
+  // Only Void's endpoint reads the name; the default binding needs no variable.
+  if (
+    bindings.needsImages &&
+    imagesBound &&
+    !application.framework &&
+    imagesBindingName !== DEFAULT_IMAGES_BINDING
+  ) {
+    const vars = (result.vars as Record<string, string>) ?? {};
+    vars.__VOID_IMAGES_BINDING = imagesBindingName;
+    result.vars = vars;
   }
 
   const versionMetadataBinding = selectNativeVersionMetadataBinding(

@@ -399,6 +399,7 @@ declare global {
       KV: KVNamespace;
       STORAGE: R2Bucket;
       AI: Ai;
+      IMAGES: ImagesBinding;
       SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
       /** @internal Service binding to proxy worker (AI, revalidation, future features) */
       __VOID_PROXY?: Fetcher;

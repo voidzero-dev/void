@@ -38,3 +38,31 @@ export function shouldInjectEmailDevInboxVar(
     !!assetsBinding
   );
 }
+
+/** Cloudflare Images binding the `/_void/image` endpoint reads unless renamed. */
+export const DEFAULT_IMAGES_BINDING = 'IMAGES';
+
+/** Resolve the Images binding name, preserving a root Wrangler declaration. */
+export function resolveImagesBindingName(resolvedImages: unknown, configuredName?: string): string {
+  if (typeof resolvedImages === 'object' && resolvedImages !== null) {
+    const binding = (resolvedImages as { binding?: unknown }).binding;
+    if (typeof binding === 'string') {
+      return binding;
+    }
+  }
+  return configuredName ?? DEFAULT_IMAGES_BINDING;
+}
+
+/**
+ * Decide whether to add the Images binding. Unlike Workers AI, it is added
+ * for serve and build alike: Miniflare transforms images locally, so dev
+ * needs neither `remote: true` nor a Cloudflare login. An authored root
+ * `images` entry stays authoritative.
+ */
+export function shouldBindImages(
+  needsImages: boolean | undefined,
+  resolvedImages: unknown,
+  resultImages: unknown,
+): boolean {
+  return needsImages === true && !resolvedImages && !resultImages;
+}

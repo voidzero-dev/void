@@ -721,6 +721,27 @@ describe('existing Cloudflare site handoff', () => {
     expect(readExistingWorker).toHaveBeenCalledTimes(1);
     expect(wranglerArgs.some((args) => args[0] === 'login')).toBe(false);
   });
+  it.each([
+    ['renders Image', 'src/components/Hero.tsx', `import { Image } from '@void/react';`],
+    ['reads env.IMAGES', 'routes/thumb.ts', 'export const GET = (c) => c.env.IMAGES.info(body);'],
+  ])(
+    'refuses to add the Images binding while linking a site that %s',
+    async (_name, file, code) => {
+      const root = site();
+      mkdirSync(dirname(join(root, file)), { recursive: true });
+      writeFileSync(join(root, file), code);
+      const activateVersion = vi.fn<NonNullable<CloudflareDeployDeps['activateVersion']>>();
+      const { deps } = harness({
+        readExistingWorker: async () => existing,
+        runBuild: () => build(root),
+        activateVersion,
+      });
+      await expect(
+        runCloudflareDeploy(root, { reuseExistingWorker: true }, silentCliLog, deps),
+      ).rejects.toThrow('Link the existing site without adding runtime features');
+      expect(activateVersion).not.toHaveBeenCalled();
+    },
+  );
   it('reuses the target and completes the same invocation without provisioning or secret writes', async () => {
     const root = site();
     const activateVersion = vi
@@ -1834,6 +1855,38 @@ describe('computeDesiredCloudflareResources — desired set from source', () => 
     );
     expect(resources.needsAI).toBe(true);
     expect(resources.aiBindingName).toBe('MY_AI');
+  });
+
+  it('carries Image usage and a custom Images name into deploy verification expectations', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'myapp' }),
+      'void.json': JSON.stringify({ inference: { bindings: { images: 'PHOTOS' } } }),
+      'routes/index.ts': `export const GET = () => new Response('ok');`,
+      'src/components/Hero.tsx': `import { Image } from '@void/react';`,
+    });
+    const resources = await computeDesiredCloudflareResources(
+      root,
+      readConfig(root),
+      join(root, 'wrangler.jsonc'),
+    );
+    expect(resources.needsImages).toBe(true);
+    expect(resources.imagesBindingName).toBe('PHOTOS');
+  });
+
+  it('expects no Images binding for an app without Image usage', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'myapp' }),
+      'void.json': JSON.stringify({ images: { unoptimized: true } }),
+      'routes/index.ts': `export const GET = () => new Response('ok');`,
+      'src/components/Hero.tsx': `import { Image } from '@void/react';`,
+    });
+    const resources = await computeDesiredCloudflareResources(
+      root,
+      readConfig(root),
+      join(root, 'wrangler.jsonc'),
+    );
+    expect(resources.needsImages).toBe(false);
+    expect(resources.imagesBindingName).toBe('IMAGES');
   });
 
   it('desires D1 for a migration-only SQLite app (no env.DB use, no auth)', async () => {
@@ -4792,7 +4845,8 @@ describe('verifyGeneratedDeployConfig', () => {
   // --- Capability singletons + the `unsafe` escape hatch ---
 
   it('fails closed when the build injects a capability singleton absent from the root', () => {
-    for (const field of ['browser', 'images', 'stream', 'media', 'websearch'] as const) {
+    // `ai` and `images` are Void-emitted and checked against the pre-build inference instead.
+    for (const field of ['browser', 'stream', 'media', 'websearch'] as const) {
       const root = deployConfigProject({
         account_id: 'acc123',
         name: 'myapp',
@@ -5218,6 +5272,144 @@ describe('verifyGeneratedDeployConfig', () => {
     });
     expect(result.ok).toBe(false);
     expect(result.reason).toMatch(/ai binding/);
+  });
+
+  // --- Images binding (must be Void's own {binding:'IMAGES'}, the root's, or absent) ---
+
+  it("passes Void's own emitted images binding {binding:'IMAGES'} with none in root when the app needs it", () => {
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'IMAGES' },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields({}),
+      needsImages: true,
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('passes a configured custom emitted images binding when the app needs it', () => {
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'PHOTOS' },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields({}),
+      needsImages: true,
+      imagesBindingName: 'PHOTOS',
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it("fails closed when the build injects Void's own {binding:'IMAGES'} but the app does not need it", () => {
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'IMAGES' },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields({}),
+      needsImages: false,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/images binding/);
+  });
+
+  it('fails closed when the emitted images binding name differs from the configured one', () => {
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'IMAGES' },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields({}),
+      needsImages: true,
+      imagesBindingName: 'PHOTOS',
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/images binding/);
+  });
+
+  it('passes an emitted images binding byte-identical to the root images binding', () => {
+    const rootConfig = { images: { binding: 'MEDIA' } };
+    const root = deployConfigProject({ account_id: 'acc123', name: 'myapp', ...rootConfig });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields(rootConfig),
+    });
+    expect(result).toEqual({ ok: true });
+  });
+
+  it('fails closed when the build rewrites a custom root images binding down to the default', () => {
+    const rootConfig = { images: { binding: 'MEDIA' } };
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'IMAGES' },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields(rootConfig),
+      needsImages: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/images binding/);
+  });
+
+  it('fails closed when the build injects an images binding that is neither Void’s own nor the root’s', () => {
+    const root = deployConfigProject({
+      account_id: 'acc123',
+      name: 'myapp',
+      images: { binding: 'IMAGES', remote: true },
+    });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields({}),
+      needsImages: true,
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/images binding/);
+  });
+
+  it('fails closed when the build REMOVES a root-declared images binding (emitted images absent)', () => {
+    const rootConfig = { images: { binding: 'MEDIA' } };
+    const root = deployConfigProject({ account_id: 'acc123', name: 'myapp' });
+    const result = verifyGeneratedDeployConfig(root, {
+      accountId: 'acc123',
+      workerName: 'myapp',
+      desired: { kvNamespaces: [], queues: [] },
+      passthroughIdentitySnapshot: snapshotPassthroughIdentities({}),
+      passthroughRawFields: snapshotPassthroughRawFields(rootConfig),
+    });
+    expect(result.ok).toBe(false);
+    expect(result.reason).toMatch(/images binding/);
   });
 
   // --- Complete Durable Object and migration pins ---
