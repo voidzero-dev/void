@@ -21,6 +21,10 @@
       "types": "./dist/index.d.mts",
       "import": "./dist/index.mjs"
     },
+    "./image": {
+      "types": "./dist/image.d.mts",
+      "import": "./dist/image.mjs"
+    },
     "./plugin": {
       "types": "./dist/plugin.d.mts",
       "import": "./dist/plugin.mjs"

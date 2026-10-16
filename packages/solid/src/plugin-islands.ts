@@ -236,7 +236,8 @@ function generateIslandRenderer(
   return `
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
-import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext, ImagePreloadContext } from "@void/solid";
+import { createImagePreloadCollector } from "void/image";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 import { islandFrontmatterScript } from "void/pages-server";
 
@@ -257,7 +258,15 @@ export async function renderIslandPage(pageObj, assetTags) {
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
+  const imagePreloads = createImagePreloadCollector();
   function ServerApp() {
+    return createComponent(ImagePreloadContext.Provider, {
+      value: imagePreloads,
+      get children() { return renderWithContexts(); }
+    });
+  }
+
+  function renderWithContexts() {
     return createComponent(SharedContext.Provider, {
       value: pageObj.shared || {},
       get children() {
@@ -304,7 +313,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}\${__pagesNeedingClientJS.has(pageObj.component) ? generateHydrationScript() : ""}</head>
+<head>\${headHtml}\${imagePreloads.render()}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}\${__pagesNeedingClientJS.has(pageObj.component) ? generateHydrationScript() : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
   \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
