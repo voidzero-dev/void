@@ -297,9 +297,10 @@ export function compileRouteTable(
   // The image optimizer runs after auth and user middleware (as `/_next/image`
   // does after Next.js middleware), and before every route and page so a
   // catch-all cannot shadow it. It answers 405 for methods other than GET/HEAD.
+  // It requests local sources through `app`, so middleware sees their paths.
   if (imageConfig) {
     lines.push(
-      `app.all(${JSON.stringify(imageConfig.path)}, __createImageHandler(${JSON.stringify({ config: imageConfig, deploymentId: getDeploymentId(), assetsDir: options.assetsDir })}));`,
+      `app.all(${JSON.stringify(imageConfig.path)}, __createImageHandler(${JSON.stringify({ config: imageConfig, deploymentId: getDeploymentId(), assetsDir: options.assetsDir })}, app));`,
     );
     lines.push('');
   }
@@ -1032,9 +1033,16 @@ export function compileAssetFallbackHelper(
   assetsDir = 'assets',
   serveSpaFallback = false,
   notFound: NotFoundHandling = 'none',
+  skipPaths?: ReadonlyArray<string>,
 ): string {
+  const options = {
+    assetsDir,
+    serveSpaFallback,
+    notFound,
+    ...(skipPaths?.length ? { skipPaths } : {}),
+  };
   return `import { createAssetFallback as __createAssetFallback } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
-const serveWithAssets = __createAssetFallback(${JSON.stringify({ assetsDir, serveSpaFallback, notFound })});
+const serveWithAssets = __createAssetFallback(${JSON.stringify(options)});
 `;
 }
 
@@ -1090,6 +1098,11 @@ export interface WorkerEntryOptions {
    */
   notFound?: NotFoundHandling;
   /**
+   * Request paths whose application 404 never falls through to static assets
+   * (the mounted image optimizer endpoint, which passes source errors through).
+   */
+  assetFallbackSkipPaths?: Array<string>;
+  /**
    * User-defined Durable Object classes (`durable/` directory). Each entry is
    * imported from `filePath`, bound to `bindingName`, and re-exported as
    * `className` so wrangler's `durable_objects.bindings` can find it.
@@ -1133,6 +1146,7 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
     dev = false,
     isr,
     notFound = 'none',
+    assetFallbackSkipPaths,
     durableObjects = [],
   } = options;
   const remotePath = remote?.remotePath;
@@ -1204,7 +1218,12 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
 const __filterInternalBindings = (env) => __filterBindings(env, ${JSON.stringify(INTERNAL_BINDING_PREFIXES)}, ${JSON.stringify(exactNames)});
 `;
 
-  const assetHelper = compileAssetFallbackHelper(assetsDir, serveSpaFallback, notFound);
+  const assetHelper = compileAssetFallbackHelper(
+    assetsDir,
+    serveSpaFallback,
+    notFound,
+    assetFallbackSkipPaths,
+  );
 
   // ISR wiring (self-host only, non-managed builds). When `isr` is absent
   // every fragment below is an empty string.

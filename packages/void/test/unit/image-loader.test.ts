@@ -6,6 +6,7 @@ import {
   defaultLoader,
   findClosestQuality,
   getImageBlurSvg,
+  getImgProps,
   type ClientImageConfig,
   type ImageConfig,
 } from '../../src/image/index.ts';
@@ -122,6 +123,32 @@ describe('cloudflareLoader', () => {
   it('returns src unchanged in development', () => {
     const dev = clientConfig({ loader: 'cloudflare' }, { dev: true });
     expect(cloudflareLoader({ config: dev, src: '/a.png', width: 128 })).toBe('/a.png');
+  });
+
+  it('percent-encodes whitespace in src so srcset candidates stay valid', () => {
+    expect(cloudflareLoader({ config, src: '/images/a b.png', width: 128 })).toBe(
+      '/cdn-cgi/image/width=128,quality=85,format=auto/images/a%20b.png',
+    );
+    expect(cloudflareLoader({ config, src: '/images/a%20b.png', width: 128 })).toBe(
+      '/cdn-cgi/image/width=128,quality=85,format=auto/images/a%20b.png',
+    );
+    expect(
+      cloudflareLoader({ config, src: 'https://example.com/a b\tc.jpg?x=1,2', width: 32 }),
+    ).toBe(
+      '/cdn-cgi/image/width=32,quality=85,format=auto/https://example.com/a%20b%09c.jpg?x=1,2',
+    );
+    const dev = clientConfig({ loader: 'cloudflare' }, { dev: true });
+    expect(cloudflareLoader({ config: dev, src: '/images/a b.png', width: 128 })).toBe(
+      '/images/a%20b.png',
+    );
+
+    const { srcSet } = getImgProps(
+      { src: '/images/a b.png', alt: '', width: 100, height: 100 },
+      { defaultLoader: cloudflareLoader, imgConf: config },
+    ).props;
+    expect(srcSet).toBe(
+      '/cdn-cgi/image/width=128,quality=85,format=auto/images/a%20b.png 1x, /cdn-cgi/image/width=256,quality=85,format=auto/images/a%20b.png 2x',
+    );
   });
 });
 

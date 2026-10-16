@@ -36,6 +36,7 @@ export {
   type AssetFetcher,
   type ImageFetch,
   type ImageUpstream,
+  type LocalImageDispatch,
   type RemoteImageOptions,
 } from './upstream.ts';
 export { validateImageParams, type ImageParams, type ImageParamsResult } from './validate.ts';

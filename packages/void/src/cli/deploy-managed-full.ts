@@ -66,17 +66,22 @@ import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper } from './wrapper.ts';
 
 /**
- * The warning a Void Platform deploy prints when the app renders `Image` through the default
- * `/_void/image` optimizer. The platform has no Images binding yet, so managed builds resolve
- * images as unoptimized.
+ * The warning a Void Platform deploy prints when the app needs the Images binding, which the
+ * platform doesn't provide yet. `Image` through the default `/_void/image` optimizer gets the
+ * optimizer message (managed builds resolve images as unoptimized). Otherwise `needsImages`
+ * comes from an `env.IMAGES` read, `inference.bindings.images`, or vinext's optimizer, and the
+ * binding is simply undefined at runtime.
  */
 export function managedImageOptimizerWarning(
-  bindings: Pick<InferredBindings, 'usesImageOptimizer'>,
+  bindings: Pick<InferredBindings, 'usesImageOptimizer' | 'needsImages'>,
   voidConfig: Pick<VoidConfig, 'images' | 'target' | 'output'>,
   detected: DetectedFramework | undefined,
 ): string | undefined {
-  return bindings.usesImageOptimizer && isImageOptimizerEnabled(voidConfig, detected)
-    ? "Image optimization isn't available on Void Platform yet, so Image serves original files."
+  if (bindings.usesImageOptimizer && isImageOptimizerEnabled(voidConfig, detected)) {
+    return "Image optimization isn't available on Void Platform yet, so Image serves original files.";
+  }
+  return bindings.needsImages
+    ? "The Cloudflare Images binding (env.IMAGES) isn't available on Void Platform yet, so reading it returns undefined. Use `void deploy --platform cloudflare` to deploy with it."
     : undefined;
 }
 

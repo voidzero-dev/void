@@ -1,11 +1,26 @@
-import { copyFileSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  realpathSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
+import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { ConfigEnv, EnvironmentOptions, ResolvedConfig, UserConfig } from 'vite';
+import {
+  createServer,
+  type ConfigEnv,
+  type EnvironmentOptions,
+  type ResolvedConfig,
+  type UserConfig,
+} from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { resolveImageConfig, toClientImageConfig } from '../../src/image-config.ts';
-import { IMAGE_REGISTRY_KEY } from '../../src/image/config.ts';
+import { IMAGE_REGISTRY_KEY, type ResolvedImageConfig } from '../../src/image/config.ts';
 import { getImageConfig, getImageProps } from '../../src/image/index.ts';
 import { validateImageParams } from '../../src/image/optimizer/validate.ts';
 import {
@@ -109,23 +124,24 @@ describe('resolveImageConfigForCommand', () => {
     ['target: "node"', { target: 'node' as const }],
     ['target: "bun"', { target: 'bun' as const }],
     ['output: "static"', { output: 'static' as const }],
-  ])('resolves %s as unoptimized', (_name, options) => {
+  ])('resolves %s without an optimizer', (_name, options) => {
     const resolved = resolveImageConfigForCommand(
       root,
       { configFile: 'void.config.ts', ...options },
       BUILD,
     );
-    expect(resolved.unoptimized).toBe(true);
+    expect(resolved.noOptimizer).toBe(true);
+    expect(resolved.unoptimized).toBe(false);
   });
 
-  it('resolves Void Platform builds of Cloudflare apps as unoptimized', () => {
+  it('resolves Void Platform builds of Cloudflare apps without an optimizer', () => {
     vi.stubEnv('VOID_DEPLOY_PROJECT_ID', 'proj_1');
     const options = { configFile: 'void.config.ts' };
-    expect(resolveImageConfigForCommand(root, options, BUILD).unoptimized).toBe(true);
-    expect(resolveImageConfigForCommand(root, options, SERVE).unoptimized).toBe(false);
+    expect(resolveImageConfigForCommand(root, options, BUILD).noOptimizer).toBe(true);
+    expect(resolveImageConfigForCommand(root, options, SERVE).noOptimizer).toBe(false);
     expect(
       resolveImageConfigForCommand(root, { ...options, images: { loader: 'cloudflare' } }, BUILD)
-        .unoptimized,
+        .noOptimizer,
     ).toBe(false);
   });
 
@@ -218,7 +234,7 @@ describe('imagePlugin config module', () => {
     expect(client).toContain('"dev":true');
   });
 
-  it('imports the loaderFile default export by absolute path', () => {
+  it('imports the loaderFile module by absolute path', () => {
     const root = createRoot();
     writeFileSync(join(root, 'image-loader.ts'), 'export default ({ src }) => src;\n');
     const plugin = createPlugin(root, {
@@ -231,10 +247,27 @@ describe('imagePlugin config module', () => {
 
     expect(loaderPath).toMatch(/\/image-loader\.ts$/);
     expect(code.split('\n')[0]).toBe(
-      `import __voidImageLoader from ${JSON.stringify(loaderPath)};`,
+      `import * as __voidImageLoaderModule from ${JSON.stringify(loaderPath)};`,
     );
-    expect(code).toContain('loader: __voidImageLoader };');
+    expect(code).toContain(
+      'loader: Reflect.get(__voidImageLoaderModule, "default"), hasLoaderFile: true };',
+    );
     expect(code).toContain('"loader":"custom"');
+  });
+
+  it('registers a loaderFile without a default export so Image reports it', () => {
+    const root = createRoot();
+    writeFileSync(join(root, 'image-loader.ts'), 'export function loader() {}\n');
+    const plugin = createPlugin(root, { images: { loaderFile: './image-loader.ts' } });
+    runConfig(plugin, BUILD);
+    const code = load(plugin, '\0virtual:void/image-config', loadContext('server'))!;
+    const body = code.split('\n').slice(1).join('\n');
+
+    // oxlint-disable-next-line no-new-func -- evaluates the module with a namespace lacking `default`
+    new Function('__voidImageLoaderModule', body)({ loader() {} });
+    expect(() => getImageProps({ src: '/a.png', alt: '', width: 10, height: 10 })).toThrow(
+      'images.loaderFile detected but the file is missing default export.',
+    );
   });
 
   it('resolves the virtual module id', () => {
@@ -261,9 +294,20 @@ describe('imagePlugin config module', () => {
     for (const options of [{ target: 'node' as const }, { output: 'static' as const }]) {
       const plugin = createPlugin('/project', options);
       runConfig(plugin, BUILD);
-      expect(plugin.api.getConfig()?.unoptimized).toBe(true);
+      expect(plugin.api.getConfig()?.noOptimizer).toBe(true);
       expect(plugin.api.getMountedConfig(true)).toBeUndefined();
     }
+  });
+
+  it('mounts an absolute images.path at its pathname and keeps the URL for Image', () => {
+    const path = 'https://cdn.example.com/_void/image';
+    const plugin = createPlugin('/project', { images: { path } });
+    runConfig(plugin, BUILD);
+
+    expect(plugin.api.getConfig()?.path).toBe(path);
+    expect(plugin.api.getMountedConfig(true)?.path).toBe('/_void/image');
+    expect(plugin.api.getMountedConfig(false)).toBeUndefined();
+    expect(load(plugin, '\0virtual:void/image-config')).toContain(`"path":"${path}"`);
   });
 });
 
@@ -404,6 +448,36 @@ describe('imagePlugin ?image imports', () => {
     ).not.toHaveProperty('errorMessage');
   });
 
+  it('allows built ?image imports under a custom build.assetsDir', () => {
+    const images = { localPatterns: [{ pathname: '/photos/**', search: '' }] };
+    const configResolved = (plugin: ImagePlugin) =>
+      (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+        root: '/project',
+        build: { assetsDir: 'static' },
+      } as ResolvedConfig);
+    const allowed = (resolved: ResolvedImageConfig, url: string) =>
+      !(
+        'errorMessage' in
+        validateImageParams(new URLSearchParams({ url, w: '256', q: '75' }), resolved)
+      );
+
+    // Vite resolves its config after the `config` hook resolved `images`.
+    const plugin = createPlugin('/project', { images });
+    runConfig(plugin, BUILD);
+    configResolved(plugin);
+    const resolved: ResolvedImageConfig = plugin.api.getMountedConfig(true)!;
+    expect(resolved.localPatterns.map((p) => p.pathname)).toEqual(['/photos/**', '/static/**']);
+    expect(allowed(resolved, '/static/hero-CE0Ev3M-.png')).toBe(true);
+    expect(allowed(resolved, '/assets/hero-CE0Ev3M-.png')).toBe(false);
+    expect(load(plugin, '\0virtual:void/image-config', loadContext('server'))).toContain(
+      '"pathname":"/static/**"',
+    );
+
+    // A command resolved after Vite's config uses it too.
+    const preview: ResolvedImageConfig = plugin.api.resolve(PREVIEW);
+    expect(preview.localPatterns.map((p) => p.pathname)).toEqual(['/photos/**', '/static/**']);
+  });
+
   it('keeps Vite URLs for builds and for dev without user localPatterns', () => {
     const root = createRoot();
     const file = join(root, 'src', 'hero.png').replaceAll('\\', '/');
@@ -431,5 +505,60 @@ describe('imagePlugin ?image imports', () => {
     expect(
       resolveImageConfigForCommand(root, options, SERVE).localPatterns.map((p) => p.pathname),
     ).toEqual(['/photos/**', '/assets/**', '/@fs/**']);
+  });
+});
+
+describe('imagePlugin ?image imports on the dev server', () => {
+  it('keeps files outside server.fs.allow private', async () => {
+    const base = realpathSync(createRoot());
+    const root = join(base, 'app');
+    const outside = join(base, 'outside');
+    mkdirSync(join(root, 'src'), { recursive: true });
+    mkdirSync(outside);
+    const secret = join(outside, 'secret.png').replaceAll('\\', '/');
+    const shared = join(outside, 'shared.png').replaceAll('\\', '/');
+    copyFileSync(PNG_FIXTURE, secret);
+    copyFileSync(PNG_FIXTURE, shared);
+    writeFileSync(
+      join(root, 'src', 'main.js'),
+      `import hero from ${JSON.stringify(`${shared}?image`)};\nexport default hero;\n`,
+    );
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      optimizeDeps: { noDiscovery: true },
+      server: {
+        host: '127.0.0.1',
+        port: 0,
+        ws: false,
+        preTransformRequests: false,
+        fs: { strict: true, allow: [root] },
+      },
+      plugins: [createPlugin(root)],
+    });
+    try {
+      await server.listen();
+      const origin = `http://127.0.0.1:${(server.httpServer!.address() as AddressInfo).port}`;
+      const get = async (path: string) => {
+        const response = await fetch(origin + path);
+        return { status: response.status, body: await response.text() };
+      };
+
+      expect((await get(`/@fs${secret}`)).status).toBe(403);
+      const probe = await get(`/@fs${secret}?image&import`);
+      expect(probe.status).toBe(403);
+      expect(probe.body).not.toContain('width');
+      expect((await get(`/@fs${secret}`)).status).toBe(403);
+
+      // An import from the app still loads a file outside the allow list.
+      const main = await server.environments.client.transformRequest('/src/main.js');
+      expect(main?.code).toContain(`"/@fs${shared}?import&image"`);
+      const image = await get(`/@fs${shared}?import&image`);
+      expect(image.status).toBe(200);
+      expect(image.body).toContain('width: 100, height: 50');
+    } finally {
+      await server.close();
+    }
   });
 });

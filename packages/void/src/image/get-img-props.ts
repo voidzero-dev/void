@@ -2,8 +2,9 @@
  * `getImgProps`, ported from Next.js 16 `get-img-props.js`: the `<img>`
  * attributes every adapter's `Image` renders. Development checks are gated by
  * `imgConf.dev` instead of `NODE_ENV`, and messages name `Image` and
- * `void.config.ts`. Not ported: the `output: 'export'` error (Void resolves
- * static output as `unoptimized`), the `dpl` deployment-id query, and the
+ * `void.config.ts`. Not ported: the `output: 'export'` error (where no
+ * optimizer exists, `imgConf.noOptimizer` renders default-loader images
+ * unoptimized instead), the `dpl` deployment-id query, and the
  * development blur URL (Void has no development blur endpoint).
  */
 import { getImageBlurSvg } from './blur-svg.ts';
@@ -289,6 +290,10 @@ export function getImgProps(
     isLazy = false;
   }
   if (config.unoptimized) {
+    unoptimized = true;
+  }
+  if (config.noOptimizer && isDefaultLoader) {
+    // Nothing serves the default loader's URLs in this build; a `loader` prop still applies.
     unoptimized = true;
   }
   if (

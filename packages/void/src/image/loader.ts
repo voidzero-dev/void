@@ -111,19 +111,29 @@ export const defaultLoader: BuiltinImageLoader = Object.assign(defaultLoaderImpl
   __void_img_default: true as const,
 });
 
+/**
+ * `src` with whitespace percent-encoded: a `srcset` candidate URL ends at the
+ * first whitespace. Existing escapes, `/`, `:`, `?` and `,` are kept.
+ */
+function encodeWhitespace(src: string): string {
+  return src.replace(/\s/g, encodeURIComponent);
+}
+
 function cloudflareLoaderImpl({ config, src, width, quality }: ImageLoaderPropsWithConfig): string {
   // Zone transformations do not exist on the dev server.
   if (config.dev) {
-    return src;
+    return encodeWhitespace(src);
   }
   const params = `width=${width},quality=${findClosestQuality(quality, config)},format=auto`;
-  return `${config.path.replace(/\/+$/, '')}/${params}/${src.startsWith('/') ? src.slice(1) : src}`;
+  const source = encodeWhitespace(src.startsWith('/') ? src.slice(1) : src);
+  return `${config.path.replace(/\/+$/, '')}/${params}/${source}`;
 }
 
 /**
  * `images.loader: 'cloudflare'`: Cloudflare zone transformation URLs,
  * `<path>/width=<w>,quality=<q>,format=auto/<src>` (`path` defaults to
- * `/cdn-cgi/image`). Returns `src` unchanged in development.
+ * `/cdn-cgi/image`). Returns `src` itself in development. Whitespace in
+ * `src` is percent-encoded so `srcset` candidates stay valid.
  */
 export const cloudflareLoader: BuiltinImageLoader = Object.assign(cloudflareLoaderImpl, {
   __void_img_default: true as const,

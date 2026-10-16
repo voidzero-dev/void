@@ -261,12 +261,20 @@ describe('image optimizer analysis', () => {
     ['a loaderFile', { images: { loaderFile: './image-loader.ts' } }],
     ['the cloudflare loader', { images: { loader: 'cloudflare' } }],
     ['an image CDN loader', { images: { loader: 'imgix', path: 'https://example.imgix.net/' } }],
-    ['a cross-origin path', { images: { path: 'https://images.example.com/_void/image' } }],
+    ['a bare-origin path', { images: { path: 'https://images.example.com' } }],
     ['a Node target', { target: 'node' }],
     ['static output', { output: 'static' }],
   ])('does not require the Images binding with %s', (_name, config) => {
     const analysis = analyzeApplicationSync(imageApp(), { config, environment: 'prod' });
     expect(analysis.bindings).toMatchObject({ needsImages: false, usesImageOptimizer: true });
+  });
+
+  it('requires the Images binding behind a CDN path, which the app serves at its pathname', () => {
+    const analysis = analyzeApplicationSync(imageApp(), {
+      config: { images: { path: 'https://images.example.com/_void/image' } },
+      environment: 'prod',
+    });
+    expect(analysis.bindings).toMatchObject({ needsImages: true, usesImageOptimizer: true });
   });
 
   it('keeps an env.IMAGES read when the optimizer is off', () => {

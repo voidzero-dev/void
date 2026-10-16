@@ -202,6 +202,25 @@ describe('registry-aware entry points', () => {
     expect(props.src).toBe('https://cdn.example.com/a.png?w=32');
   });
 
+  it('reports a loaderFile without a default export instead of falling back', () => {
+    const config = toClientImageConfig(
+      resolveImageConfig(undefined, { root: '/', dev: false }),
+      'server',
+    );
+    const props = { src: '/a.png', alt: '', width: 10, height: 10 };
+    setRegistration({ config, loader: undefined, hasLoaderFile: true });
+    expect(getDefaultImageLoader()).toBeUndefined();
+    expect(() => getImageProps(props)).toThrow(
+      'images.loaderFile detected but the file is missing default export.',
+    );
+    expect(() => resolveImageProps(props)).toThrow(
+      'images.loaderFile detected but the file is missing default export.',
+    );
+    // A default export that isn't a function fails like Next.js, not with /_void/image URLs.
+    setRegistration({ config, loader: {} as ImageLoader, hasLoaderFile: true });
+    expect(() => getImageProps(props)).toThrow(TypeError);
+  });
+
   it('picks the Cloudflare loader for loader: "cloudflare"', () => {
     const config = toClientImageConfig(
       resolveImageConfig({ loader: 'cloudflare' }, { root: '/', dev: false }),
@@ -220,6 +239,36 @@ describe('registry-aware entry points', () => {
 
   it('defaults to the default loader for an explicit config', () => {
     expect(getDefaultImageLoader({ ...getImageConfig(), loader: 'default' })).toBe(defaultLoader);
+  });
+
+  it.each([
+    ['a node target', { target: 'node' }],
+    ['static output', { output: 'static' as const }],
+    ['a Void Platform build', { managed: true }],
+  ])('keeps loader props on %s, which has no optimizer', (_name, options) => {
+    const config = toClientImageConfig(
+      resolveImageConfig(undefined, { root: '/', dev: false, ...options }),
+      'client',
+    );
+    setRegistration({ config });
+    const props = { src: '/a.png', alt: '', width: 100, height: 100 };
+    const loader: ImageLoader = ({ src, width, quality }) =>
+      `https://cdn.example.com${src}?w=${width}&q=${quality ?? 75}`;
+
+    const withLoader = resolveImageProps({ ...props, loader });
+    expect(withLoader.props.srcSet).toBe(
+      'https://cdn.example.com/a.png?w=128&q=75 1x, https://cdn.example.com/a.png?w=256&q=75 2x',
+    );
+    expect(withLoader.meta.unoptimized).toBe(false);
+    expect(getImageProps({ ...props, loader }).props.src).toBe(
+      'https://cdn.example.com/a.png?w=256&q=75',
+    );
+
+    // Without a loader prop there is no endpoint to send the image to.
+    const plain = resolveImageProps(props);
+    expect(plain.props.src).toBe('/a.png');
+    expect(plain.props.srcSet).toBeUndefined();
+    expect(plain.meta.unoptimized).toBe(true);
   });
 
   it('resolveImageProps applies component state', () => {

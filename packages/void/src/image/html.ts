@@ -107,6 +107,24 @@ function stringAttribute(
 }
 
 /**
+ * `crossorigin` as the `<img>` renders it: `''` (anonymous) and a bare
+ * attribute (`true`) both become `''`, so the preload's request mode matches
+ * the image's and the browser reuses the preloaded response.
+ */
+function crossOriginAttribute(props: Record<string, unknown>): string | undefined {
+  for (const name of ['crossOrigin', 'crossorigin']) {
+    const value = props[name];
+    if (value === true) {
+      return '';
+    }
+    if (typeof value === 'string') {
+      return value;
+    }
+  }
+  return undefined;
+}
+
+/**
  * The `<link rel="preload" as="image">` for a preloaded image (`preload` or
  * `priority`), or `undefined`. As in Next.js, `href` is omitted when the image
  * has a `srcset`, so browsers pick the same candidate as the `<img>`.
@@ -137,8 +155,8 @@ export function getImagePreloadLink(
   if (imagesizes) {
     link.imagesizes = imagesizes;
   }
-  const crossorigin = stringAttribute(record, 'crossOrigin', 'crossorigin');
-  if (crossorigin) {
+  const crossorigin = crossOriginAttribute(record);
+  if (crossorigin !== undefined) {
     link.crossorigin = crossorigin;
   }
   const referrerpolicy = stringAttribute(record, 'referrerPolicy', 'referrerpolicy');

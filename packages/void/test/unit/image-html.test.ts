@@ -156,6 +156,37 @@ describe('image preload links', () => {
     );
   });
 
+  it.each([
+    ['crossOrigin: ""', { crossOrigin: '' }],
+    ['crossorigin: ""', { crossorigin: '' }],
+    ['a bare crossorigin attribute', { crossorigin: true }],
+  ])('keeps the anonymous CORS mode of %s', (_name, cors) => {
+    const { props: imgProps, meta } = props({
+      src: '/a.png',
+      alt: '',
+      width: 10,
+      height: 10,
+      preload: true,
+      ...cors,
+    });
+    const link = getImagePreloadLink(imgProps, meta)!;
+    expect(link.crossorigin).toBe('');
+    expect(renderImagePreloadLinks([link])).toContain(' crossorigin=""');
+    expect(toHtmlImgAttributes(imgProps)).toHaveProperty('crossorigin');
+  });
+
+  it('leaves out crossorigin: false', () => {
+    const { props: imgProps, meta } = props({
+      src: '/a.png',
+      alt: '',
+      width: 10,
+      height: 10,
+      preload: true,
+      crossorigin: false,
+    });
+    expect(getImagePreloadLink(imgProps, meta)).not.toHaveProperty('crossorigin');
+  });
+
   it('renders every attribute', () => {
     expect(
       renderImagePreloadLinks([

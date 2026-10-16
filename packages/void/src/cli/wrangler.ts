@@ -530,7 +530,7 @@ export function syncWranglerBindings(
   root: string,
   bindings: InferredBindings,
   options?: {
-    bindingNames?: { d1?: string; kv?: string; r2?: string; ai?: string };
+    bindingNames?: { d1?: string; kv?: string; r2?: string; ai?: string; images?: string };
     directCloudflareAi?: { gateway?: string };
     websockets?: Array<WebSocketRouteDefinition>;
     live?: boolean | LiveBindingConfig;
@@ -594,6 +594,13 @@ export function syncWranglerBindings(
         modified = true;
       }
     }
+  }
+
+  // Miniflare transforms images locally, so the binding needs no `remote` flag.
+  const imagesName = options?.bindingNames?.images ?? 'IMAGES';
+  if (addsImagesBinding(parsed, bindings.needsImages, imagesName)) {
+    parsed.images = { binding: imagesName };
+    modified = true;
   }
 
   if (options?.websockets) {
@@ -2262,6 +2269,28 @@ export function findBindingNameOwner(
   const owners = collectWorkerBindingNames(configWithoutField(config, field));
   addQueueProducerOwners(owners, config);
   return owners.get(name);
+}
+
+/**
+ * Whether Void adds the Cloudflare Images binding `name` to a Wrangler config:
+ * the app needs it, the config declares no `images` entry (an authored one
+ * stays authoritative), and no other binding uses the name. With such a
+ * binding, an `env.IMAGES` read reads the user's own binding.
+ */
+export function addsImagesBinding(
+  config: Record<string, unknown>,
+  needsImages: boolean | undefined,
+  name: string,
+): boolean {
+  if (needsImages !== true || config.images !== undefined) {
+    return false;
+  }
+  try {
+    return findBindingNameOwner(config, 'images', name) === undefined;
+  } catch {
+    // A malformed field is Wrangler's to report.
+    return true;
+  }
 }
 
 /**

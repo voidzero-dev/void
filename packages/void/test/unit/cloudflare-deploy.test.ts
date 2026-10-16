@@ -742,6 +742,42 @@ describe('existing Cloudflare site handoff', () => {
       expect(activateVersion).not.toHaveBeenCalled();
     },
   );
+  it('links a site whose env.IMAGES read is its own R2 binding', async () => {
+    const root = site();
+    const configPath = join(root, 'wrangler.jsonc');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...parseRootWranglerConfig(configPath),
+        r2_buckets: [{ binding: 'IMAGES', bucket_name: 'photos' }],
+      }),
+    );
+    mkdirSync(join(root, 'routes/api'), { recursive: true });
+    writeFileSync(
+      join(root, 'routes/api/photo.ts'),
+      'export const GET = (c) => c.env.IMAGES.get(c.req.query("key"));',
+    );
+    const activateVersion = vi
+      .fn<NonNullable<CloudflareDeployDeps['activateVersion']>>()
+      .mockResolvedValue({
+        ok: true,
+        versionId: 'new',
+        previousVersionId: 'original',
+        previewUrl: 'https://site.example.com',
+      });
+    const { deps } = harness({
+      readExistingWorker: async () => ({
+        ...existing,
+        bindings: [{ type: 'r2_bucket', name: 'IMAGES', bucket_name: 'photos' }],
+      }),
+      runBuild: () => build(root),
+      activateVersion,
+    });
+
+    await runCloudflareDeploy(root, { reuseExistingWorker: true }, silentCliLog, deps);
+    expect(activateVersion).toHaveBeenCalled();
+    expect(parseRootWranglerConfig(join(root, 'dist/ssr/wrangler.json')).images).toBeUndefined();
+  });
   it('reuses the target and completes the same invocation without provisioning or secret writes', async () => {
     const root = site();
     const activateVersion = vi
@@ -6638,6 +6674,63 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       ai: { binding: 'AI' },
     });
     expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// keep this comment');
+  });
+
+  it('adds the Images binding for framework env.IMAGES reads the root config does not own', async () => {
+    const prepare = async (rootConfig: Record<string, unknown>) => {
+      const root = makeProject({
+        'package.json': JSON.stringify({
+          name: 'skapp',
+          dependencies: { '@sveltejs/kit': '2.0.0' },
+        }),
+        'void.json': JSON.stringify({}),
+        'wrangler.jsonc': JSON.stringify({ name: 'skapp', account_id: 'acc123', ...rootConfig }),
+        '.svelte-kit/cloudflare/_worker.js':
+          'export default { fetch() { return new Response("ok") } };\n',
+      });
+      await prepareCloudflareFrameworkArtifact({
+        root,
+        configPath: join(root, 'wrangler.jsonc'),
+        accountId: 'acc123',
+        workerName: 'skapp',
+        voidConfig: readConfig(root),
+        framework: { name: 'sveltekit', class: 'b' },
+        preset: FRAMEWORK_PRESETS.sveltekit,
+        images: { binding: 'IMAGES' },
+      });
+      return parseRootWranglerConfig(join(root, 'wrangler.jsonc'));
+    };
+
+    expect((await prepare({})).images).toEqual({ binding: 'IMAGES' });
+    expect((await prepare({ images: { binding: 'MEDIA' } })).images).toEqual({ binding: 'MEDIA' });
+    const r2 = await prepare({ r2_buckets: [{ binding: 'IMAGES', bucket_name: 'photos' }] });
+    expect(r2.images).toBeUndefined();
+  });
+
+  it('passes framework env.IMAGES reads to the deploy config and adds nothing without them', async () => {
+    const images: Array<unknown> = [];
+    const deploy = async (route: string) => {
+      const root = makeProject({
+        'package.json': JSON.stringify({
+          name: 'skapp',
+          dependencies: { '@sveltejs/kit': '2.0.0' },
+        }),
+        'void.json': JSON.stringify({}),
+        'src/routes/+page.server.ts': route,
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'skapp' }, null, 2),
+      });
+      const { deps, exitCalls } = harness({
+        prepareFrameworkArtifact: (async (options) => {
+          images.push(options.images);
+        }) as CloudflareDeployDeps['prepareFrameworkArtifact'],
+      });
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+      expect(exitCalls).toEqual([]);
+    };
+
+    await deploy('export const load = ({ platform }) => platform.env.IMAGES.info(body);');
+    await deploy('export const load = () => ({});');
+    expect(images).toEqual([{ binding: 'IMAGES' }, undefined]);
   });
 
   it('prepares Class A wrapper handlers without replacing its generated config pointer', async () => {

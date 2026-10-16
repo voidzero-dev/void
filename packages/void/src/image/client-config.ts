@@ -21,6 +21,9 @@ export function toClientImageConfig(
     unoptimized: resolved.unoptimized,
     dev: resolved.dev,
   };
+  if (resolved.noOptimizer) {
+    config.noOptimizer = true;
+  }
   if (consumer === 'server' || resolved.dev) {
     config.localPatterns = resolved.localPatterns.map((p) => ({ ...p }));
     config.remotePatterns = resolved.remotePatterns.map((p) => ({ ...p }));

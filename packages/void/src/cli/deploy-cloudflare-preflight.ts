@@ -66,7 +66,7 @@ import {
   provisionCloudflareResources,
   type ProvisionDriftEntry,
 } from './provision.ts';
-import { writeProvisionedWranglerConfig } from './wrangler.ts';
+import { addsImagesBinding, writeProvisionedWranglerConfig } from './wrangler.ts';
 
 /** Validate source-level native deploy inputs before account operations or project code. */
 export async function prepareCloudflareDeploySource(
@@ -196,6 +196,7 @@ export async function preflightCloudflareWorker(input: {
     authEnabled,
     needsAI,
     needsImages,
+    imagesBindingName,
     expectedCrons,
     desired,
     migrations: preBuildMigrations,
@@ -347,7 +348,7 @@ export async function preflightCloudflareWorker(input: {
       authEnabled ||
       needsSandbox ||
       needsAI ||
-      needsImages ||
+      addsImagesBinding(rootConfig, needsImages, imagesBindingName) ||
       expectedCrons.length ||
       desired.queues.length ||
       preBuildMigrations.length

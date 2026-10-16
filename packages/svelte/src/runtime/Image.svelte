@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { getContext, onMount, untrack } from "svelte";
   import {
     getImageConfig,
     getImagePreloadLink,
@@ -13,6 +13,13 @@
     toCoreImageProps,
     type ImageProps,
   } from "./image.ts";
+  import {
+    IMAGE_PRELOADS_KEY,
+    claimImagePreload,
+    releaseImagePreload,
+    type ImagePreloadClaim,
+    type ImagePreloads,
+  } from "./image-preloads.ts";
   import ImagePreload from "./ImagePreload.svelte";
 
   type ImageEvent = Event & { currentTarget: EventTarget & HTMLImageElement };
@@ -28,6 +35,28 @@
   );
   const attributes = $derived(getImgAttributes(resolved));
   const preloadLink = $derived(getImagePreloadLink(resolved.props, resolved.meta));
+  const preloadKey = $derived(preloadLink?.key);
+
+  // One preload link per image in a render: the first `Image` that claims a
+  // key renders the link, and the next one takes over when it unmounts or
+  // changes image. Claiming during init keeps server rendering and
+  // hydration in the same order; `$effect.pre` runs on the client only.
+  const preloads = getContext<ImagePreloads | undefined>(IMAGE_PRELOADS_KEY);
+  let ownsPreload = $state(false);
+  const preloadClaim: ImagePreloadClaim = {
+    promote() {
+      ownsPreload = true;
+    },
+  };
+  ownsPreload = claimImagePreload(
+    preloads,
+    preloadClaim,
+    untrack(() => preloadKey),
+  );
+  $effect.pre(() => {
+    ownsPreload = claimImagePreload(preloads, preloadClaim, preloadKey);
+    return () => releaseImagePreload(preloads, preloadClaim);
+  });
 
   function loadingOptions(): HandleImageLoadingOptions<HTMLImageElement> {
     return {
@@ -89,4 +118,4 @@
   {...attributes}
   onload={handleLoad}
   onerror={handleError}
-/>{#if preloadLink}<ImagePreload link={preloadLink} />{/if}
+/>{#if preloadLink && ownsPreload}<ImagePreload link={preloadLink} />{/if}

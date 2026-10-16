@@ -58,8 +58,17 @@ export async function buildCloudflareWorker(input: {
   prepareBuildOutput: () => ReturnType<typeof prepareCfBuildOutput>;
 }> {
   const { root, voidConfig, deps, exit, atomic, frameworkPreset, detectedFramework } = input;
-  const { configPath, needsAI, aiBindingName, migrationsDir, dialect, authEnabled, desired } =
-    input.source;
+  const {
+    configPath,
+    needsAI,
+    aiBindingName,
+    needsImages,
+    imagesBindingName,
+    migrationsDir,
+    dialect,
+    authEnabled,
+    desired,
+  } = input.source;
   const {
     accountId,
     apiBaseUrl,
@@ -118,6 +127,7 @@ export async function buildCloudflareWorker(input: {
         preset: frameworkPreset,
         requiredSecretNames: schemaFacts.requiredKeys,
         ai: needsAI ? { binding: aiBindingName } : undefined,
+        images: needsImages ? { binding: imagesBindingName } : undefined,
         preserveBindings: existingWorker !== null,
       });
     } catch (error) {

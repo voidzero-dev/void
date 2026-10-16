@@ -140,7 +140,8 @@ describe('voidPlugin image optimizer wiring', () => {
   });
 
   it('routes the endpoint to the Worker before the SPA shell', async () => {
-    const plugins = await createPlugins(createProjectRoot());
+    const root = createProjectRoot();
+    const plugins = await createPlugins(root);
     expect(resolveAssets(plugins, BUILD).run_worker_first).toEqual([
       '/api',
       '/api/*',
@@ -148,6 +149,11 @@ describe('voidPlugin image optimizer wiring', () => {
       '/__void/*',
       '/_void/image',
     ]);
+    // Endpoint errors stay errors instead of becoming the SPA shell.
+    const { entry } = await compileRoutes(root, plugins, BUILD);
+    expect(entry).toContain(
+      'const serveWithAssets = __createAssetFallback({"assetsDir":"assets","serveSpaFallback":false,"notFound":"single-page-application","skipPaths":["/_void/image"]});',
+    );
   });
 
   it('keeps self-hosted ISR away from the endpoint', async () => {
@@ -168,6 +174,7 @@ describe('voidPlugin image optimizer wiring', () => {
 
     expect(routes).not.toContain('__createImageHandler');
     expect(entry).not.toContain('bypassPaths');
+    expect(entry).not.toContain('skipPaths');
     expect(entry).toContain('isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle:');
     expect(resolveAssets(plugins, BUILD).run_worker_first).toEqual([
       '/api',
@@ -175,6 +182,16 @@ describe('voidPlugin image optimizer wiring', () => {
       '/__void',
       '/__void/*',
     ]);
+  });
+
+  it('mounts the endpoint at the pathname of an absolute images.path', async () => {
+    const root = createProjectRoot({ images: { path: 'https://cdn.example.com/_next/image' } });
+    const plugins = await createPlugins(root);
+    const { routes } = await compileRoutes(root, plugins, BUILD);
+
+    expect(routes).toContain('app.all("/_next/image", __createImageHandler(');
+    expect(imageApi(plugins).getConfig()?.path).toBe('https://cdn.example.com/_next/image');
+    expect(resolveAssets(plugins, BUILD).run_worker_first).toContain('/_next/image');
   });
 
   it('mounts the endpoint for inference.bindings.images without detected usage', async () => {
@@ -197,17 +214,17 @@ describe('voidPlugin image optimizer wiring', () => {
     expect(routes).not.toContain('__createImageHandler');
     expect(imageApi(plugins).getMountedConfig(true)).toBeUndefined();
     if (!('images' in voidConfig)) {
-      expect(resolved.unoptimized).toBe(true);
+      expect(resolved.noOptimizer).toBe(true);
     }
   });
 
-  it('resolves Void Platform builds as unoptimized without an endpoint', async () => {
+  it('resolves Void Platform builds without an optimizer or an endpoint', async () => {
     vi.stubEnv('VOID_DEPLOY_PROJECT_ID', 'proj_1');
     const root = createProjectRoot();
     const plugins = await createPlugins(root);
     const { routes } = await compileRoutes(root, plugins, BUILD);
 
-    expect(imageApi(plugins).getConfig()?.unoptimized).toBe(true);
+    expect(imageApi(plugins).getConfig()?.noOptimizer).toBe(true);
     expect(routes).not.toContain('__createImageHandler');
   });
 

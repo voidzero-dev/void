@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   hasApiRoutes,
   hasDocumentRoutes,
@@ -427,6 +427,45 @@ describe('generated serveWithAssets — routing.notFound end to end', () => {
     hasDocumentRoutes: false,
     hasMiddleware: true,
   } as const;
+
+  it('keeps 404s from skipped paths such as the image optimizer endpoint', async () => {
+    const policy = resolveAssetRoutingPolicy({
+      isSsr: false,
+      hasPages: false,
+      hasApiRoutes: true,
+      hasDocumentRoutes: false,
+      hasMiddleware: false,
+      imagePath: '/_void/image',
+    });
+    expect(policy.assetConfig.run_worker_first).toContain('/_void/image');
+    const handling = policy.assetConfig.not_found_handling;
+    expect(handling).toBe('single-page-application');
+    const assets = makeAssets(handling);
+    const fetchAsset = vi.spyOn(assets, 'fetch');
+    const serveWithAssets = createAssetFallback({
+      assetsDir: 'assets',
+      serveSpaFallback: policy.workerSpaFallback,
+      notFound: handling,
+      skipPaths: ['/_void/image'],
+    });
+    const serve = (path: string, accept: string) =>
+      serveWithAssets(
+        new Request(`https://app.test${path}`, { headers: { accept } }),
+        { ASSETS: assets },
+        new Response('upstream 404', { status: 404 }),
+      );
+
+    const image = await serve('/_void/image?url=%2Fgone.png&w=64&q=75', 'image/avif,*/*');
+    expect(image.status).toBe(404);
+    expect(await image.text()).toBe('upstream 404');
+    const navigation = await serve('/_void/image?url=%2Fgone.png&w=64&q=75', 'text/html');
+    expect(navigation.status).toBe(404);
+    expect(fetchAsset).not.toHaveBeenCalled();
+
+    const other = await serve('/deep/link', 'text/html');
+    expect(other.status).toBe(200);
+    expect(await other.text()).toBe('<html>SPA SHELL</html>');
+  });
 
   it('serves the SPA shell at 200 when notFound is unset (unchanged default)', async () => {
     expect(await serveUnmatched(ssgWithMiddleware)).toEqual({

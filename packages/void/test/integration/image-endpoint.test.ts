@@ -107,7 +107,8 @@ beforeAll(async () => {
     if (request.url === '/remote.png') {
       response.writeHead(200, {
         'content-type': 'application/octet-stream',
-        'cache-control': 'public, max-age=600',
+        // Above the default minimumCacheTTL (14400), so the response must use it.
+        'cache-control': 'public, max-age=86400',
       });
       response.end(readFileSync(join(fixtures, 'test.png')));
       return;
@@ -294,7 +295,7 @@ describe('/_void/image with a local Images binding', () => {
       );
       expect(response.status, new TextDecoder().decode(bytes)).toBe(200);
       expect(response.headers.get('content-type')).toBe('image/png');
-      expect(response.headers.get('cache-control')).toBe('public, max-age=14400, must-revalidate');
+      expect(response.headers.get('cache-control')).toBe('public, max-age=86400, must-revalidate');
       expect(response.headers.get('content-disposition')).toBe(
         `attachment; filename="${path.slice(1)}"`,
       );

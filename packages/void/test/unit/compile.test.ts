@@ -1519,10 +1519,11 @@ describe('compileRouteTable — image optimizer mount', () => {
     }
   });
 
-  it('passes the resolved config, assets dir and the route table deployment id', () => {
+  it('passes the resolved config, assets dir, the route table deployment id and the app', () => {
     const code = compileWithImages();
+    // The app is passed so local sources run through middleware.
     const options = JSON.parse(
-      /app\.all\("\/_void\/image", __createImageHandler\((.*)\)\);/.exec(code)![1]!,
+      /app\.all\("\/_void\/image", __createImageHandler\((.*), app\)\);/.exec(code)![1]!,
     ) as { config: unknown; deploymentId: string; assetsDir: string };
     const deploymentId = /export const __VOID_ISR_DEPLOYMENT_ID = "([^"]+)";/.exec(code)![1];
 

@@ -18,6 +18,7 @@ import {
   type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
 import type { IslandEntry } from 'void/pages-islands-plugin';
+import { IMAGE_PRELOADS_KEY } from './runtime/image-preloads.ts';
 
 const COMPONENT_EXTENSIONS = ['.svelte', '.ts', '.js'];
 /**
@@ -318,9 +319,13 @@ function generateWrapperComponent(id: string): string {
   const islandId = decodeURIComponent(url.searchParams.get('island') || '');
   const hydrate = decodeURIComponent(url.searchParams.get('hydrate') || 'load');
 
+  // Each island hydrates on its own, so it keeps its own image preload links
+  // (see `hydrateIsland`).
   return `<script>
+  import { setContext } from "svelte";
   import Cmp from ${JSON.stringify(src)};
   let props = $props();
+  setContext(${JSON.stringify(IMAGE_PRELOADS_KEY)}, new Map());
 </script>
 <div data-island="${islandId}" data-props={JSON.stringify(props)} data-hydrate="${hydrate}">
   <Cmp {...props} />
@@ -430,7 +435,9 @@ function generateIslandClientEntry(
 async function hydrateIsland(el, mod, props) {
   const { hydrate } = await import("svelte");
   const Component = mod.default || mod;
-  hydrate(Component, { target: el, props });
+  // A fresh image preload context, as the island's server wrapper provides.
+  const context = new Map([[${JSON.stringify(IMAGE_PRELOADS_KEY)}, new Map()]]);
+  hydrate(Component, { target: el, props, context });
   el.setAttribute("data-hydrated", "true");
 }
 

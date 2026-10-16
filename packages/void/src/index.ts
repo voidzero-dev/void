@@ -364,8 +364,8 @@ export function voidPlugin(options?: {
   let viteCommand: 'serve' | 'build' = 'build';
   let versionMetadataBinding: string | undefined;
   // Registered for Void apps (Cloudflare and Node targets) only. `images` is
-  // resolved per command in its config hook; Node targets resolve it as
-  // unoptimized (unless a custom loader is set) and mount nothing.
+  // resolved per command in its config hook; Node targets resolve it with
+  // `noOptimizer` (unless a custom loader is set) and mount nothing.
   const images = imagePlugin(root, {
     images: config.images,
     target: config.target,

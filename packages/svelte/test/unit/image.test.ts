@@ -7,6 +7,7 @@ import { render } from 'svelte/server';
 import { build, type Rolldown } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { getImageConfig, IMAGE_REGISTRY_KEY } from 'void/image';
+import { islandsPlugin } from '../../src/plugin-islands.ts';
 import {
   createImageLoadEvent,
   getImageProps,
@@ -37,10 +38,49 @@ function fillSrcSet(src: string, widths: Array<number>): string {
   return widths.map((w) => `/_void/image?url=${src}&w=${w}&q=75 ${w}w`).join(', ');
 }
 
+const IMAGE_SOURCE = join(PACKAGE_DIR, 'src/runtime/Image.svelte');
+
+/** Preloaded `Image`s: the same image three times (once with `priority`) and another image. */
+const PRELOAD_PAGE = `<script>
+  import Image from ${JSON.stringify(IMAGE_SOURCE)};
+  import Island from "./island-wrapper.svelte";
+</script>
+<Image src="/logo.png" alt="" width={64} height={64} preload />
+<Image src="/logo.png" alt="" width={64} height={64} preload />
+<Image src="/logo.png" alt="" width={64} height={64} priority />
+<Image src="/hero.png" alt="" width={64} height={64} preload />
+<Island />
+<Island />
+`;
+
+const ISLAND_IMAGES = `<script>
+  import Image from ${JSON.stringify(IMAGE_SOURCE)};
+</script>
+<Image src="/logo.png" alt="" width={64} height={64} preload />
+<Image src="/logo.png" alt="" width={64} height={64} preload />
+`;
+
 let Image: Component<ImageProps>;
+let App: Component<Record<string, unknown>>;
+let PreloadPage: Component;
+
+/** The island wrapper `plugin-islands` generates for `islandFile`. */
+function islandWrapper(islandFile: string): string {
+  const plugin = islandsPlugin(join(TMP, 'pages'))[0];
+  const load = plugin.load as { handler: (id: string) => string };
+  return load.handler(
+    `/@void-island-wrap/Island.svelte?src=${encodeURIComponent(islandFile)}&island=Island&hydrate=load`,
+  );
+}
 
 beforeAll(async () => {
-  // The unit project has no Svelte plugin: compile the shipped component for
+  mkdirSync(TMP, { recursive: true });
+  const islandFile = join(TMP, 'IslandImages.svelte');
+  writeFileSync(islandFile, ISLAND_IMAGES);
+  writeFileSync(join(TMP, 'island-wrapper.svelte'), islandWrapper(islandFile));
+  writeFileSync(join(TMP, 'PreloadPage.svelte'), PRELOAD_PAGE);
+
+  // The unit project has no Svelte plugin: compile the shipped components for
   // the server with Vite, keeping `svelte` and `void` external so the render
   // below shares their instances (and the image config registry).
   const output = (await build({
@@ -49,18 +89,34 @@ beforeAll(async () => {
     logLevel: 'silent',
     plugins: [svelte()],
     build: {
-      ssr: join(PACKAGE_DIR, 'src/runtime/Image.svelte'),
+      ssr: true,
       write: false,
-      rollupOptions: { external: [/^svelte($|\/)/, /^void($|\/)/] },
+      rollupOptions: {
+        input: {
+          Image: IMAGE_SOURCE,
+          App: join(PACKAGE_DIR, 'src/runtime/App.svelte'),
+          PreloadPage: join(TMP, 'PreloadPage.svelte'),
+        },
+        external: [/^svelte($|\/)/, /^void($|\/)/],
+      },
     },
   })) as Rolldown.RolldownOutput;
-  const entry = output.output.find(
-    (item): item is Rolldown.OutputChunk => item.type === 'chunk' && item.isEntry,
-  )!;
-  mkdirSync(TMP, { recursive: true });
-  const file = join(TMP, 'Image.mjs');
-  writeFileSync(file, entry.code);
-  Image = ((await import(pathToFileURL(file).href)) as { default: Component<ImageProps> }).default;
+  const out = join(TMP, 'out');
+  const entries: Record<string, string> = {};
+  for (const item of output.output) {
+    if (item.type === 'chunk') {
+      const file = join(out, item.fileName);
+      mkdirSync(join(file, '..'), { recursive: true });
+      writeFileSync(file, item.code);
+      if (item.isEntry) {
+        entries[item.name] = pathToFileURL(file).href;
+      }
+    }
+  }
+  const load = async <T>(name: string) => ((await import(entries[name])) as { default: T }).default;
+  Image = await load<Component<ImageProps>>('Image');
+  App = await load<Component<Record<string, unknown>>>('App');
+  PreloadPage = await load<Component>('PreloadPage');
 }, 60_000);
 
 afterAll(() => {
@@ -234,6 +290,28 @@ describe('Image server rendering', () => {
         ['referrerpolicy', 'no-referrer'],
       ],
     ]);
+  });
+
+  it('emits one preload link per image in a page, and per island', () => {
+    const { body, head } = render(App, {
+      props: {
+        page: PreloadPage,
+        layouts: [],
+        pageProps: {},
+        shared: {},
+        params: {},
+        router: null,
+        stores: null,
+      },
+    });
+    expect(tags(body, 'img')).toHaveLength(8);
+    const links = tags(head, 'link').map((link) => Object.fromEntries(link).imagesrcset);
+    const logo =
+      '/_void/image?url=%2Flogo.png&w=64&q=75 1x, /_void/image?url=%2Flogo.png&w=128&q=75 2x';
+    const hero =
+      '/_void/image?url=%2Fhero.png&w=64&q=75 1x, /_void/image?url=%2Fhero.png&w=128&q=75 2x';
+    // Islands hydrate on their own, so each keeps its own links.
+    expect(links).toEqual([logo, hero, logo, logo]);
   });
 
   it('renders the blur placeholder from a style string (blur with objectFit contain)', () => {

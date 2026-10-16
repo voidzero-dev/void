@@ -5,7 +5,7 @@
  */
 import { existsSync } from 'node:fs';
 import { isRecord } from '@void/deploy-core';
-import { resolve } from 'pathslash';
+import { isAbsolute, join, resolve } from 'pathslash';
 import picomatch from 'picomatch';
 import {
   CLOUDFLARE_IMAGE_PATH,
@@ -57,8 +57,8 @@ const STRING_KEYS = ['contentSecurityPolicy', 'loaderFile', 'path'] as const;
 const REMOTE_PATTERN_KEYS = ['protocol', 'hostname', 'port', 'pathname', 'search'];
 const LOCAL_PATTERN_KEYS = ['pathname', 'search'];
 
-/** Static `?image` imports are emitted under Vite's default `build.assetsDir`. */
-const STATIC_IMPORT_PATTERN: LocalPattern = { pathname: '/assets/**', search: '' };
+/** Vite's default `build.assetsDir`, where static `?image` imports are emitted. */
+const DEFAULT_ASSETS_DIR = 'assets';
 
 const NODE_TARGETS = new Set(['node', 'bun', 'deno']);
 
@@ -343,6 +343,12 @@ export type ResolveImageConfigOptions = {
   output?: 'server' | 'static';
   /** A Void Platform build, which has no Images binding yet. */
   managed?: boolean;
+  /**
+   * Vite's `build.assetsDir` (default `assets`). User `localPatterns` get a
+   * pattern for it so static `?image` imports stay allowed. The plugin
+   * corrects it with `setImageAssetsDir` once Vite's config is resolved.
+   */
+  assetsDir?: string;
 };
 
 /** Normalize one remote pattern as Next.js does and compile its globs (picomatch v4). */
@@ -391,9 +397,76 @@ export function compileLocalPattern(p: LocalPattern): CompiledLocalPattern {
 
 const ascending = (a: number, b: number): number => a - b;
 
+/** The local pattern for static `?image` imports emitted under `assetsDir`. */
+function staticImportPattern(assetsDir: string): LocalPattern {
+  const dir = assetsDir.replace(/^\/+|\/+$/g, '');
+  return { pathname: dir ? `/${dir}/**` : '/*', search: '' };
+}
+
+/**
+ * The user's `localPatterns` and the static import pattern, or the default
+ * `[{ pathname: '**', search: '' }]` when the user sets none.
+ */
+function resolveLocalPatterns(
+  user: ReadonlyArray<LocalPattern> | undefined,
+  assetsDir: string,
+): Array<LocalPattern> {
+  if (!user) {
+    return [{ pathname: '**', search: '' }];
+  }
+  const patterns = user.map((p) => ({ ...p }));
+  const staticImports = staticImportPattern(assetsDir);
+  if (
+    !patterns.some(
+      (p) => p.pathname === staticImports.pathname && p.search === staticImports.search,
+    )
+  ) {
+    // Static `?image` imports are always allowed.
+    patterns.push(staticImports);
+  }
+  return patterns;
+}
+
+/** The user's `localPatterns` and how many leading entries `resolveImageConfig` compiled from them. */
+const localPatternSources = new WeakMap<
+  ResolvedImageConfig,
+  { user: ReadonlyArray<LocalPattern> | undefined; count: number }
+>();
+
+/**
+ * Allow static `?image` imports under Vite's resolved `build.assetsDir` in
+ * place of the directory `resolved` was resolved with. Patterns appended to
+ * `resolved.localPatterns` after resolution are kept.
+ */
+export function setImageAssetsDir(resolved: ResolvedImageConfig, assetsDir: string): void {
+  const source = localPatternSources.get(resolved);
+  if (!source?.user) {
+    return;
+  }
+  const compiled = resolveLocalPatterns(source.user, assetsDir).map(compileLocalPattern);
+  resolved.localPatterns.splice(0, source.count, ...compiled);
+  source.count = compiled.length;
+}
+
+/**
+ * Next.js joins `loaderFile` to the project directory, so `/lib/loader.ts`
+ * is `<root>/lib/loader.ts`. An absolute path to an existing file outside it
+ * also works.
+ */
+function resolveLoaderFile(root: string, loaderFile: string): string {
+  const joined = join(root, loaderFile);
+  if (!existsSync(joined) && isAbsolute(loaderFile) && existsSync(loaderFile)) {
+    return resolve(loaderFile);
+  }
+  if (!existsSync(joined)) {
+    throw new Error(`Specified images.loaderFile does not exist at "${joined}".`);
+  }
+  return joined;
+}
+
 /**
  * Apply defaults and Next.js 16 normalization to `images`, compile the
- * patterns, resolve `loaderFile`, and force `unoptimized` where no optimizer
+ * patterns, resolve `loaderFile`, and set `noOptimizer` where no optimizer
  * exists (`node`/`bun`/`deno` targets, static output, Void Platform builds)
  * unless a custom loader or `loaderFile` is set.
  */
@@ -409,19 +482,10 @@ export function resolveImageConfig(
   }
   const merged = { ...imageConfigDefault, ...user };
 
-  const localPatterns: Array<LocalPattern> = merged.localPatterns
-    ? merged.localPatterns.map((p) => ({ ...p }))
-    : [{ pathname: '**', search: '' }];
-  if (
-    merged.localPatterns &&
-    !localPatterns.some(
-      (p) =>
-        p.pathname === STATIC_IMPORT_PATTERN.pathname && p.search === STATIC_IMPORT_PATTERN.search,
-    )
-  ) {
-    // Static `?image` imports are always allowed.
-    localPatterns.push({ ...STATIC_IMPORT_PATTERN });
-  }
+  const localPatterns = resolveLocalPatterns(
+    merged.localPatterns,
+    options.assetsDir ?? DEFAULT_ASSETS_DIR,
+  );
 
   const loader = merged.loader || 'default';
   let path = merged.path;
@@ -451,14 +515,10 @@ export function resolveImageConfig(
         `Specified images.loader property (${loader}) cannot be used with images.loaderFile property. Please set images.loader to "custom".`,
       );
     }
-    const absolutePath = resolve(options.root, merged.loaderFile);
-    if (!existsSync(absolutePath)) {
-      throw new Error(`Specified images.loaderFile does not exist at "${absolutePath}".`);
-    }
-    loaderFile = absolutePath;
+    loaderFile = resolveLoaderFile(options.root, merged.loaderFile);
   }
 
-  const noOptimizer =
+  const optimizerUnavailable =
     (options.target !== undefined && NODE_TARGETS.has(options.target)) ||
     options.output === 'static' ||
     options.managed === true;
@@ -467,7 +527,7 @@ export function resolveImageConfig(
   const deviceSizes = [...merged.deviceSizes].sort(ascending);
   const imageSizes = [...merged.imageSizes].sort(ascending);
 
-  return {
+  const resolved: ResolvedImageConfig = {
     deviceSizes,
     imageSizes,
     allSizes: [...deviceSizes, ...imageSizes].sort(ascending),
@@ -486,26 +546,62 @@ export function resolveImageConfig(
     loader,
     loaderFile,
     path,
-    unoptimized: merged.unoptimized || (noOptimizer && !customLoader),
+    unoptimized: merged.unoptimized,
+    noOptimizer: optimizerUnavailable && !customLoader,
     dev: options.dev,
   };
+  localPatternSources.set(resolved, {
+    user: merged.localPatterns,
+    count: resolved.localPatterns.length,
+  });
+  return resolved;
 }
 
-function startsWithSinglePathSlash(path: string): boolean {
-  return path.startsWith('/') && !path.startsWith('//');
+/** `http(s)://host/...` or `//host/...`. */
+const ABSOLUTE_URL = /^(?:https?:)?\/\//i;
+
+/**
+ * The request path the app serves the optimizer at for `images.path`: the
+ * path itself, or the pathname of an absolute URL (an image CDN in front of
+ * the app, which forwards requests to that path). `undefined` for other
+ * values and for a bare origin, whose root path the app's pages own.
+ */
+function getImageOptimizerPath(path: string): string | undefined {
+  if (!ABSOLUTE_URL.test(path)) {
+    return path.startsWith('/') ? path : undefined;
+  }
+  let pathname: string;
+  try {
+    pathname = new URL(path, 'https://localhost').pathname;
+  } catch {
+    return undefined;
+  }
+  return pathname === '/' ? undefined : pathname;
 }
 
 /**
- * Whether `/_void/image` should be served: the default loader, no
- * `loaderFile`, not `unoptimized`, and a same-origin `path`.
+ * Whether the app should serve the optimizer endpoint: the default loader,
+ * no `loaderFile`, not `unoptimized`, an optimizer for this target, and a
+ * `path` with a mountable request path.
  */
 export function isImageOptimizerActive(resolved: ResolvedImageConfig): boolean {
   return (
     !resolved.unoptimized &&
+    !resolved.noOptimizer &&
     resolved.loader === 'default' &&
     !resolved.loaderFile &&
-    startsWithSinglePathSlash(resolved.path)
+    getImageOptimizerPath(resolved.path) !== undefined
   );
+}
+
+/**
+ * The config the endpoint and the generated routes use: `path` is the request
+ * path the endpoint is mounted at (the pathname of an absolute
+ * `images.path`). `Image` keeps the configured `path`.
+ */
+export function toMountedImageConfig(resolved: ResolvedImageConfig): ResolvedImageConfig {
+  const path = getImageOptimizerPath(resolved.path);
+  return path === undefined || path === resolved.path ? resolved : { ...resolved, path };
 }
 
 /**
@@ -529,5 +625,5 @@ export function imageOptimizerConfigured(
   if ((images?.loader || 'default') !== 'default') {
     return false;
   }
-  return startsWithSinglePathSlash(images?.path ?? DEFAULT_IMAGE_PATH);
+  return getImageOptimizerPath(images?.path ?? DEFAULT_IMAGE_PATH) !== undefined;
 }

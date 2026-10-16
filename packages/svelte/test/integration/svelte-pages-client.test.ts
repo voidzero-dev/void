@@ -148,8 +148,10 @@ function registerImageTests(getBase: () => string, mode: 'dev' | 'preview') {
     const html = await res.text();
 
     expect(imageTag(html, 'image-fixed')).toBe(IMAGE_FIXED_TAG);
-    // `preload` drops `loading` and adds exactly one preload link to <head>.
+    // `preload` drops `loading` and adds one preload link to <head> for
+    // both preloaded copies of the image.
     expect(imageTag(html, 'image-preload')).not.toContain('loading=');
+    expect(imageTag(html, 'image-preload-again')).not.toContain('loading=');
     const head = html.match(/<head>([\s\S]*?)<\/head>/)?.[1] ?? '';
     expect(head).toContain(IMAGE_PRELOAD_LINK);
     expect(html.match(/<link rel="preload" as="image"/g)).toHaveLength(1);
@@ -256,14 +258,18 @@ function registerImageTests(getBase: () => string, mode: 'dev' | 'preview') {
       expect(images['image-import'].naturalWidth).toBe(64);
       expect(images['image-import'].currentSrc).toMatch(/^\/_void\/image\?url=%2Fassets%2F/);
       // Hydration keeps the single <svelte:head> preload link.
-      expect(
-        await page
+      const preloadLinks = () =>
+        page
           .locator('head link[rel="preload"][as="image"]')
-          .evaluateAll((links) => links.map((link) => link.getAttribute('imagesrcset'))),
-      ).toEqual([
+          .evaluateAll((links) => links.map((link) => link.getAttribute('imagesrcset')));
+      const preloadSrcSet =
         '/_void/image?url=%2Fvoid-image-test.png&w=640&q=75 1x, ' +
-          '/_void/image?url=%2Fvoid-image-test.png&w=1080&q=75 2x',
-      ]);
+        '/_void/image?url=%2Fvoid-image-test.png&w=1080&q=75 2x';
+      expect(await preloadLinks()).toEqual([preloadSrcSet]);
+      // When the image that rendered the link unmounts, its copy takes it over.
+      await page.click('[data-testid="image-preload-hide"]');
+      await page.waitForSelector('[data-testid="image-preload"]', { state: 'detached' });
+      expect(await preloadLinks()).toEqual([preloadSrcSet]);
       expect(problems).toEqual([]);
     } finally {
       await context.close();

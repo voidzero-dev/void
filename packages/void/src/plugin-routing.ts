@@ -419,6 +419,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         dev: compileOptions.dev,
         isr,
         notFound: policy.assetConfig.not_found_handling ?? 'none',
+        assetFallbackSkipPaths: compileOptions.images
+          ? [compileOptions.images.config.path]
+          : undefined,
         durableObjects: options.durableObjects,
       }),
     );
