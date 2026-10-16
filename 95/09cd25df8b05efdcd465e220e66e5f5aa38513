@@ -1,0 +1,31 @@
+docs/guide/deployment.md
+  s_f572b1deb5ef86::t_d80e896f544a23 38
+docs/integrations/cloudflare.md
+  s_f572b1deb5ef86::t_61cbd63c161d9e 186
+docs/reference/cli/database.md
+  s_f572b1deb5ef86::t_e1efb28a6393bc 99
+docs/reference/cli/project.md
+  s_f572b1deb5ef86::t_8fee2ed0d3b435 182
+packages/void/src/cli/db.ts
+  s_f572b1deb5ef86::t_0193b112522f61 1463-1473
+packages/void/src/cli/rollback.ts
+  s_f572b1deb5ef86::t_ac80b4682e633e 227-228
+packages/void/test/unit/db-migrate.test.ts
+  s_f572b1deb5ef86::t_48245d9a8a9383 502-518
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "9509cd25df8b05efdcd465e220e66e5f5aa38513",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
