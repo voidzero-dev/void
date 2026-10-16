@@ -14,6 +14,11 @@ pages/
     index.server.ts         # Server handler with loader + action
     [id].vue                # Dynamic user detail page
     [id].server.ts          # Server handler for [id] page
+  image.vue                 # Image: fixed, preload, fill and ?image import
+assets/
+  void-image-import.png     # Imported with ?image (fingerprinted in builds)
+public/
+  void-image-test.png       # Served from /, optimized through /_void/image
 routes/api/
   health.ts                 # Health check endpoint (GET /api/health)
 middleware/
@@ -36,3 +41,4 @@ db/
 - **`Link` component** — SPA navigation (renders `<a>` for GET, `<button>` for non-GET methods)
 - **`ValidationError`** — throw from `action()` to surface field-level validation errors to the form
 - **API route coexistence** — regular `routes/api/` routes work alongside pages
+- **`Image` component** — optimized images served by `/_void/image` through the local Images binding (`/image`)
