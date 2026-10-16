@@ -261,6 +261,7 @@ export default extendConfig(
               },
               { text: 'Custom SSR', link: '/guide/ssr' },
               { text: 'SSG', link: '/guide/ssg' },
+              { text: 'Open Graph Images', link: '/guide/og-images' },
             ],
           },
           {

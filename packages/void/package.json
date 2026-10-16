@@ -333,6 +333,11 @@
       "import": "./dist/runtime/limits.mjs",
       "require": "./dist/runtime/limits.mjs"
     },
+    "./og": {
+      "types": "./dist/runtime/og.d.mts",
+      "import": "./dist/runtime/og.mjs",
+      "require": "./dist/runtime/og.mjs"
+    },
     "./deploy": {
       "types": "./dist/deploy.d.mts",
       "import": "./dist/deploy.mjs"
@@ -378,6 +383,7 @@
     "pg": "^8.23.1",
     "postal-mime": "catalog:",
     "proper-lockfile": "^4.1.2",
+    "takumi-js": "^2.16.2",
     "terminal-link": "^5.0.0",
     "yaml": "^2.9.1"
   },

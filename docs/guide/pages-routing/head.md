@@ -35,7 +35,7 @@ export const head = defineHead<Props>((c, props) => {
 });
 ```
 
-`head()` runs server-side only, after the loader resolves.
+`head()` runs server-side only, after the loader resolves. To generate the image an `og:image` tag points to, see [Open Graph Images](../og-images.md).
 
 ## Site defaults
 

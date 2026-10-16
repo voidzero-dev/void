@@ -45,6 +45,7 @@ the app's existing saved destination, including when the target project is new.
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
+| Open Graph and social images               | `docs/guide/og-images.md`, `docs/guide/edge/revalidation.md`                              |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |
 | Email                                      | `docs/guide/email.md`, then the matching guide under `docs/guide/email/`                  |
 | KV / storage / queues / cron jobs          | `docs/guide/kv.md`, `docs/guide/storage.md`, `docs/guide/queues.md`, `docs/guide/jobs.md` |

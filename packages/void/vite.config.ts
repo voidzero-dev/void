@@ -113,6 +113,7 @@ export default defineConfig({
       'src/runtime/log.ts',
       'src/runtime/ai.ts',
       'src/runtime/limits.ts',
+      'src/runtime/og.ts',
       'src/runtime/email.ts',
       'src/runtime/email-protocol.ts',
       'src/runtime/email/testing.ts',

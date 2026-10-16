@@ -102,6 +102,10 @@ Supply server values through your host's environment and read them with `process
 
 For browser code, use Vite's `import.meta.env.VITE_*` values. These are embedded at build time and must not contain secrets.
 
+### Open Graph images
+
+On Node.js and Bun, [`void/og`](../guide/og-images.md) needs `takumi-js` in your app's `dependencies`. See [Node.js and Bun](../guide/og-images.md#node-js-and-bun).
+
 ### No Cloudflare bindings
 
 The following imports are **not available** with a non-CF target and produce a compile-time error:
