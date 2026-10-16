@@ -243,6 +243,7 @@ export async function preflightCloudflareWorker(input: {
     emailHandlers,
     authEnabled,
     needsAI,
+    needsImages,
     expectedCrons,
     desired,
     migrations: preBuildMigrations,
@@ -398,6 +399,7 @@ export async function preflightCloudflareWorker(input: {
       authEnabled ||
       needsSandbox ||
       needsAI ||
+      needsImages ||
       expectedCrons.length ||
       desired.queues.length ||
       preBuildMigrations.length

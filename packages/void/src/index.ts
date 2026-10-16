@@ -3,7 +3,11 @@ import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
 import { type Plugin } from 'vite';
 import { analyzeApplicationSync, type ApplicationAnalysis } from './application-analysis.ts';
-import { applyBindingOverrides } from './application-features.ts';
+import {
+  applyBindingOverrides,
+  applyImageOptimizerRequirement,
+  isImageOptimizerEnabled,
+} from './application-features.ts';
 import {
   edgeRulesNeedWorker,
   hasApiRoutes as routeScanHasApiRoutes,
@@ -60,7 +64,12 @@ import {
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
 import { createFrameworkPlugins } from './plugin-framework.ts';
-import { DEFAULT_SCAN_DIRS, FRAMEWORK_SCAN_DIRS, type Framework } from './plugin-inference.ts';
+import {
+  DEFAULT_SCAN_DIRS,
+  FRAMEWORK_SCAN_DIRS,
+  inferBindingsFromFile,
+  type Framework,
+} from './plugin-inference.ts';
 import { migrationPlugin } from './plugin-migration.ts';
 import { nodeTargetPlugin } from './plugin-node-target.ts';
 import { prerenderPlugin } from './plugin-prerender.ts';
@@ -584,7 +593,10 @@ export function voidPlugin(options?: {
         try {
           const code = readFileSync(path, 'utf-8');
           const fileBindings = applyBindingOverrides(
-            inferBindingsFromSource(code, path.split('/').pop()!),
+            applyImageOptimizerRequirement(
+              inferBindingsFromFile(path, code),
+              isImageOptimizerEnabled(config, detected),
+            ),
             config.inference?.bindings,
           );
           const newBindings: Array<string> = [];
@@ -599,6 +611,9 @@ export function voidPlugin(options?: {
           }
           if (fileBindings.needsAI && !bindings.needsAI) {
             newBindings.push('AI (void/ai)');
+          }
+          if (fileBindings.needsImages && !bindings.needsImages) {
+            newBindings.push('Images (Image)');
           }
           if (fileBindings.needsSandbox && !bindings.needsSandbox) {
             newBindings.push('Sandbox (void/sandbox)');

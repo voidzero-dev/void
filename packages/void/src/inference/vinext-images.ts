@@ -62,6 +62,9 @@ export function detectVinextImagesOptimizerInSource(
   let parsed: ReturnType<typeof parseSync>;
   try {
     parsed = parseSync(filename, code);
+    if (parsed.errors.length > 0) {
+      return undefined;
+    }
   } catch {
     return undefined;
   }
