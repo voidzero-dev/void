@@ -605,4 +605,5 @@ export {
 } from './worker.ts';
 export { createClientAssetTags, createManifestLoader } from './assets.ts';
 export { createSsrFallback, createAssetNotFound } from './pages.ts';
+export { createImageHandler, type ImageHandlerOptions } from './image.ts';
 export { buildPrerenderPath } from './prerender-path.ts';

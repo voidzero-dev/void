@@ -130,6 +130,7 @@ export default defineConfig({
       'src/runtime/db/migrations/mysql-handler.ts',
       'src/runtime/ws/server.ts',
       'src/runtime/live/server.ts',
+      'src/image/index.ts',
       'src/sveltekit.ts',
       'src/nitro.ts',
       'src/pages/index.ts',
