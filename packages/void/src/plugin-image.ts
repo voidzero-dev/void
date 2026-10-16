@@ -2,13 +2,21 @@ import { readFileSync, realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import MagicString from 'magic-string';
 import { basename, relative } from 'pathslash';
-import { normalizePath, type ConfigEnv, type Plugin } from 'vite';
+import {
+  isFileLoadingAllowed,
+  normalizePath,
+  type ConfigEnv,
+  type Plugin,
+  type ResolvedConfig,
+} from 'vite';
 import { isNodeTarget, type VoidConfig } from './config.ts';
 import {
   compileLocalPattern,
   isImageOptimizerActive,
   resolveImageConfig,
+  setImageAssetsDir,
   toClientImageConfig,
+  toMountedImageConfig,
 } from './image-config.ts';
 import { readImageSize, type ImageSize } from './image-size.ts';
 import { IMAGE_REGISTRY_KEY, type ImageConfig, type ResolvedImageConfig } from './image/config.ts';
@@ -65,7 +73,8 @@ export type ImagePluginApi = {
   getConfig(): ResolvedImageConfig | undefined;
   /**
    * The resolved config when the generated routes mount the optimizer
-   * endpoint (see `shouldMountImageOptimizer`), else `undefined`.
+   * endpoint (see `shouldMountImageOptimizer`), else `undefined`. Its `path`
+   * is the mount path (`toMountedImageConfig`).
    */
   getMountedConfig(usesImageOptimizer: boolean | undefined): ResolvedImageConfig | undefined;
   /** Root-relative POSIX paths of the files imported with `?image` (client manifest keys). */
@@ -134,7 +143,9 @@ const REGISTRY_KEY_SOURCE = `Symbol.for(${JSON.stringify(Symbol.keyFor(IMAGE_REG
 /**
  * The `virtual:void/image-config` module for one environment: it stores the
  * client config subset and the `images.loaderFile` default export where
- * `void/image` reads them.
+ * `void/image` reads them. The loader file is imported as a namespace, as
+ * Next.js does, so a file without a default export reaches `getImgProps`'s
+ * "missing default export" error instead of failing to link.
  */
 export function generateImageConfigModule(
   resolved: ResolvedImageConfig,
@@ -143,11 +154,13 @@ export function generateImageConfigModule(
   const config = JSON.stringify(toClientImageConfig(resolved, consumer));
   const lines: Array<string> = [];
   if (resolved.loaderFile) {
-    lines.push(`import __voidImageLoader from ${JSON.stringify(resolved.loaderFile)};`);
+    lines.push(`import * as __voidImageLoaderModule from ${JSON.stringify(resolved.loaderFile)};`);
+    lines.push(
+      `globalThis[${REGISTRY_KEY_SOURCE}] = { config: ${config}, loader: Reflect.get(__voidImageLoaderModule, "default"), hasLoaderFile: true };`,
+    );
+  } else {
+    lines.push(`globalThis[${REGISTRY_KEY_SOURCE}] = { config: ${config}, loader: undefined };`);
   }
-  lines.push(
-    `globalThis[${REGISTRY_KEY_SOURCE}] = { config: ${config}, loader: ${resolved.loaderFile ? '__voidImageLoader' : 'undefined'} };`,
-  );
   return lines.join('\n') + '\n';
 }
 
@@ -198,6 +211,7 @@ export function imagePlugin(
   let imageEntryRealPath: string | undefined;
   const realPaths = new Map<string, string>();
   let viteRoot = root;
+  let viteConfig: ResolvedConfig | undefined;
   const imageSources = new Set<string>();
   const resolvedByCommand = new Map<string, ResolvedImageConfig>();
   let current: ResolvedImageConfig | undefined;
@@ -215,6 +229,17 @@ export function imagePlugin(
     return real;
   }
 
+  /**
+   * Static `?image` imports are emitted under Vite's `build.assetsDir`, which
+   * is known only once Vite's config is resolved (after the `config` hook).
+   */
+  function applyAssetsDir(resolved: ResolvedImageConfig): void {
+    const assetsDir = viteConfig?.build?.assetsDir;
+    if (assetsDir !== undefined) {
+      setImageAssetsDir(resolved, assetsDir);
+    }
+  }
+
   function isImageEntry(id: string): boolean {
     const file = cleanId(id);
     if (file === imageEntry) {
@@ -230,6 +255,7 @@ export function imagePlugin(
       let resolved = resolvedByCommand.get(key);
       if (!resolved) {
         resolved = resolveImageConfigForCommand(root, options, env);
+        applyAssetsDir(resolved);
         resolvedByCommand.set(key, resolved);
       }
       current = resolved;
@@ -243,7 +269,7 @@ export function imagePlugin(
           usesImageOptimizer,
           inferenceBinding: options.inferenceBinding,
         })
-        ? current
+        ? toMountedImageConfig(current)
         : undefined;
     },
     imageSources,
@@ -258,7 +284,12 @@ export function imagePlugin(
       api.resolve(env);
     },
     configResolved(config) {
+      viteConfig = config;
       viteRoot = config.root;
+      // The config module and the routes read the resolved config after this.
+      for (const resolved of resolvedByCommand.values()) {
+        applyAssetsDir(resolved);
+      }
     },
     configEnvironment(name, environment) {
       const consumer = environment.consumer ?? (name === 'client' ? 'client' : 'server');
@@ -288,6 +319,18 @@ export function imagePlugin(
           return;
         }
         const file = cleanId(id);
+        // Vite checks `server.fs` only for ids no plugin loads, and the module
+        // below makes the file servable from `/@fs/` (`safeModulePaths`). A
+        // request for `/@fs/<file>?image` must not expose files outside
+        // `server.fs.allow`; real imports pass because the importer's import
+        // analysis already marked the file safe. Vite answers this error with 403.
+        if (
+          this.environment?.mode === 'dev' &&
+          viteConfig?.server?.fs &&
+          !isFileLoadingAllowed(viteConfig, normalizePath(file))
+        ) {
+          throw Object.assign(new Error(`Denied ID ${id}`), { code: 'ERR_DENIED_ID', id });
+        }
         const source = normalizePath(relative(viteRoot, file));
         let bytes: Uint8Array;
         try {

@@ -58,6 +58,8 @@ export type ImageProps = Omit<
     style?: StyleValue;
     /** @deprecated Use `@load`. */
     onLoadingComplete?: (img: HTMLImageElement) => void;
+    /** `blurDataURL` under the name a `blur-data-url` template attribute maps to. */
+    blurDataUrl?: string;
   };
 
 /**
@@ -122,15 +124,17 @@ function toImageStyle(value: unknown): ImageStyle | undefined {
 /**
  * Vue props and attrs as `void/image` input: `class` and `className` become
  * `className`, `style` becomes an object, `fetchpriority` fills in
- * `fetchPriority`, a user `srcset` is dropped (as `next/image` drops
- * `srcSet`), and event listeners other than `onLoadingComplete` stay with the
- * component. Other attributes keep their order ahead of `Image`'s own.
+ * `fetchPriority` and `blurDataUrl` fills in `blurDataURL`, a user `srcset` is
+ * dropped (as `next/image` drops `srcSet`), and event listeners other than
+ * `onLoadingComplete` stay with the component. Other attributes keep their
+ * order ahead of `Image`'s own.
  */
 function toCoreProps(input: Record<string, unknown>): ImageCoreProps & Record<string, unknown> {
   const core: Record<string, unknown> = {};
   const classes: Array<unknown> = [];
   let style: ImageStyle | undefined;
   let fetchpriority: unknown;
+  let blurDataUrl: unknown;
   for (const [key, value] of Object.entries(input)) {
     if (value === undefined) {
       continue;
@@ -149,6 +153,10 @@ function toCoreProps(input: Record<string, unknown>): ImageCoreProps & Record<st
       case 'fetchpriority':
         fetchpriority = value;
         continue;
+      case 'blurDataUrl':
+      case 'blur-data-url':
+        blurDataUrl = value;
+        continue;
       case 'onLoadingComplete':
         break;
       default:
@@ -160,6 +168,9 @@ function toCoreProps(input: Record<string, unknown>): ImageCoreProps & Record<st
   }
   if (core.fetchPriority === undefined && fetchpriority !== undefined) {
     core.fetchPriority = fetchpriority;
+  }
+  if (core.blurDataURL === undefined && blurDataUrl !== undefined) {
+    core.blurDataURL = blurDataUrl;
   }
   const className = normalizeClass(classes);
   if (className) {
@@ -221,6 +232,8 @@ export const Image: Component = defineComponent({
     loading: { type: String as PropType<'lazy' | 'eager'>, default: undefined },
     placeholder: { type: String as PropType<PlaceholderValue>, default: undefined },
     blurDataURL: { type: String, default: undefined },
+    // Vue camelizes a `blur-data-url` attribute to `blurDataUrl`, not `blurDataURL`.
+    blurDataUrl: { type: String, default: undefined },
     overrideSrc: { type: String, default: undefined },
     decoding: { type: String as PropType<'async' | 'auto' | 'sync'>, default: undefined },
     fetchPriority: { type: String as PropType<'high' | 'low' | 'auto'>, default: undefined },

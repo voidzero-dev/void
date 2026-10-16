@@ -2,14 +2,23 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  compileLocalPattern,
   getImageConfigWarnings,
   imageOptimizerConfigured,
   isImageOptimizerActive,
   resolveImageConfig,
+  setImageAssetsDir,
   toClientImageConfig,
+  toMountedImageConfig,
   validateImagesConfig,
 } from '../../src/image-config.ts';
-import { IMAGE_DOCS_URL, imageConfigDefault, type ImageConfig } from '../../src/image/index.ts';
+import {
+  IMAGE_DOCS_URL,
+  hasLocalMatch,
+  imageConfigDefault,
+  type ImageConfig,
+  type ResolvedImageConfig,
+} from '../../src/image/index.ts';
 
 const root = join(import.meta.dirname, '.tmp-image-config-test');
 
@@ -258,6 +267,7 @@ describe('resolveImageConfig', () => {
       loaderFile: '',
       path: '/_void/image',
       unoptimized: false,
+      noOptimizer: false,
       dev: false,
     });
     expect(isImageOptimizerActive(resolved)).toBe(true);
@@ -295,6 +305,47 @@ describe('resolveImageConfig', () => {
     expect(
       resolve({ localPatterns: [{ pathname: '/assets/**', search: '' }] }).localPatterns,
     ).toHaveLength(1);
+  });
+
+  it('allows static imports under a custom build.assetsDir', () => {
+    const allows = (resolved: ResolvedImageConfig, path: string) =>
+      hasLocalMatch(resolved.localPatterns, path);
+    const images: ImageConfig = { localPatterns: [{ pathname: '/photos/**', search: '' }] };
+    const resolved = resolve(images, { assetsDir: '/static/' });
+    expect(resolved.localPatterns.map((p) => p.pathname)).toEqual(['/photos/**', '/static/**']);
+    expect(allows(resolved, '/static/hero-abc.png')).toBe(true);
+    expect(allows(resolved, '/assets/hero-abc.png')).toBe(false);
+
+    // The plugin learns `build.assetsDir` after resolving; later entries are kept.
+    const late = resolve(images);
+    late.localPatterns.push(compileLocalPattern({ pathname: '/@fs/**', search: '' }));
+    setImageAssetsDir(late, 'static');
+    expect(late.localPatterns.map((p) => p.pathname)).toEqual([
+      '/photos/**',
+      '/static/**',
+      '/@fs/**',
+    ]);
+    expect(allows(late, '/static/hero-abc.png')).toBe(true);
+    expect(allows(late, '/assets/hero-abc.png')).toBe(false);
+    setImageAssetsDir(late, 'assets');
+    expect(late.localPatterns.map((p) => p.pathname)).toEqual([
+      '/photos/**',
+      '/assets/**',
+      '/@fs/**',
+    ]);
+
+    // A pattern the user lists is not added twice; an empty assetsDir is the root.
+    const listed = resolve({ localPatterns: [{ pathname: '/assets/**', search: '' }] });
+    setImageAssetsDir(listed, 'static');
+    expect(listed.localPatterns.map((p) => p.pathname)).toEqual(['/assets/**', '/static/**']);
+    setImageAssetsDir(listed, '');
+    expect(listed.localPatterns.map((p) => p.pathname)).toEqual(['/assets/**', '/*']);
+    expect(allows(listed, '/hero-abc.png')).toBe(true);
+
+    // Without user localPatterns every path is already allowed.
+    const open = resolve(undefined);
+    setImageAssetsDir(open, 'static');
+    expect(open.localPatterns.map((p) => p.pathname)).toEqual(['**']);
   });
 
   it('normalizes remote patterns', () => {
@@ -340,6 +391,16 @@ describe('resolveImageConfig', () => {
     expect(resolve({ loader: 'custom', loaderFile: 'lib/loader.ts' }).path).toBe('/_void/image/');
   });
 
+  it('resolves a loaderFile with a leading slash from the project root, as Next.js joins it', () => {
+    const inRoot = join(root, 'lib/loader.ts').replaceAll('\\', '/');
+    expect(resolve({ loader: 'custom', loaderFile: '/lib/loader.ts' }).loaderFile).toBe(inRoot);
+    // An absolute path to an existing file still works.
+    expect(resolve({ loader: 'custom', loaderFile: inRoot }).loaderFile).toBe(inRoot);
+    expect(() => resolve({ loaderFile: '/missing.ts' })).toThrow(
+      `Specified images.loaderFile does not exist at "${join(root, 'missing.ts').replaceAll('\\', '/')}".`,
+    );
+  });
+
   it('rejects a missing loaderFile and loaderFile with a built-in CDN loader', () => {
     expect(() => resolve({ loaderFile: './missing.ts' })).toThrow(
       `Specified images.loaderFile does not exist at "${join(root, 'missing.ts')}".`,
@@ -355,17 +416,24 @@ describe('resolveImageConfig', () => {
     ['deno target', { target: 'deno' }],
     ['static output', { output: 'static' as const }],
     ['Void Platform build', { managed: true }],
-  ])('forces unoptimized for a %s unless a custom loader is set', (_label, options) => {
-    expect(resolve(undefined, options).unoptimized).toBe(true);
-    expect(resolve({ loader: 'cloudflare' }, options).unoptimized).toBe(false);
-    expect(resolve({ loader: 'custom' }, options).unoptimized).toBe(false);
-    expect(resolve({ loaderFile: './lib/loader.ts' }, options).unoptimized).toBe(false);
+  ])('has no optimizer for a %s unless a custom loader is set', (_label, options) => {
+    const resolved = resolve(undefined, options);
+    // `unoptimized` stays the user's switch, so `loader` props still apply.
+    expect(resolved.unoptimized).toBe(false);
+    expect(resolved.noOptimizer).toBe(true);
+    expect(toClientImageConfig(resolved, 'client').noOptimizer).toBe(true);
+    expect(isImageOptimizerActive(resolved)).toBe(false);
+    expect(resolve({ unoptimized: true }, options).unoptimized).toBe(true);
+    expect(resolve({ loader: 'cloudflare' }, options).noOptimizer).toBe(false);
+    expect(resolve({ loader: 'custom' }, options).noOptimizer).toBe(false);
+    expect(resolve({ loaderFile: './lib/loader.ts' }, options).noOptimizer).toBe(false);
     expect(imageOptimizerConfigured(undefined, options)).toBe(false);
   });
 
   it('keeps the optimizer for Cloudflare server builds', () => {
     const resolved = resolve(undefined, { target: 'cloudflare', output: 'server', dev: true });
     expect(resolved.unoptimized).toBe(false);
+    expect(resolved.noOptimizer).toBe(false);
     expect(resolved.dev).toBe(true);
   });
 });
@@ -379,14 +447,33 @@ describe('isImageOptimizerActive and imageOptimizerConfigured', () => {
     [{ loader: 'custom' as const }, false],
     [{ loader: 'cloudflare' as const }, false],
     [{ loaderFile: './lib/loader.ts' }, false],
-    [{ path: 'https://images.example.com/_next/image' }, false],
-    [{ path: '//images.example.com/_next/image' }, false],
+    // A CDN in front of the app: the endpoint is served at the URL's path.
+    [{ path: 'https://images.example.com/_next/image' }, true],
+    [{ path: '//images.example.com/_void/image' }, true],
+    [{ path: 'https://images.example.com' }, false],
+    [{ path: 'https://images.example.com/' }, false],
+    [{ path: 'images/optimize' }, false],
   ])('%j is %s', (images, expected) => {
     expect(imageOptimizerConfigured(images, {})).toBe(expected);
     expect(imageOptimizerConfigured(images, { target: 'cloudflare', output: 'server' })).toBe(
       expected,
     );
     expect(isImageOptimizerActive(resolve(images))).toBe(expected);
+  });
+
+  it('mounts an absolute images.path at its pathname and keeps the URL for Image', () => {
+    const resolved = resolve({ path: 'https://images.example.com/_next/image' });
+    const mounted = toMountedImageConfig(resolved);
+    expect(mounted.path).toBe('/_next/image');
+    expect(isImageOptimizerActive(mounted)).toBe(true);
+    expect(resolved.path).toBe('https://images.example.com/_next/image');
+    expect(toClientImageConfig(resolved, 'client').path).toBe(
+      'https://images.example.com/_next/image',
+    );
+    expect(toMountedImageConfig(resolve({ path: '//cdn.example.com/img' })).path).toBe('/img');
+
+    const relative = resolve({ path: '/img' });
+    expect(toMountedImageConfig(relative)).toBe(relative);
   });
 });
 

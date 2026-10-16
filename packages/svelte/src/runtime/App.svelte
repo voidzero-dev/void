@@ -3,6 +3,7 @@
   import PageErrorBoundary from "./PageErrorBoundary.svelte";
   import { pageBoundarySlots } from "void/pages-client";
   import { createRouterFacade, idleNavigationState } from "void/pages-client";
+  import { IMAGE_PRELOADS_KEY } from "./image-preloads.ts";
 
   let props = $props();
 
@@ -68,6 +69,8 @@
   if (init.frontmatter) {
     setContext("__void_frontmatter", init.frontmatter);
   }
+  // Image preload links of this render, one per image.
+  setContext(IMAGE_PRELOADS_KEY, new Map());
 
   // Client mode: subscribe to stores for live updates after hydration.
   // onMount only runs on the client, not during SSR.

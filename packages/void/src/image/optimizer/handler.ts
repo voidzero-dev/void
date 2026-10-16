@@ -1,4 +1,5 @@
 import type { ImageFormat, ResolvedImageConfig } from '../config.ts';
+import { hasRemoteMatch } from '../patterns.ts';
 import { getSupportedImageFormat } from './accept.ts';
 import {
   ANIMATABLE_TYPES,
@@ -24,6 +25,7 @@ import {
   type AssetFetcher,
   type ImageFetch,
   type ImageUpstream,
+  type LocalImageDispatch,
 } from './upstream.ts';
 import { validateImageParams, type ImageParams } from './validate.ts';
 
@@ -55,6 +57,12 @@ export type ImageRequestOptions = {
   deploymentId: string;
   /** Static assets binding local sources load from. */
   assets?: AssetFetcher;
+  /**
+   * Runs a local source request through the application first, so middleware
+   * sees the source path; its `404` falls back to `assets`. Without it,
+   * local sources are read from `assets` directly.
+   */
+  fetchLocal?: LocalImageDispatch;
   /** Images binding; without it, sources that need a transform are served unchanged. */
   binding?: ImagesBindingLike;
   /** Binding name for the missing-binding warning. */
@@ -77,13 +85,20 @@ type ImageResult = {
   /** Opaque validator, sent quoted. */
   etag: string;
   maxAge: number;
+  /**
+   * The original served because the transform failed or the binding is
+   * missing. It never gets the immutable policy, so the next request after
+   * `maxAge` (`minimumCacheTTL`) tries the transform again.
+   */
+  fallback?: boolean;
 };
 
 /** Next.js's `Cache-Control` for statically imported (fingerprinted) images. */
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=315360000, immutable';
 /** Bump when the stored entry format changes. */
-const CACHE_VERSION = '1';
+const CACHE_VERSION = '2';
 const CACHE_MAX_AGE_HEADER = 'X-Void-Image-Max-Age';
+const CACHE_FALLBACK_HEADER = 'X-Void-Image-Fallback';
 const IMMUTABLE_CACHE_TTL = 31536000;
 
 const warned = new Set<string>();
@@ -156,7 +171,13 @@ async function readCache(cache: ImageCacheLike, key: Request): Promise<ImageResu
     if (bytes.byteLength === 0) {
       return undefined;
     }
-    return { bytes, contentType, etag: etag.replace(/^"|"$/g, ''), maxAge: Number(maxAge) };
+    return {
+      bytes,
+      contentType,
+      etag: etag.replace(/^"|"$/g, ''),
+      maxAge: Number(maxAge),
+      fallback: response.headers.get(CACHE_FALLBACK_HEADER) === '1',
+    };
   } catch {
     return undefined;
   }
@@ -168,18 +189,20 @@ function writeCache(
   result: ImageResult,
   isStatic: boolean,
 ): void {
-  const ttl = isStatic ? IMMUTABLE_CACHE_TTL : result.maxAge;
+  const ttl = isStatic && !result.fallback ? IMMUTABLE_CACHE_TTL : result.maxAge;
   if (!options.cache || !options.waitUntil || ttl <= 0) {
     return;
   }
-  const entry = new Response(result.bytes, {
-    headers: {
-      'Content-Type': result.contentType,
-      'Cache-Control': `public, max-age=${ttl}`,
-      ETag: `"${result.etag}"`,
-      [CACHE_MAX_AGE_HEADER]: String(result.maxAge),
-    },
-  });
+  const headers: Record<string, string> = {
+    'Content-Type': result.contentType,
+    'Cache-Control': `public, max-age=${ttl}`,
+    ETag: `"${result.etag}"`,
+    [CACHE_MAX_AGE_HEADER]: String(result.maxAge),
+  };
+  if (result.fallback) {
+    headers[CACHE_FALLBACK_HEADER] = '1';
+  }
+  const entry = new Response(result.bytes, { headers });
   let write: Promise<void>;
   try {
     write = options.cache.put(key, entry).catch(() => {});
@@ -228,7 +251,7 @@ async function optimize(
     return original;
   }
   // Next.js serves the original with `minimumCacheTTL` when its encoder fails.
-  const fallback: ImageResult = { ...original, maxAge: config.minimumCacheTTL };
+  const fallback: ImageResult = { ...original, maxAge: config.minimumCacheTTL, fallback: true };
   if (!options.binding) {
     warnOnce(
       'binding',
@@ -267,9 +290,13 @@ function respond(
 ): Response {
   const headers = new Headers();
   headers.set('Vary', 'Accept');
+  // Next.js also marks an original served after a failed transform
+  // immutable. Void keeps `minimumCacheTTL` for it, so browsers pick up the
+  // optimized image once the transform works again (the Free allowance resets
+  // monthly, while a static image's URL survives deployments).
   headers.set(
     'Cache-Control',
-    isStatic
+    isStatic && !result.fallback
       ? IMMUTABLE_CACHE_CONTROL
       : `public, max-age=${config.dev ? 0 : result.maxAge}, must-revalidate`,
   );
@@ -302,8 +329,9 @@ function respond(
  *
  * Void differences: `GET`/`HEAD` only (405 otherwise), a quoted `ETag`,
  * `X-Content-Type-Options: nosniff`, `X-Void-Image-Cache` instead of
- * `X-Nextjs-Cache`, no stale-while-revalidate (the Cache API has none), and
- * any binding failure serves the original image.
+ * `X-Nextjs-Cache`, no stale-while-revalidate (the Cache API has none), any
+ * binding failure serves the original image (never marked immutable), and
+ * remote redirect targets must match `images.remotePatterns`.
  */
 export async function handleImageRequest(
   request: Request,
@@ -346,10 +374,26 @@ export async function handleImageRequest(
           dangerouslyAllowLocalIP: config.dangerouslyAllowLocalIP,
           maximumResponseBody: config.maximumResponseBody,
           maximumRedirects: config.maximumRedirects,
+          isAllowedRedirect: (target) => {
+            if (hasRemoteMatch(config.domains, config.remotePatterns, target)) {
+              return true;
+            }
+            warnOnce(
+              `redirect:${target.origin}`,
+              `[void] An image source redirected to ${target.origin}, which images.remotePatterns doesn't allow, so ${config.path} refused it. Add the redirect target to images.remotePatterns to optimize it.`,
+            );
+            return false;
+          },
           fetch: options.fetch,
           timeoutMs: options.timeoutMs,
         })
-      : await loadLocalImage(options.assets, params.href, request.url, config.maximumResponseBody);
+      : await loadLocalImage(
+          options.assets,
+          params.href,
+          request.url,
+          config.maximumResponseBody,
+          options.fetchLocal,
+        );
     const result = await optimize(upstream, params, format, options);
     if (key) {
       writeCache(options, key, result, isStatic);

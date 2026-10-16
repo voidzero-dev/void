@@ -19,11 +19,13 @@ import type {
 
 /**
  * What the plugin stores under `IMAGE_REGISTRY_KEY`. `loader` is the default
- * export of `images.loaderFile`, or `undefined` without one.
+ * export of `images.loaderFile`, or `undefined` without one;
+ * `hasLoaderFile` is set whenever `images.loaderFile` is.
  */
 export type ImageConfigRegistration = {
   config: ClientImageConfig;
   loader?: ImageLoader | undefined;
+  hasLoaderFile?: boolean;
 };
 
 let fallbackConfig: ClientImageConfig | undefined;
@@ -52,10 +54,18 @@ export function getImageConfig(): ClientImageConfig {
 /**
  * The loader an `Image` without a `loader` prop uses: the registered
  * `images.loaderFile` export, else the Cloudflare loader for
- * `loader: 'cloudflare'`, else the default loader.
+ * `loader: 'cloudflare'`, else the default loader. With `images.loaderFile`
+ * it is that file's default export as is, so a missing export is `undefined`
+ * and `getImgProps` reports it as Next.js does.
  */
-export function getDefaultImageLoader(config?: ClientImageConfig): ImageLoaderWithConfig {
-  const loader = getRegistration()?.loader;
+export function getDefaultImageLoader(
+  config?: ClientImageConfig,
+): ImageLoaderWithConfig | undefined {
+  const registration = getRegistration();
+  if (registration?.hasLoaderFile) {
+    return registration.loader;
+  }
+  const loader = registration?.loader;
   if (typeof loader === 'function') {
     return loader;
   }

@@ -93,6 +93,11 @@ export type RemoteImageOptions = {
   maximumResponseBody: number;
   /** Redirects still allowed; each followed redirect lowers it by one. */
   maximumRedirects: number;
+  /**
+   * Whether an `http`/`https` redirect target may be fetched (the endpoint
+   * checks `images.remotePatterns`); a refused target is `400`.
+   */
+  isAllowedRedirect?: (url: URL) => boolean;
   fetch?: ImageFetch;
   timeoutMs?: number;
 };
@@ -104,6 +109,12 @@ export type RemoteImageOptions = {
  * streamed body limit (`413`), and the upstream status for any non-2xx answer.
  * Workers decode `Content-Encoding` themselves, so the limit applies to the
  * decoded bytes as in Next.js.
+ *
+ * Unlike Next.js, redirect targets must also pass `isAllowedRedirect`.
+ * Next.js resolves every hop's hostname and refuses private addresses; a
+ * Worker cannot resolve DNS, and the local runtime behind `vp dev` and
+ * preview may reach private networks, so a redirect from an allowed host
+ * to a name such as `127.0.0.1.nip.io` must not be followed.
  */
 export async function fetchRemoteImage(
   href: string,
@@ -139,7 +150,15 @@ export async function fetchRemoteImage(
     if (options.maximumRedirects <= 0) {
       throw new ImageError(508, UPSTREAM_INVALID);
     }
-    return fetchRemoteImage(new URL(location, url.href).href, {
+    const target = new URL(location, url.href);
+    if (
+      options.isAllowedRedirect &&
+      (target.protocol === 'http:' || target.protocol === 'https:') &&
+      !options.isAllowedRedirect(target)
+    ) {
+      throw new ImageError(400, NOT_ALLOWED);
+    }
+    return fetchRemoteImage(target.href, {
       ...options,
       maximumRedirects: options.maximumRedirects - 1,
     });
@@ -174,23 +193,41 @@ export async function fetchRemoteImage(
   };
 }
 
+/** Runs a request through the application (middleware, routes and page fallbacks). */
+export type LocalImageDispatch = (request: Request) => Promise<Response>;
+
 /**
- * Load a local source from the static assets binding with an empty header
- * set (`GET`, no cookies or conditional headers), like Next.js's internal
- * image request. Application routes are not consulted.
+ * Load a local source with an empty header set (`GET`, no cookies or
+ * conditional headers), like Next.js's internal image request.
+ *
+ * With `dispatch`, the request takes the Worker's own path: the application
+ * answers first, so middleware that guards the source path applies, and a
+ * `404` falls back to the static assets. Any other non-2xx answer (a
+ * middleware `401`, a redirect) fails with its status. Without `dispatch`,
+ * the static assets binding is read directly.
  */
 export async function loadLocalImage(
   assets: AssetFetcher | undefined,
   href: string,
   requestUrl: string,
   maximumResponseBody: number,
+  dispatch?: LocalImageDispatch,
 ): Promise<ImageUpstream> {
-  if (!assets || typeof assets.fetch !== 'function') {
+  const hasAssets = !!assets && typeof assets.fetch === 'function';
+  if (!hasAssets && !dispatch) {
     throw new ImageError(500, UPSTREAM_INVALID);
   }
-  let response: Response;
+  const url = new URL(href, requestUrl);
+  let response: Response | undefined;
   try {
-    response = await assets.fetch(new Request(new URL(href, requestUrl)));
+    if (dispatch) {
+      response = await dispatch(new Request(url));
+      if (response.status === 404 && hasAssets) {
+        discard(response);
+        response = undefined;
+      }
+    }
+    response ??= await assets!.fetch(new Request(url));
   } catch {
     throw new ImageError(500, UPSTREAM_INVALID);
   }

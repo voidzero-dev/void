@@ -154,6 +154,24 @@ describe('Image with Vue attribute forms', () => {
     );
   });
 
+  it('takes blurDataURL as blur-data-url or blurDataUrl, the names templates produce', async () => {
+    const c = golden('placeholder blur');
+    const { blurDataURL, ...props } = c.props;
+    for (const name of ['blur-data-url', 'blurDataUrl']) {
+      const { html } = await renderSsr(() => h(Image, { ...props, [name]: blurDataURL } as Props));
+      expect(html).toBe(c.html);
+      expect(
+        getImageProps({ ...props, [name]: blurDataURL } as Parameters<typeof getImageProps>[0]),
+      ).toEqual(getImageProps(c.props as Parameters<typeof getImageProps>[0]));
+    }
+    // Development checks see the value instead of reporting it missing.
+    setRegistration({ config: clientConfig({ dev: true }) });
+    const dev = await renderSsr(() =>
+      h(Image, { ...props, 'blur-data-url': blurDataURL } as Props),
+    );
+    expect(dev.html).toBe(c.html);
+  });
+
   it('treats the Vue boolean shorthand as true', async () => {
     const c = golden('fill');
     const { html } = await renderSsr(() => h(Image, { ...c.props, fill: '' } as Props));

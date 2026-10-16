@@ -179,6 +179,59 @@ Set `preload` on the image that is likely to be the [Largest Contentful Paint](h
 
 Use `preload` for one or two images per page. To load an image early without a preload link, set `loading="eager"` or `fetchPriority="high"` instead. `priority` still works as a deprecated alias of `preload`; don't combine it with `preload` or `loading="lazy"`.
 
+#### Custom SSR
+
+Pages Routing adds the preload link with every adapter. In a [custom SSR](./ssr.md) app, your server entry writes `<head>`, so it has to include the link:
+
+- **React**: `renderToString` includes the link in the HTML it returns. No setup is needed.
+- **Vue**: pass an SSR context object to `renderToString` and insert `ssrContext.__voidImagePreloads?.render()` in `<head>`.
+- **Svelte**: insert the `head` that `render()` returns in `<head>`.
+- **Solid**: provide a collector from `createImagePreloadCollector()` through `ImagePreloadContext`, and insert its `render()` output in `<head>`. Wrap the client tree in the same provider with `null`, so hydration matches the server.
+
+::: code-group
+
+```ts [Vue]
+// src/main.ssr.ts
+const ssrContext: SSRContext = {};
+const appHtml = await renderToString(createSSRApp(App), ssrContext);
+const imagePreloads = ssrContext.__voidImagePreloads?.render() ?? '';
+// Insert imagePreloads in <head>.
+```
+
+```ts [Svelte]
+// src/main.ssr.ts
+const { head, body: appHtml } = render(App);
+// Insert head in <head>.
+```
+
+```tsx [Solid]
+// src/main.ssr.tsx
+import { ImagePreloadContext } from '@void/solid';
+import { createImagePreloadCollector } from 'void/image';
+
+const imagePreloads = createImagePreloadCollector();
+const appHtml = renderToString(() => (
+  <ImagePreloadContext.Provider value={imagePreloads}>
+    <App />
+  </ImagePreloadContext.Provider>
+));
+// Insert imagePreloads.render() in <head>.
+
+// src/main.client.tsx
+hydrate(
+  () => (
+    <ImagePreloadContext.Provider value={null}>
+      <App />
+    </ImagePreloadContext.Provider>
+  ),
+  document.getElementById('app')!,
+);
+```
+
+:::
+
+The React, Vue, and Svelte entries that [`void gen ssr`](../reference/cli/generate.md#void-gen-ssr) creates already do this.
+
 ### Placeholders
 
 A placeholder fills the image's space until the image loads:
@@ -210,7 +263,7 @@ Reference files in [`public/`](../reference/structure.md#public) by their root p
 <Image src="/photos/lake.jpg" alt="Lake" width={800} height={533} />
 ```
 
-Local images must be static files: files from `public/` or imported into your code. Paths served by a route or page can't be optimized; render those with `unoptimized`.
+Void requests a local image through your app, as a visitor without cookies would, so [middleware](#optimization-endpoint) that guards its path applies. When a route or page answers the path, its response is the image.
 
 A local `src` with a query string, such as `/photo.jpg?v=2`, is rejected unless [`images.localPatterns`](#allowed-sources) allows it.
 
@@ -301,7 +354,7 @@ images: {
 
 During development, an `Image` whose `src` doesn't match these patterns throws an error that names the setting to change.
 
-Remote sources must use `http` or `https`. Void follows up to `images.maximumRedirects` redirects and stops after 7 seconds. Unless `images.dangerouslyAllowLocalIP` is set, it refuses URLs whose host is `localhost` or a private or loopback IP address. Hostnames aren't resolved first, so allow only hosts you trust in `remotePatterns`.
+Remote sources must use `http` or `https`. Void follows up to `images.maximumRedirects` redirects whose targets also match `remotePatterns`, and stops after 7 seconds. Unless `images.dangerouslyAllowLocalIP` is set, it refuses URLs whose host is `localhost` or a private or loopback IP address. Hostnames aren't resolved first, so allow only hosts you trust in `remotePatterns`.
 
 ## `getImageProps`
 
@@ -503,7 +556,7 @@ GET /_void/image?url=%2Fphotos%2Flake.jpg&w=828&q=75
 
 A request with a missing or disallowed parameter returns `400` with a plain-text reason, such as `"w" parameter (width) of 500 is not allowed` or `"url" parameter is not allowed`. A source that isn't an image also returns `400`. Sources larger than `images.maximumResponseBody` return `413`, remote sources that time out return `504`, and more than `images.maximumRedirects` redirects return `508`. An error status from the source, such as `404`, is passed through. `/_void/image` answers `GET` and `HEAD` requests; other methods return `405`.
 
-The endpoint runs after your middleware, so middleware that guards every path also applies to image requests.
+The endpoint runs after your middleware, so middleware that guards every path also applies to image requests. It then requests a local source through your middleware and routes without the visitor's cookies or headers, as Next.js does. If middleware refuses that request, for example because the source path requires a session, the image fails with that status even for signed-in visitors. Let anonymous requests for image paths through, or render those images with `unoptimized`.
 
 ### Output formats
 
@@ -552,9 +605,20 @@ Remote sources are fetched from the network, so they need to be reachable from y
 
 When your app imports `Image` or `getImageProps` and uses the default loader, Void adds a Cloudflare Images binding named `IMAGES` to your Worker and serves `/_void/image` with it.
 
+Void finds these imports in the files it [scans for resources](../reference/resource-inference.md#scanned-directories). When only code outside those files imports `Image`, such as a shared UI package in a monorepo, Void doesn't serve `/_void/image`, in development or after deploying, and those images fail to load. Set `inference.bindings.images` to `true` to add the binding and serve `/_void/image`:
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  inference: { bindings: { images: true } },
+});
+```
+
 Reading `env.IMAGES` or `c.env.IMAGES` in server code also adds the binding, so you can call the [Images binding](https://developers.cloudflare.com/images/transform-images/bindings/) directly.
 
-Rename or remove the binding with [`inference.bindings.images`](../reference/config.md#inference-bindings). With `false`, Void deploys without the binding and `/_void/image` serves original files. To turn optimization off entirely, set `images.unoptimized: true`.
+[`inference.bindings.images`](../reference/config.md#inference-bindings) also renames or removes the binding. Set it to a name, such as `'MY_IMAGES'`, to rename the binding. With `false`, Void deploys without the binding and `/_void/image` serves original files. To turn optimization off entirely, set `images.unoptimized: true`.
 
 #### Free allowance
 
@@ -565,6 +629,8 @@ When the month's allowance is used up, Cloudflare doesn't charge you. Optimized 
 ### Void Platform
 
 Void Platform doesn't provide image optimization yet. `Image` renders original files there, as if `images.unoptimized` were set, and `void deploy` prints a warning. A custom loader or the `cloudflare` loader still applies.
+
+The Images binding isn't available on Void Platform either, so `env.IMAGES` is `undefined` there. To call the binding directly, deploy to [your Cloudflare account](../reference/cli/deploy.md#void-deploy-platform-cloudflare).
 
 ### Other targets and static output
 
@@ -607,10 +673,9 @@ These differences remain:
 - The endpoint path is `/_void/image` instead of `/_next/image`. Its cache status header is `X-Void-Image-Cache`.
 - Static image imports need `?image`. An import without it returns the URL string.
 - `blurDataURL` isn't generated for imported images. Pass it yourself with `placeholder="blur"`.
-- Local sources must be static files. Next.js also optimizes images served by routes.
 - AVIF output is limited to 1,200 pixels wide; wider images use the next format in `images.formats`.
 - `images.maximumResponseBody` is capped at 20 MB.
-- Remote hostnames aren't resolved before fetching, so `images.dangerouslyAllowLocalIP` only governs `localhost` and IP addresses written in the URL.
+- Remote hostnames aren't resolved before fetching, so `images.dangerouslyAllowLocalIP` only governs `localhost` and IP addresses written in the URL. Redirect targets must also match `images.remotePatterns`.
 - `images.maximumDiskCacheSize`, `images.disableStaticImages`, and `images.customCacheHandler` are accepted but have no effect, and Void prints a warning. `images.domains` is deprecated as in Next.js; use `remotePatterns`.
 
 See [`images`](../reference/config.md#images) for every configuration key.

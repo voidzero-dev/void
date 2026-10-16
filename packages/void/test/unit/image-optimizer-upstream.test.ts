@@ -205,6 +205,49 @@ describe('fetchRemoteImage', () => {
     expect(calls).toEqual(['https://images.test/private.jpg']);
   });
 
+  it('refuses a redirect target that isAllowedRedirect rejects, before fetching it', async () => {
+    const calls: Array<string> = [];
+    const checked: Array<string> = [];
+    const fetch = async (input: string): Promise<Response> => {
+      calls.push(input);
+      if (input === 'https://images.test/r?to=metadata') {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'http://169.254.169.254.nip.io/latest/meta-data/' },
+        });
+      }
+      if (input === 'https://images.test/r?to=cdn') {
+        return new Response(null, {
+          status: 302,
+          headers: { location: 'https://cdn.images.test/a.jpg' },
+        });
+      }
+      return new Response(JPEG, { headers: { 'content-type': 'image/jpeg' } });
+    };
+    const options: RemoteImageOptions = {
+      ...permissive,
+      dangerouslyAllowLocalIP: false,
+      fetch,
+      isAllowedRedirect: (url) => {
+        checked.push(url.href);
+        return url.hostname.endsWith('images.test');
+      },
+    };
+    // A DNS name that resolves to a private address passes the literal-IP check.
+    expect(await failure(fetchRemoteImage('https://images.test/r?to=metadata', options))).toEqual({
+      status: 400,
+      message: '"url" parameter is not allowed',
+    });
+    expect(calls).toEqual(['https://images.test/r?to=metadata']);
+    expect(checked).toEqual(['http://169.254.169.254.nip.io/latest/meta-data/']);
+
+    calls.length = 0;
+    expect((await fetchRemoteImage('https://images.test/r?to=cdn', options)).bytes).toEqual(
+      new Uint8Array(JPEG),
+    );
+    expect(calls).toEqual(['https://images.test/r?to=cdn', 'https://cdn.images.test/a.jpg']);
+  });
+
   it.each([
     ['an unparsable location', 'http://[bad', 500],
     ['a non-HTTP location', 'ftp://images.test/a.jpg', 500],
@@ -336,6 +379,83 @@ describe('loadLocalImage', () => {
         loadLocalImage({ fetch: async () => response() }, '/a.png', 'https://app.test/', 10),
       ),
     ).toEqual(expected);
+  });
+
+  describe('through the app', () => {
+    const image = (): Response =>
+      new Response(JPEG, { headers: { 'content-type': 'image/jpeg', etag: '"app"' } });
+    function setup(answer: (request: Request) => Response | Promise<Response>) {
+      const dispatched: Array<Request> = [];
+      const read: Array<Request> = [];
+      return {
+        dispatched,
+        read,
+        dispatch: async (request: Request): Promise<Response> => {
+          dispatched.push(request);
+          return answer(request);
+        },
+        assets: {
+          fetch: async (request: Request): Promise<Response> => {
+            read.push(request);
+            return image();
+          },
+        },
+      };
+    }
+
+    it('fails with the status of a guard and never reads the asset', async () => {
+      const { dispatch, assets, dispatched, read } = setup(
+        () => new Response('Unauthorized', { status: 401 }),
+      );
+      expect(
+        await failure(
+          loadLocalImage(assets, '/members/a.png', 'https://app.test/_void/image', 100, dispatch),
+        ),
+      ).toEqual({ status: 401, message: INTERNAL_INVALID });
+      expect(read).toEqual([]);
+      expect(dispatched).toHaveLength(1);
+      expect(dispatched[0].method).toBe('GET');
+      expect(dispatched[0].url).toBe('https://app.test/members/a.png');
+      expect([...dispatched[0].headers]).toEqual([]);
+    });
+
+    it('fails on a redirect from the app', async () => {
+      const { dispatch, assets, read } = setup(
+        () => new Response(null, { status: 302, headers: { location: '/login' } }),
+      );
+      expect(
+        await failure(loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch)),
+      ).toEqual({ status: 500, message: INTERNAL_INVALID });
+      expect(read).toEqual([]);
+    });
+
+    it('falls back to the static assets when the app answers 404', async () => {
+      const { dispatch, assets, read } = setup(() => new Response('none', { status: 404 }));
+      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch);
+      expect(result.bytes).toEqual(new Uint8Array(JPEG));
+      expect(read.map((request) => request.url)).toEqual(['https://app.test/a.png']);
+      expect([...read[0].headers]).toEqual([]);
+    });
+
+    it('uses what the app serves, as page fallbacks serve static files', async () => {
+      const { dispatch, assets, read } = setup(image);
+      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch);
+      expect(result.etag).toBe(Buffer.from('"app"').toString('base64url'));
+      expect(read).toEqual([]);
+    });
+
+    it('passes an app 404 through without assets and maps a throw to 500', async () => {
+      const notFound = async (): Promise<Response> => new Response('none', { status: 404 });
+      expect(
+        await failure(loadLocalImage(undefined, '/a.png', 'https://app.test/', 100, notFound)),
+      ).toEqual({ status: 404, message: INTERNAL_INVALID });
+      const broken = async (): Promise<Response> => {
+        throw new Error('boom');
+      };
+      expect(
+        await failure(loadLocalImage(undefined, '/a.png', 'https://app.test/', 100, broken)),
+      ).toEqual({ status: 500, message: UPSTREAM_INVALID });
+    });
   });
 
   it('fails without an assets binding or when it throws', async () => {

@@ -427,7 +427,7 @@ describe('handleImageRequest', () => {
     await tasks.settled();
     expect(first.headers.get('x-void-image-cache')).toBe('MISS');
     expect([...entries.keys()]).toEqual([
-      'https://app.test/_void/image?url=%2Ftest.png&w=64&q=75&__void_img_fmt=image%2Fwebp&__void_img_v=1&__void_img_dpl=deployment-1',
+      'https://app.test/_void/image?url=%2Ftest.png&w=64&q=75&__void_img_fmt=image%2Fwebp&__void_img_v=2&__void_img_dpl=deployment-1',
     ]);
     const second = await run(request('url=/test.png&w=64&q=75', { accept: 'image/webp' }), options);
     expect(second.headers.get('x-void-image-cache')).toBe('HIT');
@@ -472,7 +472,7 @@ describe('handleImageRequest', () => {
     expect(
       [...entries.keys()].filter((key) => !new URL(key).searchParams.has('__void_img_dpl')),
     ).toEqual([
-      'https://app.test/_void/image?url=https%3A%2F%2Fimages.test%2Fa.png&w=64&q=75&__void_img_fmt=auto&__void_img_v=1',
+      'https://app.test/_void/image?url=https%3A%2F%2Fimages.test%2Fa.png&w=64&q=75&__void_img_fmt=auto&__void_img_v=2',
     ]);
   });
 
@@ -569,6 +569,71 @@ describe('handleImageRequest', () => {
     expect(isImmutable).toHaveBeenCalledWith('/assets/hero-abc123.png');
   });
 
+  it('keeps minimumCacheTTL for a fingerprinted original served after a failed transform', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { cache, entries } = fakeCache();
+    const tasks = background();
+    const options = {
+      cache,
+      waitUntil: tasks.waitUntil,
+      isImmutable: () => true,
+      binding: fakeBinding({ code: 9422 }).binding,
+      assets: fakeAssets({ '/assets/hero-abc123.png': { body: fixture('test.png') } }).assets,
+    };
+    const query = 'url=/assets/hero-abc123.png&w=64&q=75';
+    const first = await run(request(query, { accept: 'image/webp' }), options);
+    await tasks.settled();
+    // A later request, once the transform works again, still finds the entry
+    // until minimumCacheTTL passes.
+    const second = await run(request(query, { accept: 'image/webp' }), {
+      ...options,
+      binding: fakeBinding().binding,
+    });
+    expect(second.headers.get('x-void-image-cache')).toBe('HIT');
+    for (const response of [first, second]) {
+      expect(response.headers.get('content-type')).toBe('image/png');
+      expect(response.headers.get('cache-control')).toBe('public, max-age=14400, must-revalidate');
+    }
+    expect([...entries.values()][0].headers.get('cache-control')).toBe('public, max-age=14400');
+  });
+
+  it('refuses a remote redirect to a host outside remotePatterns and warns once', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const remote = vi.fn(async (input: string) => {
+      if (input.startsWith('https://images.partner.com/r')) {
+        return new Response(null, {
+          status: 302,
+          headers: { location: new URL(input).searchParams.get('to')! },
+        });
+      }
+      return new Response(fixture('test.jpg'));
+    });
+    const options = {
+      fetch: remote,
+      config: config({
+        remotePatterns: [{ hostname: 'images.partner.com' }, { hostname: 'cdn.partner.com' }],
+      }),
+    };
+    const via = (target: string): Request =>
+      request(
+        `url=${encodeURIComponent(`https://images.partner.com/r?to=${encodeURIComponent(target)}`)}&w=64&q=75`,
+      );
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const refused = await run(via('http://127.0.0.1.nip.io:5432/'), options);
+      expect(refused.status).toBe(400);
+      expect(await refused.text()).toBe('"url" parameter is not allowed');
+    }
+    expect(remote).toHaveBeenCalledTimes(2);
+    expect(warn.mock.calls).toEqual([
+      [
+        "[void] An image source redirected to http://127.0.0.1.nip.io:5432, which images.remotePatterns doesn't allow, so /_void/image refused it. Add the redirect target to images.remotePatterns to optimize it.",
+      ],
+    ]);
+    const followed = await run(via('https://cdn.partner.com/a.jpg'), options);
+    expect(followed.status).toBe(200);
+    expect(remote).toHaveBeenLastCalledWith('https://cdn.partner.com/a.jpg', expect.anything());
+  });
+
   it('fetches allowed remote sources with the upstream max-age', async () => {
     const remote = vi.fn(
       async (_input: string, _init: RequestInit) =>
@@ -597,6 +662,81 @@ describe('createImageHandler', () => {
     hono.get('/_void/image', createImageHandler(options));
     return hono;
   }
+
+  describe('with the app', () => {
+    // Mirrors the generated route table: middleware, then the endpoint
+    // (given the app), then routes; static files come from ASSETS.
+    function guarded(): { hono: Hono; env: Record<string, unknown> } {
+      const hono = new Hono();
+      hono.use(async (c, next) => {
+        if (c.req.path.startsWith('/members/') && c.req.header('cookie') !== 'session=ok') {
+          return c.text('Unauthorized', 401);
+        }
+        if (c.req.path === '/loop.png') {
+          return hono.fetch(
+            new Request(new URL('/_void/image?url=%2Floop.png&w=64&q=75', c.req.url)),
+            c.env,
+          );
+        }
+        await next();
+      });
+      hono.get(
+        '/_void/image',
+        createImageHandler(
+          { config: config(), deploymentId: 'd1', loadManifest: async () => null },
+          hono,
+        ),
+      );
+      hono.get('/route.png', () => new Response(fixture('test.jpg')));
+      const files = {
+        '/members/premium.png': { body: fixture('test.png') },
+        '/test.png': { body: fixture('test.png') },
+        '/loop.png': { body: fixture('test.png') },
+      };
+      return { hono, env: { ASSETS: fakeAssets(files).assets, IMAGES: fakeBinding().binding } };
+    }
+
+    it('applies middleware that guards the source path, without the client cookies', async () => {
+      const { hono, env } = guarded();
+      const direct = await hono.fetch(new Request('https://app.test/members/premium.png'), env);
+      expect(direct.status).toBe(401);
+      for (const cookie of [undefined, 'session=ok']) {
+        const response = await hono.fetch(
+          request('url=%2Fmembers%2Fpremium.png&w=3840&q=75', {
+            accept: 'image/webp',
+            ...(cookie ? { cookie } : {}),
+          }),
+          env,
+        );
+        expect(response.status).toBe(401);
+        expect(await response.text()).toBe(
+          '"url" parameter is valid but internal response is invalid',
+        );
+      }
+    });
+
+    it('falls back to ASSETS when the app answers 404, and uses what routes serve', async () => {
+      const { hono, env } = guarded();
+      const asset = await hono.fetch(
+        request('url=/test.png&w=64&q=75', { accept: 'image/webp' }),
+        env,
+      );
+      expect(asset.status).toBe(200);
+      expect(asset.headers.get('content-type')).toBe('image/webp');
+      const route = await hono.fetch(request('url=/route.png&w=64&q=75', { accept: SAFARI }), env);
+      expect(route.status).toBe(200);
+      expect(route.headers.get('content-type')).toBe('image/jpeg');
+    });
+
+    it('answers a source request rewritten back to the endpoint without recursing', async () => {
+      const { hono, env } = guarded();
+      const response = await hono.fetch(request('url=/loop.png&w=64&q=75'), env);
+      expect(response.status).toBe(400);
+      expect(await response.text()).toBe(
+        '"url" parameter is valid but internal response is invalid',
+      );
+    });
+  });
 
   it('uses ASSETS and IMAGES from the Worker env and caches through caches.default', async () => {
     const { cache, entries } = fakeCache();

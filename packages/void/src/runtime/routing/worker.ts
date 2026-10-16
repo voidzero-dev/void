@@ -11,6 +11,11 @@ export type AssetFallbackOptions = {
   assetsDir?: string;
   serveSpaFallback?: boolean;
   notFound?: 'none' | '404-page' | 'single-page-application';
+  /**
+   * Request paths whose application 404 is final (the image optimizer
+   * endpoint): an SPA `not_found_handling` would answer them with the shell.
+   */
+  skipPaths?: ReadonlyArray<string>;
 };
 const ASSET_CONTENT_TYPES: Readonly<Record<string, string>> = {
   '.avif': 'image/avif',
@@ -111,7 +116,8 @@ export function createAssetFallback(
       response.status !== 404 ||
       intentionalNotFoundRequests.has(request) ||
       !env.ASSETS ||
-      (request.method !== 'GET' && request.method !== 'HEAD')
+      (request.method !== 'GET' && request.method !== 'HEAD') ||
+      options.skipPaths?.includes(new URL(request.url).pathname)
     ) {
       return response;
     }

@@ -193,8 +193,8 @@ export type CompiledLocalPattern = LocalPattern & {
 /**
  * The full configuration the server uses: defaults applied, sizes and
  * qualities sorted, patterns compiled, Next.js normalization applied, and
- * `unoptimized` forced where no optimizer exists (non-Cloudflare targets,
- * static output, Void Platform builds) unless a custom loader is set.
+ * `noOptimizer` set where no optimizer exists (non-Cloudflare targets, static
+ * output, Void Platform builds) unless a custom loader is set.
  * JSON-serializable, so it can be baked into generated code.
  */
 export type ResolvedImageConfig = {
@@ -220,7 +220,15 @@ export type ResolvedImageConfig = {
   /** Absolute, forward-slash path of `images.loaderFile`, or `''`. */
   loaderFile: string;
   path: string;
+  /** `images.unoptimized`: every image renders with its original `src`. */
   unoptimized: boolean;
+  /**
+   * Nothing serves the default loader's URLs in this build (`node`, `bun`
+   * and `deno` targets, static output, Void Platform builds) and no custom
+   * loader or `loaderFile` is configured. Images that use the default loader
+   * render with their original `src`; a `loader` prop still applies.
+   */
+  noOptimizer: boolean;
   /** True for the Vite dev server (`vp dev`), false for builds and preview. */
   dev: boolean;
 };
@@ -241,6 +249,8 @@ export type ClientImageConfig = {
   dangerouslyAllowSVG: boolean;
   unoptimized: boolean;
   dev: boolean;
+  /** `ResolvedImageConfig.noOptimizer`, present only when true. */
+  noOptimizer?: boolean;
   localPatterns?: Array<CompiledLocalPattern>;
   remotePatterns?: Array<CompiledRemotePattern>;
   domains?: Array<string>;

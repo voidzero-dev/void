@@ -23,6 +23,8 @@ export type CloudflareFrameworkDeployConfig = Readonly<{
    * Worker. Defaults to `true`, which starts the Worker for every request.
    */
   runWorkerFirst?: boolean | ReadonlyArray<string>;
+  /** Cloudflare Images binding for `env.IMAGES` reads; an authored `images` entry is kept. */
+  images?: Readonly<{ binding: string }>;
 }>;
 
 /**
@@ -98,6 +100,10 @@ export function writeCloudflareFrameworkDeployConfig(
     if (options.ai.gateway) {
       upsert(['vars', '__VOID_AI_GATEWAY'], options.ai.gateway);
     }
+  }
+
+  if (options.images && (parse(content) as { images?: unknown }).images === undefined) {
+    upsert(['images'], { binding: options.images.binding });
   }
 
   let changed = content !== initial;
