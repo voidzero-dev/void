@@ -20,6 +20,12 @@ import {
   VALID_REDIRECT_STATUSES,
   countSplats,
 } from '../../src/config.ts';
+import { IMAGE_CONFIG_LIMITS } from '../../src/image-config.ts';
+import {
+  IMAGE_CONFIG_KEYS,
+  VALID_IMAGE_FORMATS,
+  VALID_IMAGE_LOADERS,
+} from '../../src/image/config.ts';
 import { voidWarn } from '../../src/log.ts';
 import { resolveSandboxConfig } from '../../src/sandbox/config.ts';
 
@@ -1551,5 +1557,114 @@ describe('top-level email config validation', () => {
     expect(config.email?.from).toBe('noreply@mail.acme.com');
     expect(config.inference?.bindings?.email).toBe(true);
     cleanup();
+  });
+});
+
+describe('top-level images config validation', () => {
+  it('accepts an images object and returns it unchanged', () => {
+    const images = {
+      deviceSizes: [640, 1080],
+      qualities: [50, 75],
+      formats: ['image/avif', 'image/webp'],
+      remotePatterns: [{ protocol: 'https', hostname: '**.example.com', pathname: '/img/**' }],
+      localPatterns: [{ pathname: '/photos/**', search: '' }],
+      loader: 'default',
+      unoptimized: false,
+    };
+    setup(JSON.stringify({ images }));
+    expect(readConfig(tmpDir).images).toEqual(images);
+    cleanup();
+  });
+
+  it('accepts an empty top-level images object', () => {
+    setup(JSON.stringify({ images: {} }));
+    expect(readConfig(tmpDir).images).toEqual({});
+    cleanup();
+  });
+
+  it('accepts URL remote patterns in void.config.ts', () => {
+    setup();
+    writeFileSync(
+      join(tmpDir, 'void.config.ts'),
+      `export default { images: { remotePatterns: [new URL('https://example.com/account/**')] } };\n`,
+    );
+    const pattern = readConfig(tmpDir).images?.remotePatterns?.[0];
+    expect(pattern).toBeInstanceOf(URL);
+    cleanup();
+  });
+
+  it('throws when images is not an object', () => {
+    setup(JSON.stringify({ images: 'unoptimized' }));
+    expect(() => readConfig(tmpDir)).toThrow('"images" in void.json must be an object');
+    setup(JSON.stringify({ images: [] }));
+    expect(() => readConfig(tmpDir)).toThrow('"images" in void.json must be an object');
+    cleanup();
+  });
+
+  it('throws when an images field has the wrong type', () => {
+    setup(JSON.stringify({ images: { qualities: [0] } }));
+    expect(() => readConfig(tmpDir)).toThrow(
+      '"images.qualities" in void.json must be an array of 1 to 20 integers between 1 and 100',
+    );
+    cleanup();
+  });
+
+  it('rejects an unknown images.* key and names the typed config file', () => {
+    setup(JSON.stringify({ images: { sizes: [100] } }));
+    expect(() => readConfig(tmpDir)).toThrow("Unknown key 'images.sizes' in void.json");
+    setup();
+    writeFileSync(join(tmpDir, 'void.config.ts'), `export default { images: { quality: 80 } };\n`);
+    expect(() => readConfig(tmpDir)).toThrow("Unknown key 'images.quality' in void.config.ts");
+    cleanup();
+  });
+
+  it('schema.json images keys, enums and bounds match runtime validation', () => {
+    const schema = JSON.parse(readFileSync(join(import.meta.dirname, '../../schema.json'), 'utf8'));
+    const images = schema.properties.images;
+    expect(images.type).toBe('object');
+    expect(images.additionalProperties).toBe(false);
+    expect(Object.keys(images.properties)).toEqual([...IMAGE_CONFIG_KEYS]);
+    const props = images.properties;
+    expect(props.loader.enum).toEqual([...VALID_IMAGE_LOADERS]);
+    expect(props.formats.items.enum).toEqual([...VALID_IMAGE_FORMATS]);
+    expect(props.formats.maxItems).toBe(IMAGE_CONFIG_LIMITS.formatsMaxItems);
+    for (const key of ['deviceSizes', 'imageSizes'] as const) {
+      expect(props[key].items).toEqual({
+        type: 'integer',
+        minimum: IMAGE_CONFIG_LIMITS.sizeMin,
+        maximum: IMAGE_CONFIG_LIMITS.sizeMax,
+      });
+    }
+    expect(props.deviceSizes.maxItems).toBe(IMAGE_CONFIG_LIMITS.deviceSizesMaxItems);
+    expect(props.imageSizes.maxItems).toBe(IMAGE_CONFIG_LIMITS.imageSizesMaxItems);
+    expect(props.qualities.items).toEqual({
+      type: 'integer',
+      minimum: IMAGE_CONFIG_LIMITS.qualityMin,
+      maximum: IMAGE_CONFIG_LIMITS.qualityMax,
+    });
+    expect(props.qualities.minItems).toBe(IMAGE_CONFIG_LIMITS.qualitiesMinItems);
+    expect(props.qualities.maxItems).toBe(IMAGE_CONFIG_LIMITS.qualitiesMaxItems);
+    expect(props.domains.maxItems).toBe(IMAGE_CONFIG_LIMITS.domainsMaxItems);
+    expect(props.maximumRedirects.maximum).toBe(IMAGE_CONFIG_LIMITS.maximumRedirectsMax);
+    expect(props.contentDispositionType.enum).toEqual(['inline', 'attachment']);
+
+    const remote = props.remotePatterns;
+    expect(remote.maxItems).toBe(IMAGE_CONFIG_LIMITS.remotePatternsMaxItems);
+    expect(remote.items.additionalProperties).toBe(false);
+    expect(remote.items.required).toEqual(['hostname']);
+    expect(Object.keys(remote.items.properties)).toEqual([
+      'protocol',
+      'hostname',
+      'port',
+      'pathname',
+      'search',
+    ]);
+    expect(remote.items.properties.protocol.enum).toEqual(['http', 'https']);
+    expect(remote.items.properties.port.maxLength).toBe(IMAGE_CONFIG_LIMITS.portMaxLength);
+
+    const local = props.localPatterns;
+    expect(local.maxItems).toBe(IMAGE_CONFIG_LIMITS.localPatternsMaxItems);
+    expect(local.items.additionalProperties).toBe(false);
+    expect(Object.keys(local.items.properties)).toEqual(['pathname', 'search']);
   });
 });

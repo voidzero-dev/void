@@ -267,6 +267,10 @@
             "email": {
               "type": "boolean",
               "description": "Enable email support (used by void/email)."
+            },
+            "images": {
+              "oneOf": [{ "type": "boolean" }, { "type": "string" }],
+              "description": "Enable the Cloudflare Images binding used by Image components. `true` uses default name \"IMAGES\", a string sets a custom binding name, `false` disables it."
             }
           },
           "additionalProperties": false
@@ -414,6 +418,170 @@
         "from": {
           "type": "string",
           "description": "Default sender for sendEmail(): one address, optionally with a display name (\"Acme <noreply@mail.acme.com>\"). On `void deploy --backend cloudflare` its host is the domain Void sets Email Routing and Email Sending up on."
+        }
+      },
+      "additionalProperties": false
+    },
+    "images": {
+      "type": "object",
+      "description": "Image optimization for Image components and the /_void/image endpoint. Keys, types and defaults follow images in Next.js 16 next.config.js.",
+      "properties": {
+        "deviceSizes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "maxItems": 25,
+          "description": "Widths used for w descriptors when sizes or fill is set. Default: [640, 750, 828, 1080, 1200, 1920, 2048, 3840]."
+        },
+        "imageSizes": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 10000
+          },
+          "maxItems": 25,
+          "description": "Widths combined with deviceSizes for fixed-width and sizes images. Default: [32, 48, 64, 96, 128, 256, 384]."
+        },
+        "qualities": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          },
+          "minItems": 1,
+          "maxItems": 20,
+          "description": "Allowed quality values. Default: [75]."
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": ["image/avif", "image/webp"]
+          },
+          "maxItems": 4,
+          "description": "Output formats negotiated from the Accept header, in order of preference. Default: [\"image/webp\"]."
+        },
+        "minimumCacheTTL": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Minimum Cache-Control max-age, in seconds, for optimized images. Default: 14400."
+        },
+        "remotePatterns": {
+          "type": "array",
+          "maxItems": 50,
+          "items": {
+            "type": "object",
+            "properties": {
+              "protocol": {
+                "type": "string",
+                "enum": ["http", "https"]
+              },
+              "hostname": {
+                "type": "string"
+              },
+              "port": {
+                "type": "string",
+                "maxLength": 5
+              },
+              "pathname": {
+                "type": "string"
+              },
+              "search": {
+                "type": "string"
+              }
+            },
+            "required": ["hostname"],
+            "additionalProperties": false
+          },
+          "description": "Remote sources the endpoint may fetch. void.config.ts also accepts URL objects."
+        },
+        "localPatterns": {
+          "type": "array",
+          "maxItems": 25,
+          "items": {
+            "type": "object",
+            "properties": {
+              "pathname": {
+                "type": "string"
+              },
+              "search": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          },
+          "description": "Local sources the endpoint may load. Default: any path without a query string."
+        },
+        "dangerouslyAllowSVG": {
+          "type": "boolean",
+          "description": "Serve SVG sources (unchanged) instead of rejecting them. Default: false."
+        },
+        "dangerouslyAllowLocalIP": {
+          "type": "boolean",
+          "description": "Allow remote sources on private or loopback IP addresses. Default: false."
+        },
+        "contentSecurityPolicy": {
+          "type": "string",
+          "description": "Content-Security-Policy sent with every endpoint response. Default: \"script-src 'none'; frame-src 'none'; sandbox;\"."
+        },
+        "contentDispositionType": {
+          "type": "string",
+          "enum": ["inline", "attachment"],
+          "description": "Content-Disposition type sent with every endpoint response. Default: \"attachment\"."
+        },
+        "maximumRedirects": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 20,
+          "description": "Redirects followed for remote sources. Default: 3."
+        },
+        "maximumResponseBody": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Largest remote source body, in bytes. Capped at 20000000. Default: 50000000."
+        },
+        "loader": {
+          "type": "string",
+          "enum": ["default", "imgix", "cloudinary", "akamai", "custom", "cloudflare"],
+          "description": "Loader used to build image URLs. \"cloudflare\" emits Cloudflare zone transformation URLs (/cdn-cgi/image/...). Default: \"default\"."
+        },
+        "loaderFile": {
+          "type": "string",
+          "description": "Module, relative to the project root, whose default export is the loader for every Image."
+        },
+        "path": {
+          "type": "string",
+          "description": "URL prefix of the optimizer (default loader) or image CDN (other loaders). Default: \"/_void/image\"."
+        },
+        "unoptimized": {
+          "type": "boolean",
+          "description": "Render every image with its original src. Default: false."
+        },
+        "domains": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 50,
+          "description": "Deprecated: use remotePatterns."
+        },
+        "maximumDiskCacheSize": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Accepted for Next.js compatibility. Has no effect."
+        },
+        "disableStaticImages": {
+          "type": "boolean",
+          "description": "Accepted for Next.js compatibility. Has no effect."
+        },
+        "customCacheHandler": {
+          "type": "boolean",
+          "description": "Accepted for Next.js compatibility. Has no effect."
         }
       },
       "additionalProperties": false

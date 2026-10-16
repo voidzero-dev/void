@@ -125,6 +125,7 @@ export default defineConfig({
       'src/runtime/migration-handler-mysql.ts',
       'src/runtime/ws-server.ts',
       'src/runtime/live-server.ts',
+      'src/image/index.ts',
       'src/sveltekit.ts',
       'src/nitro.ts',
       'src/pages/index.ts',
