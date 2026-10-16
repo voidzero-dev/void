@@ -2146,7 +2146,7 @@ describe('direct Worker module upload', () => {
     const code = new TextEncoder().encode('export default {};');
     const { id, modules } = await upload(project.id, { 'index.js': code });
     const uploaded = vi.fn(async () => cfSuccess({}));
-    mockCfApi({ uploadWorker: uploaded });
+    const cf = mockCfApi({ uploadWorker: uploaded });
     // Same size, so the finalize listing accepts it; only the digest differs.
     await env.STATIC_ASSETS_R2.put(
       `deployment-inputs/${project.id}/${id}/0`,
@@ -2162,6 +2162,8 @@ describe('direct Worker module upload', () => {
       }),
     );
     expect(uploaded).not.toHaveBeenCalled();
+    // Changed bytes fail every attempt, so the upload is not retried.
+    expect(workerUploadCalls(cf, project.slug)).toHaveLength(1);
     const [deployment] = await env.db
       .select({ status: deployments.status })
       .from(deployments)
@@ -2172,6 +2174,36 @@ describe('direct Worker module upload', () => {
       prefix: `deployment-inputs/${project.id}/${id}/`,
     });
     expect(left.objects).toEqual([]);
+  });
+
+  it('retries the upload when reading a stored module fails once', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-read-retry');
+    const code = new TextEncoder().encode('export default {};');
+    const { id, modules } = await upload(project.id, { 'index.js': code });
+    const cf = mockCfApi();
+    const key = `deployment-inputs/${project.id}/${id}/0`;
+    const originalGet = env.STATIC_ASSETS_R2.get.bind(env.STATIC_ASSETS_R2);
+    let failed = false;
+    vi.spyOn(env.STATIC_ASSETS_R2, 'get').mockImplementation(async (getKey, options) => {
+      if (getKey === key && !failed) {
+        failed = true;
+        throw new Error('R2 unavailable');
+      }
+      return originalGet(getKey, options);
+    });
+    // Skip the retry backoff.
+    const nativeSetTimeout = globalThis.setTimeout;
+    vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+      fn: TimerHandler,
+      ...args: Array<unknown>
+    ) => nativeSetTimeout(fn, 0, ...args)) as typeof setTimeout);
+
+    const events = await readAllEvents(
+      await finalize(project.id, { workerInput: { id, modules } }),
+    );
+
+    expect(events.find((e) => isEvent(e, 'done'))).toBeDefined();
+    expect(workerUploadCalls(cf, project.slug)).toHaveLength(2);
   });
 
   it('reopens every module when Cloudflare asks for the upload again', async () => {

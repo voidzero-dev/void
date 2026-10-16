@@ -34,7 +34,12 @@ import { issueProjectProxyToken } from '../proxy-token-rotation.ts';
 import { RESERVED_BINDING_NAMES } from '../reserved-bindings.ts';
 import { deployments } from '../schema.ts';
 import { type DeployManifest, type DeployEvent, type Deployment, type Project } from '../types.ts';
-import { withKnownLength, workerUploadBody, type WorkerModule } from '../worker-upload.ts';
+import {
+  WorkerModuleIntegrityError,
+  withKnownLength,
+  workerUploadBody,
+  type WorkerModule,
+} from '../worker-upload.ts';
 import {
   buildWebSocketUploadBindings,
   buildSandboxUploadBindings,
@@ -418,9 +423,13 @@ export async function uploadDeploymentWorker(input: {
   }
 
   input.workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  const maxAttempts = CF_RETRY.maxRetries + 1;
+  // A replay only rewrites this deployment's own script: the name is unique
+  // per deployment.
   await retryWithBackoff(
     async (attempt) => {
       const attemptStart = Date.now();
+      const lastAttempt = attempt === CF_RETRY.maxRetries;
       // A streamed body is sent once, so each attempt reopens the modules.
       const upload = workerUploadBody(metadata, workerFiles);
       let cfResponse: Response;
@@ -436,20 +445,40 @@ export async function uploadDeploymentWorker(input: {
         });
       } catch (error) {
         // A module that fails its size or digest check stops the body before
-        // its closing boundary. Report that, not the transport error it causes;
-        // thrown errors are not retried.
-        throw upload.failure() ?? error;
+        // its closing boundary. Report that, not the transport error it causes,
+        // and never retry it: the same bytes fail every attempt. Any other
+        // failure is retried.
+        const failure = upload.failure();
+        if (failure instanceof WorkerModuleIntegrityError || lastAttempt) {
+          throw failure ?? error;
+        }
+        const cause = failure ?? error;
+        logger.warn('worker_upload', 'attempt_failed', {
+          attempt,
+          maxAttempts,
+          latencyMs: Date.now() - attemptStart,
+          code: 'transport',
+          err: cause instanceof Error ? cause.message : String(cause),
+        });
+        return undefined;
       }
 
       if (!cfResponse.ok) {
         const error = await cfResponse.text();
-        logger.error('worker_upload', 'attempt_failed', new Error(error), {
+        const fields = {
           attempt,
-          maxAttempts: CF_RETRY.maxRetries + 1,
+          maxAttempts,
           latencyMs: Date.now() - attemptStart,
           status: cfResponse.status,
           bodyPreview: error.slice(0, 500),
-        });
+        };
+        // Only 5xx is retried. A 429 stays final: the install shares one API
+        // token, and Cloudflare blocks it for minutes once it hits the limit.
+        if (cfResponse.status >= 500 && !lastAttempt) {
+          logger.warn('worker_upload', 'attempt_failed', fields);
+          return undefined;
+        }
+        logger.error('worker_upload', 'attempt_failed', new Error(error), fields);
         throw new Error(`worker upload failed: ${error}`);
       }
 
@@ -457,7 +486,7 @@ export async function uploadDeploymentWorker(input: {
       if (isCfAssetPlainText(cfBody)) {
         logger.warn('worker_upload', 'attempt_failed', {
           attempt,
-          maxAttempts: CF_RETRY.maxRetries + 1,
+          maxAttempts,
           latencyMs: Date.now() - attemptStart,
           code: 'cf_plain_text',
           bodyPreview: cfBody.slice(0, 100),
