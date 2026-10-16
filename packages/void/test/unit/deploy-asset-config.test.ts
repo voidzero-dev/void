@@ -596,3 +596,25 @@ describe('edgeRulesNeedWorker', () => {
     );
   });
 });
+
+describe('resolveAssetRoutingPolicy image optimizer path', () => {
+  const base = { isSsr: false, hasPages: false, hasDocumentRoutes: false, hasMiddleware: false };
+
+  it('lists the mounted image path in both SPA worker-first lists', () => {
+    expect(resolveAssetConfig({ ...base, imagePath: '/_void/image' })).toEqual({
+      not_found_handling: 'single-page-application',
+      run_worker_first: ['/__void', '/__void/*', '/_void/image'],
+    });
+    expect(resolveAssetConfig({ ...base, hasApiRoutes: true, imagePath: '/img' })).toEqual({
+      not_found_handling: 'single-page-application',
+      run_worker_first: ['/api', '/api/*', '/__void', '/__void/*', '/img'],
+    });
+  });
+
+  it('leaves worker-first policies unchanged', () => {
+    expect(resolveAssetConfig({ ...base, hasPages: true, imagePath: '/_void/image' })).toEqual({
+      not_found_handling: 'none',
+      run_worker_first: ['/**'],
+    });
+  });
+});

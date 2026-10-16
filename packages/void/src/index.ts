@@ -32,7 +32,9 @@ import {
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
 import { syncBindingTypes } from './codegen/binding-types.ts';
+import { LEGACY_CONFIG_FILE, TYPED_CONFIG_FILE } from './config-loader.ts';
 import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
+import { getImageConfigWarnings } from './image-config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
 import { voidLog, voidWarn } from './log.ts';
@@ -64,6 +66,7 @@ import {
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
 import { createFrameworkPlugins } from './plugin-framework.ts';
+import { imagePlugin } from './plugin-image.ts';
 import {
   DEFAULT_SCAN_DIRS,
   FRAMEWORK_SCAN_DIRS,
@@ -121,6 +124,12 @@ export function voidPlugin(options?: {
     : getOrCreateDevTriggerToken(root);
   const config = readConfig(root);
   syncBindingTypes(root, config);
+  const configFile = existsSync(join(root, TYPED_CONFIG_FILE))
+    ? TYPED_CONFIG_FILE
+    : LEGACY_CONFIG_FILE;
+  for (const warning of getImageConfigWarnings(config.images, configFile)) {
+    voidWarn(warning);
+  }
   const projectCloudflareConfigPath = !isNodeTarget(config.target)
     ? materializeCloudflareConfig(root)
     : undefined;
@@ -358,6 +367,16 @@ export function voidPlugin(options?: {
   // envPlugin.config so mergeBindings can gate credential injection on 'serve'.
   let viteCommand: 'serve' | 'build' = 'build';
   let versionMetadataBinding: string | undefined;
+  // Registered for Void apps (Cloudflare and Node targets) only. `images` is
+  // resolved per command in its config hook; Node targets resolve it as
+  // unoptimized (unless a custom loader is set) and mount nothing.
+  const images = imagePlugin(root, {
+    images: config.images,
+    target: config.target,
+    output: config.output,
+    inferenceBinding: config.inference?.bindings?.images,
+    configFile,
+  });
 
   // Merge curated wrangler fields from void.config.ts
   const wranglerCompat = isNodeTarget(config.target) ? undefined : readWranglerCompat(root, config);
@@ -435,6 +454,10 @@ export function voidPlugin(options?: {
       application = getApplicationAnalysis(routeEnvironment);
       bindings = application.bindings;
       authEnabled = application.authEnabled;
+      if (!framework) {
+        // The asset routing policy below depends on whether the image optimizer is mounted.
+        images.api.resolve({ command, isPreview });
+      }
       // Re-resolve for the real environment. Framework and node-target branches return before
       // `ssrEntry` is declared (TDZ) and must leave `workerConfig.assets` unset.
       if (!framework && !isNodeTarget(config.target)) {
@@ -877,6 +900,7 @@ export function voidPlugin(options?: {
       serverRuntimeOptimizerPlugin,
       envSchemaPlugin(root),
       ...pagesDevCssAssetsPlugin(root, devTriggerToken),
+      images,
       routingPlugin(root, {
         getApplicationAnalysis,
         isAuthEnabled: () => false,
@@ -886,6 +910,7 @@ export function voidPlugin(options?: {
         target: config.target as 'node' | 'bun' | 'deno',
         routing: config.routing,
         hasSandbox: false,
+        images: images.api,
       }),
       prerenderPlugin(root, config),
       ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno', {
@@ -930,6 +955,7 @@ export function voidPlugin(options?: {
       authEnabled,
       liveEnabled: shouldEmitLive() && liveConfig !== undefined,
       notFound: config.routing?.notFound,
+      imagePath: images.api.getMountedConfig(application.bindings.usesImageOptimizer)?.path,
     });
     const rules = mergeRoutingRules({ dir: assetRoutingPublicDir, routing: config.routing });
     const nativeOwnsEdgeRouting =
@@ -1014,6 +1040,7 @@ export function voidPlugin(options?: {
     onDevAssetRoutingPolicyChange: updateDevAssetRoutingPolicy,
     // Native builds of eligible apps let Cloudflare serve hashed build files directly.
     assetWorkerBypass: true,
+    images: images.api,
   });
 
   return [
@@ -1034,6 +1061,7 @@ export function voidPlugin(options?: {
     bindingRuntimePlugin(bindingNames),
     ...(bindings.needsSandbox ? [createSandboxSdkResolvePlugin()] : []),
     ...pagesDevCssAssetsPlugin(root, devTriggerToken),
+    images,
     routes,
     drizzlePlugin(root, true, dialect, {
       d1BindingName: bindingNames?.d1,

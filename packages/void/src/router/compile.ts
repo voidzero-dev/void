@@ -3,6 +3,8 @@ import { relative } from 'pathslash';
 import type { VoidAuthProvider } from '../auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
+import { isImageOptimizerActive } from '../image-config.ts';
+import type { ResolvedImageConfig } from '../image/config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { createBoundaryManifest } from '../pages/boundary-plans.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
@@ -98,6 +100,12 @@ export type CompileOptions = {
   webSocketTombstones?: Array<string>;
   /** Cloudflare queue names chosen by `void deploy --platform cloudflare`. */
   cloudflareQueueNames?: CloudflareQueueNames;
+  /**
+   * Mount the image optimizer (`createImageHandler`) at `config.path`. Set
+   * only for apps that use `Image` with the default loader; ignored on
+   * `node`/`bun`/`deno` targets and when `isImageOptimizerActive` is false.
+   */
+  images?: { config: ResolvedImageConfig };
 };
 
 export type SsrCompileOptions = {
@@ -186,10 +194,20 @@ export function compileRouteTable(
   const webSockets = scan.websockets ?? [];
   const managedDispatch =
     options.nodeTarget !== true && options.dev !== true && options.managedDispatch === true;
+  const imageConfig =
+    options.images && options.nodeTarget !== true && isImageOptimizerActive(options.images.config)
+      ? options.images.config
+      : undefined;
+  // One compile-time id per route table: the image cache key and
+  // `__VOID_ISR_DEPLOYMENT_ID` (exported at the end, so not readable above it)
+  // share the same literal. Generated lazily to keep the UUID order of apps
+  // without images.
+  let deploymentId: string | undefined;
+  const getDeploymentId = (): string => (deploymentId ??= crypto.randomUUID());
 
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(
-    `import { Hono, createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { Hono, createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath${imageConfig ? ', createImageHandler as __createImageHandler' : ''} } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (pages) {
     lines.push(
@@ -245,7 +263,7 @@ export function compileRouteTable(
 
   if (auth) {
     lines.push(
-      `const __voidAuthOptions = { dialect: ${JSON.stringify(auth.dialect)}, providers: ${JSON.stringify(auth.providers)}, userConfig: ${auth.authConfigPath ? '__voidAuthConfig' : 'undefined'}, dev: ${JSON.stringify(options.dev === true)} };`,
+      `const __voidAuthOptions = { dialect: ${JSON.stringify(auth.dialect)}, providers: ${JSON.stringify(auth.providers)}, userConfig: ${auth.authConfigPath ? '__voidAuthConfig' : 'undefined'}, dev: ${JSON.stringify(options.dev === true)}${imageConfig ? `, skipPaths: ${JSON.stringify([imageConfig.path])}` : ''} };`,
     );
     if (webSockets.length > 0) {
       lines.push(
@@ -336,6 +354,16 @@ export function compileRouteTable(
     lines.push(`app.use(middleware${i});`);
   }
   if (scan.middleware.length > 0) {
+    lines.push('');
+  }
+
+  // The image optimizer runs after auth and user middleware (as `/_next/image`
+  // does after Next.js middleware), and before every route and page so a
+  // catch-all cannot shadow it. It answers 405 for methods other than GET/HEAD.
+  if (imageConfig) {
+    lines.push(
+      `app.all(${JSON.stringify(imageConfig.path)}, __createImageHandler(${JSON.stringify({ config: imageConfig, deploymentId: getDeploymentId(), assetsDir: options.assetsDir })}));`,
+    );
     lines.push('');
   }
 
@@ -897,7 +925,7 @@ export function compileRouteTable(
   lines.push(`export const __VOID_ISR_REVALIDATE = ${JSON.stringify(mergedRevalidate)};`);
   lines.push(`export const __VOID_ISR_PAGES = ${JSON.stringify(isrPages)};`);
   lines.push(`export const __VOID_ISR_PATH_REVALIDATE = ${JSON.stringify(isrPathRevalidate)};`);
-  lines.push(`export const __VOID_ISR_DEPLOYMENT_ID = ${JSON.stringify(crypto.randomUUID())};`);
+  lines.push(`export const __VOID_ISR_DEPLOYMENT_ID = ${JSON.stringify(getDeploymentId())};`);
   lines.push('');
   lines.push(`export default app;`);
 
@@ -1210,7 +1238,12 @@ export interface WorkerEntryOptions {
    * `__VOID_ISR_DEPLOYMENT_ID` const imported from the route table. Absent
    * for managed, dev, and non-ISR builds.
    */
-  isr?: { runtimePath: string; queryAllowlist?: Record<string, Array<string>> };
+  isr?: {
+    runtimePath: string;
+    queryAllowlist?: Record<string, Array<string>>;
+    /** Request paths that never enter the ISR cache (the image optimizer endpoint). */
+    bypassPaths?: Array<string>;
+  };
   /**
    * Resolved `assetConfig.not_found_handling` for this build. Threaded to
    * `compileAssetFallbackHelper` so `routing.notFound: '404-page'` is honored
@@ -1348,7 +1381,7 @@ const __filterInternalBindings = (env) => __filterBindings(env, ${JSON.stringify
     staticNotFound: __voidRenderStaticNotFound,
     filterBindings: __filterInternalBindings,
     internalRoute: __voidHandleInternalRoute,
-    collectPrerenderPaths: __voidCollectPrerenderPaths${alwaysUseHttps ? ', alwaysUseHttps: true' : ''}${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
+    collectPrerenderPaths: __voidCollectPrerenderPaths${alwaysUseHttps ? ', alwaysUseHttps: true' : ''}${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, ' + (isr.bypassPaths?.length ? 'bypassPaths: ' + JSON.stringify(isr.bypassPaths) + ', ' : '') + 'handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
   })`;
   const remoteEnvSwap = remotePath
     ? `  if (env.__VOID_REMOTE === "1") env = ${createRemoteEnvCall};\n`
