@@ -1,0 +1,27 @@
+packages/void/src/cli/deploy-migrations.ts
+  s_f572b1deb5ef86::t_a6791d2c3080cb 629-639,642,644,646,648-651,672-685
+packages/void/src/cli/project-args.ts
+  s_f572b1deb5ef86::t_88d197858456cf 35,37-43
+packages/void/test/unit/cloudflare-deploy.test.ts
+  s_f572b1deb5ef86::t_3b5226dd95a11c 7951
+packages/void/test/unit/deploy-migrations-restore-point.test.ts
+  s_f572b1deb5ef86::t_6867025179ea63 41-45,60,121,134-138,149-153,172-176,187-245
+packages/void/test/unit/project-args.test.ts
+  s_f572b1deb5ef86::t_20c8e8b7fed61d 2,335-348
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "753b8d1b677fa75183ceb91c5ee96ce0bc386e33",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
