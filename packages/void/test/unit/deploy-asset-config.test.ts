@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   hasApiRoutes,
   hasDocumentRoutes,
@@ -428,6 +428,45 @@ describe('generated serveWithAssets — routing.notFound end to end', () => {
     hasMiddleware: true,
   } as const;
 
+  it('keeps 404s from skipped paths such as the image optimizer endpoint', async () => {
+    const policy = resolveAssetRoutingPolicy({
+      isSsr: false,
+      hasPages: false,
+      hasApiRoutes: true,
+      hasDocumentRoutes: false,
+      hasMiddleware: false,
+      imagePath: '/_void/image',
+    });
+    expect(policy.assetConfig.run_worker_first).toContain('/_void/image');
+    const handling = policy.assetConfig.not_found_handling;
+    expect(handling).toBe('single-page-application');
+    const assets = makeAssets(handling);
+    const fetchAsset = vi.spyOn(assets, 'fetch');
+    const serveWithAssets = createAssetFallback({
+      assetsDir: 'assets',
+      serveSpaFallback: policy.workerSpaFallback,
+      notFound: handling,
+      skipPaths: ['/_void/image'],
+    });
+    const serve = (path: string, accept: string) =>
+      serveWithAssets(
+        new Request(`https://app.test${path}`, { headers: { accept } }),
+        { ASSETS: assets },
+        new Response('upstream 404', { status: 404 }),
+      );
+
+    const image = await serve('/_void/image?url=%2Fgone.png&w=64&q=75', 'image/avif,*/*');
+    expect(image.status).toBe(404);
+    expect(await image.text()).toBe('upstream 404');
+    const navigation = await serve('/_void/image?url=%2Fgone.png&w=64&q=75', 'text/html');
+    expect(navigation.status).toBe(404);
+    expect(fetchAsset).not.toHaveBeenCalled();
+
+    const other = await serve('/deep/link', 'text/html');
+    expect(other.status).toBe(200);
+    expect(await other.text()).toBe('<html>SPA SHELL</html>');
+  });
+
   it('serves the SPA shell at 200 when notFound is unset (unchanged default)', async () => {
     expect(await serveUnmatched(ssgWithMiddleware)).toEqual({
       status: 200,
@@ -574,6 +613,28 @@ describe('generated serveWithAssets — routing.notFound end to end', () => {
         status: 404,
         body: '<html>GENERATED 404</html>',
       });
+    });
+  });
+});
+
+describe('resolveAssetRoutingPolicy image optimizer path', () => {
+  const base = { isSsr: false, hasPages: false, hasDocumentRoutes: false, hasMiddleware: false };
+
+  it('lists the mounted image path in both SPA worker-first lists', () => {
+    expect(resolveAssetConfig({ ...base, imagePath: '/_void/image' })).toEqual({
+      not_found_handling: 'single-page-application',
+      run_worker_first: ['/__void', '/__void/*', '/_void/image'],
+    });
+    expect(resolveAssetConfig({ ...base, hasApiRoutes: true, imagePath: '/img' })).toEqual({
+      not_found_handling: 'single-page-application',
+      run_worker_first: ['/api', '/api/*', '/__void', '/__void/*', '/img'],
+    });
+  });
+
+  it('leaves worker-first policies unchanged', () => {
+    expect(resolveAssetConfig({ ...base, hasPages: true, imagePath: '/_void/image' })).toEqual({
+      not_found_handling: 'none',
+      run_worker_first: ['/**'],
     });
   });
 });

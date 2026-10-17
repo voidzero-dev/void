@@ -1,4 +1,5 @@
 export { default as Form } from './Form.svelte';
+export { default as Image } from './Image.svelte';
 export { default as Link } from './Link.svelte';
 export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';
@@ -7,4 +8,6 @@ export { useForm } from './use-form.svelte.ts';
 export { useNavigation } from './use-navigation.ts';
 export { useIslandForm } from './use-island-form.svelte.ts';
 export { action, setActionRouter } from './action.ts';
+export { getImageProps } from './image.ts';
+export type { ImageProps } from './image.ts';
 export type { DeferredState as Deferred, InferProps } from 'void';

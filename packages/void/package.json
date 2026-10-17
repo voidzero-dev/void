@@ -43,7 +43,8 @@
     "#self/runtime/migration-handler-pg": "./dist/runtime/migration-handler-pg.mjs",
     "#self/runtime/migration-handler-mysql": "./dist/runtime/migration-handler-mysql.mjs",
     "#self/runtime/ws-server": "./dist/runtime/ws-server.mjs",
-    "#self/runtime/routing": "./dist/runtime/routing.mjs"
+    "#self/runtime/routing": "./dist/runtime/routing.mjs",
+    "#self/image": "./dist/image/index.mjs"
   },
   "exports": {
     ".": {
@@ -328,6 +329,11 @@
       "types": "./dist/runtime/sandbox-container.d.mts",
       "import": "./dist/runtime/sandbox-container.mjs"
     },
+    "./image": {
+      "types": "./dist/image/index.d.mts",
+      "import": "./dist/image/index.mjs",
+      "require": "./dist/image/index.mjs"
+    },
     "./limits": {
       "types": "./dist/runtime/limits.d.mts",
       "import": "./dist/runtime/limits.mjs",
@@ -376,6 +382,7 @@
     "minimatch": "^10.2.6",
     "mysql2": "^3.24.6",
     "pg": "^8.23.1",
+    "picomatch": "^4.0.7",
     "postal-mime": "catalog:",
     "proper-lockfile": "^4.1.2",
     "terminal-link": "^5.0.0",
@@ -386,6 +393,7 @@
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
+    "@types/picomatch": "^4.0.3",
     "@types/proper-lockfile": "^4.1.4",
     "@voidzero-dev/vite-plus-prompts": "catalog:",
     "arktype": "^2.2.8",

@@ -11,7 +11,7 @@ import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
 import { type DatabaseDialect, type VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
 import { hasEmailHandlers, type EmailHandlersScan } from '../router/email.ts';
-import { DEFAULT_VOID_AI_BINDING } from './deploy-binding-snapshot.ts';
+import { DEFAULT_VOID_AI_BINDING, DEFAULT_VOID_IMAGES_BINDING } from './deploy-binding-snapshot.ts';
 import { type CloudflareAuthSecretFailureReason } from './deploy-types.ts';
 import {
   isRealD1Id,
@@ -194,6 +194,10 @@ export async function computeDesiredCloudflareResources(
   needsAI: boolean;
   /** Workers AI binding emitted by the build (default `AI`). */
   aiBindingName: string;
+  /** `Image` or `env.IMAGES` use, which authorizes the emitted Images binding. */
+  needsImages: boolean;
+  /** Cloudflare Images binding emitted by the build (default `IMAGES`). */
+  imagesBindingName: string;
   /** `void.config.ts` enables Sandbox or the source imports `void/sandbox`. */
   needsSandbox: boolean;
   /** Whether the source imports void/live and the build may emit its Durable Object. */
@@ -310,6 +314,8 @@ export async function computeDesiredCloudflareResources(
     migrations,
     needsAI: bindings.needsAI,
     aiBindingName: bindingNames?.ai ?? DEFAULT_VOID_AI_BINDING,
+    needsImages: bindings.needsImages === true,
+    imagesBindingName: bindingNames?.images ?? DEFAULT_VOID_IMAGES_BINDING,
     expectedCrons,
     needsEmail: bindings.needsEmail === true || hasEmailHandlers(emailHandlers),
     emailHandlers,

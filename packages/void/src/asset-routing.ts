@@ -19,6 +19,12 @@ export type AssetRoutingInputs = {
    * changes. `workerSpaFallback` DOES follow it — see below.
    */
   notFound?: NotFoundHandling;
+  /**
+   * The image optimizer path (`images.path`) when the generated routes mount
+   * it. SPA policies send it to the Worker first, so the SPA shell never
+   * answers it.
+   */
+  imagePath?: string;
 };
 
 export type AssetRoutingPolicy = {
@@ -73,16 +79,19 @@ export function resolveAssetRoutingPolicy(inputs: AssetRoutingInputs): AssetRout
   const workerFirst = workerOwnsHtmlRouting(inputs);
   const apiWorkerFirst =
     !workerFirst && (inputs.hasApiRoutes === true || inputs.authEnabled === true);
+  const internalWorkerFirst = inputs.imagePath
+    ? [...VOID_INTERNAL_WORKER_FIRST, inputs.imagePath]
+    : VOID_INTERNAL_WORKER_FIRST;
   const assetConfig: AssetConfig = workerFirst
     ? { not_found_handling: 'none', run_worker_first: ['/**'] }
     : apiWorkerFirst
       ? {
           not_found_handling: 'single-page-application',
-          run_worker_first: ['/api', '/api/*', ...VOID_INTERNAL_WORKER_FIRST],
+          run_worker_first: ['/api', '/api/*', ...internalWorkerFirst],
         }
       : {
           not_found_handling: 'single-page-application',
-          run_worker_first: [...VOID_INTERNAL_WORKER_FIRST],
+          run_worker_first: [...internalWorkerFirst],
         };
   // Explicit `routing.notFound` wins over the inferred value. Applied here (on
   // the inputs) rather than at the call sites so dev, build, and deploy can't

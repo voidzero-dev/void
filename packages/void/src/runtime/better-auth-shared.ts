@@ -19,6 +19,13 @@ export type VoidAuthRuntimeOptions = {
   providers: Array<VoidAuthProvider> | null;
   userConfig?: VoidAuthConfig;
   dev?: boolean;
+  /**
+   * Exact request paths whose responses are public and cached (the image
+   * optimizer endpoint). Anonymous requests skip the session lookup;
+   * credentialed requests still resolve the user for guard middleware, but the
+   * response gets no auth headers (Set-Cookie, `private, no-store`).
+   */
+  skipPaths?: ReadonlyArray<string>;
 };
 
 export type VoidAuthEnv = Record<string, unknown> & {
@@ -532,10 +539,17 @@ export function createVoidAuthRuntime(
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
   ): Promise<void> {
-    // Skip auth for internal routes (cron, queue, migration, binding proxy).
-    // Still set user/session to null so downstream middleware that checks
-    // these context variables gets the expected sentinel (not undefined).
-    if (c.req.path.startsWith('/__')) {
+    const credentialed = ['cookie', 'authorization', 'cf-access-jwt-assertion'].some((header) =>
+      c.req.raw.headers.has(header),
+    );
+    // Public cached responses (the image optimizer) keep the session for guard
+    // middleware but never carry auth headers.
+    const publicPath = runtime.skipPaths?.includes(c.req.path) === true;
+    // Skip auth for internal routes (cron, queue, migration, binding proxy) and
+    // anonymous requests for public paths. Still set user/session to null so
+    // downstream middleware that checks these context variables gets the
+    // expected sentinel (not undefined).
+    if (c.req.path.startsWith('/__') || (publicPath && !credentialed)) {
       c.set('user', null);
       c.set('session', null);
       return next();
@@ -546,6 +560,8 @@ export function createVoidAuthRuntime(
 
     const result = await auth.api.getSession({
       headers: await sessionHeaders(c.req.raw, auth),
+      // The refreshed cookie would be dropped below, so leave the refresh to pages.
+      ...(publicPath ? { query: { disableRefresh: true } } : {}),
       asResponse: false,
       returnHeaders: true,
     });
@@ -558,9 +574,9 @@ export function createVoidAuthRuntime(
       await next();
     });
 
-    const credentialed = ['cookie', 'authorization', 'cf-access-jwt-assertion'].some((header) =>
-      c.req.raw.headers.has(header),
-    );
+    if (publicPath) {
+      return;
+    }
     appendAuthHeaders(
       c,
       result.headers,

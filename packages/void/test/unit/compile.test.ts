@@ -2,6 +2,7 @@ import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@v
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vite-plus/test';
+import { resolveImageConfig } from '../../src/image-config.ts';
 import {
   compileRouteTable,
   compileWorkerEntry,
@@ -1409,5 +1410,198 @@ describe('typed runtime metadata wiring', () => {
     );
     expect(code).not.toContain('function __handleInternal');
     expect(code).not.toContain('async function serveWithAssets');
+  });
+});
+
+describe('compileRouteTable — image optimizer mount', () => {
+  const images = { config: resolveImageConfig(undefined, { root: '/project', dev: false }) };
+  const sqliteAuth = {
+    authRuntimePath: '/resolved/void/runtime/better-auth.mjs',
+    authConfigPath: null,
+    authDatabasePath: '/project/.void/better-auth-db.ts',
+    authSchemaPath: '/project/.void/better-auth-schema.ts',
+    dialect: 'sqlite' as const,
+    providers: null,
+  };
+  const scan: ScanResult = {
+    ...emptyScan,
+    routes: [
+      {
+        pattern: '/api/hello',
+        filePath: 'api/hello.ts',
+        params: [],
+        catchAll: false,
+        env: null,
+        methods: ['GET'],
+      },
+      {
+        pattern: '/:path{.+}',
+        filePath: '[...path].ts',
+        params: ['path'],
+        catchAll: true,
+        env: null,
+        methods: ['GET'],
+      },
+    ],
+    websockets: [
+      {
+        pattern: '/chat',
+        methods: [],
+        params: [],
+        catchAll: false,
+        env: null,
+        filePath: 'chat.ws.ts',
+        className: 'ChatWs',
+        bindingName: 'ChatWs',
+        mode: 'room',
+        hasAuthGate: false,
+      },
+    ],
+    middleware: [{ order: 1, filePath: '01.gate.ts' }],
+    pages: {
+      pages: [
+        {
+          pattern: '/',
+          params: [],
+          catchAll: false,
+          componentPath: 'index.tsx',
+          componentId: 'index',
+          serverPath: null,
+          methods: [],
+          ssrMode: 'server',
+          prerenderMode: 'disabled',
+          renderMode: 'server',
+          shouldPrerender: false,
+        },
+      ],
+      layouts: [],
+      namedLayouts: [],
+    },
+  };
+  const pages = {
+    pagesDir: '/pages',
+    pagesDirRelative: 'pages',
+    clientEntryId: 'virtual:void-pages-client',
+  };
+  const compileWithImages = (options: Partial<CompileOptions> = {}): string =>
+    compileRouteTable(
+      scan,
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      {
+        ...testOptions,
+        assetsDir: 'assets',
+        auth: sqliteAuth,
+        images,
+        ...options,
+      },
+      pages,
+    );
+
+  it('mounts the handler after middleware and before WebSocket hooks, auth, routes and pages', () => {
+    const code = compileWithImages();
+    const mount = code.indexOf('app.all("/_void/image", __createImageHandler(');
+
+    expect(code).toContain('createImageHandler as __createImageHandler } from');
+    expect(mount).toBeGreaterThan(code.indexOf('runVoidAuthMiddleware(c, next'));
+    expect(mount).toBeGreaterThan(code.indexOf('app.use(middleware0);'));
+    for (const later of [
+      'app.all("/chat", async (c, next) => {',
+      'app.all("/api/auth", async (c) => {',
+      'app.get("/api/hello", __createHttpRouteHandler(',
+      'app.get("/:path{.+}", __createHttpRouteHandler(',
+      'app.get("/", __createPageGetHandler(',
+    ]) {
+      expect(code.indexOf(later), later).toBeGreaterThan(mount);
+    }
+  });
+
+  it('passes the resolved config, assets dir, the route table deployment id and the app', () => {
+    const code = compileWithImages();
+    // The app is passed so local sources run through middleware.
+    const options = JSON.parse(
+      /app\.all\("\/_void\/image", __createImageHandler\((.*), app\)\);/.exec(code)![1]!,
+    ) as { config: unknown; deploymentId: string; assetsDir: string };
+    const deploymentId = /export const __VOID_ISR_DEPLOYMENT_ID = "([^"]+)";/.exec(code)![1];
+
+    expect(options.config).toEqual(images.config);
+    expect(options.assetsDir).toBe('assets');
+    expect(options.deploymentId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(options.deploymentId).toBe(deploymentId);
+  });
+
+  it('skips the Void auth session lookup for the mounted path only', () => {
+    expect(compileWithImages()).toContain('dev: false, skipPaths: ["/_void/image"] };');
+    expect(compileWithImages({ images: undefined })).toContain(
+      'userConfig: undefined, dev: false };',
+    );
+  });
+
+  it('mounts a custom images.path', () => {
+    const config = resolveImageConfig({ path: '/media/optimize' }, { root: '/project', dev: true });
+    const code = compileWithImages({ images: { config } });
+    expect(code).toContain('app.all("/media/optimize", __createImageHandler(');
+    expect(code).toContain('skipPaths: ["/media/optimize"]');
+  });
+
+  it.each([
+    ['no images option', { images: undefined }],
+    ['a node target', { nodeTarget: true }],
+    [
+      'unoptimized images',
+      {
+        images: {
+          config: resolveImageConfig({ unoptimized: true }, { root: '/project', dev: false }),
+        },
+      },
+    ],
+    [
+      'a custom loader',
+      {
+        images: {
+          config: resolveImageConfig(
+            { loader: 'imgix', path: 'https://cdn.example.com/' },
+            { root: '/project', dev: false },
+          ),
+        },
+      },
+    ],
+  ] as const)('mounts nothing for %s', (_name, options) => {
+    const code = compileWithImages(options as Partial<CompileOptions>);
+    expect(code).not.toContain('__createImageHandler');
+    expect(code).not.toContain('skipPaths');
+  });
+
+  it('keeps the output of apps without images unchanged apart from per-compile ids', () => {
+    const normalize = (code: string) =>
+      code.replace(/"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"/g, '"<uuid>"');
+    const withoutImages = normalize(compileWithImages({ images: undefined }));
+    const withImages = normalize(compileWithImages());
+    // The mount is one line followed by a blank line.
+    const mountLine = /\napp\.all\("\/_void\/image", .*\);\n\n/.exec(withImages)![0];
+
+    expect(
+      withImages
+        .replace(', createImageHandler as __createImageHandler', '')
+        .replace(', skipPaths: ["/_void/image"]', '')
+        .replace(mountLine, '\n'),
+    ).toBe(withoutImages);
+  });
+});
+
+describe('compileWorkerEntry — ISR image bypass', () => {
+  it('passes bypass paths to the ISR wrapper only when given', () => {
+    const withImages = compileWorkerEntry({
+      isr: { runtimePath: 'void/isr', bypassPaths: ['/_void/image'] },
+    });
+    expect(withImages).toContain(
+      'isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, bypassPaths: ["/_void/image"], handle: (request, env, ctx, render) => handleIsr(',
+    );
+    expect(compileWorkerEntry({ isr: { runtimePath: 'void/isr' } })).toContain(
+      'isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(',
+    );
   });
 });

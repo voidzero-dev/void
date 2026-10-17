@@ -46,14 +46,15 @@ This provides binding types and Workers runtime types.
 
 ### Available bindings
 
-| Binding          | Resource        | Use in your app                   |
-| ---------------- | --------------- | --------------------------------- |
-| `DB`             | D1              | `c.env.DB` or `void/db`           |
-| `KV`             | KV              | `c.env.KV` or `void/kv`           |
-| `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
-| `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
-| `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
-| Filename-derived | Durable Objects | A module in `durable-objects/`    |
+| Binding          | Resource        | Use in your app                               |
+| ---------------- | --------------- | --------------------------------------------- |
+| `DB`             | D1              | `c.env.DB` or `void/db`                       |
+| `KV`             | KV              | `c.env.KV` or `void/kv`                       |
+| `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage`             |
+| `AI`             | Workers AI      | `c.env.AI` or `void/ai`                       |
+| `IMAGES`         | Images          | `Image`, `getImageProps()`, or `c.env.IMAGES` |
+| `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`              |
+| Filename-derived | Durable Objects | A module in `durable-objects/`                |
 
 Use [binding configuration](../reference/resource-inference.md#explicit-binding-overrides) when you need to enable, disable, or rename an inferred binding.
 
@@ -194,6 +195,7 @@ Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare bui
 - Named Cloudflare environments aren't supported. Use a separate Void project config for each target.
 - Sandbox requires Workers Paid and Docker. See [Sandbox requirements](../guide/sandboxes.md#deployment) for plan and token permissions.
 - Email to arbitrary recipients requires Workers Paid; verified recipients and inbound mail work on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
+- Image optimization works on Workers Free with the Cloudflare Images Free plan: 5,000 unique transformations per month. After that, new image sizes serve the original file until the next month, at no charge. See [Images](../guide/images.md#free-allowance).
 - Node.js, Bun, and Deno use their [own deployment path](./nodejs-bun-deno.md).
 
 Commit Durable Object migration history in `void.lock.json`. Do not delete or reorder deployed steps.
@@ -209,6 +211,8 @@ Custom domain commands update routes immediately. If a first deployment times ou
 ### Local development
 
 Local D1, KV, and R2 bindings use local data. Your production resource IDs are used during deployment.
+
+Images are resized and converted locally, without a Cloudflare connection, and don't count toward your Images allowance. Quality settings only apply on Cloudflare.
 
 Workers AI runs remotely after you connect to Cloudflare, so development calls consume your account's allowance. Remote bindings in development and preview use your `void cloudflare login` session, or `CLOUDFLARE_API_TOKEN` when it is set.
 

@@ -56,6 +56,8 @@ describe('shared application analysis', () => {
         needsSandbox: false,
         needsLive: false,
         needsEmail: false,
+        needsImages: false,
+        usesImageOptimizer: false,
       },
     });
     expect(Object.values(analysis.reasons).every((reasons) => reasons.length === 0)).toBe(true);
@@ -222,5 +224,179 @@ describe('shared application analysis', () => {
       kv: ['inference.bindings.kv enables KV'],
       r2: ['inference.bindings.storage enables R2'],
     });
+  });
+});
+
+describe('image optimizer analysis', () => {
+  function imageApp(): string {
+    const applicationRoot = root();
+    source(
+      applicationRoot,
+      'pages/index.tsx',
+      'import { Image } from "@void/react"; export default () => <Image src="/a.png" alt="" />;',
+    );
+    return applicationRoot;
+  }
+
+  it('requires the Images binding when a Void app renders Image with the default loader', () => {
+    const analysis = analyzeApplicationSync(imageApp(), { config: {}, environment: 'prod' });
+    expect(analysis.bindings).toMatchObject({ needsImages: true, usesImageOptimizer: true });
+    expect(analysis.bindingNames).toBeUndefined();
+  });
+
+  it('requires the Images binding for next/image aliased to @void/react/image', () => {
+    const applicationRoot = root();
+    source(
+      applicationRoot,
+      'pages/index.tsx',
+      'import Image from "next/image"; export default () => <Image src="/a.png" alt="" />;',
+    );
+    const analysis = analyzeApplicationSync(applicationRoot, { config: {}, environment: 'prod' });
+    expect(analysis.bindings).toMatchObject({ needsImages: true, usesImageOptimizer: true });
+  });
+
+  it.each<[string, VoidConfig]>([
+    ['unoptimized', { images: { unoptimized: true } }],
+    ['a custom loader', { images: { loader: 'custom' } }],
+    ['a loaderFile', { images: { loaderFile: './image-loader.ts' } }],
+    ['the cloudflare loader', { images: { loader: 'cloudflare' } }],
+    ['an image CDN loader', { images: { loader: 'imgix', path: 'https://example.imgix.net/' } }],
+    ['a bare-origin path', { images: { path: 'https://images.example.com' } }],
+    ['a Node target', { target: 'node' }],
+    ['static output', { output: 'static' }],
+  ])('does not require the Images binding with %s', (_name, config) => {
+    const analysis = analyzeApplicationSync(imageApp(), { config, environment: 'prod' });
+    expect(analysis.bindings).toMatchObject({ needsImages: false, usesImageOptimizer: true });
+  });
+
+  it('requires the Images binding behind a CDN path, which the app serves at its pathname', () => {
+    const analysis = analyzeApplicationSync(imageApp(), {
+      config: { images: { path: 'https://images.example.com/_void/image' } },
+      environment: 'prod',
+    });
+    expect(analysis.bindings).toMatchObject({ needsImages: true, usesImageOptimizer: true });
+  });
+
+  it('keeps an env.IMAGES read when the optimizer is off', () => {
+    const applicationRoot = imageApp();
+    source(
+      applicationRoot,
+      'routes/api/thumb.ts',
+      'export const GET = (c) => c.env.IMAGES.info(c.req.raw.body);',
+    );
+    const analysis = analyzeApplicationSync(applicationRoot, {
+      config: { images: { unoptimized: true } },
+    });
+    expect(analysis.bindings.needsImages).toBe(true);
+  });
+
+  it('does not infer the Images binding from Image usage in framework apps', () => {
+    const applicationRoot = root();
+    source(applicationRoot, 'package.json', JSON.stringify({ dependencies: { astro: '*' } }));
+    source(applicationRoot, 'src/components/Hero.tsx', 'import { Image } from "@void/react";');
+    const analysis = analyzeApplicationSync(applicationRoot, { config: {} });
+    expect(analysis.bindings).toMatchObject({ needsImages: false, usesImageOptimizer: true });
+  });
+
+  it('applies inference.bindings.images overrides and custom names', () => {
+    const disabled = analyzeApplicationSync(imageApp(), {
+      config: { inference: { bindings: { images: false } } },
+    });
+    expect(disabled.bindings.needsImages).toBe(false);
+
+    const named = analyzeApplicationSync(root(), {
+      config: { images: { unoptimized: true }, inference: { bindings: { images: 'PHOTOS' } } },
+    });
+    expect(named.bindings.needsImages).toBe(true);
+    expect(named.bindingNames).toEqual({ images: 'PHOTOS' });
+  });
+});
+
+describe('vinext image optimizer analysis', () => {
+  function vinextApp(viteConfig: string, appRouter = false): string {
+    const applicationRoot = root();
+    source(applicationRoot, 'package.json', JSON.stringify({ dependencies: { vinext: '1.1.0' } }));
+    source(applicationRoot, 'vite.config.ts', viteConfig);
+    if (appRouter) {
+      source(applicationRoot, 'app/page.tsx', 'export default () => null;');
+    }
+    return applicationRoot;
+  }
+
+  const optimizerConfig = (options = '') => `
+    import { imagesOptimizer } from "@vinext/cloudflare/images/images-optimizer";
+    import vinext from "vinext";
+    import { voidPlugin } from "void";
+    export default { plugins: [voidPlugin(), vinext({ images: { optimizer: imagesOptimizer(${options}) } })] };
+  `;
+
+  it.each([false, true])(
+    'requires the default Images binding for the Cloudflare optimizer (App Router: %s)',
+    (appRouter) => {
+      const analysis = analyzeApplicationSync(vinextApp(optimizerConfig(), appRouter), {
+        config: {},
+      });
+      expect(analysis.framework?.name).toBe(appRouter ? 'vinext-app' : 'vinext-pages');
+      expect(analysis.bindings.needsImages).toBe(true);
+      expect(analysis.bindingNames).toBeUndefined();
+    },
+  );
+
+  it('uses the binding name the optimizer reads', () => {
+    const analysis = analyzeApplicationSync(vinextApp(optimizerConfig('{ binding: "PHOTOS" }')), {
+      config: {},
+    });
+    expect(analysis.bindings.needsImages).toBe(true);
+    expect(analysis.bindingNames).toEqual({ images: 'PHOTOS' });
+  });
+
+  it('lets inference.bindings.images override the detected optimizer', () => {
+    const applicationRoot = vinextApp(optimizerConfig('{ binding: "PHOTOS" }'));
+    const disabled = analyzeApplicationSync(applicationRoot, {
+      config: { inference: { bindings: { images: false } } },
+    });
+    expect(disabled.bindings.needsImages).toBe(false);
+    const named = analyzeApplicationSync(applicationRoot, {
+      config: { inference: { bindings: { images: 'MEDIA' } } },
+    });
+    expect(named.bindings.needsImages).toBe(true);
+    expect(named.bindingNames).toEqual({ images: 'MEDIA' });
+  });
+
+  it('does not require the Images binding without the Cloudflare optimizer', () => {
+    const analysis = analyzeApplicationSync(
+      vinextApp(
+        'import vinext from "vinext"; import { voidPlugin } from "void"; export default { plugins: [voidPlugin(), vinext()] };',
+      ),
+      { config: {} },
+    );
+    expect(analysis.bindings.needsImages).toBe(false);
+  });
+
+  it.each([false, true])(
+    'leaves next/image to vinext without the Cloudflare optimizer (App Router: %s)',
+    (appRouter) => {
+      const applicationRoot = vinextApp(
+        'import vinext from "vinext"; import { voidPlugin } from "void"; export default { plugins: [voidPlugin(), vinext()] };',
+        appRouter,
+      );
+      source(
+        applicationRoot,
+        appRouter ? 'app/hero.tsx' : 'pages/index.tsx',
+        'import Image from "next/image"; export default () => <Image src="/a.png" alt="" />;',
+      );
+      const analysis = analyzeApplicationSync(applicationRoot, { config: {} });
+      expect(analysis.framework?.name).toBe(appRouter ? 'vinext-app' : 'vinext-pages');
+      expect(analysis.bindings.needsImages).toBe(false);
+      expect(analysis.bindingNames).toBeUndefined();
+    },
+  );
+
+  it('ignores the optimizer import outside vinext apps', () => {
+    const applicationRoot = root();
+    source(applicationRoot, 'vite.config.ts', optimizerConfig());
+    const analysis = analyzeApplicationSync(applicationRoot, { config: {} });
+    expect(analysis.framework).toBeUndefined();
+    expect(analysis.bindings.needsImages).toBe(false);
   });
 });

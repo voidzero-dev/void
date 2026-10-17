@@ -14,13 +14,14 @@ import {
 import { loadVoidAuthConfig } from './auth/config.ts';
 import { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } from './auth/drizzle.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
-import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
+import { hasHashedAssetFileNames, stampClientAssetCachePolicy } from './client-asset-manifest.ts';
 import { findEnvFileForPaths } from './codegen/env-types.ts';
 import { generateQueueTypes } from './codegen/queue-types.ts';
 import { generateRouteTypes } from './codegen/route-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { readConfig, getDatabaseDialect } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
+import type { ImagePluginApi } from './plugin-image.ts';
 import { readProjectPaths } from './project-paths.ts';
 import {
   compileRouteTable,
@@ -89,6 +90,8 @@ type RoutingPluginOptions = {
   /** Data-preserving exports for removed WebSocket Durable Object routes. */
   websocketTombstones?: Array<string>;
   onDevAssetRoutingPolicyChange?: (policy: AssetRoutingPolicy) => boolean;
+  /** Image optimizer mounting and the `?image` sources stamped into the client manifest. */
+  images?: Pick<ImagePluginApi, 'getMountedConfig' | 'imageSources'>;
 };
 
 /**
@@ -154,6 +157,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     const analysis = options.getApplicationAnalysis(routeEnvironment, refresh);
     scan = (await completeApplicationAnalysis(analysis)).scan;
     authConfigPath = analysis.authConfigPath;
+    // Recomputed on every rescan so dev recompiles keep (or gain) the mount.
+    const images = options.images?.getMountedConfig(analysis.bindings.usesImageOptimizer);
+    compileOptions.images = images ? { config: images } : undefined;
     const entries = validateSsrEntries(root, paths);
     ssr = entries
       ? {
@@ -368,6 +374,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       authEnabled: compileOptions.auth !== null,
       liveEnabled: options.live !== undefined,
       notFound: options.routing?.notFound,
+      imagePath: compileOptions.images?.config.path,
     });
   }
 
@@ -412,6 +419,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         dev: compileOptions.dev,
         isr,
         notFound: policy.assetConfig.not_found_handling ?? 'none',
+        assetFallbackSkipPaths: compileOptions.images
+          ? [compileOptions.images.config.path]
+          : undefined,
         durableObjects: options.durableObjects,
       }),
     );
@@ -521,6 +531,12 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
             bundle,
             typeof manifest === 'string' ? manifest : '.vite/manifest.json',
             compileOptions.headerRules,
+            {
+              imageSources: options.images?.imageSources ?? [],
+              hashedAssetFileNames: hasHashedAssetFileNames(
+                this.environment.config.build.rolldownOptions.output,
+              ),
+            },
           );
         }
       },
@@ -582,6 +598,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           ? {
               runtimePath: resolveFile('@void/isr/runtime'),
               queryAllowlist: buildConfig.routing?.revalidateQueryAllowlist,
+              // Optimized images have their own cache; ISR never wraps them.
+              bypassPaths: compileOptions.images ? [compileOptions.images.config.path] : undefined,
             }
           : undefined;
         writeWorkerEntry(isr);

@@ -55,6 +55,8 @@ export default defineRender(async (c, assetTags) => {
 
 You can also export a named `render(c, assetTags)` function with the same signature. See [`defineRender`](../reference/api/handlers.md#definerender-handler) for the types.
 
+To add preload links for [`Image`](./images.md) with `preload` in Vue, Svelte, or Solid, see [Preloading in custom SSR](./images.md#custom-ssr).
+
 ## Hydrate in the browser
 
 In the client entry, hydrate the same component:

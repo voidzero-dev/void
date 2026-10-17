@@ -62,7 +62,7 @@ import { getErrorMessage, note } from './output.ts';
 import { buildStaticManifest } from './package.ts';
 import { detectPreset, type StaticPreset, type FrameworkPreset } from './preset.ts';
 import { deleteEnvVarCaseAware } from './provision.ts';
-import { readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
+import { addsImagesBinding, readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
 
 /** Default runtime date for static and framework Workers that set none. */
 const DEFAULT_COMPATIBILITY_DATE = '2026-09-11';
@@ -78,6 +78,8 @@ export async function prepareCloudflareFrameworkArtifact(options: {
   preset: FrameworkPreset;
   requiredSecretNames?: ReadonlyArray<string>;
   ai?: { binding: string };
+  /** `env.IMAGES` reads; added unless the root config already owns the name. */
+  images?: { binding: string };
   preserveBindings?: boolean;
 }): Promise<void> {
   const { root, configPath, accountId, workerName, voidConfig, framework, preset, ai } = options;
@@ -142,6 +144,9 @@ export async function prepareCloudflareFrameworkArtifact(options: {
     requiredSecrets: requiredSecretNames,
     versionMetadataBinding,
     ...(ai ? { ai: { ...ai, gateway: voidConfig.ai?.gateway } } : {}),
+    ...(options.images && addsImagesBinding(rootConfig, true, options.images.binding)
+      ? { images: options.images }
+      : {}),
     ...(preset.workerDir === preset.assetsDir
       ? {
           assetsIgnore: [
