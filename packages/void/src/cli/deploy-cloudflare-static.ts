@@ -139,6 +139,7 @@ export async function prepareCloudflareFrameworkArtifact(options: {
         ? preset.cloudflareCompatibilityFlags
         : [...(preset.cloudflareCompatibilityFlags ?? []), 'nodejs_compat'],
     crons: [...new Set(crons.flatMap((job) => job.crons))],
+    ...(preset.htmlHandling ? { htmlHandling: preset.htmlHandling } : {}),
     requiredSecrets: requiredSecretNames,
     versionMetadataBinding,
     ...(ai ? { ai: { ...ai, gateway: voidConfig.ai?.gateway } } : {}),

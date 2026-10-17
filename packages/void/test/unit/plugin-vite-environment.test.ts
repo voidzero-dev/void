@@ -11,7 +11,7 @@ import {
 import module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -1253,4 +1253,155 @@ export default {
       }
     },
   );
+});
+
+describe('pracht server entry', () => {
+  const entry = 'virtual:pracht/server';
+  const devEntry = '\0void:pracht-dev-server-entry';
+  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envFile = fileURLToPath(import.meta.resolve('#self/_env'));
+
+  type WrapperModule = {
+    named: string;
+    default: {
+      marker: string;
+      fetch(request: Request, env: unknown, ctx: unknown): Promise<Response>;
+    };
+  };
+
+  function createPrachtRoot(database: 'pg' | undefined): string {
+    const root = realpathSync.native(createProjectRoot());
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ type: 'module', dependencies: { '@pracht/adapter-cloudflare': '*' } }),
+    );
+    writeFileSync(
+      join(root, 'void.json'),
+      JSON.stringify({ database, worker: { compatibility_date: '2026-02-24' } }),
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    return root;
+  }
+
+  function startDevServer(root: string) {
+    return createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [voidPlugin()],
+      optimizeDeps: { noDiscovery: true },
+      server: { middlewareMode: true, ws: false, preTransformRequests: false },
+    });
+  }
+
+  const loadedCode = (loaded: unknown): string =>
+    typeof loaded === 'string' ? loaded : ((loaded as { code?: string } | null)?.code ?? '');
+
+  async function importWrapper(
+    root: string,
+    code: string,
+    dispatch: string,
+  ): Promise<WrapperModule> {
+    writeFileSync(
+      join(root, 'pracht-entry.mjs'),
+      `export const named = "kept";
+export default {
+  marker: "kept",
+  fetch() {
+    return new Response("pracht");
+  },
+};
+`,
+    );
+    writeFileSync(join(root, 'dispatch.mjs'), dispatch);
+    writeFileSync(
+      join(root, 'entry.mjs'),
+      code
+        .replaceAll(JSON.stringify(entry), '"./pracht-entry.mjs"')
+        .replace(
+          /^import \{ withRuntimeEnv \} from .*;$/m,
+          `import { withRuntimeEnv } from ${JSON.stringify(envUrl)};`,
+        )
+        .replace(
+          JSON.stringify(normalizePath(join(root, '.void/dev-triggers.ts'))),
+          '"./dispatch.mjs"',
+        ),
+    );
+    return (await import(pathToFileURL(join(root, 'entry.mjs')).href)) as WrapperModule;
+  }
+
+  it.each(['pg', undefined] as const)(
+    'wraps the pracht server entry in dev and sends dev triggers to the dispatch (database: %s)',
+    async (database) => {
+      const root = createPrachtRoot(database);
+      const server = await startDevServer(root);
+      let code: string;
+      try {
+        const container = server.environments.ssr!.pluginContainer;
+        expect((await container.resolveId(entry))?.id).toBe(devEntry);
+        expect((await container.resolveId(entry, devEntry))?.id).not.toBe(devEntry);
+        code = loadedCode(await container.load(devEntry));
+      } finally {
+        await server.close();
+      }
+      expect(code.includes('withRuntimeEnv')).toBe(database !== undefined);
+      expect(code).not.toMatch(/^import .*dev-triggers/m);
+
+      const wrapper = await importWrapper(
+        root,
+        code,
+        `export async function handleDevTrigger(request, env, ctx) {
+  return Response.json({ pathname: new URL(request.url).pathname, env, ctx });
+}
+`,
+      );
+      expect([wrapper.named, wrapper.default.marker]).toEqual(['kept', 'kept']);
+      const trigger = await wrapper.default.fetch(
+        new Request('http://localhost/__void/queue', { method: 'POST' }),
+        { DB: 'binding' },
+        { id: 'ctx' },
+      );
+      expect(await trigger.json()).toEqual({
+        pathname: '/__void/queue',
+        env: { DB: 'binding' },
+        ctx: { id: 'ctx' },
+      });
+      const page = await wrapper.default.fetch(
+        new Request('http://localhost/__void/queue'),
+        {},
+        {},
+      );
+      expect(await page.text()).toBe('pracht');
+    },
+  );
+
+  it('leaves the built entry in place and evaluates the env module with it', async () => {
+    const root = createPrachtRoot(undefined);
+    const config = await resolveConfig(
+      { root, configFile: false, logLevel: 'silent', plugins: [voidPlugin()] },
+      'build',
+      'production',
+    );
+    const plugin = config.plugins.find(
+      (candidate) => candidate.name === 'void:pracht-server-entry',
+    )!;
+    const context = { environment: { name: 'ssr' } };
+    const resolveId = getHookHandler(plugin.resolveId) as (
+      this: typeof context,
+      source: string,
+      importer: string | undefined,
+    ) => unknown;
+    expect(await resolveId.call(context, entry, undefined)).toBeUndefined();
+
+    const transform = getHookHandler(plugin.transform) as (
+      this: typeof context,
+      code: string,
+      id: string,
+    ) => unknown;
+    expect(loadedCode(await transform.call(context, 'export default {};', entry))).toBe(
+      `import ${JSON.stringify(envFile)};\nexport default {};`,
+    );
+    const client = { environment: { name: 'client' } };
+    expect(await transform.call(client, 'export default {};', entry)).toBeUndefined();
+  });
 });

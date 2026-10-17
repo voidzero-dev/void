@@ -208,7 +208,10 @@ export async function runFrameworkDeploy(
     prerender,
     vars: voidConfig.worker?.vars,
     // Not `routing.notFound`; see `warnIgnoredNotFoundForFramework`.
-    assetConfig: { not_found_handling: 'none' },
+    assetConfig: {
+      not_found_handling: 'none',
+      ...(fwPreset.htmlHandling ? { html_handling: fwPreset.htmlHandling } : {}),
+    },
     packageOptions,
     hashedAssetsPrefix: fwPreset.hashedAssetsPrefix ?? 'assets',
     headerRules,

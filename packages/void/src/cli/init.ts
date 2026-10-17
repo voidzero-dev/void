@@ -1632,6 +1632,8 @@ function getDevCommand(root: string, framework?: DetectedFramework): string {
       return 'nuxt dev';
     case 'astro':
       return 'astro dev';
+    case 'pracht':
+      return 'pracht dev';
     default:
       return formatProjectCommand(root, 'vite dev');
   }
@@ -2424,6 +2426,24 @@ function noteManualFrameworkConfigSetup(framework: DetectedFramework): void {
         `  ],\n` +
         `});`,
       'Manual Analog config step',
+    );
+    return;
+  }
+
+  if (framework.name === 'pracht') {
+    note(
+      `Detected pracht. Void init does not patch vite.config.* automatically.\n\n` +
+        `Add \`voidPlugin()\` before \`pracht()\`, and point the Cloudflare adapter at the generated Cloudflare config:\n\n` +
+        `import { cloudflareAdapter } from "@pracht/adapter-cloudflare";\n` +
+        `import { pracht } from "@pracht/vite-plugin";\n` +
+        `import { voidPlugin } from "void";\n\n` +
+        `export default defineConfig({\n` +
+        `  plugins: [\n` +
+        `    voidPlugin(),\n` +
+        `    pracht({ adapter: cloudflareAdapter({ configPath: "./.void-wrangler.jsonc" }) }),\n` +
+        `  ],\n` +
+        `});`,
+      'Manual pracht config step',
     );
     return;
   }

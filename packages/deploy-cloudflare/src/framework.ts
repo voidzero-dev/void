@@ -13,6 +13,7 @@ export type CloudflareFrameworkDeployConfig = Readonly<{
   compatibilityDate: string;
   compatibilityFlags?: ReadonlyArray<string>;
   assetsIgnore?: ReadonlyArray<string>;
+  htmlHandling?: 'auto-trailing-slash' | 'force-trailing-slash' | 'drop-trailing-slash' | 'none';
   crons?: ReadonlyArray<string>;
   requiredSecrets?: ReadonlyArray<string>;
   versionMetadataBinding?: string;
@@ -56,6 +57,9 @@ export function writeCloudflareFrameworkDeployConfig(
   upsert(['assets', 'binding'], 'ASSETS');
   upsert(['assets', 'run_worker_first'], true);
   upsert(['assets', 'not_found_handling'], 'none');
+  if (options.htmlHandling) {
+    upsert(['assets', 'html_handling'], options.htmlHandling);
+  }
   if (options.crons !== undefined) {
     upsert(['triggers', 'crons'], [...options.crons]);
   }
