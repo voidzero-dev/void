@@ -1,0 +1,29 @@
+docs/guide/deployment.md
+  s_f572b1deb5ef86::t_4bc42d1cdc755f 38
+packages/void/src/cli/deploy-cloudflare-migrate.ts
+  s_f572b1deb5ef86::t_9b2b8de28bbaa7 11-14,36-37,157-164,167,175-177,180-185
+packages/void/src/cli/deploy-cloudflare.ts
+  s_f572b1deb5ef86::t_5228a44a6e0e80 22,135-166
+packages/void/src/cli/deploy-migrations.ts
+  s_f572b1deb5ef86::t_7827e0bfeb9eae 611-623,631-632,692,695,722-723,767
+packages/void/test/unit/cloudflare-deploy.test.ts
+  s_f572b1deb5ef86::t_f766747de413b7 7958-8081
+packages/void/test/unit/deploy-migrations-restore-point.test.ts
+  s_f572b1deb5ef86::t_df95795c33b75e 56,256
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e7eea9c8d84ab97bba0e6494cf4c734809d559aa",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
