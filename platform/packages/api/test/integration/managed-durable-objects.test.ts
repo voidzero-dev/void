@@ -34,6 +34,7 @@ import {
   mockCfApi,
   readAllEvents,
   setupEnv,
+  skipOrphanSweepDelay,
   teardownEnv,
   type TestEnv,
   type MockCfApiHandle,
@@ -434,6 +435,7 @@ describe('managed native Durable Objects', () => {
   });
 
   it('cleans up project-owned namespaces through the project deletion workflow', async () => {
+    skipOrphanSweepDelay();
     await deploy();
     const worker = await durableObjectWorkerName(project.id, binding.className);
     const response = await app.fetch(

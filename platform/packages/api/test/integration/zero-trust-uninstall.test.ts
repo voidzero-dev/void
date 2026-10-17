@@ -37,6 +37,7 @@ import {
   createTestUser,
   mockCfApi,
   setupEnv,
+  skipOrphanSweepDelay,
   teardownEnv,
   type TestEnv,
 } from './helpers.ts';
@@ -153,6 +154,7 @@ async function settleOperation(platform: ApiEnv['Bindings']): Promise<void> {
 
 describe('platform uninstall check against the API database', () => {
   it('lets uninstall proceed once a project deletion that stopped partway is rerun', async () => {
+    skipOrphanSweepDelay();
     const owner = await createTestUser(env.db, 'stopped-deletion-owner');
     const project = await createTestProject(env.db, owner.id, 'stopped-deletion');
     await env.ROUTING.put(project.slug, JSON.stringify({ projectId: project.id }));

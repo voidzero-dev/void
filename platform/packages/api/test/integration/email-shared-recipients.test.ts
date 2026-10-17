@@ -33,6 +33,7 @@ import {
   createOperatorToken,
   createTestDeployment,
   setupEnv,
+  skipOrphanSweepDelay,
   teardownEnv,
   type TestEnv,
 } from './helpers.ts';
@@ -615,6 +616,7 @@ describe('managed shared subdomain recipients', () => {
   });
 
   it('keeps a reusable slug reserved through the real teardown route after an uncertain recipient create', async () => {
+    skipOrphanSweepDelay();
     const { project, user, provider } = await setup({
       failOn: { literalRuleCreate: { status: 503, message: 'unknown outcome' } },
       failBeforeEffect: ['literalRuleCreate'],

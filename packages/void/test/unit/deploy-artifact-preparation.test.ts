@@ -67,6 +67,7 @@ it('fails when Worker build output is missing', async () => {
   await expect(prepareDeployArtifact(root)).rejects.toThrow('Worker output not found');
 });
 it('packages native Durable Objects for managed deployment without namespace authority', async () => {
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ devDependencies: { vite: '*' } }));
   mkdirSync(join(root, 'durable-objects'));
   writeFileSync(
     join(root, 'durable-objects/workspace.ts'),
@@ -79,5 +80,70 @@ it('packages native Durable Objects for managed deployment without namespace aut
       { bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject', storage: 'sqlite' },
     ],
   });
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('packages a detected Vite SPA as assets without a Worker or provider calls', async () => {
+  rmSync(join(root, 'dist/server'), { recursive: true });
+  rmSync(join(root, 'dist/client'), { recursive: true });
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ devDependencies: { vite: '*' } }));
+  writeFileSync(join(root, 'dist/index.html'), '<div id="root"></div>');
+  const result = await prepareDeployArtifact(root);
+  expect(result.artifact.manifest).toMatchObject({ type: 'spa', bindings: {} });
+  expect(result.artifact.manifest.assetConfig).toMatchObject({
+    not_found_handling: 'single-page-application',
+  });
+  expect(result.artifact.workerFiles).toBeUndefined();
+  expect(Buffer.from(result.assets['/index.html']!, 'base64').toString()).toBe(
+    '<div id="root"></div>',
+  );
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('honors static output directories and routing rules without packaging stale Worker output', async () => {
+  writeFileSync(
+    join(root, 'void.config.ts'),
+    `export default { inference: { appType: 'static', outputDir: 'site' }, routing: { notFound: '404-page' } };`,
+  );
+  mkdirSync(join(root, 'site'));
+  writeFileSync(join(root, 'site/index.html'), '<h1>Static</h1>');
+  writeFileSync(join(root, 'site/_headers'), '/*\n  X-Content-Type-Options: nosniff\n');
+  writeFileSync(join(root, 'site/_redirects'), '/old /new 301\n');
+  const result = await prepareDeployArtifact(root);
+  expect(result.artifact.manifest).toMatchObject({
+    type: 'static',
+    assetConfig: { not_found_handling: '404-page' },
+    headerRules: [{ pattern: '/*', headers: [['X-Content-Type-Options', 'nosniff']] }],
+    redirectRules: [{ source: '/old', destination: '/new', status: 301 }],
+  });
+  expect(result.artifact.workerFiles).toBeUndefined();
+  expect(Object.keys(result.assets)).toEqual(['/index.html']);
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('keeps SPA plus API apps on the Worker deployment path', async () => {
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ devDependencies: { vite: '*' } }));
+  mkdirSync(join(root, 'routes'));
+  writeFileSync(join(root, 'routes/api.ts'), 'export const GET = () => ({ ok: true });');
+  const result = await prepareDeployArtifact(root);
+  expect(result.artifact.manifest.type).toBe('void');
+  expect(result.artifact.workerFiles).toHaveProperty('index.js');
+  expect(fetch).not.toHaveBeenCalled();
+});
+
+it('does not silently drop an SSG backend without an explicit app type', async () => {
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { vitepress: '*' } }));
+  mkdirSync(join(root, 'routes'));
+  await expect(prepareDeployArtifact(root)).rejects.toThrow('also has backend code');
+});
+
+it('rejects missing or empty static build output', async () => {
+  writeFileSync(
+    join(root, 'void.config.ts'),
+    `export default { inference: { appType: 'spa', outputDir: 'missing' } };`,
+  );
+  await expect(prepareDeployArtifact(root)).rejects.toThrow('Static build output is missing');
+  mkdirSync(join(root, 'missing'));
+  await expect(prepareDeployArtifact(root)).rejects.toThrow('Static build output is empty');
   expect(fetch).not.toHaveBeenCalled();
 });

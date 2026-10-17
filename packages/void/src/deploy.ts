@@ -11,10 +11,12 @@ import {
   assertWorkerMainUploaded,
   validateDeployMigrations,
   toManifestSchedulesAndQueues,
+  resolveStaticDeployPreset,
 } from './cli/deploy-helpers.ts';
 import { mergeAndLintRoutingRules } from './cli/deploy-managed-events.ts';
 import { assembleVoidManifest } from './cli/deploy-managed-static.ts';
-import { collectAndHashAssets, collectWorkerFiles } from './cli/package.ts';
+import { buildStaticManifest, collectAndHashAssets, collectWorkerFiles } from './cli/package.ts';
+import { detectPreset } from './cli/preset.ts';
 import { readConfig, isNodeTarget } from './config.ts';
 import { collectRevalidate } from './isr-config.ts';
 import { hasEmailHandlers } from './router/email.ts';
@@ -26,7 +28,7 @@ export type PreparedDeployArtifact = {
   assets: Record<string, string>;
 };
 
-/** Package an already-built Void app for managed deployment, without platform credentials. */
+/** Package an already-built app for managed deployment, without platform credentials. */
 export async function prepareDeployArtifact(
   root: string = process.cwd(),
 ): Promise<PreparedDeployArtifact> {
@@ -35,7 +37,45 @@ export async function prepareDeployArtifact(
   if (isNodeTarget(config.target) || config.output === 'static') {
     throw new Error('Artifact preparation requires a Void Cloudflare Worker build.');
   }
-  const analysis = await analyzeApplication(root, { config, environment: 'prod' });
+  let preset = resolveStaticDeployPreset(root, config);
+  let analysis: Awaited<ReturnType<typeof analyzeApplication>> | undefined;
+  if (!preset) {
+    analysis = await analyzeApplication(root, { config, environment: 'prod' });
+    if (
+      !config.inference?.appType &&
+      !analysis.framework &&
+      !analysis.durableObjects.length &&
+      !analysis.websockets.length &&
+      !Object.values(analysis.bindings).some(Boolean)
+    ) {
+      preset = detectPreset(root, { strictBackend: true });
+    }
+  }
+  if (preset) {
+    if (!existsSync(preset.outputDir)) {
+      throw new Error('Static build output is missing. Run the app build first.');
+    }
+    const rules = mergeAndLintRoutingRules(preset.outputDir, config.routing);
+    const { assetManifest, assetFiles } = await collectAndHashAssets(preset.outputDir);
+    if (!assetFiles.size) {
+      throw new Error('Static build output is empty. Run the app build first.');
+    }
+    return {
+      artifact: createDeployArtifact({
+        manifest: buildStaticManifest({
+          appType: preset.appType,
+          hashedAssetsPrefix: 'assets',
+          notFound: config.routing?.notFound,
+          ...rules,
+        }),
+        assetManifest,
+      }),
+      assets: Object.fromEntries(
+        [...assetFiles].map(([path, bytes]) => [path, bytes.toString('base64')]),
+      ),
+    };
+  }
+  analysis ??= await analyzeApplication(root, { config, environment: 'prod' });
   if (analysis.bindings.needsSandbox || analysis.bindings.needsLive) {
     throw new Error(
       'Artifact preparation does not yet support Sandbox or Live resources. Use void deploy for those apps.',

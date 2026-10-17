@@ -1,5 +1,5 @@
 import { exportPKCS8, generateKeyPair } from 'jose';
-import { afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { ApiEnv } from '../../src/env.ts';
 import { GITHUB_API_VERSION } from '../../src/github/installation-token.ts';
 import {
@@ -63,7 +63,19 @@ function pageResponse(items: Array<Record<string, unknown>>, nextUrl?: string): 
   return new Response(JSON.stringify(items), { status: 200, headers });
 }
 
+/** Keep every retry attempt but run its backoff timer at once. */
+function skipRetryDelay(): void {
+  const schedule = globalThis.setTimeout;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) =>
+    schedule(callback, delay === 250 ? 0 : delay, ...args),
+  );
+}
+
 describe('listFailedWebhookDeliveries', () => {
+  beforeEach(() => {
+    skipRetryDelay();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();
@@ -246,6 +258,10 @@ describe('listFailedWebhookDeliveries', () => {
 });
 
 describe('redeliverWebhookDelivery', () => {
+  beforeEach(() => {
+    skipRetryDelay();
+  });
+
   afterEach(() => {
     vi.restoreAllMocks();
     vi.unstubAllGlobals();

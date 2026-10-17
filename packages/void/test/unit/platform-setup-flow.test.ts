@@ -423,6 +423,7 @@ describe('platform credential onboarding', () => {
 
   it('rejects missing Access permissions at the initial management prompt before provisioning', async () => {
     const installArgs = accessManagementPlan();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
     mocks.password
       .mockResolvedValueOnce('missing-access')
       .mockResolvedValueOnce('complete-manager');
@@ -438,6 +439,11 @@ describe('platform credential onboarding', () => {
       ),
     );
     await runPlatformLifecycleCommand(parsePlatformArgs(installArgs));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Cloudflare API error: Access denied (code 10000) (HTTP 403; GET /accounts/account/access/organizations).',
+      ),
+    );
     expect(mocks.password.mock.calls.map(([input]) => input.message)).toEqual([
       'Paste management API token:',
       'Paste management API token:',
@@ -889,6 +895,46 @@ describe('platform credential onboarding', () => {
       expect(mocks.install).toHaveBeenCalledOnce();
     },
   );
+
+  it('preserves permission guidance and provider diagnostics when a management check fails', async () => {
+    requireManagementToken();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const original = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
+      try {
+        await client.request('/zones/zone/dns_records?private=query-value');
+      } catch (cause) {
+        throw new Error('Add Zone → DNS → Edit for example.com to the management token.', {
+          cause,
+        });
+      }
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Response.json(
+          {
+            success: false,
+            errors: [{ code: 10000, message: 'Access denied for rejected-secret' }],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(Symbol('cancel'));
+
+    await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
+
+    expect(warn).toHaveBeenCalledOnce();
+    const warning = warn.mock.calls[0]![0];
+    expect(warning).toContain('Add Zone → DNS → Edit for example.com to the management token.');
+    expect(warning).toContain('Access denied for [redacted] (code 10000)');
+    expect(warning).toContain('HTTP 403; GET /zones/zone/dns_records');
+    expect(warning).not.toContain('rejected-secret');
+    expect(warning).not.toContain('query-value');
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(listInstallationManifests()).toEqual([]);
+  });
 
   it('leaves no draft when management token input is cancelled', async () => {
     requireManagementToken();

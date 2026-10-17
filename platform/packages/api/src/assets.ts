@@ -70,6 +70,8 @@ function tryParseJson<T>(text: string): T | null {
 }
 
 const ASSET_SESSION_MAX_RETRIES = 3;
+// Cloudflare sets no subrequest time limit; 60 s matches the platform's other Cloudflare API calls.
+const ASSET_SESSION_ATTEMPT_TIMEOUT_MS = 60_000;
 const ASSET_SESSION_RETRY_DELAY_MS = 1000;
 const ASSET_BUCKET_UPLOAD_RETRY_DELAY_MS = 1000;
 
@@ -109,6 +111,10 @@ export function normalizeForCfAssetSession(
  * been uploaded") instead of JSON when all asset hashes already exist. This is
  * a CF bug — the response varies by edge node. Retrying typically hits a
  * different node that returns proper JSON.
+ *
+ * A 5xx or a network error (a dropped response body or a timed-out attempt
+ * included) is retried. A 4xx is final, even when its body drops. That
+ * includes a 429: the install shares one API token.
  */
 export async function createAssetUploadSession(
   accountId: string,
@@ -126,16 +132,49 @@ export async function createAssetUploadSession(
   const body = JSON.stringify({ manifest });
 
   return retryWithBackoff(
-    async () => {
-      const response = await fetch(url, { method: 'POST', headers, body });
-
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(`[assets] upload session failed (${response.status}): ${error}`);
-        throw new Error(`asset upload session failed: ${error}`);
+    async (attempt) => {
+      const lastAttempt = attempt === ASSET_SESSION_MAX_RETRIES;
+      let response: Response | undefined;
+      let text: string;
+      try {
+        response = await fetch(url, {
+          method: 'POST',
+          headers,
+          body,
+          signal: AbortSignal.timeout(ASSET_SESSION_ATTEMPT_TIMEOUT_MS),
+        });
+        text = await response.text();
+      } catch (error) {
+        if (response && !response.ok && response.status < 500) {
+          throw new Error(`asset upload session failed (HTTP ${response.status})`, {
+            cause: error,
+          });
+        }
+        if (lastAttempt) {
+          throw (error as { name?: unknown } | null)?.name === 'TimeoutError'
+            ? new Error(
+                `asset upload session did not finish within ${ASSET_SESSION_ATTEMPT_TIMEOUT_MS / 1000} seconds`,
+                { cause: error },
+              )
+            : error;
+        }
+        console.warn(
+          `[assets] upload session request failed, retrying: ${error instanceof Error ? error.message : String(error)}`,
+        );
+        return undefined;
       }
 
-      const text = await response.text();
+      if (!response.ok) {
+        if (response.status >= 500 && !lastAttempt) {
+          console.warn(
+            `[assets] upload session failed (${response.status}), retrying: ${text.slice(0, 200)}`,
+          );
+          return undefined;
+        }
+        console.error(`[assets] upload session failed (${response.status}): ${text}`);
+        throw new Error(`asset upload session failed: ${text}`);
+      }
+
       const data = tryParseJson<UploadSessionResponse>(text);
       if (data?.result?.jwt && Array.isArray(data.result.buckets)) {
         const bucketCount = data.result.buckets.length;
