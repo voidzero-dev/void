@@ -1,0 +1,21 @@
+packages/void/src/plugin-framework-entry.ts
+  s_f572b1deb5ef86::t_6cc20f65fc9a20 1-2,60
+packages/void/test/unit/plugin-class-a-wrapper.test.ts
+  s_f572b1deb5ef86::t_caa23ebcd73cdc 144,150
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "109a01bdcc81983f3289b85ab0380ca97733d66a",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
