@@ -1,0 +1,35 @@
+docs/integrations/frameworks/tanstack-start.md
+  s_f572b1deb5ef86::t_7808b8d4e5c75d 95-97
+docs/reference/api/deploy.md
+  s_f572b1deb5ef86::t_a6ddc0cfd5fc3a 27-30,36,48,50-53,55
+packages/void/src/cli/cf-build-output.ts
+  s_f572b1deb5ef86::t_6643c4649a1b6b 68-80,133-137,222,290-292
+packages/void/src/cli/wrapper.ts
+  s_f572b1deb5ef86::t_3c270696e1338e 583-584
+packages/void/src/deploy.ts
+  s_f572b1deb5ef86::t_b73270b135c905 7,26-61
+packages/void/src/plugin-framework-entry.ts
+  s_f572b1deb5ef86::t_f28878776a9728 49-53,62-67,72-74
+packages/void/test/unit/cf-build-output.test.ts
+  s_f572b1deb5ef86::t_3bfa1f059682cd 183-184,213-223,251-305,354-361,371-373,426-456,480,564-574,583,595,608-617,623,636-643,658-671,695-713,723-734,752-769,857-874
+packages/void/test/unit/wrapper.test.ts
+  s_f572b1deb5ef86::t_93c42c6a895a5d 88-101
+packages/void/test/unit/plugin-class-a-wrapper.test.ts
+  s_f572b1deb5ef86::t_07aa548486f498 13,15,128-152
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "03e130971334b0cdeff11a9f990e698844fa6dfe",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
