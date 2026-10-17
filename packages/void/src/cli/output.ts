@@ -127,7 +127,12 @@ export function note(...args: Parameters<typeof promptsNote>): void {
       // Insert the link after layout: the renderer counts OSC 8 destinations
       // toward the title width and can otherwise truncate a URL that fits.
       if (header && urlTitle) {
-        chunk = chunk.replace(` ${urlTitle} `, ` ${formatUrl(urlTitle)} `);
+        const label = chunk.includes(urlTitle)
+          ? urlTitle
+          : stripVTControlCharacters(chunk).match(/ (\S*…)/)?.[1];
+        if (label) {
+          chunk = chunk.replace(label, () => terminalLink(label, urlTitle, { fallback: false }));
+        }
       }
       header = false;
       return output.write(chunk);
