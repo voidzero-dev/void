@@ -1,0 +1,29 @@
+packages/void/src/cli/cf-build-output.ts
+  s_f572b1deb5ef86::t_82fee3bf26ad03 283,285
+packages/void/src/cli/wrapper.ts
+  s_f572b1deb5ef86::t_da192dc2b45f6c 744-745
+packages/void/src/plugin-framework-entry.ts
+  s_f572b1deb5ef86::t_68978b0dc4630a 1-2,50-63,83
+packages/void/test/unit/cf-build-output.test.ts
+  s_f572b1deb5ef86::t_95edd5ba5ff5f5 870-871
+packages/void/test/unit/plugin-class-a-wrapper.test.ts
+  s_f572b1deb5ef86::t_f76682bc790120 137-142,148-149
+packages/void/test/unit/wrapper.test.ts
+  s_f572b1deb5ef86::t_516994792f18b0 102-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "36e6f64802b0358f7582b3ae44e02070772ee290",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
