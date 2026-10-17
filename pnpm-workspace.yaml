@@ -8,6 +8,7 @@ packages:
   - test/fixtures/sveltekit-v2
 
 catalogMode: strict
+shellEmulator: true
 
 allowBuilds:
   '@astryxdesign/core': false
