@@ -10,10 +10,12 @@ import {
 } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { toSlash } from 'pathslash';
 import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { getOriginalFrameworkEntry } from '../../src/plugin-framework-entry.ts';
 import { frameworkTriggersDispatchPath } from '../../src/plugin-framework-triggers.ts';
 
 vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
@@ -66,6 +68,108 @@ afterEach(() => {
   while (roots.length > 0) {
     rmSync(roots.pop()!, { recursive: true, force: true });
   }
+});
+
+describe('Class A framework custom entry', () => {
+  it.each(['serve', 'build'] as const)(
+    'preserves a custom TanStack Worker entry and named exports during %s',
+    async (command) => {
+      const root = createTanStackRoot({ cloudflare: { main: './server.mjs' } });
+      writeFileSync(
+        join(root, 'server.mjs'),
+        'export class Counter {}\n' +
+          'export const marker = "custom entry";\n' +
+          'export default { fetch() { return new Response(marker); }, scheduled() { return "scheduled"; } };\n',
+      );
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+      const { voidPlugin } = await import('../../src/index.ts');
+      const plugins = voidPlugin();
+      if (command === 'build') {
+        const wrapperPlugin = plugins.find(
+          (plugin) => plugin.name === 'void:framework-build-wrapper',
+        );
+        if (!wrapperPlugin) {
+          throw new Error('Expected Class A wrapper plugin.');
+        }
+        callConfigResolved(wrapperPlugin, {
+          command,
+          build: { assetsDir: 'assets' } as ResolvedConfig['build'],
+        });
+      }
+      const server = await createServer({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        optimizeDeps: { noDiscovery: true },
+        server: { middlewareMode: true, ws: false, preTransformRequests: false },
+      });
+      try {
+        const wrapped = await server.ssrLoadModule(
+          join(root, '.void/tanstack-start-trigger-wrapper.ts'),
+        );
+        const original = await server.ssrLoadModule(join(root, 'server.mjs'));
+        const response = await wrapped.default.fetch(new Request('https://example.test/'), {}, {});
+        expect(await response.text()).toBe('custom entry');
+        expect(wrapped.Counter).toBe(original.Counter);
+        expect(wrapped.marker).toBe('custom entry');
+        expect(wrapped.default.scheduled()).toBe('scheduled');
+      } finally {
+        await server.close();
+      }
+    },
+  );
+
+  it('keeps the default TanStack server entry when no custom entry is configured', () => {
+    expect(getOriginalFrameworkEntry('tanstack-start', createTanStackRoot())).toBe(
+      '@tanstack/react-start/server-entry',
+    );
+  });
+
+  it.each(['@tanstack/react-start/server-entry', '@tanstack/react-start/server-entry.js'])(
+    'keeps the default TanStack server entry for a migrated main of %s',
+    (main) => {
+      expect(getOriginalFrameworkEntry('tanstack-start', createTanStackRoot(), main)).toBe(
+        '@tanstack/react-start/server-entry',
+      );
+    },
+  );
+
+  it.each(['@acme/worker/entry', '@acme/worker/entry.js', 'acme-worker/entry.js'])(
+    'leaves the package entry %s for Vite to resolve',
+    (main) => {
+      expect(getOriginalFrameworkEntry('tanstack-start', createTanStackRoot(), main)).toBe(main);
+    },
+  );
+
+  it.each(['src/server.ts', 'src/worker.cjs', './src/server', '../shared/server.tsx'])(
+    'reads the file entry %s from the app root',
+    (main) => {
+      const root = createTanStackRoot();
+      mkdirSync(join(root, 'src'), { recursive: true });
+      writeFileSync(join(root, 'src/server.ts'), 'export default {};\n');
+      writeFileSync(join(root, 'src/worker.cjs'), 'module.exports = {};\n');
+      expect(getOriginalFrameworkEntry('tanstack-start', root, main)).toBe(
+        toSlash(resolve(root, main)),
+      );
+    },
+  );
+
+  it.each(['', '  ', null, false, 1])('rejects an invalid custom entry %s', (main) => {
+    expect(() => getOriginalFrameworkEntry('tanstack-start', createTanStackRoot(), main)).toThrow(
+      'cloudflare.main must be a non-empty Worker entry path',
+    );
+  });
+
+  it('rejects a custom entry that points back to the generated wrapper', () => {
+    const root = createTanStackRoot();
+    expect(() =>
+      getOriginalFrameworkEntry(
+        'tanstack-start',
+        root,
+        './.void/../.void/tanstack-start-trigger-wrapper.ts',
+      ),
+    ).toThrow("cloudflare.main cannot point to Void's generated framework wrapper");
+  });
 });
 
 describe('Class A framework build wrapper', () => {
@@ -224,6 +328,7 @@ describe('Class A framework request scope', () => {
 
     expect(dev).toBe(`// @ts-nocheck — Auto-generated by Void in dev. Do NOT edit.
 import original from "@tanstack/react-start/server-entry";
+export * from "@tanstack/react-start/server-entry";
 
 export default {
   ...original,
@@ -242,6 +347,7 @@ export default {
 `);
     expect(build).toBe(`// @ts-nocheck — Auto-generated by Void for vite build. Do NOT edit.
 import original from "@tanstack/react-start/server-entry";
+export * from "@tanstack/react-start/server-entry";
 
 export default {
   ...original,
@@ -261,6 +367,7 @@ export default {
 
       expect(dev).toBe(`// @ts-nocheck — Auto-generated by Void in dev. Do NOT edit.
 import original from "@tanstack/react-start/server-entry";
+export * from "@tanstack/react-start/server-entry";
 import { withRuntimeEnv } from "void/_env";
 
 export default {
@@ -282,6 +389,7 @@ export default {
 `);
       expect(build).toBe(`// @ts-nocheck — Auto-generated by Void for vite build. Do NOT edit.
 import original from "@tanstack/react-start/server-entry";
+export * from "@tanstack/react-start/server-entry";
 import { withRuntimeEnv } from "void/_env";
 
 export default {

@@ -85,6 +85,34 @@ describe('repeated wrapper generation', () => {
     expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
   });
 
+  it('keeps the named exports of the wrapped entry', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-exports-'));
+    roots.push(root);
+    writeFileSync(
+      join(root, 'index.mjs'),
+      'export class Counter {}\nexport default { fetch() { return new Response("app"); } };',
+    );
+    await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
+    const wrapped = await import(pathToFileURL(join(root, 'index.mjs')).href);
+    // Cloudflare rejects an upload whose Durable Object class is not exported.
+    expect(Object.keys(wrapped).sort()).toEqual(['Counter', 'default']);
+    expect(wrapped.Counter.name).toBe('Counter');
+  });
+
+  it("keeps the entry's own default handlers", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-handlers-'));
+    roots.push(root);
+    writeFileSync(
+      join(root, 'index.mjs'),
+      'export default { fetch() { return new Response("app"); }, scheduled() { return "cron"; }, email() { return "mail"; } };',
+    );
+    await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
+    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    expect(worker.scheduled()).toBe('cron');
+    expect(worker.email()).toBe('mail');
+    expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
+  });
+
   it('fails readiness when the wrapped entry has no fetch handler', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-wrapper-no-fetch-'));
     roots.push(root);

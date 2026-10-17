@@ -634,6 +634,7 @@ export function voidPlugin(options?: {
       devTriggerToken,
       dialect,
       config.routing?.notFound,
+      config.cloudflare?.main,
     );
     // Class A builds write no `assets` config, and `not_found_handling` alone would keep
     // unmatched requests from the framework worker. Managed `void deploy` supplies the policy.
@@ -661,7 +662,7 @@ export function voidPlugin(options?: {
         generateClassATriggerWrapper(
           root,
           framework,
-          getOriginalFrameworkEntry(framework, root),
+          getOriginalFrameworkEntry(framework, root, config.cloudflare?.main),
           true,
           dialect,
           resolved.build.assetsDir,

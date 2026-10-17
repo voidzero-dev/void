@@ -13,6 +13,9 @@ import {
 import { tmpdir } from 'node:os';
 import {
   getWorkerBundleDir,
+  getWorkerAssetsDir,
+  getWorkerConfigPath,
+  getRootConfigPath,
   normalizeDirectoryName,
   readBuildOutput,
   writeAssets,
@@ -62,6 +65,19 @@ function isInside(directory: string, path: string): boolean {
   return child !== '' && child !== '..' && !child.startsWith('../') && !isAbsolute(child);
 }
 
+/** Asset copies follow symlinks, so a link may not reach outside the asset directory. */
+function assertAssetSymlinksInside(directory: string): void {
+  const realDirectory = realpathSync(directory);
+  for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
+    if (
+      entry.isSymbolicLink() &&
+      !isInside(realDirectory, realpathSync(join(entry.parentPath, entry.name)))
+    ) {
+      throw new Error('The Worker assets contain a symlink outside the asset directory.');
+    }
+  }
+}
+
 function copyBundle(source: string, destination: string): Record<string, { type: ModuleType }> {
   const modules: Record<string, { type: ModuleType }> = {};
   for (const entry of readdirSync(source, { recursive: true, withFileTypes: true })) {
@@ -104,17 +120,30 @@ function copyBundle(source: string, destination: string): Record<string, { type:
   return modules;
 }
 
-/** Create a private cf Build Output tree from Void's verified Vite artifact. */
+/** Create a disposable cf Build Output tree from an existing Cloudflare Worker build. */
 export async function prepareCfBuildOutput(
   workerDirectory: string,
-  accountId: string,
+  accountId?: string,
+  mode?: string,
 ): Promise<CfBuildOutput | null> {
   const source = resolve(workerDirectory);
+  if (existsSync(getRootConfigPath(source))) {
+    return prepareNativeBuildOutput(source, accountId, mode);
+  }
+  if (!existsSync(join(source, 'wrangler.json'))) {
+    throw new Error(
+      `No Cloudflare Worker build found in ${source}. Pass the project root that contains .cloudflare/output/v0, or the Worker output directory that contains wrangler.json.`,
+    );
+  }
   const raw = record(JSON.parse(readFileSync(join(source, 'wrangler.json'), 'utf8')));
   if (!raw) {
     return null;
   }
-  if (typeof raw.account_id === 'string' && raw.account_id !== accountId) {
+  if (
+    typeof raw.account_id === 'string' &&
+    accountId !== undefined &&
+    raw.account_id !== accountId
+  ) {
     return null;
   }
   const config = migrateBuiltWranglerConfig(raw);
@@ -149,7 +178,12 @@ export async function prepareCfBuildOutput(
     const bundle = getWorkerBundleDir(directory);
     mkdirSync(bundle, { recursive: true });
     const modules = copyBundle(source, bundle);
-    await writeRootConfig(directory, { accountId }, { isPreview: false, mode: 'production' });
+    const configuredAccountId = accountId ?? raw.account_id;
+    await writeRootConfig(
+      directory,
+      typeof configuredAccountId === 'string' ? { accountId: configuredAccountId } : {},
+      { isPreview: false, mode: mode ?? 'production' },
+    );
     await writeWorkerConfig({
       root: directory,
       config: config.worker,
@@ -185,6 +219,7 @@ export async function prepareCfBuildOutput(
         await dispose();
         return null;
       }
+      assertAssetSymlinksInside(assetPath);
       await writeAssets({ root: directory, sourceDirectory: assetPath });
     }
     await readBuildOutput(directory);
@@ -192,6 +227,90 @@ export async function prepareCfBuildOutput(
       directory,
       ...(typeof assetsDirectory === 'string'
         ? { assetsDirectory: resolve(source, assetsDirectory) }
+        : {}),
+      dispose,
+    };
+  } catch (error) {
+    await dispose();
+    throw error;
+  }
+}
+
+/** Copy and complete the native artifact without changing the Vite build's inputs or metadata. */
+async function prepareNativeBuildOutput(
+  source: string,
+  accountId?: string,
+  mode?: string,
+): Promise<CfBuildOutput | null> {
+  const built = await readBuildOutput(source);
+  if (
+    (accountId !== undefined &&
+      built.rootConfig.accountId !== undefined &&
+      accountId !== built.rootConfig.accountId) ||
+    (mode !== undefined && mode !== built.rootConfig.buildContext.mode)
+  ) {
+    return null;
+  }
+  const directory = mkdtempSync(join(tmpdir(), 'void-cf-native-'));
+  const dispose = async () => {
+    rmSync(directory, { recursive: true, force: true });
+  };
+  try {
+    await writeRootConfig(
+      directory,
+      {
+        accountId: accountId ?? built.rootConfig.accountId,
+        complianceRegion: built.rootConfig.complianceRegion,
+      },
+      { ...built.rootConfig.buildContext, mode: built.rootConfig.buildContext.mode },
+    );
+    for (const [name, worker] of Object.entries(built.workers)) {
+      if (
+        worker.bundleDir &&
+        (!worker.config.manifest ||
+          worker.config.manifest.modules[worker.config.manifest.mainModule]?.type !== 'esm')
+      ) {
+        throw new Error('The native Worker build must declare its main ES module.');
+      }
+      const configPath = getWorkerConfigPath(directory, name);
+      mkdirSync(dirname(configPath), { recursive: true });
+      writeFileSync(configPath, JSON.stringify(worker.config));
+      if (worker.bundleDir && worker.config.manifest) {
+        const bundle = getWorkerBundleDir(directory, name);
+        for (const module of Object.keys(worker.config.manifest.modules)) {
+          const destination = join(bundle, module);
+          if (
+            // A backslash or a colon (a Windows drive) has no place in a bundle path.
+            module.includes('\\') ||
+            module.includes(':') ||
+            !isInside(bundle, resolve(bundle, module)) ||
+            !isInside(worker.bundleDir, resolve(worker.bundleDir, module))
+          ) {
+            throw new Error('Native Worker modules must stay inside the build bundle.');
+          }
+          if (!existsSync(join(worker.bundleDir, module))) {
+            throw new Error(`Native Worker module ${module} is missing from the build bundle.`);
+          }
+          mkdirSync(dirname(destination), { recursive: true });
+          copyFileSync(join(worker.bundleDir, module), destination);
+        }
+      }
+      if (worker.assetsDir) {
+        cpSync(worker.assetsDir, getWorkerAssetsDir(directory, name), { recursive: true });
+      }
+    }
+    for (const container of built.containers) {
+      await writeContainerConfig({
+        root: directory,
+        config: container.config,
+        directoryName: basename(dirname(container.configPath)),
+      });
+    }
+    await readBuildOutput(directory);
+    return {
+      directory,
+      ...(built.workers.default.assetsDir
+        ? { assetsDirectory: built.workers.default.assetsDir }
         : {}),
       dispose,
     };

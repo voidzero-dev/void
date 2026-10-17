@@ -71,6 +71,31 @@ Use [KV](../../guide/kv.md), [object storage](../../guide/storage.md), and [AI](
 
 Declare variables in `env.ts` and read them with `import { env } from "void/env"`. See [Environment Variables](../../guide/env-vars.md) for local values, production secrets, and public `VITE_*` values.
 
+## Custom Worker Entry
+
+Set `cloudflare.main` in `void.config.ts` when your Worker needs its own entry module, for example to export a Durable Object class:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  cloudflare: { main: './server.ts' },
+});
+```
+
+The path is relative to your app root. Default-export the TanStack request handler and add your named exports in that module:
+
+```ts
+import handler from '@tanstack/react-start/server-entry';
+
+export { Counter } from './counter';
+export default handler;
+```
+
+Void preserves these named exports in development, production builds, and deploys. Without `cloudflare.main`, Void uses TanStack's default server entry. A package entry such as `@tanstack/react-start/server-entry` is resolved as a module.
+
+Bind an exported Durable Object or Workflow class under `cloudflare` as well, for example in `cloudflare.durable_objects`. These settings apply when you deploy with `void deploy --platform cloudflare`. On a Void platform, use [Durable State](../../guide/durable-state.md) instead.
+
 ## Accessing Bindings Directly
 
 You can also access Cloudflare bindings via the `cloudflare:workers` module:

@@ -4,6 +4,7 @@ import { resolve, join } from 'pathslash';
 import { analyzeApplication } from './application-routing.ts';
 import { resolveAssetConfig, hasApiRoutes, hasDocumentRoutes } from './asset-routing.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
+import { prepareCfBuildOutput as prepareInternalCfBuildOutput } from './cli/cf-build-output.ts';
 import { assertDeploySchemaDriftFree } from './cli/deploy-drift.ts';
 import {
   resolveDeployWorkerMain,
@@ -21,6 +22,43 @@ import { readConfig, isNodeTarget } from './config.ts';
 import { collectRevalidate } from './isr-config.ts';
 import { hasEmailHandlers } from './router/email.ts';
 import { validateSsrEntry } from './ssr/entry.ts';
+
+/**
+ * A disposable Cloudflare Build Output directory. Experimental: it follows Cloudflare's draft
+ * Build Output format, which can change between Void releases.
+ */
+export type CfBuildOutput = {
+  directory: string;
+  /** The input's static assets, when the Worker has any. */
+  assetsDirectory?: string;
+  dispose(): Promise<void>;
+};
+
+export type PrepareCfBuildOutputOptions = {
+  /** The Cloudflare account the build must target. */
+  accountId?: string;
+  /** The Vite build mode. Native output must match it; legacy output defaults to production. */
+  mode?: string;
+};
+
+/**
+ * Convert an existing Cloudflare Worker build into a disposable Cloudflare Build Output directory.
+ * Experimental. Returns null for an unsupported build or a conflicting account or mode.
+ */
+export async function prepareCfBuildOutput(
+  directory: string,
+  options: PrepareCfBuildOutputOptions = {},
+): Promise<CfBuildOutput | null> {
+  const prepared = await prepareInternalCfBuildOutput(directory, options.accountId, options.mode);
+  // A fresh object keeps internal deploy state off the public result.
+  return (
+    prepared && {
+      directory: prepared.directory,
+      ...(prepared.assetsDirectory ? { assetsDirectory: prepared.assetsDirectory } : {}),
+      dispose: prepared.dispose,
+    }
+  );
+}
 
 export type PreparedDeployArtifact = {
   artifact: DeployArtifact;
