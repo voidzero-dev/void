@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
 import { safeJsonStringify } from '../../src/pages/protocol.ts';
-import { serializePageData } from '../../src/pages/serialize.ts';
+import { islandFrontmatterScript, serializePageData } from '../../src/pages/serialize.ts';
 
 describe.each([
   ['serializePageData', serializePageData],
@@ -38,5 +38,21 @@ describe('safeJsonStringify', () => {
     ['a function', () => {}],
   ])('returns null for %s', (_label, value) => {
     expect(safeJsonStringify(value)).toBe('null');
+  });
+});
+
+describe('islandFrontmatterScript', () => {
+  it('keeps a frontmatter value from closing the script tag', () => {
+    const script = islandFrontmatterScript({ title: '</script><script>alert(1)</script>' });
+
+    expect(script.indexOf('</script>')).toBe(script.length - '</script>'.length);
+    expect(JSON.parse(script.slice(script.indexOf('>') + 1, -'</script>'.length))).toEqual({
+      title: '</script><script>alert(1)</script>',
+    });
+  });
+
+  it('is empty without frontmatter', () => {
+    expect(islandFrontmatterScript(undefined)).toBe('');
+    expect(islandFrontmatterScript({})).toBe('');
   });
 });

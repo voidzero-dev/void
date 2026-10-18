@@ -341,6 +341,7 @@ function generateIslandRenderer(
 import { render } from "svelte/server";
 import App from "@void/svelte/App.svelte";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
+import { islandFrontmatterScript } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 ${mdScriptIdsCode}
@@ -372,6 +373,11 @@ export async function renderIslandPage(pageObj, assetTags) {
     },
   });
 
+  // Islands hydrate as separate roots. Send the page frontmatter so their
+  // useFrontmatter() returns the same value in the browser.
+  const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
+    ? islandFrontmatterScript(__pageModule.frontmatter)
+    : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -382,7 +388,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 <head>\${headHtml}\${head}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
-  \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
+  \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
 </body>
 </html>\`;
 }
@@ -430,10 +436,11 @@ function generateIslandClientEntry(
   lines.push('};');
 
   lines.push(`
-async function hydrateIsland(el, mod, props) {
+async function hydrateIsland(el, mod, props, frontmatter) {
   const { hydrate } = await import("svelte");
   const Component = mod.default || mod;
-  hydrate(Component, { target: el, props });
+  const context = new Map([["__void_frontmatter", frontmatter]]);
+  hydrate(Component, { target: el, props, context });
   el.setAttribute("data-hydrated", "true");
 }
 

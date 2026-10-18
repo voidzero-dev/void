@@ -137,7 +137,7 @@ Welcome to Void. Here's an interactive demo:
 ```
 
 - **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
-- **Frontmatter:** YAML metadata between `---` fences. Layouts can read it through [`useFrontmatter()`](#frontmatter-access).
+- **Frontmatter:** YAML metadata between `---` fences. Layouts and islands can read it through [`useFrontmatter()`](#frontmatter-access).
 - **Body:** standard markdown plus GFM. Uppercase tags such as `<Counter />` reference imported components and render as islands.
 
 ## Client Scripts
@@ -229,6 +229,8 @@ export default function DocsLayout(props) {
 ```
 
 :::
+
+Island components on a Markdown page can call `useFrontmatter()` too. A page with islands includes its frontmatter in the HTML for them to read in the browser. Keep private values out of the frontmatter of those pages.
 
 ## Pages Virtual Module
 

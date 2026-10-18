@@ -263,6 +263,7 @@ function generateIslandRenderer(
 import { createSSRApp, h, reactive, provide } from "vue";
 import { renderToString } from "vue/server-renderer";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
+import { islandFrontmatterScript } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 ${mdScriptIdsCode}
@@ -299,6 +300,11 @@ export async function renderIslandPage(pageObj, assetTags) {
   });
 
   const html = await renderToString(app);
+  // Islands hydrate as separate roots. Send the page frontmatter so their
+  // useFrontmatter() returns the same value in the browser.
+  const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
+    ? islandFrontmatterScript(__pageModule.frontmatter)
+    : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -309,7 +315,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 <head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
-  \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
+  \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
 </body>
 </html>\`;
 }
@@ -368,10 +374,11 @@ function generateIslandClientEntry(
   lines.push('};');
 
   lines.push(`
-async function hydrateIsland(el, mod, props) {
+async function hydrateIsland(el, mod, props, frontmatter) {
   const { createSSRApp, h } = await import("vue");
   const Component = mod.default || mod;
   const app = createSSRApp({ render: () => h(Component, props) });
+  app.provide("__void_frontmatter", frontmatter);
   app.mount(el);
   el.setAttribute("data-hydrated", "true");
 }

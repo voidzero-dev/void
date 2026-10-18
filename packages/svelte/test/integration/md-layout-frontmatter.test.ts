@@ -6,8 +6,13 @@ import { join } from 'node:path';
 import { svelte } from '@sveltejs/vite-plugin-svelte';
 import { createServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
+import { waitForIslandsHydrated } from '../../../../test/browser-helpers.ts';
+import { openIslandPage, type IslandPageVisit } from '../../../../test/island-page-browser.ts';
 import { voidMarkdown } from '../../../md/src/plugin.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
+
+const ISLAND_FRONTMATTER_SCRIPT =
+  '<script type="application/json" id="__void_frontmatter">{"title":"Hello from frontmatter"}</script>';
 
 type IslandRenderer = {
   renderIslandPage(
@@ -57,8 +62,62 @@ it('a layout reads the frontmatter of the Markdown page it wraps', async () => {
     );
     expect(html).toContain('<p id="fm">Hello from frontmatter</p>');
     expect(html).toContain('Body</h1>');
+    // No island on the page, so the frontmatter stays on the server.
+    expect(html).not.toContain('__void_frontmatter');
   } finally {
     await server.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+it('an island reads the same frontmatter in the browser as on the server', async () => {
+  const root = mkdtempSync(join(import.meta.dirname, '__tmp_md_island_frontmatter_'));
+  mkdirSync(join(root, 'pages'));
+  mkdirSync(join(root, 'components'));
+  writeFileSync(
+    join(root, 'pages/layout.island.svelte'),
+    `<script>
+  import Title from "../components/Title.svelte" with { island: "load" };
+  let { children } = $props();
+</script>
+<div><Title />{@render children()}</div>
+`,
+  );
+  writeFileSync(
+    join(root, 'components/Title.svelte'),
+    `<script>
+  import { useFrontmatter } from "@void/md";
+  const frontmatter = useFrontmatter();
+</script>
+<p id="island-fm">{String(frontmatter.title)}</p>
+`,
+  );
+  writeFileSync(
+    join(root, 'pages', 'index.md'),
+    '---\ntitle: Hello from frontmatter\n---\n\n# Body\n',
+  );
+
+  let visit: IslandPageVisit | undefined;
+  try {
+    visit = await openIslandPage(root, {
+      alias: {
+        '@void/svelte/App.svelte': join(import.meta.dirname, '../../src/runtime/App.svelte'),
+      },
+      plugins: [
+        ...voidMarkdown(),
+        svelte(),
+        { name: 'void-svelte:pages' },
+        ...islandsPlugin(join(root, 'pages')),
+      ],
+    });
+    expect(visit.html).toContain(ISLAND_FRONTMATTER_SCRIPT);
+    await waitForIslandsHydrated(visit.page);
+    expect(await visit.page.textContent('#island-fm')).toBe('Hello from frontmatter');
+    // A server/browser mismatch makes Svelte warn about hydration and re-render the island.
+    expect(visit.diagnostics().toLowerCase()).not.toContain('hydrat');
+    expect(visit.diagnostics()).not.toContain('pageerror');
+  } finally {
+    await visit?.close();
     rmSync(root, { recursive: true, force: true });
   }
 });

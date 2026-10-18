@@ -251,6 +251,7 @@ import React from "react";
 import { renderToString } from "react-dom/server";
 import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext } from "@void/react";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
+import { islandFrontmatterScript } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 ${mdScriptIdsCode}
@@ -293,6 +294,11 @@ export async function renderIslandPage(pageObj, assetTags) {
   );
 
   const html = renderToString(element);
+  // Islands hydrate as separate roots. Send the page frontmatter so their
+  // useFrontmatter() returns the same value in the browser.
+  const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
+    ? islandFrontmatterScript(__pageModule.frontmatter)
+    : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -303,7 +309,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 <head>\${headHtml}\${PREAMBLE_SCRIPT}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
-  \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
+  \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
 </body>
 </html>\`;
 }
@@ -345,15 +351,20 @@ function generateIslandClientEntry(
   lines.push('};');
 
   lines.push(`
-async function hydrateIsland(el, mod, props) {
+async function hydrateIsland(el, mod, props, frontmatter) {
   const { hydrateRoot } = await import("react-dom/client");
   const React = await import("react");
   const Component = mod.default || mod;
+  let island = React.createElement(Component, props);
+  if (Object.keys(frontmatter).length > 0) {
+    const { FrontmatterContext } = await import("@void/react");
+    island = React.createElement(FrontmatterContext.Provider, { value: frontmatter }, island);
+  }
   function HydratedIsland() {
     React.useLayoutEffect(() => {
       el.setAttribute("data-hydrated", "true");
     }, []);
-    return React.createElement(Component, props);
+    return island;
   }
   hydrateRoot(el, React.createElement(HydratedIsland));
 }

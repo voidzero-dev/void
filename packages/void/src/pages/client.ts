@@ -16,6 +16,7 @@ import {
   type VoidRouterAdapter as PageNavigationAdapter,
   type PrefetchOptions,
 } from './navigation-engine.ts';
+import { ISLAND_FRONTMATTER_ID } from './serialize.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
@@ -471,15 +472,26 @@ export function scheduleHydration(
 
 export function initIslands(
   islands: Record<string, () => Promise<unknown>>,
-  hydrateFn: (el: Element, mod: unknown, props: Record<string, unknown>) => void | Promise<void>,
+  hydrateFn: (
+    el: Element,
+    mod: unknown,
+    props: Record<string, unknown>,
+    frontmatter: Record<string, unknown>,
+  ) => void | Promise<void>,
 ): void {
+  // Islands hydrate as separate roots, so they read the page frontmatter here
+  // to match what useFrontmatter() returned during server rendering.
+  const frontmatterText = document.getElementById(ISLAND_FRONTMATTER_ID)?.textContent;
+  const frontmatter = frontmatterText ? JSON.parse(frontmatterText) : {};
+  const hydrate = (el: Element, mod: unknown, props: Record<string, unknown>) =>
+    hydrateFn(el, mod, props, frontmatter);
   document.querySelectorAll('[data-island]').forEach((el) => {
     const id = el.getAttribute('data-island')!;
     const props = JSON.parse(el.getAttribute('data-props') || '{}');
     const strategy = el.getAttribute('data-hydrate') || 'load';
     const loader = islands[id];
     if (loader) {
-      scheduleHydration(el, loader, props, strategy, hydrateFn);
+      scheduleHydration(el, loader, props, strategy, hydrate);
     }
   });
 }

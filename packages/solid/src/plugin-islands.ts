@@ -258,6 +258,7 @@ import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
 import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext } from "@void/solid";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
+import { islandFrontmatterScript } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 ${mdScriptIdsCode}
@@ -311,6 +312,11 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   const html = await renderToStringAsync(() => createComponent(ServerApp, {}));
 
+  // Islands hydrate as separate roots. Send the page frontmatter so their
+  // useFrontmatter() returns the same value in the browser.
+  const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
+    ? islandFrontmatterScript(__pageModule.frontmatter)
+    : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -321,7 +327,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 <head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}\${__pagesNeedingClientJS.has(pageObj.component) ? generateHydrationScript() : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
-  \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
+  \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}
 </body>
 </html>\`;
 }
@@ -367,12 +373,25 @@ function generateIslandClientEntry(
   // providers and layouts). render() replaces the server HTML with a fresh
   // client render — the brief re-render is acceptable for interactive islands.
   lines.push(`
-async function mountIsland(el, mod, props) {
+async function mountIsland(el, mod, props, frontmatter) {
   const { render } = await import("solid-js/web");
   const { createComponent } = await import("solid-js");
   const Component = mod.default || mod;
+  const { FrontmatterContext } =
+    Object.keys(frontmatter).length > 0 ? await import("@void/solid") : {};
   el.textContent = "";
-  render(() => createComponent(Component, props), el);
+  render(
+    () =>
+      FrontmatterContext
+        ? createComponent(FrontmatterContext.Provider, {
+            value: frontmatter,
+            get children() {
+              return createComponent(Component, props);
+            },
+          })
+        : createComponent(Component, props),
+    el,
+  );
   el.setAttribute("data-hydrated", "true");
 }
 
