@@ -5,7 +5,10 @@ import { generateComponentManifest, scanPages, resolveEffectiveLayoutChain } fro
 import type { PageScanResult } from 'void/pages';
 import {
   resolveSpecifier,
-  needsIslandClientBundle,
+  hasIslandPages,
+  recordIslandStyles,
+  recordedIslandStyles,
+  islandStylesPlugin,
   rewriteCssImportForVirtualModule,
   computePagesNeedingClientJS,
   watchPagesForRescan,
@@ -118,6 +121,22 @@ export function islandsPlugin(
         }
       },
 
+      buildEnd() {
+        recordIslandStyles(this, pageScan, pagesDir);
+        if (this.environment.config.consumer !== 'client') {
+          return;
+        }
+        // Vite drops a scoped style block when its component is not in the
+        // bundle (`cssScopeTo`). Island pages and layouts render only on the
+        // server, so keep the styles that the islands client entry imports.
+        for (const id of recordedIslandStyles(pagesDir) ?? []) {
+          const vite = this.getModuleInfo(id)?.meta.vite as { cssScopeTo?: unknown } | undefined;
+          if (vite?.cssScopeTo) {
+            delete vite.cssScopeTo;
+          }
+        }
+      },
+
       resolveId: {
         filter: { id: /^virtual:void-islands-(renderer|client)$/ },
         handler(source) {
@@ -148,7 +167,14 @@ export function islandsPlugin(
             if (!pageScan) {
               return '';
             }
-            return generateIslandClientEntry(islandManifest, islandCssFiles, isDev);
+            return generateIslandClientEntry(
+              islandManifest,
+              islandCssFiles,
+              recordedIslandStyles(pagesDir),
+              islandManifest.size > 0 ||
+                computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig).size > 0,
+              isDev,
+            );
           }
         },
       },
@@ -224,14 +250,14 @@ export function islandsPlugin(
         },
       },
 
-      config(_, env) {
+      async config(_, env) {
         if (!existsSync(pagesDir)) {
           return;
         }
         if (env.command === 'serve') {
           return { optimizeDeps: { include: ['vue'] } };
         }
-        if (needsIslandClientBundle(pagesDir, /\.island\.vue$/, true)) {
+        if (await hasIslandPages(root, pagesDir)) {
           return {
             environments: {
               client: {
@@ -247,6 +273,7 @@ export function islandsPlugin(
         }
       },
     },
+    islandStylesPlugin(pagesDir),
   ];
 }
 
@@ -325,6 +352,8 @@ export async function renderIslandPage(pageObj, assetTags) {
 function generateIslandClientEntry(
   manifest: Map<string, IslandEntry>,
   cssFiles: Set<string>,
+  styles: ReadonlyArray<string> | null,
+  needsRuntime: boolean,
   isDev: boolean,
 ): string {
   const entries = [...manifest.values()];
@@ -335,13 +364,16 @@ function generateIslandClientEntry(
 
   const lines: Array<string> = [];
 
-  lines.push('import { initIslands } from "void/pages-client";');
-
   // In dev, first-paint CSS is provided by Void's shared dev CSS collector.
   // Skip style imports here to avoid duplicate client injection.
-  // In production, the <link> tags aren't used — the style imports below
-  // ensure the CSS is included in the bundled output.
-  if (!isDev) {
+  // In production, the imports below bundle the CSS that island pages link.
+  // `styles` comes from the server build; without one, only the direct
+  // imports and style blocks of the pages and layouts are known.
+  if (!isDev && styles) {
+    for (const id of styles) {
+      lines.push(`import ${JSON.stringify(id)};`);
+    }
+  } else if (!isDev) {
     const styleRe = /<style\b([^>]*)>/g;
     for (const file of cssFiles) {
       const content = readFileSync(file, 'utf-8');
@@ -367,6 +399,15 @@ function generateIslandClientEntry(
     }
   }
 
+  // Without islands, no built page gets this script (see
+  // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
+  // link. Dev keeps the runtime: it does not reload this module when a page
+  // gains an island.
+  if (!needsRuntime && !isDev) {
+    return lines.join('\n');
+  }
+
+  lines.push('import { initIslands } from "void/pages-client";');
   lines.push('const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);

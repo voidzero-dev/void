@@ -5,7 +5,10 @@ import { generateComponentManifest, scanPages, resolveEffectiveLayoutChain } fro
 import type { PageScanResult } from 'void/pages';
 import {
   resolveSpecifier,
-  needsIslandClientBundle,
+  hasIslandPages,
+  recordIslandStyles,
+  recordedIslandStyles,
+  islandStylesPlugin,
   computePagesNeedingClientJS,
   watchPagesForRescan,
   rewriteCssImportForVirtualModule,
@@ -121,6 +124,10 @@ export function islandsPlugin(
         }
       },
 
+      buildEnd() {
+        recordIslandStyles(this, pageScan, pagesDir);
+      },
+
       resolveId: {
         filter: { id: /^virtual:void-islands-(renderer|client)$/ },
         handler(source) {
@@ -151,7 +158,14 @@ export function islandsPlugin(
             if (!pageScan) {
               return '';
             }
-            return generateIslandClientEntry(islandManifest, islandCssFiles, isDev);
+            return generateIslandClientEntry(
+              islandManifest,
+              islandCssFiles,
+              recordedIslandStyles(pagesDir),
+              islandManifest.size > 0 ||
+                computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig).size > 0,
+              isDev,
+            );
           }
         },
       },
@@ -211,26 +225,24 @@ export function islandsPlugin(
         },
       },
 
-      config(_, env) {
-        if (!existsSync(pagesDir)) {
-          return;
-        }
-        // Only add the islands client entry when content needs it
-        if (
-          env.command !== 'serve' &&
-          needsIslandClientBundle(pagesDir, /\.island\.(tsx|jsx)$/, false)
-        ) {
+      async config(_, env) {
+        if (env.command !== 'serve' && (await hasIslandPages(root, pagesDir))) {
           return {
-            build: {
-              manifest: true,
-              rollupOptions: {
-                input: { 'islands-client': ISLANDS_CLIENT_ENTRY_ID },
+            environments: {
+              client: {
+                build: {
+                  manifest: true,
+                  rollupOptions: {
+                    input: { 'islands-client': ISLANDS_CLIENT_ENTRY_ID },
+                  },
+                },
               },
             },
           };
         }
       },
     },
+    islandStylesPlugin(pagesDir),
   ];
 }
 
@@ -319,6 +331,8 @@ export async function renderIslandPage(pageObj, assetTags) {
 function generateIslandClientEntry(
   manifest: Map<string, IslandEntry>,
   cssFiles: Set<string>,
+  styles: ReadonlyArray<string> | null,
+  needsRuntime: boolean,
   isDev: boolean,
 ): string {
   const entries = [...manifest.values()];
@@ -329,13 +343,16 @@ function generateIslandClientEntry(
 
   const lines: Array<string> = [];
 
-  lines.push('import { initIslands } from "void/pages-client";');
-
   // In dev, first-paint CSS is provided by Void's shared dev CSS collector.
   // Skip CSS imports here to avoid duplicate client injection.
-  // In production, the <link> tags aren't used — the imports below ensure
-  // the CSS is included in the bundled output.
-  if (!isDev) {
+  // In production, the imports below bundle the CSS that island pages link.
+  // `styles` comes from the server build; without one, only the direct
+  // imports of the pages and layouts are known.
+  if (!isDev && styles) {
+    for (const id of styles) {
+      lines.push(`import ${JSON.stringify(id)};`);
+    }
+  } else if (!isDev) {
     for (const file of cssFiles) {
       const content = readFileSync(file, 'utf-8');
       for (const item of findStaticCssImports(content, file)) {
@@ -344,6 +361,15 @@ function generateIslandClientEntry(
     }
   }
 
+  // Without islands, no built page gets this script (see
+  // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
+  // link. Dev keeps the runtime: it does not reload this module when a page
+  // gains an island.
+  if (!needsRuntime && !isDev) {
+    return lines.join('\n');
+  }
+
+  lines.push('import { initIslands } from "void/pages-client";');
   lines.push('const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);

@@ -6,7 +6,10 @@ import { generateComponentManifest, scanPages, resolveEffectiveLayoutChain } fro
 import type { PageScanResult } from 'void/pages';
 import {
   resolveSpecifier,
-  needsIslandClientBundle,
+  hasIslandPages,
+  recordIslandStyles,
+  recordedIslandStyles,
+  islandStylesPlugin,
   rewriteCssImportForVirtualModule,
   computePagesNeedingClientJS,
   watchPagesForRescan,
@@ -138,6 +141,10 @@ export function islandsPlugin(
         }
       },
 
+      buildEnd() {
+        recordIslandStyles(this, pageScan, pagesDir);
+      },
+
       resolveId: {
         filter: {
           id: /^(virtual:void-islands-(renderer|client)|\/@void-island-wrap\/)/,
@@ -177,7 +184,14 @@ export function islandsPlugin(
             if (!pageScan) {
               return '';
             }
-            return generateIslandClientEntry(islandManifest, islandCssFiles, isDev);
+            return generateIslandClientEntry(
+              islandManifest,
+              islandCssFiles,
+              recordedIslandStyles(pagesDir),
+              islandManifest.size > 0 ||
+                computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig).size > 0,
+              isDev,
+            );
           }
           if (id.startsWith(WRAPPER_PREFIX)) {
             return generateWrapperComponent(id);
@@ -227,14 +241,14 @@ export function islandsPlugin(
         },
       },
 
-      config(_, env) {
+      async config(_, env) {
         if (!existsSync(pagesDir)) {
           return;
         }
         if (env.command === 'serve') {
           return { optimizeDeps: { include: ['svelte'] } };
         }
-        if (needsIslandClientBundle(pagesDir, /\.island\.svelte$/, true)) {
+        if (await hasIslandPages(root, pagesDir)) {
           return {
             environments: {
               client: {
@@ -252,18 +266,21 @@ export function islandsPlugin(
     },
     {
       name: 'void-svelte:islands-style',
-      // Only the build's client entry imports `<file>.svelte.css?island-style`
-      // (dev CSS comes from Void's dev CSS collector).
-      // - The id stays next to the component, so CSS url() resolves as in the
-      //   component, and it misses vite-plugin-svelte's `.svelte?` filter.
+      // Loads the component styles that the build's client entry imports (dev
+      // CSS comes from Void's dev CSS collector): vite-plugin-svelte's
+      // `<file>.svelte?svelte&type=style` ids that the server build recorded,
+      // or `<file>.svelte.css?island-style` without a server build.
       // - The CSS comes from vite-plugin-svelte's own preprocess options and
       //   compile, so the scope hashes match the SSR markup.
       // - The component is compiled here, not loaded with `this.load`: island
-      //   pages and layouts render only on the server, and loading them would
-      //   resolve their server-only imports in the client build.
-      // - vite-plugin-svelte's `?svelte&type=style` id is not used: it only
-      //   reads CSS already cached on the module, and its cssScopeTo drops the
-      //   CSS when the component is not imported by the client build.
+      //   pages, their layouts and the components they import render only on
+      //   the server, and loading them would resolve their server-only imports
+      //   in the client build.
+      // - vite-plugin-svelte's own load only reads CSS already cached on the
+      //   compiled component, and its cssScopeTo drops the CSS when the client
+      //   build does not import the component. Loading its id here keeps one
+      //   module, so a component that the client build also imports does not
+      //   bring the same rules twice.
       apply: 'build',
 
       resolveId: {
@@ -274,9 +291,20 @@ export function islandsPlugin(
       },
 
       load: {
-        filter: { id: /\.svelte\.css\?island-style$/ },
+        filter: { id: [/\.svelte\.css\?island-style$/, /\.svelte\?svelte&type=style/] },
+        order: 'pre',
         async handler(id) {
-          const file = id.slice(0, -'.css?island-style'.length);
+          const islandStyle = id.endsWith('.css?island-style');
+          if (
+            !islandStyle &&
+            (this.environment.config.consumer !== 'client' ||
+              !recordedIslandStyles(pagesDir)?.includes(id))
+          ) {
+            return;
+          }
+          const file = islandStyle
+            ? id.slice(0, -'.css?island-style'.length)
+            : id.slice(0, id.indexOf('?'));
           const api = resolvedConfig?.plugins.find(
             (plugin): plugin is SvelteConfigPlugin => plugin.name === 'vite-plugin-svelte:config',
           )?.api;
@@ -309,6 +337,7 @@ export function islandsPlugin(
         },
       },
     },
+    islandStylesPlugin(pagesDir),
   ];
 }
 
@@ -398,6 +427,8 @@ export async function renderIslandPage(pageObj, assetTags) {
 function generateIslandClientEntry(
   manifest: Map<string, IslandEntry>,
   cssFiles: Set<string>,
+  styles: ReadonlyArray<string> | null,
+  needsRuntime: boolean,
   isDev: boolean,
 ): string {
   const entries = [...manifest.values()];
@@ -408,13 +439,16 @@ function generateIslandClientEntry(
 
   const lines: Array<string> = [];
 
-  lines.push('import { initIslands } from "void/pages-client";');
-
   // In dev, first-paint CSS is provided by Void's shared dev CSS collector.
   // Skip CSS imports here to avoid duplicate client injection.
-  // In production, the <link> tags aren't used — the imports below ensure
-  // the CSS is included in the bundled output.
-  if (!isDev) {
+  // In production, the imports below bundle the CSS that island pages link.
+  // `styles` comes from the server build; without one, only the direct
+  // imports and style blocks of the pages and layouts are known.
+  if (!isDev && styles) {
+    for (const id of styles) {
+      lines.push(`import ${JSON.stringify(id)};`);
+    }
+  } else if (!isDev) {
     for (const file of cssFiles) {
       const content = readFileSync(file, 'utf-8');
 
@@ -429,6 +463,15 @@ function generateIslandClientEntry(
     }
   }
 
+  // Without islands, no built page gets this script (see
+  // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
+  // link. Dev keeps the runtime: it does not reload this module when a page
+  // gains an island.
+  if (!needsRuntime && !isDev) {
+    return lines.join('\n');
+  }
+
+  lines.push('import { initIslands } from "void/pages-client";');
   lines.push('const islands = {');
   for (const [id, path] of uniqueIslands) {
     lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);

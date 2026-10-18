@@ -1,6 +1,12 @@
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, resolve } from 'pathslash';
-import { normalizePath, type ResolvedConfig, type ViteDevServer } from 'vite';
+import {
+  isCSSRequest,
+  normalizePath,
+  type Plugin,
+  type ResolvedConfig,
+  type ViteDevServer,
+} from 'vite';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
 import { resolveEffectiveLayoutChain, scanPages } from './scan.ts';
 import type { PageScanResult } from './types.ts';
@@ -53,48 +59,163 @@ export function resolveSpecifier(
 }
 
 /**
- * Check whether the islands client bundle is needed by scanning file contents.
- * Returns true if any island/layout file has island imports or CSS,
- * or any .md file has a `<script>` block.
+ * Whether the app has island pages (`*.island.*` files or Markdown). Their
+ * layouts can reach a stylesheet through a component, which only the module
+ * graph shows, so the islands client entry is built for every such app.
  */
-export function needsIslandClientBundle(
-  dir: string,
-  islandFilePattern: RegExp,
-  checkStyleBlocks: boolean,
-): boolean {
-  const cssImportRe =
-    /import\b[^"']*["'][^"']+\.(?:css|scss|sass|less|styl|stylus|pcss|postcss)["']/;
-  const mdScriptRe = /^<script\b/m;
-  const styleRe = checkStyleBlocks ? /<style\b/ : null;
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (!entry.isFile()) {
-        continue;
-      }
-      const name = entry.name;
-      if (islandFilePattern.test(name) || name.startsWith('layout.') || name.startsWith('_')) {
-        const content = readFileSync(resolve(entry.parentPath!, name), 'utf-8');
-        if (hasIslandImports(content, name)) {
-          return true;
-        }
-        if (styleRe && styleRe.test(content)) {
-          return true;
-        }
-        if (cssImportRe.test(content)) {
-          return true;
-        }
-      }
-      if (name.endsWith('.md')) {
-        const content = readFileSync(resolve(entry.parentPath!, name), 'utf-8');
-        if (mdScriptRe.test(content)) {
-          return true;
-        }
-      }
-    }
-  } catch {
-    // ignore
+export async function hasIslandPages(root: string, pagesDir: string): Promise<boolean> {
+  if (!existsSync(pagesDir)) {
+    return false;
   }
-  return false;
+  try {
+    return (await scanPages(root, { pagesDir })).pages.some((page) => page.island);
+  } catch {
+    // buildStart scans the pages again and reports the error.
+    return false;
+  }
+}
+
+/**
+ * The layouts of every island page, outermost first, then the pages. All
+ * island pages share one production stylesheet, so layout styles come first.
+ */
+export function islandStyleRoots(pageScan: PageScanResult, pagesDir: string): Array<string> {
+  const layouts = new Set<string>();
+  const pages: Array<string> = [];
+  for (const page of pageScan.pages) {
+    if (!page.island) {
+      continue;
+    }
+    for (const layout of resolveEffectiveLayoutChain(
+      page,
+      pageScan.layouts,
+      pageScan.namedLayouts,
+    )) {
+      layouts.add(normalizePath(resolve(pagesDir, layout.filePath)));
+    }
+    pages.push(normalizePath(resolve(pagesDir, page.componentPath)));
+  }
+  return [...layouts, ...pages];
+}
+
+/** A stylesheet that a page links, not one imported as a string or a URL. */
+function isLinkedStylesheet(id: string): boolean {
+  if (!isCSSRequest(id)) {
+    return false;
+  }
+  const query = id.indexOf('?');
+  if (query === -1) {
+    return true;
+  }
+  for (const param of id.slice(query + 1).split('&')) {
+    const key = param.split('=')[0];
+    if (key === 'inline' || key === 'url' || key === 'raw') {
+      return false;
+    }
+  }
+  return true;
+}
+
+type ModuleImports = { importedIds: ReadonlyArray<string> };
+
+/**
+ * Stylesheets the roots reach through static imports, in import order (like
+ * the dev CSS collector). Returns null when the roots are not in the graph.
+ * The walk also enters island components, as dev does: a layout can render
+ * one without hydrating it, and a page links its styles before it hydrates.
+ */
+export function collectIslandStyles(
+  getModuleInfo: (id: string) => ModuleImports | null,
+  roots: ReadonlyArray<string>,
+): Array<string> | null {
+  if (!roots.some((root) => getModuleInfo(root))) {
+    return null;
+  }
+  const styles: Array<string> = [];
+  const seen = new Set<string>();
+  const pending = [...roots].reverse();
+  while (pending.length > 0) {
+    const id = pending.pop()!;
+    if (seen.has(id)) {
+      continue;
+    }
+    seen.add(id);
+    if (isLinkedStylesheet(id)) {
+      // Another module cannot import a virtual (`\0`) id.
+      if (!id.startsWith('\0')) {
+        styles.push(id);
+      }
+      continue;
+    }
+    const imported = getModuleInfo(id)?.importedIds ?? [];
+    for (let index = imported.length - 1; index >= 0; index--) {
+      pending.push(imported[index]);
+    }
+  }
+  return styles;
+}
+
+type IslandBuildContext = {
+  environment?: { config: { consumer: string } };
+  getModuleInfo(id: string): ModuleImports | null;
+};
+
+// Vite can reload the config file for each environment build, so the server
+// and client builds may use separate plugin instances. Keep the result here.
+const islandStylesByPagesDir = new Map<string, Array<string>>();
+
+/**
+ * Call from `buildEnd`. Island pages render only on the server, so the server
+ * build has resolved their imports (aliases, packages, Vue and Svelte style
+ * blocks) and the client build has not. Records the stylesheets of island pages
+ * and their layouts for the islands client entry, which builds after it.
+ */
+export function recordIslandStyles(
+  context: IslandBuildContext,
+  pageScan: PageScanResult | null,
+  pagesDir: string,
+): void {
+  if (!pageScan || context.environment?.config.consumer !== 'server') {
+    return;
+  }
+  const styles = collectIslandStyles(
+    (id) => context.getModuleInfo(id),
+    islandStyleRoots(pageScan, pagesDir),
+  );
+  // Another server environment (an auxiliary Worker) does not have the pages.
+  if (styles) {
+    islandStylesByPagesDir.set(normalizePath(pagesDir), styles);
+  }
+}
+
+/** The stylesheets that the server build recorded, or null without a server build. */
+export function recordedIslandStyles(pagesDir: string): ReadonlyArray<string> | null {
+  return islandStylesByPagesDir.get(normalizePath(pagesDir)) ?? null;
+}
+
+/**
+ * Keeps the CSS modules (`*.module.css`, Vue `<style module>`) that the
+ * islands client entry imports. Vite marks a CSS module as free of side
+ * effects, so the entry's bare import would drop it and its rules.
+ */
+export function islandStylesPlugin(pagesDir: string): Plugin {
+  return {
+    name: 'void:islands-styles',
+    apply: 'build',
+    enforce: 'post',
+    transform: {
+      order: 'post',
+      filter: { id: /\.module\./ },
+      handler(code, id) {
+        if (
+          this.environment.config.consumer === 'client' &&
+          recordedIslandStyles(pagesDir)?.includes(id)
+        ) {
+          return { code, map: null, moduleSideEffects: 'no-treeshake' };
+        }
+      },
+    },
+  };
 }
 
 /**
