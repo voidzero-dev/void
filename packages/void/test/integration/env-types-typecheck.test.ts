@@ -33,7 +33,8 @@ describe('generated env types in a consumer project', () => {
       'import { defineHandler } from "void";\n' +
         'import { env } from "void/env";\n' +
         'const direct: string = env.API_SECRET;\n' +
-        'export const GET = defineHandler((c) => c.text(direct + c.env.API_SECRET.toUpperCase()));\n',
+        'export const GET = defineHandler((c) => c.text(direct + c.env.API_SECRET.toUpperCase()));\n' +
+        'export const POST = defineHandler((c) => c.env.ASSETS.fetch(c.req.raw));\n',
     );
     writeFileSync(
       join(root, 'tsconfig.json'),

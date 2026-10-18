@@ -400,6 +400,7 @@ declare global {
       STORAGE: R2Bucket;
       AI: Ai;
       SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
+      ASSETS: Fetcher;
       /** @internal Service binding to proxy worker (AI, revalidation, future features) */
       __VOID_PROXY?: Fetcher;
       /** @internal Custom proxy URL override */

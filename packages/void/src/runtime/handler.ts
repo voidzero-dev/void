@@ -55,6 +55,7 @@ export interface CloudBindings extends VoidGeneratedEnvBindings {
   STORAGE: R2Bucket;
   AI: Ai;
   SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
+  ASSETS: Fetcher;
   [key: string]: unknown;
 }
 
