@@ -1,10 +1,18 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { toSlash } from 'pathslash';
+import { render } from 'takumi-js';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import voidManifest from '../../package.json' with { type: 'json' };
 import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
 import { ImageResponse } from '../../src/runtime/og.ts';
+
+vi.mock('takumi-js', async (importOriginal) => {
+  const takumi = await importOriginal<typeof import('takumi-js')>();
+  return { ...takumi, render: vi.fn(takumi.render) };
+});
 
 const card = '<div style="display:flex;width:100%;height:100%;background:#fff">Hello</div>';
 
@@ -142,6 +150,14 @@ describe('ImageResponse fallback fonts', () => {
     expect(requests).toEqual([]);
   });
 
+  it('renders each image with only its own fonts', async () => {
+    vi.mocked(render).mockClear();
+    await new ImageResponse(card).arrayBuffer();
+    // Without a font list, takumi uses every font registered in the process,
+    // such as the fallback fonts of an earlier image.
+    expect(vi.mocked(render).mock.calls.map(([, options]) => options?.fonts)).toEqual([[]]);
+  });
+
   it('keeps Latin text off the Japanese family', async () => {
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch((url) =>
@@ -203,12 +219,20 @@ describe('void/og on Node.js targets', () => {
     }
   });
 
-  function resolveRenderer() {
+  function resolveRenderer(
+    importer = toSlash(fileURLToPath(new URL('../../src/runtime/og.ts', import.meta.url))),
+  ) {
     const plugin = nodeTargetPlugin('node').find(
       (candidate) => candidate.name === 'void:node-target-image-renderer',
     )!;
-    const resolveId = plugin.resolveId as { handler: (this: unknown, id: string) => unknown };
-    return resolveId.handler.call({ environment: { config: { root } } }, 'takumi-js/helpers');
+    const resolveId = plugin.resolveId as {
+      handler: (this: unknown, id: string, importer: string) => unknown;
+    };
+    return resolveId.handler.call(
+      { environment: { config: { root } } },
+      'takumi-js/helpers',
+      importer,
+    );
   }
 
   // The range void/og declares; the app must install a version in it.
@@ -240,5 +264,10 @@ describe('void/og on Node.js targets', () => {
   it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
     installTakumi(range.replace(/^\^/, ''));
     expect(resolveRenderer()).toBeUndefined();
+  });
+
+  it('leaves takumi-js that the app imports itself alone', () => {
+    installTakumi('3.0.0');
+    expect(resolveRenderer(toSlash(join(root!, 'src', 'image.ts')))).toBeUndefined();
   });
 });
