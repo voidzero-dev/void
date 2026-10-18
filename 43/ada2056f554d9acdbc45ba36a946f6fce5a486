@@ -1,0 +1,19 @@
+packages/void/src/cli/output.ts
+  s_f572b1deb5ef86::t_6fcdbcb603e2b9 101-115,145
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "43ada2056f554d9acdbc45ba36a946f6fce5a486",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
