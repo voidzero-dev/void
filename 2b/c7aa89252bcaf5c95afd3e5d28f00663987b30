@@ -1,0 +1,43 @@
+docs/guide/pages-routing/markdown.md
+  s_f572b1deb5ef86::t_9122fa99f5709f 140,233-234
+packages/react/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_b81c9e0f306e66 8-9,13-15,57-58,64-109
+packages/solid/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_1ce80987c7fe5c 9-10,14-16,63-64,70-113
+packages/svelte/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_630e9521c55fc0 344,376-380,391,439,442-443
+packages/svelte/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_5a012721755db3 9-10,14-16,65-66,72-123
+packages/void/src/pages/client.ts
+  s_f572b1deb5ef86::t_514754fa348ac6 19,475-480,482-487,494
+packages/void/src/pages/serialize.ts
+  s_f572b1deb5ef86::t_f325b61cb6ec74 12-26
+packages/void/test/unit/deferred-xss.test.ts
+  s_f572b1deb5ef86::t_d4417ad84aa9ea 3,43-58
+packages/vue/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_e809876ec76197 266,303-307,318,377,381
+packages/vue/test/integration/md-island-frontmatter.test.ts
+  s_f572b1deb5ef86::t_1558d7c8c18ad5 1-62
+test/island-page-browser.ts
+  s_f572b1deb5ef86::t_e6d67ca6ac8c88 1-83
+packages/react/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_353d11f8ca17d3 254,297-301,312,354,358-362,367
+packages/solid/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_92ab24a9af5c61 261,315-319,330,376,380-381,383-394
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2bc7aa89252bcaf5c95afd3e5d28f00663987b30",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
