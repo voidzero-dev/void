@@ -1,10 +1,16 @@
 /**
- * `void/og` — a `next/og`-compatible `ImageResponse` rendered by Takumi.
+ * `void/og` — the `ImageResponse` API of `next/og` and `@vercel/og`, rendered
+ * by Takumi instead of Satori and resvg.
  *
  * Takumi does the rendering (Wasm on workerd, its native addon on Node). This
- * module only adds what `next/og` callers expect on top: a 1200×630 default
- * size, the `cache-control` header, `debug`, and Noto fallback fonts for
- * text that Takumi's built-in Geist (ASCII and Latin-1) cannot draw.
+ * module adds what `@vercel/og` does around its renderer: a 1200×630 default
+ * size, the response headers, `debug`, and Noto fallback fonts for text that
+ * Takumi's built-in Geist cannot draw. Comments cite the upstream code:
+ * - @vercel/og 1.0.3, published only as a bundle whose `// src/…` sections
+ *   name its source files:
+ *   https://cdn.jsdelivr.net/npm/@vercel/og@1.0.3/dist/index.edge.js
+ * - Satori 0.33.5, the version @vercel/og 1.0.3 bundles.
+ * - Next.js 16.4.2, whose `next/og` wraps a copy of @vercel/og.
  */
 import { render, type Node, type RenderInput, type RenderOptions } from 'takumi-js';
 import { collectCodepoints, googleFonts, type FontSubset } from 'takumi-js/helpers';
@@ -13,7 +19,11 @@ import { fromJsx } from 'takumi-js/helpers/jsx';
 
 export type ImageResponseOptions = RenderOptions &
   ResponseInit & {
-    /** Draws a border around every box, like `next/og`'s `debug`. */
+    /**
+     * Draws a border around every box, as `debug` does in Satori, though the lines
+     * look different:
+     * https://github.com/vercel/satori/blob/0.33.5/src/builder/rect.ts#L213-L225
+     */
     debug?: boolean;
   };
 
@@ -25,9 +35,16 @@ const CONTENT_TYPES = {
   raw: 'application/octet-stream',
 } as const;
 
-// Google Fonts families for text the default font cannot draw, matched by
-// script, like the fonts `next/og` downloads. Han text uses the Japanese or
-// Korean family when kana or Hangul shows the language.
+// Google Fonts families for text the default font cannot draw. Satori hands
+// @vercel/og the characters no loaded font has, with the languages their script
+// suggests, and @vercel/og downloads each language's Noto family:
+// - https://github.com/vercel/satori/blob/0.33.5/src/text/index.ts#L103-L115
+// - https://github.com/vercel/satori/blob/0.33.5/src/language.ts#L24-L45
+// - @vercel/og `// src/language/index.ts`: languageFontMap
+// Takumi has no such hook, so these families are matched by script before the
+// render. Han text uses the Japanese or Korean family when kana or Hangul shows
+// the language, and Simplified Chinese otherwise, where Satori tries Japanese
+// first. @vercel/og also has Traditional Chinese, Symbols and Math families.
 const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/[\p{sc=Hiragana}\p{sc=Katakana}]/u, 'Noto Sans JP'],
   [/\p{sc=Hangul}/u, 'Noto Sans KR'],
@@ -46,12 +63,16 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
 
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, an
- * HTML string, or a Takumi node tree. Defaults match `next/og`: 1200×630 PNG,
- * cached for a year outside development.
+ * HTML string, or a Takumi node tree. Like `@vercel/og`, it renders a 1200×630
+ * PNG by default and lets it be cached for a year outside development.
  */
 export class ImageResponse extends Response {
   constructor(element: RenderInput, options: ImageResponseOptions = {}) {
     const { status, statusText, headers, debug, ...renderOptions } = options;
+    // @vercel/og `// src/index.edge.ts`: ImageResponse sets these two headers
+    // unless the caller does. Next.js 16 sends `public, max-age=0, must-revalidate`
+    // outside development instead:
+    // https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L76-L86
     const responseHeaders = new Headers(headers);
     if (!responseHeaders.has('content-type')) {
       responseHeaders.set('content-type', CONTENT_TYPES[renderOptions.format ?? 'png']);
@@ -64,9 +85,12 @@ export class ImageResponse extends Response {
           : 'public, immutable, no-transform, max-age=31536000',
       );
     }
+    // Render while the body streams, as @vercel/og does, so a failure errors the
+    // body: https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L49-L72
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
+          // @vercel/og `// src/og.ts`: render() defaults to 1200×630 without debug.
           const image = await renderImage(element, {
             width: 1200,
             height: 630,
@@ -99,7 +123,10 @@ async function renderImage(element: RenderInput, options: RenderOptions): Promis
         css: [...toList(options.css ?? options.stylesheets), ...css],
         stylesheets: undefined,
       }),
-      ...(fonts && { fonts }),
+      // Takumi uses every font registered in the process when it gets no list,
+      // which includes earlier images' fallback fonts:
+      // https://github.com/kane50613/takumi/blob/takumi@2.16.2/takumi-helpers/src/renderer.ts#L271-L282
+      fonts: fonts ?? options.fonts ?? [],
     });
   const fallback = await fallbackFonts(node);
   if (fallback.length === 0) {
@@ -108,8 +135,8 @@ async function renderImage(element: RenderInput, options: RenderOptions): Promis
   try {
     return await renderNode([...((await options.fonts) ?? []), ...fallback]);
   } catch (error) {
-    // Like `next/og`, a font that fails to download leaves its glyphs missing
-    // rather than failing the image.
+    // A font that fails to download leaves its glyphs missing rather than
+    // failing the image, as in @vercel/og `// src/og.ts`: loadDynamicAsset.
     if (!(error instanceof FallbackFontError)) {
       throw error;
     }
@@ -158,9 +185,12 @@ async function fallbackFonts(node: Node): Promise<Array<FontSubset>> {
     console.warn(`void/og: could not load ${families.join(', ')} from Google Fonts.`, error);
     return [];
   }
-  // Registered fonts come before Geist, so keep ASCII and Latin-1 on the
-  // default font, as `next/og` does: skip each family's Latin subset, and take
-  // Latin-1 out of the others, which can mix ASCII with common CJK characters.
+  // Satori draws each character with the first loaded font that has it, and
+  // fallback fonts come after the default one, so Latin text keeps the default
+  // font: https://github.com/vercel/satori/blob/0.33.5/src/font.ts#L601-L679
+  // Takumi puts registered fonts before its built-in Geist, which covers ASCII
+  // and Latin-1 but µ, so skip each family's Latin subset and take Latin-1 out
+  // of the others, which can mix ASCII with common CJK characters.
   return subsets.flatMap((subset) => {
     if (subset.unicodeRange.some(([start, end]) => start <= 0x20 && 0x7e <= end)) {
       return [];
