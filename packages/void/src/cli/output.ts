@@ -98,6 +98,21 @@ export function createSpinner(
   };
 }
 
+/** The URL as the box title shows it: whole, or its longest start cut with "…". */
+function shownUrl(chunk: string, url: string): string | undefined {
+  if (chunk.includes(url)) {
+    return url;
+  }
+  const plain = stripVTControlCharacters(chunk);
+  for (let end = url.length - 1; end > 0; end--) {
+    const label = `${url.slice(0, end)}…`;
+    if (plain.includes(label)) {
+      return label;
+    }
+  }
+  return undefined;
+}
+
 /** Narrowest terminal the shared box renderer can draw a note in, guide bar included. */
 const MIN_NOTE_COLUMNS = 6;
 
@@ -127,9 +142,7 @@ export function note(...args: Parameters<typeof promptsNote>): void {
       // Insert the link after layout: the renderer counts OSC 8 destinations
       // toward the title width and can otherwise truncate a URL that fits.
       if (header && urlTitle) {
-        const label = chunk.includes(urlTitle)
-          ? urlTitle
-          : stripVTControlCharacters(chunk).match(/ (\S*…)/)?.[1];
+        const label = shownUrl(chunk, urlTitle);
         if (label) {
           chunk = chunk.replace(label, () => terminalLink(label, urlTitle, { fallback: false }));
         }
