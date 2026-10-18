@@ -11,10 +11,9 @@ export type ResolvedAsset = Readonly<{
 }>;
 
 /**
- * Percent-decode a request pathname for a manifest lookup, honoring ONLY the
- * encodings a conformant URL is required to use. Returns the raw value
- * unchanged on a malformed sequence (e.g. a lone `%`) or on any non-canonical /
- * over-encoded spelling.
+ * Percent-decode a request pathname for a manifest lookup, honoring required
+ * URL encodings and encoded square brackets. Returns the raw value unchanged
+ * on a malformed sequence (e.g. a lone `%`) or other over-encoded spellings.
  *
  * Request pathnames arrive percent-encoded — WHATWG `URL.pathname` never
  * decodes — but manifest keys are the asset's decoded on-disk path (a file
@@ -22,8 +21,10 @@ export type ResolvedAsset = Readonly<{
  * `%20`). Callers try the raw key first, then this decoded form.
  *
  * The decoded form is accepted only when re-encoding it reproduces the request
- * path (up to percent-escape letter case) — i.e. the only encoded bytes were
- * characters a URL MUST encode (space, `#`, non-ASCII, …). This rejects
+ * path (up to percent-escape letter case and square-bracket encoding). Next.js
+ * encodes brackets in dynamic-page chunk URLs even though URL.pathname leaves
+ * them literal. Other accepted escapes are characters a URL MUST encode
+ * (space, `#`, non-ASCII, …). This rejects
  * over-encoded spellings of ordinary path text (`%2F`→`/`, `%61`→`a`, `%5F`→`_`,
  * `%2e%2e`→`..`), which a browser would never send and which would otherwise let
  * a request reconstruct a guarded path (`/assets%2Fx`, `/%61ssets/x`,
@@ -53,7 +54,8 @@ export function safeDecodePathname(pathname: string): string {
   }
   // Compare up to percent-escape letter case: the URL encoder emits upper-case
   // (`%C3`), but a client may send lower-case (`%c3`), and both are valid.
-  return normalizePercentCase(canonical) === normalizePercentCase(pathname) ? decoded : pathname;
+  const normalized = normalizePercentCase(pathname).replace(/%5B/g, '[').replace(/%5D/g, ']');
+  return normalizePercentCase(canonical) === normalized ? decoded : pathname;
 }
 
 /** Uppercase the hex digits of every `%xx` escape so encodings compare equal

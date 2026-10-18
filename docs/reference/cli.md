@@ -47,6 +47,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void db seed`                    | Reset + seed local database                                                   |
 | `void db execute <sql>`           | Run SQL against the database (--remote for deployed)                          |
 | `void db studio`                  | Open Drizzle Studio (--remote for a deployed external database)               |
+| `void db restore --bookmark <b>`  | Restore the deployed D1 database to a restore point (direct Cloudflare)       |
 | `void secret put <name=value>`    | Set a production secret                                                       |
 | `void secret list`                | List production secrets                                                       |
 | `void secret sync <file>`         | Bulk upload secrets from dotenv file                                          |

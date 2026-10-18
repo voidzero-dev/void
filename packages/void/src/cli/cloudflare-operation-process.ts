@@ -14,7 +14,7 @@ import type {
 } from '@void/deploy-cloudflare';
 import { parse } from 'jsonc-parser';
 import { dirname, join, resolve } from 'pathslash';
-import { readCfUploadOutput, safePositional } from './cf-command-values.ts';
+import { isD1Bookmark, readCfUploadOutput, safePositional } from './cf-command-values.ts';
 import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
 import {
@@ -306,6 +306,15 @@ function d1Database(token: string): { id: string; dir: string; table: string; pa
     table:
       typeof selected.migrations_table === 'string' ? selected.migrations_table : 'd1_migrations',
   };
+}
+
+function previousD1Bookmark(stdout: string): string | undefined {
+  try {
+    const previous = object(parsedJson(stdout)).previous_bookmark;
+    return isD1Bookmark(previous) ? previous : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function cleanJson(command: Array<string>, transform?: (value: unknown) => unknown): Result {
@@ -675,6 +684,37 @@ async function resources(): Promise<Result> {
         throw new Error('D1 migration list was malformed.');
       }
       return result(0, '', called.stderr, { pending: pending.map((item) => object(item).Name) });
+    }
+    case 'd1.time-travel.bookmark': {
+      const database = d1Database(operation.database);
+      const called = runCf(['d1', 'time-travel', 'get-bookmark', database.id]);
+      if (called.status !== 0) {
+        return called;
+      }
+      const bookmark = object(parsedJson(called.stdout)).bookmark;
+      if (!isD1Bookmark(bookmark)) {
+        throw new Error('D1 Time Travel bookmark was malformed.');
+      }
+      return result(0, '', called.stderr, { bookmark });
+    }
+    case 'd1.time-travel.restore': {
+      const database = d1Database(operation.database);
+      if ('bookmark' in operation.target && !isD1Bookmark(operation.target.bookmark)) {
+        throw new Error('D1 Time Travel bookmark was malformed.');
+      }
+      // One argv item each, so cf cannot read the value as a flag.
+      const target =
+        'bookmark' in operation.target
+          ? `--bookmark=${operation.target.bookmark}`
+          : `--timestamp=${operation.target.timestamp}`;
+      // Void asks before it restores. cf cannot ask in this non-interactive child, so it would
+      // refuse without --force.
+      const called = runCf(['d1', 'time-travel', 'restore', database.id, target, '--force']);
+      if (called.status !== 0) {
+        return called;
+      }
+      // The database is restored now, so a response without the previous bookmark is not a failure.
+      return result(0, '', called.stderr, { previousBookmark: previousD1Bookmark(called.stdout) });
     }
     case 'containers.list':
       return runCf(['containers', 'applications', 'list']);

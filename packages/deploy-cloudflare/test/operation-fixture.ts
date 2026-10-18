@@ -266,6 +266,8 @@ export function operationFixtureArgs(operation: CloudflareOperation): Array<stri
         ...config,
         '--env=',
       ];
+    case 'd1.time-travel.bookmark':
+      return ['d1', 'time-travel', 'info', operation.database, '--json', ...config, '--env='];
     case 'containers.list':
       return ['containers', 'list', '--json', ...config, '--env='];
     case 'secret.list':
@@ -330,6 +332,9 @@ export function operationFixtureRequest(args: Array<string>): CloudflareOperatio
       database: args[3]!,
       configPath: value('-c')!,
     };
+  }
+  if (args[0] === 'd1' && args[1] === 'time-travel') {
+    return { type: 'd1.time-travel.bookmark', database: args[3]!, configPath: value('-c')! };
   }
   if (args[0] === 'queues' && args[1] === 'info') {
     return { type: 'queues.info', name: args[2]!, configPath: value('-c') };

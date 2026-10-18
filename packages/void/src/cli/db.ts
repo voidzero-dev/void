@@ -211,6 +211,8 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
     await runSetUrl(root, dialect);
   } else if (args.action === 'connect') {
     await runConnect(root, dialect, args);
+  } else if (args.action === 'restore') {
+    await runRestore(root, dialect, args);
   } else if (args.action === 'rename-migrations') {
     await runRenameMigrations(root, dialect);
   } else {
@@ -1417,6 +1419,94 @@ async function runMigrate(root: string, dialect: DatabaseDialect, remote?: boole
     log.info(dim("Restart your dev server if it's running."));
     printSuccess(`Applied ${formatCount(applied.length, 'migration')}.`);
   }
+}
+
+async function runRestore(
+  root: string,
+  dialect: DatabaseDialect,
+  { target, platform: explicitPlatform, yes }: Extract<DbArgs, { action: 'restore' }>,
+): Promise<void> {
+  // `.void` is not checked in, so a fresh checkout or CI shows a direct deploy only through its
+  // Cloudflare config. A one-off `deploy --platform cloudflare` keeps the saved platform, so its
+  // restore command passes the platform explicitly.
+  const platform = readDeploymentPlatform(root);
+  const directCloudflare =
+    explicitPlatform === 'cloudflare' ||
+    platform === 'cloudflare' ||
+    (platform === null && !readProjectConfig(root) && (await hasDeployedCloudflareDatabase(root)));
+  if (dialect !== 'sqlite') {
+    log.error('db: `void db restore` restores D1 databases only.');
+    process.exit(1);
+  }
+  if (!directCloudflare) {
+    log.error(
+      'db: `void db restore` restores the D1 database of a direct Cloudflare deploy. ' +
+        'After a one-off `void deploy --platform cloudflare`, run it with `--platform cloudflare`.',
+    );
+    process.exit(1);
+  }
+  const { readCloudflareD1Migrations, resolveCloudflareD1Context, restoreCloudflareD1Database } =
+    await import('./cloudflare-operations.ts');
+  const binding = configuredD1Binding(root);
+  const context = resolveCloudflareD1Context(root, binding);
+  const database = `D1 database ${context.migrateToken} (${binding})`;
+  const point = 'bookmark' in target ? `bookmark ${target.bookmark}` : target.timestamp;
+  if (!yes) {
+    if (!process.stdin.isTTY) {
+      log.error(`db: Refusing to restore ${database} without confirmation. Re-run with --yes.`);
+      process.exit(1);
+    }
+    const ok = await confirm({
+      message: `This restores ${database} to ${point} and discards every write made after it. Continue?`,
+      initialValue: false,
+    });
+    if (isCancel(ok) || !ok) {
+      log.info('Cancelled.');
+      process.exit(0);
+    }
+  }
+
+  let previousBookmark: string | undefined;
+  try {
+    previousBookmark = await restoreCloudflareD1Database(context, target);
+  } catch (error) {
+    log.error(
+      `db: Could not restore ${database} to ${point}: ${getErrorMessage(error)}\n` +
+        'Restore points expire after 7 days on Workers Free and 30 days on Workers Paid. ' +
+        'To undo an older migration, write a new migration that reverses it.',
+    );
+    process.exit(1);
+  }
+  // `--platform cloudflare` always reaches this database; the bare commands follow the saved
+  // platform.
+  const platformFlag = platform === 'cloudflare' ? '' : ' --platform cloudflare';
+  if (previousBookmark) {
+    log.info(
+      `To undo this restore, run \`void db restore${platformFlag} --bookmark=${previousBookmark}\`.`,
+    );
+  }
+  // A restore also rewinds the migration table, so the next deploy applies those files again.
+  const paths = readProjectPaths(root);
+  try {
+    const applied = new Set(await readCloudflareD1Migrations(context));
+    const unapplied = collectMigrations(paths.migrationsDir).filter(
+      (migration) => !applied.has(migration.name),
+    );
+    if (unapplied.length > 0) {
+      log.warn(
+        `The remote database does not have these migrations applied: ${unapplied.map((migration) => migration.name).join(', ')}. ` +
+          `The next \`void deploy${platformFlag}\` applies them. Fix or remove a migration that caused the problem before you deploy.`,
+      );
+    }
+  } catch (error) {
+    log.warn(
+      `Could not read the applied migrations after the restore: ${getErrorMessage(error)}. ` +
+        (platformFlag
+          ? `The next \`void deploy${platformFlag}\` applies any migration the restore rewound.`
+          : 'Run `void db status` to check them.'),
+    );
+  }
+  printSuccess(`Restored ${database} to ${point}.`);
 }
 
 async function runStudio(root: string, dialect: DatabaseDialect, remote?: boolean): Promise<void> {

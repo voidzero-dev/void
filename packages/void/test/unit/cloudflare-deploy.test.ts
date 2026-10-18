@@ -3245,12 +3245,24 @@ describe('runCloudflareDeploy — resource provisioning', () => {
       'build',
       'gate',
       'migrate-gate',
+      'wrangler:d1', // migrations list (is a restore point needed?)
       'wrangler:d1', // migrations apply (after the gate)
       'wrangler:d1', // migrations list (pending verify)
       'wrangler:deploy',
     ]);
     // migrate targets the stored db name with --remote + pinned config
     const d1Calls = wranglerArgs.filter((a) => a[0] === 'd1');
+    // the pre-apply list reads the pending set of the same target
+    expect(d1Calls.shift()).toEqual([
+      'd1',
+      'migrations',
+      'list',
+      'myapp-db',
+      '--remote',
+      '-c',
+      toSlash(join(root, 'wrangler.jsonc')),
+      '--env=',
+    ]);
     expect(d1Calls[0]).toEqual([
       'd1',
       'migrations',
@@ -4125,8 +4137,8 @@ describe('runCloudflareDeploy — D1 migrate targets the unique validated entry'
     const { deps, wranglerArgs, trace } = harness();
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
     // Targets the validated entry's own unique database_name (resolves to DB, not OLD).
-    // `.find` returns the first d1 call — the apply (the list verify follows it).
-    expect(wranglerArgs.find((a) => a[0] === 'd1')).toEqual([
+    expect(wranglerArgs.filter((a) => a[0] === 'd1').every((a) => a[3] === 'myapp-db')).toBe(true);
+    expect(wranglerArgs.find((a) => a[0] === 'd1' && a[2] === 'apply')).toEqual([
       'd1',
       'migrations',
       'apply',
@@ -7881,6 +7893,12 @@ describe('runCloudflareDeploy — remote migration gates', () => {
         if (args[0] === 'd1' && args[2] === 'list') {
           return { ...cleanExit, stdout: 'Migrations to be applied:\n0000_init' };
         }
+        if (args[0] === 'd1' && args[1] === 'time-travel') {
+          return {
+            ...cleanExit,
+            stdout: JSON.stringify({ bookmark: '00000085-0000024c' }),
+          };
+        }
         return cleanExit;
       }),
       runBuild: () => {
@@ -7892,6 +7910,7 @@ describe('runCloudflareDeploy — remote migration gates', () => {
     ).rejects.toBeInstanceOf(ExitError);
     expect(exitCalls).toEqual([1]);
     // Reached the post-apply list, then failed closed before the deploy.
+    expect(localTrace).toContain('wrangler:d1:apply');
     expect(localTrace).toContain('wrangler:d1:list');
     expect(localTrace).toContain('build');
     expect(localTrace).not.toContain('wrangler:deploy');
@@ -7906,7 +7925,14 @@ describe('runCloudflareDeploy — remote migration gates', () => {
         if (args[0] === 'whoami') {
           return { ...cleanExit, stdout: '{"loggedIn":true,"accounts":[]}' };
         }
-        // Both `apply` and `list` exit 0 with EMPTY stdout — the failure mode when an
+        // The pre-apply list sees the pending migration, so a restore point is saved.
+        if (args[0] === 'd1' && args[2] === 'list' && !localTrace.includes('wrangler:d1:apply')) {
+          return { ...cleanExit, stdout: 'Migrations to be applied:\n0000_init' };
+        }
+        if (args[0] === 'd1' && args[1] === 'time-travel') {
+          return { ...cleanExit, stdout: JSON.stringify({ bookmark: '00000085-0000024c' }) };
+        }
+        // `apply` and the post-apply `list` exit 0 with EMPTY stdout — the failure mode when an
         // ambient WRANGLER_LOG suppressed the sentinel. Require the affirmative marker.
         return cleanExit;
       }),
@@ -7919,9 +7945,139 @@ describe('runCloudflareDeploy — remote migration gates', () => {
     ).rejects.toBeInstanceOf(ExitError);
     expect(exitCalls).toEqual([1]);
     // Never trusts an absent marker — fails closed before DEPLOY (the build already ran).
-    expect(localTrace).toContain('wrangler:d1:list');
+    expect(localTrace.filter((entry) => entry.startsWith('wrangler:d1:'))).toEqual([
+      'wrangler:d1:list',
+      'wrangler:d1:info',
+      'wrangler:d1:list',
+      'wrangler:d1:apply',
+      'wrangler:d1:list',
+    ]);
     expect(localTrace).toContain('build');
     expect(localTrace).not.toContain('wrangler:deploy');
+  });
+
+  describe('a failure after the D1 migrations were applied', () => {
+    const bookmark = '00000085-0000024c';
+
+    // Pending until the apply runs, then current.
+    function migratingWrangler(pending: boolean): DeployWranglerRun {
+      let applied = false;
+      return operationFixture((args) => {
+        if (args[0] === 'whoami') {
+          return { ...cleanExit, stdout: '{"loggedIn":true,"accounts":[]}' };
+        }
+        if (args[0] === 'd1' && args[2] === 'apply') {
+          applied = true;
+        }
+        if (args[0] === 'd1' && args[2] === 'list') {
+          return {
+            ...cleanExit,
+            stdout:
+              pending && !applied
+                ? 'Migrations to be applied:\n0000_init'
+                : '✅ No migrations to apply!\n',
+          };
+        }
+        if (args[0] === 'd1' && args[1] === 'time-travel') {
+          return { ...cleanExit, stdout: JSON.stringify({ bookmark }) };
+        }
+        return cleanExit;
+      });
+    }
+
+    function restoreErrors(output: { mock: { calls: Array<Array<unknown>> } }): Array<string> {
+      return output.mock.calls
+        .map(([message]) => String(message))
+        .filter((message) => message.includes('applied before the deploy stopped'));
+    }
+
+    it('names the restore point again when the upload fails', async () => {
+      const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+      const order: Array<string> = [];
+      const output = vi.spyOn(log, 'error').mockImplementation((message) => {
+        if (String(message).includes('applied before the deploy stopped')) {
+          order.push('restore');
+        }
+      });
+      const { deps } = harness({
+        runWrangler: migratingWrangler(true),
+        activateVersion: async () => ({ ok: false, reason: 'upload-failed', status: 1 }),
+        // process.exit never returns, so the restore point must be named before it.
+        exit: (code) => {
+          order.push('exit');
+          throw new ExitError(code);
+        },
+      });
+      try {
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        const reported = restoreErrors(output);
+        expect(order).toEqual(['restore', 'exit']);
+        expect(reported).toHaveLength(1);
+        expect(reported[0]).toContain('Fix the error and deploy again.');
+        // The test project saves no platform, so the command names it.
+        expect(reported[0]).toContain(
+          `void db restore --platform cloudflare --bookmark=${bookmark}`,
+        );
+      } finally {
+        output.mockRestore();
+      }
+    });
+
+    it('names the restore point again when the built config fails its check', async () => {
+      const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+      const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+      const { deps } = harness({
+        runWrangler: migratingWrangler(true),
+        verifyDeployConfig: () => ({ ok: false, reason: 'different account' }),
+      });
+      try {
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        expect(restoreErrors(output)).toHaveLength(1);
+      } finally {
+        output.mockRestore();
+      }
+    });
+
+    it('names the restore point again when publishing throws', async () => {
+      const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+      const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+      const { deps } = harness({
+        runWrangler: migratingWrangler(true),
+        activateVersion: async () => {
+          throw new Error('connection reset');
+        },
+      });
+      try {
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toThrow('connection reset');
+        expect(restoreErrors(output)).toHaveLength(1);
+      } finally {
+        output.mockRestore();
+      }
+    });
+
+    it('names no restore point when the deploy applied no migration', async () => {
+      const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+      const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+      const { deps } = harness({
+        runWrangler: migratingWrangler(false),
+        activateVersion: async () => ({ ok: false, reason: 'upload-failed', status: 1 }),
+      });
+      try {
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        expect(restoreErrors(output)).toEqual([]);
+        expect(output.mock.calls.join('\n')).not.toContain('void db restore');
+      } finally {
+        output.mockRestore();
+      }
+    });
   });
 });
 
@@ -8646,7 +8802,7 @@ describe('runCloudflareDeploy — migration gates re-checked post-build', () => 
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
     expect(trace).toContain('build');
     const d1Calls = wranglerArgs.filter((a) => a[0] === 'd1');
-    expect(d1Calls[0]?.slice(0, 3)).toEqual(['d1', 'migrations', 'apply']);
+    expect(d1Calls.map((a) => a.slice(0, 3))).toContainEqual(['d1', 'migrations', 'apply']);
     expect(trace).toContain('wrangler:deploy');
   });
 });

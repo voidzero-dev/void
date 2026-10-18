@@ -183,7 +183,7 @@ void project status
 void project rollback [version]
 ```
 
-Void restores recorded triggers along with the code. Versions without a complete trigger snapshot keep current routes and schedules. Rollback does not reverse database migrations.
+Void restores recorded triggers along with the code. Versions without a complete trigger snapshot keep current routes and schedules. Rollback does not reverse database migrations. To undo D1 migrations, run [`void db restore`](../reference/cli/database.md#void-db-restore) with the restore point that deploy printed before it applied them, within 7 days on Workers Free or 30 days on Workers Paid.
 
 #### Scope and limitations
 

@@ -883,9 +883,20 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           if (!isPlatformTokenAuthorizationError(error)) {
             throw error;
           }
+          const details = new Set<string>();
+          for (
+            let cause = error, depth = 0;
+            depth < 5 && cause instanceof Error;
+            depth++, cause = cause.cause
+          ) {
+            details.add(cause.message.replaceAll(token, '[redacted]'));
+          }
           forgetRejectedManagementToken();
           log.warn(
-            'Cloudflare rejected this token. Check its permissions and account/zone scope, then paste a replacement.',
+            [
+              ...details,
+              'Check the token permissions and account/zone scope, then paste a replacement.',
+            ].join('\n'),
           );
         }
       }

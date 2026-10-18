@@ -18,6 +18,7 @@ import {
   readCloudflareWorkerStatus,
   readCloudflareD1Migrations,
   resolveCloudflareD1Context,
+  restoreCloudflareD1Database,
   syncCloudflareSecrets,
   tailCloudflareWorker,
   type CloudflareOperationContext,
@@ -622,6 +623,28 @@ describe('Cloudflare D1 operations', () => {
       { type: 'd1.migrations.apply', database: 'db-name', configPath: '/app/wrangler.jsonc' },
       { capture: false, input: undefined },
     ]);
+  });
+
+  it('restores the exact configured D1 target and returns the bookmark that undoes it', async () => {
+    const runner = vi
+      .fn<CloudflareOperationRunner>()
+      .mockReturnValue(ok({ previousBookmark: '00000001-00000002' }));
+    const ctx = {
+      operation: context(runner),
+      binding: 'DB',
+      migrateToken: 'db-name',
+      migrationsDir: 'db/migrations',
+      migrationsTable: 'd1_migrations',
+    };
+    await expect(
+      restoreCloudflareD1Database(ctx, { timestamp: '2026-10-16T09:30:00Z' }),
+    ).resolves.toBe('00000001-00000002');
+    expect(runner.mock.calls[0][0]).toEqual({
+      type: 'd1.time-travel.restore',
+      database: 'db-name',
+      target: { timestamp: '2026-10-16T09:30:00Z' },
+      configPath: '/app/wrangler.jsonc',
+    });
   });
 });
 

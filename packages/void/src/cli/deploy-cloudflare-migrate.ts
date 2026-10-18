@@ -8,11 +8,15 @@ import { ensureCloudflareAuthSecret } from './deploy-cloudflare-auth.ts';
 import type { CloudflareBuild } from './deploy-cloudflare-build.ts';
 import type { CloudflareDeploySource, CloudflarePreflight } from './deploy-cloudflare-preflight.ts';
 import { log } from './deploy-helpers.ts';
-import { applyAndVerifyRemoteD1Migrations } from './deploy-migrations.ts';
+import {
+  applyAndVerifyRemoteD1Migrations,
+  logD1RestoreAfterDeployFailure,
+} from './deploy-migrations.ts';
 import { CloudflareAuthSecretError } from './deploy-resources.ts';
 import { type CloudflareDeployDeps } from './deploy-types.ts';
 import { type CliLogger } from './log-file.ts';
 import { getErrorMessage } from './output.ts';
+import { readDeploymentPlatform } from './project.ts';
 
 export type CloudflareMigration = Awaited<ReturnType<typeof migrateCloudflareWorker>>;
 
@@ -29,6 +33,8 @@ export async function migrateCloudflareWorker(input: {
   workerWasMissingBeforeSecretProvisioning: boolean;
   initialAuthSecret: string | undefined;
   appliedMigrations: number;
+  /** Restores the D1 state from before this deploy's migrations, when it applied any. */
+  d1RestoreCommand: string | undefined;
 }> {
   const { root, deps, exit, cliLog } = input;
   const {
@@ -148,16 +154,17 @@ export async function migrateCloudflareWorker(input: {
     }
   }
 
-  if (
-    !(await applyAndVerifyRemoteD1Migrations(
-      d1MigrateToken,
-      configPath,
-      runWrangler,
-      assertUploaderStillPinned,
-    ))
-  ) {
+  const d1 = await applyAndVerifyRemoteD1Migrations(
+    d1MigrateToken,
+    configPath,
+    runWrangler,
+    assertUploaderStillPinned,
+    readDeploymentPlatform(root) !== 'cloudflare',
+  );
+  if (!d1) {
     return exit(1);
   }
+  const d1RestoreCommand = d1.restoreCommand;
 
   if (
     !verifyCloudflareDeployArtifact(root, deps, {
@@ -165,7 +172,15 @@ export async function migrateCloudflareWorker(input: {
       requiredSecretNames: schemaFacts.requiredKeys,
     })
   ) {
+    if (d1RestoreCommand) {
+      logD1RestoreAfterDeployFailure(d1RestoreCommand);
+    }
     return exit(1);
   }
-  return { workerWasMissingBeforeSecretProvisioning, initialAuthSecret, appliedMigrations };
+  return {
+    workerWasMissingBeforeSecretProvisioning,
+    initialAuthSecret,
+    appliedMigrations,
+    d1RestoreCommand,
+  };
 }

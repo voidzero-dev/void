@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { parseProjectArgs } from '../../src/cli/project-args.ts';
+import { parseProjectArgs, projectSubcommands } from '../../src/cli/project-args.ts';
 
 describe('parseProjectArgs', () => {
   describe('token', () => {
@@ -312,6 +312,55 @@ describe('parseProjectArgs', () => {
     it('rejects an unknown flag for rollback', () => {
       expect(() => parseProjectArgs(['rollback', '--foo'])).toThrow(
         "project: Unknown flag '--foo'.",
+      );
+    });
+
+    it('accepts --platform cloudflare for rollback in either position', () => {
+      expect(parseProjectArgs(['rollback', '--platform', 'cloudflare'])).toEqual({
+        subcommand: 'rollback',
+        deployId: '',
+        platform: 'cloudflare',
+      });
+      expect(parseProjectArgs(['rollback', 'abc123', '--platform=cloudflare'])).toEqual({
+        subcommand: 'rollback',
+        deployId: 'abc123',
+        platform: 'cloudflare',
+      });
+      expect(parseProjectArgs(['rollback', 'abc123'])).toEqual({
+        subcommand: 'rollback',
+        deployId: 'abc123',
+      });
+    });
+
+    it('offers --platform as a rollback flag in the interactive list', () => {
+      const rollback = projectSubcommands.find((entry) => entry.name === 'rollback');
+      expect(rollback?.arg).toBe('[deployId]');
+      expect(rollback?.flags).toEqual([
+        expect.objectContaining({ name: '--platform', arg: 'cloudflare' }),
+      ]);
+      // The prompt passes the id and each flag value as separate argv items.
+      expect(parseProjectArgs(['rollback', 'abc123', '--platform', 'cloudflare'])).toEqual({
+        subcommand: 'rollback',
+        deployId: 'abc123',
+        platform: 'cloudflare',
+      });
+    });
+
+    it.each([['void'], ['']])('rejects rollback --platform %o', (value) => {
+      expect(() => parseProjectArgs(['rollback', `--platform=${value}`])).toThrow(
+        "accepts only 'cloudflare'",
+      );
+    });
+
+    it('rejects rollback --platform without a value', () => {
+      expect(() => parseProjectArgs(['rollback', '--platform'])).toThrow(
+        "accepts only 'cloudflare'",
+      );
+    });
+
+    it('rejects --platform for cancel', () => {
+      expect(() => parseProjectArgs(['cancel', '--platform', 'cloudflare'])).toThrow(
+        "project: Unknown flag '--platform'.",
       );
     });
 
