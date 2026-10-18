@@ -1,0 +1,41 @@
+packages/md/src/plugin.ts
+  s_f572b1deb5ef86::t_4a043495220edd 281-282,285-287,301-303
+packages/react/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_90ee6d06875fd9 252,266-268,279-280,290
+packages/react/src/runtime/context.ts
+  s_f572b1deb5ef86::t_ef67e00ccf4303 19-23
+packages/react/src/runtime/index.ts
+  s_f572b1deb5ef86::t_3e491ee2dc32ca 16
+packages/react/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_5ce30a90536193 1-56
+packages/solid/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_542401bdcb755f 259,271-273,289-303
+packages/solid/src/runtime/context.ts
+  s_f572b1deb5ef86::t_95bc8825d039cf 19-23
+packages/solid/src/runtime/index.ts
+  s_f572b1deb5ef86::t_f7d899669d7ec7 16
+packages/solid/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_48fb156ab90551 1-62
+packages/svelte/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_f7e266518284ad 354-355,368-369
+packages/svelte/src/runtime/App.svelte
+  s_f572b1deb5ef86::t_149b3c2b3b1bb2 16,55-58
+packages/svelte/test/integration/md-layout-frontmatter.test.ts
+  s_f572b1deb5ef86::t_658a0f7b322606 1-64
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "8723e9c254508a0b976dceed8aac658dee6b0bb9",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
