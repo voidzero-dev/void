@@ -271,7 +271,11 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
     enforce: 'pre',
     resolveId: {
       filter: { id: /^takumi-js(?:\/|$)/ },
-      handler() {
+      handler(_id, importer) {
+        // An app may also use takumi-js itself, at any version.
+        if (!importer?.startsWith(`${VOID_PACKAGE_DIR}/`)) {
+          return;
+        }
         const range = readTakumiRange();
         const installed = findInstalledPackage('takumi-js', this.environment.config.root);
         const version = installed && readPackageVersion(installed);
@@ -297,10 +301,12 @@ const RUNTIME_NAMES: Record<NodeTarget, string> = {
   deno: 'Deno',
 };
 
+const VOID_MANIFEST = findPackageJSON(import.meta.url)!;
+const VOID_PACKAGE_DIR = dirname(VOID_MANIFEST);
+
 /** The takumi-js range void/og is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
-  const manifest = findPackageJSON(import.meta.url);
-  return readPackageManifest(manifest!).dependencies!['takumi-js']!;
+  return readPackageManifest(VOID_MANIFEST).dependencies!['takumi-js']!;
 }
 
 function readPackageVersion(dir: string): string | undefined {
