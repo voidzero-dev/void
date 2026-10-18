@@ -171,7 +171,7 @@ The default platform allowance is 200 recipient attempts per UTC month and 10 pe
 
 ## Local development {#local-development}
 
-During `void dev`, sends are captured to an in-memory inbox instead of going to Cloudflare. The dev server prints the inbox URL when it starts:
+During local development, sends are captured to an in-memory inbox instead of going to Cloudflare. The dev server prints the inbox URL when it starts:
 
 ```
 [void] Email inbox: http://localhost:5173/__void/inbox?token=<printed-token>
@@ -195,7 +195,7 @@ The inbox keeps the most recent 100 messages through HMR and clears on a full se
 
 The dev inbox works in native Void apps, TanStack Start, and React Router. It is unavailable in SvelteKit, Nuxt, Analog, and Astro; sends from those apps return `BINDING_MISSING`. Use `createEmailTestHarness` from `void/email/testing` to capture sends in tests. If a configured inbox cannot be reached, `sendEmail` returns `UPSTREAM_ERROR` without sending.
 
-`sendInDev` is deprecated. During `void dev` it skips the inbox and returns `BINDING_MISSING`, so it never delivers. Remove it, and deploy the app to test real delivery.
+`sendInDev` is deprecated. During local development it skips the inbox and returns `BINDING_MISSING`, so it never delivers. Remove it, and deploy the app to test real delivery.
 
 ## Testing {#testing}
 

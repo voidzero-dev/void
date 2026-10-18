@@ -43,7 +43,7 @@ On a [Void platform](../deployment.md#deploy-to-a-team-platform), apps usually s
 
 This stops a header rule from setting or clearing cookies for other apps on the same domain. These limits apply only to header rules. Your app's own response can set cookies and send `Clear-Site-Data`, and on a shared domain those can affect other apps. See [Domains and Resources](../platform/installation/domains.md#adding-a-domain).
 
-In `void dev`, with `void deploy --platform cloudflare`, and on [other runtimes](../deployment.md#other-runtimes), header rules apply both headers as written.
+During local development, with `void deploy --platform cloudflare`, and on [other runtimes](../deployment.md#other-runtimes), header rules apply both headers as written.
 
 ## Framework `_headers` files
 
