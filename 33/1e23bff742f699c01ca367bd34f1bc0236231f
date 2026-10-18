@@ -1,0 +1,39 @@
+packages/react/test/integration/island-css-build.test.ts
+  s_51b2350beb4d0c::t_577af0ac20c33e 1-81
+packages/solid/test/integration/island-css-build.test.ts
+  s_51b2350beb4d0c::t_4812e59b7fd75b 1-30
+packages/svelte/test/integration/island-css-build.test.ts
+  s_51b2350beb4d0c::t_1bbf8ab470a7e8 1-64
+packages/void/test/unit/island-css-rewrite.test.ts
+  s_51b2350beb4d0c::t_42a105fd27212c 7,9,12,76-151
+packages/vue/test/integration/island-css-build.test.ts
+  s_51b2350beb4d0c::t_e8ce5584f22c7e 1-44
+test/island-css-build.ts
+  s_51b2350beb4d0c::t_429fee032698a3 1-127
+packages/react/src/plugin-islands.ts
+  s_51b2350beb4d0c::t_27e5e4cc472e14 8-11,127-130,161-168,228-229,231-238,245,334-335,348-355,364-372
+packages/solid/src/plugin-islands.ts
+  s_51b2350beb4d0c::t_d66b3e47ed1d2d 8-11,141-144,182-189,231-232,234-241,248,353-354,367-374,383-391
+packages/svelte/src/plugin-islands.ts
+  s_51b2350beb4d0c::t_89872e943a0967 9-12,144-147,187-194,244,251,269-272,276-283,294-295,297-307,340,430-431,444-451,466-474
+packages/void/src/pages/islands-plugin.ts
+  s_51b2350beb4d0c::t_76deaed080286f 1,3-9,62-64,66-69,71-146,148-152,155-218
+packages/vue/src/plugin-islands.ts
+  s_51b2350beb4d0c::t_e9827e2549f71f 8-11,124-139,170-177,253,260,276,355-356,369-376,402-410
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "331e23bff742f699c01ca367bd34f1bc0236231f",
+  "prompts": {},
+  "sessions": {
+    "s_51b2350beb4d0c": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a9685ad7ab7450805",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
