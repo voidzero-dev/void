@@ -327,6 +327,9 @@ export async function uploadInstallationWorkers(input: {
           preservedRoutes,
           previousConfig: previousWorkerConfig,
           previousPublicEndpoints: previousPublicEndpoints,
+          ...(dependencies.replaceOutsideChanges?.includes(action.name)
+            ? { replaceOutsideChanges: true }
+            : {}),
           runner: parallelWorkerUploads
             ? runParallelPinnedPlatformWrangler
             : runPinnedPlatformWrangler,

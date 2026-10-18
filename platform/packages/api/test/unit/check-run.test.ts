@@ -76,6 +76,14 @@ function reasonsOf(spy: ReturnType<typeof vi.spyOn>, phase: string): Array<unkno
     .map((o) => o.reason);
 }
 
+/** Keep every retry attempt but run its backoff timer at once. */
+function skipRetryDelay(): void {
+  const schedule = globalThis.setTimeout;
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation((callback, delay, ...args) =>
+    schedule(callback, delay === 250 ? 0 : delay, ...args),
+  );
+}
+
 describe('createCheckRun', () => {
   let warnSpy: ReturnType<typeof vi.spyOn>;
   // Unique installation id per test — getInstallationToken caches the
@@ -89,6 +97,7 @@ describe('createCheckRun', () => {
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    skipRetryDelay();
   });
 
   afterEach(() => {
@@ -268,6 +277,7 @@ describe('completeCheckRun', () => {
 
   beforeEach(() => {
     warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    skipRetryDelay();
   });
 
   afterEach(() => {

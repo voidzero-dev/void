@@ -905,6 +905,24 @@ function createSandboxMockState(): SandboxMockState {
 }
 
 /**
+ * Worker uploads stream their multipart body. Parse the bytes the platform
+ * actually sends and put the resulting FormData on `init.body`, so handlers
+ * and later `mock.calls` assertions read the parts as they would read a
+ * FormData body. A body stream that errors (a module failing its integrity
+ * check) rejects here, as `fetch` would; the upload never reaches a handler.
+ */
+async function readStreamedMultipartBody(init: RequestInit): Promise<void> {
+  const contentType = new Headers(init.headers).get('content-type') ?? '';
+  if (!contentType.startsWith('multipart/form-data')) {
+    return;
+  }
+  const form = await new Response(init.body, {
+    headers: { 'content-type': contentType },
+  }).formData();
+  init.body = form;
+}
+
+/**
  * Best-effort multipart-body parser tailored to the platform's CF Workers
  * Upload API usage. Returns the parsed `metadata` JSON and the raw bindings
  * array if present. Returns `null` if the body is not a parseable multipart
@@ -1617,6 +1635,9 @@ export function mockCfApi(overrides: Partial<CfApiMocks> = {}): MockCfApiHandle 
     const url =
       typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
     const method = init?.method ?? 'GET';
+    if (init?.body instanceof ReadableStream) {
+      await readStreamedMultipartBody(init);
+    }
 
     // Record every call for ordering assertions. Non-string bodies are
     // summarized as `[FormData]` or `[binary]`.

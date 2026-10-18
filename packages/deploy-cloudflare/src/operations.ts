@@ -9,6 +9,13 @@ export type CloudflareOperation =
   | { type: 'd1.create'; name: string; binding: string; configPath: string }
   | { type: 'd1.execute'; database: string; sql: string; configPath: string }
   | { type: 'd1.migrations.list' | 'd1.migrations.apply'; database: string; configPath: string }
+  | { type: 'd1.time-travel.bookmark'; database: string; configPath: string }
+  | {
+      type: 'd1.time-travel.restore';
+      database: string;
+      target: { bookmark: string } | { timestamp: string };
+      configPath: string;
+    }
   | { type: 'kv.namespace.create'; name: string; binding: string; configPath: string }
   | ({ type: 'r2.bucket.info'; name: string } & ConfigTarget)
   | { type: 'r2.bucket.create'; name: string; binding: string; configPath: string }
@@ -40,6 +47,11 @@ export type CloudflareOperation =
       assetsDirectory?: string;
       previewAlias?: string;
       noBundle?: boolean;
+      /**
+       * Attach the Cloudflare CLI to this terminal so that it can ask the
+       * operator. The result then has only the exit status.
+       */
+      interactive?: boolean;
     } & WorkerTarget)
   | ({ type: 'triggers.deploy'; assets?: boolean } & WorkerTarget)
   | ({ type: 'triggers.clear-crons' | 'triggers.clear-domains' } & WorkerTarget)

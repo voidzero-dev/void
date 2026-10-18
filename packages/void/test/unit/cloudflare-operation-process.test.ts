@@ -1281,3 +1281,83 @@ it('renders binary and text frames from a real Node WebSocket in order and remov
     body: '',
   });
 }, 30_000);
+
+it.each([false, true])(
+  'attaches cf to the terminal only for an interactive platform upload (interactive: %s)',
+  async (interactive) => {
+    const directory = temporaryDirectory('void-cf-interactive-upload-');
+    const requests: Array<string> = [];
+    const api = await listen(
+      createServer((request, response) => {
+        requests.push(`${request.method} ${request.url}`);
+        response.statusCode = 500;
+        response.end();
+      }),
+    );
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(
+      join(directory, 'index.js'),
+      'export default { fetch() { return new Response("ok") } };',
+    );
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        name: 'test-worker',
+        account_id: 'test-account',
+        compatibility_date: '2026-09-29',
+        main: 'index.js',
+        no_bundle: true,
+      }),
+    );
+    const record = join(directory, 'cf-stdio.json');
+    const preload = join(directory, 'mock-interactive-upload.mjs');
+    writeFileSync(
+      preload,
+      `import child from 'node:child_process';
+import { writeFileSync } from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+const actualSpawnSync=child.spawnSync;
+child.spawnSync = (binary, args, options) => {
+  if(args.slice(1,4).join(' ') !== 'workers versions create') return actualSpawnSync(binary,args,options);
+  writeFileSync(${JSON.stringify(record)}, JSON.stringify({stdio:options.stdio,args:args.slice(1)}));
+  return options.stdio === 'inherit'
+    ? { status:0, stdout:null, stderr:null }
+    : { status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' };
+};
+syncBuiltinESMExports();`,
+    );
+    const output = await runOperation(
+      directory,
+      {
+        type: 'versions.upload',
+        configPath,
+        message: 'review',
+        ...(interactive ? { interactive } : {}),
+      },
+      unproxiedEnv(api),
+      preload,
+    );
+    expect(output.status, output.stderr).toBe(0);
+    const called = JSON.parse(readFileSync(record, 'utf8'));
+    expect(called.args).toEqual([
+      'workers',
+      'versions',
+      'create',
+      '--prebuilt',
+      '--message',
+      'review',
+    ]);
+    if (interactive) {
+      expect(called.stdio).toBe('inherit');
+      // The terminal shows cf's own output; no result envelope follows it.
+      expect(output.stdout).toBe('');
+    } else {
+      expect(called.stdio).toEqual(['ignore', 'pipe', 'pipe']);
+      expect(JSON.parse(output.stdout).data).toEqual({
+        versionId: '11111111-1111-4111-8111-111111111111',
+      });
+    }
+    expect(requests).toEqual([]);
+  },
+  30_000,
+);

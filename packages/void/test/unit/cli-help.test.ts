@@ -131,6 +131,15 @@ describe('rendered help advertises the flags the parser honours', () => {
     expect(line).toContain('--platform cloudflare');
   });
 
+  it('lists `db restore` and shows both of its targets', () => {
+    expect(getHelpPath(['db', 'restore', '--bookmark', 'x', '--help'])).toEqual(['db', 'restore']);
+    expect(render(['db'])).toContain('restore');
+    const page = render(['db', 'restore']);
+    expect(page).toContain('--bookmark <bookmark>');
+    expect(page).toContain('--timestamp <iso-time>');
+    expect(page).toContain('--yes');
+  });
+
   it('shows --limit and --project on `email logs`', () => {
     const page = render(['email', 'logs']);
 

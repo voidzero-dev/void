@@ -35,6 +35,12 @@ import { RESERVED_BINDING_NAMES } from '../reserved-bindings.ts';
 import { deployments } from '../schema.ts';
 import { type DeployManifest, type DeployEvent, type Deployment, type Project } from '../types.ts';
 import {
+  WorkerModuleIntegrityError,
+  withKnownLength,
+  workerUploadBody,
+  type WorkerModule,
+} from '../worker-upload.ts';
+import {
   buildWebSocketUploadBindings,
   buildSandboxUploadBindings,
   buildLiveUploadBindings,
@@ -50,6 +56,52 @@ import {
   DEFAULT_WORKER_MAIN_MODULE,
 } from './shared.ts';
 import { platformAppUploadUserAgent } from './user-agent.ts';
+
+// Cloudflare sets no subrequest time limit; a timed-out attempt is retried like a network error.
+const WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS = 120_000;
+
+/** The Cloudflare error code of a rejected replay of a saved upload, if the body has one. */
+function savedUploadReplayCode(body: string): number | undefined {
+  let errors: unknown;
+  try {
+    errors = (JSON.parse(body) as { errors?: unknown } | null)?.errors;
+  } catch {
+    return undefined;
+  }
+  if (!Array.isArray(errors)) {
+    return undefined;
+  }
+  for (const error of errors) {
+    const code = (error as { code?: unknown } | null)?.code;
+    // 100312: the assets completion token was used. 10079: the migration tag moved.
+    if (code === 100312 || code === 10079) {
+      return code;
+    }
+  }
+  return undefined;
+}
+
+/** Whether the dispatch script exists and carries the uploaded migration tag. */
+async function workerScriptSaved(
+  url: string,
+  headers: Readonly<Record<string, string>>,
+  migrationTag: string | undefined,
+): Promise<boolean> {
+  try {
+    const response = await fetch(url, { headers, signal: AbortSignal.timeout(30_000) });
+    if (!response.ok) {
+      void response.body?.cancel().catch(() => {});
+      return false;
+    }
+    const body = (await response.json()) as {
+      result?: { script?: { migration_tag?: unknown } | null } | null;
+    } | null;
+    const script = body?.result?.script;
+    return !!script && (migrationTag === undefined || script.migration_tag === migrationTag);
+  } catch {
+    return false;
+  }
+}
 
 export async function uploadDeploymentWorker(input: {
   currentStep: string;
@@ -69,7 +121,7 @@ export async function uploadDeploymentWorker(input: {
   readonly assetsByHash: Map<string, Readonly<{ bytes: Uint8Array; contentType: string }>>;
   readonly incomingAssetManifest: Record<string, AssetManifestEntry>;
   wfpMirroredManifestDeploymentId: string | null;
-  readonly workerFiles: Array<{ name: string; content: Blob }>;
+  readonly workerFiles: ReadonlyArray<WorkerModule>;
   sandboxControllerAttempted: boolean;
   readonly owner: ApiEnv['Variables']['user'];
   workerUploadUrl: string | undefined;
@@ -237,6 +289,19 @@ export async function uploadDeploymentWorker(input: {
       session.buckets,
       assetsByHash,
     );
+    // Cloudflare holds the requested asset bytes now. Keep only the
+    // deploy-local cache buster, which a Durable Object snapshot stores, so
+    // asset bytes are not held through the Worker upload.
+    const deployLocalHashes = new Set(
+      Object.entries(assetManifest)
+        .filter(([path]) => path.startsWith('/.void-deploy/'))
+        .map(([, entry]) => entry.hash),
+    );
+    for (const hash of assetsByHash.keys()) {
+      if (!deployLocalHashes.has(hash)) {
+        assetsByHash.delete(hash);
+      }
+    }
     await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
     logger.info('asset_upload', 'upload_complete', {
       hasCompletionJwt: completionJwt !== undefined,
@@ -267,7 +332,6 @@ export async function uploadDeploymentWorker(input: {
 
   input.currentStep = 'worker_upload';
   markPhase('worker_upload');
-  const workerFormData = new FormData();
   emit({ event: 'worker_upload', modules: workerFiles.length });
 
   // Reserved-name set lives in `../reserved-bindings.ts` so the secrets
@@ -403,44 +467,129 @@ export async function uploadDeploymentWorker(input: {
       assetsByHash,
     );
   }
-  workerFormData.append(
-    'metadata',
-    new Blob([JSON.stringify(metadata)], { type: 'application/json' }),
-  );
-  for (const file of workerFiles) {
-    workerFormData.append(file.name, file.content, file.name);
-  }
 
   input.workerUploadUrl = `https://api.cloudflare.com/client/v4/accounts/${context.env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${dispatchNamespace}/scripts/${workerName}`;
+  const maxAttempts = CF_RETRY.maxRetries + 1;
+  const cfHeaders = {
+    Authorization: `Bearer ${context.env.CF_API_TOKEN}`,
+    'User-Agent': platformAppUploadUserAgent(context.env),
+  };
+  // Set once an attempt fails after Cloudflare may already have saved it.
+  let maybeSaved = false;
+  // A replay only rewrites this deployment's own script: the name is unique
+  // per deployment. Every attempt sends the same body, so a saved script with
+  // the uploaded migration tag is this upload.
+  const savedDespiteFailure = async (fields: Record<string, unknown>) => {
+    const saved = await workerScriptSaved(
+      input.workerUploadUrl!,
+      cfHeaders,
+      durableObjectMigrations?.new_tag,
+    );
+    if (saved) {
+      logger.warn('worker_upload', 'saved_despite_failure', fields);
+    }
+    return saved;
+  };
   await retryWithBackoff(
     async (attempt) => {
       const attemptStart = Date.now();
-      const cfResponse = await fetch(input.workerUploadUrl!, {
-        method: 'PUT',
-        headers: {
-          Authorization: `Bearer ${context.env.CF_API_TOKEN}`,
-          'User-Agent': platformAppUploadUserAgent(context.env),
-        },
-        body: workerFormData,
-      });
-
-      if (!cfResponse.ok) {
-        const error = await cfResponse.text();
-        logger.error('worker_upload', 'attempt_failed', new Error(error), {
-          attempt,
-          maxAttempts: CF_RETRY.maxRetries + 1,
-          latencyMs: Date.now() - attemptStart,
-          status: cfResponse.status,
-          bodyPreview: error.slice(0, 500),
+      const lastAttempt = attempt === CF_RETRY.maxRetries;
+      // A streamed body is sent once, so each attempt reopens the modules.
+      const upload = workerUploadBody(metadata, workerFiles);
+      let cfResponse: Response | undefined;
+      let cfBody: string;
+      // The request and its response body are retried together: a connection
+      // that drops while the body is read fails like one that drops earlier.
+      try {
+        cfResponse = await fetch(input.workerUploadUrl!, {
+          method: 'PUT',
+          headers: { ...cfHeaders, 'Content-Type': upload.contentType },
+          body: withKnownLength(upload.stream, upload.length),
+          signal: AbortSignal.timeout(WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS),
         });
-        throw new Error(`worker upload failed: ${error}`);
+        cfBody = await cfResponse.text();
+      } catch (error) {
+        // A module that fails its size or digest check stops the body before
+        // its closing boundary. Report that, not the transport error it causes,
+        // and never retry it: the same bytes fail every attempt.
+        const failure = upload.failure();
+        if (failure instanceof WorkerModuleIntegrityError) {
+          throw failure;
+        }
+        const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError';
+        const cause = failure ?? error;
+        const fields = {
+          attempt,
+          maxAttempts,
+          latencyMs: Date.now() - attemptStart,
+          code: timedOut ? 'timeout' : 'transport',
+          status: cfResponse?.status,
+          err: cause instanceof Error ? cause.message : String(cause),
+        };
+        // A 4xx stays final even when its body drops, unless it replays an
+        // upload that was saved. Any other failure is retried.
+        if (cfResponse && !cfResponse.ok && cfResponse.status < 500) {
+          if (maybeSaved && (await savedDespiteFailure(fields))) {
+            return true;
+          }
+          throw new Error(`worker upload failed (HTTP ${cfResponse.status})`, { cause: error });
+        }
+        if (lastAttempt) {
+          // This attempt or an earlier one may have been saved.
+          if (await savedDespiteFailure(fields)) {
+            return true;
+          }
+          // The timer also covers the module reads that feed the body.
+          throw (
+            failure ??
+            (timedOut
+              ? new Error(
+                  `The Worker upload did not finish within ${WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS / 1000} seconds. Deploy again.`,
+                  { cause: error },
+                )
+              : error)
+          );
+        }
+        maybeSaved = true;
+        logger.warn('worker_upload', 'attempt_failed', fields);
+        return undefined;
       }
 
-      const cfBody = await cfResponse.text();
+      if (!cfResponse.ok) {
+        const fields = {
+          attempt,
+          maxAttempts,
+          latencyMs: Date.now() - attemptStart,
+          status: cfResponse.status,
+          bodyPreview: cfBody.slice(0, 500),
+        };
+        // Only 5xx is retried. A 429 stays final: the install shares one API
+        // token, and Cloudflare blocks it for minutes once it hits the limit.
+        if (cfResponse.status >= 500 && !lastAttempt) {
+          maybeSaved = true;
+          logger.warn('worker_upload', 'attempt_failed', fields);
+          return undefined;
+        }
+        // A replay of a saved upload fails: the assets completion token is
+        // single-use and the migration tag has already moved. A 5xx here ends
+        // the last attempt, which may itself have been saved.
+        const code = maybeSaved ? savedUploadReplayCode(cfBody) : undefined;
+        if (
+          (cfResponse.status >= 500 || code !== undefined) &&
+          (await savedDespiteFailure({ ...fields, cfCode: code }))
+        ) {
+          return true;
+        }
+        logger.error('worker_upload', 'attempt_failed', new Error(cfBody), fields);
+        throw new Error(`worker upload failed: ${cfBody}`);
+      }
+
       if (isCfAssetPlainText(cfBody)) {
+        // Cloudflare accepted the request, so it may have saved the script.
+        maybeSaved = true;
         logger.warn('worker_upload', 'attempt_failed', {
           attempt,
-          maxAttempts: CF_RETRY.maxRetries + 1,
+          maxAttempts,
           latencyMs: Date.now() - attemptStart,
           code: 'cf_plain_text',
           bodyPreview: cfBody.slice(0, 100),

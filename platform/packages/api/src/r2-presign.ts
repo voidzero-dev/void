@@ -1,11 +1,12 @@
 /**
- * Presigned PUT URL generation for Cloudflare R2 with mandatory Content-MD5
- * upload-integrity verification.
+ * Presigned PUT URL generation for Cloudflare R2 with Content-MD5
+ * upload-integrity verification for assets.
  *
  * Used by the direct-to-R2 asset upload flow (see
  * meta/design-docs/0068-direct-r2-asset-upload.md). The platform issues a
  * URL the CLI uses to PUT a single asset directly to R2, bypassing the API
- * Worker's request body for large dist/ payloads.
+ * Worker's request body for large dist/ payloads. Worker module uploads use
+ * the same URLs without MD5 and with a signed Content-Length.
  *
  * Integrity: the URL signs `Content-Md5` as part of the canonical request,
  * so any tampering of the header value invalidates the signature. R2's S3
@@ -29,8 +30,12 @@ export type PresignAssetPutOptions = Readonly<{
   bucket: string;
   /** Object key inside the bucket. May contain `/`; passed through encodeURI. */
   key: string;
-  /** 32 lowercase hex characters — raw MD5 digest of the asset bytes. */
-  md5: string;
+  /**
+   * 32 lowercase hex characters — raw MD5 digest of the asset bytes. Worker
+   * module uploads omit it: they sign `contentLength`, and the API checks
+   * their SHA-256 when it streams them to Cloudflare.
+   */
+  md5?: string;
   contentType: string;
   /** Defaults to 600 (10 minutes). */
   ttlSeconds?: number;
@@ -93,12 +98,13 @@ function formatAmzDate(d: Date): string {
 
 /**
  * Generate a presigned PUT URL for an R2 object that enforces a Content-MD5
- * checksum at write time.
+ * checksum (when `md5` is given) and a Content-Length (when `contentLength`
+ * is given) at write time.
  *
  * The returned `headers` map is the verbatim set the client must send with
- * the PUT. `Content-Md5` and `Content-Type` are included in
- * `X-Amz-SignedHeaders` so they are covered by the signature, which means
- * R2 rejects any PUT whose body MD5 doesn't match the declared header.
+ * the PUT. Every header in it is included in `X-Amz-SignedHeaders` so it is
+ * covered by the signature, which means R2 rejects any PUT whose body MD5 or
+ * length doesn't match the declared header.
  */
 export async function presignAssetPut(
   opts: PresignAssetPutOptions,
@@ -109,18 +115,19 @@ export async function presignAssetPut(
     throw new Error(`ttlSeconds must be a positive number, got ${ttl}`);
   }
 
-  const checksumB64 = hexToBase64(opts.md5);
   const url = r2Endpoint(opts.accountId, opts.bucket, opts.key);
 
   // The AwsV4Signer in `signQuery` mode produces a query-presigned URL.
   // `allHeaders: true` flips Content-Type and any custom headers from
   // the unsignable list into the signed-headers list, which is what we
-  // want — both Content-Type and Content-Md5 must be covered by the
-  // signature so R2 rejects tampered uploads.
+  // want — Content-Type, Content-Md5 and Content-Length must be covered by
+  // the signature so R2 rejects tampered uploads.
   const headers: Record<string, string> = {
     'Content-Type': opts.contentType,
-    'Content-Md5': checksumB64,
   };
+  if (opts.md5 !== undefined) {
+    headers['Content-Md5'] = hexToBase64(opts.md5);
+  }
   if (opts.ifNoneMatch) {
     headers['If-None-Match'] = opts.ifNoneMatch;
   }

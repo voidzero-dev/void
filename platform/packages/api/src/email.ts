@@ -9,6 +9,7 @@ type PlatformEmailEnv = Pick<
   ApiEnv['Bindings'],
   | 'EMAIL'
   | 'EMAIL_FROM'
+  | 'EMAIL_SENDER_DOMAIN'
   | 'PLATFORM_DISPLAY_NAME'
   | 'PLATFORM_INSTALLATION_ID'
   | 'AUTH_REDIRECT_URI'
@@ -32,17 +33,44 @@ function button(href: string, label: string): string {
   return `<a href="${escapeHtml(href)}" style="${BUTTON_STYLE}">${escapeHtml(label)}</a>`;
 }
 
+/**
+ * EMAIL_FROM overrides the sender. Without it, an installation sends from
+ * `noreply@<EMAIL_SENDER_DOMAIN>`, the mailbox that destination verification
+ * mail already uses; `noreply` is a reserved slug, so no project owns it.
+ */
+function platformSender(
+  env: PlatformEmailEnv,
+  hosted: boolean,
+  name: string,
+): string | EmailAddress {
+  const from = env.EMAIL_FROM?.trim() || (hosted ? 'Void <noreply@void.cloud>' : '');
+  const domain = env.EMAIL_SENDER_DOMAIN?.trim();
+  if ((!from && !domain) || /[\r\n]/.test(from)) {
+    throw new Error(
+      'Set EMAIL_FROM to a Cloudflare-verified sender before enabling platform email.',
+    );
+  }
+  if (from) {
+    return from;
+  }
+  // The display name goes in its own field, so the binding encodes it and a
+  // name such as `Acme <Ops>` cannot change the address. Control characters
+  // could still split the From header.
+  if (/\p{Cc}/u.test(name + domain)) {
+    throw new Error(
+      'PLATFORM_DISPLAY_NAME and EMAIL_SENDER_DOMAIN must not contain control characters.',
+    );
+  }
+  return { name, email: `noreply@${domain}` };
+}
+
 function emailConfig(env: PlatformEmailEnv) {
   const apiUrl = getPlatformApiUrl(env);
   const hosted =
     !env.PLATFORM_INSTALLATION_ID &&
     ['https://api.void.cloud', 'https://api.staging.void.cloud'].includes(apiUrl);
-  const from = env.EMAIL_FROM?.trim() || (hosted ? 'Void <noreply@void.cloud>' : '');
-  if (!from || /[\r\n]/.test(from)) {
-    throw new Error(
-      'Set EMAIL_FROM to a Cloudflare-verified sender before enabling platform email.',
-    );
-  }
+  const name = getPlatformDisplayName(env);
+  const from = platformSender(env, hosted, name);
   const dashboardUrl =
     env.DASHBOARD_URL ||
     (hosted
@@ -60,7 +88,7 @@ function emailConfig(env: PlatformEmailEnv) {
       throw new Error('DASHBOARD_URL must be an HTTP(S) URL without credentials.');
     }
   }
-  return { apiUrl, from, dashboardUrl, name: getPlatformDisplayName(env) };
+  return { apiUrl, from, dashboardUrl, name };
 }
 
 function dashboardProjectUrl(dashboardUrl: string | undefined, projectSlug: string): string | null {

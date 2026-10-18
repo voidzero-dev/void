@@ -55,6 +55,74 @@ export async function readActivePlatformWorkerVersion(
   return (active[0] as { version_id: string }).version_id;
 }
 
+/**
+ * The active version in a Cloudflare API answer for the deployments of a
+ * platform Worker. deployPlatformWorker continues only when the latest
+ * deployment sends all traffic to one version (deploymentRunsOnlyVersion).
+ * `split` is each other answer, for example a gradual deployment.
+ */
+export function readActivePlatformWorkerDeployment(
+  response: unknown,
+):
+  | Readonly<{ kind: 'active'; versionId: string }>
+  | Readonly<{ kind: 'malformed' }>
+  | Readonly<{ kind: 'split' }> {
+  const deployments =
+    response && typeof response === 'object' && !Array.isArray(response)
+      ? (response as { deployments?: unknown }).deployments
+      : null;
+  if (!Array.isArray(deployments)) {
+    return { kind: 'malformed' };
+  }
+  if (deployments.length === 0) {
+    return { kind: 'split' };
+  }
+  const latest: unknown = deployments[0];
+  const versions =
+    latest && typeof latest === 'object' ? (latest as { versions?: unknown }).versions : null;
+  if (
+    !Array.isArray(versions) ||
+    versions.some(
+      (version) =>
+        !version ||
+        typeof version !== 'object' ||
+        typeof (version as { version_id?: unknown }).version_id !== 'string' ||
+        !Number.isFinite(Number((version as { percentage?: unknown }).percentage)),
+    )
+  ) {
+    return { kind: 'malformed' };
+  }
+  const [only] = versions as Array<{ percentage: unknown; version_id: string }>;
+  return versions.length === 1 && only && Number(only.percentage) === 100
+    ? { kind: 'active', versionId: only.version_id }
+    : { kind: 'split' };
+}
+
+/**
+ * Whether a version of a platform Worker has Void's record of its triggers.
+ * This is the rule of the upgrade: it refuses a version without the record,
+ * for example a version deployed outside Void.
+ */
+export async function platformWorkerVersionHasTriggerRecord(
+  readCloudflare: (path: string) => Promise<unknown>,
+  accountId: string,
+  workerName: string,
+  versionId: string,
+): Promise<boolean> {
+  const version = await readCloudflare(
+    `/accounts/${encodeURIComponent(accountId)}/workers/scripts/${encodeURIComponent(workerName)}/versions/${encodeURIComponent(versionId)}`,
+  );
+  const annotations =
+    version && typeof version === 'object'
+      ? (version as { annotations?: unknown }).annotations
+      : null;
+  const message =
+    annotations && typeof annotations === 'object'
+      ? (annotations as Record<string, unknown>)['workers/message']
+      : null;
+  return parseCloudflareVersionMessage(typeof message === 'string' ? message : null)?.schema === 2;
+}
+
 export async function readPlatformWorkerDeployments(
   configPath: string,
   accountId: string,
@@ -224,6 +292,7 @@ export async function readActivePlatformWorkerSnapshot(
   workerName: string,
   expectedOwnershipMarker: string,
   runner: typeof runPlatformWrangler = runPlatformWrangler,
+  unrecordedTriggerConfig?: CloudflareTriggerConfig,
 ): Promise<{
   contentHash?: string;
   migrationTag: string | null;
@@ -252,6 +321,7 @@ export async function readActivePlatformWorkerSnapshot(
         );
       }
     },
+    unrecordedTriggerConfig,
   );
   return snapshot;
 }
@@ -264,6 +334,7 @@ export async function readPlatformWorkerVersionSnapshot(
   versionId: string,
   runner: typeof runPlatformWrangler,
   validateCurrentVersion?: () => Promise<void>,
+  unrecordedTriggerConfig?: CloudflareTriggerConfig,
 ): Promise<Awaited<ReturnType<typeof readActivePlatformWorkerSnapshot>>> {
   const result = await runner(
     { type: 'versions.view', versionId, configPath, workerName },
@@ -308,6 +379,15 @@ export async function readPlatformWorkerVersionSnapshot(
       ? ((annotations as Record<string, string>)['workers/message'] ?? null)
       : null;
   const metadata = parseCloudflareVersionMessage(message);
+  // A version made outside Void has no Void record of its triggers. Only a run
+  // that replaces those changes, with the operator's consent, gives Void's own.
+  if (metadata?.schema !== 2 && unrecordedTriggerConfig) {
+    return {
+      migrationTag: readCloudflareVersionMigrationTag(value),
+      triggerConfig: unrecordedTriggerConfig,
+      versionId,
+    };
+  }
   if (metadata?.schema !== 2) {
     throw new Error(
       `platform: Active Worker ${workerName} predates safe trigger snapshots. Refusing to upgrade because its routes, cron, and queue consumers could not be restored after a failed cutover.`,

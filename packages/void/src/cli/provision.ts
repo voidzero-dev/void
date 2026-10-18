@@ -972,6 +972,10 @@ export function createDefaultRunWrangler(
     new Promise<RunWranglerResult>((resolvePromise, rejectPromise) => {
       const parallelWorkerUpload =
         options?.parallelWorkerUpload === true && args.type === 'versions.upload';
+      // The Cloudflare CLI asks only when both its input and output are a terminal.
+      const interactive =
+        (args.type === 'versions.upload' || args.type === 'worker.deploy') &&
+        args.interactive === true;
       // A fatal-signal teardown is in progress: start no new work.
       if (activeTeardown !== undefined) {
         rejectPromise(
@@ -1006,7 +1010,9 @@ export function createDefaultRunWrangler(
           }),
           ...(opts.suppressLogs ? { WRANGLER_WRITE_LOGS: 'false' } : {}),
         },
-        stdio: [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
+        stdio: interactive
+          ? 'inherit'
+          : [opts.input === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
         windowsHide: true,
         detached: !isWindows,
       });
@@ -1114,7 +1120,8 @@ export function createDefaultRunWrangler(
         settled = true;
         clearTimeout(commandTimer);
         deregisterSelf();
-        resolvePromise(decodeCloudflareOperationResult(result));
+        // An interactive process writes to the terminal, so it has no result envelope.
+        resolvePromise(interactive ? result : decodeCloudflareOperationResult(result));
       };
 
       // Reject with a quarantine error: the child could not be confirmed dead.

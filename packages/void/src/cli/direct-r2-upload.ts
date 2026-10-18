@@ -42,28 +42,32 @@ export class DirectR2PutError extends Error {
 }
 
 export type DirectR2PutItem = {
-  /** Asset path relative to the build output (with leading `/`). */
+  /**
+   * Asset path relative to the build output (with leading `/`), or a Worker
+   * module path relative to the Worker output.
+   */
   path: string;
-  /** BLAKE3 storage hash — used for log correlation and R2 key. */
+  /** Asset BLAKE3 storage hash or Worker module SHA-256, for log correlation. */
   hash: string;
   /**
-   * Asset bytes. Cleared (set to `undefined`) by `uploadAssetsToR2` after a
+   * Bytes to upload. Cleared (set to `undefined`) by `uploadAssetsToR2` after a
    * successful PUT so the buffer becomes eligible for GC as soon as the
    * upload is acknowledged. Callers should not read `body` after the upload
    * completes.
    */
   body: Buffer | undefined;
-  /** Presigned URL from `requestUploadUrls`. */
+  /** Presigned URL from `requestUploadUrls` or `requestWorkerUploadUrls`. */
   url: string;
-  /** Headers the platform required us to send (incl. Content-Md5, Content-Type). */
+  /** Headers the platform required us to send (e.g. Content-Md5, Content-Type). */
   headers: Record<string, string>;
 };
 
 /**
- * Issue direct-to-R2 PUTs for every item in `items`, bounded to
- * `R2_PUT_CONCURRENCY`. Surfaces the first failure (4xx immediately, 5xx
- * after retry exhaustion) as a `DirectR2PutError` carrying the asset path
- * and hash so the user can correlate against the JSONL log.
+ * Issue direct-to-R2 PUTs for every item in `items` (assets or Worker
+ * modules), bounded to `R2_PUT_CONCURRENCY`. Surfaces the first failure
+ * (4xx immediately, 5xx after retry exhaustion) as a `DirectR2PutError`
+ * carrying the item path and hash so the user can correlate against the
+ * JSONL log.
  *
  * Logs `r2_put_start` / `r2_put_end` per asset, plus `r2_put_retry` on
  * each retry attempt. Per-asset durations help identify slow uploads.

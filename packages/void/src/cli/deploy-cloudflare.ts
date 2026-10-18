@@ -19,6 +19,7 @@ import {
   runCloudflareStaticDeploy,
 } from './deploy-cloudflare-static.ts';
 import { log } from './deploy-helpers.ts';
+import { logD1RestoreAfterDeployFailure } from './deploy-migrations.ts';
 import { printDeploySuccess } from './deploy-summary.ts';
 import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types.ts';
 import { renderAddressMap } from './email-cloudflare.ts';
@@ -131,19 +132,38 @@ export async function runCloudflareDeploy(
     preflight,
     build,
   });
-  await publishCloudflareWorker({
-    root,
-    deps,
-    exit,
-    cliLog,
-    atomic,
-    detectedFramework,
-    initialCloudflareCandidate,
-    source,
-    preflight,
-    build,
-    migration,
-  });
+  // The migrations are already applied, so every later failure names the restore point again.
+  let restoreReported = false;
+  const reportRestore = () => {
+    if (migration.d1RestoreCommand && !restoreReported) {
+      restoreReported = true;
+      logD1RestoreAfterDeployFailure(migration.d1RestoreCommand);
+    }
+  };
+  const exitAfterMigrations = (code: number): never => {
+    if (code !== 0) {
+      reportRestore();
+    }
+    return exit(code);
+  };
+  try {
+    await publishCloudflareWorker({
+      root,
+      deps,
+      exit: exitAfterMigrations,
+      cliLog,
+      atomic,
+      detectedFramework,
+      initialCloudflareCandidate,
+      source,
+      preflight,
+      build,
+      migration,
+    });
+  } catch (error) {
+    reportRestore();
+    throw error;
+  }
   // A deploy without email setup already said so during preflight.
   if (preflight.emailMap) {
     log.message(renderAddressMap(preflight.emailMap));

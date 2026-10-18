@@ -99,6 +99,26 @@ describe('deploy token scope enforcement', () => {
     expect(res.status).not.toBe(403);
   });
 
+  it('lets a deploy token request Worker module upload URLs', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'deploy-worker-upload');
+    const token = await deployToken(project.id, user.id);
+    mockCfApi();
+
+    const res = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}/deploy/worker-upload-urls`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          modules: [{ name: 'index.js', size: 18, sha256: 'a'.repeat(64) }],
+        }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ id: expect.any(String), urls: [expect.any(Object)] });
+  });
+
   it('lets the deploy sibling endpoints through (preflight, upload-urls)', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'deploy-siblings');
@@ -495,6 +515,7 @@ describe('deploy token scope enforcement', () => {
     { name: 'POST /projects/:id/database', path: 'database' },
     { name: 'POST /projects/:id/deploy/preflight', path: 'deploy/preflight' },
     { name: 'POST /projects/:id/deploy/upload-urls', path: 'deploy/upload-urls' },
+    { name: 'POST /projects/:id/deploy/worker-upload-urls', path: 'deploy/worker-upload-urls' },
   ];
 
   for (const status of ['cancelled', 'failed'] as const) {

@@ -14,7 +14,7 @@ import type {
 } from '@void/deploy-cloudflare';
 import { parse } from 'jsonc-parser';
 import { dirname, join, resolve } from 'pathslash';
-import { readCfUploadOutput, safePositional } from './cf-command-values.ts';
+import { isD1Bookmark, readCfUploadOutput, safePositional } from './cf-command-values.ts';
 import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
 import {
@@ -105,6 +105,7 @@ function runCf(
   command: Array<string>,
   cwd = process.cwd(),
   bounds?: { timeoutMs: number; maxOutputBytes: number },
+  interactive = false,
 ): Result {
   const env = cfEnvironment();
   env.CF_QUIET = '1';
@@ -116,7 +117,8 @@ function runCf(
     windowsHide: true,
     maxBuffer: bounds?.maxOutputBytes ?? 32 * 1024 * 1024,
     ...(bounds ? { timeout: bounds.timeoutMs } : {}),
-    stdio: ['ignore', 'pipe', 'pipe'],
+    // An interactive command shares this process's terminal, so cf can ask there.
+    stdio: interactive ? 'inherit' : ['ignore', 'pipe', 'pipe'],
   });
   const stderr = [
     child.stderr || '',
@@ -304,6 +306,15 @@ function d1Database(token: string): { id: string; dir: string; table: string; pa
     table:
       typeof selected.migrations_table === 'string' ? selected.migrations_table : 'd1_migrations',
   };
+}
+
+function previousD1Bookmark(stdout: string): string | undefined {
+  try {
+    const previous = object(parsedJson(stdout)).previous_bookmark;
+    return isD1Bookmark(previous) ? previous : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function cleanJson(command: Array<string>, transform?: (value: unknown) => unknown): Result {
@@ -673,6 +684,37 @@ async function resources(): Promise<Result> {
         throw new Error('D1 migration list was malformed.');
       }
       return result(0, '', called.stderr, { pending: pending.map((item) => object(item).Name) });
+    }
+    case 'd1.time-travel.bookmark': {
+      const database = d1Database(operation.database);
+      const called = runCf(['d1', 'time-travel', 'get-bookmark', database.id]);
+      if (called.status !== 0) {
+        return called;
+      }
+      const bookmark = object(parsedJson(called.stdout)).bookmark;
+      if (!isD1Bookmark(bookmark)) {
+        throw new Error('D1 Time Travel bookmark was malformed.');
+      }
+      return result(0, '', called.stderr, { bookmark });
+    }
+    case 'd1.time-travel.restore': {
+      const database = d1Database(operation.database);
+      if ('bookmark' in operation.target && !isD1Bookmark(operation.target.bookmark)) {
+        throw new Error('D1 Time Travel bookmark was malformed.');
+      }
+      // One argv item each, so cf cannot read the value as a flag.
+      const target =
+        'bookmark' in operation.target
+          ? `--bookmark=${operation.target.bookmark}`
+          : `--timestamp=${operation.target.timestamp}`;
+      // Void asks before it restores. cf cannot ask in this non-interactive child, so it would
+      // refuse without --force.
+      const called = runCf(['d1', 'time-travel', 'restore', database.id, target, '--force']);
+      if (called.status !== 0) {
+        return called;
+      }
+      // The database is restored now, so a response without the previous bookmark is not a failure.
+      return result(0, '', called.stderr, { previousBookmark: previousD1Bookmark(called.stdout) });
     }
     case 'containers.list':
       return runCf(['containers', 'applications', 'list']);
@@ -1060,9 +1102,12 @@ async function workerChanges(): Promise<Result> {
           ...(request.secretsFilePath ? ['--secrets-file', request.secretsFilePath] : []),
         ],
         directory,
+        undefined,
+        request.interactive === true,
       ),
     );
-    if (called.status !== 0) {
+    // cf wrote an interactive upload to the terminal, so only its exit status is known.
+    if (called.status !== 0 || request.interactive === true) {
       return called;
     }
     // cf renders uploads for the terminal; decode once at the process boundary.
@@ -1272,9 +1317,15 @@ async function main(): Promise<Result> {
   return resources();
 }
 
+// Login, tail and an interactive upload write to the terminal, not a result envelope.
+const terminalOperation =
+  operation?.type === 'auth.login' ||
+  operation?.type === 'tail' ||
+  ((operation?.type === 'versions.upload' || operation?.type === 'worker.deploy') &&
+    operation.interactive === true);
 try {
   const output = await main();
-  if (operation.type !== 'auth.login' && operation.type !== 'tail') {
+  if (!terminalOperation) {
     let data = output.data;
     let humanOutput = '';
     if (data === undefined && output.stdout.trim()) {
@@ -1303,7 +1354,7 @@ try {
   process.exitCode = output.status;
 } catch (error) {
   const message = error instanceof Error ? error.message : 'Cloudflare operation failed.';
-  if (operation?.type !== 'auth.login' && operation?.type !== 'tail') {
+  if (!terminalOperation) {
     process.stdout.write(JSON.stringify({ operationResult: 1, errors: [{ message }] }) + '\n');
   }
   process.stderr.write(message);

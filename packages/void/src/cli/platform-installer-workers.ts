@@ -660,6 +660,7 @@ export async function deployPlatformWorker(
         workerName,
         readPlatformWorkerOwnershipMarker(config),
         readRunner,
+        options.replaceOutsideChanges ? previousTriggers : undefined,
       );
       previousVersionId = previous.versionId;
       const deployments = await readPlatformWorkerDeployments(
@@ -938,6 +939,66 @@ export async function deployPlatformWorker(
       );
     }
     throw error;
+  } finally {
+    rmSync(directory, { force: true, recursive: true });
+  }
+}
+
+/**
+ * Upload a version of a platform Worker that was changed outside Void, and do
+ * not deploy it. The Cloudflare CLI uses this terminal: it shows what the
+ * upload replaces and asks the operator. After the operator agrees, later
+ * uploads of this Worker work without a terminal again.
+ */
+export async function uploadPlatformWorkerForReview(
+  config: Record<string, unknown>,
+  options: Readonly<{
+    readCloudflare: (path: string) => Promise<unknown>;
+    runner: typeof runPlatformWrangler;
+  }>,
+): Promise<CloudflareCommandResult> {
+  const directory = mkdtempSync(join(tmpdir(), 'void-platform-review-'));
+  const workerName = String(config.name);
+  const accountId = String(config.account_id);
+  const readRunner = platformWorkerApiReadRunner(
+    accountId,
+    workerName,
+    options.readCloudflare,
+    options.runner,
+  );
+  try {
+    const { wranglerConfig } = isolatePlatformWorkerCustomDomains(config);
+    const configPath = join(directory, 'wrangler.json');
+    const writeConfig = (value: Record<string, unknown>) =>
+      writeFileSync(configPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    writeConfig(withoutPlatformWorkerTrafficAttachments(wranglerConfig));
+    // Like deployPlatformWorker, leave out the Durable Object migrations that
+    // the active version already ran.
+    const active = await readActivePlatformWorkerSnapshot(
+      configPath,
+      accountId,
+      workerName,
+      readPlatformWorkerOwnershipMarker(config),
+      readRunner,
+      readTriggerConfigFromObject(wranglerConfig),
+    );
+    writeConfig(
+      withoutCompletedPlatformWorkerMigrations(
+        withoutPlatformWorkerTrafficAttachments(wranglerConfig),
+        active.migrationTag,
+      ),
+    );
+    return await options.runner(
+      {
+        type: 'versions.upload',
+        configPath,
+        message: 'Void: replace changes made outside Void',
+        interactive: true,
+      },
+      accountId,
+      directory,
+      true,
+    );
   } finally {
     rmSync(directory, { force: true, recursive: true });
   }

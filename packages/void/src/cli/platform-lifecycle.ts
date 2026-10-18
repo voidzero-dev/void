@@ -32,6 +32,7 @@ import {
 import {
   PlatformCloudflareClient,
   PlatformCloudflareApiError,
+  PlatformRuntimeTokenEmailPermissionError,
   verifyPlatformRuntimeTokenPermissions,
   type CloudflareAccount,
 } from './platform-cloudflare.ts';
@@ -40,6 +41,10 @@ import {
   collectInstallationAuthentication,
   platformManagementAccessForAuthentication,
 } from './platform-install-auth.ts';
+import {
+  reviewPlatformWorkerOutsideChanges,
+  uploadPlatformWorkerOutsideChanges,
+} from './platform-installer-outside-changes.ts';
 import {
   acquirePlatformDatabaseLifecycleLock,
   claimPlatformDatabase,
@@ -878,9 +883,20 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           if (!isPlatformTokenAuthorizationError(error)) {
             throw error;
           }
+          const details = new Set<string>();
+          for (
+            let cause = error, depth = 0;
+            depth < 5 && cause instanceof Error;
+            depth++, cause = cause.cause
+          ) {
+            details.add(cause.message.replaceAll(token, '[redacted]'));
+          }
           forgetRejectedManagementToken();
           log.warn(
-            'Cloudflare rejected this token. Check its permissions and account/zone scope, then paste a replacement.',
+            [
+              ...details,
+              'Check the token permissions and account/zone scope, then paste a replacement.',
+            ].join('\n'),
           );
         }
       }
@@ -967,6 +983,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           accountId,
           applicationDomain,
           customDomains: plan.deployment.capabilities.customDomains,
+          ...(plan.deployment.capabilities.email && plan.deployment.emailSharedZoneId
+            ? { emailZoneId: plan.deployment.emailSharedZoneId }
+            : {}),
           zoneId: plan.zone?.id ?? null,
         });
         checkingRuntimePermissions = false;
@@ -984,6 +1003,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         if (
           credentialSetup &&
           token === values.cloudflareApiToken &&
+          // The operator adds a missing email permission to the same token.
+          !(error instanceof PlatformRuntimeTokenEmailPermissionError) &&
           isPlatformTokenAuthorizationError(
             error,
             checkingRuntimePermissions ? undefined : '/ai-gateway/',
@@ -1191,6 +1212,19 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           }),
       );
     }
+    // A resumed install uploads the Workers it created before. Without a
+    // terminal, the Cloudflare CLI stops that upload after a change outside Void,
+    // and the install refuses an active version without Void's record of its
+    // triggers. The installer takes the database lock later, so this check
+    // cannot read the database.
+    const outsideChanges = await reviewPlatformWorkerOutsideChanges({
+      client,
+      plan,
+      runtime,
+      installation: { manifest: existing },
+      interactive: process.stdin.isTTY === true && process.stdout.isTTY === true && !args.yes,
+      command: `${cliCommandName()} platform install --resume --name ${existing.id}`,
+    });
     progress = startProgress('Installing the platform');
     if (credentialSetup) {
       // Stop treating this as an untouched local draft before any database claim is attempted.
@@ -1210,6 +1244,18 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       },
       client,
       operatorApiToken: managementApiToken || operatorCredential.token,
+      ...(outsideChanges.length > 0
+        ? {
+            replaceOutsideChanges: outsideChanges.map((change) => change.name),
+            uploadOutsideChanges: (configs: ReadonlyArray<Record<string, unknown>>) =>
+              uploadPlatformWorkerOutsideChanges(configs, {
+                changes: outsideChanges,
+                client,
+                operatorApiToken: managementApiToken || operatorCredential.token,
+                progress,
+              }),
+          }
+        : {}),
       runtime,
       healthCheckResumeCommand: `${cliCommandName()} platform install --resume --name ${existing.id}`,
       onProgress: (message) => progress?.message(message),

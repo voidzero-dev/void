@@ -1140,3 +1140,219 @@ describe('durable execution claim and revocation', () => {
     });
   });
 });
+
+describe('durable execution of directly uploaded Worker modules', () => {
+  beforeEach(() => {
+    queuedEnv.DISPATCH = {
+      get: () => ({ fetch: async () => Response.json({ ready: true }) }),
+    } as unknown as DispatchNamespace;
+  });
+
+  /** What the CLI does: request upload URLs, then PUT each module to its key. */
+  async function uploadWorker(files: Record<string, string>) {
+    const modules = await Promise.all(
+      Object.entries(files).map(async ([name, text]) => {
+        const bytes = new TextEncoder().encode(text);
+        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+        return {
+          name,
+          size: bytes.byteLength,
+          sha256: Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join(''),
+        };
+      }),
+    );
+    const response = await app.fetch(
+      new Request(`https://api.test/projects/${project.id}/deploy/worker-upload-urls`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.jwt}`, 'content-type': 'application/json' },
+        body: JSON.stringify({ modules }),
+      }),
+      queuedEnv,
+    );
+    expect(response.status).toBe(200);
+    const { id } = (await response.json()) as { id: string };
+    const prefix = `deployment-inputs/${project.id}/${id}/`;
+    for (const [index, text] of Object.values(files).entries()) {
+      await env.STATIC_ASSETS_R2.put(`${prefix}${index}`, text);
+    }
+    return { workerInput: { id, modules }, prefix };
+  }
+
+  function workerPayload(workerInput: unknown) {
+    return {
+      ...payload(),
+      manifest: { version: 3, assetManifestVersion: 2, bindings: {}, type: 'void' },
+      workerInput,
+    };
+  }
+
+  async function keys(prefix: string) {
+    return (await env.STATIC_ASSETS_R2.list({ prefix })).objects.map(({ key }) => key).sort();
+  }
+
+  it('records the upload in place as durable input and executes it after disconnect', async () => {
+    const worker = 'export default { fetch() { return new Response("uploaded"); } }';
+    const uploadedModules: Array<string> = [];
+    mockCfApi({
+      uploadWorker: async (_url, init) => {
+        const module = (init!.body as FormData).get('index.js') as File;
+        uploadedModules.push(await module.text());
+        return cfSuccess({});
+      },
+    });
+    const { workerInput, prefix } = await uploadWorker({ 'index.js': worker });
+    const response = await post(crypto.randomUUID(), workerPayload(workerInput));
+    expect(response.status).toBe(200);
+    const id = response.headers.get('x-void-deployment-id')!;
+    const operation = await getDeploymentOperation(env.db, id);
+    expect(operation?.input_prefix).toBe(prefix);
+    expect(operation?.payload.body).not.toHaveProperty('workerInput');
+    expect(operation?.payload.modules).toEqual([
+      {
+        name: 'index.js',
+        key: `${prefix}0`,
+        digest: workerInput.modules[0]!.sha256,
+        type: 'application/javascript+module',
+        size: workerInput.modules[0]!.size,
+      },
+    ]);
+    // Nothing was copied: the prefix holds the upload and the receipt marker.
+    expect(await keys(prefix)).toEqual([`${prefix}0`, `${prefix}receipt-void-platform-worker`]);
+
+    const message = await run(id);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(await env.db.select().from(deployments)).toMatchObject([{ id, status: 'live' }]);
+    expect(uploadedModules).toEqual([worker]);
+    expect(await keys(prefix)).toEqual([]);
+  });
+
+  it('keeps a retried upload for the operation that owns it', async () => {
+    const { workerInput, prefix } = await uploadWorker({ 'index.js': 'export default {};' });
+    const key = crypto.randomUUID();
+    const first = await post(key, workerPayload(workerInput));
+    const id = first.headers.get('x-void-deployment-id')!;
+    // A transport retry repeats the request: the same key and the same upload.
+    const retry = await post(key, workerPayload(workerInput));
+    expect(retry.status).toBe(200);
+    expect(retry.headers.get('x-void-deployment-id')).toBe(id);
+    expect(await keys(prefix)).toContain(`${prefix}0`);
+
+    // A different deploy cannot claim an upload another operation owns.
+    const other = await app.fetch(
+      new Request(`https://api.test/projects/${project.id}/deploy`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user.jwt}`,
+          'content-type': 'application/json',
+          'x-void-deploy-idempotency-key': crypto.randomUUID(),
+        },
+        body: JSON.stringify(workerPayload(workerInput)),
+      }),
+      queuedEnv,
+    );
+    expect(other.status).toBe(409);
+    expect(await other.json()).toEqual({
+      error: 'this Worker upload belongs to another deployment; run the deploy again',
+    });
+    expect(await keys(prefix)).toContain(`${prefix}0`);
+    expect(await env.db.select().from(deploymentOperations)).toHaveLength(1);
+
+    expect((await run(id)).ack).toHaveBeenCalledOnce();
+    expect(await env.db.select().from(deployments)).toMatchObject([{ id, status: 'live' }]);
+    expect(await keys(prefix)).toEqual([]);
+  });
+
+  it('returns the receipt for a retry after the operation deleted its upload', async () => {
+    const { workerInput, prefix } = await uploadWorker({ 'index.js': 'export default {};' });
+    const key = crypto.randomUUID();
+    const first = await post(key, workerPayload(workerInput));
+    const id = first.headers.get('x-void-deployment-id')!;
+    expect((await run(id)).ack).toHaveBeenCalledOnce();
+    expect(await getDeploymentOperation(env.db, id)).toMatchObject({
+      status: 'terminal',
+      inputs_deleted: true,
+    });
+    expect(await keys(prefix)).toEqual([]);
+
+    // A transport retry can arrive after execution. It gets the original
+    // receipt and writes nothing under the deleted upload.
+    const retry = await post(key, workerPayload(workerInput));
+    expect(retry.status).toBe(200);
+    expect(retry.headers.get('x-void-deployment-id')).toBe(id);
+    expect(await keys(prefix)).toEqual([]);
+    expect(await env.db.select().from(deploymentOperations)).toHaveLength(1);
+
+    // Different input under the same key still needs its own upload.
+    const changed = await post(key, { ...workerPayload(workerInput), commit: 'different-commit' });
+    expect(changed.status).toBe(400);
+    expect(await env.db.select().from(deploymentOperations)).toHaveLength(1);
+  });
+
+  it('fails a queued Worker whose stored module changes after admission', async () => {
+    const uploaded = vi.fn(async () => cfSuccess({}));
+    mockCfApi({ uploadWorker: uploaded });
+    const { workerInput, prefix } = await uploadWorker({ 'index.js': 'export default {};' });
+    const response = await post(crypto.randomUUID(), workerPayload(workerInput));
+    const id = response.headers.get('x-void-deployment-id')!;
+    await env.STATIC_ASSETS_R2.put(`${prefix}0`, 'export default [];');
+
+    const message = await run(id);
+    expect(message.ack).toHaveBeenCalledOnce();
+    expect(uploaded).not.toHaveBeenCalled();
+    expect(await env.db.select().from(deployments)).toMatchObject([{ id, status: 'failed' }]);
+    expect((await getDeploymentOperation(env.db, id))?.events.at(-1)?.event).toMatchObject({
+      event: 'error',
+      message: 'Durable deployment input digest mismatch',
+    });
+  });
+
+  it('sweeps abandoned uploads on installations without the deployment Queue', async () => {
+    const stale = `deployment-inputs/${project.id}/${crypto.randomUUID()}/0`;
+    const fresh = `deployment-inputs/${project.id}/${crypto.randomUUID()}/0`;
+    await env.STATIC_ASSETS_R2.put(stale, 'export default {};');
+    await env.STATIC_ASSETS_R2.put(fresh, 'export default {};');
+    (
+      env.STATIC_ASSETS_R2 as unknown as { setUploadedAt(key: string, uploaded: Date): void }
+    ).setUploadedAt(stale, new Date(Date.now() - 25 * 60 * 60 * 1000));
+    await app.scheduled(
+      { cron: FAST_CRON, scheduledTime: Date.now(), noRetry() {} } as ScheduledController,
+      env as unknown as ApiEnv['Bindings'],
+      {} as ExecutionContext,
+    );
+    expect(await env.STATIC_ASSETS_R2.head(stale)).toBeNull();
+    expect(await env.STATIC_ASSETS_R2.head(fresh)).not.toBeNull();
+  });
+
+  it('executes inline input staged before module sizes were recorded', async () => {
+    const worker = 'export default { fetch() { return new Response("legacy"); } }';
+    const uploadedModules: Array<string> = [];
+    mockCfApi({
+      uploadWorker: async (_url, init) => {
+        const module = (init!.body as FormData).get('index.js') as File;
+        uploadedModules.push(await module.text());
+        return cfSuccess({});
+      },
+    });
+    const response = await post(crypto.randomUUID(), {
+      ...payload(),
+      manifest: { version: 3, assetManifestVersion: 2, bindings: {}, type: 'void' },
+      workerFiles: { 'index.js': btoa(worker) },
+    });
+    const id = response.headers.get('x-void-deployment-id')!;
+    const operation = await getDeploymentOperation(env.db, id);
+    expect(operation?.payload.modules[0]?.size).toBe(worker.length);
+    await env.db
+      .update(deploymentOperations)
+      .set({
+        payload: {
+          ...operation!.payload,
+          modules: operation!.payload.modules.map(({ size: _size, ...module }) => module),
+        },
+      })
+      .where(eq(deploymentOperations.id, id));
+
+    expect((await run(id)).ack).toHaveBeenCalledOnce();
+    expect(await env.db.select().from(deployments)).toMatchObject([{ id, status: 'live' }]);
+    expect(uploadedModules).toEqual([worker]);
+  });
+});

@@ -2,7 +2,8 @@ import type { DeployEvent } from './types.ts';
 
 export type DeploymentInput = {
   body: Record<string, unknown>;
-  modules: Array<{ name: string; key: string; digest: string; type: string }>;
+  /** `size` is absent on inputs staged before it was recorded. */
+  modules: Array<{ name: string; key: string; digest: string; type: string; size?: number }>;
   credentialId?: string;
   oauthApproval?: string;
 };

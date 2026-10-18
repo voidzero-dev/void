@@ -22,12 +22,18 @@ import {
 } from '../db.ts';
 import {
   assertDeploymentExecutionAuthority,
+  deploymentInputModule,
+  deploymentInputPrefix,
   deploymentReceiptResponse,
   dispatchDeploymentOperation,
   findDeploymentOperation,
   getDeploymentOperation,
   installationDeploymentAdmissionClosed,
   prepareDeploymentInput,
+  recordUploadedDeploymentInput,
+  uploadedDeploymentInput,
+  uploadedWorkerInputProblem,
+  type DeploymentInput,
 } from '../deployment-execution.ts';
 import {
   getSharedEmailRecipientReadiness,
@@ -49,6 +55,7 @@ import {
   type Deployment,
   type Project,
 } from '../types.ts';
+import { blobWorkerModule, type WorkerModule } from '../worker-upload.ts';
 import { zeroTrustNotReadyMessage } from '../zero-trust/errors.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import {
@@ -83,7 +90,12 @@ import {
   MAX_WORKER_FILE_BYTES,
   moduleContentType,
   workerFilesError,
+  workerInputProblem,
+  type WorkerInput,
 } from './shared.ts';
+
+const WORKER_UPLOAD_CLAIMED_MESSAGE =
+  'this Worker upload belongs to another deployment; run the deploy again';
 
 /**
  * JSON-mode (manifest-only) deploy handler — direct-to-R2 asset upload flow.
@@ -94,8 +106,10 @@ import {
  *   - `manifest` (DeployManifest, must declare `assetManifestVersion: 2`)
  *   - `assetManifest` (path → { blake3, md5, size })
  *   - `source`, `commit`, `repositoryUrl`, `commitUrl`, `gitRef`, `preflight`
- *   - `workerFiles` (base64-encoded module bytes for WfP deploys; absent for
- *     static-only deploys)
+ *   - for WfP deploys, either `workerInput` (the id and module list of a
+ *     Worker upload the CLI made through `/deploy/worker-upload-urls`) or,
+ *     from older CLIs and connected apps, `workerFiles` (base64-encoded
+ *     module bytes). Static-only deploys send neither.
  *
  * The bytes for declared assets MUST already be in `STATIC_ASSETS_R2` under
  * `assets/${projectId}/${blake3}`; the deploy verifies them before it
@@ -221,7 +235,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     if (overflowed) {
       return context.json(
         {
-          error: `request body exceeds ${MAX_JSON_DEPLOY_BODY_BYTES} bytes (asset bytes must be uploaded direct-to-R2, not in the request body)`,
+          error: `request body exceeds ${MAX_JSON_DEPLOY_BODY_BYTES} bytes: the Worker modules, including source maps, are too large to send inside the deploy request. Upgrade the void CLI; current versions upload Worker modules to storage directly.`,
         },
         413,
       );
@@ -265,6 +279,17 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     );
   }
   if (context.get('oauthApproval') && !context.get('deploymentExecution')) {
+    // The approved artifact digest commits to inline `workerFiles` bytes, so
+    // an uploaded `workerInput` could not be checked against it.
+    if (body.workerInput !== undefined) {
+      return context.json(
+        {
+          event: 'error',
+          message: 'Connected app publishes must send Worker modules in workerFiles.',
+        },
+        403,
+      );
+    }
     try {
       await verifyOAuthDeployment(
         context.get('db'),
@@ -505,12 +530,51 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   const commitUrl = typeof body.commitUrl === 'string' ? body.commitUrl : null;
   const gitRef = typeof body.gitRef === 'string' ? body.gitRef : null;
 
-  // workerFiles is the only meaningful body content beyond the manifest
-  // tuples. Each entry is a base64-encoded module body keyed by relative
-  // path with a per-module cap of MAX_WORKER_FILE_BYTES (32 MiB). Absent or
-  // empty means a static-only deploy.
+  // Worker modules arrive one of two ways. Current CLIs upload them to R2
+  // first and send `workerInput` (names, sizes, and digests). Older CLIs and
+  // connected apps send base64 `workerFiles` keyed by relative path, each
+  // capped at MAX_WORKER_FILE_BYTES (32 MiB). Neither means a static-only
+  // deploy. The Queue executor passes the modules of the admitted input.
   const execution = context.get('deploymentExecution');
-  const workerFiles: Array<{ name: string; content: Blob }> = execution?.workerFiles ?? [];
+  const workerFiles: Array<WorkerModule> = execution?.workerFiles ?? [];
+  // Decoded inline modules, which durable admission stages in R2.
+  const inlineFiles: Array<{ name: string; content: Blob }> = [];
+  let workerInput: WorkerInput | null = null;
+  if (!execution && body.workerFiles !== undefined && body.workerInput !== undefined) {
+    return context.json(
+      { event: 'error', message: 'Send Worker modules in workerInput or workerFiles, not both.' },
+      400,
+    );
+  }
+  if (!execution && body.workerInput !== undefined) {
+    const problem = workerInputProblem(body.workerInput);
+    if (problem) {
+      return context.json(
+        {
+          event: 'error',
+          ...(problem.error ? { error: problem.error } : {}),
+          message: problem.message,
+        },
+        problem.status,
+      );
+    }
+    workerInput = body.workerInput as WorkerInput;
+  }
+  // Keys derive from the authenticated project and the validated upload id,
+  // so a request can only name objects under its own project's prefix.
+  const uploadPrefix = workerInput ? deploymentInputPrefix(projectId, workerInput.id) : null;
+  const uploadedModules: DeploymentInput['modules'] = (workerInput?.modules ?? []).map(
+    (module, index) => ({
+      name: module.name,
+      key: `${uploadPrefix}${index}`,
+      digest: module.sha256,
+      type: moduleContentType(module.name),
+      size: module.size,
+    }),
+  );
+  for (const module of uploadedModules) {
+    workerFiles.push(deploymentInputModule(context.env.STATIC_ASSETS_R2, module, module.size!));
+  }
   if (!execution && body.workerFiles !== undefined) {
     if (
       body.workerFiles == null ||
@@ -567,12 +631,11 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       // Hand the bytes directly to a `Blob` so we never name the
       // `Uint8Array` past this scope — keeps per-iteration memory residency
       // bounded by one decoded module at a time.
-      workerFiles.push({
-        name: filePath,
-        content: new Blob([decoded as unknown as BlobPart], {
-          type: moduleContentType(filePath),
-        }),
+      const content = new Blob([decoded as unknown as BlobPart], {
+        type: moduleContentType(filePath),
       });
+      inlineFiles.push({ name: filePath, content });
+      workerFiles.push(blobWorkerModule(filePath, content));
     }
   }
   const hasWorkerFiles = workerFiles.length > 0;
@@ -607,24 +670,69 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   if (workerFilesProblem) {
     return context.json({ event: 'error', message: workerFilesProblem }, 400);
   }
+  const durable = !execution && context.env.DEPLOYMENTS_QUEUE !== undefined;
+  const idempotencyKey = context.req.header('x-void-deploy-idempotency-key') ?? crypto.randomUUID();
+  if (durable && !/^[A-Za-z0-9_-]{1,128}$/.test(idempotencyKey)) {
+    return context.json({ error: 'invalid deployment idempotency key' }, 400);
+  }
+  const inputOptions = {
+    appType: incomingManifest.type,
+    credentialId: context.get('deployCredential'),
+    oauthApproval: context.get('oauthApproval'),
+  };
+  const uploadedInput =
+    durable && workerInput
+      ? await uploadedDeploymentInput(uploadPrefix!, body, uploadedModules, inputOptions)
+      : null;
+  if (uploadedInput) {
+    // A retry of an admitted deploy gets its receipt even after the
+    // operation's input cleanup deleted the upload. The precheck below
+    // rejects the same key with different input.
+    const existing = await findDeploymentOperation(
+      context.get('db'),
+      projectId,
+      actor.id,
+      idempotencyKey,
+    );
+    if (
+      existing &&
+      existing.input_digest === uploadedInput.digest &&
+      existing.build_id === (deployBuild ?? null)
+    ) {
+      return deploymentReceiptResponse(context.get('db'), existing.id);
+    }
+  }
+  if (workerInput) {
+    const uploadProblem = await uploadedWorkerInputProblem(
+      context.env.STATIC_ASSETS_R2,
+      uploadPrefix!,
+      workerInput.modules,
+    );
+    if (uploadProblem) {
+      return context.json({ event: 'error', message: uploadProblem }, 400);
+    }
+  }
 
   // Pre-validation done — now run the atomic precheck-and-claim
   // transaction. FOR UPDATE on the project row, 10-minute stale-deploy
   // reaper, placeholder insert. Once the placeholder row exists, every
   // later failure must route through the catch / finally below to avoid
   // leaving it stranded in `pending`.
-  const durable = !execution && context.env.DEPLOYMENTS_QUEUE !== undefined;
-  const idempotencyKey = context.req.header('x-void-deploy-idempotency-key') ?? crypto.randomUUID();
-  if (durable && !/^[A-Za-z0-9_-]{1,128}$/.test(idempotencyKey)) {
-    return context.json({ error: 'invalid deployment idempotency key' }, 400);
-  }
-  const stagedInput = durable
-    ? await prepareDeploymentInput(context.env.STATIC_ASSETS_R2, projectId, body, workerFiles, {
-        appType: incomingManifest.type,
-        credentialId: context.get('deployCredential'),
-        oauthApproval: context.get('oauthApproval'),
-      })
-    : null;
+  const stagedInput = !durable
+    ? null
+    : uploadedInput
+      ? await recordUploadedDeploymentInput(
+          context.env.STATIC_ASSETS_R2,
+          uploadedInput,
+          incomingManifest.type,
+        )
+      : await prepareDeploymentInput(
+          context.env.STATIC_ASSETS_R2,
+          projectId,
+          body,
+          inlineFiles,
+          inputOptions,
+        );
   const cutoverOwnerId = execution?.operation.owner_id ?? crypto.randomUUID();
   let precheckResult:
     | {
@@ -690,6 +798,23 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
             throw new Error('deployment idempotency key was reused for different input');
           }
           return { receipt: existing.id } as const;
+        }
+        if (workerInput) {
+          // One operation owns an uploaded prefix, and its input cleanup
+          // deletes it. A retry of the same deploy matched the key above.
+          const [claimed] = await tx
+            .select({ id: deploymentOperations.id })
+            .from(deploymentOperations)
+            .where(
+              and(
+                eq(deploymentOperations.project_id, projectId),
+                eq(deploymentOperations.input_prefix, stagedInput.prefix),
+              ),
+            )
+            .limit(1);
+          if (claimed) {
+            throw new Error(WORKER_UPLOAD_CLAIMED_MESSAGE);
+          }
         }
       }
       const [unfinishedOperation] = await tx
@@ -1008,7 +1133,8 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     if (
       err instanceof Error &&
       (err.message === 'deployment admission closed for platform maintenance' ||
-        err.message === 'deployment idempotency key was reused for different input')
+        err.message === 'deployment idempotency key was reused for different input' ||
+        err.message === WORKER_UPLOAD_CLAIMED_MESSAGE)
     ) {
       return context.json({ error: err.message }, 409);
     }
@@ -1017,7 +1143,10 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     }
     throw err;
   }
-  if (stagedInput && !('deployment' in precheckResult)) {
+  // Delete only input this request staged itself. A CLI upload's prefix can
+  // belong to the operation a retried request matched; its operation or the
+  // stale-input sweep removes it.
+  if (stagedInput && !workerInput && !('deployment' in precheckResult)) {
     await paginatedR2Delete(context.env.STATIC_ASSETS_R2, stagedInput.prefix).catch(() => {});
   }
   if ('receipt' in precheckResult) {
@@ -1091,5 +1220,10 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     gitRef,
     deployBuild,
     workerFiles,
+    // Without the Queue the deploy runs in this request. Delete the CLI's
+    // upload once it reaches a terminal state, as the Queue consumer does.
+    releaseWorkerInput: uploadPrefix
+      ? () => paginatedR2Delete(context.env.STATIC_ASSETS_R2, uploadPrefix).then(() => {})
+      : undefined,
   });
 }

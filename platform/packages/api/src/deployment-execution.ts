@@ -3,11 +3,13 @@ import { paginatedR2Delete } from './assets.ts';
 import { activeOAuthApproval } from './auth/oauth.ts';
 import { R2_CONCURRENCY } from './concurrency.ts';
 import { createDb, type Db, type DbOrTx } from './db.ts';
+import { WORKER_UPLOAD_MAX_AGE_MS, type WorkerUploadModule } from './deploy/shared.ts';
 import type { DeploymentInput, DeploymentOperation } from './deployment-operation-types.ts';
 import type { ApiEnv } from './env.ts';
 import { deploymentOperations, projectDeployCredentials, projects, users } from './schema.ts';
 import { isAdminSuspended } from './suspension.ts';
 import type { DeployEvent, DeployManifest } from './types.ts';
+import { listR2Objects, r2WorkerModule, type WorkerModule } from './worker-upload.ts';
 export type {
   DeploymentInput,
   DeploymentOperation,
@@ -96,26 +98,79 @@ async function sha256Hex(bytes: BufferSource): Promise<string> {
   ).join('');
 }
 
-export async function prepareDeploymentInput(
+/** R2 prefix holding one deployment attempt's input. */
+export function deploymentInputPrefix(projectId: string, id: string): string {
+  return `deployment-inputs/${projectId}/${id}/`;
+}
+
+/** Stream one input module, checked against its size and recorded digest. */
+export function deploymentInputModule(
   r2: R2Bucket,
-  projectId: string,
+  module: DeploymentInput['modules'][number],
+  size: number,
+): WorkerModule {
+  return r2WorkerModule(
+    r2,
+    { name: module.name, key: module.key, type: module.type, size, sha256: module.digest },
+    {
+      missing: 'Durable deployment input is missing',
+      changed: 'Durable deployment input digest mismatch',
+    },
+  );
+}
+
+type DeploymentInputOptions = {
+  appType: DeployManifest['type'];
+  credentialId?: string;
+  oauthApproval?: string;
+};
+
+function deploymentInputRecord(
   body: Record<string, unknown>,
-  files: Array<{ name: string; content: Blob }>,
-  options: {
-    appType: DeployManifest['type'];
-    credentialId?: string;
-    oauthApproval?: string;
-  },
-) {
-  const { appType, credentialId, oauthApproval } = options;
-  const prefix = `deployment-inputs/${projectId}/${crypto.randomUUID()}/`;
+  { credentialId, oauthApproval }: DeploymentInputOptions,
+): DeploymentInput {
   const input: DeploymentInput = {
     body: { ...body },
     modules: [],
     ...(credentialId ? { credentialId } : {}),
     ...(oauthApproval ? { oauthApproval } : {}),
   };
+  // Module bytes live in R2; the executor reads them from `modules`.
   delete input.body.workerFiles;
+  delete input.body.workerInput;
+  return input;
+}
+
+async function deploymentInputDigest(input: DeploymentInput): Promise<string> {
+  const identity = JSON.stringify({
+    body: input.body,
+    modules: input.modules.map(({ name, digest, type }) => ({ name, digest, type })),
+  });
+  return sha256Hex(new TextEncoder().encode(identity));
+}
+
+async function writeDeploymentInputReceipt(
+  r2: R2Bucket,
+  prefix: string,
+  appType: DeployManifest['type'],
+  moduleCount: number,
+): Promise<void> {
+  // Attribute the existing staging write without extra requests. This marks
+  // prepared input, including no-op redeploys and later failures, not a live
+  // publication. Keep the parent prefix unchanged for cleanup and recovery.
+  const kind = appType === 'spa' ? 'spa' : moduleCount > 0 ? 'worker' : 'static';
+  await r2.put(`${prefix}receipt-void-platform-${kind}`, JSON.stringify({ createdAt: Date.now() }));
+}
+
+export async function prepareDeploymentInput(
+  r2: R2Bucket,
+  projectId: string,
+  body: Record<string, unknown>,
+  files: Array<{ name: string; content: Blob }>,
+  options: DeploymentInputOptions,
+) {
+  const prefix = deploymentInputPrefix(projectId, crypto.randomUUID());
+  const input = deploymentInputRecord(body, options);
   try {
     // Hash one module at a time so at most one extra copy of module bytes is
     // alive beside the decoded Blobs; a near-cap request already sits close
@@ -124,7 +179,13 @@ export async function prepareDeploymentInput(
     for (let index = 0; index < files.length; index++) {
       const { name, content } = files[index]!;
       const digest = await sha256Hex(await content.arrayBuffer());
-      modules.push({ name, key: `${prefix}${index}`, digest, type: content.type });
+      modules.push({
+        name,
+        key: `${prefix}${index}`,
+        digest,
+        type: content.type,
+        size: content.size,
+      });
     }
     // The request has not answered yet, so upload the Blobs themselves in
     // parallel. Workers let at most six R2 calls wait for a response at once
@@ -154,24 +215,74 @@ export async function prepareDeploymentInput(
       throw rejected.reason;
     }
     input.modules = modules;
-    const identity = JSON.stringify({
-      body: input.body,
-      modules: input.modules.map(({ name, digest, type }) => ({ name, digest, type })),
-    });
-    const digest = await sha256Hex(new TextEncoder().encode(identity));
-    // Attribute the existing staging write without extra requests. This marks
-    // prepared input, including no-op redeploys and later failures, not a live
-    // publication. Keep the parent prefix unchanged for cleanup and recovery.
-    const kind = appType === 'spa' ? 'spa' : files.length > 0 ? 'worker' : 'static';
-    await r2.put(
-      `${prefix}receipt-void-platform-${kind}`,
-      JSON.stringify({ createdAt: Date.now() }),
-    );
+    const digest = await deploymentInputDigest(input);
+    await writeDeploymentInputReceipt(r2, prefix, options.appType, files.length);
     return { input, prefix, digest };
   } catch (error) {
     await paginatedR2Delete(r2, prefix).catch(() => {});
     throw error;
   }
+}
+
+/**
+ * Explain why a direct Worker upload under `prefix` cannot be deployed, or
+ * return null. One paginated listing covers every module: object `i` must
+ * exist with module `i`'s declared size and be recent enough that the
+ * stale-input sweep cannot remove it while the deploy runs. Bytes are checked
+ * against their digests when they stream to Cloudflare.
+ */
+export async function uploadedWorkerInputProblem(
+  r2: R2Bucket,
+  prefix: string,
+  modules: ReadonlyArray<WorkerUploadModule>,
+): Promise<string | null> {
+  const stored = await listR2Objects(r2, prefix);
+  const oldest = Date.now() - WORKER_UPLOAD_MAX_AGE_MS;
+  for (const [index, module] of modules.entries()) {
+    const object = stored.get(`${prefix}${index}`);
+    const name = JSON.stringify(module.name);
+    if (!object) {
+      return `Worker module ${name} was not uploaded. Run the deploy again.`;
+    }
+    if (object.size !== module.size) {
+      return `Worker module ${name} has ${object.size} bytes in storage instead of ${module.size}. Run the deploy again.`;
+    }
+    if (object.uploaded.getTime() < oldest) {
+      return `Worker module ${name} was uploaded more than 12 hours ago. Run the deploy again.`;
+    }
+  }
+  return null;
+}
+
+/**
+ * The durable input for a Worker upload the CLI already put under `prefix`,
+ * and its digest. Nothing is written, so a retry can match the operation that
+ * admitted this input after its cleanup deleted the prefix.
+ */
+export async function uploadedDeploymentInput(
+  prefix: string,
+  body: Record<string, unknown>,
+  modules: DeploymentInput['modules'],
+  options: DeploymentInputOptions,
+) {
+  const input = deploymentInputRecord(body, options);
+  input.modules = modules;
+  return { input, prefix, digest: await deploymentInputDigest(input) };
+}
+
+/**
+ * Record a Worker upload as durable input. The bytes stay where they were
+ * uploaded; only the receipt marker is written. A request never deletes this
+ * prefix itself: a retry of the same deploy reuses it, so the admitted
+ * operation's input cleanup or the stale-input sweep removes it.
+ */
+export async function recordUploadedDeploymentInput(
+  r2: R2Bucket,
+  uploaded: Awaited<ReturnType<typeof uploadedDeploymentInput>>,
+  appType: DeployManifest['type'],
+) {
+  await writeDeploymentInputReceipt(r2, uploaded.prefix, appType, uploaded.input.modules.length);
+  return uploaded;
 }
 
 export async function assertDeploymentExecutionAuthority(
@@ -386,9 +497,17 @@ export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db
   for (const operation of completed) {
     await deleteDeploymentInputs(env, db, operation);
   }
-  // Stage-before-admission avoids holding a project transaction across R2
-  // uploads. A killed request can leave partial input; walk one bounded page
-  // per tick and delete only old prefixes with no acknowledged receipt.
+  await sweepStaleDeploymentInputs(env, db);
+}
+
+/**
+ * Stage-before-admission avoids holding a project transaction across R2
+ * uploads, and CLIs upload Worker modules before they finalize a deploy. A
+ * killed request or an abandoned upload can leave input behind; walk one
+ * bounded page per tick and delete only old prefixes with no acknowledged
+ * receipt.
+ */
+export async function sweepStaleDeploymentInputs(env: ApiEnv['Bindings'], db: Db): Promise<void> {
   const sweepKey = 'deployment-input-sweep:v1';
   const cursor = await env.ROUTING.get(sweepKey);
   const page = await env.STATIC_ASSETS_R2.list({

@@ -231,7 +231,7 @@ export type ApiEnv = Env & {
     /** Only set by the Queue executor, never by request authentication. */
     deploymentExecution?: {
       operation: import('./deployment-operation-types.ts').DeploymentOperation;
-      workerFiles: Array<{ name: string; content: Blob }>;
+      workerFiles: Array<import('./worker-upload.ts').WorkerModule>;
     };
   };
 };

@@ -4,12 +4,18 @@ import { PlatformClient } from './client.ts';
 import { createSpinner, dim, formatCount, formatRelativeTime, printSuccess } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 
-export async function runRollbackCommand(root: string, deployId?: string): Promise<void> {
+export async function runRollbackCommand(
+  root: string,
+  deployId?: string,
+  explicitPlatform?: 'cloudflare',
+): Promise<void> {
   console.log();
 
+  // A one-off `deploy --platform cloudflare` keeps the saved platform, so its rollback names
+  // the platform explicitly.
   const platform = readDeploymentPlatform(root);
-  if (platform === 'cloudflare') {
-    return runCloudflareRollback(root, deployId);
+  if (explicitPlatform === 'cloudflare' || platform === 'cloudflare') {
+    return runCloudflareRollback(root, deployId, platform !== 'cloudflare');
   }
   if (platform === 'none') {
     throw new Error('rollback: Deployment is disabled. Run `void init` to choose a platform.');
@@ -106,7 +112,11 @@ export async function runRollbackCommand(root: string, deployId?: string): Promi
   }
 }
 
-async function runCloudflareRollback(root: string, deployId?: string): Promise<void> {
+async function runCloudflareRollback(
+  root: string,
+  deployId: string | undefined,
+  restorePlatformFlag: boolean,
+): Promise<void> {
   const {
     activateCloudflareExistingVersion,
     readCloudflareWorkerStatus,
@@ -177,7 +187,7 @@ async function runCloudflareRollback(root: string, deployId?: string): Promise<v
     const migrationDiff = current.metadata.migrations.filter(
       (migration) => !targetSet.has(migration),
     );
-    await confirmUnrevertedMigrations(migrationDiff, 'version');
+    await confirmUnrevertedMigrations(migrationDiff, 'version', restorePlatformFlag);
   }
 
   const spinner = createSpinner();
@@ -206,6 +216,7 @@ async function confirmRollbackOrExit(): Promise<void> {
 async function confirmUnrevertedMigrations(
   migrationDiff: Array<string>,
   noun: 'deployment' | 'version',
+  restorePlatformFlag = false,
 ): Promise<void> {
   if (migrationDiff.length === 0) {
     return;
@@ -221,5 +232,13 @@ async function confirmUnrevertedMigrations(
       'Rolling back will NOT revert these migrations. The older code will run against the current schema.',
     ),
   );
+  if (noun === 'version') {
+    log.message(
+      dim(
+        `For D1, \`void db restore${restorePlatformFlag ? ' --platform cloudflare' : ''} --bookmark <bookmark>\` undoes them with the restore point deploy printed before migrating. ` +
+          'Restore points expire after 7 days on Workers Free and 30 days on Paid; undo older migrations with a new migration.',
+      ),
+    );
+  }
   await confirmRollbackOrExit();
 }

@@ -47,6 +47,7 @@ import {
   type Project,
   type DeploymentStatus,
 } from '../types.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import { resolveProjectZeroTrustRouting } from '../zero-trust/routing.ts';
 import { clearIsrCache, serializePrerenderHeaders, packIsrValue } from './cache.ts';
 import { assertDeploymentCanProceed } from './guards.ts';
@@ -107,7 +108,7 @@ export async function publishWorkerDeployment(input: {
     knownRetainedHashes: ReadonlySet<string>,
   ) => Promise<number>;
   readonly projectDomains: Awaited<ReturnType<typeof getDomainsByProjectId>>;
-  readonly workerFiles: Array<{ name: string; content: Blob }>;
+  readonly workerFiles: ReadonlyArray<WorkerModule>;
   readonly migrationsApplied: number;
   readonly finishOrphanSweep: () => Promise<void>;
 }) {

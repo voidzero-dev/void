@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { readBindingFieldPresence } from '@void/deploy-cloudflare';
+import { cloudflareCommandDiagnostic, readBindingFieldPresence } from '@void/deploy-cloudflare';
 import { Minimatch } from 'minimatch';
 import { dirname, join, normalize, resolve } from 'pathslash';
 import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
@@ -15,9 +15,11 @@ import {
   type RequiredAuthTable,
   type TableInfoRow,
   type DeployWranglerRun,
+  type DeployWranglerRunResult,
 } from './deploy-types.ts';
-import { getErrorMessage } from './output.ts';
+import { formatCount, getErrorMessage } from './output.ts';
 import type { ProvisionDriftEntry } from './provision.ts';
+import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
 /**
  * Apply the checked-in migrations to an in-memory SQLite database and assert the resulting
@@ -600,19 +602,104 @@ export async function checkWranglerMigrationApplySet(
   return { ok: true };
 }
 
-/** Apply remote D1 changes and prove no migrations remain pending. */
+function cloudflareReason(result: DeployWranglerRunResult): string {
+  // stdout can hold binding values, so only the error output is shown.
+  const detail = cloudflareCommandDiagnostic({ ...result, stdout: '' });
+  return detail ? `\nCloudflare: ${sanitizeTerminalLogText(detail)}` : '';
+}
+
+/** Name the restore point when deploy stops after it applied D1 migrations. */
+export function logD1RestoreAfterDeployFailure(restoreCommand: string): void {
+  log.error(
+    'deploy: D1 migrations were applied before the deploy stopped. Fix the error and deploy again.\n' +
+      'If the live version cannot run against the new schema, restore the point saved before them ' +
+      `(discards every later write):\n  ${restoreCommand}`,
+  );
+}
+
+/**
+ * Apply remote D1 changes and prove no migrations remain pending. Returns the command that
+ * restores the point saved before them, if this deploy applied any.
+ */
 export async function applyAndVerifyRemoteD1Migrations(
   d1MigrateToken: string | undefined,
   configPath: string,
   runWrangler: DeployWranglerRun,
   assertUploaderStillPinned: () => boolean,
-): Promise<boolean> {
+  /** Set after a one-off `--platform cloudflare` deploy, which does not change the saved platform. */
+  restorePlatformFlag = false,
+): Promise<false | { restoreCommand: string | undefined }> {
+  let restoreCommand: string | undefined;
   // Runs only after every local gate passes, so a failed gate never changes remote D1.
   if (d1MigrateToken) {
     log.step('Applying D1 migrations...');
     // The local gates ran project code, which could have replaced the pinned uploader.
     if (!assertUploaderStillPinned()) {
       return false;
+    }
+    // A Worker rollback does not undo a migration. Time Travel does, and a bookmark taken right
+    // before the apply restores exactly the state the migrations started from.
+    const readPending = async (): Promise<Array<unknown> | undefined> => {
+      const listed = await Promise.resolve(
+        runWrangler(
+          { type: 'd1.migrations.list', database: d1MigrateToken, configPath },
+          { capture: true },
+        ),
+      );
+      const pending = (listed.data as { pending?: unknown } | undefined)?.pending;
+      if (isCleanCloudflareExit(listed) && Array.isArray(pending)) {
+        return pending;
+      }
+      log.error(
+        `deploy: could not read the pending D1 migrations for "${d1MigrateToken}" before applying them ` +
+          (isCleanCloudflareExit(listed)
+            ? '(Cloudflare returned no pending migration list). '
+            : `(exit ${String(listed.status)}). `) +
+          'Refusing to migrate without knowing whether a restore point is needed. Rerun once Cloudflare can be reached.' +
+          cloudflareReason(listed),
+      );
+      return undefined;
+    };
+    const pendingBefore = await readPending();
+    if (!pendingBefore) {
+      return false;
+    }
+    let restoreHint = '';
+    if (pendingBefore.length > 0) {
+      const restorePoint = await Promise.resolve(
+        runWrangler(
+          { type: 'd1.time-travel.bookmark', database: d1MigrateToken, configPath },
+          { capture: true },
+        ),
+      );
+      const bookmark = (restorePoint.data as { bookmark?: unknown } | undefined)?.bookmark;
+      if (!isCleanCloudflareExit(restorePoint) || typeof bookmark !== 'string') {
+        log.error(
+          `deploy: could not save a D1 restore point for "${d1MigrateToken}" before applying ` +
+            `${formatCount(pendingBefore.length, 'migration')}. A Worker rollback does not undo a migration. ` +
+            'Refusing to migrate without a restore point. Rerun once the restore point can be saved.' +
+            cloudflareReason(restorePoint),
+        );
+        return false;
+      }
+      // An overlapping deploy may have applied some of them before the bookmark. Whatever is still
+      // pending now is applied after it, so the bookmark undoes exactly those.
+      const pendingAfterBookmark = await readPending();
+      if (!pendingAfterBookmark) {
+        return false;
+      }
+      if (pendingAfterBookmark.length > 0) {
+        restoreCommand = `void db restore${restorePlatformFlag ? ' --platform cloudflare' : ''} --bookmark=${bookmark}`;
+        restoreHint =
+          '\nTo undo these migrations, restore this point (discards every later write):\n' +
+          `  ${restoreCommand}`;
+        log.info(
+          `Saved a D1 restore point before applying ${formatCount(pendingAfterBookmark.length, 'migration')}.${restoreHint}`,
+        );
+      }
+      if (!assertUploaderStillPinned()) {
+        return false;
+      }
     }
     const migrate = await Promise.resolve(
       runWrangler(
@@ -624,13 +711,17 @@ export async function applyAndVerifyRemoteD1Migrations(
       log.error(
         `deploy: remote D1 migrations failed for "${d1MigrateToken}" (exit ${String(migrate.status)}). ` +
           'Fix the migration and rerun. Note: D1 always enforces foreign_keys=ON — a Drizzle ' +
-          'table-rebuild using PRAGMA foreign_keys=OFF must use PRAGMA defer_foreign_keys instead.',
+          'table-rebuild using PRAGMA foreign_keys=OFF must use PRAGMA defer_foreign_keys instead.' +
+          restoreHint,
       );
       return false;
     }
 
     // A clean exit does not prove the schema is current, so read the pending set.
     if (!assertUploaderStillPinned()) {
+      if (restoreCommand) {
+        logD1RestoreAfterDeployFailure(restoreCommand);
+      }
       return false;
     }
     const migrateList = await Promise.resolve(
@@ -643,7 +734,8 @@ export async function applyAndVerifyRemoteD1Migrations(
       log.error(
         `deploy: could not verify the remote migration state for "${d1MigrateToken}" ` +
           `(\`d1 migrations list\` exit ${String(migrateList.status)}). Refusing to deploy against ` +
-          'an unverified schema — rerun once wrangler can reach your account.',
+          'an unverified schema — rerun once wrangler can reach your account.' +
+          restoreHint,
       );
       return false;
     }
@@ -653,7 +745,7 @@ export async function applyAndVerifyRemoteD1Migrations(
         [
           `deploy: remote D1 still has UNAPPLIED migrations for "${d1MigrateToken}" after apply.`,
           'The schema is not current for this deployment. Fix or apply the pending migrations, then retry.',
-        ].join('\n'),
+        ].join('\n') + restoreHint,
       );
       return false;
     }
@@ -666,11 +758,11 @@ export async function applyAndVerifyRemoteD1Migrations(
           `deploy: could not confirm the remote migration state for "${d1MigrateToken}".`,
           'Cloudflare returned an invalid pending migration set. Refusing to deploy against an unverified schema.',
           'Retry once the database migration state can be read.',
-        ].join('\n'),
+        ].join('\n') + restoreHint,
       );
       return false;
     }
   }
 
-  return true;
+  return { restoreCommand };
 }

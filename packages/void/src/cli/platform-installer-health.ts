@@ -269,6 +269,16 @@ export async function verifyPlatformDeploymentExecutionDrain(
   }
 }
 
+// The Cloudflare permission that each shared email step uses with the runtime
+// token: Email Routing DNS and settings need Zone Settings, and the sender
+// onboarding needs Email Sending.
+const sharedEmailStepPermissions: ReadonlyMap<string, string> = new Map([
+  ['routing_enable', 'Zone → Zone Settings → Edit'],
+  ['subaddressing_ensure', 'Zone → Zone Settings → Edit'],
+  ['inbound_probe', 'Zone → Zone Settings → Edit'],
+  ['sending_onboard', 'Account → Email Sending → Edit'],
+]);
+
 export async function bootstrapPlatformSharedEmail(
   apiUrl: string,
   healthProbeToken: string,
@@ -416,6 +426,18 @@ export async function bootstrapPlatformSharedEmail(
           `Enable Email Routing for ${domain} in the Cloudflare dashboard, then resume this installation.`,
         );
       }
+    } else if (
+      failureCode === 'blocked' &&
+      currentStep &&
+      sharedEmailStepPermissions.has(currentStep)
+    ) {
+      // A blocked step got a definite 4xx answer, often a missing permission.
+      // The API does not return provider text, so name the permission that the
+      // step uses.
+      const permission = sharedEmailStepPermissions.get(currentStep);
+      details.push(
+        `This step needs ${permission} on the runtime API token. If the token does not have it, edit the token in the Cloudflare dashboard and add it. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a token that has it. Then resume this installation.`,
+      );
     }
     const detail = details.length ? ` ${details.join(' ')}` : '';
     throw new Error(
