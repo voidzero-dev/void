@@ -278,10 +278,13 @@ import { inject } from "vue";
 export function useFrontmatter() { return inject("__void_frontmatter", {}); }
 `;
             }
+            // React and Solid match contexts by identity. The adapter owns the
+            // context so its island renderer can provide it above the layouts.
             if (adapter === 'react') {
               return `
-import { createContext, useContext } from "react";
-export const FrontmatterContext = createContext({});
+import { useContext } from "react";
+import { FrontmatterContext } from "@void/react";
+export { FrontmatterContext };
 export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
 `;
             }
@@ -295,8 +298,9 @@ export function useFrontmatter() { return getContext(FRONTMATTER_KEY) ?? {}; }
             }
             if (adapter === 'solid') {
               return `
-import { createContext, useContext } from "solid-js";
-export const FrontmatterContext = createContext({});
+import { useContext } from "solid-js";
+import { FrontmatterContext } from "@void/solid";
+export { FrontmatterContext };
 export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
 `;
             }

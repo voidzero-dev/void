@@ -256,7 +256,7 @@ function generateIslandRenderer(
   return `
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
-import { SharedContext, ErrorsContext, ParamsContext } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext } from "@void/solid";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -268,7 +268,9 @@ function escapeAttr(s) {
 }
 
 export async function renderIslandPage(pageObj, assetTags) {
-  const PageComponent = (await components[pageObj.component]()).default;
+  const __pageModule = await components[pageObj.component]();
+  const PageComponent = __pageModule.default;
+  const __frontmatter = __pageModule.frontmatter ?? {};
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
     layoutIds.map(async (id) => (await components[id]()).default)
@@ -284,15 +286,21 @@ export async function renderIslandPage(pageObj, assetTags) {
             return createComponent(ParamsContext.Provider, {
               value: pageObj.params || {},
               get children() {
-                // Build layout chain inside providers so contexts are available.
-                // No RouterContext — islands have no Void Router.
-                let element = createComponent(PageComponent, pageObj.props);
-                for (let i = layoutComponents.length - 1; i >= 0; i--) {
-                  const Layout = layoutComponents[i];
-                  const child = element;
-                  element = createComponent(Layout, { get children() { return child; } });
-                }
-                return element;
+                // Frontmatter wraps the layouts so they can read the Markdown page's values.
+                return createComponent(FrontmatterContext.Provider, {
+                  value: __frontmatter,
+                  get children() {
+                    // Build layout chain inside providers so contexts are available.
+                    // No RouterContext — islands have no Void Router.
+                    let element = createComponent(PageComponent, pageObj.props);
+                    for (let i = layoutComponents.length - 1; i >= 0; i--) {
+                      const Layout = layoutComponents[i];
+                      const child = element;
+                      element = createComponent(Layout, { get children() { return child; } });
+                    }
+                    return element;
+                  }
+                });
               }
             });
           }

@@ -13,6 +13,7 @@
     pageProps: props.pageProps,
     shared: props.shared,
     params: props.params,
+    frontmatter: props.frontmatter,
     router: props.router,
     routeUrl: props.routeUrl,
     navigation: props.navigation,
@@ -51,6 +52,10 @@
   setContext("__void_navigation", {
     get value() { return navigation; },
   });
+  // Island pages pass Markdown frontmatter so layouts can read it (useFrontmatter).
+  if (init.frontmatter) {
+    setContext("__void_frontmatter", init.frontmatter);
+  }
 
   // Client mode: subscribe to stores for live updates after hydration.
   // onMount only runs on the client, not during SSR.

@@ -249,7 +249,7 @@ function generateIslandRenderer(
   return `
 import React from "react";
 import { renderToString } from "react-dom/server";
-import { SharedContext, ErrorsContext, ParamsContext } from "@void/react";
+import { SharedContext, ErrorsContext, ParamsContext, FrontmatterContext } from "@void/react";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -263,7 +263,9 @@ function escapeAttr(s) {
 }
 
 export async function renderIslandPage(pageObj, assetTags) {
-  const PageComponent = (await components[pageObj.component]()).default;
+  const __pageModule = await components[pageObj.component]();
+  const PageComponent = __pageModule.default;
+  const __frontmatter = __pageModule.frontmatter ?? {};
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
     layoutIds.map(async (id) => (await components[id]()).default)
@@ -274,7 +276,8 @@ export async function renderIslandPage(pageObj, assetTags) {
     element = React.createElement(layoutComponents[i], null, element);
   }
 
-  // No RouterContext — islands have no Void Router
+  // No RouterContext — islands have no Void Router.
+  // Frontmatter wraps the layouts so they can read the Markdown page's values.
   element = React.createElement(
     SharedContext.Provider,
     { value: pageObj.shared || {} },
@@ -284,7 +287,7 @@ export async function renderIslandPage(pageObj, assetTags) {
       React.createElement(
         ErrorsContext.Provider,
         { value: pageObj.errors || {} },
-        element
+        React.createElement(FrontmatterContext.Provider, { value: __frontmatter }, element)
       )
     )
   );

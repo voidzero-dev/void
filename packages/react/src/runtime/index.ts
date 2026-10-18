@@ -13,6 +13,7 @@ export {
   ParamsContext,
   RouterContext,
   NavigationContext,
+  FrontmatterContext,
 } from './context.ts';
 export type { InferProps } from 'void';
 export type Deferred<T> = Promise<T>;

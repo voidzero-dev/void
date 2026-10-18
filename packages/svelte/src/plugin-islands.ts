@@ -351,7 +351,8 @@ function escapeAttr(s) {
 }
 
 export async function renderIslandPage(pageObj, assetTags) {
-  const PageComponent = (await components[pageObj.component]()).default;
+  const __pageModule = await components[pageObj.component]();
+  const PageComponent = __pageModule.default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
     layoutIds.map(async (id) => (await components[id]()).default)
@@ -364,6 +365,8 @@ export async function renderIslandPage(pageObj, assetTags) {
       pageProps: pageObj.props,
       shared: pageObj.shared || {},
       params: pageObj.params || {},
+      // Set above the layouts so they can read the Markdown page's values.
+      frontmatter: __pageModule.frontmatter,
       router: null,
       stores: null,
     },

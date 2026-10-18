@@ -16,3 +16,8 @@ export const ParamsContext: Context<Record<string, string> | null> = createConte
 export const RouterContext: Context<VoidRouter | null> = createContext<VoidRouter | null>(null);
 export const NavigationContext: Context<NavigationState> =
   createContext<NavigationState>(idleNavigationState());
+// Island renderers provide the page's Markdown frontmatter above its layouts.
+// The `@void/md` runtime re-exports this context for `useFrontmatter()`.
+export const FrontmatterContext: Context<Record<string, unknown>> = createContext<
+  Record<string, unknown>
+>({});
