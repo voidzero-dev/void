@@ -14,13 +14,97 @@ export type InferredBindings = {
   needsSandbox: boolean;
   needsLive?: boolean;
   needsEmail?: boolean;
+  /**
+   * The Cloudflare Images binding is required. Source inference sets it for an
+   * `env.IMAGES` read; project inference also sets it for `usesImageOptimizer`
+   * while the default `/_void/image` optimizer is configured.
+   */
+  needsImages?: boolean;
+  /**
+   * `Image` or `getImageProps` from a Void adapter, an image subpath, or
+   * `next/image`. Only Void apps act on it (`isImageOptimizerEnabled`), so
+   * framework apps such as vinext, which own `next/image`, are unaffected.
+   */
+  usesImageOptimizer?: boolean;
 };
 
 // SEND_EMAIL is intentionally absent from this regex: Void owns that binding
 // (managed sends go through __VOID_PROXY/email/send; native Cloudflare deploys
 // add SEND_EMAIL themselves), so the `void/email` import (below) is the
 // sole driver of `needsEmail`.
-const ENV_BINDING_RE = /\benv\s*\.\s*(DB|KV|STORAGE|QUEUE_\w+|AI|SANDBOX)\b/;
+const ENV_BINDING_RE = /\benv\s*\.\s*(DB|KV|STORAGE|QUEUE_\w+|AI|SANDBOX|IMAGES)\b/;
+
+/** Adapter entries whose `Image` and `getImageProps` exports render through the optimizer. */
+const IMAGE_ADAPTER_SOURCES = new Set(['@void/react', '@void/vue', '@void/svelte', '@void/solid']);
+const IMAGE_EXPORT_NAMES = new Set(['Image', 'getImageProps']);
+const REACT_IMAGE_EXPORTS: ReadonlySet<string> = new Set(['default', 'Image', 'getImageProps']);
+/** Exports that render through the optimizer, per image subpath. */
+const IMAGE_SUBPATH_EXPORTS: Record<string, ReadonlySet<string>> = {
+  '@void/react/image': REACT_IMAGE_EXPORTS,
+  // Void apps migrating from Next.js alias it to `@void/react/image`.
+  'next/image': REACT_IMAGE_EXPORTS,
+  // The other `void/image` exports are loader and config helpers.
+  'void/image': new Set(['getImageProps']),
+};
+
+function imageExportNames(source: string): ReadonlySet<string> | undefined {
+  return IMAGE_ADAPTER_SOURCES.has(source) ? IMAGE_EXPORT_NAMES : IMAGE_SUBPATH_EXPORTS[source];
+}
+
+/**
+ * Whether the module imports or re-exports an image export by name, or reads
+ * one from a namespace import. Type-only specifiers never count, and neither
+ * does a bare side-effect import or a star re-export of a whole adapter.
+ */
+function usesImageExports(parsed: ReturnType<typeof parseSync>, code: string): boolean {
+  for (const item of parsed.module.staticImports) {
+    const names = imageExportNames(item.moduleRequest.value);
+    if (!names) {
+      continue;
+    }
+    for (const entry of item.entries) {
+      if (entry.isType) {
+        continue;
+      }
+      const { kind, name } = entry.importName;
+      if (kind === 'Name' && name !== null && names.has(name)) {
+        return true;
+      }
+      if (kind === 'Default' && names.has('default')) {
+        return true;
+      }
+      if (kind === 'NamespaceObject') {
+        // `ns.Image`, `<ns.Image />`, `ns.getImageProps(...)`.
+        // Identifiers need only `$` escaped.
+        const members = [...names].join('|');
+        const local = entry.localName.value.replaceAll('$', '\\$');
+        if (new RegExp(`(?<![\\w$.])${local}\\s*\\.\\s*(?:${members})(?![\\w$])`).test(code)) {
+          return true;
+        }
+      }
+    }
+  }
+  for (const item of parsed.module.staticExports) {
+    for (const entry of item.entries) {
+      const names = entry.moduleRequest ? imageExportNames(entry.moduleRequest.value) : undefined;
+      if (!names || entry.isType) {
+        continue;
+      }
+      const { kind, name } = entry.importName;
+      if (kind === 'Name' && name !== null && names.has(name)) {
+        return true;
+      }
+      // `export * from '@void/react/image'` re-exports only image APIs.
+      if (
+        (kind === 'All' || kind === 'AllButDefault') &&
+        !IMAGE_ADAPTER_SOURCES.has(entry.moduleRequest!.value)
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
+}
 
 /**
  * Infer which Cloudflare bindings a source file uses.
@@ -38,6 +122,8 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     needsSandbox: false,
     needsLive: false,
     needsEmail: false,
+    needsImages: false,
+    usesImageOptimizer: false,
   };
 
   let parsed: ReturnType<typeof parseSync>;
@@ -50,7 +136,7 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     return result;
   }
 
-  function recordModuleReference(source: string, statement: string): void {
+  function recordModuleReference(source: string, statement: string, dynamic = false): void {
     switch (source) {
       case 'void/db':
         result.needsD1 = true;
@@ -79,6 +165,15 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
       case 'void/live':
         result.needsLive = true;
         break;
+      case 'void/image':
+      case '@void/react/image':
+      case 'next/image':
+        // Static references are checked per specifier in `usesImageExports`;
+        // a literal dynamic import may read any export.
+        if (dynamic) {
+          result.usesImageOptimizer = true;
+        }
+        break;
       case 'void/client':
       case 'void/client/react':
       case 'void/client/vue':
@@ -106,8 +201,12 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
         ? staticLiteral(expression.expression as AstNode)
         : undefined;
     if (typeof source === 'string') {
-      recordModuleReference(source, code.slice(reference.start, reference.end));
+      recordModuleReference(source, code.slice(reference.start, reference.end), true);
     }
+  }
+
+  if (usesImageExports(parsed, code)) {
+    result.usesImageOptimizer = true;
   }
 
   if (!ENV_BINDING_RE.test(code)) {
@@ -154,6 +253,9 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
         case 'SANDBOX':
           result.needsSandbox = true;
           break;
+        case 'IMAGES':
+          result.needsImages = true;
+          break;
         default:
           if (property.name.startsWith('QUEUE_')) {
             result.needsQueues = true;
@@ -180,5 +282,7 @@ export function mergeBindings(bindings: Array<InferredBindings>): InferredBindin
     needsSandbox: bindings.some((b) => b.needsSandbox),
     needsLive: bindings.some((b) => b.needsLive),
     needsEmail: bindings.some((b) => b.needsEmail),
+    needsImages: bindings.some((b) => b.needsImages),
+    usesImageOptimizer: bindings.some((b) => b.usesImageOptimizer),
   };
 }

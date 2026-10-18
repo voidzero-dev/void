@@ -53,6 +53,8 @@ describe('inferProjectBindings', () => {
       needsSandbox: false,
       needsEmail: false,
       needsLive: false,
+      needsImages: false,
+      usesImageOptimizer: false,
     });
   });
 
@@ -291,6 +293,164 @@ const row = await Astro.locals.runtime.env.DB.prepare("SELECT 1").first();
     const result = inferProjectBindings(root);
     expect(result.needsD1).toBe(false);
     expect(result.needsKV).toBe(false);
+  });
+});
+
+describe('inferProjectBindings image usage', () => {
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      const dir = tempDirs.pop()!;
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  function writePage(root: string, file: string, code: string): void {
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    writeFileSync(join(root, 'pages', file), code);
+  }
+
+  it('requires the Images binding for Image usage while the optimizer is enabled', () => {
+    const root = createTempRoot();
+    writePage(
+      root,
+      'index.tsx',
+      `
+      import { Image } from "@void/react";
+      export default () => <Image src="/hero.png" alt="" width={64} height={64} />;
+      `,
+    );
+
+    expect(inferProjectBindings(root, { imageOptimizer: true })).toMatchObject({
+      needsImages: true,
+      usesImageOptimizer: true,
+    });
+    expect(inferProjectBindings(root, { imageOptimizer: false })).toMatchObject({
+      needsImages: false,
+      usesImageOptimizer: true,
+    });
+    expect(inferProjectBindings(root).needsImages).toBe(false);
+  });
+
+  it('requires the Images binding for an env.IMAGES read without the optimizer', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+    writeFileSync(
+      join(root, 'routes', 'api', 'thumb.ts'),
+      'export const GET = defineHandler((c) => c.env.IMAGES.info(c.req.raw.body));',
+    );
+
+    expect(inferProjectBindings(root, { imageOptimizer: false })).toMatchObject({
+      needsImages: true,
+      usesImageOptimizer: false,
+    });
+  });
+
+  it('applies inference.bindings.images over the optimizer requirement', () => {
+    const root = createTempRoot();
+    writePage(root, 'index.tsx', 'import { Image } from "@void/react";');
+
+    expect(
+      inferProjectBindings(root, { imageOptimizer: true, bindings: { images: false } }).needsImages,
+    ).toBe(false);
+    expect(
+      inferProjectBindings(root, { imageOptimizer: false, bindings: { images: 'PHOTOS' } })
+        .needsImages,
+    ).toBe(true);
+    expect(
+      inferProjectBindings(root, { imageOptimizer: true, bindings: { kv: true } }),
+    ).toMatchObject({ needsImages: true, needsKV: true });
+  });
+
+  it('reads Vue and Svelte script blocks for image usage', () => {
+    const vueRoot = createTempRoot();
+    writePage(
+      vueRoot,
+      'index.vue',
+      `<script setup lang="ts">
+import { Image } from '@void/vue';
+</script>
+
+<template>
+  <Image src="/hero.png" alt="" :width="64" :height="64" />
+</template>
+`,
+    );
+    const svelteRoot = createTempRoot();
+    writePage(
+      svelteRoot,
+      'index.svelte',
+      `<script module lang="ts">
+export const prerender = true;
+</script>
+
+<script lang="ts">
+  import { Image } from '@void/svelte';
+</script>
+
+<Image src="/hero.png" alt="" width={64} height={64} />
+`,
+    );
+
+    for (const root of [vueRoot, svelteRoot]) {
+      expect(inferProjectBindings(root, { imageOptimizer: true })).toMatchObject({
+        needsImages: true,
+        usesImageOptimizer: true,
+      });
+    }
+  });
+
+  it('infers no other bindings from Vue and Svelte files', () => {
+    const root = createTempRoot();
+    writePage(
+      root,
+      'index.vue',
+      `<script setup lang="ts">
+import { db } from 'void/db';
+import { Image } from '@void/vue';
+const data = await c.env.KV.get('k');
+</script>
+`,
+    );
+    writePage(
+      root,
+      'about.svelte',
+      `<script lang="ts">
+  import { ai } from 'void/ai';
+  const images = env.IMAGES;
+</script>
+`,
+    );
+
+    expect(inferProjectBindings(root)).toEqual({
+      needsD1: false,
+      needsKV: false,
+      needsR2: false,
+      needsAuth: false,
+      needsQueues: false,
+      needsAI: false,
+      needsSandbox: false,
+      needsEmail: false,
+      needsLive: false,
+      needsImages: true,
+      usesImageOptimizer: true,
+    });
+  });
+
+  it('ignores Vue and Svelte markup outside script blocks', () => {
+    const root = createTempRoot();
+    writePage(
+      root,
+      'index.vue',
+      `<template>
+  <p>import { Image } from '@void/vue'; env.IMAGES</p>
+</template>
+`,
+    );
+
+    expect(inferProjectBindings(root, { imageOptimizer: true })).toMatchObject({
+      needsImages: false,
+      usesImageOptimizer: false,
+    });
   });
 });
 

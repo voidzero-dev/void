@@ -408,6 +408,32 @@ describe('syncWranglerBindings', () => {
     expect(parsed.kv_namespaces[0].binding).toBe('MY_KV');
   });
 
+  it('adds the Images binding for env.IMAGES reads unless the name is taken', () => {
+    setup('wrangler.jsonc', '{ "name": "test" }');
+    expect(syncWranglerBindings(tmpDir, noBindings)).toBe(false);
+    expect(syncWranglerBindings(tmpDir, { ...noBindings, needsImages: true })).toBe(true);
+    const read = () => JSON.parse(readFileSync(join(tmpDir, 'wrangler.jsonc'), 'utf-8'));
+    expect(read().images).toEqual({ binding: 'IMAGES' });
+    expect(syncWranglerBindings(tmpDir, { ...noBindings, needsImages: true })).toBe(false);
+
+    setup('wrangler.jsonc', '{ "name": "test" }');
+    syncWranglerBindings(
+      tmpDir,
+      { ...noBindings, needsImages: true },
+      { bindingNames: { images: 'PHOTOS' } },
+    );
+    expect(read().images).toEqual({ binding: 'PHOTOS' });
+
+    for (const config of [
+      { images: { binding: 'MEDIA' } },
+      { r2_buckets: [{ binding: 'IMAGES', bucket_name: 'photos' }] },
+    ]) {
+      setup('wrangler.jsonc', JSON.stringify(config));
+      expect(syncWranglerBindings(tmpDir, { ...noBindings, needsImages: true })).toBe(false);
+      expect(read()).toEqual(config);
+    }
+  });
+
   it('does not duplicate existing bindings', () => {
     setup(
       'wrangler.jsonc',

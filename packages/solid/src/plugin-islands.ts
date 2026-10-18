@@ -256,7 +256,8 @@ function generateIslandRenderer(
   return `
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
-import { SharedContext, ErrorsContext, ParamsContext } from "@void/solid";
+import { SharedContext, ErrorsContext, ParamsContext, ImagePreloadContext } from "@void/solid";
+import { createImagePreloadCollector } from "void/image";
 import { renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from "void/pages-head";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -274,25 +275,34 @@ export async function renderIslandPage(pageObj, assetTags) {
     layoutIds.map(async (id) => (await components[id]()).default)
   );
 
+  const imagePreloads = createImagePreloadCollector();
+
+  // Image preloads go into <head>. Islands mount with render(), not
+  // hydrate(), so the client needs no matching provider.
   function ServerApp() {
-    return createComponent(SharedContext.Provider, {
-      value: pageObj.shared || {},
+    return createComponent(ImagePreloadContext.Provider, {
+      value: imagePreloads,
       get children() {
-        return createComponent(ErrorsContext.Provider, {
-          value: pageObj.errors || {},
+        return createComponent(SharedContext.Provider, {
+          value: pageObj.shared || {},
           get children() {
-            return createComponent(ParamsContext.Provider, {
-              value: pageObj.params || {},
+            return createComponent(ErrorsContext.Provider, {
+              value: pageObj.errors || {},
               get children() {
-                // Build layout chain inside providers so contexts are available.
-                // No RouterContext — islands have no Void Router.
-                let element = createComponent(PageComponent, pageObj.props);
-                for (let i = layoutComponents.length - 1; i >= 0; i--) {
-                  const Layout = layoutComponents[i];
-                  const child = element;
-                  element = createComponent(Layout, { get children() { return child; } });
-                }
-                return element;
+                return createComponent(ParamsContext.Provider, {
+                  value: pageObj.params || {},
+                  get children() {
+                    // Build layout chain inside providers so contexts are available.
+                    // No RouterContext — islands have no Void Router.
+                    let element = createComponent(PageComponent, pageObj.props);
+                    for (let i = layoutComponents.length - 1; i >= 0; i--) {
+                      const Layout = layoutComponents[i];
+                      const child = element;
+                      element = createComponent(Layout, { get children() { return child; } });
+                    }
+                    return element;
+                  }
+                });
               }
             });
           }
@@ -310,7 +320,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}\${__pagesNeedingClientJS.has(pageObj.component) ? generateHydrationScript() : ""}</head>
+<head>\${headHtml}\${imagePreloads.render()}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}\${__pagesNeedingClientJS.has(pageObj.component) ? generateHydrationScript() : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
   \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}

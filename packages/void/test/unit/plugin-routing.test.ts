@@ -5,6 +5,7 @@ import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { readConfig } from '../../src/config.ts';
+import { resolveImageConfig } from '../../src/image-config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
@@ -306,6 +307,92 @@ describe('routingPlugin', () => {
     await emit('change', pagePath);
 
     expect(invalidated).toEqual(['virtual:void-routes']);
+  });
+
+  it('mounts the image optimizer when a dev change adds Image usage and keeps it on recompiles', async () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'routes', 'api.ts'), 'export const GET = () => new Response();\n');
+    const config = resolveImageConfig(undefined, { root, dev: true });
+    const onPolicyChange = vi.fn(() => false);
+    const plugin = createRoutingPlugin(root, {
+      isAuthEnabled: () => false,
+      onDevAssetRoutingPolicyChange: onPolicyChange,
+      images: {
+        getMountedConfig: (usesImageOptimizer) => (usesImageOptimizer ? config : undefined),
+        imageSources: new Set(),
+      },
+    });
+    const load = getHookHandler(plugin.load) as (id: string) => Promise<string>;
+    runConfig(plugin, { command: 'serve', mode: 'development' });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
+    expect(await load('virtual:void-routes')).not.toContain('__createImageHandler');
+    const { emit } = startDevServer(plugin, ['virtual:void-routes']);
+
+    // An API route keeps the SPA asset policy, which must list the endpoint.
+    mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+    const ogPath = join(root, 'routes', 'api', 'og.ts');
+    writeFileSync(
+      ogPath,
+      'import { getImageProps } from "void/image";\nexport const GET = () => Response.json(getImageProps({ src: "/a.png", alt: "", width: 8, height: 8 }).props);\n',
+    );
+    await emit('add', ogPath);
+    expect(onPolicyChange).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        assetConfig: expect.objectContaining({
+          run_worker_first: expect.arrayContaining(['/_void/image']),
+        }),
+      }),
+    );
+    expect(await load('virtual:void-routes')).toContain(
+      'app.all("/_void/image", __createImageHandler(',
+    );
+
+    writeFileSync(join(root, 'routes', 'api.ts'), 'export const GET = () => new Response("2");\n');
+    await emit('change', join(root, 'routes', 'api.ts'));
+    expect(await load('virtual:void-routes')).toContain(
+      'app.all("/_void/image", __createImageHandler(',
+    );
+  });
+
+  it.each([
+    ['the default asset file names', {}, ['assets/hero-abc.png']],
+    ['a function assetFileNames', { assetFileNames: () => 'assets/[name].[ext]' }, undefined],
+  ])('stamps ?image sources in the client manifest with %s', (_name, output, immutableFiles) => {
+    const plugin = createRoutingPlugin(createBareTempRoot(), {
+      isAuthEnabled: () => false,
+      images: { getMountedConfig: () => undefined, imageSources: new Set(['src/hero.png']) },
+    });
+    const manifest = {
+      'src/hero.png': { file: 'assets/hero-abc.png', src: 'src/hero.png' },
+      'src/other.png': { file: 'assets/other-def.png', src: 'src/other.png' },
+    };
+    const bundle: Record<string, { type: string; fileName: string; source: string }> = {
+      '.vite/manifest.json': {
+        type: 'asset',
+        fileName: '.vite/manifest.json',
+        source: JSON.stringify(manifest),
+      },
+      'assets/hero-abc.png': { type: 'asset', fileName: 'assets/hero-abc.png', source: '' },
+      'assets/other-def.png': { type: 'asset', fileName: 'assets/other-def.png', source: '' },
+    };
+    (getHookHandler(plugin.generateBundle) as (...args: Array<unknown>) => void).call(
+      {
+        environment: {
+          name: 'client',
+          config: { build: { manifest: true, rolldownOptions: { output } } },
+        },
+      },
+      {},
+      bundle,
+    );
+
+    const stamped = JSON.parse(bundle['.vite/manifest.json']!.source) as Record<
+      string,
+      { immutableFiles?: Array<string> }
+    >;
+    expect(stamped['src/hero.png']!.immutableFiles).toEqual(immutableFiles);
+    expect(stamped['src/other.png']!.immutableFiles).toBeUndefined();
   });
 
   it('rescans sourceDir route changes during dev', async () => {

@@ -10,7 +10,7 @@ vi.mock('better-auth', () => ({
   betterAuth: mocks.betterAuth,
 }));
 
-import { requireAuth, type AuthState, type AuthUser } from '../../src/runtime/auth.ts';
+import { getUser, requireAuth, type AuthState, type AuthUser } from '../../src/runtime/auth.ts';
 import {
   createVoidAuthRuntime,
   type VoidAuthRuntimeOptions,
@@ -414,5 +414,72 @@ describe('cross-origin cookie sessions', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ id: 'victim' });
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('runVoidAuthMiddleware skipped paths', () => {
+  const user = { id: 'user-1', email: 'ada@example.com' } as AuthUser;
+  const env = { BETTER_AUTH_SECRET: 'test-secret' };
+  const imageUrl = 'http://localhost/_void/image?url=%2Fa.png&w=64&q=75';
+
+  function createSkipApp(response: AuthState | null) {
+    const authHeaders = new Headers();
+    authHeaders.append('set-cookie', 'session=refresh; Path=/');
+    authHeaders.set('cache-control', 'no-store');
+    mocks.getSession.mockResolvedValue({ response, headers: authHeaders });
+    mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession } });
+    const app = new Hono<{ Variables: { user: AuthUser | null; session: unknown } }>();
+    app.use(async (c, next) => {
+      await runtime.runVoidAuthMiddleware(
+        c,
+        next,
+        { ...authRuntimeOptions, skipPaths: ['/_void/image'] },
+        {} as never,
+      );
+    });
+    // A site-wide login wall, as in `middleware/auth.ts`.
+    app.use(async (c, next) => {
+      if (c.req.path !== '/login') {
+        requireAuth(c);
+      }
+      await next();
+    });
+    app.get('/_void/image', (c) =>
+      c.json(
+        { user: c.get('user'), current: getUser() },
+        { headers: { 'cache-control': 'public, max-age=60, must-revalidate' } },
+      ),
+    );
+    app.get('/page', (c) => c.text('page'));
+    return app;
+  }
+
+  it('keeps the signed-in user for guards on the image optimizer path without auth headers', async () => {
+    const app = createSkipApp({ user, session: { id: 'session-1' } } as AuthState);
+    const init = { headers: { cookie: 'session=abc' } };
+
+    const image = await app.request(imageUrl, init, env);
+    expect(image.status).toBe(200);
+    expect(await image.json()).toEqual({ user, current: user });
+    expect(image.headers.getSetCookie()).toEqual([]);
+    expect(image.headers.get('cache-control')).toBe('public, max-age=60, must-revalidate');
+    expect(mocks.getSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ query: { disableRefresh: true } }),
+    );
+
+    const page = await app.request('http://localhost/page', init, env);
+    expect(page.headers.getSetCookie()).toEqual(['session=refresh; Path=/']);
+    expect(mocks.getSession).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ query: expect.anything() }),
+    );
+  });
+
+  it('skips the session lookup for anonymous image requests', async () => {
+    const app = createSkipApp(null);
+
+    const image = await app.request(imageUrl, undefined, env);
+    expect(image.status).toBe(401);
+    expect(image.headers.getSetCookie()).toEqual([]);
+    expect(mocks.betterAuth).not.toHaveBeenCalled();
   });
 });

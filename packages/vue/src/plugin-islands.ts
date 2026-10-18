@@ -298,7 +298,10 @@ export async function renderIslandPage(pageObj, assetTags) {
     }
   });
 
-  const html = await renderToString(app);
+  // \`Image\` collects its <link rel="preload" as="image"> tags in the SSR context.
+  const ssrContext = {};
+  const html = await renderToString(app, ssrContext);
+  const imagePreloads = ssrContext.__voidImagePreloads ? ssrContext.__voidImagePreloads.render() : "";
   const __mdScriptAttr = __mdClientScriptIds.has(pageObj.component) ? \` data-md-script="\${escapeAttr(pageObj.component)}"\` : "";
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -306,7 +309,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
+<head>\${headHtml}\${imagePreloads}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
   \${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}

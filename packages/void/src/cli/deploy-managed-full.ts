@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'pathslash';
+import { isImageOptimizerEnabled } from '../application-features.ts';
 import { analyzeApplication } from '../application-routing.ts';
 import {
   hasApiRoutes as routeScanHasApiRoutes,
@@ -8,6 +9,7 @@ import {
   resolveAssetConfig,
 } from '../asset-routing.ts';
 import { type VoidConfig, isNodeTarget } from '../config.ts';
+import { type InferredBindings } from '../inference/walk.ts';
 import { collectRevalidate } from '../isr-config.ts';
 import { voidWarn } from '../log.ts';
 import { type DetectedFramework } from '../plugin-inference.ts';
@@ -62,6 +64,26 @@ import { type ProjectConfig } from './project.ts';
 import type { AssetConfig } from './types.ts';
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper } from './wrapper.ts';
+
+/**
+ * The warning a Void Platform deploy prints when the app needs the Images binding, which the
+ * platform doesn't provide yet. `Image` through the default `/_void/image` optimizer gets the
+ * optimizer message (managed builds resolve images as unoptimized). Otherwise `needsImages`
+ * comes from an `env.IMAGES` read, `inference.bindings.images`, or vinext's optimizer, and the
+ * binding is simply undefined at runtime.
+ */
+export function managedImageOptimizerWarning(
+  bindings: Pick<InferredBindings, 'usesImageOptimizer' | 'needsImages'>,
+  voidConfig: Pick<VoidConfig, 'images' | 'target' | 'output'>,
+  detected: DetectedFramework | undefined,
+): string | undefined {
+  if (bindings.usesImageOptimizer && isImageOptimizerEnabled(voidConfig, detected)) {
+    return "Image optimization isn't available on Void Platform yet, so Image serves original files.";
+  }
+  return bindings.needsImages
+    ? "The Cloudflare Images binding (env.IMAGES) isn't available on Void Platform yet, so reading it returns undefined. Use `void deploy --platform cloudflare` to deploy with it."
+    : undefined;
+}
 
 export async function runFullDeploy(
   root: string,
@@ -186,6 +208,10 @@ export async function runFullDeploy(
   if (isFrameworkMode && bindings.needsLive) {
     log.error('deploy: void/live is currently supported in Void apps only.');
     process.exit(1);
+  }
+  const imageOptimizerWarning = managedImageOptimizerWarning(bindings, voidConfig, detected);
+  if (imageOptimizerWarning) {
+    log.warn(imageOptimizerWarning);
   }
 
   const sandboxConfig = bindings.needsSandbox ? resolveSandboxConfig(voidConfig, root) : undefined;

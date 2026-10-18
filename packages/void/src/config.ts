@@ -7,6 +7,8 @@ import {
 } from './auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from './cli/types.ts';
 import { loadVoidConfig } from './config-loader.ts';
+import { validateImagesConfig } from './image-config.ts';
+import type { ImageConfig } from './image/config.ts';
 import type { HeadConfig } from './pages/head.ts';
 import { validateSourceDir } from './project-paths.ts';
 import { MimeError, parseAddress } from './runtime/email/mime.ts';
@@ -67,6 +69,7 @@ export type InferenceConfig = {
     storage?: boolean | string;
     ai?: boolean | string;
     email?: boolean;
+    images?: boolean | string;
   };
   scanDirs?: ReadonlyArray<string>;
   build?: string;
@@ -176,6 +179,8 @@ export type VoidConfig = {
   database?: 'pg' | 'mysql';
   ai?: AiConfig;
   email?: EmailConfig;
+  /** Image optimization for `Image` components and the `/_void/image` endpoint (Next.js `images`). */
+  images?: ImageConfig;
 };
 
 const CONFIG_FILE = 'void.json';
@@ -716,9 +721,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
       const b = inf.bindings;
       for (const key of Object.keys(b)) {
-        if (!['db', 'kv', 'storage', 'ai', 'email'].includes(key)) {
+        if (!['db', 'kv', 'storage', 'ai', 'email', 'images'].includes(key)) {
           throw new Error(
-            `config: Unknown binding '${key}' in ${CONFIG_FILE}. Valid: db, kv, storage, ai, email.`,
+            `config: Unknown binding '${key}' in ${CONFIG_FILE}. Valid: db, kv, storage, ai, email, images.`,
           );
         }
         if (key === 'email') {
@@ -959,6 +964,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
+  // Validate images
+  validateImagesConfig(obj.images, CONFIG_FILE);
+
   // Legacy void.json files may carry an editor hint. It is not part of the
   // typed config and should never reach consumers of the resolved config.
   if ('$schema' in obj) {
@@ -1000,11 +1008,11 @@ export function isNodeTarget(target: VoidConfig['target']): boolean {
  */
 export function resolveBindingNames(
   bindings: InferenceConfig['bindings'],
-): { d1?: string; kv?: string; r2?: string; ai?: string } | undefined {
+): { d1?: string; kv?: string; r2?: string; ai?: string; images?: string } | undefined {
   if (!bindings) {
     return undefined;
   }
-  const names: { d1?: string; kv?: string; r2?: string; ai?: string } = {};
+  const names: { d1?: string; kv?: string; r2?: string; ai?: string; images?: string } = {};
   let hasCustom = false;
   if (typeof bindings.db === 'string') {
     names.d1 = bindings.db;
@@ -1020,6 +1028,10 @@ export function resolveBindingNames(
   }
   if (typeof bindings.ai === 'string') {
     names.ai = bindings.ai;
+    hasCustom = true;
+  }
+  if (typeof bindings.images === 'string') {
+    names.images = bindings.images;
     hasCustom = true;
   }
   return hasCustom ? names : undefined;

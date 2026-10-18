@@ -95,6 +95,34 @@ describe('Cloudflare framework deployment', () => {
     );
   });
 
+  it.each([
+    [undefined, { binding: 'IMAGES' }],
+    [{ binding: 'PHOTOS' }, { binding: 'PHOTOS' }],
+  ])('adds the Images binding unless one is authored (%j)', (authored, expected) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-framework-images-'));
+    const configPath = join(root, 'wrangler.jsonc');
+    writeFileSync(configPath, JSON.stringify(authored ? { images: authored } : {}));
+    const input = {
+      configPath,
+      deployPointerPath: join(root, '.wrangler/deploy/config.json'),
+      name: 'framework-app',
+      accountId: 'account-id',
+      main: 'dist/worker.js',
+      assetsDirectory: 'dist/assets',
+      compatibilityDate: '2026-09-11',
+      images: { binding: 'IMAGES' },
+    };
+    writeCloudflareFrameworkDeployConfig(input);
+    expect(parseRootWranglerConfig(configPath).images).toEqual(expected);
+    expect(writeCloudflareFrameworkDeployConfig(input)).toBe(false);
+
+    const { images: _images, ...withoutImages } = input;
+    const plain = join(root, 'plain.jsonc');
+    writeFileSync(plain, '{}');
+    writeCloudflareFrameworkDeployConfig({ ...withoutImages, configPath: plain });
+    expect(parseRootWranglerConfig(plain)).not.toHaveProperty('images');
+  });
+
   it('removes stale cron schedules when the current source has none', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-framework-config-'));
     const configPath = join(root, 'wrangler.jsonc');

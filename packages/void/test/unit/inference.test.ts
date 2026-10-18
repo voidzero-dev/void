@@ -15,6 +15,8 @@ const NO_BINDINGS: InferredBindings = {
   needsSandbox: false,
   needsLive: false,
   needsEmail: false,
+  needsImages: false,
+  usesImageOptimizer: false,
 };
 
 const MODULE_BINDINGS = [
@@ -71,6 +73,8 @@ describe('inferBindingsFromSource', () => {
     ['c.env.AI', 'needsAI'],
     ['env.AI', 'needsAI'],
     ['c.env.SANDBOX', 'needsSandbox'],
+    ['c.env.IMAGES', 'needsImages'],
+    ['env.IMAGES', 'needsImages'],
   ] as const)('detects %s access', (expression, binding) => {
     const code = `export async function handler(c, env) {\n  return ${expression}.get('key');\n}`;
     expect(inferBindingsFromSource(code, 'test.ts')).toEqual({ ...NO_BINDINGS, [binding]: true });
@@ -235,6 +239,102 @@ describe('inferBindingsFromSource', () => {
     `;
     const result = inferBindingsFromSource(code, 'client.ts');
     expect(result.needsLive).toBe(false);
+  });
+});
+
+describe('inferBindingsFromSource image usage', () => {
+  const usesImage = (code: string): boolean | undefined =>
+    inferBindingsFromSource(code, 'view.tsx').usesImageOptimizer;
+
+  it.each([
+    "import { Image } from '@void/react';",
+    "import { Image } from '@void/vue';",
+    "import { Image } from '@void/svelte';",
+    "import { Image } from '@void/solid';",
+    "import { getImageProps } from '@void/react';",
+    "import { Image as Picture, Link } from '@void/react';",
+    "import { Link, type ImageProps, Image } from '@void/react';",
+    "import Image from '@void/react/image';",
+    "import NextImage, { type ImageProps } from '@void/react/image';",
+    "import { Image } from '@void/react/image';",
+    "import { getImageProps } from '@void/react/image';",
+    "import { getImageProps } from 'void/image';",
+    "import * as Void from '@void/react';\nexport const View = () => <Void.Image src='/a.png' alt='' />;",
+    "import * as Void from '@void/react';\nconst { props } = Void.getImageProps({ src: '/a.png', alt: '' });",
+    "import * as img from 'void/image';\nimg.getImageProps({ src: '/a.png', alt: '' });",
+    "export { Image } from '@void/react';",
+    "export { Image as Picture } from '@void/vue';",
+    "export { default } from '@void/react/image';",
+    "export { default as Image } from '@void/react/image';",
+    "export * from '@void/react/image';",
+    "export { getImageProps } from 'void/image';",
+    "const load = () => import('void/image');",
+    "const load = () => import('@void/react/image');",
+    // `next/image` aliased to `@void/react/image` when migrating from Next.js.
+    "import Image from 'next/image';",
+    "import NextImage, { getImageProps } from 'next/image';",
+    "import { getImageProps } from 'next/image';",
+    "import { Image } from 'next/image';",
+    "import * as Next from 'next/image';\nexport const View = () => <Next.default src='/a.png' alt='' />;",
+    "export { default as Image } from 'next/image';",
+    "const load = () => import('next/image');",
+  ])('detects %s', (code) => {
+    expect(usesImage(code)).toBe(true);
+  });
+
+  it.each([
+    "import { Link, useForm } from '@void/react';",
+    "import type { ImageProps } from '@void/react';",
+    "import { type ImageProps } from '@void/react';",
+    "import type Image from '@void/react/image';",
+    "import type { Image } from '@void/vue';",
+    "export type { ImageProps } from '@void/react';",
+    "export { type Image } from '@void/react';",
+    "import '@void/react';",
+    "import '@void/react/image';",
+    "import 'void/image';",
+    "export * from '@void/react';",
+    "const load = () => import('@void/react');",
+    "import { defaultLoader, findClosestQuality } from 'void/image';",
+    "import type { ImageLoader } from 'void/image';",
+    "import * as Void from '@void/react';\nexport const View = () => <Void.Link href='/' />;",
+    "import * as Void from '@void/react';\nexport const value = other.Void.Image;",
+    "import { Image } from './components/image';",
+    "import type Image from 'next/image';",
+    "import type { ImageProps } from 'next/image';",
+    "import 'next/image';",
+    "import * as Next from 'next/image';\nexport type Props = Next.ImageProps;",
+    "import Image from 'next/legacy/image';",
+    "import Image from '@void/vue/image';",
+  ])('ignores %s', (code) => {
+    expect(usesImage(code)).toBe(false);
+  });
+
+  it('records Image usage without requiring the Images binding', () => {
+    expect(inferBindingsFromSource("import { Image } from '@void/react';", 'view.tsx')).toEqual({
+      ...NO_BINDINGS,
+      usesImageOptimizer: true,
+    });
+  });
+
+  it('detects Image usage and an env.IMAGES read in one file', () => {
+    const code = `
+      import { getImageProps } from 'void/image';
+      export const GET = defineHandler((c) => c.env.IMAGES.info(stream));
+    `;
+    expect(inferBindingsFromSource(code, 'route.ts')).toEqual({
+      ...NO_BINDINGS,
+      needsImages: true,
+      usesImageOptimizer: true,
+    });
+  });
+
+  it('does not detect needsImages from unrelated identifiers', () => {
+    const code = `
+      const IMAGES = ['/a.png'];
+      export const list = config.images.IMAGES;
+    `;
+    expect(inferBindingsFromSource(code, 'list.ts')).toEqual(NO_BINDINGS);
   });
 });
 

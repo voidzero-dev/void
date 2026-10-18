@@ -21,6 +21,7 @@ import {
   isEmptyPassthroughValue,
   verifyNoInjectedExternalDurableObject,
   DEFAULT_VOID_AI_BINDING,
+  DEFAULT_VOID_IMAGES_BINDING,
   verifyNoInjectedDestructiveMigration,
   normalizeContainerImagePaths,
   collectEmittedQueueGroupNames,
@@ -149,12 +150,16 @@ export function verifyGeneratedDeployConfig(
     bindingIdentitySnapshot?: BindingIdentitySnapshot;
     /** Pre-build entries for binding fields Void never emits. */
     passthroughIdentitySnapshot?: Map<string, Map<string, Record<string, unknown>>>;
-    /** Pre-build raw values for whole-object fields, `durable_objects`, `ai` and `migrations`. */
+    /** Pre-build raw values for whole-object fields, `durable_objects`, `ai`, `images` and `migrations`. */
     passthroughRawFields?: Map<string, unknown>;
     /** Whether the source uses Workers AI; only then may the build add Void's AI binding. */
     needsAI?: boolean;
     /** Custom `inference.bindings.ai` name authorized for Void's emitted AI binding. */
     aiBindingName?: string;
+    /** Whether the app needs Cloudflare Images; only then may the build add Void's Images binding. */
+    needsImages?: boolean;
+    /** Custom `inference.bindings.images` name authorized for Void's emitted Images binding. */
+    imagesBindingName?: string;
     /** Require BETTER_AUTH_SECRET in `secrets.required` so the upload keeps the remote value. */
     authEnabled?: boolean;
     /** Additional Worker secret names the generated version must inherit. */
@@ -400,6 +405,28 @@ export function verifyGeneratedDeployConfig(
         return {
           ok: false,
           reason: `generated config declares an ai binding the build injected — the pre-build inference found no Workers AI use in the source and the root config declares no ai binding.`,
+        };
+      }
+    }
+    const emittedImages = generated.images;
+    const rootImages = raw.get('images');
+    if (rootImages !== undefined) {
+      // A root images binding must survive unchanged; removing it fails too.
+      if (!deepEqual(emittedImages, rootImages)) {
+        return {
+          ok: false,
+          reason: `generated config images binding does not match the pre-build root images binding — refusing to deploy an images binding the build removed or rewrote.`,
+        };
+      }
+    } else if (emittedImages !== undefined) {
+      // Otherwise only Void's own Images binding, and only when the app needs it.
+      const expectedImages = {
+        binding: expected.imagesBindingName ?? DEFAULT_VOID_IMAGES_BINDING,
+      };
+      if (!(expected.needsImages === true && deepEqual(emittedImages, expectedImages))) {
+        return {
+          ok: false,
+          reason: `generated config declares an images binding the build injected — the pre-build inference found no Image or env.IMAGES use in the source and the root config declares no images binding.`,
         };
       }
     }

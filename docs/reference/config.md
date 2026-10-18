@@ -198,6 +198,48 @@ Site-wide HTML `<head>` defaults for pages mode. Sets a title template, default 
 
 See [Head Management](../guide/pages-routing/head) for the full merge behavior, `HeadDescriptor` shape, and per-page usage.
 
+### `images`
+
+Configuration for [`Image`, `getImageProps()`, and the `/_void/image` endpoint](../guide/images.md). The keys, types, and defaults match `images` in Next.js 16's `next.config.js`. Every key is optional.
+
+| Key                       | Type                                                                           | Default                                           | Description                                                                                                                                                                   |
+| ------------------------- | ------------------------------------------------------------------------------ | ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `deviceSizes`             | `Array<number>`                                                                | `[640, 750, 828, 1080, 1200, 1920, 2048, 3840]`   | Widths offered to images with `sizes` or `fill`. Up to 25 integers from 1 to 10000.                                                                                           |
+| `imageSizes`              | `Array<number>`                                                                | `[32, 48, 64, 96, 128, 256, 384]`                 | Additional widths for fixed-size images and `sizes` narrower than the viewport. Up to 25 integers from 1 to 10000.                                                            |
+| `qualities`               | `Array<number>`                                                                | `[75]`                                            | Allowed qualities. `quality` uses the closest value. 1 to 20 integers from 1 to 100.                                                                                          |
+| `formats`                 | `Array<'image/avif' \| 'image/webp'>`                                          | `['image/webp']`                                  | Output formats, in order of preference, negotiated from the `Accept` header.                                                                                                  |
+| `minimumCacheTTL`         | `number`                                                                       | `14400`                                           | Minimum `max-age` in seconds for optimized images.                                                                                                                            |
+| `remotePatterns`          | `Array<URL \| RemotePattern>`                                                  | `[]`                                              | Remote sources, including redirect targets, the endpoint may fetch. Up to 50.                                                                                                 |
+| `localPatterns`           | `Array<LocalPattern>`                                                          | Any path without a query string                   | Local sources the endpoint may load. Up to 25. Static `?image` imports are always allowed.                                                                                    |
+| `dangerouslyAllowSVG`     | `boolean`                                                                      | `false`                                           | Serve SVG sources, unchanged, through the endpoint.                                                                                                                           |
+| `dangerouslyAllowLocalIP` | `boolean`                                                                      | `false`                                           | Allow remote URLs whose host is `localhost` or a private or loopback IP address. Hostnames aren't resolved.                                                                   |
+| `contentSecurityPolicy`   | `string`                                                                       | `"script-src 'none'; frame-src 'none'; sandbox;"` | `Content-Security-Policy` header of endpoint responses.                                                                                                                       |
+| `contentDispositionType`  | `'inline' \| 'attachment'`                                                     | `'attachment'`                                    | `Content-Disposition` type of endpoint responses.                                                                                                                             |
+| `maximumRedirects`        | `number`                                                                       | `3`                                               | Redirects followed for a remote source, from 0 to 20.                                                                                                                         |
+| `maximumResponseBody`     | `number`                                                                       | `50000000`                                        | Largest source image in bytes. Values above 20 MB (`20000000`) are capped at 20 MB.                                                                                           |
+| `loader`                  | `'default' \| 'custom' \| 'cloudflare' \| 'imgix' \| 'cloudinary' \| 'akamai'` | `'default'`                                       | How image URLs are built. See [Loaders](../guide/images.md#loaders). `imgix`, `cloudinary`, and `akamai` require `path` and build `<path>?url=…&w=…&q=…` URLs, as in Next.js. |
+| `loaderFile`              | `string`                                                                       | —                                                 | Module whose default export is the loader for every image, relative to the project root.                                                                                      |
+| `path`                    | `string`                                                                       | `'/_void/image'`                                  | Endpoint path for the default loader, or URL prefix for other loaders. `'/cdn-cgi/image'` with the `cloudflare` loader.                                                       |
+| `unoptimized`             | `boolean`                                                                      | `false`                                           | Serve every image's `src` as is, without a `srcset`.                                                                                                                          |
+| `domains`                 | `Array<string>`                                                                | `[]`                                              | Deprecated. Use `remotePatterns`.                                                                                                                                             |
+| `maximumDiskCacheSize`    | `number`                                                                       | —                                                 | Accepted for Next.js compatibility. Has no effect, and Void prints a warning.                                                                                                 |
+| `disableStaticImages`     | `boolean`                                                                      | `false`                                           | Accepted for Next.js compatibility. Has no effect, and Void prints a warning when `true`.                                                                                     |
+| `customCacheHandler`      | `boolean`                                                                      | `false`                                           | Accepted for Next.js compatibility. Has no effect, and Void prints a warning when `true`.                                                                                     |
+
+A `RemotePattern` is `{ protocol?: 'http' | 'https', hostname: string, port?: string, pathname?: string, search?: string }`. A `LocalPattern` is `{ pathname?: string, search?: string }`. In `pathname`, `*` matches one segment and `**` matches any number. In `hostname`, `*.example.com` and `**.example.com` match any subdomain of `example.com`. See [Allowed sources](../guide/images.md#allowed-sources).
+
+```json
+{
+  "images": {
+    "formats": ["image/avif", "image/webp"],
+    "qualities": [50, 75, 90],
+    "remotePatterns": [{ "protocol": "https", "hostname": "images.example.com" }]
+  }
+}
+```
+
+Void rejects unknown keys and out-of-range values when it reads the config. With a `node`, `bun`, or `deno` [`target`](#target), `output: "static"`, or on Void Platform, `Image` serves original files unless a custom loader or the `cloudflare` loader is set.
+
 ### `output`
 
 Output mode. Controls the default rendering strategy for pages.
@@ -214,6 +256,8 @@ When omitted or set to `"server"`, pages are server-rendered on request. Individ
 ```json
 { "output": "static" }
 ```
+
+Static output has no `/_void/image` endpoint, so `Image` serves original files unless you set a [custom loader](../guide/images.md#loaders).
 
 ### `remote`
 
@@ -274,7 +318,7 @@ Deploy target runtime. Defaults to `"cloudflare"`.
 | `"bun"`        | Bun, using `Bun.serve()`                                  |
 | `"deno"`       | Deno, using `Deno.serve()`                                |
 
-Non-CF targets disable CF binding imports (`void/db`, `void/kv`, `void/auth`, `void/storage`, `void/ai`, `void/sandbox`, `void/env`). Importing any of these with a non-CF target produces a compile-time error. File-based routing, middleware, and `void/client` all work normally.
+Non-CF targets disable CF binding imports (`void/db`, `void/kv`, `void/auth`, `void/storage`, `void/ai`, `void/sandbox`, `void/env`). Importing any of these with a non-CF target produces a compile-time error. File-based routing, middleware, and `void/client` all work normally. `Image` from the Pages adapters serves original files on these targets unless you set a [custom loader](../guide/images.md#loaders).
 
 Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they compile to Durable Objects. The `void/ws` subpath itself is not blocked on non-CF targets so client-side `connect()` code can still be bundled where a browser-like `WebSocket` runtime is available.
 
@@ -499,18 +543,29 @@ Explicitly control inferred Cloudflare bindings. If omitted, bindings are [autom
 Each binding accepts `true` (use default name), `false` (disable), or a string (custom binding name):
 
 ```json
-{ "inference": { "bindings": { "db": true, "kv": false, "storage": "MY_BUCKET", "ai": "MY_AI" } } }
+{
+  "inference": {
+    "bindings": {
+      "db": true,
+      "kv": false,
+      "storage": "MY_BUCKET",
+      "ai": "MY_AI",
+      "images": "MY_IMAGES"
+    }
+  }
+}
 ```
 
-| Key       | Default Binding | Type          | Custom Name              |
-| --------- | --------------- | ------------- | ------------------------ |
-| `db`      | `DB`            | `D1Database`  | `"db": "MY_DB"`          |
-| `kv`      | `KV`            | `KVNamespace` | `"kv": "MY_KV"`          |
-| `storage` | `STORAGE`       | `R2Bucket`    | `"storage": "MY_BUCKET"` |
-| `ai`      | `AI`            | `Ai`          | `"ai": "MY_AI"`          |
-| `email`   | —               | —             | Boolean only             |
+| Key       | Default Binding | Type            | Custom Name              |
+| --------- | --------------- | --------------- | ------------------------ |
+| `db`      | `DB`            | `D1Database`    | `"db": "MY_DB"`          |
+| `kv`      | `KV`            | `KVNamespace`   | `"kv": "MY_KV"`          |
+| `storage` | `STORAGE`       | `R2Bucket`      | `"storage": "MY_BUCKET"` |
+| `ai`      | `AI`            | `Ai`            | `"ai": "MY_AI"`          |
+| `images`  | `IMAGES`        | `ImagesBinding` | `"images": "MY_IMAGES"`  |
+| `email`   | —               | —               | Boolean only             |
 
-Custom binding names work with `void/db`, `void/kv`, and `void/storage` during development and deployment. Custom AI names also work with `void/ai` on direct Cloudflare deploys; managed Workers AI uses the platform's proxy.
+Custom binding names work with `void/db`, `void/kv`, and `void/storage` during development and deployment. Custom AI names also work with `void/ai` on direct Cloudflare deploys; managed Workers AI uses the platform's proxy. A custom Images name also works with `Image` and `/_void/image`, and an `images` binding you declare under [`cloudflare`](#cloudflare) keeps its name. Set `images` to `true` or a name to add the binding and serve `/_void/image` even when Void doesn't detect `Image` usage, for example when only a shared package imports `Image`. Set `images` to `false` to deploy without the binding; `/_void/image` then serves original files. See [Images](../guide/images.md#deployment).
 
 `email` is a boolean feature switch. Set it to `true` to enable [email](../guide/email.md) and the `void dev` inbox without an import from `void/email`, or `false` to disable them. On a Void platform, sending uses the platform proxy. Direct Cloudflare setup records a `SEND_EMAIL` binding in `void.lock.json`; see [`email.from`](#email).
 
