@@ -1,0 +1,37 @@
+packages/void/test/integration/node-static.test.ts
+  s_f572b1deb5ef86::t_c6635b1f7622b1 261-339
+playground/node-static/pages/router-url-client.server.ts
+  s_67a81d86e92538::t_8bb0a09ff9fa2e 1-5
+playground/node-static/pages/router-url-client.tsx
+  s_67a81d86e92538::t_d0d9368d841f7b 1-9
+playground/node-static/pages/router-url/[slug].server.ts
+  s_67a81d86e92538::t_a1db392ed8b36f 1-16
+playground/node-static/pages/router-url/[slug].tsx
+  s_67a81d86e92538::t_0bf0c2d5a6e819 1-44
+packages/react/src/runtime/pages-client.ts
+  s_f572b1deb5ef86::t_ec2c0e7ff8b9a3 11,110-112,163-207,339-361,416,421,435-441,666-670,701,729-732
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "728fa095ddd99e04e550fa63f835e9fa96a231b1",
+  "prompts": {},
+  "sessions": {
+    "s_67a81d86e92538": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a26c67fa93cf52333",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
