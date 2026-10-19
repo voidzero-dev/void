@@ -251,8 +251,25 @@ export function islandsPlugin(
 
 function generateWrapperComponent(meta: WrapperMeta): string {
   return `import _Cmp from ${JSON.stringify(meta.src)};
+import { createComponent, createUniqueId, sharedConfig, useContext } from "solid-js";
+import { FrontmatterContext } from "@void/solid";
 export default function _IslandWrap(props) {
-  return <div data-island="${meta.islandId}" data-props={JSON.stringify(props)} data-hydrate="${meta.hydrate}"><_Cmp {...props} /></div>;
+  const context = sharedConfig.context;
+  const renderId = "void-" + createUniqueId() + "-";
+  const frontmatter = useContext(FrontmatterContext);
+  let content;
+  // Keep the page's SSR serializer, suspense state and owner, but allocate
+  // this island's keys from the same root used by the client hydrator.
+  sharedConfig.context = { ...context, id: renderId, count: 0, noHydrate: false };
+  try {
+    content = createComponent(FrontmatterContext.Provider, {
+      value: frontmatter,
+      get children() { return createComponent(_Cmp, props); }
+    });
+  } finally {
+    sharedConfig.context = context;
+  }
+  return <div data-island="${meta.islandId}" data-props={JSON.stringify(props)} data-hydrate="${meta.hydrate}" data-solid-render-id={renderId}>{content}</div>;
 }
 `;
 }
@@ -395,30 +412,25 @@ function generateIslandClientEntry(
   }
   lines.push('};');
 
-  // Use render (not hydrate) for island activation. Solid's hydrate() uses
-  // tree-position-dependent hydration keys that won't match when hydrating a
-  // sub-component that was SSR'd deeper in the component tree (inside context
-  // providers and layouts). render() replaces the server HTML with a fresh
-  // client render — the brief re-render is acceptable for interactive islands.
+  // Each wrapper scopes its SSR keys independently of its page and layout.
+  // Recreate the same provider tree before hydrating that island's root.
   lines.push(`
 async function mountIsland(el, mod, props, frontmatter) {
-  const { render } = await import("solid-js/web");
-  const { createComponent } = await import("solid-js");
+  const { hydrate } = await import("solid-js/web");
+  const { createComponent, sharedConfig } = await import("solid-js");
   const Component = mod.default || mod;
-  const { FrontmatterContext } =
-    Object.keys(frontmatter).length > 0 ? await import("@void/solid") : {};
-  el.textContent = "";
-  render(
-    () =>
-      FrontmatterContext
-        ? createComponent(FrontmatterContext.Provider, {
-            value: frontmatter,
-            get children() {
-              return createComponent(Component, props);
-            },
-          })
-        : createComponent(Component, props),
+  const { FrontmatterContext } = await import("@void/solid");
+  // Solid 1.x marks the document done on its first delegated event. A later
+  // island is still an SSR root, even after another island was interacted with.
+  globalThis._$HY.done = false;
+  sharedConfig.done = false;
+  hydrate(
+    () => createComponent(FrontmatterContext.Provider, {
+      value: frontmatter,
+      get children() { return createComponent(Component, props); }
+    }),
     el,
+    { renderId: el.getAttribute("data-solid-render-id") },
   );
   el.setAttribute("data-hydrated", "true");
 }
