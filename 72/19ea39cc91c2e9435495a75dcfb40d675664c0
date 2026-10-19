@@ -1,0 +1,21 @@
+packages/solid/src/plugin-islands.ts
+  s_f572b1deb5ef86::t_8d742dbb2b8039 416-418
+packages/solid/test/integration/island-hydration.test.ts
+  s_f572b1deb5ef86::t_d68429e34fee1b 69-76,126-130,157,190,192,247-263
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7219ea39cc91c2e9435495a75dcfb40d675664c0",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
