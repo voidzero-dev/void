@@ -1,0 +1,21 @@
+packages/void/src/runtime/handler.ts
+  s_f572b1deb5ef86::t_451ba26ca97195 212,216,221,227,234,242
+packages/void/test/unit/infer-props.typecheck.ts
+  s_f572b1deb5ef86::t_38e0d06ab22b0c 7,10-11,103-115
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7eab0e61d445b197c4c7b2f13912158892499cb7",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
