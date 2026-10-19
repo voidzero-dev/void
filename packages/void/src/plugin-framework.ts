@@ -360,6 +360,23 @@ export default {
         }
       : undefined;
 
+  // A D1 build keeps Kit's output, so installed packages that import void stay external and
+  // load their own void/db. Only the virtual module applies `database.casing`: bundle them when
+  // it is set, as the dev server inlines them.
+  const svelteKitD1CasingBuildPlugin: Plugin | undefined =
+    detected.class === 'b' && dialect === 'sqlite' && getDatabaseCasing(config) !== undefined
+      ? {
+          name: 'void:sveltekit-d1-casing-build',
+          apply: 'build',
+          configEnvironment(name) {
+            if (name !== 'ssr') {
+              return;
+            }
+            return { resolve: { noExternal: findVoidDependentPackages(root) } };
+          },
+        }
+      : undefined;
+
   return [
     devTriggerSecretGuardPlugin(),
     createCloudflareBuiltinsExternalPlugin(),
@@ -369,6 +386,7 @@ export default {
     ...(astroServerEntryPlugin ? [astroServerEntryPlugin] : []),
     svelteKitHooksInjectPlugin,
     ...(svelteKitWorkerBuildPlugin ? [svelteKitWorkerBuildPlugin] : []),
+    ...(svelteKitD1CasingBuildPlugin ? [svelteKitD1CasingBuildPlugin] : []),
     clientStubsPlugin,
     // Also serves the Node built-ins that the driver requires in SvelteKit's workerd build.
     serverRuntimeOptimizerPlugin,

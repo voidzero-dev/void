@@ -561,6 +561,46 @@ describe('voidPlugin Vite environments', () => {
     }
   });
 
+  it.each([
+    ['bundles', { casing: 'snake_case' }],
+    ['leaves out', {} as { casing?: string }],
+  ])(
+    '%s installed packages that depend on void in a SvelteKit D1 build with database %j',
+    async (_, database) => {
+      const root = createProjectRoot();
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({
+          type: 'module',
+          dependencies: { 'db-lib': '*' },
+          devDependencies: { '@sveltejs/kit': '*' },
+        }),
+      );
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ database }));
+      installPackage(root, 'db-lib', { type: 'module', peerDependencies: { void: '*' } }, '');
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+      // Kit's plugin adds the ssr environment that builds the server.
+      const config = await resolveConfig(
+        {
+          root,
+          configFile: false,
+          logLevel: 'silent',
+          plugins: [voidPlugin()],
+          environments: { ssr: {} },
+        },
+        'build',
+        'production',
+      );
+
+      expect(config.environments.ssr!.resolve.noExternal).toEqual(
+        database.casing
+          ? expect.arrayContaining(['db-lib'])
+          : expect.not.arrayContaining(['db-lib']),
+      );
+    },
+  );
+
   // The rule vite-plugin-svelte applies to Svelte libraries.
   it("finds installed ES module packages that depend on void among the app's dependencies and theirs", () => {
     const root = createProjectRoot();
