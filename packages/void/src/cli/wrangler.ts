@@ -2282,14 +2282,23 @@ export function addsImagesBinding(
   needsImages: boolean | undefined,
   name: string,
 ): boolean {
-  if (needsImages !== true || config.images !== undefined) {
-    return false;
-  }
+  return (
+    needsImages === true &&
+    config.images === undefined &&
+    findImagesBindingOwner(config, name) === undefined
+  );
+}
+
+/** The label of another binding in `config` that uses the Images binding name, if any. */
+export function findImagesBindingOwner(
+  config: Record<string, unknown>,
+  name: string,
+): string | undefined {
   try {
-    return findBindingNameOwner(config, 'images', name) === undefined;
+    return findBindingNameOwner(config, 'images', name);
   } catch {
-    // A malformed field is Wrangler's to report.
-    return true;
+    // A malformed field is Wrangler's to report; this check only names a collision.
+    return undefined;
   }
 }
 

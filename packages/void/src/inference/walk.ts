@@ -32,6 +32,7 @@ export type InferredBindings = {
 // (managed sends go through __VOID_PROXY/email/send; native Cloudflare deploys
 // add SEND_EMAIL themselves), so the `void/email` import (below) is the
 // sole driver of `needsEmail`.
+// `?.` covers SvelteKit's `platform?.env?.X`; the walker already reads optional members.
 const ENV_BINDING_RE = /\benv\s*\.\s*(DB|KV|STORAGE|QUEUE_\w+|AI|SANDBOX|IMAGES)\b/;
 
 /** Adapter entries whose `Image` and `getImageProps` exports render through the optimizer. */

@@ -52,6 +52,14 @@ export type ManifestLoader = (
   request: Request,
   env: RuntimeEnvironment,
 ) => Promise<ClientManifest | null>;
+/** The build-proven fingerprinted client files a manifest lists (no leading `/`). */
+export function collectImmutableFiles(manifest: ClientManifest | null | undefined): Set<string> {
+  return new Set(
+    Object.values(manifest ?? {}).flatMap((entry) =>
+      Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
+    ),
+  );
+}
 export function createManifestLoader(): ManifestLoader {
   let cached: ClientManifest | null = null;
   return async (request, env) => {

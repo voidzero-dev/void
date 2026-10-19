@@ -186,7 +186,8 @@ const ftypBrand = (bytes: Uint8Array): string | undefined => {
 
 const HEIF_BRANDS = new Set(['avif', 'mif1', 'msf1', 'heic', 'heix', 'hevc', 'hevx']);
 const PNM_TYPES = new Set(['P1', 'P2', 'P3', 'P4', 'P5', 'P6', 'P7', 'PF']);
-const SVG_ROOT = /<svg\s([^>"']|"[^"]*"|'[^']*')*>/;
+/** The opening `<svg>` tag of an SVG document (`image-size`'s validator). */
+export const SVG_ROOT: RegExp = /<svg\s(?:[^>"']|"[^"]*"|'[^']*')*>/;
 
 const VALIDATORS: ReadonlyArray<[string, (bytes: Uint8Array) => boolean]> = [
   ['bmp', (b) => utf8(b, 0, 2) === 'BM'],
@@ -319,23 +320,18 @@ function isAnimatedPng(bytes: Uint8Array): boolean {
   return hasAnimationControl && hasDefaultImage && hasFrameData;
 }
 
+/**
+ * An animated WebP uses the extended format: a `VP8X` first chunk whose flags
+ * byte has the animation bit set. `is-animated` scans the whole file for an
+ * `ANIM` chunk instead, which costs a Worker's CPU budget on large sources.
+ */
 function isAnimatedWebp(bytes: Uint8Array): boolean {
-  for (let index = 0; index + 4 <= bytes.length; index++) {
-    if (
-      bytes[index] === 0x41 &&
-      bytes[index + 1] === 0x4e &&
-      bytes[index + 2] === 0x49 &&
-      bytes[index + 3] === 0x4d
-    ) {
-      return true;
-    }
-  }
-  return false;
+  return ascii(bytes, 12, 16) === 'VP8X' && (bytes[20] & 0x02) !== 0;
 }
 
 /**
  * Whether a GIF has more than one image, a PNG is an APNG with frame data,
- * or a WebP contains an `ANIM` chunk (`is-animated` rules).
+ * or a WebP declares animation (`is-animated` rules).
  */
 export function isAnimated(bytes: Uint8Array): boolean {
   if (ascii(bytes, 0, 3) === 'GIF') {

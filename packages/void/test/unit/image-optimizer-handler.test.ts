@@ -839,20 +839,26 @@ describe('createImageHandler', () => {
     expect(loadManifest).not.toHaveBeenCalled();
   });
 
-  it('treats a manifest that fails to load as proving nothing', async () => {
-    const hono = app({
-      config: config(),
-      deploymentId: 'd1',
-      loadManifest: async () => {
-        throw new Error('manifest unavailable');
+  it('treats a manifest that fails to load as proving nothing and loads it again', async () => {
+    const manifest = {
+      'src/hero.png': {
+        file: 'assets/hero-abc123.png',
+        immutableFiles: ['assets/hero-abc123.png'],
       },
-    });
+    };
+    const loadManifest = vi
+      .fn<() => Promise<typeof manifest>>()
+      .mockRejectedValueOnce(new Error('manifest unavailable'))
+      .mockResolvedValue(manifest);
+    const hono = app({ config: config(), deploymentId: 'd1', loadManifest });
     const files = { '/assets/hero-abc123.png': { body: fixture('test.png') } };
-    const response = await hono.fetch(request('url=/assets/hero-abc123.png&w=64&q=75'), {
-      ASSETS: fakeAssets(files).assets,
-      IMAGES: fakeBinding().binding,
-    });
-    expect(response.status).toBe(200);
-    expect(response.headers.get('cache-control')).toBe('public, max-age=14400, must-revalidate');
+    const env = { ASSETS: fakeAssets(files).assets, IMAGES: fakeBinding().binding };
+    const query = 'url=/assets/hero-abc123.png&w=64&q=75';
+    const first = await hono.fetch(request(query), env);
+    expect(first.status).toBe(200);
+    expect(first.headers.get('cache-control')).toBe('public, max-age=14400, must-revalidate');
+    const second = await hono.fetch(request(query), env);
+    expect(second.headers.get('cache-control')).toBe('public, max-age=315360000, immutable');
+    expect(loadManifest).toHaveBeenCalledTimes(2);
   });
 });

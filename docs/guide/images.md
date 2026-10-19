@@ -315,7 +315,7 @@ export default function Home() {
 
 The import is a `StaticImageData` object, `{ src, width, height }`. `Image` takes `width` and `height` from it; pass one of them to scale the other proportionally. Supported files are PNG, JPEG, GIF, WebP, AVIF, HEIC, SVG, BMP, and ICO.
 
-Imported images get a content hash in their file name, so optimized versions are cached with `Cache-Control: public, max-age=315360000, immutable`. An import without `?image` keeps Vite's default behavior and returns the URL string. Vite inlines very small files as data URLs, and `Image` serves those as is.
+Imported images get a content hash in their file name, so optimized versions are cached with `Cache-Control: public, max-age=315360000, immutable`. An import without `?image` keeps Vite's default behavior and returns the URL string. Unlike other asset imports, `?image` imports are never inlined as data URLs.
 
 ## Remote Images
 
@@ -554,7 +554,7 @@ GET /_void/image?url=%2Fphotos%2Flake.jpg&w=828&q=75
 | `w`       | Output width. Must be one of `images.deviceSizes` or `images.imageSizes`          |
 | `q`       | Output quality. Must be one of `images.qualities`                                 |
 
-A request with a missing or disallowed parameter returns `400` with a plain-text reason, such as `"w" parameter (width) of 500 is not allowed` or `"url" parameter is not allowed`. A source that isn't an image also returns `400`. Sources larger than `images.maximumResponseBody` return `413`, remote sources that time out return `504`, and more than `images.maximumRedirects` redirects return `508`. An error status from the source, such as `404`, is passed through. `/_void/image` answers `GET` and `HEAD` requests; other methods return `405`.
+A request with a missing or disallowed parameter returns `400` with a plain-text reason, such as `"w" parameter (width) of 500 is not allowed` or `"url" parameter is not allowed`. A source that isn't an image also returns `400`. Sources larger than `images.maximumResponseBody` return `413`, sources that time out return `504`, and more than `images.maximumRedirects` redirects return `508`. An error status from the source, such as `404`, is passed through. `/_void/image` answers `GET` and `HEAD` requests; other methods return `405`.
 
 The endpoint runs after your middleware, so middleware that guards every path also applies to image requests. It then requests a local source through your middleware and routes without the visitor's cookies or headers, as Next.js does. If middleware refuses that request, for example because the source path requires a session, the image fails with that status even for signed-in visitors. Let anonymous requests for image paths through, or render those images with `unoptimized`.
 

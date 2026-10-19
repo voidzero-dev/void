@@ -5,6 +5,7 @@ import { isImageOptimizerEnabled } from './application-features.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
 import {
   findBindingNameOwner,
+  findImagesBindingOwner,
   hasDurableObjectSqliteMigration,
   LIVE_MIGRATION_TAG,
   nextDurableObjectMigrationTag,
@@ -21,7 +22,6 @@ import {
   DEFAULT_IMAGES_BINDING,
   hasBinding,
   resolveImagesBindingName,
-  shouldBindImages,
   shouldInjectEmailDevInboxVar,
 } from './plugin-binding-utils.ts';
 import { type EnvSchemaFacts } from './plugin-env-schema.ts';
@@ -66,23 +66,6 @@ function currentMigrations(
 ): Array<DurableObjectMigration> {
   const current = result.migrations ?? (resolved as Record<string, unknown>).migrations;
   return Array.isArray(current) ? (current as Array<DurableObjectMigration>) : [];
-}
-
-/** The label of another binding that already uses the Images binding's name. */
-function imagesBindingNameOwner(
-  resolved: WorkerConfig,
-  result: Record<string, unknown>,
-  name: string,
-): string | undefined {
-  try {
-    return (
-      findBindingNameOwner(result, 'images', name) ??
-      findBindingNameOwner(resolved as Record<string, unknown>, 'images', name)
-    );
-  } catch {
-    // A malformed field is Wrangler's to report; this check only names a collision.
-    return undefined;
-  }
 }
 
 export function mergeWorkerBindings(
@@ -516,8 +499,11 @@ export function mergeWorkerBindings(
   const resolvedImages = (resolved as { images?: unknown }).images;
   const imagesBindingName = resolveImagesBindingName(resolvedImages, bindingNames?.images);
   let imagesBound = resolvedImages !== undefined;
-  if (shouldBindImages(bindings.needsImages, resolvedImages, result.images)) {
-    const owner = imagesBindingNameOwner(resolved, result, imagesBindingName);
+  // An authored root `images` entry stays authoritative.
+  if (bindings.needsImages === true && !resolvedImages && !result.images) {
+    const owner =
+      findImagesBindingOwner(result, imagesBindingName) ??
+      findImagesBindingOwner(resolved as Record<string, unknown>, imagesBindingName);
     if (owner === undefined) {
       result.images = { binding: imagesBindingName };
       imagesBound = true;

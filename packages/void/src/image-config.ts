@@ -7,6 +7,7 @@ import { existsSync } from 'node:fs';
 import { isRecord } from '@void/deploy-core';
 import { isAbsolute, join, resolve } from 'pathslash';
 import picomatch from 'picomatch';
+import { ascending } from './image/client-config.ts';
 import {
   CLOUDFLARE_IMAGE_PATH,
   DEFAULT_IMAGE_PATH,
@@ -394,8 +395,6 @@ export function compileLocalPattern(p: LocalPattern): CompiledLocalPattern {
   }
   return compiled;
 }
-
-const ascending = (a: number, b: number): number => a - b;
 
 /** The local pattern for static `?image` imports emitted under `assetsDir`. */
 function staticImportPattern(assetsDir: string): LocalPattern {

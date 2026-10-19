@@ -9,5 +9,12 @@ export { useNavigation } from './use-navigation.ts';
 export { useIslandForm } from './use-island-form.svelte.ts';
 export { action, setActionRouter } from './action.ts';
 export { getImageProps } from './image.ts';
-export type { ImageProps } from './image.ts';
+export type { ImageProps, ImgAttributes as ImageAttributes } from './image.ts';
+export type {
+  ImageLoader,
+  ImageLoaderProps,
+  PlaceholderValue,
+  StaticImageData,
+  StaticImport,
+} from 'void/image';
 export type { DeferredState as Deferred, InferProps } from 'void';

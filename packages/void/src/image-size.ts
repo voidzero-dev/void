@@ -3,6 +3,7 @@
  * `image-size` package (used by Next.js static image imports) reads them.
  * Pure: takes the file's bytes, has no dependencies, and never decodes pixels.
  */
+import { SVG_ROOT } from './image/optimizer/content-type.ts';
 
 /** Formats `readImageSize` recognizes. */
 export type ImageSizeType =
@@ -270,7 +271,6 @@ function readIco(bytes: Uint8Array): Omit<ImageSize, 'type'> | undefined {
   return size;
 }
 
-const SVG_ROOT = /<svg\s(?:[^>"']|"[^"]*"|'[^']*')*>/;
 const SVG_WIDTH = /\swidth=(['"])([^%]+?)\1/;
 const SVG_HEIGHT = /\sheight=(['"])([^%]+?)\1/;
 const SVG_VIEW_BOX = /\sviewBox=(['"])(.+?)\1/i;

@@ -52,17 +52,3 @@ export function resolveImagesBindingName(resolvedImages: unknown, configuredName
   }
   return configuredName ?? DEFAULT_IMAGES_BINDING;
 }
-
-/**
- * Decide whether to add the Images binding. Unlike Workers AI, it is added
- * for serve and build alike: Miniflare transforms images locally, so dev
- * needs neither `remote: true` nor a Cloudflare login. An authored root
- * `images` entry stays authoritative.
- */
-export function shouldBindImages(
-  needsImages: boolean | undefined,
-  resolvedImages: unknown,
-  resultImages: unknown,
-): boolean {
-  return needsImages === true && !resolvedImages && !resultImages;
-}

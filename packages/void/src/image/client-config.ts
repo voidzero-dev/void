@@ -32,7 +32,7 @@ export function toClientImageConfig(
   return config;
 }
 
-const ascending = (a: number, b: number): number => a - b;
+export const ascending = (a: number, b: number): number => a - b;
 
 /**
  * Next.js defaults in client form, without patterns (as `next/image` sees them

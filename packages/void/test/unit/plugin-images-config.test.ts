@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { resolveImagesBindingName, shouldBindImages } from '../../src/plugin-binding-utils.ts';
+import { resolveImagesBindingName } from '../../src/plugin-binding-utils.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 type MockCloudflarePluginConfig = {
@@ -256,12 +256,5 @@ describe('Images binding helpers', () => {
     expect(resolveImagesBindingName(undefined)).toBe('IMAGES');
     expect(resolveImagesBindingName(undefined, 'PHOTOS')).toBe('PHOTOS');
     expect(resolveImagesBindingName({ binding: 'MEDIA' }, 'PHOTOS')).toBe('MEDIA');
-  });
-
-  it("does not override a user's root images binding", () => {
-    expect(shouldBindImages(true, undefined, undefined)).toBe(true);
-    expect(shouldBindImages(true, { binding: 'MEDIA' }, undefined)).toBe(false);
-    expect(shouldBindImages(false, undefined, undefined)).toBe(false);
-    expect(shouldBindImages(undefined, undefined, undefined)).toBe(false);
   });
 });

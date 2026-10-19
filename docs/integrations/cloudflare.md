@@ -46,15 +46,15 @@ This provides binding types and Workers runtime types.
 
 ### Available bindings
 
-| Binding          | Resource        | Use in your app                               |
-| ---------------- | --------------- | --------------------------------------------- |
-| `DB`             | D1              | `c.env.DB` or `void/db`                       |
-| `KV`             | KV              | `c.env.KV` or `void/kv`                       |
-| `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage`             |
-| `AI`             | Workers AI      | `c.env.AI` or `void/ai`                       |
-| `IMAGES`         | Images          | `Image`, `getImageProps()`, or `c.env.IMAGES` |
-| `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`              |
-| Filename-derived | Durable Objects | A module in `durable-objects/`                |
+| Binding          | Resource        | Use in your app                   |
+| ---------------- | --------------- | --------------------------------- |
+| `DB`             | D1              | `c.env.DB` or `void/db`           |
+| `KV`             | KV              | `c.env.KV` or `void/kv`           |
+| `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
+| `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
+| `IMAGES`         | Images          | `c.env.IMAGES` or `Image`         |
+| `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
+| Filename-derived | Durable Objects | A module in `durable-objects/`    |
 
 Use [binding configuration](../reference/resource-inference.md#explicit-binding-overrides) when you need to enable, disable, or rename an inferred binding.
 

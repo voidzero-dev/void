@@ -7,7 +7,11 @@ import {
   type ImagesBindingLike,
 } from '../image/optimizer/handler.ts';
 import { getRawRuntimeEnv, type RuntimeEnv } from './env-raw.ts';
-import { createManifestLoader, type ManifestLoader } from './routing-assets.ts';
+import {
+  collectImmutableFiles,
+  createManifestLoader,
+  type ManifestLoader,
+} from './routing-assets.ts';
 import type { RuntimeEnvironment } from './routing-worker.ts';
 
 export type ImageHandlerOptions = {
@@ -140,17 +144,15 @@ export function createImageHandler(
               return false;
             }
             // Same proof as the static asset cache policy: optional metadata
-            // that fails to load only means no image is treated as immutable.
-            immutableFiles ??= loadManifest(request, env).then(
-              (manifest) =>
-                new Set(
-                  Object.values(manifest ?? {}).flatMap((entry) =>
-                    Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-                  ),
-                ),
-              () => new Set(),
-            );
-            const files = await immutableFiles;
+            // that fails to load only means no image is treated as immutable
+            // for this request; the next request loads it again.
+            const files = await (immutableFiles ??= loadManifest(request, env).then(
+              collectImmutableFiles,
+              () => {
+                immutableFiles = undefined;
+                return new Set<string>();
+              },
+            ));
             const path = pathname.slice(1);
             if (files.has(path)) {
               return true;

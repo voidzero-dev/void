@@ -9,7 +9,7 @@ import {
   isObjectExpression,
   type AstNode,
 } from '../shared/ast.ts';
-import { staticLiteral } from '../shared/static-exports.ts';
+import { staticLiteral, unwrapStaticExpression } from '../shared/static-exports.ts';
 
 /** The module that exports vinext's Cloudflare Images optimizer factory. */
 export const VINEXT_IMAGES_OPTIMIZER_MODULE = '@vinext/cloudflare/images/images-optimizer';
@@ -17,21 +17,47 @@ export const VINEXT_IMAGES_OPTIMIZER_MODULE = '@vinext/cloudflare/images/images-
 /** vinext's default `imagesOptimizer({ binding })`. */
 const VINEXT_DEFAULT_IMAGES_BINDING = 'IMAGES';
 
+/** Vite's `DEFAULT_CONFIG_FILES`, in the order Vite tries them. */
 const VITE_CONFIG_FILES = [
-  'vite.config.ts',
-  'vite.config.mts',
   'vite.config.js',
   'vite.config.mjs',
-  'vite.config.cts',
+  'vite.config.ts',
   'vite.config.cjs',
+  'vite.config.mts',
+  'vite.config.cts',
 ];
 
-/** The string-literal `binding` of an `imagesOptimizer({ binding })` options object. */
-function literalBinding(options: AstNode | undefined): string | undefined {
-  if (!isObjectExpression(options)) {
+/** Top-level `const NAME = '<literal>'` declarations of the config module. */
+function topLevelStringConstants(program: AstNode): Map<string, string> {
+  const constants = new Map<string, string>();
+  for (const statement of (program.body ?? []) as Array<AstNode>) {
+    if (statement.type !== 'VariableDeclaration' || statement.kind !== 'const') {
+      continue;
+    }
+    for (const declaration of (statement.declarations ?? []) as Array<AstNode>) {
+      const id = declaration.id as AstNode | undefined;
+      const value = staticLiteral(declaration.init as AstNode | undefined);
+      if (isIdentifier(id) && typeof value === 'string') {
+        constants.set(id.name, value);
+      }
+    }
+  }
+  return constants;
+}
+
+/**
+ * The `binding` of an `imagesOptimizer({ binding })` options object: a string
+ * literal, or a same-file top-level `const` holding one.
+ */
+function literalBinding(
+  options: AstNode | undefined,
+  constants: Map<string, string>,
+): string | undefined {
+  const object = unwrapStaticExpression(options);
+  if (!isObjectExpression(object)) {
     return undefined;
   }
-  for (const property of options.properties ?? []) {
+  for (const property of object.properties ?? []) {
     if (property.type !== 'Property' || property.computed === true) {
       continue;
     }
@@ -40,7 +66,10 @@ function literalBinding(options: AstNode | undefined): string | undefined {
     if (name !== 'binding') {
       continue;
     }
-    const value = staticLiteral(property.value as AstNode | undefined);
+    const valueNode = unwrapStaticExpression(property.value as AstNode | undefined);
+    const value = isIdentifier(valueNode)
+      ? constants.get(valueNode.name)
+      : staticLiteral(valueNode);
     return typeof value === 'string' && value !== '' ? value : undefined;
   }
   return undefined;
@@ -50,7 +79,8 @@ function literalBinding(options: AstNode | undefined): string | undefined {
  * Find vinext's Cloudflare Images optimizer in a Vite config's source:
  * a call to `imagesOptimizer` imported from `@vinext/cloudflare/images/images-optimizer`
  * (aliases and namespace imports included). Returns the Images binding it reads,
- * from a string-literal `binding` option or vinext's default `IMAGES`.
+ * from a `binding` option that is a string literal or a same-file `const`, or
+ * vinext's default `IMAGES`.
  */
 export function detectVinextImagesOptimizerInSource(
   code: string,
@@ -89,6 +119,7 @@ export function detectVinextImagesOptimizerInSource(
     return undefined;
   }
 
+  const constants = topLevelStringConstants(parsed.program as unknown as AstNode);
   let found: { binding: string } | undefined;
   walk(parsed.program as unknown as Parameters<typeof walk>[0], {
     enter(node) {
@@ -107,7 +138,8 @@ export function detectVinextImagesOptimizerInSource(
           callee.property.name === 'imagesOptimizer');
       if (isFactory) {
         found = {
-          binding: literalBinding(current.arguments?.[0]) ?? VINEXT_DEFAULT_IMAGES_BINDING,
+          binding:
+            literalBinding(current.arguments?.[0], constants) ?? VINEXT_DEFAULT_IMAGES_BINDING,
         };
         this.skip();
       }

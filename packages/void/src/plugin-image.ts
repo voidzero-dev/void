@@ -167,16 +167,21 @@ export function generateImageConfigModule(
 /**
  * The module for `<file>?image`: Vite's asset URL plus the intrinsic size
  * (`StaticImageData`). With `fsUrl` (dev, see `usesFsStaticImageUrls`), `src`
- * is the file's `/@fs/` URL.
+ * is the file's `/@fs/` URL. A `build` never inlines the file as a data URL:
+ * the endpoint optimizes it under its fingerprinted name (the dev server
+ * would keep the query in the URL).
  */
 export function generateStaticImageModule(
   file: string,
   size: Pick<ImageSize, 'width' | 'height'>,
-  fsUrl = false,
+  options: { fsUrl?: boolean; build?: boolean } = {},
 ): string {
   // Other image types (HEIC) are not Vite assets unless `assetsInclude` lists them.
-  const specifier = VITE_IMAGE_ASSET.test(file) ? file : `${file}?url`;
-  if (fsUrl) {
+  let specifier = VITE_IMAGE_ASSET.test(file) ? file : `${file}?url`;
+  if (options.build) {
+    specifier += specifier.includes('?') ? '&no-inline' : '?no-inline';
+  }
+  if (options.fsUrl) {
     const src = VITE_FS_PREFIX + file.replace(/^\/+/, '');
     // The import lets the dev server serve the file from `/@fs/` even outside
     // `server.fs.allow`, as for Vite's own URL (`safeModulePaths`).
@@ -207,9 +212,9 @@ export function imagePlugin(
   // Pre-resolve the `void/image` entry like the other runtime paths, so the
   // module that receives the config import is the one adapters load.
   const imageEntry = normalizePath(fileURLToPath(import.meta.resolve('#self/image')));
-  const imageEntryFilter = new RegExp(`${escapeRegExp(basename(imageEntry))}(?:[?#].*)?$`);
+  // `<package>/dist/image/index.mjs`, through any symlinked package path.
+  const imageEntryFilter = new RegExp(`/image/${escapeRegExp(basename(imageEntry))}(?:[?#].*)?$`);
   let imageEntryRealPath: string | undefined;
-  const realPaths = new Map<string, string>();
   let viteRoot = root;
   let viteConfig: ResolvedConfig | undefined;
   const imageSources = new Set<string>();
@@ -217,16 +222,11 @@ export function imagePlugin(
   let current: ResolvedImageConfig | undefined;
 
   function realPath(file: string): string {
-    let real = realPaths.get(file);
-    if (real === undefined) {
-      try {
-        real = normalizePath(realpathSync(file));
-      } catch {
-        real = file;
-      }
-      realPaths.set(file, real);
+    try {
+      return normalizePath(realpathSync(file));
+    } catch {
+      return file;
     }
-    return real;
   }
 
   /**
@@ -291,17 +291,16 @@ export function imagePlugin(
         applyAssetsDir(resolved);
       }
     },
-    configEnvironment(name, environment) {
-      const consumer = environment.consumer ?? (name === 'client' ? 'client' : 'server');
-      if (consumer === 'client') {
-        // A prebundled copy of `void/image` would skip the config import below.
-        return { optimizeDeps: { exclude: ['void/image'] } };
-      }
+    configEnvironment() {
+      // A prebundled copy of `void/image` would skip the config import below.
+      return { optimizeDeps: { exclude: ['void/image'] } };
     },
     resolveId: {
-      filter: { id: /^virtual:void\/image-config$/ },
-      handler() {
-        return RESOLVED_IMAGE_CONFIG_MODULE_ID;
+      filter: { id: [/^virtual:void\/image-config$/, /^void\/image$/] },
+      handler(id) {
+        // Every `void/image` import loads this entry, so an adapter installed
+        // with its own nested copy of void reads the same config.
+        return id === IMAGE_CONFIG_MODULE_ID ? RESOLVED_IMAGE_CONFIG_MODULE_ID : imageEntry;
       },
     },
     load: {
@@ -347,11 +346,10 @@ export function imagePlugin(
         }
         this.addWatchFile(file);
         imageSources.add(source);
-        return generateStaticImageModule(
-          file,
-          size,
-          current !== undefined && usesFsStaticImageUrls(current, options.images),
-        );
+        return generateStaticImageModule(file, size, {
+          fsUrl: current !== undefined && usesFsStaticImageUrls(current, options.images),
+          build: this.environment?.mode === 'build',
+        });
       },
     },
     transform: {
