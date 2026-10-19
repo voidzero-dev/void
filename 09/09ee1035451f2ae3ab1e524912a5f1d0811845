@@ -1,0 +1,25 @@
+packages/void/test/unit/output-note.test.ts
+  s_eed6f922e43994::t_96a0f111b57695 23,28-29
+packages/void/test/unit/prompts-spacing.test.ts
+  s_eed6f922e43994::t_6aa584be292a90 5-8,46-48,58,73,87-90
+packages/void/test/unit/secret-output.test.ts
+  s_eed6f922e43994::t_26e18548a401bf 2,76
+packages/void/test/unit/subcommand-prompt.test.ts
+  s_eed6f922e43994::t_d484b82ab08bde 4,146,197
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0909ee1035451f2ae3ab1e524912a5f1d0811845",
+  "prompts": {},
+  "sessions": {
+    "s_eed6f922e43994": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15270-f87e-7033-8104-601083c5ac50",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
