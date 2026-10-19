@@ -10,6 +10,7 @@ import {
 } from '../../src/image/optimizer/index.ts';
 
 const UPSTREAM_INVALID = '"url" parameter is valid but upstream response is invalid';
+const UPSTREAM_TIMED_OUT = '"url" parameter is valid but upstream response timed out';
 const INTERNAL_INVALID = '"url" parameter is valid but internal response is invalid';
 const JPEG = Buffer.from([0xff, 0xd8, 0xff]);
 
@@ -342,7 +343,7 @@ describe('loadLocalImage', () => {
       assets,
       '/my photo.jpg?x=1',
       'https://app.test/_void/image?url=x',
-      100,
+      { maximumResponseBody: 100 },
     );
     expect(result).toEqual({
       bytes: new Uint8Array(JPEG),
@@ -376,7 +377,9 @@ describe('loadLocalImage', () => {
   ])('rejects %s', async (_name, response, expected) => {
     expect(
       await failure(
-        loadLocalImage({ fetch: async () => response() }, '/a.png', 'https://app.test/', 10),
+        loadLocalImage({ fetch: async () => response() }, '/a.png', 'https://app.test/', {
+          maximumResponseBody: 10,
+        }),
       ),
     ).toEqual(expected);
   });
@@ -409,7 +412,10 @@ describe('loadLocalImage', () => {
       );
       expect(
         await failure(
-          loadLocalImage(assets, '/members/a.png', 'https://app.test/_void/image', 100, dispatch),
+          loadLocalImage(assets, '/members/a.png', 'https://app.test/_void/image', {
+            maximumResponseBody: 100,
+            dispatch,
+          }),
         ),
       ).toEqual({ status: 401, message: INTERNAL_INVALID });
       expect(read).toEqual([]);
@@ -424,14 +430,22 @@ describe('loadLocalImage', () => {
         () => new Response(null, { status: 302, headers: { location: '/login' } }),
       );
       expect(
-        await failure(loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch)),
+        await failure(
+          loadLocalImage(assets, '/a.png', 'https://app.test/', {
+            maximumResponseBody: 100,
+            dispatch,
+          }),
+        ),
       ).toEqual({ status: 500, message: INTERNAL_INVALID });
       expect(read).toEqual([]);
     });
 
     it('falls back to the static assets when the app answers 404', async () => {
       const { dispatch, assets, read } = setup(() => new Response('none', { status: 404 }));
-      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch);
+      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', {
+        maximumResponseBody: 100,
+        dispatch,
+      });
       expect(result.bytes).toEqual(new Uint8Array(JPEG));
       expect(read.map((request) => request.url)).toEqual(['https://app.test/a.png']);
       expect([...read[0].headers]).toEqual([]);
@@ -439,27 +453,72 @@ describe('loadLocalImage', () => {
 
     it('uses what the app serves, as page fallbacks serve static files', async () => {
       const { dispatch, assets, read } = setup(image);
-      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', 100, dispatch);
+      const result = await loadLocalImage(assets, '/a.png', 'https://app.test/', {
+        maximumResponseBody: 100,
+        dispatch,
+      });
       expect(result.etag).toBe(Buffer.from('"app"').toString('base64url'));
       expect(read).toEqual([]);
+    });
+
+    it('times out an app or asset that never answers, or a body that stalls', async () => {
+      const timedOut = { status: 504, message: UPSTREAM_TIMED_OUT };
+      const never = (): Promise<Response> => new Promise(() => {});
+      const options = { maximumResponseBody: 100, timeoutMs: 20 };
+      expect(
+        await failure(
+          loadLocalImage(undefined, '/a.png', 'https://app.test/', { ...options, dispatch: never }),
+        ),
+      ).toEqual(timedOut);
+      expect(
+        await failure(loadLocalImage({ fetch: never }, '/a.png', 'https://app.test/', options)),
+      ).toEqual(timedOut);
+      const stalled = (): Response =>
+        new Response(
+          new ReadableStream<Uint8Array>({
+            start(controller) {
+              controller.enqueue(new Uint8Array(JPEG));
+            },
+          }),
+          { headers: { 'content-type': 'image/jpeg' } },
+        );
+      expect(
+        await failure(
+          loadLocalImage({ fetch: async () => stalled() }, '/a.png', 'https://app.test/', options),
+        ),
+      ).toEqual(timedOut);
     });
 
     it('passes an app 404 through without assets and maps a throw to 500', async () => {
       const notFound = async (): Promise<Response> => new Response('none', { status: 404 });
       expect(
-        await failure(loadLocalImage(undefined, '/a.png', 'https://app.test/', 100, notFound)),
+        await failure(
+          loadLocalImage(undefined, '/a.png', 'https://app.test/', {
+            maximumResponseBody: 100,
+            dispatch: notFound,
+          }),
+        ),
       ).toEqual({ status: 404, message: INTERNAL_INVALID });
       const broken = async (): Promise<Response> => {
         throw new Error('boom');
       };
       expect(
-        await failure(loadLocalImage(undefined, '/a.png', 'https://app.test/', 100, broken)),
+        await failure(
+          loadLocalImage(undefined, '/a.png', 'https://app.test/', {
+            maximumResponseBody: 100,
+            dispatch: broken,
+          }),
+        ),
       ).toEqual({ status: 500, message: UPSTREAM_INVALID });
     });
   });
 
   it('fails without an assets binding or when it throws', async () => {
-    expect(await failure(loadLocalImage(undefined, '/a.png', 'https://app.test/', 10))).toEqual({
+    expect(
+      await failure(
+        loadLocalImage(undefined, '/a.png', 'https://app.test/', { maximumResponseBody: 10 }),
+      ),
+    ).toEqual({
       status: 500,
       message: UPSTREAM_INVALID,
     });
@@ -468,7 +527,11 @@ describe('loadLocalImage', () => {
         throw new Error('boom');
       },
     };
-    expect(await failure(loadLocalImage(assets, '/a.png', 'https://app.test/', 10))).toEqual({
+    expect(
+      await failure(
+        loadLocalImage(assets, '/a.png', 'https://app.test/', { maximumResponseBody: 10 }),
+      ),
+    ).toEqual({
       status: 500,
       message: UPSTREAM_INVALID,
     });

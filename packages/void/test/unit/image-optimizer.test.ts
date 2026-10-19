@@ -425,6 +425,13 @@ describe('isAnimated', () => {
     expect(isAnimated(fixture(file))).toBe(expected);
   });
 
+  it('requires the animation flag of an extended WebP', () => {
+    const webp = fixture('animated.webp').slice();
+    expect(isAnimated(webp)).toBe(true);
+    webp[20] = webp[20]! & ~0x02;
+    expect(isAnimated(webp)).toBe(false);
+  });
+
   it('requires APNG frame data after the default image', () => {
     const apng = fixture('animated.png');
     const text = String.fromCharCode(...apng);

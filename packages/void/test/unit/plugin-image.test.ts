@@ -58,14 +58,18 @@ function runConfig(plugin: ImagePlugin, env: ConfigEnv): void {
 }
 
 type LoadContext = {
-  environment?: { config: { consumer: 'client' | 'server' } };
+  environment?: { mode?: 'dev' | 'build'; config: { consumer: 'client' | 'server' } };
   error(message: string): never;
   addWatchFile(file: string): void;
 };
 
-function loadContext(consumer: 'client' | 'server' = 'client', watched: Array<string> = []) {
+function loadContext(
+  consumer: 'client' | 'server' = 'client',
+  watched: Array<string> = [],
+  mode?: 'dev' | 'build',
+) {
   return {
-    environment: { config: { consumer } },
+    environment: { mode, config: { consumer } },
     error(message: string): never {
       throw new Error(message);
     },
@@ -270,10 +274,14 @@ describe('imagePlugin config module', () => {
     );
   });
 
-  it('resolves the virtual module id', () => {
+  it('resolves the virtual module id and bare void/image imports to the entry', () => {
     const plugin = createPlugin('/project');
     const resolveId = getHookHandler(plugin.resolveId) as (id: string) => string | undefined;
     expect(resolveId('virtual:void/image-config')).toBe('\0virtual:void/image-config');
+    expect(resolveId('void/image')).toBe(IMAGE_ENTRY.replaceAll('\\', '/'));
+    const filters = (plugin.resolveId as { filter: { id: Array<RegExp> } }).filter.id;
+    expect(filters.some((filter) => filter.test('void/image'))).toBe(true);
+    expect(filters.some((filter) => filter.test('void/image/optimizer'))).toBe(false);
   });
 
   it('caches the config per command and exposes the mounted config', () => {
@@ -337,22 +345,28 @@ describe('imagePlugin void/image injection', () => {
     const root = createRoot();
     writeFileSync(join(root, 'src', 'index.mjs'), code);
     const plugin = createPlugin(root);
+    const runtimeEntry = join(IMAGE_ENTRY, '..', '..', 'runtime', 'index.mjs');
     expect(transform(plugin, code, join(root, 'src', 'index.mjs'))).toBeUndefined();
-    expect(transform(plugin, code, join(IMAGE_ENTRY, '..', '..', 'runtime', 'index.mjs'))).toBe(
-      undefined,
-    );
+    expect(transform(plugin, code, runtimeEntry)).toBeUndefined();
+    // The filter spares every other `index.mjs` the real path lookup.
+    const filter = (plugin.transform as { filter: { id: RegExp } }).filter.id;
+    expect(filter.test(IMAGE_ENTRY.replaceAll('\\', '/'))).toBe(true);
+    expect(filter.test(`${IMAGE_ENTRY.replaceAll('\\', '/')}?v=1a2b3c`)).toBe(true);
+    expect(filter.test(runtimeEntry.replaceAll('\\', '/'))).toBe(false);
   });
 
-  it('excludes void/image from client dependency optimization only', () => {
+  it('excludes void/image from dependency optimization in every environment', () => {
     const plugin = createPlugin('/project');
-    expect(configEnvironment(plugin, 'client', {})).toEqual({
-      optimizeDeps: { exclude: ['void/image'] },
-    });
-    expect(configEnvironment(plugin, 'islands', { consumer: 'client' })).toEqual({
-      optimizeDeps: { exclude: ['void/image'] },
-    });
-    expect(configEnvironment(plugin, 'ssr', {})).toBeUndefined();
-    expect(configEnvironment(plugin, 'void_worker', { consumer: 'server' })).toBeUndefined();
+    for (const [name, options] of [
+      ['client', {}],
+      ['islands', { consumer: 'client' }],
+      ['ssr', {}],
+      ['void_worker', { consumer: 'server' }],
+    ] as const) {
+      expect(configEnvironment(plugin, name, options)).toEqual({
+        optimizeDeps: { exclude: ['void/image'] },
+      });
+    }
   });
 });
 
@@ -382,6 +396,19 @@ describe('imagePlugin ?image imports', () => {
     expect(load(plugin, `${file}?import&image`)).toBe(code);
   });
 
+  it('never inlines a built import as a data URL', () => {
+    const { root, plugin } = setup();
+    const file = join(root, 'src', 'hero.png');
+    copyFileSync(PNG_FIXTURE, file);
+
+    expect(load(plugin, `${file}?image`, loadContext('client', [], 'build'))).toBe(
+      `import src from ${JSON.stringify(`${file}?no-inline`)};\nexport default { src, width: 100, height: 50 };\n`,
+    );
+    expect(load(plugin, `${file}?image`, loadContext('client', [], 'dev'))).toBe(
+      `import src from ${JSON.stringify(file)};\nexport default { src, width: 100, height: 50 };\n`,
+    );
+  });
+
   it('imports types Vite does not treat as assets with ?url', () => {
     const { root, plugin } = setup();
     const file = join(root, 'src', 'photo.heic');
@@ -394,6 +421,9 @@ describe('imagePlugin ?image imports', () => {
 
     expect(load(plugin, `${file}?image`)).toBe(
       `import src from ${JSON.stringify(`${file}?url`)};\nexport default { src, width: 8, height: 6 };\n`,
+    );
+    expect(load(plugin, `${file}?image`, loadContext('client', [], 'build'))).toBe(
+      `import src from ${JSON.stringify(`${file}?url&no-inline`)};\nexport default { src, width: 8, height: 6 };\n`,
     );
   });
 

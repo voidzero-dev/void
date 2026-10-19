@@ -196,9 +196,25 @@ export async function fetchRemoteImage(
 /** Runs a request through the application (middleware, routes and page fallbacks). */
 export type LocalImageDispatch = (request: Request) => Promise<Response>;
 
+export type LocalImageOptions = {
+  maximumResponseBody: number;
+  dispatch?: LocalImageDispatch;
+  timeoutMs?: number;
+};
+
+/** Rejects with `504` when `signal` aborts before `promise` settles. */
+function withTimeout<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const abort = (): void => reject(new ImageError(504, UPSTREAM_TIMED_OUT));
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(resolve, reject).finally(() => signal.removeEventListener('abort', abort));
+  });
+}
+
 /**
  * Load a local source with an empty header set (`GET`, no cookies or
- * conditional headers), like Next.js's internal image request.
+ * conditional headers), like Next.js's internal image request, within the
+ * same timeout as a remote source (`504`).
  *
  * With `dispatch`, the request takes the Worker's own path: the application
  * answers first, so middleware that guards the source path applies, and a
@@ -210,26 +226,27 @@ export async function loadLocalImage(
   assets: AssetFetcher | undefined,
   href: string,
   requestUrl: string,
-  maximumResponseBody: number,
-  dispatch?: LocalImageDispatch,
+  options: LocalImageOptions,
 ): Promise<ImageUpstream> {
+  const { dispatch } = options;
   const hasAssets = !!assets && typeof assets.fetch === 'function';
   if (!hasAssets && !dispatch) {
     throw new ImageError(500, UPSTREAM_INVALID);
   }
   const url = new URL(href, requestUrl);
+  const signal = AbortSignal.timeout(options.timeoutMs ?? UPSTREAM_TIMEOUT_MS);
   let response: Response | undefined;
   try {
     if (dispatch) {
-      response = await dispatch(new Request(url));
+      response = await withTimeout(dispatch(new Request(url, { signal })), signal);
       if (response.status === 404 && hasAssets) {
         discard(response);
         response = undefined;
       }
     }
-    response ??= await assets!.fetch(new Request(url));
-  } catch {
-    throw new ImageError(500, UPSTREAM_INVALID);
+    response ??= await withTimeout(assets!.fetch(new Request(url, { signal })), signal);
+  } catch (error) {
+    throw error instanceof ImageError ? error : new ImageError(500, UPSTREAM_INVALID);
   }
   if (response.status < 200 || response.status > 299) {
     discard(response);
@@ -237,9 +254,19 @@ export async function loadLocalImage(
   }
   let bytes: Uint8Array<ArrayBuffer>;
   try {
-    bytes = await readBody(response.body, maximumResponseBody, INTERNAL_INVALID);
+    bytes = await readBody(response.body, options.maximumResponseBody, INTERNAL_INVALID, signal);
   } catch (error) {
-    throw error instanceof ImageError ? error : new ImageError(500, UPSTREAM_INVALID);
+    if (error instanceof ImageError) {
+      throw error;
+    }
+    if (signal.aborted) {
+      throw new ImageError(504, UPSTREAM_TIMED_OUT);
+    }
+    throw new ImageError(500, UPSTREAM_INVALID);
+  }
+  if (signal.aborted) {
+    // A cancelled read ends like a complete one, with the bytes received so far.
+    throw new ImageError(504, UPSTREAM_TIMED_OUT);
   }
   if (bytes.byteLength === 0) {
     throw new ImageError(400, INTERNAL_INVALID);

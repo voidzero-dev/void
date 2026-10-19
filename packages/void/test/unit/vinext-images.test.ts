@@ -38,6 +38,19 @@ describe('detectVinextImagesOptimizerInSource', () => {
     ],
     [`import { imagesOptimizer as cf } from '${MODULE}';\ncf({ binding: 'MEDIA' });`, 'MEDIA'],
     [
+      `import { imagesOptimizer } from '${MODULE}';\nconst BINDING = 'MEDIA';\nimagesOptimizer({ binding: BINDING } satisfies { binding: string });`,
+      'MEDIA',
+    ],
+    [
+      `import { imagesOptimizer } from '${MODULE}';\nimagesOptimizer(({ binding: 'MEDIA' as const }));`,
+      'MEDIA',
+    ],
+    // A `let` can change before vinext reads it.
+    [
+      `import { imagesOptimizer } from '${MODULE}';\nlet binding = 'MEDIA';\nimagesOptimizer({ binding });`,
+      'IMAGES',
+    ],
+    [
       `import * as images from '${MODULE}';\nimages.imagesOptimizer({ binding: 'MEDIA' });`,
       'MEDIA',
     ],
@@ -80,10 +93,15 @@ describe('detectVinextImagesOptimizer', () => {
 
   it('reads only the Vite config Vite would load first', () => {
     const root = project({
-      'vite.config.ts': 'export default {};',
-      'vite.config.js': `import { imagesOptimizer } from '${MODULE}';\nimagesOptimizer();`,
+      'vite.config.ts': `import { imagesOptimizer } from '${MODULE}';\nimagesOptimizer();`,
+      'vite.config.js': 'export default {};',
     });
     expect(detectVinextImagesOptimizer(root)).toBeUndefined();
+    const mjs = project({
+      'vite.config.mjs': `import { imagesOptimizer } from '${MODULE}';\nimagesOptimizer();`,
+      'vite.config.ts': 'export default {};',
+    });
+    expect(detectVinextImagesOptimizer(mjs)).toEqual({ binding: 'IMAGES' });
   });
 
   it('returns undefined without a Vite config', () => {

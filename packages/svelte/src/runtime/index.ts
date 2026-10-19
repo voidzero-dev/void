@@ -16,7 +16,14 @@ export {
   type VoidActionError,
 } from 'void/pages-client';
 export { getImageProps } from './image.ts';
-export type { ImageProps } from './image.ts';
+export type { ImageProps, ImgAttributes as ImageAttributes } from './image.ts';
+export type {
+  ImageLoader,
+  ImageLoaderProps,
+  PlaceholderValue,
+  StaticImageData,
+  StaticImport,
+} from 'void/image';
 export type { DeferredState as Deferred, InferProps } from 'void';
 
 export type { PageError, ErrorPageProps } from 'void/pages-client';

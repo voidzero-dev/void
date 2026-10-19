@@ -1,6 +1,6 @@
 import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
-import { createManifestLoader, type ManifestLoader } from './assets.ts';
+import { collectImmutableFiles, createManifestLoader, type ManifestLoader } from './assets.ts';
 
 // Native Void routing records intentional 404s before Hono wraps HEAD responses.
 export const intentionalNotFoundRequests: WeakSet<Request> = new WeakSet();
@@ -93,15 +93,7 @@ export function createAssetCachePolicy(
     }
     if (!files) {
       // Optional cache metadata must not make a successfully served asset fail.
-      files = loadManifest(request, env).then(
-        (manifest) =>
-          new Set(
-            Object.values(manifest ?? {}).flatMap((entry) =>
-              Array.isArray(entry?.immutableFiles) ? entry.immutableFiles : [],
-            ),
-          ),
-        () => new Set(),
-      );
+      files = loadManifest(request, env).then(collectImmutableFiles, () => new Set());
     }
     return applyAssetCachePolicy(request, asset, assetsDir, (await files).has(path.slice(1)));
   };

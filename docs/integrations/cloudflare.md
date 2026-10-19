@@ -54,7 +54,7 @@ This provides binding and Workers runtime types. For custom bindings in `void.co
 | `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
 | `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
 | `ASSETS`         | Static assets   | `c.env.ASSETS.fetch(request)`     |
-| `IMAGES`         | Images          | `Image`, `getImageProps()`, or `c.env.IMAGES` |
+| `IMAGES`         | Images          | `c.env.IMAGES` or `Image`         |
 | `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
 | Filename-derived | Durable Objects | A module in `durable-objects/`    |
 

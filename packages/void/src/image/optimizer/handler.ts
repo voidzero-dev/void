@@ -1,5 +1,6 @@
 import type { ImageFormat, ResolvedImageConfig } from '../config.ts';
 import { hasRemoteMatch } from '../patterns.ts';
+import { warnOnce } from '../warn-once.ts';
 import { getSupportedImageFormat } from './accept.ts';
 import {
   ANIMATABLE_TYPES,
@@ -75,7 +76,7 @@ export type ImageRequestOptions = {
   isImmutable?: (pathname: string) => boolean | Promise<boolean>;
   /** `fetch` for remote sources. */
   fetch?: ImageFetch;
-  /** Remote source timeout in milliseconds (default 7000). */
+  /** Source read timeout in milliseconds (default 7000, per remote redirect hop). */
   timeoutMs?: number;
 };
 
@@ -101,13 +102,17 @@ const CACHE_MAX_AGE_HEADER = 'X-Void-Image-Max-Age';
 const CACHE_FALLBACK_HEADER = 'X-Void-Image-Fallback';
 const IMMUTABLE_CACHE_TTL = 31536000;
 
-const warned = new Set<string>();
-/** One warning per key per isolate; bounded, because animated-image keys include the source. */
-function warnOnce(key: string, message: string): void {
-  if (warned.has(key) || warned.size >= 256) {
+const warnedSources = new Set<string>();
+/**
+ * One warning per source per isolate for request-derived keys (an animated
+ * source, a refused redirect origin). Bounded, unlike `warnOnce`, so requests
+ * cannot grow the set without limit.
+ */
+function warnSourceOnce(key: string, message: string): void {
+  if (warnedSources.has(key) || warnedSources.size >= 256) {
     return;
   }
-  warned.add(key);
+  warnedSources.add(key);
   console.warn(message);
 }
 
@@ -115,7 +120,6 @@ function warnTransformFailure(error: unknown, path: string): void {
   const code = (error as { code?: unknown } | null)?.code;
   if (code === 9422) {
     warnOnce(
-      'code:9422',
       `[void] The Cloudflare Images Free allowance is used up, so ${path} serves the original image for new sizes until next month (error 9422).`,
     );
     return;
@@ -123,10 +127,10 @@ function warnTransformFailure(error: unknown, path: string): void {
   const message = (error as { message?: unknown } | null)?.message;
   const detail = typeof message === 'string' ? message : String(error);
   warnOnce(
-    `code:${typeof code === 'number' ? code : 'unknown'}`,
     typeof code === 'number'
       ? `[void] Cloudflare Images could not transform an image (error ${code}: ${detail}), so ${path} serves the original image.`
       : `[void] Image transformation failed (${detail}), so ${path} serves the original image.`,
+    `code:${typeof code === 'number' ? code : 'unknown'}`,
   );
 }
 
@@ -234,7 +238,7 @@ async function optimize(
     maxAge,
   };
   if (ANIMATABLE_TYPES.includes(type) && isAnimated(upstream.bytes)) {
-    warnOnce(
+    warnSourceOnce(
       `animated:${params.href}`,
       `[void] The requested resource "${params.href}" is an animated image so it will not be optimized. Consider adding the "unoptimized" property to the <Image>.`,
     );
@@ -254,7 +258,6 @@ async function optimize(
   const fallback: ImageResult = { ...original, maxAge: config.minimumCacheTTL, fallback: true };
   if (!options.binding) {
     warnOnce(
-      'binding',
       `[void] Image optimization is unavailable because the Worker has no Images binding (env.${options.bindingName ?? 'IMAGES'}), so ${config.path} serves original images.`,
     );
     return fallback;
@@ -378,7 +381,7 @@ export async function handleImageRequest(
             if (hasRemoteMatch(config.domains, config.remotePatterns, target)) {
               return true;
             }
-            warnOnce(
+            warnSourceOnce(
               `redirect:${target.origin}`,
               `[void] An image source redirected to ${target.origin}, which images.remotePatterns doesn't allow, so ${config.path} refused it. Add the redirect target to images.remotePatterns to optimize it.`,
             );
@@ -387,13 +390,11 @@ export async function handleImageRequest(
           fetch: options.fetch,
           timeoutMs: options.timeoutMs,
         })
-      : await loadLocalImage(
-          options.assets,
-          params.href,
-          request.url,
-          config.maximumResponseBody,
-          options.fetchLocal,
-        );
+      : await loadLocalImage(options.assets, params.href, request.url, {
+          maximumResponseBody: config.maximumResponseBody,
+          dispatch: options.fetchLocal,
+          timeoutMs: options.timeoutMs,
+        });
     const result = await optimize(upstream, params, format, options);
     if (key) {
       writeCache(options, key, result, isStatic);
