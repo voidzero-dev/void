@@ -519,6 +519,48 @@ describe('voidPlugin Vite environments', () => {
     }
   });
 
+  it('serves the app void/db to installed packages that depend on void in SvelteKit D1 dev with casing', async () => {
+    const root = realpathSync.native(createProjectRoot());
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        type: 'module',
+        dependencies: { 'db-lib': '*' },
+        devDependencies: { '@sveltejs/kit': '*', void: '*' },
+      }),
+    );
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ database: { casing: 'snake_case' } }));
+    installPackage(root, 'void', { type: 'module', exports: { './db': './db.mjs' } }, '');
+    writeFileSync(join(root, 'node_modules/void/db.mjs'), 'export {};\n');
+    installPackage(
+      root,
+      'db-lib',
+      { type: 'module', peerDependencies: { void: '*' } },
+      "export { db } from 'void/db';\n",
+    );
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src/server.ts'), "export { db } from 'db-lib';\n");
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [voidPlugin()],
+      optimizeDeps: { noDiscovery: true },
+      server: { middlewareMode: true, ws: false, preTransformRequests: false },
+    });
+    try {
+      const app = await server.environments.ssr.transformRequest('/src/server.ts');
+      const lib = await server.environments.ssr.transformRequest('/node_modules/db-lib/index.js');
+
+      expect(app?.code).not.toContain('__vite_ssr_import__("db-lib"');
+      expect(lib?.code).toContain('virtual:void-db');
+    } finally {
+      await server.close();
+    }
+  });
+
   // The rule vite-plugin-svelte applies to Svelte libraries.
   it("finds installed ES module packages that depend on void among the app's dependencies and theirs", () => {
     const root = createProjectRoot();

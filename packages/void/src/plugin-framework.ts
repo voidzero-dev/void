@@ -203,10 +203,12 @@ export function createFrameworkPlugins(input: {
       // the injected env import below and those of PostgreSQL and MySQL apps'
       // installed packages that import void, in the graph that holds void/db's env
       // module. In a D1 app, a package's own void/db reads the same D1 binding, so
-      // those packages stay with Node.
+      // those packages stay with Node, unless `database.casing` is set: only the
+      // virtual module applies it.
+      const inlineDependents = dialect !== 'sqlite' || getDatabaseCasing(config) !== undefined;
       return {
         ssr: {
-          noExternal: ['void', ...(dialect === 'sqlite' ? [] : findVoidDependentPackages(root))],
+          noExternal: ['void', ...(inlineDependents ? findVoidDependentPackages(root) : [])],
         },
       };
     },
