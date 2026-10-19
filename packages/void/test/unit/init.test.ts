@@ -2805,6 +2805,28 @@ export default config;
     }
   });
 
+  it('removes a casing-only database config when choosing no database yet', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { casing: 'snake_case' } }, null, 2) + '\n',
+      );
+      mockSelect.mockResolvedValueOnce('none');
+      mockConfirm.mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(readConfig(root)).toEqual({
+        worker: {
+          compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('can log in and create a project during init', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {

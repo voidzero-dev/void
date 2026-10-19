@@ -1395,6 +1395,19 @@ function clearConfiguredDatabase(
   log.step(messages.updated);
 }
 
+/** Remove `database` entirely: its casing alone still makes Void serve `void/db`. */
+function removeDatabaseConfig(root: string): void {
+  const config = readConfig(root);
+  if (config.database === undefined) {
+    log.info('No database configured yet');
+    return;
+  }
+  const next: VoidConfig = { ...config };
+  delete next.database;
+  writeVoidProjectConfig(root, next);
+  log.step('Removed database config from void.config.ts');
+}
+
 function applyDatabaseDialect(root: string, dialect: DatabaseDialect): void {
   const config = readConfig(root);
 
@@ -1443,10 +1456,7 @@ function detectDatabaseSetup(root: string): DatabaseSetupChoice {
 
 function applyDatabaseSetup(root: string, choice: DatabaseSetupChoice): void {
   if (choice === 'none') {
-    clearConfiguredDatabase(root, {
-      unchanged: 'No database configured yet',
-      updated: 'Removed database config from void.config.ts',
-    });
+    removeDatabaseConfig(root);
     return;
   }
 
