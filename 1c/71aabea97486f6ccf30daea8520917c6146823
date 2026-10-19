@@ -1,0 +1,25 @@
+packages/void/test/unit/cf-version-runner.test.ts
+  s_33c9a5a750a8c9::t_3794280c6bfac5 15-19,30,76-80,907-908,917-918,978-1158,1948-1949,1952-1953
+packages/void/test/unit/cloudflare-deploy.test.ts
+  s_33c9a5a750a8c9::t_b7be83fb37d60b 247-260
+packages/void/src/cli/cf-version-api.ts
+  s_33c9a5a750a8c9::t_dc96e1b451d5ff 11-15,251-267,292-306,324-344
+packages/void/src/cli/deploy-cloudflare-helpers.ts
+  s_33c9a5a750a8c9::t_addbe4a3fdeef9 537-546
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1c71aabea97486f6ccf30daea8520917c6146823",
+  "prompts": {},
+  "sessions": {
+    "s_33c9a5a750a8c9": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a139149be74485d27",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
