@@ -1,6 +1,6 @@
 {
   "name": "@void/deploy-core",
-  "version": "1.1.11",
+  "version": "1.1.12",
   "description": "Shared deployment contracts, manifests, and resource plans for Void.",
   "homepage": "https://void.cloud",
   "bugs": {

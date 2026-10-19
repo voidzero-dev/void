@@ -277,15 +277,19 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
 export namespace defineHandler {
   export function withValidator<V extends ValidatorSlots>(
     validators: V,
-  ): <R>(handler: (c: CloudContext, input: HandlerInput<V>) => R) => TypedHandler<V, R> {
-    return <R>(handler: (c: CloudContext, input: HandlerInput<V>) => R): TypedHandler<V, R> => {
+  ): <R>(
+    handler: (c: CloudContext, input: HandlerInput<V>) => R,
+  ) => TypedHandler<V, Exclude<Awaited<R>, Response>> {
+    return <R>(
+      handler: (c: CloudContext, input: HandlerInput<V>) => R,
+    ): TypedHandler<V, Exclude<Awaited<R>, Response>> => {
       return (async (c: CloudContext) => {
         const result = await runValidation(validators, c);
         if (!result.ok) {
           return result.response;
         }
         return convertReturnValue(await handler(c, result.input));
-      }) as TypedHandler<V, R>;
+      }) as TypedHandler<V, Exclude<Awaited<R>, Response>>;
     };
   }
 }
