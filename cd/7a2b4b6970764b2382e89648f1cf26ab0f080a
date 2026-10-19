@@ -1,0 +1,21 @@
+packages/void/src/plugin-framework.ts
+  s_f572b1deb5ef86::t_61242f2faf7a80 206-208,211
+packages/void/test/unit/plugin-vite-environment.test.ts
+  s_f572b1deb5ef86::t_f9e6f154a55ac2 522-563
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cd7a2b4b6970764b2382e89648f1cf26ab0f080a",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
