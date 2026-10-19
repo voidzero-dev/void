@@ -1,10 +1,9 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { findPackageJSON } from 'node:module';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import mime from 'mime';
-import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
+import { dirname, isAbsolute, join, relative, resolve, toSlash } from 'pathslash';
 import { isFileServingAllowed, type Plugin } from 'vite';
 import { findInstalledPackage, findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
@@ -327,15 +326,16 @@ export function nodeTargetPlugin(
   // native addon on Node.js and Bun) that a bundle cannot carry. A build leaves a package that
   // resolves from the app root to the runtime, so the app must install a version that void/og
   // supports. With pnpm, void's own copy does not resolve from the root and would be bundled.
+  // The dev server resolves it from void, so there the check only warns.
+  let warned = false;
   const imageRendererPlugin: Plugin = {
     name: 'void:node-target-image-renderer',
-    apply: 'build',
     enforce: 'pre',
     resolveId: {
       filter: { id: /^takumi-js(?:\/|$)/ },
       handler(_id, importer) {
         // An app may also use takumi-js itself, at any version.
-        if (!importer?.startsWith(`${VOID_PACKAGE_DIR}/`)) {
+        if (!importer || !realPath(importer).startsWith(`${VOID_PACKAGE_DIR}/`)) {
           return;
         }
         const range = readTakumiRange();
@@ -345,11 +345,17 @@ export function nodeTargetPlugin(
           return;
         }
         const found = version ? ` The app has takumi-js ${version}.` : '';
-        throw new Error(
+        const message =
           `void/og needs takumi-js@${range} in your app's dependencies with target '${target}', so ` +
-            `the build leaves it to ${RUNTIME_NAMES[target]}.${found} Install it, for example with ` +
-            `\`npm install takumi-js@${range}\`.`,
-        );
+          `the build leaves it to ${RUNTIME_NAMES[target]}.${found} Install it, for example with ` +
+          `\`npm install takumi-js@${range}\`.`;
+        if (this.environment.config.command === 'build') {
+          throw new Error(message);
+        }
+        if (!warned) {
+          warned = true;
+          this.warn(message);
+        }
       },
     },
   };
@@ -363,8 +369,18 @@ const RUNTIME_NAMES: Record<NodeTarget, string> = {
   deno: 'Deno',
 };
 
-const VOID_MANIFEST = findPackageJSON(import.meta.url)!;
+// This module is one directory below the package root in src/ and in dist/.
+const VOID_MANIFEST = fileURLToPath(new URL('../package.json', import.meta.url));
 const VOID_PACKAGE_DIR = dirname(VOID_MANIFEST);
+
+/** Vite resolves symlinks in importer paths unless `resolve.preserveSymlinks` is set. */
+function realPath(path: string): string {
+  try {
+    return toSlash(realpathSync(path));
+  } catch {
+    return path;
+  }
+}
 
 /** The takumi-js range void/og is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
@@ -384,7 +400,8 @@ function readPackageManifest(path: string): {
 
 /** Whether `version` is in the caret `range` (a major version above 0, as takumi-js uses). */
 function satisfiesCaret(version: string, range: string): boolean {
-  const parse = (value: string) => /^\^?(\d+)\.(\d+)\.(\d+)/.exec(value)?.slice(1).map(Number);
+  const parse = (value: string) => /^\^?(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+  // A prerelease is outside a caret range.
   const actual = parse(version);
   const minimum = parse(range);
   if (!actual || !minimum || actual[0] !== minimum[0]) {
