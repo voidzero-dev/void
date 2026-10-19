@@ -1,0 +1,21 @@
+packages/void/src/cli/init.ts
+  s_f572b1deb5ef86::t_c51d77c4de8773 1398-1410,1459
+packages/void/test/unit/init.test.ts
+  s_f572b1deb5ef86::t_e38b0e8d404af0 2808-2829
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5d289b2817e6ffe6679ab4cc39c527e818ef58cf",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
