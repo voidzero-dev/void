@@ -1,9 +1,9 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { chromium } from 'playwright';
-import { preview } from 'vite';
+import { chromium, type Browser } from 'playwright';
+import { preview, type PreviewServer } from 'vite';
 import solid from 'vite-plugin-solid';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import { buildIslandApp } from '../../../../test/island-css-build.ts';
 import { openIslandPage, type IslandPageVisit } from '../../../../test/island-page-browser.ts';
@@ -69,12 +69,7 @@ export default function Page() {
 }`,
 };
 
-async function visitFixture(
-  production: boolean,
-): Promise<{ visit: IslandPageVisit; close(): Promise<void> }> {
-  if (production) {
-    return visitProductionFixture();
-  }
+async function visitFixture(): Promise<{ visit: IslandPageVisit; close(): Promise<void> }> {
   const root = mkdtempSync(join(import.meta.dirname, '__tmp_island_hydration_'));
   for (const [file, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, file)), { recursive: true });
@@ -98,32 +93,20 @@ async function visitFixture(
   }
 }
 
-async function visitProductionFixture(): Promise<{
+async function visitProductionFixture(
+  browser: Browser,
+  base: string,
+): Promise<{
   visit: IslandPageVisit;
   close(): Promise<void>;
 }> {
-  const build = buildIslandApp({
-    packageDir: join(import.meta.dirname, '../..'),
-    pluginName: 'voidSolid',
-    files,
-  });
-  const server = await preview({
-    root: build.root,
-    configFile: false,
-    logLevel: 'silent',
-    build: { outDir: 'dist/client' },
-    preview: { host: '127.0.0.1', port: 0 },
-  });
-  const browser = await chromium.launch();
-  const close = async () => {
-    await browser.close();
-    await server.close();
-    build.cleanup();
-  };
+  const context = await browser.newContext();
+  const close = () => context.close();
   try {
-    const page = await browser.newPage();
+    const page = await context.newPage();
+    page.setDefaultTimeout(10_000);
     const diagnostics = collectBrowserDiagnostics(page);
-    const response = await page.goto(server.resolvedUrls!.local[0]);
+    const response = await page.goto(base);
     const visit = { page, diagnostics, html: await response!.text(), close };
     return { visit, close };
   } catch (error) {
@@ -164,16 +147,54 @@ async function expectReused(visit: IslandPageVisit, name: string): Promise<void>
 }
 
 describe.each(['dev', 'production'])('%s island hydration', (mode) => {
+  let productionBuild: ReturnType<typeof buildIslandApp> | undefined;
+  let productionServer: PreviewServer | undefined;
+  let productionBrowser: Browser | undefined;
+
+  beforeAll(async () => {
+    if (mode === 'production') {
+      productionBuild = buildIslandApp({
+        packageDir: join(import.meta.dirname, '../..'),
+        pluginName: 'voidSolid',
+        files,
+      });
+      productionServer = await preview({
+        root: productionBuild.root,
+        configFile: false,
+        logLevel: 'silent',
+        build: { outDir: 'dist/client' },
+        preview: { host: '127.0.0.1', port: 0 },
+      });
+      productionBrowser = await chromium.launch();
+    }
+  });
+
+  afterAll(async () => {
+    await productionBrowser?.close();
+    await productionServer?.close();
+    productionBuild?.cleanup();
+  });
+
+  function newFixture() {
+    return mode === 'production'
+      ? visitProductionFixture(productionBrowser!, productionServer!.resolvedUrls!.local[0])
+      : visitFixture();
+  }
+
   it('reuses SSR DOM and preserves input in repeated islands and an island layout', async () => {
-    const fixture = await visitFixture(mode === 'production');
+    const fixture = await newFixture();
     try {
       for (const name of ['layout', 'first', 'second']) {
         await expectReused(fixture.visit, name);
       }
       const { page } = fixture.visit;
       await page.locator('[data-counter="first"] button').click();
-      expect(await page.locator('[data-counter="first"] button').textContent()).toBe('1');
-      expect(await page.locator('[data-counter="second"] button').textContent()).toBe('10');
+      await expect
+        .poll(() => page.locator('[data-counter="first"] button').textContent())
+        .toBe('1');
+      await expect
+        .poll(() => page.locator('[data-counter="second"] button').textContent())
+        .toBe('10');
       expect(fixture.visit.diagnostics()).not.toContain('pageerror');
     } finally {
       await fixture.close();
@@ -181,7 +202,7 @@ describe.each(['dev', 'production'])('%s island hydration', (mode) => {
   });
 
   it('hydrates visible islands in reverse order after another island handles an event', async () => {
-    const fixture = await visitFixture(mode === 'production');
+    const fixture = await newFixture();
     try {
       const { page } = fixture.visit;
       await page.waitForSelector('[data-counter="first"]');
@@ -201,9 +222,9 @@ describe.each(['dev', 'production'])('%s island hydration', (mode) => {
         await page.locator(`[data-counter="${name}"]`).scrollIntoViewIfNeeded();
         await expectReused(fixture.visit, name);
         await page.locator(`[data-counter="${name}"] button`).click();
-        expect(await page.locator(`[data-counter="${name}"] button`).textContent()).toBe(
-          String(initial + 1),
-        );
+        await expect
+          .poll(() => page.locator(`[data-counter="${name}"] button`).textContent())
+          .toBe(String(initial + 1));
       }
       expect(fixture.visit.diagnostics()).not.toContain('pageerror');
     } finally {
@@ -212,13 +233,13 @@ describe.each(['dev', 'production'])('%s island hydration', (mode) => {
   });
 
   it('hydrates an async resource inside Suspense without replacing the resolved SSR DOM', async () => {
-    const fixture = await visitFixture(mode === 'production');
+    const fixture = await newFixture();
     try {
       expect(fixture.visit.html).toContain('data-counter="async"');
       await expectReused(fixture.visit, 'async');
       const button = fixture.visit.page.locator('[data-counter="async"] button');
       await button.click();
-      expect(await button.textContent()).toBe('51');
+      await expect.poll(() => button.textContent()).toBe('51');
       expect(fixture.visit.diagnostics()).not.toContain('pageerror');
     } finally {
       await fixture.close();
