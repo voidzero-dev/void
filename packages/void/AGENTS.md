@@ -144,18 +144,17 @@ Vite/CLI dependency graph.
 `void/remote` stays exported only for semver. Generated code imports
 `#self/remote`. Remove the subpath in the next major version.
 
-`void/og` is a thin `next/og`-compatible layer over `takumi-js`. In workerd,
+`void/og` is a thin `next/og`-compatible layer over `takumi-js`; its source
+cites the @vercel/og, Satori and Next.js code each behavior follows. In workerd,
 Takumi resolves its Wasm backend, whose `.wasm` import the Cloudflare plugin
 loads as a compiled module in dev and builds. On Node.js, Bun and Deno, Takumi
 loads its renderer from files next to its code (a native addon on Node.js and
 Bun), which a bundle cannot carry, so `nodeTargetPlugin` fails a build unless
 the app root resolves a `takumi-js` in the range void declares. Takumi's JSX
 helper imports `react` as an optional peer; Vite stubs it in apps without
-React, and Takumi catches the failed import. The wrapper converts the element
-once and asks Google Fonts for Noto families by the scripts in its text. It
-skips each family's Latin subset and takes Latin-1 out of the other subsets,
-because Google mixes ASCII into the CJK subsets with the most common
-characters, so Latin text keeps Takumi's built-in Geist.
+React, and Takumi catches the failed import. Fallback fonts come from Google
+Fonts by the scripts in the text, under private family names, with Latin-1
+taken out so Latin text keeps Takumi's built-in Geist.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 

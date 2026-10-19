@@ -89,6 +89,7 @@ The second argument sets the image and the response:
 | `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                              |
 | `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                      |
 | `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`. |
+| `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.         |
 | `debug`                           | `false`       | Draws a border around every box.                                                   |
 | `format`                          | `'png'`       | Image format: `png`, `jpeg`, or `webp`.                                            |
 | `status`, `statusText`, `headers` |               | The response status and headers.                                                   |
@@ -102,13 +103,19 @@ Content-Type: image/png
 Cache-Control: public, immutable, no-transform, max-age=31536000
 ```
 
-During `vp dev`, `Cache-Control` is `no-cache, no-store`.
+During `vp dev`, `Cache-Control` is `no-cache, no-store`. Images served from the [revalidation cache](#cache-generated-images) carry Void's cache headers instead.
 
-Emoji and remote `<img>` sources are downloaded while the image renders.
+Emoji and remote `<img>` sources are downloaded while the image renders. An emoji that the chosen style does not have fails the image; `noto` has no flags.
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, or accented letters like Ł and ş, Void downloads the matching Noto Sans font from Google Fonts while rendering. If the download fails, the image renders without those characters.
+Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching Noto Sans font from Google Fonts while rendering. If the download fails, those characters are drawn as boxes.
+
+Chinese characters are drawn in the Japanese style, as in `next/og`, unless the text has Korean or Chinese around them, or `lang` names the language:
+
+```ts
+return new ImageResponse(`<div lang="zh-TW" style="display: flex">${title}</div>`);
+```
 
 To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data, as in `next/og`:
 
@@ -121,7 +128,7 @@ return new ImageResponse(postCard(post), {
 });
 ```
 
-Fonts can be TTF, OTF, WOFF, or WOFF2 files.
+Fonts can be TTF, OTF, or WOFF2 files.
 
 ## Add the image to a page
 
@@ -144,7 +151,7 @@ export const head = defineHead<Props>((c, props) => {
 
 ## Cache generated images
 
-Each request renders the image again. A 1200 × 630 image takes around 10 ms of CPU time, more for large or text-heavy images, and the first render in a new Worker instance takes around 100 ms. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so cache image routes with [revalidation](./edge/revalidation.md):
+Each request renders the image again. A simple 1200 × 630 card takes under 10 ms of CPU time, one with gradients, bold text, or emoji 30 to 100 ms, and the first render in a new Worker instance about 200 ms more. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so on Workers Free, cache image routes with [revalidation](./edge/revalidation.md):
 
 ```json
 {
@@ -172,6 +179,8 @@ Then:
 - Move the JSX from `route.tsx` into a `.tsx` module and return the response from a route file, as shown above.
 - Read the request from Hono's context: `c.req.url`, `c.req.param()`, and `c.req.query()`.
 - Void draws images with Takumi rather than Satori, so layout can differ slightly. See [Takumi vs. Satori](https://takumi.kane.tw/docs/comparison-to-satori).
+- Next.js 16 sends `Cache-Control: public, max-age=0, must-revalidate`; Void lets clients cache the image for a year, like `@vercel/og`. Pass `headers` to change that.
+- A font's `lang` is accepted but does not choose the font for a language. Use the `lang` option or attribute for Chinese characters instead.
 
 ## Node.js, Bun, and Deno
 

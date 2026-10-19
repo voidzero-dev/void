@@ -33,6 +33,14 @@ const NOTO_SANS_JP_CSS = `/* [0] */
   src: url(https://fonts.gstatic.com/noto-sans-jp/kana.woff2) format('woff2');
   unicode-range: U+3040-309F, U+4E16, U+754C;
 }
+/* [5] */
+@font-face {
+  font-family: 'Noto Sans JP';
+  font-style: normal;
+  font-weight: 400;
+  src: url(https://fonts.gstatic.com/noto-sans-jp/unused.woff2) format('woff2');
+  unicode-range: U+4E00-4E0F;
+}
 /* [118] */
 @font-face {
   font-family: 'Noto Sans JP';
@@ -119,27 +127,31 @@ describe('ImageResponse', () => {
     expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
   });
 
+  it('keeps the default size for an undefined width or height', async () => {
+    const response = new ImageResponse(card, { width: undefined, height: undefined });
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+  });
+
   it('draws box borders with debug', async () => {
     const plain = new Uint8Array(await new ImageResponse(card).arrayBuffer());
     const debug = new Uint8Array(await new ImageResponse(card, { debug: true }).arrayBuffer());
     expect(debug).not.toEqual(plain);
   });
 
-  it('accepts the deprecated stylesheets option beside a style element', async () => {
-    // takumi warns that the option is deprecated.
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
+  it('accepts css and the deprecated stylesheets option beside a style element', async () => {
     const response = new ImageResponse(
       '<style>.card { background: #000 }</style><div class="card" style="display:flex">Hi</div>',
-      { stylesheets: ['.card { color: #fff }'] },
+      { css: '.card { padding: 8px }', stylesheets: ['.card { color: #fff }'] },
     );
     expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
   });
 
   it('errors the body when the image cannot render', async () => {
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
-    const response = new ImageResponse(card, { fonts: [new Uint8Array([1, 2, 3])] });
+    // A next/og font entry may carry Satori's `lang`.
+    const response = new ImageResponse(card, {
+      fonts: [{ name: 'Broken', data: new Uint8Array([1, 2, 3]), weight: 400, lang: 'ja-JP' }],
+    });
     await expect(response.arrayBuffer()).rejects.toThrow();
-    expect(logged).toHaveBeenCalledWith('void/og: failed to render the image.', expect.anything());
   });
 });
 
@@ -171,7 +183,8 @@ describe('ImageResponse fallback fonts', () => {
     const css = new URL(requests[0]!);
     expect(css.origin + css.pathname).toBe('https://fonts.googleapis.com/css2');
     expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@400']);
-    // The subset that mixes ASCII with 日 still serves 日; the Latin subset is never fetched.
+    // The subset that mixes ASCII with 日 still serves 日; the Latin subset and
+    // the subset the text does not use are never fetched.
     expect(requests.slice(1).sort()).toEqual([
       'https://fonts.gstatic.com/noto-sans-jp/common.woff2',
       'https://fonts.gstatic.com/noto-sans-jp/kana.woff2',
@@ -189,11 +202,44 @@ describe('ImageResponse fallback fonts', () => {
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans:wght@400']);
   });
 
-  it('uses the Simplified Chinese family for Han text without kana or Hangul', async () => {
+  it('draws Han text as Japanese unless lang says otherwise, like next/og', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 503 }));
-    await new ImageResponse('<div style="display:flex">你好世界</div>').arrayBuffer();
-    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans SC:wght@400']);
+    const family = async (html: string, lang?: string) => {
+      requests.length = 0;
+      await new ImageResponse(html, { lang }).arrayBuffer();
+      return new URL(requests[0]!).searchParams.getAll('family');
+    };
+    expect(await family('<div style="display:flex">東京都</div>')).toEqual([
+      'Noto Sans JP:wght@400',
+    ]);
+    expect(await family('<div style="display:flex">東京都</div>', 'zh-TW')).toEqual([
+      'Noto Sans TC:wght@400',
+    ]);
+    expect(await family('<div lang="zh" style="display:flex">东京都</div>')).toEqual([
+      'Noto Sans SC:wght@400',
+    ]);
+    expect(await family('<div style="display:flex">漢字 한국어</div>')).toEqual([
+      'Noto Sans KR:wght@400',
+    ]);
+  });
+
+  it('uses the symbol and math families for characters Geist lacks', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch((url) =>
+      url.endsWith('.svg')
+        ? new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
+            headers: { 'content-type': 'image/svg+xml' },
+          })
+        : new Response(null, { status: 503 }),
+    );
+    await new ImageResponse('<div style="display:flex">A → B ★ 🎉</div>').arrayBuffer();
+    // The emoji is an image, so it asks for no font.
+    const fonts = requests.filter((url) => url.startsWith('https://fonts.googleapis.com/'));
+    expect(new URL(fonts[0]!).searchParams.getAll('family')).toEqual([
+      'Noto Sans Math:wght@400',
+      'Noto Sans Symbols 2:wght@400',
+    ]);
   });
 
   it('renders without fallback fonts when Google Fonts cannot be reached', async () => {
@@ -219,21 +265,27 @@ describe('void/og on Node.js targets', () => {
     }
   });
 
-  function resolveRenderer(
-    importer = toSlash(fileURLToPath(new URL('../../src/runtime/og.ts', import.meta.url))),
-  ) {
-    const plugin = nodeTargetPlugin('node').find(
+  function rendererPlugin() {
+    return nodeTargetPlugin('node').find(
       (candidate) => candidate.name === 'void:node-target-image-renderer',
     )!;
+  }
+
+  function resolveRenderer(
+    importer = toSlash(fileURLToPath(new URL('../../src/runtime/og.ts', import.meta.url))),
+    plugin = rendererPlugin(),
+  ) {
     const resolveId = plugin.resolveId as {
       handler: (this: unknown, id: string, importer: string) => unknown;
     };
     return resolveId.handler.call(
-      { environment: { config: { root } } },
+      { environment: { config: { root, command } }, warn },
       'takumi-js/helpers',
       importer,
     );
   }
+  let command = 'build';
+  const warn = vi.fn();
 
   // The range void/og declares; the app must install a version in it.
   const range = voidManifest.dependencies['takumi-js'];
@@ -259,6 +311,23 @@ describe('void/og on Node.js targets', () => {
     expect(resolveRenderer).toThrow('The app has takumi-js 2.15.2.');
     installTakumi('3.0.0');
     expect(resolveRenderer).toThrow('The app has takumi-js 3.0.0.');
+    installTakumi('2.17.0-beta.1');
+    expect(resolveRenderer).toThrow('The app has takumi-js 2.17.0-beta.1.');
+  });
+
+  it('warns once in the dev server instead', () => {
+    root = mkdtempSync(join(tmpdir(), 'void-og-node-'));
+    const plugin = rendererPlugin();
+    command = 'serve';
+    warn.mockClear();
+    try {
+      expect(resolveRenderer(undefined, plugin)).toBeUndefined();
+      expect(resolveRenderer(undefined, plugin)).toBeUndefined();
+    } finally {
+      command = 'build';
+    }
+    expect(warn).toHaveBeenCalledOnce();
+    expect(warn.mock.calls[0]![0]).toContain(`npm install takumi-js@${range}`);
   });
 
   it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
