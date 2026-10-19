@@ -1,0 +1,67 @@
+docs/guide/database.md
+  s_0e389949048765::t_ea4a6464d0b188 117-142
+docs/reference/config.md
+  s_0e389949048765::t_83e846fb58bde3 144-156
+packages/void/schema.json
+  s_0e389949048765::t_bd14dcafea9d3e 395-417
+packages/void/src/cli/db.ts
+  s_f572b1deb5ef86::t_29cbb5ef9e12d3 18,21,2404,2409,2422,2438,2516,2519-2525
+packages/void/src/cli/init.ts
+  s_f572b1deb5ef86::t_0e235d84b0ce2c 14-21,1371-1382,1387,1389,1394,1399,1402,1407,1413,1418
+packages/void/src/codegen/prepare.ts
+  s_f572b1deb5ef86::t_8ca557f971e6f8 7,77-78
+packages/void/src/config.ts
+  s_f572b1deb5ef86::t_9d352e00218566 21-31,187,214-215,931-960,1070,1073-1075,1078,1084-1107
+packages/void/src/drizzle/config.ts
+  s_f572b1deb5ef86::t_e0f77e125683b3 4-5,22-23,35-37,54
+packages/void/src/index.ts
+  s_f572b1deb5ef86::t_ebe102a67f823c 30,765,1003
+packages/void/src/plugin-drizzle.ts
+  s_f572b1deb5ef86::t_f7e84450df849b 8-15,60-61,83-89,148-152,157-158,280,461-465
+packages/void/src/plugin-framework.ts
+  s_f572b1deb5ef86::t_f2bba0cc34d7cf 13,385
+packages/void/test/unit/config.test.ts
+  s_0e389949048765::t_f0939cac42d4eb 19-20,1435-1437,1441-1474,1477-1497
+packages/void/test/unit/db-casing.test.ts
+  s_1e7b8803cd1df1::t_a7dac953ff5391 1-270
+packages/void/test/unit/db-seed.test.ts
+  s_0e389949048765::t_fac955cff7bcbc 53-54,61-62,68-70,175-215
+packages/void/test/unit/drizzle-config.test.ts
+  s_0e389949048765::t_fcd40f488f6ec1 1-10,13,16-17,19,44-50,191-287
+packages/void/test/unit/init.test.ts
+  s_1e7b8803cd1df1::t_e84b50ff3bf809 39,192,461,2741-2788
+packages/void/test/unit/plugin-vite-environment.test.ts
+  s_1e7b8803cd1df1::t_ad77e756fa1c13 244-270
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e467dad055e23bd0abbc0b53ec5003c4b8fcb235",
+  "prompts": {},
+  "sessions": {
+    "s_0e389949048765": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-aacbebe5db76fda8f",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_1e7b8803cd1df1": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-acecf790075d2298c",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
