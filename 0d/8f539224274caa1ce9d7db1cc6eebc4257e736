@@ -1,0 +1,21 @@
+packages/void/src/runtime/handler.ts
+  s_a6366f8c8935ed::t_f854481e72db76 280-285,292
+packages/void/test/unit/infer-props.typecheck.ts
+  s_a6366f8c8935ed::t_b054a7b84f1c7c 1-79
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0d8f539224274caa1ce9d7db1cc6eebc4257e736",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
