@@ -67,6 +67,14 @@ export default function Page() {
     <script innerHTML={${JSON.stringify(capture)}} />
   </main>;
 }`,
+  'pages/plain.island.tsx': `
+import Counter from '../components/Counter' with { island: 'load' };
+export default function Plain() {
+  return <main>
+    <Counter name="plain" initial={60} />
+    <script innerHTML={${JSON.stringify(capture)}} />
+  </main>;
+}`,
 };
 
 async function visitFixture(): Promise<{ visit: IslandPageVisit; close(): Promise<void> }> {
@@ -115,7 +123,11 @@ async function visitProductionFixture(
   }
 }
 
-async function expectReused(visit: IslandPageVisit, name: string): Promise<void> {
+async function expectReused(
+  visit: IslandPageVisit,
+  name: string,
+  frontmatter: string | null = 'Island metadata',
+): Promise<void> {
   const { page } = visit;
   await page.waitForFunction(
     (name) =>
@@ -142,7 +154,7 @@ async function expectReused(visit: IslandPageVisit, name: string): Promise<void>
     input: true,
     value: `draft-${name}`,
     labelled: true,
-    frontmatter: 'Island metadata',
+    frontmatter,
   });
 }
 
@@ -175,9 +187,9 @@ describe.each(['dev', 'production'])('%s island hydration', (mode) => {
     productionBuild?.cleanup();
   });
 
-  function newFixture() {
+  function newFixture(path = '') {
     return mode === 'production'
-      ? visitProductionFixture(productionBrowser!, productionServer!.resolvedUrls!.local[0])
+      ? visitProductionFixture(productionBrowser!, productionServer!.resolvedUrls!.local[0] + path)
       : visitFixture();
   }
 
@@ -231,6 +243,23 @@ describe.each(['dev', 'production'])('%s island hydration', (mode) => {
       await fixture.close();
     }
   });
+
+  // The dev helper serves only the index page.
+  it.runIf(mode === 'production')(
+    'reuses SSR DOM on an island page without frontmatter',
+    async () => {
+      const fixture = await newFixture('plain');
+      try {
+        await expectReused(fixture.visit, 'plain', null);
+        const button = fixture.visit.page.locator('[data-counter="plain"] button');
+        await button.click();
+        await expect.poll(() => button.textContent()).toBe('61');
+        expect(fixture.visit.diagnostics()).not.toContain('pageerror');
+      } finally {
+        await fixture.close();
+      }
+    },
+  );
 
   it('hydrates an async resource inside Suspense without replacing the resolved SSR DOM', async () => {
     const fixture = await newFixture();

@@ -413,7 +413,9 @@ function generateIslandClientEntry(
   lines.push('};');
 
   // Each wrapper scopes its SSR keys independently of its page and layout.
-  // Recreate the same provider tree before hydrating that island's root.
+  // Recreate the same provider tree before hydrating that island's root. Every
+  // createComponent call opens a hydration context, so the provider stays even
+  // when the page has no frontmatter.
   lines.push(`
 async function mountIsland(el, mod, props, frontmatter) {
   const { hydrate } = await import("solid-js/web");
