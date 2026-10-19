@@ -39,6 +39,21 @@ export class PlatformWorkerRoutesChangedError extends Error {
   }
 }
 
+/**
+ * The runtime token cannot read the shared email zone. The operator can add
+ * the permission to the same token, so callers keep its saved value.
+ */
+export class PlatformRuntimeTokenEmailPermissionError extends Error {
+  /** Cloudflare answered HTTP 401 at least once: it did not accept the token. */
+  readonly tokenNotValid: boolean;
+
+  constructor(message: string, tokenNotValid: boolean, options?: ErrorOptions) {
+    super(message, options);
+    this.name = 'PlatformRuntimeTokenEmailPermissionError';
+    this.tokenNotValid = tokenNotValid;
+  }
+}
+
 export type CloudflareAccount = Readonly<{ id: string; name: string }>;
 export type CloudflareNamedResource = Readonly<{
   /** When Cloudflare created it, where the API reports that. */
@@ -130,6 +145,8 @@ export async function verifyPlatformRuntimeTokenPermissions(
     accountId: string;
     applicationDomain: string;
     customDomains: boolean;
+    /** The shared email zone, only when platform email is on. */
+    emailZoneId?: string;
     zoneId: string | null;
   },
 ): Promise<void> {
@@ -137,6 +154,13 @@ export async function verifyPlatformRuntimeTokenPermissions(
     await client.listHyperdriveConfigs(input.accountId);
   } catch (error) {
     throw runtimeTokenPreflightError('Account → Hyperdrive → Write', error);
+  }
+
+  if (input.emailZoneId) {
+    await verifyPlatformRuntimeTokenEmailPermissions(client, {
+      accountId: input.accountId,
+      zoneId: input.emailZoneId,
+    });
   }
 
   if (!input.zoneId) {
@@ -161,6 +185,67 @@ export async function verifyPlatformRuntimeTokenPermissions(
     } catch (error) {
       throw runtimeTokenPreflightError('Zone → SSL and Certificates → Edit', error);
     }
+  }
+}
+
+/**
+ * Shared email setup uses the runtime token after the platform pauses traffic.
+ * Read-only requests find a missing Email Routing permission before that. A
+ * read cannot prove Edit access. Email Sending is not checked, because its
+ * answer depends on the account plan.
+ */
+export async function verifyPlatformRuntimeTokenEmailPermissions(
+  client: Pick<PlatformCloudflareClient, 'request'>,
+  input: {
+    accountId: string;
+    zoneId: string;
+    /**
+     * The token is the one saved on this machine, and the run does not send
+     * it to the platform Workers. They can use a different token.
+     */
+    savedToken?: boolean;
+  },
+): Promise<void> {
+  const zone = `/zones/${encodeURIComponent(input.zoneId)}`;
+  const probes = [
+    ['Zone → Zone → Read', zone],
+    ['Zone → Zone Settings → Edit', `${zone}/email/routing`],
+    ['Zone → Email Routing Rules → Edit', `${zone}/email/routing/rules?per_page=5`],
+    [
+      'Account → Email Routing Addresses → Edit',
+      `/accounts/${encodeURIComponent(input.accountId)}/email/routing/addresses?per_page=5`,
+    ],
+  ] as const;
+  const missing: Array<string> = [];
+  let denial: PlatformCloudflareApiError | undefined;
+  let tokenNotValid = false;
+  for (const [permission, path] of probes) {
+    try {
+      await client.request(path);
+    } catch (error) {
+      // Only an authorization answer shows a missing permission. A rate limit,
+      // a Cloudflare outage or a network failure does not stop the command.
+      if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 401 || error.status === 403)
+      ) {
+        missing.push(permission);
+        denial ??= error;
+        // A token that is not valid gets 403 on the zone read, but 401 on
+        // the Email Routing reads. A valid token without access gets 403.
+        tokenNotValid ||= error.status === 401;
+      }
+    }
+  }
+  if (denial) {
+    const denied = `Cloudflare denied: ${missing.join(', ')} (HTTP ${denial.status}).`;
+    throw new PlatformRuntimeTokenEmailPermissionError(
+      input.savedToken
+        ? `platform: The runtime API token saved on this machine cannot use platform email. ${denied} Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.`
+        : `platform: The runtime API token cannot use platform email. ${denied} Check that the token is valid and that its zone permissions include the email zone ${input.zoneId}. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.`,
+      tokenNotValid,
+      { cause: denial },
+    );
   }
 }
 
@@ -925,6 +1010,27 @@ export class PlatformCloudflareClient {
       }
     }
     return bindings;
+  }
+
+  /**
+   * Where the last change to a Worker came from, for example `cf_cli`, `dash`
+   * (Cloudflare dashboard) or `api` (Workers API). Null when the Worker does
+   * not exist or Cloudflare does not report it.
+   */
+  async getWorkerLastDeployedFrom(accountId: string, workerName: string): Promise<string | null> {
+    let service: { default_environment?: { script?: { last_deployed_from?: unknown } } } | null;
+    try {
+      service = await this.request(
+        `/accounts/${encodeURIComponent(accountId)}/workers/services/${encodeURIComponent(workerName)}`,
+      );
+    } catch (error) {
+      if (error instanceof PlatformCloudflareApiError && error.status === 404) {
+        return null;
+      }
+      throw error;
+    }
+    const source = service?.default_environment?.script?.last_deployed_from;
+    return typeof source === 'string' && source !== '' ? source : null;
   }
 
   async deleteKvValue(accountId: string, namespaceId: string, key: string): Promise<void> {

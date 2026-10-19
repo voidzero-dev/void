@@ -642,6 +642,37 @@ describe('registered OAuth applications', () => {
       expect(project.active_deployment_id).toBeNull();
     },
   );
+  it('keeps connected-app Worker modules inside the approved artifact', async () => {
+    const { token } = await connect();
+    const project = await createTestProject(env.db, user.id, 'static-approved-app');
+    // A static artifact: its approval digest commits to no Worker modules.
+    const prepared = createDeployArtifact({ manifest: artifact.manifest, assetManifest: {} });
+    const flow = await publishApproval(token.access_token, project.slug, prepared);
+    const consent = await approve(flow.id, flow.cookie);
+    const { access_token: access } = (await (
+      await exchange(new URL(consent.headers.get('Location')!).searchParams.get('code')!)
+    ).json()) as { access_token: string };
+    const headers = { Authorization: 'Bearer ' + access, 'Content-Type': 'application/json' };
+    const module = { name: 'index.js', size: 18, sha256: 'a'.repeat(64) };
+    const urls = await request('/projects/' + project.id + '/deploy/worker-upload-urls', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ modules: [module] }),
+    });
+    expect(urls.status).toBe(403);
+    const cf = mockCfApi();
+    const deploy = await request('/projects/' + project.id + '/deploy', {
+      method: 'POST',
+      headers: { ...headers, 'x-void-deploy-idempotency-key': flow.id },
+      body: JSON.stringify({
+        ...prepared,
+        workerInput: { id: crypto.randomUUID(), modules: [module] },
+      }),
+    });
+    expect(deploy.status).toBe(403);
+    expect(await deploy.json()).toMatchObject({ message: expect.stringContaining('workerFiles') });
+    expect(cf).not.toHaveBeenCalled();
+  });
   it('registers and disables clients through the administrator UI with an audit trail', async () => {
     const admin = await createTestUser(env.db, 'administrator', 'github', 'admin', 'free', 'admin');
     const input = new URLSearchParams({

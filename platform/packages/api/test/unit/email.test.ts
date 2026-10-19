@@ -7,7 +7,13 @@ import {
   sendDeployFailedEmail,
 } from '../../src/email.ts';
 
-type SentMessage = { from: string; to: string; subject: string; html: string; text: string };
+type SentMessage = {
+  from: string | EmailAddress;
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+};
 
 function mockBinding() {
   const sent: Array<SentMessage> = [];
@@ -220,6 +226,61 @@ describe('platform email identity', () => {
     expect(sent[0].subject).toBe("You're invited to Void Platform");
     expect(sent[0].html + sent[0].text).not.toContain('Void Cloud');
     expect(sent[0].text).toContain("void connect 'api.example.com'");
+  });
+
+  describe('default sender', () => {
+    const installation = {
+      ...identity,
+      EMAIL_FROM: undefined,
+      EMAIL_SENDER_DOMAIN: 'mail.example.com',
+    };
+    const defaultSender = { name: 'Example <Platform>', email: 'noreply@mail.example.com' };
+
+    it('sends every platform mail from noreply on the platform mail domain', async () => {
+      const { binding, sent } = mockBinding();
+      const env = { ...binding, ...installation };
+      await sendInvitationEmail(env, 'member@example.com');
+      await sendProjectInvitationEmail(env, {
+        to: 'member@example.com',
+        invitationId: 'pinv_a1b2c3d4e5f6',
+        projectSlug: 'shared-project',
+        inviterLogin: 'owner',
+        role: 'reader',
+      });
+      await sendWelcomeEmail(env, 'member@example.com', 'new-member');
+      await sendDeployFailedEmail(env, 'member@example.com', 'my-project', 'failed');
+      await sendErrorAlertEmail(env, 'member@example.com', 'my-project', 5, null);
+      expect(sent.map(({ from }) => from)).toEqual(Array(5).fill(defaultSender));
+    });
+
+    it('keeps an explicit EMAIL_FROM and the hosted sender ahead of it', async () => {
+      const { binding, sent } = mockBinding();
+      await sendInvitationEmail({ ...binding, ...installation }, 'member@example.com');
+      await sendInvitationEmail(
+        { ...binding, ...installation, EMAIL_FROM: identity.EMAIL_FROM },
+        'member@example.com',
+      );
+      await sendInvitationEmail(
+        { ...binding, EMAIL_SENDER_DOMAIN: 'mail.void.cloud' },
+        'member@example.com',
+      );
+      expect(sent.map(({ from }) => from)).toEqual([
+        defaultSender,
+        identity.EMAIL_FROM,
+        'Void <noreply@void.cloud>',
+      ]);
+    });
+
+    it.each([
+      { ...installation, PLATFORM_DISPLAY_NAME: 'Example\r\nBcc: attacker@example.com' },
+      { ...installation, EMAIL_SENDER_DOMAIN: 'mail.example.com\r\nBcc: attacker@example.com' },
+    ])('rejects control characters in the sender: %j', async (config) => {
+      const { binding, sent } = mockBinding();
+      await expect(
+        sendInvitationEmail({ ...binding, ...config }, 'member@example.com'),
+      ).rejects.toThrow('must not contain control characters');
+      expect(sent).toEqual([]);
+    });
   });
 
   it('preserves the Void Cloud sender only for its hosted deployment', async () => {

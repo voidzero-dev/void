@@ -3,6 +3,7 @@ import { PlatformClient } from '../../src/cli/client.ts';
 import {
   isPlatformDiscoveryRequest,
   platformDiscoveryResponse,
+  type PlatformDiscoveryFeatures,
 } from '../helpers/platform-discovery.ts';
 
 // Never read the keychain or run cloudflared. Without Access credentials, an
@@ -158,5 +159,79 @@ describe('minimum platform version', () => {
   it('accepts a version it cannot order', async () => {
     serve('development');
     await expect(client().listProjectChoices()).resolves.toEqual([]);
+  });
+});
+
+describe('direct Worker upload discovery', () => {
+  function serveFeatures(features: PlatformDiscoveryFeatures): void {
+    serve(() => platformDiscoveryResponse(origin, undefined, features));
+  }
+
+  it.each([
+    ['true', { directWorkerUpload: true }, true],
+    ['false', { directWorkerUpload: false }, false],
+    ['absent, as on an older platform', {}, false],
+  ])('reports support only when discovery says so (%s)', async (_label, features, expected) => {
+    serveFeatures(features);
+    await expect(client().supportsDirectWorkerUpload()).resolves.toBe(expected);
+  });
+
+  it('reuses the version check probe', async () => {
+    serveFeatures({ directWorkerUpload: true });
+    await client().listProjectChoices();
+    await expect(client().supportsDirectWorkerUpload()).resolves.toBe(true);
+    expect(requestedPaths()).toEqual(['/.well-known/void-platform', '/projects/choices']);
+  });
+
+  it.each([
+    ['a disabled platform (503)', () => Response.json({ error: 'disabled' }, { status: 503 })],
+    [
+      'an invalid field',
+      () => platformDiscoveryResponse(origin, undefined, { directWorkerUpload: 'yes' }),
+    ],
+  ])(
+    'reports no support when discovery gives %s, and lets requests run',
+    async (_label, answer) => {
+      serve(answer);
+      await expect(client().supportsDirectWorkerUpload()).resolves.toBe(false);
+      await expect(client().listProjectChoices()).resolves.toEqual([]);
+    },
+  );
+
+  it('asks discovery again when the cached answer was inconclusive', async () => {
+    let probes = 0;
+    serve(() =>
+      ++probes === 1
+        ? Response.json({ error: 'unavailable' }, { status: 503 })
+        : platformDiscoveryResponse(origin, undefined, { directWorkerUpload: true }),
+    );
+    await client().listProjectChoices();
+    await expect(client().supportsDirectWorkerUpload()).resolves.toBe(true);
+    // The version check keeps its first outcome.
+    await client().listProjects();
+    expect(requestedPaths()).toEqual([
+      '/.well-known/void-platform',
+      '/projects/choices',
+      '/.well-known/void-platform',
+      '/projects',
+    ]);
+  });
+
+  it('reports no support when discovery stays inconclusive', async () => {
+    serve(() => Response.json({ error: 'unavailable' }, { status: 503 }));
+    await client().listProjectChoices();
+    await expect(client().supportsDirectWorkerUpload()).resolves.toBe(false);
+    expect(requestedPaths()).toEqual([
+      '/.well-known/void-platform',
+      '/projects/choices',
+      '/.well-known/void-platform',
+    ]);
+  });
+
+  it('does not ask again when discovery omits the field', async () => {
+    serveFeatures({});
+    await client().listProjectChoices();
+    await expect(client().supportsDirectWorkerUpload()).resolves.toBe(false);
+    expect(requestedPaths()).toEqual(['/.well-known/void-platform', '/projects/choices']);
   });
 });

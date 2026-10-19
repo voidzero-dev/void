@@ -120,6 +120,58 @@ describe('PlatformClient.requestUploadUrls', () => {
   });
 });
 
+describe('PlatformClient.requestWorkerUploadUrls', () => {
+  const modules = [
+    { name: 'index.js', size: 18, sha256: 'a'.repeat(64) },
+    { name: 'chunks/b.js', size: 4, sha256: 'b'.repeat(64) },
+  ];
+  const urls = [
+    { url: 'https://r2/worker/0', headers: { 'Content-Type': 'application/javascript' } },
+    { url: 'https://r2/worker/1', headers: { 'Content-Type': 'application/javascript' } },
+  ];
+
+  it('POSTs the modules in order and returns the upload id and URLs', async () => {
+    fetchMock.mockResolvedValueOnce(jsonResponse({ id: 'wup_1', urls }));
+
+    await expect(makeClient().requestWorkerUploadUrls(projectId, modules)).resolves.toEqual({
+      id: 'wup_1',
+      urls,
+    });
+
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`${apiUrl}/projects/${projectId}/deploy/worker-upload-urls`);
+    expect(init.method).toBe('POST');
+    const headers = init.headers as Record<string, string>;
+    expect(headers['Content-Type']).toBe('application/json');
+    expect(headers.Authorization).toBe(`Bearer ${token}`);
+    expect(JSON.parse(init.body as string)).toEqual({ modules });
+  });
+
+  it("shows the platform's message when the Worker is over the size limit", async () => {
+    const message = 'This Worker is 70 MB without source maps. Cloudflare allows at most 64 MiB.';
+    fetchMock.mockResolvedValueOnce(jsonResponse({ error: 'worker_too_large', message }, 413));
+
+    const request = makeClient().requestWorkerUploadUrls(projectId, modules);
+    await expect(request).rejects.toMatchObject({
+      name: 'PlatformApiError',
+      status: 413,
+      code: 'worker_too_large',
+    });
+    await expect(request).rejects.toThrow(message);
+  });
+
+  it.each([
+    ['without an id', { urls }],
+    ['with fewer URLs than modules', { id: 'wup_1', urls: urls.slice(1) }],
+    ['with a malformed URL entry', { id: 'wup_1', urls: [urls[0], { url: 'https://r2/x' }] }],
+  ])('rejects a response %s', async (_label, body) => {
+    fetchMock.mockResolvedValueOnce(jsonResponse(body));
+    await expect(makeClient().requestWorkerUploadUrls(projectId, modules)).rejects.toThrow(
+      'Invalid worker upload URLs from platform.',
+    );
+  });
+});
+
 describe('PlatformClient.getMigrationStatus', () => {
   it('passes the dialect query parameter when provided', async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({ applied: [] }));
@@ -552,6 +604,39 @@ describe('PlatformClient.finalizeDeploy', () => {
     }
     return events;
   }
+
+  it('re-sends the same workerInput and idempotency key on a transport retry', async () => {
+    vi.useFakeTimers();
+    fetchMock
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(ndjsonStreamResponse([durableDone]));
+    const workerInput = {
+      id: 'wup_retry',
+      modules: [{ name: 'index.js', size: 18, sha256: 'c'.repeat(64) }],
+    };
+    try {
+      const deploy = (async () => {
+        for await (const _event of makeClient().finalizeDeploy(projectId, {
+          ...makePayload(),
+          workerInput,
+        })) {
+          // Only the request bodies matter here.
+        }
+      })();
+      await vi.runAllTimersAsync();
+      await deploy;
+
+      const [first, second] = deployPostCalls().map(([, init]) => init as RequestInit);
+      expect(second.body).toBe(first.body);
+      expect(JSON.parse(first.body as string)).toMatchObject({ workerInput });
+      expect(JSON.parse(first.body as string)).not.toHaveProperty('workerFiles');
+      const [firstKey, secondKey] = idempotencyKeys();
+      expect(firstKey).toMatch(/^[a-f0-9-]{36}$/);
+      expect(secondKey).toBe(firstKey);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 
   it('keeps one idempotency key across POST retries and chooses a new key for each invocation', async () => {
     vi.useFakeTimers();

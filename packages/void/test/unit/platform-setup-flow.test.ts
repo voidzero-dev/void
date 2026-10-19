@@ -2,6 +2,7 @@ import { mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
 import {
   createPlatformDeploymentManifest,
   recordInstallationResource,
@@ -15,7 +16,9 @@ import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import {
   PlatformCloudflareApiError,
   PlatformCloudflareClient,
+  verifyPlatformRuntimeTokenEmailPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
+import { recordWorkerCutoverStage } from '../../src/cli/platform-installer-cutover.ts';
 import { PlatformAccessBlockedError } from '../../src/cli/platform-installer.ts';
 import { runPlatformLifecycleCommand } from '../../src/cli/platform-lifecycle.ts';
 import {
@@ -47,7 +50,16 @@ const mocks = vi.hoisted(() => ({
   plan: vi.fn(),
   database: vi.fn(),
   spinner: vi.fn(),
-  progress: { start: vi.fn(), stop: vi.fn(), message: vi.fn(), error: vi.fn(), clear: vi.fn() },
+  progress: {
+    start: vi.fn(),
+    stop: vi.fn(),
+    message: vi.fn(),
+    error: vi.fn(),
+    clear: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+  },
+  cfRunner: vi.fn(),
 }));
 vi.mock('@voidzero-dev/vite-plus-prompts', async (original) => ({
   ...(await original<typeof import('@voidzero-dev/vite-plus-prompts')>()),
@@ -95,6 +107,10 @@ vi.mock('../../src/cli/platform-installer.ts', async (original) => ({
   installPlatform: mocks.install,
   resolveBootstrapGitHubId: async () => '12345',
   readPlatformDatabaseLifecycleManifest: mocks.database,
+}));
+vi.mock('../../src/cli/platform-installer-process.ts', async (original) => ({
+  ...(await original<typeof import('../../src/cli/platform-installer-process.ts')>()),
+  runPlatformWranglerAtApiBase: mocks.cfRunner,
 }));
 vi.mock('../../src/cli/platform-plan.ts', async (original) => ({
   ...(await original<typeof import('../../src/cli/platform-plan.ts')>()),
@@ -407,6 +423,7 @@ describe('platform credential onboarding', () => {
 
   it('rejects missing Access permissions at the initial management prompt before provisioning', async () => {
     const installArgs = accessManagementPlan();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
     mocks.password
       .mockResolvedValueOnce('missing-access')
       .mockResolvedValueOnce('complete-manager');
@@ -422,6 +439,11 @@ describe('platform credential onboarding', () => {
       ),
     );
     await runPlatformLifecycleCommand(parsePlatformArgs(installArgs));
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining(
+        'Cloudflare API error: Access denied (code 10000) (HTTP 403; GET /accounts/account/access/organizations).',
+      ),
+    );
     expect(mocks.password.mock.calls.map(([input]) => input.message)).toEqual([
       'Paste management API token:',
       'Paste management API token:',
@@ -873,6 +895,46 @@ describe('platform credential onboarding', () => {
       expect(mocks.install).toHaveBeenCalledOnce();
     },
   );
+
+  it('preserves permission guidance and provider diagnostics when a management check fails', async () => {
+    requireManagementToken();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const original = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementationOnce(original).mockImplementationOnce(async (client) => {
+      try {
+        await client.request('/zones/zone/dns_records?private=query-value');
+      } catch (cause) {
+        throw new Error('Add Zone → DNS → Edit for example.com to the management token.', {
+          cause,
+        });
+      }
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>(async () =>
+        Response.json(
+          {
+            success: false,
+            errors: [{ code: 10000, message: 'Access denied for rejected-secret' }],
+          },
+          { status: 403 },
+        ),
+      ),
+    );
+    mocks.password.mockResolvedValueOnce('rejected-secret').mockResolvedValueOnce(Symbol('cancel'));
+
+    await expect(runPlatformLifecycleCommand(parsePlatformArgs(args))).rejects.toThrow('Cancelled');
+
+    expect(warn).toHaveBeenCalledOnce();
+    const warning = warn.mock.calls[0]![0];
+    expect(warning).toContain('Add Zone → DNS → Edit for example.com to the management token.');
+    expect(warning).toContain('Access denied for [redacted] (code 10000)');
+    expect(warning).toContain('HTTP 403; GET /zones/zone/dns_records');
+    expect(warning).not.toContain('rejected-secret');
+    expect(warning).not.toContain('query-value');
+    expect(mocks.install).not.toHaveBeenCalled();
+    expect(listInstallationManifests()).toEqual([]);
+  });
 
   it('leaves no draft when management token input is cancelled', async () => {
     requireManagementToken();
@@ -1468,6 +1530,45 @@ describe('platform credential onboarding', () => {
     expect(mocks.install).not.toHaveBeenCalled();
   });
 
+  it('keeps a saved token that lacks an email permission and asks for no replacement', async () => {
+    const draft = await savedSetup();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    mocks.preflight.mockImplementationOnce(async (_client, input: { accountId: string }) =>
+      verifyPlatformRuntimeTokenEmailPermissions(
+        new PlatformCloudflareClient('saved-runtime-token', {
+          fetcher: async (request) =>
+            new URL(String(request)).pathname.endsWith('/email/routing/addresses')
+              ? Response.json(
+                  { success: false, errors: [{ message: 'upstream echoed saved-runtime-token' }] },
+                  { status: 403 },
+                )
+              : Response.json({ success: true, result: {} }),
+        }),
+        { accountId: input.accountId, zoneId: 'mail-zone' },
+      ),
+    );
+
+    const failure = await runPlatformLifecycleCommand(parsePlatformArgs(['install'])).then(
+      () => null,
+      (error: unknown) => error as Error,
+    );
+
+    expect(failure?.message).toContain(
+      'Cloudflare denied: Account → Email Routing Addresses → Edit (HTTP 403)',
+    );
+    expect(failure?.message).toContain('The token value stays the same');
+    expect(failure?.message).not.toContain('saved-runtime-token');
+    expect(failure?.message).not.toContain('upstream echoed');
+    expect(readPendingInstallationSecrets(draft)?.cloudflareApiToken).toBe('saved-runtime-token');
+    expect(warn).not.toHaveBeenCalledWith(
+      'Cloudflare rejected the saved runtime token. Create a replacement to continue setup.',
+    );
+    expect(mocks.preflight).toHaveBeenCalledOnce();
+    expect(mocks.open).not.toHaveBeenCalled();
+    expect(mocks.password).not.toHaveBeenCalled();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
   it('offers a named saved setup and a fresh installation instead of automatically continuing', async () => {
     const draft = await savedSetup();
     await runPlatformLifecycleCommand(parsePlatformArgs(['install', '--plan']));
@@ -1873,6 +1974,27 @@ describe('platform credential onboarding', () => {
     expect(mocks.install).toHaveBeenCalledOnce();
     expect(info.mock.calls.map(([message]) => message).join('\n')).not.toContain('openssl rand');
   });
+  it('checks runtime-token email access only when platform email is on', async () => {
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    vi.stubEnv('VOID_EMAIL_SHARED_ZONE_ID', '');
+    vi.stubEnv('VOID_EMAIL_SENDER_DOMAIN', '');
+    await runPlatformLifecycleCommand(parsePlatformArgs(args));
+    expect(mocks.preflight.mock.calls[0]![1]).not.toHaveProperty('emailZoneId');
+
+    vi.stubEnv('VOID_EMAIL_SHARED_ZONE_ID', 'mail-zone');
+    vi.stubEnv('VOID_EMAIL_SENDER_DOMAIN', 'mail.example.com');
+    const emailArgs = args.map((value) => (value === 'test-setup' ? 'email-setup' : value));
+    await runPlatformLifecycleCommand(parsePlatformArgs(emailArgs));
+
+    expect(mocks.preflight).toHaveBeenCalledTimes(2);
+    expect(mocks.preflight.mock.calls[1]![1]).toMatchObject({ emailZoneId: 'mail-zone' });
+    expect(mocks.install).toHaveBeenCalledTimes(2);
+    expect(mocks.preflight.mock.invocationCallOrder[1]).toBeLessThan(
+      mocks.install.mock.invocationCallOrder[1]!,
+    );
+  });
   it('checkpoints a generated email key before leaving the setup draft', async () => {
     for (const [key, value] of Object.entries(environment)) {
       vi.stubEnv(key, value);
@@ -1899,5 +2021,309 @@ describe('platform credential onboarding', () => {
     expect(isPlatformSetupDraft(draft)).toBe(true);
     expect(readPendingInstallationSecrets(draft)?.jwtSecret).toBeUndefined();
     expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  const withApiWorker = (action: 'create' | 'update') => {
+    const original = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementation(async (...input: Parameters<typeof original>) => {
+      const plan = await original(...input);
+      return {
+        ...plan,
+        actions: [
+          {
+            action,
+            id: null,
+            key: 'api-worker',
+            kind: 'worker',
+            name: plan.deployment.resources.apiWorker,
+            reason: 'installer Worker',
+          },
+        ],
+      };
+    });
+  };
+  it('stops a resumed install before the installer when its Worker was changed outside Void', async () => {
+    const manifest = await interruptedInstall();
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    withApiWorker('update');
+    const source = vi
+      .spyOn(PlatformCloudflareClient.prototype, 'getWorkerLastDeployedFrom')
+      .mockResolvedValue('api');
+    // The deploy needs one active version, so the check reads the deployments.
+    const request = vi
+      .spyOn(PlatformCloudflareClient.prototype, 'request')
+      .mockImplementation(async (path: string) => {
+        if (path.endsWith(`/${manifest.deployment.resources.apiWorker}/deployments`)) {
+          return {
+            deployments: [
+              {
+                id: 'deployment',
+                created_on: '2026-10-15T00:00:00.000Z',
+                versions: [{ version_id: '11111111-1111-4111-8111-111111111111', percentage: 100 }],
+              },
+            ],
+          };
+        }
+        throw new Error(`unexpected read ${path}`);
+      });
+
+    await expect(
+      runPlatformLifecycleCommand(
+        parsePlatformArgs(['install', '--resume', '--name', manifest.id, '--yes']),
+      ),
+    ).rejects.toThrow(
+      new RegExp(
+        `No platform Worker changed\\. This command did not pause application traffic\\.[\\s\\S]*platform install --resume --name ${manifest.id}$`,
+      ),
+    );
+    expect(source).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledOnce();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+  it('uploads a resumed install’s Worker changed outside Void when the installer asks', async () => {
+    const manifest = await interruptedInstall();
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    withApiWorker('update');
+    const apiWorker = manifest.deployment.resources.apiWorker;
+    const createdCacheId = 'isr-cache-created-in-run';
+    const marker = 'owned-by-this-installation';
+    const version = '11111111-1111-4111-8111-111111111111';
+    const source = vi
+      .spyOn(PlatformCloudflareClient.prototype, 'getWorkerLastDeployedFrom')
+      .mockResolvedValueOnce('dash')
+      .mockResolvedValue('cf_cli');
+    vi.spyOn(PlatformCloudflareClient.prototype, 'request').mockImplementation(
+      async (path: string) => {
+        if (path.endsWith('/deployments')) {
+          return {
+            deployments: [
+              {
+                id: 'deployment',
+                created_on: '2026-10-15T00:00:00.000Z',
+                versions: [{ version_id: version, percentage: 100 }],
+              },
+            ],
+          };
+        }
+        if (path.endsWith(`/versions/${version}`)) {
+          return {
+            resources: {
+              bindings: [{ name: 'PLATFORM_OWNERSHIP_MARKER', type: 'plain_text', text: marker }],
+            },
+          };
+        }
+        throw new Error(`unexpected read ${path}`);
+      },
+    );
+    const events: Array<string> = [];
+    const uploaded: Array<string> = [];
+    mocks.cfRunner.mockImplementation(async (operation: { configPath: string }) => {
+      events.push('review-upload');
+      uploaded.push(readFileSync(operation.configPath, 'utf8'));
+      return { status: 0, stdout: '', stderr: '' };
+    });
+    mocks.progress.pause.mockImplementation(() => events.push('progress-pause'));
+    mocks.progress.resume.mockImplementation(() => events.push('progress-resume'));
+    // Like the installer: it creates a resource, uploads the Workers changed
+    // outside Void with the configs that the run deploys, then pauses traffic.
+    mocks.install.mockImplementation(async (_plan, _secrets, existing, dependencies) => {
+      events.push('installer-start', 'create:isr-cache-kv');
+      await dependencies.uploadOutsideChanges([
+        {
+          account_id: 'account',
+          compatibility_date: '2026-09-30',
+          kv_namespaces: [{ binding: 'ISR_CACHE', id: createdCacheId }],
+          main: join(directory, 'api.js'),
+          name: apiWorker,
+          vars: { PLATFORM_OWNERSHIP_MARKER: marker },
+        },
+      ]);
+      events.push('traffic-paused');
+      return { manifest: existing, waitingForDns: false, waitingForSandboxDrain: false };
+    });
+    const stdout = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    try {
+      await runPlatformLifecycleCommand(
+        parsePlatformArgs(['install', '--resume', '--name', manifest.id]),
+      );
+    } finally {
+      if (stdout) {
+        Object.defineProperty(process.stdout, 'isTTY', stdout);
+      } else {
+        Reflect.deleteProperty(process.stdout, 'isTTY');
+      }
+    }
+
+    expect(mocks.confirm).toHaveBeenCalledWith({
+      message: 'Replace the configuration of these Workers?',
+      initialValue: false,
+    });
+    expect(events).toEqual([
+      'installer-start',
+      'create:isr-cache-kv',
+      'progress-pause',
+      'review-upload',
+      'progress-resume',
+      'traffic-paused',
+    ]);
+    expect(mocks.cfRunner.mock.calls[0]![0]).toMatchObject({
+      type: 'versions.upload',
+      interactive: true,
+    });
+    expect(uploaded).toHaveLength(1);
+    expect(uploaded[0]).toContain(createdCacheId);
+    expect(JSON.stringify(manifest.resources)).not.toContain(createdCacheId);
+    expect(source).toHaveBeenCalledTimes(2);
+    expect(mocks.install.mock.calls[0]![3]).toMatchObject({
+      replaceOutsideChanges: [apiWorker],
+    });
+  });
+  it('replaces a resumed install’s active version that Void did not deploy without a review upload', async () => {
+    const manifest = await interruptedInstall();
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    withApiWorker('update');
+    const apiWorker = manifest.deployment.resources.apiWorker;
+    const version = '11111111-1111-4111-8111-111111111111';
+    // An earlier run stopped after the Cloudflare CLI replaced the change, so
+    // the marker shows the Cloudflare CLI. The active version has no Void record.
+    vi.spyOn(PlatformCloudflareClient.prototype, 'getWorkerLastDeployedFrom').mockResolvedValue(
+      'cf_cli',
+    );
+    vi.spyOn(PlatformCloudflareClient.prototype, 'request').mockImplementation(
+      async (path: string) => {
+        if (path.endsWith(`/${apiWorker}/deployments`)) {
+          return {
+            deployments: [
+              {
+                id: 'deployment',
+                created_on: '2026-10-15T00:00:00.000Z',
+                versions: [{ version_id: version, percentage: 100 }],
+              },
+            ],
+          };
+        }
+        if (path.endsWith(`/${apiWorker}/versions/${version}`)) {
+          return { annotations: { 'workers/triggered_by': 'upload' } };
+        }
+        throw new Error(`unexpected read ${path}`);
+      },
+    );
+    mocks.install.mockImplementation(async (_plan, _secrets, existing, dependencies) => {
+      await dependencies.uploadOutsideChanges([{ account_id: 'account', name: apiWorker }]);
+      return { manifest: existing, waitingForDns: false, waitingForSandboxDrain: false };
+    });
+    const stdout = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
+    Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+    try {
+      await runPlatformLifecycleCommand(
+        parsePlatformArgs(['install', '--resume', '--name', manifest.id]),
+      );
+    } finally {
+      if (stdout) {
+        Object.defineProperty(process.stdout, 'isTTY', stdout);
+      } else {
+        Reflect.deleteProperty(process.stdout, 'isTTY');
+      }
+    }
+
+    expect(mocks.confirm).toHaveBeenCalledWith({
+      message: 'Replace the configuration of these Workers?',
+      initialValue: false,
+    });
+    expect(mocks.cfRunner).not.toHaveBeenCalled();
+    expect(mocks.progress.pause).not.toHaveBeenCalled();
+    expect(mocks.install.mock.calls[0]![3]).toMatchObject({
+      replaceOutsideChanges: [apiWorker],
+    });
+  });
+  it('stops a resumed install that restores an earlier version without a Void record', async () => {
+    const manifest = await interruptedInstall();
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    withApiWorker('update');
+    const apiWorker = manifest.deployment.resources.apiWorker;
+    const voidVersion = '22222222-2222-4222-8222-222222222222';
+    const earlierVersion = '33333333-3333-4333-8333-333333333333';
+    const triggers = {
+      workers_dev: true,
+      preview_urls: false,
+      routes: [],
+      crons: [],
+      queueConsumers: [],
+      workflows: [],
+    };
+    // An earlier run agreed to replace a change made outside Void, made
+    // Void's version active and stopped before the cutover finished. The
+    // installer first restores the earlier version.
+    writeInstallationManifest(
+      recordWorkerCutoverStage(
+        manifest,
+        1,
+        'api',
+        earlierVersion,
+        voidVersion,
+        apiWorker,
+        triggers,
+        new Date().toISOString(),
+      ),
+    );
+    vi.spyOn(PlatformCloudflareClient.prototype, 'getWorkerLastDeployedFrom').mockResolvedValue(
+      'cf_cli',
+    );
+    const request = vi
+      .spyOn(PlatformCloudflareClient.prototype, 'request')
+      .mockImplementation(async (path: string) => {
+        if (path.endsWith(`/${apiWorker}/deployments`)) {
+          return {
+            deployments: [
+              {
+                id: 'deployment',
+                created_on: '2026-10-15T00:00:00.000Z',
+                versions: [{ version_id: voidVersion, percentage: 100 }],
+              },
+            ],
+          };
+        }
+        if (path.endsWith(`/${apiWorker}/versions/${voidVersion}`)) {
+          return {
+            annotations: { 'workers/message': encodeCloudflareVersionMessage([], triggers) },
+          };
+        }
+        if (path.endsWith(`/${apiWorker}/versions/${earlierVersion}`)) {
+          return { annotations: {} };
+        }
+        throw new Error(`unexpected read ${path}`);
+      });
+
+    await expect(
+      runPlatformLifecycleCommand(
+        parsePlatformArgs(['install', '--resume', '--name', manifest.id, '--yes']),
+      ),
+    ).rejects.toThrow(`${apiWorker}: has an active version without a Void deployment record\n`);
+    expect(request).toHaveBeenCalledWith(
+      `/accounts/${manifest.account.id}/workers/scripts/${apiWorker}/versions/${earlierVersion}`,
+    );
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+  it('reads no Worker that a fresh install creates', async () => {
+    for (const [key, value] of Object.entries(environment)) {
+      vi.stubEnv(key, value);
+    }
+    withApiWorker('create');
+    const source = vi.spyOn(PlatformCloudflareClient.prototype, 'getWorkerLastDeployedFrom');
+
+    await runPlatformLifecycleCommand(parsePlatformArgs(args));
+
+    expect(source).not.toHaveBeenCalled();
+    expect(mocks.install).toHaveBeenCalledOnce();
+    expect(mocks.install.mock.calls[0]![3]).not.toHaveProperty('replaceOutsideChanges');
   });
 });

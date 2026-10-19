@@ -1,5 +1,5 @@
 import { sql as drizzleSql } from 'drizzle-orm';
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { findMissingR2Assets, persistedR2AssetSizes } from '../asset-inventory.ts';
 import { activeOAuthApproval, OAuthError } from '../auth/oauth.ts';
 import { uploadPool } from '../concurrency.ts';
@@ -9,21 +9,27 @@ import { requireActiveDeployAccess } from '../deploy/recovery.ts';
 import {
   HEX_32_REGEX,
   MAX_UPLOAD_URLS_BATCH,
+  moduleContentType,
+  workerUploadModulesProblem,
   type UploadUrlsRequestAsset,
+  type WorkerUploadModule,
 } from '../deploy/shared.ts';
 import {
   appendDeploymentEvent,
   assertDeploymentExecutionAuthority,
   deploymentEventPage,
+  deploymentInputModule,
+  deploymentInputPrefix,
   getDeploymentOperation,
   type DeploymentOperation,
 } from '../deployment-execution.ts';
 import type { ApiEnv } from '../env.ts';
 import { checkCliVersionOrRespond } from '../middleware/cli-version.ts';
-import { createDeployLogger } from '../observability/logger.ts';
+import { createDeployLogger, type DeployLogger } from '../observability/logger.ts';
 import { ProjectAccessDeniedError, projectAccessErrorBody } from '../project-access.ts';
 import { ProjectRequiresNormalizationError, requireNormalizedProject } from '../project-state.ts';
 import { presignAssetPut } from '../r2-presign.ts';
+import { listR2Objects, type WorkerModule } from '../worker-upload.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
 export {
@@ -34,12 +40,19 @@ export {
 
 const app = new Hono<ApiEnv>();
 
-// Body cap for `POST /:id/deploy/upload-urls`. The body is dominated by
-// `assets[]` entries — each entry is ~150 bytes (blake3 + md5 + size +
-// contentType). 5000 entries × ~150 bytes ≈ 750 KB, so 4 MiB carries a
-// 4× safety margin. Asset BYTES never travel this endpoint — they go
-// direct-to-R2 via the presigned PUTs this endpoint issues.
+// Body cap for `POST /:id/deploy/upload-urls` and `/worker-upload-urls`. The
+// body is dominated by `assets[]` entries — each entry is ~150 bytes (blake3 +
+// md5 + size + contentType) — or `modules[]` entries of similar size (name +
+// size + sha256). 5000 entries × ~150 bytes ≈ 750 KB, so 4 MiB carries a
+// 4× safety margin. Asset and module BYTES never travel these endpoints —
+// they go direct-to-R2 via the presigned PUTs the endpoints issue.
 const MAX_UPLOAD_URLS_BODY_BYTES = 4 * 1024 * 1024;
+
+// 30 minutes. On a slow uplink a tail asset can wait in the upload pool for
+// more than 10 minutes before its first PUT, and the CLI treats R2's 403
+// SignatureExpired as terminal. Longer deploys need the re-presign-on-expiry
+// follow-up noted on `/deploy/upload-urls`.
+const UPLOAD_URL_TTL_SECONDS = 1800;
 
 // Bounded concurrency for the presign batch. Presigning is CPU-light;
 // 50 in-flight is generous and keeps tail latency bounded without
@@ -104,7 +117,206 @@ const UPLOAD_URLS_PROJECT_DELETING = 'upload_urls:project_deleting';
  * blake3s. Tracking issue: see meta/design-docs/0068 follow-up.
  */
 app.post('/:id/deploy/upload-urls', async (context) => {
-  const projectId = context.req.param('id');
+  const request = await beginUploadUrlsRequest(context);
+  if (request instanceof Response) {
+    return request;
+  }
+  const { projectId, logger, startedAt, body } = request;
+  // TODO(orphan-gc): authenticated users can upload bytes via upload-urls
+  // without ever finalizing a deploy, leaving durable orphans. Teardown
+  // cleans these up; for active projects, abandoned uploads accumulate
+  // until a future deploy's retention cleanup happens to walk over them.
+  // Track in a follow-up: add a periodic per-project R2 sweep that diffs
+  // `assets/${projectId}/*` against the union of retained manifests.
+  if (!Array.isArray(body.assets)) {
+    return context.json({ error: 'request body must include an `assets` array' }, 400);
+  }
+  if (body.assets.length > MAX_UPLOAD_URLS_BATCH) {
+    return context.json(
+      {
+        error: `assets[] has ${body.assets.length} entries, exceeds the ${MAX_UPLOAD_URLS_BATCH} per-request limit`,
+      },
+      400,
+    );
+  }
+  for (let i = 0; i < body.assets.length; i++) {
+    const err = validateUploadUrlsAsset(body.assets[i], i);
+    if (err) {
+      return context.json({ error: err }, 400);
+    }
+  }
+  const assets = body.assets as ReadonlyArray<UploadUrlsRequestAsset>;
+
+  logger.info('upload_urls', 'request', { assetCount: assets.length });
+
+  const urls: Record<string, { url: string; headers: Record<string, string> }> = {};
+  const failed = await presignUnderProjectLock(
+    context,
+    projectId,
+    logger,
+    { step: 'upload_urls', assetCount: assets.length },
+    async (tx, signingKeyCache) => {
+      if (context.get('oauthApproval')) {
+        const { approval } = await activeOAuthApproval(
+          tx,
+          context.get('oauthApproval')!,
+          context.get('companyIdentity'),
+          true,
+        );
+        const approved = Object.values(approval.data.artifact!.assetManifest);
+        if (
+          approval.data.projectId !== projectId ||
+          assets.some(
+            (asset) =>
+              !approved.some(
+                (entry) =>
+                  entry.blake3 === asset.blake3 &&
+                  entry.md5 === asset.md5 &&
+                  entry.size === asset.size,
+              ),
+          )
+        ) {
+          throw new OAuthError(
+            'access_denied',
+            'Upload only the assets approved for this publish.',
+            403,
+          );
+        }
+      }
+      await uploadPool(assets, PRESIGN_BATCH_CONCURRENCY, async (asset) => {
+        const result = await presignAssetPut(
+          {
+            accountId: context.env.CF_ACCOUNT_ID,
+            accessKeyId: context.env.R2_ACCESS_KEY_ID,
+            secretAccessKey: context.env.R2_SECRET_ACCESS_KEY,
+            bucket: context.env.R2_STATIC_ASSETS_BUCKET,
+            key: `assets/${projectId}/${asset.blake3}`,
+            md5: asset.md5,
+            contentType: asset.contentType,
+            ttlSeconds: context.get('oauthApproval')
+              ? Math.max(
+                  1,
+                  Math.min(
+                    900,
+                    context.get('deployTokenExpiresAt')! - Math.floor(Date.now() / 1000),
+                  ),
+                )
+              : UPLOAD_URL_TTL_SECONDS,
+            ...(context.get('oauthApproval')
+              ? { ifNoneMatch: '*' as const, contentLength: asset.size }
+              : {}),
+          },
+          signingKeyCache,
+        );
+        // Last-write-wins on duplicate blake3 — see docstring above. Map
+        // assignment is synchronous so concurrent pool tasks do not race
+        // beyond a benign last-writer.
+        urls[asset.blake3] = result;
+      });
+    },
+  );
+  if (failed) {
+    return failed;
+  }
+
+  logger.info('upload_urls', 'response', {
+    urlsIssued: Object.keys(urls).length,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return context.json({ urls });
+});
+
+/**
+ * Issue presigned R2 PUT URLs for a deploy's Worker modules.
+ *
+ * Worker modules, source maps included, can exceed what a deploy request
+ * body carries, so the CLI uploads them first and finalizes with
+ * `workerInput: { id, modules }`. Module `i` is stored at
+ * `deployment-inputs/${projectId}/${id}/${i}` — the durable deployment input
+ * prefix family, so operation input cleanup, the stale-input sweep, and
+ * project teardown all cover it. Each URL signs Content-Type and
+ * Content-Length, so R2 stores exactly the declared size; the SHA-256 is
+ * checked when the bytes stream to Cloudflare. URLs expire in 30 minutes.
+ *
+ * Connected-app credentials cannot reach this route (see `authMiddleware`):
+ * they send modules inline, where their approval digest covers them.
+ *
+ * Returns `{ id, urls: [{ url, headers }] }`, with `urls` in `modules` order.
+ */
+app.post('/:id/deploy/worker-upload-urls', async (context) => {
+  const request = await beginUploadUrlsRequest(context);
+  if (request instanceof Response) {
+    return request;
+  }
+  const { projectId, logger, startedAt, body } = request;
+  const problem = workerUploadModulesProblem(body.modules, 'modules');
+  if (problem) {
+    return context.json(
+      problem.error
+        ? { error: problem.error, message: problem.message }
+        : { error: problem.message },
+      problem.status,
+    );
+  }
+  const modules = body.modules as ReadonlyArray<WorkerUploadModule>;
+  const id = crypto.randomUUID();
+  const prefix = deploymentInputPrefix(projectId, id);
+
+  logger.info('worker_upload_urls', 'request', { moduleCount: modules.length });
+
+  const urls: Array<{ url: string; headers: Record<string, string> }> = [];
+  const failed = await presignUnderProjectLock(
+    context,
+    projectId,
+    logger,
+    { step: 'worker_upload_urls', moduleCount: modules.length },
+    async (_tx, signingKeyCache) => {
+      await uploadPool([...modules.keys()], PRESIGN_BATCH_CONCURRENCY, async (index) => {
+        const module = modules[index]!;
+        urls[index] = await presignAssetPut(
+          {
+            accountId: context.env.CF_ACCOUNT_ID,
+            accessKeyId: context.env.R2_ACCESS_KEY_ID,
+            secretAccessKey: context.env.R2_SECRET_ACCESS_KEY,
+            bucket: context.env.R2_STATIC_ASSETS_BUCKET,
+            key: `${prefix}${index}`,
+            contentType: moduleContentType(module.name),
+            contentLength: module.size,
+            ttlSeconds: UPLOAD_URL_TTL_SECONDS,
+          },
+          signingKeyCache,
+        );
+      });
+    },
+  );
+  if (failed) {
+    return failed;
+  }
+
+  logger.info('worker_upload_urls', 'response', {
+    urlsIssued: urls.length,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return context.json({ id, urls });
+});
+
+/**
+ * The shared start of the direct-upload URL routes: deploy capability, the
+ * deleting/version/normalization gates, and a size-capped JSON object body.
+ * Returns the error response when a gate rejects the request.
+ */
+async function beginUploadUrlsRequest(context: Context<ApiEnv>): Promise<
+  | Response
+  | Readonly<{
+      projectId: string;
+      logger: DeployLogger;
+      startedAt: number;
+      body: Record<string, unknown>;
+    }>
+> {
+  const projectId = context.req.param('id') as string;
   const access = await requireProjectRouteCapability(context, projectId, 'deploy');
   if (access instanceof Response) {
     return access;
@@ -143,12 +355,6 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     }
     throw error;
   }
-  // TODO(orphan-gc): authenticated users can upload bytes via upload-urls
-  // without ever finalizing a deploy, leaving durable orphans. Teardown
-  // cleans these up; for active projects, abandoned uploads accumulate
-  // until a future deploy's retention cleanup happens to walk over them.
-  // Track in a follow-up: add a periodic per-project R2 sweep that diffs
-  // `assets/${projectId}/*` against the union of retained manifests.
 
   const startedAt = Date.now();
   const logger = createDeployLogger({
@@ -205,28 +411,22 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     return context.json({ error: 'request body must be a JSON object' }, 400);
   }
   const body = parsed as Record<string, unknown>;
-  if (!Array.isArray(body.assets)) {
-    return context.json({ error: 'request body must include an `assets` array' }, 400);
-  }
-  if (body.assets.length > MAX_UPLOAD_URLS_BATCH) {
-    return context.json(
-      {
-        error: `assets[] has ${body.assets.length} entries, exceeds the ${MAX_UPLOAD_URLS_BATCH} per-request limit`,
-      },
-      400,
-    );
-  }
-  for (let i = 0; i < body.assets.length; i++) {
-    const err = validateUploadUrlsAsset(body.assets[i], i);
-    if (err) {
-      return context.json({ error: err }, 400);
-    }
-  }
-  const assets = body.assets as ReadonlyArray<UploadUrlsRequestAsset>;
+  return { projectId, logger, startedAt, body };
+}
 
-  logger.info('upload_urls', 'request', { assetCount: assets.length });
-
-  const urls: Record<string, { url: string; headers: Record<string, string> }> = {};
+/**
+ * Run `presign` under the project's share lock and map the failures both
+ * direct-upload URL routes report. Returns an error response, or null once
+ * every URL is issued.
+ */
+async function presignUnderProjectLock(
+  context: Context<ApiEnv>,
+  projectId: string,
+  logger: DeployLogger,
+  log: Readonly<{ step: string } & Record<string, unknown>>,
+  presign: (tx: Db, signingKeyCache: Map<string, ArrayBuffer>) => Promise<void>,
+): Promise<Response | null> {
+  const { step, ...logFields } = log;
   try {
     // Serialize against project teardown. `lockAndMarkDeleting` takes
     // FOR UPDATE on the project row in `provisioning/cleanup.ts`; we take
@@ -235,8 +435,8 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     // queueing as Postgres allows) but blocks teardown until this
     // transaction commits. Once the lock is acquired we re-read the
     // project row inside the transaction; if status flipped to `deleting`
-    // between the unlocked early-out above and the lock acquisition,
-    // throw the sentinel to surface a 410 to the CLI.
+    // between the unlocked early-out and the lock acquisition, throw the
+    // sentinel to surface a 410 to the CLI.
     //
     // Lock window: presigning is pure HMAC (no R2 / DB / network I/O
     // beyond the initial SELECT FOR SHARE). A 5000-entry batch fans out
@@ -253,67 +453,7 @@ app.post('/:id/deploy/upload-urls', async (context) => {
       const signingKeyCache = new Map<string, ArrayBuffer>();
       await requireActiveDeployAccess(tx, projectId, context.get('user').id);
       await requireNormalizedProject(tx, lockedProject);
-      if (context.get('oauthApproval')) {
-        const { approval } = await activeOAuthApproval(
-          tx,
-          context.get('oauthApproval')!,
-          context.get('companyIdentity'),
-          true,
-        );
-        const approved = Object.values(approval.data.artifact!.assetManifest);
-        if (
-          approval.data.projectId !== projectId ||
-          assets.some(
-            (asset) =>
-              !approved.some(
-                (entry) =>
-                  entry.blake3 === asset.blake3 &&
-                  entry.md5 === asset.md5 &&
-                  entry.size === asset.size,
-              ),
-          )
-        ) {
-          throw new OAuthError(
-            'access_denied',
-            'Upload only the assets approved for this publish.',
-            403,
-          );
-        }
-      }
-      await uploadPool(assets, PRESIGN_BATCH_CONCURRENCY, async (asset) => {
-        const result = await presignAssetPut(
-          {
-            accountId: context.env.CF_ACCOUNT_ID,
-            accessKeyId: context.env.R2_ACCESS_KEY_ID,
-            secretAccessKey: context.env.R2_SECRET_ACCESS_KEY,
-            bucket: context.env.R2_STATIC_ASSETS_BUCKET,
-            key: `assets/${projectId}/${asset.blake3}`,
-            md5: asset.md5,
-            contentType: asset.contentType,
-            // 30 minutes. On a slow uplink a tail asset can wait in the upload
-            // pool for more than 10 minutes before its first PUT, and the CLI
-            // treats R2's 403 SignatureExpired as terminal. Longer deploys need
-            // the re-presign-on-expiry follow-up noted in the docstring above.
-            ttlSeconds: context.get('oauthApproval')
-              ? Math.max(
-                  1,
-                  Math.min(
-                    900,
-                    context.get('deployTokenExpiresAt')! - Math.floor(Date.now() / 1000),
-                  ),
-                )
-              : 1800,
-            ...(context.get('oauthApproval')
-              ? { ifNoneMatch: '*' as const, contentLength: asset.size }
-              : {}),
-          },
-          signingKeyCache,
-        );
-        // Last-write-wins on duplicate blake3 — see docstring above. Map
-        // assignment is synchronous so concurrent pool tasks do not race
-        // beyond a benign last-writer.
-        urls[asset.blake3] = result;
-      });
+      await presign(tx, signingKeyCache);
     });
   } catch (err) {
     if (err instanceof OAuthError) {
@@ -328,7 +468,7 @@ app.post('/:id/deploy/upload-urls', async (context) => {
     if (err instanceof Error && err.message === UPLOAD_URLS_PROJECT_DELETING) {
       return context.json({ error: 'project is being deleted' }, 410);
     }
-    logger.error('upload_urls', 'presign_error', err, { assetCount: assets.length });
+    logger.error(step, 'presign_error', err, logFields);
     return context.json(
       {
         error: `failed to presign upload URLs: ${err instanceof Error ? err.message : String(err)}`,
@@ -336,14 +476,8 @@ app.post('/:id/deploy/upload-urls', async (context) => {
       500,
     );
   }
-
-  logger.info('upload_urls', 'response', {
-    urlsIssued: Object.keys(urls).length,
-    durationMs: Date.now() - startedAt,
-  });
-
-  return context.json({ urls });
-});
+  return null;
+}
 
 // Deploy to a project
 app.post('/:id/deploy', handleManifestOnlyDeploy);
@@ -396,21 +530,23 @@ export async function executeQueuedDeployment(
     });
     return;
   }
-  const workerFiles: Array<{ name: string; content: Blob }> = [];
+  // One listing confirms every staged module and its size before execution
+  // touches provider state, and supplies sizes for inputs staged before they
+  // were recorded. Bytes stream from R2 during the Cloudflare upload and are
+  // checked against their digests there.
+  const workerFiles: Array<WorkerModule> = [];
+  const staged = operation.payload.modules.length
+    ? await listR2Objects(env.STATIC_ASSETS_R2, operation.input_prefix)
+    : new Map<string, { size: number }>();
   for (const module of operation.payload.modules) {
-    const object = await env.STATIC_ASSETS_R2.get(module.key);
+    const object = staged.get(module.key);
     if (!object) {
       throw new Error('Durable deployment input is missing');
     }
-    const bytes = await object.arrayBuffer();
-    const digest = Array.from(
-      new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)),
-      (byte) => byte.toString(16).padStart(2, '0'),
-    ).join('');
-    if (digest !== module.digest) {
+    if (module.size !== undefined && module.size !== object.size) {
       throw new Error('Durable deployment input digest mismatch');
     }
-    workerFiles.push({ name: module.name, content: new Blob([bytes], { type: module.type }) });
+    workerFiles.push(deploymentInputModule(env.STATIC_ASSETS_R2, module, object.size));
   }
   const executor = new Hono<ApiEnv>()
     .onError((error) => {

@@ -468,7 +468,7 @@ Optional vars:
 - `AUTH_REDIRECT_URI`
 - `DASHBOARD_URL` — optional frontend origin for project links
 - `PLATFORM_DISPLAY_NAME` — name shown on onboarding pages and emails
-- `EMAIL_FROM` — verified sender for the optional `EMAIL` binding
+- `EMAIL_FROM` — optional sender override for the `EMAIL` binding. Without it, an installation sends from `noreply@<EMAIL_SENDER_DOMAIN>` with `PLATFORM_DISPLAY_NAME` as the name
 - `VOID_PROXY_SERVICE`
 - `SITE_DOMAIN`
 - `EMAIL_SENDER_DOMAIN` — platform mail domain for this environment (`mail.void.cloud` in production). Set on the proxy worker too, and handed to deployed user workers as `__VOID_EMAIL_DOMAIN`. See [Email](#email).
@@ -481,13 +481,16 @@ Optional vars:
 
 The GitHub App secrets are optional: when unset, `/webhooks/github` and `/auth/github-oidc` return `503` and the rest of the worker runs normally. They are the App for Deploy-on-GitHub, separate from the sign-in OAuth app above. The ingress secret is also optional and does not enable any route unless the standalone Worker and service binding are configured.
 
-When enabling email on a self-hosted or custom-origin platform, configure
-`EMAIL_FROM` with a Cloudflare-verified sender and `AUTH_REDIRECT_URI` with the
-platform's public OAuth callback URL. Emails use that origin and
-`PLATFORM_DISPLAY_NAME`; an installed platform does not default to Void Cloud
-senders or dashboard links. The core installer includes the email gateway and
-enables platform email when both `VOID_EMAIL_SENDER_DOMAIN` and
-`VOID_EMAIL_SHARED_ZONE_ID` are configured.
+The core installer includes the email gateway and enables platform email when
+both `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID` are configured.
+It sets `AUTH_REDIRECT_URI` to the platform's OAuth callback URL, and it sets
+`PLATFORM_DISPLAY_NAME` and `EMAIL_SENDER_DOMAIN`. Platform mail uses the origin
+of `AUTH_REDIRECT_URI` for links and comes from
+`noreply@<EMAIL_SENDER_DOMAIN>`; an installed platform does not default to Void
+Cloud senders or dashboard links. Do not set these values or `EMAIL_FROM` on
+installed Workers in the Cloudflare dashboard. The next lifecycle command stops
+until the operator lets Void replace that change; see
+[Platform Workers changed outside Void](../../../docs/guide/platform/installation/maintenance.md#workers-changed-outside-void).
 
 Administrators manage access with `void platform signup` and `void platform invitation`. Signup eligibility comes from the installation's own allowlist and bootstrap administrator configuration.
 

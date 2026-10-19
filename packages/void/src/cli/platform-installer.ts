@@ -585,30 +585,6 @@ export async function installPlatform(
       requiresSandboxDrain ||
       (!!state.plan.deployment.appAccess &&
         !state.manifest.steps.some((step) => step.key === 'app-access-initialized:v1'));
-    if (requiresTrafficGuard) {
-      await dependencies.client.putKvValue(
-        state.plan.account.id,
-        requireId(ids, 'routing-kv'),
-        PLATFORM_DISABLED_KEY,
-        PLATFORM_DISABLED_VALUE,
-      );
-      workerTrafficGuarded = true;
-      dependencies.onProgress?.('Application traffic paused for a safe platform cutover');
-    }
-    if (!preserveDisabled) {
-      const trafficGeneration = nextTrafficGeneration(state.manifest);
-      state.manifest = recordInstallationStep(
-        state.manifest,
-        {
-          completedAt: now(),
-          key: `traffic-enabled:${trafficGeneration}`,
-          resultHash: String(trafficGeneration),
-        },
-        now(),
-      );
-      writeInstallationManifest(state.manifest);
-      await writeRemoteInstallationCheckpoint(dependencies.client, state.plan, state.manifest);
-    }
     const configInput = {
       authenticationDatabaseUncached: true,
       proxyHealthBinding: true,
@@ -639,6 +615,45 @@ export async function installPlatform(
           }
         : {}),
     };
+    const enabledConfigs = createPlatformWorkerConfigs({
+      ...configInput,
+      privatePreviews: runtime.privatePreviews === 1,
+      publicEndpoints: !preserveDisabled,
+      trafficState: preserveDisabled ? 'staging' : 'enabled',
+    });
+    // The Cloudflare CLI asks the operator before it replaces changes made
+    // outside Void. Let it ask now: the resources that these configs use
+    // exist, and this run has not paused traffic or deployed a Worker.
+    const outsideChangeConfigs = workerKeys
+      .map((key) => enabledConfigs[key])
+      .filter((config) => dependencies.replaceOutsideChanges?.includes(String(config.name)));
+    if (outsideChangeConfigs.length > 0) {
+      await dependencies.uploadOutsideChanges?.(outsideChangeConfigs);
+    }
+    if (requiresTrafficGuard) {
+      await dependencies.client.putKvValue(
+        state.plan.account.id,
+        requireId(ids, 'routing-kv'),
+        PLATFORM_DISABLED_KEY,
+        PLATFORM_DISABLED_VALUE,
+      );
+      workerTrafficGuarded = true;
+      dependencies.onProgress?.('Application traffic paused for a safe platform cutover');
+    }
+    if (!preserveDisabled) {
+      const trafficGeneration = nextTrafficGeneration(state.manifest);
+      state.manifest = recordInstallationStep(
+        state.manifest,
+        {
+          completedAt: now(),
+          key: `traffic-enabled:${trafficGeneration}`,
+          resultHash: String(trafficGeneration),
+        },
+        now(),
+      );
+      writeInstallationManifest(state.manifest);
+      await writeRemoteInstallationCheckpoint(dependencies.client, state.plan, state.manifest);
+    }
     // Preparation can generate new setup credentials. Snapshot only after all
     // preparation has completed so the deployed API can verify the handoff.
     const workerDeploymentSecrets: PlatformInstallationSecrets = {
@@ -646,12 +661,6 @@ export async function installPlatform(
       workerSecretUpdates: state.workerSecretUpdateIntent?.updates ?? {},
     };
     const requiresStagedCommit = !preserveDisabled && requiresTrafficGuard;
-    const enabledConfigs = createPlatformWorkerConfigs({
-      ...configInput,
-      privatePreviews: runtime.privatePreviews === 1,
-      publicEndpoints: !preserveDisabled,
-      trafficState: preserveDisabled ? 'staging' : 'enabled',
-    });
     const configs = requiresStagedCommit
       ? createPlatformWorkerConfigs({
           ...configInput,

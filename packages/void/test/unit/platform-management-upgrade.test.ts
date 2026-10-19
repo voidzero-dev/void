@@ -1,12 +1,15 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
+import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
 import {
   createPlatformDeploymentManifest,
   parsePlatformAuthenticationSetup,
   createPlatformInstallationManifest,
+  createPlatformResourceOwnershipMarker,
+  PLATFORM_DISABLED_KEY,
   recordInstallationResource,
   recordInstallationStep,
   transitionInstallation,
@@ -17,7 +20,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { printSuccess } from '../../src/cli/output.ts';
 
 const state = vi.hoisted(() => ({
+  cfRunner: vi.fn(),
   createSecrets: vi.fn(),
+  getWorkerLastDeployedFrom: vi.fn(),
   clientTokens: [] as Array<string>,
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
@@ -32,8 +37,23 @@ const state = vi.hoisted(() => ({
   readProjectZeroTrust: vi.fn(),
   releaseDatabase: vi.fn(),
   spinner: vi.fn(),
-  progress: { start: vi.fn(), message: vi.fn(), stop: vi.fn(), error: vi.fn(), clear: vi.fn() },
+  progress: {
+    start: vi.fn(),
+    message: vi.fn(),
+    stop: vi.fn(),
+    error: vi.fn(),
+    clear: vi.fn(),
+    pause: vi.fn(),
+    resume: vi.fn(),
+  },
   runtime: undefined as ReturnType<typeof resolvePlatformRuntime> | undefined,
+  wait: vi.fn(),
+}));
+
+// Do not wait before a read is done again.
+vi.mock('node:timers/promises', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('node:timers/promises')>()),
+  setTimeout: state.wait,
 }));
 
 vi.mock('../../src/cli/output.ts', async (importOriginal) => ({
@@ -45,7 +65,7 @@ vi.mock('../../src/cli/output.ts', async (importOriginal) => ({
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   confirm: vi.fn(),
   isCancel: () => false,
-  log: { info: vi.fn(), success: vi.fn() },
+  log: { info: vi.fn(), step: vi.fn(), success: vi.fn(), warn: vi.fn() },
   note: vi.fn(),
   outro: vi.fn(),
   select: vi.fn(),
@@ -67,6 +87,7 @@ vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
       listAccounts = state.listAccounts;
       listWorkerNames = state.listWorkerNames;
       request = state.request;
+      getWorkerLastDeployedFrom = state.getWorkerLastDeployedFrom;
       async getKvValue() {
         return JSON.stringify(state.manifest);
       }
@@ -165,6 +186,11 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
   };
 });
 
+vi.mock('../../src/cli/platform-installer-process.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/platform-installer-process.ts')>()),
+  runPlatformWranglerAtApiBase: state.cfRunner,
+}));
+
 vi.mock('../../src/cli/platform-lifecycle.ts', () => ({
   assertNoninteractivePlatformMutationAcknowledged: vi.fn(),
   resolvePlatformInstallDatabaseUrl: () => 'postgres://database',
@@ -215,6 +241,7 @@ vi.mock('../../src/cli/platform-registry.ts', async (importOriginal) => {
 import { confirm, log, note } from '@voidzero-dev/vite-plus-prompts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import { authenticationSetupRequestHash } from '../../src/cli/platform-install-auth.ts';
+import { recordWorkerCutoverStage } from '../../src/cli/platform-installer-cutover.ts';
 import {
   acquirePlatformDatabaseLifecycleLock,
   installPlatform,
@@ -269,6 +296,9 @@ describe('installed platform upgrade', () => {
     state.listAccounts.mockReset().mockResolvedValue([{ id: 'account', name: 'Account' }]);
     state.listWorkerNames.mockReset().mockResolvedValue([]);
     state.request.mockReset().mockResolvedValue({ name: 'assets' });
+    state.getWorkerLastDeployedFrom.mockReset().mockResolvedValue('cf_cli');
+    state.wait.mockReset().mockResolvedValue(undefined);
+    state.cfRunner.mockReset();
     vi.mocked(readInstallationRecoverySecrets).mockReturnValue({
       databaseUrl: 'postgres://database',
     });
@@ -891,6 +921,164 @@ describe('installed platform upgrade', () => {
     });
   });
 
+  describe('runtime token email access', () => {
+    const emailPaths = [
+      '/zones/mail-zone',
+      '/zones/mail-zone/email/routing',
+      '/zones/mail-zone/email/routing/rules?per_page=5',
+      '/accounts/account/email/routing/addresses?per_page=5',
+    ];
+    const emailRequests = () =>
+      state.events.filter(
+        (event) => event.startsWith('request:') && /mail-zone|\/email\//.test(event),
+      );
+    const enableEmail = (desiredState: 'disabled' | 'enabled' = 'enabled') => {
+      state.manifest = {
+        ...state.manifest!,
+        deployment: createPlatformDeploymentManifest({
+          application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
+          capabilities: { email: true },
+          displayName: 'Example',
+          emailSenderDomain: 'mail.example.com',
+          emailSharedZoneId: 'mail-zone',
+          installationSlug: 'example',
+        }),
+        ...(desiredState === 'disabled' ? { desiredState, status: 'disabled' as const } : {}),
+      };
+    };
+
+    beforeEach(() => {
+      state.createSecrets.mockReturnValue({ cloudflareApiToken: 'saved-runtime-token' });
+      state.request.mockImplementation(async (path: string) => {
+        state.events.push(`request:${path}`);
+        return { name: 'assets' };
+      });
+    });
+
+    it('checks the saved runtime token before the installer can pause traffic', async () => {
+      await upgrade();
+      expect(emailRequests()).toEqual([]);
+      expect(state.clientTokens).not.toContain('saved-runtime-token');
+
+      state.events.length = 0;
+      state.progress.stop.mockClear();
+      enableEmail();
+      await upgrade();
+
+      expect(state.clientTokens).toContain('saved-runtime-token');
+      expect(emailRequests()).toEqual(emailPaths.map((path) => `request:${path}`));
+      const installerStart = state.events.indexOf('installer-start');
+      expect(installerStart).toBeGreaterThan(-1);
+      for (const request of emailRequests()) {
+        expect(state.events.indexOf(request)).toBeLessThan(installerStart);
+      }
+    });
+
+    it('checks an explicit replacement token with the core runtime checks', async () => {
+      enableEmail();
+      state.createSecrets.mockReturnValue({
+        cloudflareApiToken: 'replacement-token',
+        workerSecretUpdates: { CF_API_TOKEN: 'replacement-token' },
+      });
+
+      await upgrade();
+
+      expect(state.clientTokens).toContain('replacement-token');
+      expect(state.clientTokens).not.toContain('saved-runtime-token');
+      expect(emailRequests()).toEqual(emailPaths.map((path) => `request:${path}`));
+    });
+
+    it('stops before the installer and names the missing email permissions', async () => {
+      enableEmail();
+      state.request.mockImplementation(async (path: string) => {
+        state.events.push(`request:${path}`);
+        if (path.includes('/email/routing')) {
+          throw new PlatformCloudflareApiError('Authentication error', 403, path);
+        }
+        return { name: 'assets' };
+      });
+
+      // The Workers can use a newer token than the one saved on this machine.
+      await expect(upgrade()).rejects.toThrow(
+        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead.',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+
+      // A token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN goes to the
+      // Workers, so the message does not talk about the saved token.
+      state.createSecrets.mockReturnValue({
+        cloudflareApiToken: 'replacement-token',
+        workerSecretUpdates: { CF_API_TOKEN: 'replacement-token' },
+      });
+      const explicit = await upgrade().then(
+        () => null,
+        (failure: unknown) => failure as Error,
+      );
+      expect(explicit?.message).toContain(
+        'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403). Check that the token is valid',
+      );
+      expect(explicit?.message).not.toContain('saved on this machine');
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
+    });
+
+    it('continues with one warning only when the token saved on this machine is not valid', async () => {
+      enableEmail();
+      // Cloudflare's answers to a token that is not valid.
+      state.request.mockImplementation(async (path: string) => {
+        state.events.push(`request:${path}`);
+        if (path === '/zones/mail-zone') {
+          throw new PlatformCloudflareApiError('Invalid access token', 403, path);
+        }
+        if (path.includes('/email/routing')) {
+          throw new PlatformCloudflareApiError('Authentication error', 401, path);
+        }
+        return { name: 'assets' };
+      });
+
+      await upgrade();
+
+      expect(vi.mocked(log.warn).mock.calls).toEqual([
+        [
+          'The runtime API token saved on this machine is not valid (HTTP 401). Void cannot check the platform email permissions before it changes the platform, and it continues without this check. To do the check, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the runtime token of the platform.',
+        ],
+      ]);
+      expect(emailRequests()).toEqual(emailPaths.map((path) => `request:${path}`));
+      expect(installPlatform).toHaveBeenCalledOnce();
+
+      vi.mocked(log.warn).mockClear();
+      state.createSecrets.mockReturnValue({
+        cloudflareApiToken: 'replacement-token',
+        workerSecretUpdates: { CF_API_TOKEN: 'replacement-token' },
+      });
+
+      await expect(upgrade()).rejects.toThrow(
+        'Cloudflare denied: Zone → Zone → Read, Zone → Zone Settings → Edit, Zone → Email Routing Rules → Edit, Account → Email Routing Addresses → Edit (HTTP 403)',
+      );
+      expect(log.warn).not.toHaveBeenCalled();
+      expect(installPlatform).toHaveBeenCalledOnce();
+    });
+
+    it('checks a disabled installation only when the command enables it', async () => {
+      enableEmail('disabled');
+      await upgrade();
+      expect(emailRequests()).toEqual([]);
+      expect(installPlatform).toHaveBeenCalledOnce();
+
+      state.progress.stop.mockClear();
+      await runInstalledPlatformCommand({
+        subcommand: 'enable',
+        selector: state.manifest!.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+      });
+
+      expect(emailRequests()).toEqual(emailPaths.map((path) => `request:${path}`));
+      expect(installPlatform).toHaveBeenCalledTimes(2);
+    });
+  });
+
   describe('uninstall with project Zero Trust', () => {
     const enabled = {
       active: true,
@@ -945,6 +1133,465 @@ describe('installed platform upgrade', () => {
           .mock.calls.map(([message, title]) => [message, stripVTControlCharacters(title ?? '')]),
       ).toContainEqual([expect.any(String), 'Uninstall plan']);
       expect(state.events).toEqual([]);
+    });
+  });
+
+  describe('platform Workers changed outside Void', () => {
+    const apiWorker = () => state.manifest!.deployment.resources.apiWorker;
+    const activeVersion = '44444444-4444-4444-8444-444444444444';
+    const withApiWorker = () => {
+      const original = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        const plan = await original(...args);
+        return {
+          ...plan,
+          actions: [
+            ...plan.actions,
+            {
+              action: 'update',
+              id: null,
+              key: 'api-worker',
+              kind: 'worker',
+              name: apiWorker(),
+              reason: 'installed',
+            },
+          ],
+        };
+      });
+      // Void deployed the active version of the API Worker.
+      state.request.mockImplementation(async (path: string) => {
+        if (path.endsWith(`/${apiWorker()}/deployments`)) {
+          return {
+            deployments: [
+              {
+                id: 'deployment',
+                created_on: '2026-09-14T00:00:03.000Z',
+                versions: [{ version_id: activeVersion, percentage: 100 }],
+              },
+            ],
+          };
+        }
+        if (path.endsWith(`/versions/${activeVersion}`)) {
+          return {
+            annotations: {
+              'workers/message': encodeCloudflareVersionMessage([], {
+                workers_dev: true,
+                preview_urls: false,
+                routes: [],
+                crons: [],
+                queueConsumers: [],
+                workflows: [],
+              }),
+            },
+          };
+        }
+        return { name: 'assets' };
+      });
+    };
+    const gateWrites = () => state.events.filter((event) => event.startsWith('put:'));
+
+    it('stops before any change when there is no terminal', async () => {
+      withApiWorker();
+      state.getWorkerLastDeployedFrom.mockResolvedValue('dash');
+
+      const error = await upgrade().then(
+        () => null,
+        (failure: unknown) => failure as Error,
+      );
+      expect(error).toBeInstanceOf(Error);
+      expect(error?.message).toContain(
+        `These platform Workers need your approval before this command replaces their configuration:\n${apiWorker()}: changed in the Cloudflare dashboard\nNo platform Worker changed. This command did not pause application traffic.`,
+      );
+      expect(error?.message).toContain(
+        `Run this command once in a terminal to review them:\nvoid platform upgrade ${state.manifest!.id}`,
+      );
+      expect(error?.message).not.toContain('--yes');
+      expect(state.getWorkerLastDeployedFrom).toHaveBeenCalledExactlyOnceWith(
+        'account',
+        apiWorker(),
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.progress.start).not.toHaveBeenCalled();
+      expect(gateWrites()).toEqual([]);
+      expect(state.cfRunner).not.toHaveBeenCalled();
+    });
+
+    it('runs unchanged when Void made the last change', async () => {
+      withApiWorker();
+
+      await upgrade();
+
+      expect(state.getWorkerLastDeployedFrom).toHaveBeenCalledExactlyOnceWith(
+        'account',
+        apiWorker(),
+      );
+      expect(installPlatform).toHaveBeenCalledOnce();
+      expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+        'replaceOutsideChanges',
+      );
+      expect(state.cfRunner).not.toHaveBeenCalled();
+    });
+
+    it('warns in a plan and changes nothing', async () => {
+      withApiWorker();
+      state.getWorkerLastDeployedFrom.mockResolvedValue('api');
+
+      await upgrade({ plan: true });
+
+      expect(log.warn).toHaveBeenCalledWith(
+        `These platform Workers need your approval before this command replaces their configuration:\n${apiWorker()}: changed in the Cloudflare API\nThis command replaces their configuration with the Void configuration. Run it in a terminal to review them first.`,
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events).toEqual([]);
+    });
+
+    describe('when Void cannot read the Worker', () => {
+      const failure = (status: number) =>
+        new PlatformCloudflareApiError('Cloudflare error', status);
+      /** Answer the reads of one path with these answers, and the other reads as before. */
+      const answer = (suffix: () => string, reply: () => Promise<unknown>) => {
+        const original = state.request.getMockImplementation()!;
+        state.request.mockImplementation(async (path: string) =>
+          path.endsWith(suffix()) ? reply() : original(path),
+        );
+      };
+      const reads = (suffix: string) =>
+        state.request.mock.calls.filter(([path]) => String(path).endsWith(suffix)).length;
+
+      it.each([
+        {
+          name: 'Cloudflare refuses the token',
+          fail: () => state.getWorkerLastDeployedFrom.mockRejectedValue(failure(403)),
+          attempts: () => state.getWorkerLastDeployedFrom.mock.calls.length,
+          expected: { attempts: 1, message: '(HTTP 403)' },
+        },
+        {
+          name: 'Cloudflare fails three times',
+          fail: () => state.getWorkerLastDeployedFrom.mockRejectedValue(failure(500)),
+          attempts: () => state.getWorkerLastDeployedFrom.mock.calls.length,
+          expected: { attempts: 3, message: '(HTTP 500)' },
+        },
+        {
+          name: 'the network fails three times',
+          fail: () =>
+            answer(
+              () => `/${apiWorker()}/deployments`,
+              async () => {
+                throw new TypeError('fetch failed');
+              },
+            ),
+          attempts: () => reads(`/${apiWorker()}/deployments`),
+          expected: { attempts: 3, message: '(no HTTP response: fetch failed)' },
+        },
+        {
+          name: 'the deployment data is malformed',
+          fail: () =>
+            answer(
+              () => `/${apiWorker()}/deployments`,
+              async () => ({ deployments: {} }),
+            ),
+          attempts: () => reads(`/${apiWorker()}/deployments`),
+          expected: { attempts: 1, message: 'Cloudflare returned malformed deployment data' },
+        },
+        {
+          name: 'the version read fails three times',
+          fail: () =>
+            answer(
+              () => `/versions/${activeVersion}`,
+              async () => {
+                throw failure(503);
+              },
+            ),
+          attempts: () => reads(`/versions/${activeVersion}`),
+          expected: { attempts: 3, message: '(HTTP 503)' },
+        },
+      ])('stops before the installer when $name', async ({ fail, attempts, expected }) => {
+        withApiWorker();
+        fail();
+
+        const error = await upgrade().then(
+          () => null,
+          (failure: unknown) => failure as Error,
+        );
+
+        expect(error?.message).toContain(apiWorker());
+        expect(error?.message).toContain(expected.message);
+        expect(error?.message).toContain(
+          'No platform Worker changed. This command did not pause application traffic.',
+        );
+        expect(error?.message).toMatch(/run the command again\.$/i);
+        expect(attempts()).toBe(expected.attempts);
+        expect(installPlatform).not.toHaveBeenCalled();
+        expect(state.progress.start).not.toHaveBeenCalled();
+        expect(gateWrites()).toEqual([]);
+        expect(state.cfRunner).not.toHaveBeenCalled();
+      });
+
+      it('reads again after a rate limit and runs', async () => {
+        withApiWorker();
+        state.getWorkerLastDeployedFrom
+          .mockRejectedValueOnce(failure(429))
+          .mockResolvedValue('cf_cli');
+
+        await upgrade();
+
+        expect(state.getWorkerLastDeployedFrom).toHaveBeenCalledTimes(2);
+        expect(installPlatform).toHaveBeenCalledOnce();
+        expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+          'replaceOutsideChanges',
+        );
+      });
+    });
+
+    describe('after a run stopped during a Worker cutover', () => {
+      const voidVersion = '22222222-2222-4222-8222-222222222222';
+      const earlierVersion = '33333333-3333-4333-8333-333333333333';
+      const triggers = {
+        workers_dev: true,
+        preview_urls: false,
+        routes: [],
+        crons: [],
+        queueConsumers: [],
+        workflows: [],
+      };
+      // The run agreed to replace a change made outside Void on the API
+      // Worker. It made Void's version active and stopped before the cutover
+      // finished. The marker shows the Cloudflare CLI.
+      const stoppedRun = (sessionsRequired: boolean) => {
+        withApiWorker();
+        state.manifest = recordWorkerCutoverStage(
+          state.manifest!,
+          1,
+          'api',
+          earlierVersion,
+          voidVersion,
+          apiWorker(),
+          triggers,
+          '2026-09-14T00:00:03.000Z',
+        );
+        state.request.mockImplementation(async (path: string) => {
+          if (path.endsWith(`/${apiWorker()}/deployments`)) {
+            return {
+              deployments: [
+                {
+                  id: 'deployment',
+                  created_on: '2026-09-14T00:00:03.000Z',
+                  versions: [{ version_id: voidVersion, percentage: 100 }],
+                },
+              ],
+            };
+          }
+          if (path.endsWith(`/versions/${voidVersion}`)) {
+            return {
+              annotations: { 'workers/message': encodeCloudflareVersionMessage([], triggers) },
+            };
+          }
+          if (path.endsWith(`/versions/${earlierVersion}`)) {
+            return { annotations: {} };
+          }
+          return { name: 'assets' };
+        });
+        // This installation has not changed to configurable sign-in yet.
+        state.readAuthenticationState.mockResolvedValue({
+          enabledProviders: [],
+          protectedByAccess: false,
+          sessionsRequired,
+        });
+      };
+
+      it('stops before any change when the run restores an earlier version without a Void record', async () => {
+        stoppedRun(false);
+
+        const error = await upgrade().then(
+          () => null,
+          (failure: unknown) => failure as Error,
+        );
+
+        expect(error?.message).toContain(
+          `${apiWorker()}: has an active version without a Void deployment record\nNo platform Worker changed.`,
+        );
+        expect(state.request).toHaveBeenCalledWith(
+          `/accounts/account/workers/scripts/${apiWorker()}/versions/${earlierVersion}`,
+        );
+        expect(installPlatform).not.toHaveBeenCalled();
+        expect(gateWrites()).toEqual([]);
+      });
+
+      it('runs when the installer keeps the version of Void, as the database shows', async () => {
+        stoppedRun(true);
+
+        await upgrade();
+
+        expect(state.request).not.toHaveBeenCalledWith(
+          `/accounts/account/workers/scripts/${apiWorker()}/versions/${earlierVersion}`,
+        );
+        expect(installPlatform).toHaveBeenCalledOnce();
+        expect(vi.mocked(installPlatform).mock.calls[0]![3]).not.toHaveProperty(
+          'replaceOutsideChanges',
+        );
+      });
+    });
+
+    describe('in a terminal, after the operator agrees', () => {
+      const createdCacheId = 'isr-cache-created-in-run';
+      const runInTerminal = async () => {
+        withApiWorker();
+        const version = '11111111-1111-4111-8111-111111111111';
+        const marker = JSON.stringify(
+          createPlatformResourceOwnershipMarker({
+            accountId: 'account',
+            installationId: state.manifest!.id,
+            ownershipNonce: state.manifest!.ownershipNonce,
+            resourceId: apiWorker(),
+            resourceKey: 'api-worker',
+            resourceKind: 'worker',
+            resourceName: apiWorker(),
+          }),
+        );
+        state.request.mockImplementation(async (path: string) => {
+          if (path.endsWith('/deployments')) {
+            return {
+              deployments: [
+                {
+                  id: 'deployment',
+                  created_on: '2026-10-15T00:00:00.000Z',
+                  versions: [{ version_id: version, percentage: 100 }],
+                },
+              ],
+            };
+          }
+          if (path.endsWith(`/versions/${version}`)) {
+            return {
+              resources: {
+                bindings: [{ name: 'PLATFORM_OWNERSHIP_MARKER', type: 'plain_text', text: marker }],
+              },
+            };
+          }
+          return { name: 'assets' };
+        });
+        // Like the installer: it creates a resource, uploads the Workers changed
+        // outside Void with the configs that the run deploys, then pauses traffic.
+        const installer = vi.mocked(installPlatform).getMockImplementation()!;
+        vi.mocked(installPlatform).mockImplementation(
+          async (plan, _secrets, existing, dependencies) => {
+            state.events.push('installer-start', 'create:isr-cache-kv');
+            await dependencies.uploadOutsideChanges!([
+              {
+                account_id: 'account',
+                compatibility_date: '2026-09-30',
+                kv_namespaces: [{ binding: 'ISR_CACHE', id: createdCacheId }],
+                main: join(state.runtime!.directory, state.runtime!.manifest.artifacts.api.path),
+                name: apiWorker(),
+                vars: { PLATFORM_OWNERSHIP_MARKER: marker },
+              },
+            ]);
+            await dependencies.client.putKvValue(
+              plan.account.id,
+              'routing-kv-id',
+              PLATFORM_DISABLED_KEY,
+              'true',
+            );
+            return {
+              manifest: existing!,
+              waitingForDns: false,
+              waitingForSandboxDrain: false,
+              zoneNameServers: [],
+            };
+          },
+        );
+        state.progress.pause.mockImplementation(() => state.events.push('progress-pause'));
+        state.progress.resume.mockImplementation(() => state.events.push('progress-resume'));
+        vi.mocked(confirm).mockResolvedValueOnce(true);
+        const tty = { stdin: process.stdin.isTTY, stdout: process.stdout.isTTY };
+        Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+        Object.defineProperty(process.stdout, 'isTTY', { value: true, configurable: true });
+        try {
+          return await upgrade({ yes: false }).then(
+            () => null,
+            (failure: unknown) => failure as Error,
+          );
+        } finally {
+          vi.mocked(installPlatform).mockImplementation(installer);
+          Object.defineProperty(process.stdin, 'isTTY', { value: tty.stdin, configurable: true });
+          Object.defineProperty(process.stdout, 'isTTY', { value: tty.stdout, configurable: true });
+        }
+      };
+
+      it('uploads with the run config when the installer asks, before traffic pauses', async () => {
+        state.getWorkerLastDeployedFrom.mockResolvedValueOnce('api').mockResolvedValue('cf_cli');
+        const uploaded: Array<string> = [];
+        state.cfRunner.mockImplementation(async (operation: { configPath: string }) => {
+          state.events.push('review-upload');
+          uploaded.push(await readFile(operation.configPath, 'utf8'));
+          return { status: 0, stdout: '', stderr: '' };
+        });
+
+        expect(await runInTerminal()).toBeNull();
+
+        expect(confirm).toHaveBeenCalledWith({
+          message: 'Replace the configuration of these Workers?',
+          initialValue: false,
+        });
+        expect(state.cfRunner).toHaveBeenCalledOnce();
+        expect(state.cfRunner.mock.calls[0]![0]).toMatchObject({
+          type: 'versions.upload',
+          interactive: true,
+        });
+        expect(state.events).toEqual([
+          'installer-start',
+          'create:isr-cache-kv',
+          'progress-pause',
+          'review-upload',
+          'progress-resume',
+          `put:${PLATFORM_DISABLED_KEY}`,
+          'outer-release',
+          'local-release',
+        ]);
+        expect(uploaded).toHaveLength(1);
+        expect(uploaded[0]).toContain(createdCacheId);
+        expect(JSON.stringify(state.manifest!.resources)).not.toContain(createdCacheId);
+        expect(vi.mocked(installPlatform).mock.calls[0]![3]).toMatchObject({
+          replaceOutsideChanges: [apiWorker()],
+        });
+      });
+
+      it('stops before traffic pauses and shows why when the Cloudflare CLI refuses', async () => {
+        state.getWorkerLastDeployedFrom.mockResolvedValue('api');
+        state.cfRunner.mockImplementation(async () => {
+          state.events.push('review-upload');
+          return { status: 1, stdout: '', stderr: '' };
+        });
+
+        const error = await runInTerminal();
+
+        expect(error?.message).toBe(
+          `platform: The Cloudflare CLI did not replace the changes to ${apiWorker()}. Its output above shows why. No deployment changed. This command did not pause application traffic.`,
+        );
+        expect(state.events).toContain('review-upload');
+        expect(gateWrites()).toEqual([]);
+        expect(state.progress.resume).toHaveBeenCalledOnce();
+        expect(state.progress.error).toHaveBeenCalledWith('Platform upgrade failed.');
+      });
+
+      it('replaces an active version that Void did not deploy without a review upload', async () => {
+        // An earlier run replaced the change with the Cloudflare CLI and then
+        // stopped. The marker shows the Cloudflare CLI, but the active version
+        // in runInTerminal still has no Void record of its triggers.
+        expect(await runInTerminal()).toBeNull();
+
+        expect(confirm).toHaveBeenCalledOnce();
+        expect(state.cfRunner).not.toHaveBeenCalled();
+        expect(state.events).toEqual([
+          'installer-start',
+          'create:isr-cache-kv',
+          `put:${PLATFORM_DISABLED_KEY}`,
+          'outer-release',
+          'local-release',
+        ]);
+        expect(vi.mocked(installPlatform).mock.calls[0]![3]).toMatchObject({
+          replaceOutsideChanges: [apiWorker()],
+        });
+      });
     });
   });
 });

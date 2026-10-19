@@ -110,3 +110,24 @@ describe('authentication discovery compatibility', () => {
     expect(JSON.stringify(parsed.authentication)).not.toContain('internal.example.com');
   });
 });
+
+describe('direct Worker upload discovery', () => {
+  it('advertises direct Worker uploads on every document this platform serves', () => {
+    for (const input of [base, modern]) {
+      const discovery = createPlatformDiscoveryDocument(input);
+      expect(discovery.directWorkerUpload).toBe(true);
+      expect(parsePlatformDiscoveryDocument(discovery)).toEqual(discovery);
+    }
+  });
+
+  it('reports only what an older platform said', () => {
+    const { directWorkerUpload: _, ...older } = createPlatformDiscoveryDocument(base);
+    expect(parsePlatformDiscoveryDocument(older)).not.toHaveProperty('directWorkerUpload');
+    expect(
+      parsePlatformDiscoveryDocument({ ...older, directWorkerUpload: false }).directWorkerUpload,
+    ).toBe(false);
+    expect(() => parsePlatformDiscoveryDocument({ ...older, directWorkerUpload: 'yes' })).toThrow(
+      'directWorkerUpload must be a boolean.',
+    );
+  });
+});

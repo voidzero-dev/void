@@ -338,6 +338,10 @@ export type {
   DeployAssetUploadRequest,
   DeploySourceMetadata,
   DeployUploadPayload,
+  DeployWorkerInput,
+  DeployWorkerModule,
+  DeployWorkerUploadRequest,
+  DeployWorkerUploadResponse,
 } from './artifact.ts';
 export {
   DEPLOY_ARTIFACT_VERSION,

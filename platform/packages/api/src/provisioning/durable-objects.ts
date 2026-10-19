@@ -14,12 +14,20 @@ import { generateId } from '../id.ts';
 import { encryptPlatformCredential, decryptPlatformCredential } from '../project-secrets.ts';
 import { projects, resources, deployments } from '../schema.ts';
 import type { DeployManifest, Resource } from '../types.ts';
+import {
+  blobWorkerModule,
+  listR2Objects,
+  r2WorkerModule,
+  streamSha256,
+  withKnownLength,
+  workerUploadBody,
+  type WorkerModule,
+} from '../worker-upload.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
-import { putDurableSnapshotObject } from './durable-snapshot.ts';
+import { putDurableSnapshotModule, putDurableSnapshotObject } from './durable-snapshot.ts';
 
 type Env = ApiEnv['Bindings'];
 type Binding = Record<string, unknown> & { type: string; name: string };
-type Module = { name: string; content: Blob };
 type Snapshot = {
   metadata: Record<string, unknown> & { bindings: Array<Binding> };
   files: Array<{ name: string; contentType: string; sha256: string }>;
@@ -132,23 +140,27 @@ async function upload(
   env: Env,
   worker: string,
   metadata: Record<string, unknown>,
-  modules: Array<Module>,
+  modules: ReadonlyArray<WorkerModule>,
   create = false,
 ): Promise<void> {
-  const form = new FormData();
-  form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-  for (const module of modules) {
-    form.append(module.name, module.content, module.name);
+  // A release replays the application's modules; stream them like the
+  // application upload so the whole bundle is never held in memory.
+  const body = workerUploadBody(metadata, modules);
+  let response: Response;
+  try {
+    response = await fetch(url(env, worker), {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${env.CF_API_TOKEN}`,
+        'Content-Type': body.contentType,
+        ...(create ? { 'If-None-Match': '*' } : {}),
+      },
+      body: withKnownLength(body.stream, body.length),
+      signal: AbortSignal.timeout(60_000),
+    });
+  } catch (error) {
+    throw body.failure() ?? error;
   }
-  const response = await fetch(url(env, worker), {
-    method: 'PUT',
-    headers: {
-      Authorization: `Bearer ${env.CF_API_TOKEN}`,
-      ...(create ? { 'If-None-Match': '*' } : {}),
-    },
-    body: form,
-    signal: AbortSignal.timeout(60_000),
-  });
   if (create && (response.status === 409 || response.status === 412)) {
     await response.body?.cancel();
     return;
@@ -167,7 +179,7 @@ function idle(
   projectId: string,
   className: string,
   create = false,
-): { metadata: Record<string, unknown>; modules: Array<Module> } {
+): { metadata: Record<string, unknown>; modules: Array<WorkerModule> } {
   return {
     metadata: {
       main_module: ENTRY,
@@ -187,15 +199,15 @@ function idle(
         : {}),
     },
     modules: [
-      {
-        name: ENTRY,
-        content: new Blob(
+      blobWorkerModule(
+        ENTRY,
+        new Blob(
           [
             `import {DurableObject} from 'cloudflare:workers';\nexport class ${className} extends DurableObject {fetch(){return new Response('Durable Object is inactive',{status:503});}}\nexport default {fetch(){return new Response(null,{status:404});}};`,
           ],
           { type: 'application/javascript+module' },
         ),
-      },
+      ),
     ],
   };
 }
@@ -317,6 +329,10 @@ function snapshotKey(projectId: string, deploymentId: string): string {
   return `worker-bundles/${projectId}/${deploymentId}/durable/snapshot.json`;
 }
 
+function snapshotModulePrefix(projectId: string, deploymentId: string): string {
+  return `worker-bundles/${projectId}/${deploymentId}/durable/modules/`;
+}
+
 /** Store the exact code and encrypted bindings before any namespace code can change. */
 export async function storeDurableObjectSnapshot(
   env: Env,
@@ -324,7 +340,7 @@ export async function storeDurableObjectSnapshot(
   projectId: string,
   deploymentId: string,
   metadata: Snapshot['metadata'],
-  modules: Array<Module>,
+  modules: ReadonlyArray<WorkerModule>,
   assetsByHash: ReadonlyMap<string, { bytes: Uint8Array }> = new Map(),
 ): Promise<void> {
   if (modules.some((module) => module.name === ENTRY)) {
@@ -348,14 +364,15 @@ export async function storeDurableObjectSnapshot(
     );
   }
   for (const module of modules) {
-    const bytes = await module.content.arrayBuffer();
-    const file = { name: module.name, contentType: module.content.type, sha256: await hash(bytes) };
-    files.push(file);
-    await putDurableSnapshotObject(
+    // Stored input modules carry their verified digest; inline modules are
+    // hashed from memory. The bytes then stream into the release copy.
+    const sha256 = module.sha256 ?? (await streamSha256(await module.open()));
+    files.push({ name: module.name, contentType: module.type, sha256 });
+    await putDurableSnapshotModule(
       env.STATIC_ASSETS_R2,
-      `worker-bundles/${projectId}/${deploymentId}/durable/modules/${module.name}`,
-      bytes,
-      file.sha256,
+      `${snapshotModulePrefix(projectId, deploymentId)}${module.name}`,
+      module,
+      sha256,
     );
   }
   const credential = await encryptPlatformCredential(
@@ -379,7 +396,7 @@ async function loadSnapshot(
   env: Env,
   projectId: string,
   deploymentId: string,
-): Promise<{ snapshot: Snapshot; modules: Array<Module> }> {
+): Promise<{ snapshot: Snapshot; modules: Array<WorkerModule> }> {
   const object = await env.STATIC_ASSETS_R2.get(snapshotKey(projectId, deploymentId));
   if (!object) {
     throw new Error('Custom Durable Object release snapshot is missing.');
@@ -388,20 +405,32 @@ async function loadSnapshot(
   const snapshot = JSON.parse(
     await decryptPlatformCredential(env, projectId, `durable:${deploymentId}`, credential),
   ) as Snapshot;
-  const modules: Array<Module> = [];
-  for (const file of snapshot.files) {
-    const module = await env.STATIC_ASSETS_R2.get(
-      `worker-bundles/${projectId}/${deploymentId}/durable/modules/${file.name}`,
-    );
+  // One listing gives every module's size, which the streamed upload
+  // declares before it starts. Bytes are checked against the recorded
+  // digest as they stream.
+  const prefix = snapshotModulePrefix(projectId, deploymentId);
+  const stored = await listR2Objects(env.STATIC_ASSETS_R2, prefix);
+  const errors = {
+    missing: 'Custom Durable Object release module is missing.',
+    changed: 'Custom Durable Object release module changed.',
+  };
+  const modules = snapshot.files.map((file) => {
+    const module = stored.get(`${prefix}${file.name}`);
     if (!module) {
-      throw new Error('Custom Durable Object release module is missing.');
+      throw new Error(errors.missing);
     }
-    const bytes = await module.arrayBuffer();
-    if ((await hash(bytes)) !== file.sha256) {
-      throw new Error('Custom Durable Object release module changed.');
-    }
-    modules.push({ name: file.name, content: new Blob([bytes], { type: file.contentType }) });
-  }
+    return r2WorkerModule(
+      env.STATIC_ASSETS_R2,
+      {
+        name: file.name,
+        key: `${prefix}${file.name}`,
+        type: file.contentType,
+        size: module.size,
+        sha256: file.sha256,
+      },
+      errors,
+    );
+  });
   return { snapshot, modules };
 }
 
@@ -529,15 +558,15 @@ async function restoreObject(
       },
       [
         ...modules,
-        {
-          name: ENTRY,
-          content: new Blob(
+        blobWorkerModule(
+          ENTRY,
+          new Blob(
             [
               `export {${resource.binding_name}} from ${JSON.stringify('./' + main)};\nexport default {fetch(){return new Response(null,{status:404});}};`,
             ],
             { type: 'application/javascript+module' },
           ),
-        },
+        ),
       ],
     );
   }

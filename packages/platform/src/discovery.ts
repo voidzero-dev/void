@@ -29,6 +29,11 @@ export type PlatformDiscoveryDocument = Readonly<{
   capabilities: PlatformCapabilities;
   displayName: string;
   dashboardUrl?: string;
+  /**
+   * The API accepts Worker modules uploaded to R2 through
+   * `POST /projects/:id/deploy/worker-upload-urls`. Older platforms omit it.
+   */
+  directWorkerUpload?: boolean;
   installationId: string | null;
   platformVersion: string;
   proxyUrl: string;
@@ -54,11 +59,24 @@ function normalizeOrigin(value: string, name: 'apiUrl' | 'proxyUrl'): string {
   return url.origin;
 }
 
+type PlatformDiscoveryInput = Omit<
+  PlatformDiscoveryDocument,
+  'directWorkerUpload' | 'schemaVersion' | 'usageProtocolVersion'
+> & {
+  usageProtocolVersion?: 0 | 1 | 2;
+};
+
+/**
+ * Builds the document a platform serves at `/.well-known/void-platform`.
+ * Every platform built from this source accepts direct Worker uploads.
+ */
 export function createPlatformDiscoveryDocument(
-  input: Omit<PlatformDiscoveryDocument, 'schemaVersion' | 'usageProtocolVersion'> & {
-    usageProtocolVersion?: 0 | 1 | 2;
-  },
+  input: PlatformDiscoveryInput,
 ): PlatformDiscoveryDocument {
+  return { ...normalizeDiscoveryDocument(input), directWorkerUpload: true };
+}
+
+function normalizeDiscoveryDocument(input: PlatformDiscoveryInput): PlatformDiscoveryDocument {
   if (!input.displayName.trim()) {
     throw new Error('displayName must not be empty.');
   }
@@ -195,7 +213,11 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
   };
   const apiUrl = string('apiUrl');
   const proxyUrl = string('proxyUrl');
-  return createPlatformDiscoveryDocument({
+  const directWorkerUpload = document.directWorkerUpload;
+  if (directWorkerUpload !== undefined && typeof directWorkerUpload !== 'boolean') {
+    throw new Error('directWorkerUpload must be a boolean.');
+  }
+  const parsed = normalizeDiscoveryDocument({
     apiUrl,
     applicationDomain: string('applicationDomain'),
     ...(document.applicationRouting !== undefined
@@ -213,6 +235,8 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
     proxyUrl,
     usageProtocolVersion: parseUsageProtocolVersion(document.usageProtocolVersion),
   });
+  // Report only what the platform said: an older platform omits the field.
+  return directWorkerUpload === undefined ? parsed : { ...parsed, directWorkerUpload };
 }
 
 function parseAuthentication(value: unknown): PlatformAuthenticationDiscovery {

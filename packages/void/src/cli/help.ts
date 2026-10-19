@@ -773,10 +773,16 @@ const HELP_TREE: HelpTree = {
           },
         ],
       },
-      rollback: basicSubcommand(
-        'Roll back to a previous deployment.',
-        'void project rollback [deployId]',
-      ),
+      rollback: {
+        summary: 'Roll back to a previous deployment.',
+        usage: ['void project rollback [deployId] [--platform cloudflare]'],
+        options: [
+          {
+            command: '--platform cloudflare',
+            description: 'Roll back the Cloudflare Worker after a one-off Cloudflare deploy',
+          },
+        ],
+      },
       cancel: basicSubcommand('Cancel an active deployment.', 'void project cancel [deployId]'),
       delete: {
         summary: 'Delete a project and all its resources.',
@@ -1181,6 +1187,10 @@ const HELP_TREE: HelpTree = {
       { command: 'export', description: 'Export local database as SQL' },
       { command: 'connect', description: 'Connect or provision an external database' },
       { command: 'set-url', description: 'Update the external database URL' },
+      {
+        command: 'restore',
+        description: 'Restore the deployed D1 database to an earlier point (direct Cloudflare)',
+      },
       { command: 'rename-migrations', description: 'Rename migrations to timestamp format' },
     ],
     children: {
@@ -1292,6 +1302,39 @@ const HELP_TREE: HelpTree = {
         'Update the external database connection string for deployment.',
         'void db set-url',
       ),
+      restore: {
+        summary:
+          'Restore the deployed D1 database of a direct Cloudflare deploy to an earlier point. Discards every later write.',
+        usage: [
+          'void db restore --bookmark <bookmark> [--platform cloudflare] [--yes]',
+          'void db restore --timestamp <iso-time> [--platform cloudflare] [--yes]',
+        ],
+        options: [
+          { command: '--bookmark <bookmark>', description: 'Restore point printed by deploy' },
+          {
+            command: '--timestamp <iso-time>',
+            description: 'Time with Z or an offset (7 days back on Workers Free, 30 on Paid)',
+          },
+          {
+            command: '--platform cloudflare',
+            description: 'Restore after a one-off deploy with --platform cloudflare',
+          },
+          {
+            command: '--yes',
+            description: 'Skip the confirmation prompt (required without a TTY)',
+          },
+        ],
+        examples: [
+          {
+            command: 'void db restore --bookmark 00000085-0000024c-00004ef2-0a83ea2f',
+            description: 'Undo the migrations of a deploy',
+          },
+          {
+            command: 'void db restore --timestamp 2026-10-16T09:30:00Z',
+            description: 'Restore the database to a time',
+          },
+        ],
+      },
       'rename-migrations': basicSubcommand(
         'Rename migrations to timestamp-based format.',
         'void db rename-migrations',
@@ -1488,6 +1531,7 @@ export function printGlobalHelp(): void {
         execute: 'execute <sql>',
         export: 'export [--output <path>]',
         seed: 'seed [--file <path>]',
+        restore: 'restore --bookmark <b>',
       }),
       ...globalOptionLines(['db', 'execute']),
       ...globalOptionLines(['db', 'export']),

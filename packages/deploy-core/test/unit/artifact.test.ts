@@ -57,4 +57,38 @@ describe('deployment artifacts', () => {
     });
     expect(payload).not.toHaveProperty('artifactVersion');
   });
+
+  it('names uploaded Worker modules by workerInput instead of carrying their bytes', () => {
+    const metadata = {
+      source: 'cli',
+      commit: null,
+      repositoryUrl: null,
+      commitUrl: null,
+      gitRef: null,
+      preflight: null,
+    };
+    const workerInput = {
+      id: 'upload-1',
+      modules: [{ name: 'index.js', size: 18, sha256: 'a'.repeat(64) }],
+    };
+    const payload = createDeployUploadPayload(
+      createDeployArtifact({ manifest, assetManifest: {} }),
+      metadata,
+      workerInput,
+    );
+
+    expect(payload.workerInput).toEqual(workerInput);
+    expect(payload).not.toHaveProperty('workerFiles');
+    expect(() =>
+      createDeployUploadPayload(
+        createDeployArtifact({
+          manifest,
+          assetManifest: {},
+          workerFiles: { 'index.js': 'ZXhwb3J0IGRlZmF1bHQge30=' },
+        }),
+        metadata,
+        workerInput,
+      ),
+    ).toThrow('not both');
+  });
 });

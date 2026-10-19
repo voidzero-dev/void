@@ -52,7 +52,11 @@ import {
   getUsersByIds,
   type Db,
 } from './db.ts';
-import { deploymentExecutionStatus, dispatchPendingDeployments } from './deployment-execution.ts';
+import {
+  deploymentExecutionStatus,
+  dispatchPendingDeployments,
+  sweepStaleDeploymentInputs,
+} from './deployment-execution.ts';
 import { pruneEmailActionHistory } from './email/admission.ts';
 import { emailDomainRoutes, emailOperations } from './email/connection-schema.ts';
 import {
@@ -671,6 +675,14 @@ async function scheduled(
   }
   const db = deploymentDb ?? createDb(env.HYPERDRIVE.connectionString);
   const capabilities = getPlatformCapabilities(env);
+  // Without the deployment Queue the outbox above does not run, and deploys
+  // run inside their request. Worker uploads that never became a deployment
+  // are still removed here.
+  if (!deploymentDb) {
+    await sweepStaleDeploymentInputs(env, db).catch((error) =>
+      console.error('[scheduled] deployment input sweep failed', error),
+    );
+  }
 
   await reconcileProjectCleanupJobs(db, env).catch((error) =>
     console.error('[scheduled] project cleanup retry failed:', error),

@@ -34,7 +34,7 @@ Check both failure shapes: `result.error` reports a request failure, while `resu
 
 ## Setup {#setup}
 
-On a platform with email enabled, deploy without additional email configuration. Ask your administrator for its shared mail domain. Administrators [enable email during installation or upgrade](/guide/platform/installation/credentials#runtime-token-permissions).
+On a platform with email enabled, deploy without additional email configuration. Ask your administrator for its shared mail domain. Administrators [enable email during installation or upgrade](/guide/platform/installation/credentials#enable-email).
 
 Each project on an email-enabled platform has:
 

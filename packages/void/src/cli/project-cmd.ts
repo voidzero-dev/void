@@ -85,7 +85,7 @@ export async function runProjectCommand(root: string, args: ProjectArgs): Promis
   }
   if (args.subcommand === 'rollback') {
     const { runRollbackCommand } = await import('./rollback.ts');
-    return runRollbackCommand(root, args.deployId || undefined);
+    return runRollbackCommand(root, args.deployId || undefined, args.platform);
   }
   if (args.subcommand === 'cancel') {
     if (cloudflare) {

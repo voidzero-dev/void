@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import { createDeployArtifact, createDeployUploadPayload } from '@void/deploy-core';
 import { getContentType } from '@void/edge';
 import { type SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
@@ -17,7 +18,7 @@ import { lintRoutingPhases, mergeRoutingRules } from './headers.ts';
 import { type CliLogger } from './log-file.ts';
 import { formatCount } from './output.ts';
 import { type AssetManifestEntry } from './package.ts';
-import type { DeployEvent, DeployManifest } from './types.ts';
+import type { DeployEvent, DeployManifest, DeployWorkerInput } from './types.ts';
 
 /**
  * Apply the visible side effects of a streamed deploy event (spinner
@@ -211,18 +212,67 @@ export async function streamDeployEvents(
 }
 
 /**
+ * Upload Worker modules straight to R2 and return the `workerInput` that
+ * finalization names them by. The platform checks the Worker against
+ * Cloudflare's size limit when it issues the URLs, so a Worker that is too
+ * large fails before any bytes are sent. Each buffer leaves `workerFiles`
+ * once R2 acknowledges its PUT.
+ */
+async function uploadWorkerModules(
+  client: PlatformClient,
+  projectId: string,
+  workerFiles: Map<string, Buffer>,
+  s: SpinnerResult,
+  cliLog: CliLogger | undefined,
+): Promise<DeployWorkerInput> {
+  const modules = Array.from(workerFiles, ([name, body]) => ({
+    name,
+    size: body.length,
+    sha256: createHash('sha256').update(body).digest('hex'),
+  }));
+
+  s.message(`Requesting upload URLs for ${formatCount(modules.length, 'worker module')}...`);
+  cliLog?.info('worker_presign_request_start', {
+    moduleCount: modules.length,
+    totalBytes: modules.reduce((total, module) => total + module.size, 0),
+  });
+  const presignStartedAt = Date.now();
+  const { id, urls } = await client.requestWorkerUploadUrls(projectId, modules);
+  cliLog?.info('worker_presign_request_end', {
+    uploadId: id,
+    durationMs: Date.now() - presignStartedAt,
+  });
+
+  const items: Array<DirectR2PutItem> = modules.map((module, index) => ({
+    path: module.name,
+    hash: module.sha256,
+    body: workerFiles.get(module.name),
+    url: urls[index].url,
+    headers: urls[index].headers,
+  }));
+  s.message(`Uploading ${formatCount(items.length, 'worker module')} to R2...`);
+  await uploadAssetsToR2(items, cliLog, undefined, (item) => {
+    workerFiles.delete(item.path);
+  });
+  return { id, modules };
+}
+
+/**
  * Direct-to-R2 deploy orchestration. Issues presigned PUT URLs for each
  * needed asset, uploads bytes directly to R2, then calls the manifest-only
- * deploy endpoint to finalize.
+ * deploy endpoint to finalize. When the platform supports it, Worker modules
+ * go to R2 the same way, before the assets.
  *
  * Key invariants:
  *   1. No needed assets → skip presign + R2 PUT phase entirely (saves a
  *      round-trip when every asset was already present from a prior deploy).
- *   2. Asset bytes come exclusively from the in-memory `assetFiles` cache
- *      computed by `collectAndHashAssets` — files are NEVER re-read from
- *      disk during this flow.
+ *   2. Asset and Worker bytes come exclusively from the in-memory
+ *      `assetFiles` / `workerFiles` caches computed by `collectAndHashAssets`
+ *      and `collectWorkerFiles` — files are NEVER re-read from disk during
+ *      this flow.
  *   3. R2 PUT failures (4xx, 5xx, network) are surfaced with the asset
- *      path + hash so the user can correlate against the JSONL trace.
+ *      path + hash (or Worker module name + SHA-256) so the user can
+ *      correlate against the JSONL trace.
  */
 export async function streamDirectR2Deploy({
   client,
@@ -250,6 +300,11 @@ export async function streamDirectR2Deploy({
   spinner: SpinnerResult;
   cliLog?: CliLogger;
 }): Promise<StreamDeployResult> {
+  const workerInput =
+    workerFiles && workerFiles.size > 0 && (await client.supportsDirectWorkerUpload())
+      ? await uploadWorkerModules(client, projectId, workerFiles, s, cliLog)
+      : undefined;
+
   if (needed.length > 0) {
     // Drop buffers the server already has so peak memory tracks `needed`,
     // not the full bundle.
@@ -349,11 +404,12 @@ export async function streamDirectR2Deploy({
     cliLog?.info('presign_skipped', { reason: 'no_needed_assets' });
   }
 
-  // Build the JSON-mode payload. Worker bytes go in as base64 — the
-  // manifest-only endpoint's design (0068) keeps worker bundles in the
-  // body since they are bounded at 32 MiB total.
+  // Build the JSON-mode payload. Uploaded Worker modules are named by
+  // `workerInput`. Otherwise their bytes go in as base64: a temporary
+  // fallback for platforms without direct Worker uploads. Delete it when
+  // MIN_PLATFORM_VERSION reaches the release that ships them.
   let encodedWorkerFiles: Record<string, string> | undefined;
-  if (workerFiles && workerFiles.size > 0) {
+  if (!workerInput && workerFiles && workerFiles.size > 0) {
     encodedWorkerFiles = {};
     for (const [relPath, buf] of workerFiles) {
       encodedWorkerFiles[relPath] = buf.toString('base64');
@@ -364,18 +420,23 @@ export async function streamDirectR2Deploy({
     assetManifest,
     workerFiles: encodedWorkerFiles,
   });
-  const payload: ManifestOnlyDeployPayload = createDeployUploadPayload(artifact, {
-    source: getTokenSource(),
-    commit: gitMetadata?.commit ?? null,
-    repositoryUrl: gitMetadata?.repositoryUrl ?? null,
-    commitUrl: gitMetadata?.commitUrl ?? null,
-    gitRef: gitMetadata?.gitRef ?? null,
-    preflight: preflightUsed ? 'true' : null,
-  });
+  const payload: ManifestOnlyDeployPayload = createDeployUploadPayload(
+    artifact,
+    {
+      source: getTokenSource(),
+      commit: gitMetadata?.commit ?? null,
+      repositoryUrl: gitMetadata?.repositoryUrl ?? null,
+      commitUrl: gitMetadata?.commitUrl ?? null,
+      gitRef: gitMetadata?.gitRef ?? null,
+      preflight: preflightUsed ? 'true' : null,
+    },
+    workerInput,
+  );
 
   s.message('Finalizing deploy...');
   cliLog?.info('finalize_start', {
-    workerFileCount: workerFiles?.size ?? 0,
+    workerFileCount: workerInput?.modules.length ?? workerFiles?.size ?? 0,
+    ...(workerInput && { workerUploadId: workerInput.id }),
     assetCount: Object.keys(assetManifest).length,
   });
   const finalizeStartedAt = Date.now();

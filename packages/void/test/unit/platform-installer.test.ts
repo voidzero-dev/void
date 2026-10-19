@@ -2553,6 +2553,71 @@ describe('platform installer', () => {
     }
   });
 
+  describe('shared email permission hints', () => {
+    const blocked = (fields: Record<string, unknown>) =>
+      (async () =>
+        Response.json(
+          {
+            version: 1,
+            state: 'incomplete',
+            operationId: 'eop-blocked',
+            operationStatus: 'blocked',
+            failureCode: 'blocked',
+            domain: 'mail.example.com',
+            inboundStatus: 'pending',
+            failureDetail: 'Cloudflare API error: Authentication error (HTTP 403)',
+            ...fields,
+          },
+          { status: 503 },
+        )) as typeof fetch;
+    const failure = (fields: Record<string, unknown>) =>
+      bootstrapPlatformSharedEmail('https://api.example.com', 'probe-token', blocked(fields)).then(
+        () => {
+          throw new Error('Expected readiness failure');
+        },
+        String,
+      );
+
+    it.each([
+      ['routing_enable', 'Zone → Zone Settings → Edit'],
+      ['subaddressing_ensure', 'Zone → Zone Settings → Edit'],
+      ['inbound_probe', 'Zone → Zone Settings → Edit'],
+      ['sending_onboard', 'Account → Email Sending → Edit'],
+    ])('names the runtime-token permission for a blocked %s step', async (step, permission) => {
+      const message = await failure({ currentStep: step });
+
+      expect(message).toContain(
+        `Step: ${step}. Failure: blocked. Domain: mail.example.com (inbound: pending). This step needs ${permission} on the runtime API token.`,
+      );
+      expect(message).toContain('The token value stays the same.');
+      expect(message).toContain('VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN');
+      expect(message).toMatch(/Then resume this installation\. Traffic remains disabled\.$/);
+      expect(message).not.toContain('Authentication error');
+    });
+
+    it('names a permission only for a refused step that uses one', async () => {
+      expect(await failure({ currentStep: 'routing_enable' })).toContain('runtime API token');
+
+      for (const fields of [
+        // An uncertain outcome is not a refusal.
+        { currentStep: 'routing_enable', failureCode: 'outcome_unknown' },
+        // The step does not call Cloudflare.
+        { currentStep: 'publish' },
+        // An inherited object key is not a step.
+        { currentStep: 'constructor' },
+        // A known routing prerequisite already explains the failure.
+        {
+          currentStep: 'inbound_probe',
+          failureDetail: 'zone catch-all does not point to this ingress',
+        },
+      ]) {
+        const message = await failure(fields);
+        expect(message).toContain('Traffic remains disabled');
+        expect(message).not.toContain('runtime API token');
+      }
+    });
+  });
+
   it.each([
     'https://api.example.com/health',
     'https://api.example.com/.well-known/void-platform',
@@ -5111,6 +5176,144 @@ describe('platform installer', () => {
       source: 'custom',
     });
     expect(upgraded.manifest.resources).toHaveLength(16);
+  });
+
+  describe('Workers changed outside Void', () => {
+    async function upgradeWithOutsideChange(
+      uploadOutsideChanges: NonNullable<TestInstallerDependencies['uploadOutsideChanges']>,
+    ) {
+      const { deployment, directory, secrets, sourceManifest, upgradeClient, upgradedPlan } =
+        await installedPlatform();
+      // An older installation has no ISR cache yet, so this run creates it.
+      const source = {
+        ...sourceManifest,
+        resources: sourceManifest.resources.filter((resource) => resource.key !== 'isr-cache-kv'),
+      };
+      const plan = {
+        ...upgradedPlan,
+        actions: upgradedPlan.actions.map((action) =>
+          action.key === 'isr-cache-kv'
+            ? { ...action, action: 'create' as const, id: null, reason: 'new in this version' }
+            : action,
+        ),
+      };
+      const events: Array<string> = [];
+      const created: Array<string> = [];
+      const error = await installPlatform(plan, secrets, source, {
+        acquireDatabaseLifecycleLock,
+        claimDatabase,
+        client: {
+          ...upgradeClient,
+          createKvNamespace: async (account, name) => {
+            const namespace = await upgradeClient.createKvNamespace(account, name);
+            created.push(namespace.id);
+            events.push(`create:${name}`);
+            return namespace;
+          },
+          putKvValue: async (_account, _namespace, key) => {
+            events.push(`put:${key}`);
+          },
+        },
+        deployWorker: async (config) => {
+          events.push(`deploy:${String(config.name)}`);
+        },
+        onProgress: (message) => {
+          events.push(`progress:${message}`);
+        },
+        prepareDatabase,
+        replaceOutsideChanges: [deployment.resources.apiWorker],
+        revalidateBeforeWorkerDeploy: async () => {},
+        runtime: resolvePlatformRuntime(getPlatformRuntimeDirectory()),
+        uploadOutsideChanges: async (configs) => {
+          events.push('outside-change-upload');
+          await uploadOutsideChanges(configs);
+        },
+        verifyHealth: async () => {},
+      }).then(
+        () => null,
+        (failure: unknown) => failure as Error,
+      );
+      return { created, deployment, directory, error, events, source };
+    }
+
+    it('uploads them after the run creates resources and before traffic pauses', async () => {
+      const uploaded: Array<Record<string, unknown>> = [];
+      const { created, deployment, error, events, source } = await upgradeWithOutsideChange(
+        async (configs) => {
+          uploaded.push(...configs);
+        },
+      );
+
+      expect(error).toBeNull();
+      const at = (index: number) => {
+        expect(index).toBeGreaterThan(-1);
+        return index;
+      };
+      const upload = at(events.indexOf('outside-change-upload'));
+      expect(at(events.indexOf(`create:${deployment.resources.isrCacheKv}`))).toBeLessThan(upload);
+      expect(at(events.indexOf('progress:Checking platform safety'))).toBeLessThan(upload);
+      expect(upload).toBeLessThan(at(events.indexOf(`put:${PLATFORM_DISABLED_KEY}`)));
+      expect(upload).toBeLessThan(at(events.findIndex((event) => event.startsWith('deploy:'))));
+      expect(events.filter((event) => event === 'outside-change-upload')).toHaveLength(1);
+      // The upload uses the config that the run deploys, with the ISR cache it created.
+      expect(uploaded.map((config) => config.name)).toEqual([deployment.resources.apiWorker]);
+      expect(created).toHaveLength(1);
+      expect(source.resources.map((resource) => resource.id)).not.toContain(created[0]);
+      expect(uploaded[0]!.kv_namespaces).toContainEqual({ binding: 'ISR_CACHE', id: created[0] });
+    });
+
+    it('uploads them also when the run does not pause traffic', async () => {
+      const { secrets, deployment, upgradedPlan, upgradeClient, upgraded } =
+        await upgradedPlatform();
+      const events: Array<string> = [];
+      const uploaded: Array<Record<string, unknown>> = [];
+      await installPlatform(upgradedPlan, secrets, upgraded.manifest, {
+        acquireDatabaseLifecycleLock,
+        claimDatabase,
+        client: {
+          ...upgradeClient,
+          putKvValue: async (_account, _namespace, key) => {
+            events.push(`put:${key}`);
+          },
+        },
+        deployWorker: async (config) => {
+          events.push(`deploy:${String(config.name)}`);
+        },
+        prepareDatabase,
+        replaceOutsideChanges: [deployment.resources.apiWorker],
+        revalidateBeforeWorkerDeploy: async () => {},
+        runtime: resolvePlatformRuntime(getPlatformRuntimeDirectory()),
+        uploadOutsideChanges: async (configs) => {
+          events.push('outside-change-upload');
+          uploaded.push(...configs);
+        },
+        verifyHealth: async () => {},
+      });
+
+      expect(events).not.toContain(`put:${PLATFORM_DISABLED_KEY}`);
+      expect(events.indexOf('outside-change-upload')).toBeGreaterThan(-1);
+      expect(events.indexOf('outside-change-upload')).toBeLessThan(
+        events.findIndex((event) => event.startsWith('deploy:')),
+      );
+      expect(uploaded.map((config) => config.name)).toEqual([deployment.resources.apiWorker]);
+    });
+
+    it('leaves traffic and Workers alone when that upload fails', async () => {
+      const refusal =
+        'platform: The Cloudflare CLI did not replace the changes to the Worker. Its output above shows why. No deployment changed, and application traffic was not paused.';
+      const { directory, error, events } = await upgradeWithOutsideChange(async () => {
+        throw new Error(refusal);
+      });
+
+      expect(error?.message).toBe(refusal);
+      expect(events).toContain('outside-change-upload');
+      expect(events).not.toContain(`put:${PLATFORM_DISABLED_KEY}`);
+      expect(events.filter((event) => event.startsWith('deploy:'))).toEqual([]);
+      expect(listInstallationManifests(directory)[0]).toMatchObject({
+        status: 'failed',
+        operation: { phase: 'failed' },
+      });
+    });
   });
 
   it('resumes an interrupted Worker secret rotation and commits the next one', async () => {

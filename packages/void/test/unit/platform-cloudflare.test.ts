@@ -5,7 +5,9 @@ import {
   parsePostgresConnectionString,
   PlatformCloudflareApiError,
   PlatformCloudflareClient,
+  PlatformRuntimeTokenEmailPermissionError,
   PlatformWorkerCustomDomainsChangedError,
+  verifyPlatformRuntimeTokenEmailPermissions,
   verifyPlatformRuntimeTokenPermissions,
 } from '../../src/cli/platform-cloudflare.ts';
 
@@ -555,6 +557,183 @@ describe('platform Cloudflare client', () => {
     await expect(failure).rejects.toThrow('does not establish that a permission is missing');
     await expect(failure).rejects.not.toThrow('synthetic-runtime-secret');
     await expect(failure).rejects.not.toThrow('Required permission or scope');
+  });
+
+  describe('runtime-token email access', () => {
+    const emailProbes = [
+      ['Zone → Zone → Read', '/client/v4/zones/mail-zone'],
+      ['Zone → Zone Settings → Edit', '/client/v4/zones/mail-zone/email/routing'],
+      ['Zone → Email Routing Rules → Edit', '/client/v4/zones/mail-zone/email/routing/rules'],
+      [
+        'Account → Email Routing Addresses → Edit',
+        '/client/v4/accounts/account/email/routing/addresses',
+      ],
+    ] as const;
+    const emailClient = (answer: (pathname: string) => Response | Promise<Response>) => {
+      const requests: Array<string> = [];
+      const client = new PlatformCloudflareClient('synthetic-runtime-secret', {
+        fetcher: async (input, init) => {
+          const url = new URL(String(input));
+          requests.push(`${init?.method ?? 'GET'} ${url.pathname}${url.search}`);
+          return answer(url.pathname);
+        },
+      });
+      return { client, requests };
+    };
+    const verifyEmail = (client: PlatformCloudflareClient) =>
+      verifyPlatformRuntimeTokenPermissions(client, {
+        accountId: 'account',
+        applicationDomain: '',
+        customDomains: false,
+        emailZoneId: 'mail-zone',
+        zoneId: null,
+      });
+
+    it('reads each Email Routing area of the shared email zone only when email is on', async () => {
+      const { client, requests } = emailClient(() => Response.json({ success: true, result: [] }));
+
+      await verifyPlatformRuntimeTokenPermissions(client, {
+        accountId: 'account',
+        applicationDomain: 'apps.example.com',
+        customDomains: true,
+        zoneId: 'zone',
+      });
+      expect(requests.filter((request) => /\/email\/|\/zones\/zone$/.test(request))).toEqual([]);
+
+      requests.length = 0;
+      await verifyEmail(client);
+
+      expect(requests).toEqual([
+        'GET /client/v4/accounts/account/hyperdrive/configs?page=1&per_page=50',
+        'GET /client/v4/zones/mail-zone',
+        'GET /client/v4/zones/mail-zone/email/routing',
+        'GET /client/v4/zones/mail-zone/email/routing/rules?per_page=5',
+        'GET /client/v4/accounts/account/email/routing/addresses?per_page=5',
+      ]);
+    });
+
+    it.each(emailProbes)('names %s when Cloudflare denies its check', async (permission, path) => {
+      const { client } = emailClient((pathname) =>
+        pathname === path
+          ? Response.json(
+              { success: false, errors: [{ message: 'upstream echoed synthetic-runtime-secret' }] },
+              { status: 403 },
+            )
+          : Response.json({ success: true, result: [] }),
+      );
+
+      const failure = await verifyEmail(client).catch((error: Error) => error);
+
+      expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+      expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(false);
+      const message = String(failure);
+      expect(message).toContain(`Cloudflare denied: ${permission} (HTTP 403)`);
+      for (const [other] of emailProbes) {
+        if (other !== permission) {
+          expect(message).not.toContain(other);
+        }
+      }
+      expect(message).toContain('email zone mail-zone');
+      expect(message).toContain('The token value stays the same');
+      expect(message).toContain('VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN');
+      expect(message).not.toContain('synthetic-runtime-secret');
+      expect(message).not.toContain('upstream echoed');
+      expect((failure as Error).cause).toBeInstanceOf(PlatformCloudflareApiError);
+    });
+
+    it('marks a token that Cloudflare does not accept', async () => {
+      // Cloudflare's answers to a token that is not valid: 403 on the zone
+      // read and 401 on the Email Routing reads.
+      const { client } = emailClient((pathname) =>
+        pathname.endsWith('/hyperdrive/configs')
+          ? Response.json({ success: true, result: [] })
+          : Response.json(
+              {
+                success: false,
+                errors: [
+                  pathname === '/client/v4/zones/mail-zone'
+                    ? { code: 9109, message: 'Invalid access token synthetic-runtime-secret' }
+                    : { code: 10000, message: 'Authentication error synthetic-runtime-secret' },
+                ],
+              },
+              { status: pathname === '/client/v4/zones/mail-zone' ? 403 : 401 },
+            ),
+      );
+
+      const failure = await verifyEmail(client).catch((error: Error) => error);
+
+      expect(failure).toBeInstanceOf(PlatformRuntimeTokenEmailPermissionError);
+      expect((failure as PlatformRuntimeTokenEmailPermissionError).tokenNotValid).toBe(true);
+      expect(String(failure)).not.toContain('synthetic-runtime-secret');
+      expect(String(failure)).not.toContain('Invalid access token');
+      expect(String(failure)).not.toContain('Authentication error');
+    });
+
+    it('says that it checked the token saved on this machine', async () => {
+      // The run does not send the saved token to the platform Workers, so
+      // they can use a different token.
+      const { client } = emailClient((pathname) =>
+        pathname.endsWith('/email/routing/rules')
+          ? Response.json({ success: false, errors: [] }, { status: 403 })
+          : Response.json({ success: true, result: [] }),
+      );
+      const check = (savedToken?: boolean) =>
+        verifyPlatformRuntimeTokenEmailPermissions(client, {
+          accountId: 'account',
+          zoneId: 'mail-zone',
+          ...(savedToken === undefined ? {} : { savedToken }),
+        }).catch((error: Error) => error.message);
+
+      await expect(check(true)).resolves.toBe(
+        'platform: The runtime API token saved on this machine cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Void checked this token because VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN is not set. If the platform uses a different runtime token, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to that token, and Void checks that token instead. Otherwise, check that the zone permissions of the saved token include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Then run the command again.',
+      );
+      // A token from VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN, or one that
+      // the run sends to the Workers, keeps the message.
+      for (const savedToken of [undefined, false]) {
+        await expect(check(savedToken)).resolves.toBe(
+          'platform: The runtime API token cannot use platform email. Cloudflare denied: Zone → Email Routing Rules → Edit (HTTP 403). Check that the token is valid and that its zone permissions include the email zone mail-zone. To add a missing permission, edit the token in the Cloudflare dashboard. The token value stays the same. Or set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to a valid token that has these permissions. Then run the command again.',
+        );
+      }
+    });
+
+    it('names every denied permission in one failure', async () => {
+      const { client, requests } = emailClient((pathname) =>
+        pathname.endsWith('/hyperdrive/configs')
+          ? Response.json({ success: true, result: [] })
+          : Response.json({ success: false, errors: [] }, { status: 401 }),
+      );
+
+      await expect(verifyEmail(client)).rejects.toThrow(
+        `Cloudflare denied: ${emailProbes.map(([permission]) => permission).join(', ')} (HTTP 401)`,
+      );
+      expect(requests).toHaveLength(5);
+    });
+
+    it.each([429, 500, 503])(
+      'does not treat HTTP %s as a missing email permission',
+      async (status) => {
+        const { client, requests } = emailClient((pathname) =>
+          pathname.endsWith('/hyperdrive/configs')
+            ? Response.json({ success: true, result: [] })
+            : Response.json({ success: false, errors: [] }, { status }),
+        );
+
+        await expect(verifyEmail(client)).resolves.toBeUndefined();
+        expect(requests).toHaveLength(5);
+      },
+    );
+
+    it('does not treat a network failure as a missing email permission', async () => {
+      const { client, requests } = emailClient((pathname) => {
+        if (pathname.endsWith('/hyperdrive/configs')) {
+          return Response.json({ success: true, result: [] });
+        }
+        throw new Error('network failure');
+      });
+
+      await expect(verifyEmail(client)).resolves.toBeUndefined();
+      expect(requests).toHaveLength(5);
+    });
   });
 
   it('filters KV namespaces by exact title instead of trusting an unsupported API filter', async () => {

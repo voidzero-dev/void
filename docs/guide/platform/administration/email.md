@@ -27,6 +27,12 @@ reconciliation verifies delivery afterward; a deleting project stays closed
 and its deletion can be retried. See [operator email commands](../../../reference/cli/platform-email.md#operator-email)
 for the recovery requirements.
 
+### Mail that the platform sends {#platform-sender}
+
+The platform sends its own mail, for example invitations, welcome mail, failed-deploy notices, and error alerts. This mail comes from `noreply@<mail domain>`, and the sender name is the platform's display name. Void sets this sender, so you do not need to configure one. Do not set a different sender on the platform Workers in the Cloudflare dashboard. That change stops the next `upgrade`, `repair`, `enable`, or `rollback` until you let Void replace it. See [Platform Workers changed outside Void](/guide/platform/installation/maintenance#workers-changed-outside-void).
+
+Mail to an address that is not verified needs Cloudflare Email Sending onboarding and [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans).
+
 ### Deciding who mail may reach
 
 By default, mail from the shared sender reaches only the recipients each project has verified. For a team whose applications mainly mail colleagues, widen that once for the whole installation:
@@ -114,7 +120,7 @@ Use the apex of the selected Cloudflare zone. Platform-managed custom inbound em
 void platform email domain-add other.example --project hr-portal --token-stdin --yes < token.txt
 ```
 
-Project owners see administrator-registered domains in `void email domain list` and `status`; `status` names the `void platform email` command for any step they cannot take themselves, and `sync` and `remove` point them at `domain-sync` and `domain-remove`. A domain an owner registered before you switched to `admin` stays theirs to renew, sync and remove. The runtime token needs the email permissions listed in the [self-hosting guide](/guide/platform/installation/credentials#runtime-token-permissions) for this to work.
+Project owners see administrator-registered domains in `void email domain list` and `status`; `status` names the `void platform email` command for any step they cannot take themselves, and `sync` and `remove` point them at `domain-sync` and `domain-remove`. A domain an owner registered before you switched to `admin` stays theirs to renew, sync and remove. The runtime token needs the [email permissions](/guide/platform/installation/credentials#enable-email) for this to work.
 
 A permission refusal leaves setup blocked. After correcting it, run `domain-sync`
 to resume that same setup operation; repeat `domain-rotate-secret` to resume a

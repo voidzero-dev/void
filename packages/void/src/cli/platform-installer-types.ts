@@ -288,6 +288,15 @@ export type PlatformInstallerDependencies = Readonly<{
   replanWorkers?: (
     manifest: PlatformInstallationManifest,
   ) => Promise<ReadonlyArray<PlatformInstallPlanAction>>;
+  /** Workers whose changes made outside Void the operator agreed to replace. */
+  replaceOutsideChanges?: ReadonlyArray<string>;
+  /**
+   * Upload a version of each Worker in replaceOutsideChanges, and do not deploy
+   * it. The installer gives the configs that the run deploys. It calls this
+   * after it creates the resources that the configs use, and before it pauses
+   * traffic.
+   */
+  uploadOutsideChanges?: (configs: ReadonlyArray<Record<string, unknown>>) => Promise<void>;
   revalidateBeforeWorkerDeploy: (
     manifest: PlatformInstallationManifest,
     action: PlatformInstallPlanAction,
@@ -362,6 +371,11 @@ export type PlatformWorkerDeploymentOptions = Readonly<{
   retainNewWorker: () => Promise<void>;
   /** False uploads a new version even when the active one has identical input. */
   reuseMatchingVersion?: boolean;
+  /**
+   * The operator agreed to replace changes made to this Worker outside Void.
+   * Its active version can then lack Void's record of its triggers.
+   */
+  replaceOutsideChanges?: boolean;
   runner: typeof runPlatformWrangler;
   workerExisted: boolean;
 }>;

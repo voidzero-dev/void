@@ -738,13 +738,143 @@ describe('createAssetUploadSession', () => {
     expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 
-  it('does not retry on HTTP error responses', async () => {
-    const fetchMock = vi.fn(async () => new Response('Unauthorized', { status: 401 }));
+  it('retries a 5xx response and succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response('Service Unavailable', { status: 503 }))
+      .mockResolvedValueOnce(Response.json({ result: { jwt: 'retry-jwt', buckets: [] } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, {
+      retryDelayMs: 0,
+    });
+
+    expect(result).toEqual({ jwt: 'retry-jwt', buckets: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('retries a network error and succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockRejectedValueOnce(new TypeError('fetch failed'))
+      .mockResolvedValueOnce(Response.json({ result: { jwt: 'retry-jwt', buckets: [] } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, {
+      retryDelayMs: 0,
+    });
+
+    expect(result).toEqual({ jwt: 'retry-jwt', buckets: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  // The headers arrive, then the connection drops while the body is read.
+  const droppedResponse = (status = 200) =>
+    new Response(
+      new ReadableStream({
+        start(controller) {
+          controller.error(new TypeError('terminated'));
+        },
+      }),
+      { status },
+    );
+
+  it('retries when the response body drops and succeeds', async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(droppedResponse())
+      .mockResolvedValueOnce(Response.json({ result: { jwt: 'retry-jwt', buckets: [] } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, {
+      retryDelayMs: 0,
+    });
+
+    expect(result).toEqual({ jwt: 'retry-jwt', buckets: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('throws the network error after exhausting retries', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError('fetch failed');
+    });
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
       createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
-    ).rejects.toThrow('asset upload session failed: Unauthorized');
+    ).rejects.toThrow('fetch failed');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  const timeoutError = () =>
+    new DOMException('The operation was aborted due to timeout', 'TimeoutError');
+
+  it('gives each attempt a fresh timeout signal', async () => {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      if (signals.length === 1) {
+        throw timeoutError();
+      }
+      return Response.json({ result: { jwt: 'retry-jwt', buckets: [] } });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, {
+      retryDelayMs: 0,
+    });
+
+    expect(result).toEqual({ jwt: 'retry-jwt', buckets: [] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).toBeInstanceOf(AbortSignal);
+    expect(signals[1]).not.toBe(signals[0]);
+  });
+
+  it('reports a timeout after the last attempt', async () => {
+    const fetchMock = vi.fn(async () => {
+      throw timeoutError();
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
+    ).rejects.toThrow('did not finish within 60 seconds');
+
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it('throws the last 5xx response after exhausting retries', async () => {
+    const fetchMock = vi.fn(async () => new Response('Bad Gateway', { status: 502 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
+    ).rejects.toThrow('asset upload session failed: Bad Gateway');
+
+    // 1 initial + 3 retries = 4 total
+    expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each([401, 429])('does not retry a 4xx response (%i)', async (status) => {
+    const fetchMock = vi.fn(async () => new Response('Denied', { status }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
+    ).rejects.toThrow('asset upload session failed: Denied');
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([401, 429])('does not retry a 4xx response whose body drops (%i)', async (status) => {
+    const fetchMock = vi.fn(async () => droppedResponse(status));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      createAssetUploadSession('acct', 'token', 'ns', 'worker', manifest, { retryDelayMs: 0 }),
+    ).rejects.toThrow(`asset upload session failed (HTTP ${status})`);
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });

@@ -30,7 +30,18 @@ export const projectSubcommands: Array<SubcommandDef> = [
   },
   { name: 'logs', description: 'Show runtime logs from the deployed project' },
   { name: 'requests', description: 'Show request-level traffic (status, method, timing)' },
-  { name: 'rollback', arg: '[deployId]', description: 'Roll back to a previous deployment' },
+  {
+    name: 'rollback',
+    arg: '[deployId]',
+    description: 'Roll back to a previous deployment',
+    flags: [
+      {
+        name: '--platform',
+        arg: 'cloudflare',
+        description: 'Roll back after a one-off deploy with --platform cloudflare',
+      },
+    ],
+  },
   { name: 'cancel', arg: '[deployId]', description: 'Cancel an active deployment' },
   {
     name: 'delete',
@@ -107,7 +118,7 @@ export type ProjectArgs =
       level: string;
     }
   | { subcommand: 'requests'; status: string; range: string }
-  | { subcommand: 'rollback'; deployId: string }
+  | { subcommand: 'rollback'; deployId: string; platform?: 'cloudflare' }
   | { subcommand: 'cancel'; deployId: string }
   | { subcommand: 'delete'; name: string; force: boolean }
   | { subcommand: 'purge-cache'; projectSlug: string };
@@ -260,7 +271,31 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
     return { subcommand, status, range };
   }
 
-  if (subcommand === 'rollback' || subcommand === 'cancel') {
+  if (subcommand === 'rollback') {
+    let platform: 'cloudflare' | undefined;
+    const positional: Array<string> = [];
+    for (let i = 0; i < rest.length; i++) {
+      const arg = rest[i];
+      if (arg === '--platform' || arg.startsWith('--platform=')) {
+        const value = arg === '--platform' ? rest[++i] : arg.slice('--platform='.length);
+        if (value !== 'cloudflare') {
+          throw new Error(
+            `project: \`rollback --platform\` accepts only 'cloudflare', got '${value ?? ''}'.`,
+          );
+        }
+        platform = 'cloudflare';
+      } else {
+        positional.push(arg);
+      }
+    }
+    return {
+      subcommand,
+      deployId: parseOptionalPositional(positional),
+      ...(platform ? { platform } : {}),
+    };
+  }
+
+  if (subcommand === 'cancel') {
     return { subcommand, deployId: parseOptionalPositional(rest) };
   }
 

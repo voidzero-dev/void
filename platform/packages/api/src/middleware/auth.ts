@@ -31,6 +31,7 @@ import { isAdminSuspended } from '../suspension.ts';
  *   - `GET  /projects/:id/secrets`             listSecrets (env.ts schema validation)
  *   - `POST /projects/:id/deploy/preflight`    asset preflight
  *   - `POST /projects/:id/deploy/upload-urls`  presigned R2 PUT URLs
+ *   - `POST /projects/:id/deploy/worker-upload-urls` presigned Worker module PUTs
  *   - `POST /projects/:id/deploy`              manifest finalize
  *
  * `:id` is matched against `payload.project` by the caller — the entries
@@ -49,6 +50,7 @@ const DEPLOY_TOKEN_ALLOWLIST: ReadonlyArray<DeployAllowEntry> = [
   { method: 'GET', segments: ['projects', null, 'secrets'] },
   { method: 'POST', segments: ['projects', null, 'deploy', 'preflight'] },
   { method: 'POST', segments: ['projects', null, 'deploy', 'upload-urls'] },
+  { method: 'POST', segments: ['projects', null, 'deploy', 'worker-upload-urls'] },
   { method: 'POST', segments: ['projects', null, 'deploy'] },
 ];
 

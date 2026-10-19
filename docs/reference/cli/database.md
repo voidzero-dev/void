@@ -89,6 +89,21 @@ By default, targets the local database. Pass `--remote` to open Studio against t
 - **Direct Cloudflare PostgreSQL and MySQL projects**: use `DATABASE_URL` from the current shell.
 - **D1 projects**: remote Studio is not available. Use `void db execute --remote` to query your deployed D1 database.
 
+## `void db restore` {#void-db-restore}
+
+```
+void db restore --bookmark <bookmark> [--platform cloudflare] [--yes]
+void db restore --timestamp <iso-time> [--platform cloudflare] [--yes]
+```
+
+Restore the deployed D1 database of a direct Cloudflare deploy with D1 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/). Before `void deploy --platform cloudflare` applies migrations, it prints the `--bookmark` that undoes them. `--timestamp` restores the state at an ISO 8601 time with `Z` or an offset instead, such as `2026-10-16T09:30:00Z`, with at most millisecond precision. Time Travel keeps 7 days of history on Workers Free and 30 days on Workers Paid. An older bookmark or time can no longer be restored: Cloudflare rejects it and the database stays unchanged. To undo an older migration, write a new migration that reverses it.
+
+If the project's saved destination is not Cloudflare and you deployed once with `void deploy --platform cloudflare`, pass `--platform cloudflare`; deploy prints the command with it.
+
+Restoring replaces the whole database and discards every write made after that point. Void names the database and asks before it restores. Pass `--yes` to skip the prompt in scripts and CI; without a terminal, the command stops unless `--yes` is set. Afterwards Void prints the `void db restore` command that undoes the restore.
+
+A restore also rewinds the record of applied migrations. Void lists the migration files the database no longer has applied; the next deploy applies them, so fix or remove the one that caused the problem first. Restoring does not change the deployed code: use [`void project rollback`](./project.md#void-project-rollback-deployid) if the live version needs the newer schema. After a one-off Cloudflare deploy, pass `--platform cloudflare` to `void project rollback` and `void deploy` as well.
+
 ## `void db rename-migrations` {#void-db-rename-migrations}
 
 Rename existing migrations from the old numeric prefix format (`0001_name.sql`) to timestamp-based format (`20260410161500_name.sql`). Updates local tracking table and remote records if logged in with a linked project. A project that deploys to Void must be linked first with `void project link`; otherwise the command stops without changes.

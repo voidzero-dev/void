@@ -2,13 +2,18 @@ import { MIN_PLATFORM_VERSION } from '../../src/cli/client.ts';
 
 const DISCOVERY_PATH = '/.well-known/void-platform';
 
+/** Optional discovery fields. A field left out is absent, as on an older platform. */
+export type PlatformDiscoveryFeatures = { directWorkerUpload?: unknown };
+
 /** A valid discovery response for `apiUrl` that advertises `platformVersion`. */
 export function platformDiscoveryResponse(
   apiUrl: string,
   platformVersion: string = MIN_PLATFORM_VERSION,
+  features: PlatformDiscoveryFeatures = {},
 ): Response {
   const origin = new URL(apiUrl).origin;
   return Response.json({
+    ...features,
     apiUrl: origin,
     applicationDomain: 'void.app',
     authenticationProviders: ['github'],
@@ -42,6 +47,7 @@ export function isPlatformDiscoveryRequest(input: unknown): boolean {
 export function withPlatformDiscovery(
   fetchMock: unknown,
   platformVersion: string = MIN_PLATFORM_VERSION,
+  features?: PlatformDiscoveryFeatures,
 ): typeof fetch {
   const next = fetchMock as (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
   return async (input, init) =>
@@ -49,6 +55,7 @@ export function withPlatformDiscovery(
       ? platformDiscoveryResponse(
           input instanceof Request ? input.url : String(input),
           platformVersion,
+          features,
         )
       : next(input, init);
 }

@@ -273,6 +273,21 @@ export async function applyCloudflareD1Migrations(context: CloudflareD1Context):
   );
 }
 
+/** Restore the D1 database with Time Travel. Returns the bookmark that undoes the restore. */
+export async function restoreCloudflareD1Database(
+  context: CloudflareD1Context,
+  target: { bookmark: string } | { timestamp: string },
+): Promise<string | undefined> {
+  const result = await run(context.operation, {
+    type: 'd1.time-travel.restore',
+    database: context.migrateToken,
+    target,
+    configPath: context.operation.configPath,
+  });
+  const previous = (result.data as { previousBookmark?: unknown } | undefined)?.previousBookmark;
+  return typeof previous === 'string' ? previous : undefined;
+}
+
 export async function readCloudflareWorkerStatus(
   context: CloudflareOperationContext,
 ): Promise<CloudflareWorkerStatus> {

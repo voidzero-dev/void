@@ -35,6 +35,8 @@ void db generate
 
 Review and commit the SQL, then deploy again. Rollback does not reverse database migrations. See [Database](./database.md) for the local workflow.
 
+On your own Cloudflare account, deploy saves a D1 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/) restore point before it applies pending migrations and prints the [`void db restore`](../reference/cli/database.md#void-db-restore) command for it. If no restore point can be saved, deploy stops before it migrates. If deploy fails after it applied the migrations, for example when the upload fails, it prints the command again. Usually you fix the error and deploy again; restore only if the live version cannot run against the new schema. To recover from a bad migration, roll back the code with `void project rollback` if the new version is live, restore the database, then fix or remove the migration before you deploy again. After a one-off `void deploy --platform cloudflare`, add `--platform cloudflare` to each of these commands. Restoring discards every write made after the restore point. Restore points expire after 7 days on Workers Free and 30 days on Workers Paid; after that, undo a migration with a new one.
+
 ### Environment variables
 
 Declare values in `env.ts` and set production server secrets with `void secret put`. Deploy never uploads your local `.env`. Supply public `VITE_*` values through the build environment. See [Environment Variables](./env-vars.md).

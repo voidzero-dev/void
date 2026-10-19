@@ -57,6 +57,7 @@ import {
   type Project,
   type DeploymentStatus,
 } from '../types.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import {
   resolveProjectZeroTrustRoutingForPublication,
   rewriteProjectRouteMetadata,
@@ -104,7 +105,9 @@ export async function runDeploymentPipeline(input: {
   readonly commitUrl: string | null;
   readonly gitRef: string | null;
   readonly deployBuild: string | undefined;
-  readonly workerFiles: Array<{ name: string; content: Blob }>;
+  readonly workerFiles: Array<WorkerModule>;
+  /** Deletes the request's Worker upload once the pipeline settles. */
+  readonly releaseWorkerInput?: () => Promise<void>;
 }): Promise<Response> {
   let logger = input.logger;
   const {
@@ -1192,6 +1195,14 @@ export async function runDeploymentPipeline(input: {
           placeholderId: preDeployment.id,
           err: err instanceof Error ? err.message : String(err),
         });
+      }
+      if (input.releaseWorkerInput) {
+        // Before the stream closes: closing the response can end the request.
+        await input.releaseWorkerInput().catch((err) =>
+          logger.warn('worker_input', 'delete_failed', {
+            err: err instanceof Error ? err.message : String(err),
+          }),
+        );
       }
       await persistedEvents;
       streamOpen = false;

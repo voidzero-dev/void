@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import type { SpinnerResult } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { DeployManifest } from '../../src/cli/types.ts';
 import { withPlatformDiscovery } from '../helpers/platform-discovery.ts';
 
 // Spy on `readFileSync` to count asset reads. Mocked before any importer of
@@ -58,6 +61,8 @@ const fsModule = await import('node:fs');
 const readFileSyncMock = fsModule.readFileSync as unknown as ReturnType<typeof vi.fn>;
 
 const { runStaticDeploy } = await import('../../src/cli/deploy-managed-static.ts');
+const { streamDirectR2Deploy } = await import('../../src/cli/deploy-managed-events.ts');
+const { collectAndHashAssets } = await import('../../src/cli/package.ts');
 const { openDeployLog } = await import('../../src/cli/log-file.ts');
 const { PlatformClient } = await import('../../src/cli/client.ts');
 
@@ -95,22 +100,36 @@ afterEach(() => {
   }
 });
 
+type WorkerModule = { name: string; size: number; sha256: string };
+
 type MockState = {
   preflightCalls: Array<unknown>;
   uploadUrlsCalls: Array<unknown>;
+  workerUploadUrlsCalls: Array<{ modules: Array<WorkerModule> }>;
   r2PutCalls: Array<{ url: string; init: RequestInit }>;
   finalizeCalls: Array<{ url: string; init: RequestInit }>;
 };
+
+/** Headers the mock platform signs into each Worker module's PUT. */
+function workerPutHeaders(module: WorkerModule): Record<string, string> {
+  return {
+    'Content-Type': 'application/javascript+module',
+    'Content-Length': String(module.size),
+    'x-amz-checksum-sha256': Buffer.from(module.sha256, 'hex').toString('base64'),
+  };
+}
 
 function installPlatformMocks(opts?: {
   preflightSkipped?: number;
   preflightNeeded?: Array<string>;
   r2PutBehavior?: (url: string) => Response | Promise<Response>;
+  workerUploadUrls?: () => Response;
   finalizeEvents?: Array<unknown>;
 }): MockState {
   const state: MockState = {
     preflightCalls: [],
     uploadUrlsCalls: [],
+    workerUploadUrlsCalls: [],
     r2PutCalls: [],
     finalizeCalls: [],
   };
@@ -150,6 +169,21 @@ function installPlatformMocks(opts?: {
       return new Response(JSON.stringify({ urls }), {
         status: 200,
         headers: { 'content-type': 'application/json' },
+      });
+    }
+
+    if (url.endsWith('/deploy/worker-upload-urls') && method === 'POST') {
+      const body = JSON.parse(reqInit.body as string) as { modules: Array<WorkerModule> };
+      state.workerUploadUrlsCalls.push(body);
+      if (opts?.workerUploadUrls) {
+        return opts.workerUploadUrls();
+      }
+      return Response.json({
+        id: 'wup_test',
+        urls: body.modules.map((module, index) => ({
+          url: `https://r2-test/worker/${index}`,
+          headers: workerPutHeaders(module),
+        })),
       });
     }
 
@@ -534,6 +568,127 @@ describe('direct-to-R2 deploy flow', () => {
     );
 
     await cliLog.close();
+  });
+});
+
+describe('Worker module uploads', () => {
+  // Discovery is cached per origin, so each origin is only probed with one answer.
+  const directOrigin = 'https://api-direct.test';
+  const workerManifest: DeployManifest = {
+    version: 3,
+    assetManifestVersion: 2,
+    bindings: {},
+    type: 'void',
+    ssr: true,
+    workerMain: 'index.js',
+  };
+
+  function workerFiles(): Map<string, Buffer> {
+    return new Map([
+      ['index.js', Buffer.from('export default { fetch() {} };\n')],
+      ['chunks/large.js', Buffer.alloc(150_000, 0x61)],
+    ]);
+  }
+
+  function expectedModules(): Array<WorkerModule> {
+    return Array.from(workerFiles(), ([name, bytes]) => ({
+      name,
+      size: bytes.length,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+    }));
+  }
+
+  function advertiseDirectWorkerUpload(): void {
+    globalThis.fetch = withPlatformDiscovery(fetchMock, undefined, { directWorkerUpload: true });
+  }
+
+  async function deployWorker(
+    origin: string,
+    files: Map<string, Buffer>,
+    needed: Array<string> = [],
+  ): Promise<void> {
+    const { assetManifest, assetFiles } = await collectAndHashAssets(assetsDir);
+    await streamDirectR2Deploy({
+      client: new PlatformClient('test-token', { apiUrl: origin }),
+      projectId: 'proj_t',
+      manifest: workerManifest,
+      assetManifest,
+      assetFiles,
+      needed,
+      preflightUsed: false,
+      workerFiles: files,
+      spinner: noopSpinner as unknown as SpinnerResult,
+    });
+  }
+
+  it('uploads modules to R2 before the assets and finalizes with workerInput', async () => {
+    advertiseDirectWorkerUpload();
+    const state = installPlatformMocks();
+    const files = workerFiles();
+
+    await deployWorker(directOrigin, files, ['/index.html']);
+
+    const modules = expectedModules();
+    expect(state.workerUploadUrlsCalls).toEqual([{ modules }]);
+    const workerPuts = state.r2PutCalls.filter(({ url }) => url.includes('/worker/'));
+    expect(workerPuts.map(({ url }) => url).sort()).toEqual([
+      'https://r2-test/worker/0',
+      'https://r2-test/worker/1',
+    ]);
+    const bytes = [...workerFiles().values()];
+    for (const { url, init } of workerPuts) {
+      const index = Number(url.split('/').pop());
+      expect(init.headers).toEqual(workerPutHeaders(modules[index]));
+      expect(Buffer.from(init.body as Uint8Array)).toEqual(bytes[index]);
+    }
+
+    // A Worker the platform refuses must fail before any asset upload.
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    const assetPresign = urls.indexOf(`${directOrigin}/projects/proj_t/deploy/upload-urls`);
+    expect(urls.indexOf(`${directOrigin}/projects/proj_t/deploy/worker-upload-urls`)).toBe(0);
+    expect(assetPresign).toBeGreaterThan(0);
+    expect(urls.slice(assetPresign).filter((url) => url.includes('/worker/'))).toEqual([]);
+    expect(state.uploadUrlsCalls).toHaveLength(1);
+
+    const body = JSON.parse(state.finalizeCalls[0].init.body as string);
+    expect(body.workerInput).toEqual({ id: 'wup_test', modules });
+    expect(body).not.toHaveProperty('workerFiles');
+    // Each buffer is released once R2 has it.
+    expect(files.size).toBe(0);
+  });
+
+  it('keeps sending modules inline when discovery does not advertise direct uploads', async () => {
+    const state = installPlatformMocks();
+
+    await deployWorker('https://api-inline.test', workerFiles());
+
+    expect(state.workerUploadUrlsCalls).toHaveLength(0);
+    expect(state.r2PutCalls).toHaveLength(0);
+    const body = JSON.parse(state.finalizeCalls[0].init.body as string);
+    expect(body).not.toHaveProperty('workerInput');
+    expect(body.workerFiles).toEqual(
+      Object.fromEntries(
+        Array.from(workerFiles(), ([name, bytes]) => [name, bytes.toString('base64')]),
+      ),
+    );
+  });
+
+  it('uploads nothing when the platform refuses the Worker size', async () => {
+    advertiseDirectWorkerUpload();
+    const message = 'This Worker is 70 MB without source maps. Cloudflare allows at most 64 MiB.';
+    const state = installPlatformMocks({
+      workerUploadUrls: () =>
+        Response.json({ error: 'worker_too_large', message }, { status: 413 }),
+    });
+
+    await expect(
+      deployWorker(directOrigin, workerFiles(), Object.keys(fixtureFiles)),
+    ).rejects.toThrow(message);
+
+    expect(state.workerUploadUrlsCalls).toHaveLength(1);
+    expect(state.uploadUrlsCalls).toHaveLength(0);
+    expect(state.r2PutCalls).toHaveLength(0);
+    expect(state.finalizeCalls).toHaveLength(0);
   });
 });
 

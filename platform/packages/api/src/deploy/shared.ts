@@ -12,10 +12,22 @@ export const MAX_UPLOAD_URLS_BATCH = 5000;
 
 export const DEFAULT_TAIL_SERVICE_NAME = 'void-tail';
 
-// CF's worker script size limit (free plan 1 MiB, paid plan 10 MiB compressed).
-// Enforced per worker module so a single runaway worker file cannot OOM the
-// request before the upload to CF ever happens.
+// Per-module cap for Worker modules that older CLIs send inline as base64
+// `workerFiles`. It bounds the memory one decoded module holds in the request;
+// it is not a Cloudflare limit. Modules uploaded to R2 (`workerInput`) are
+// checked against CLOUDFLARE_WORKER_SIZE_LIMIT_BYTES instead.
 export const MAX_WORKER_FILE_BYTES = 32 * 1024 * 1024;
+
+// Mirrors Cloudflare's Worker size limit: 64 MiB uncompressed on every plan,
+// counting every module except source maps. Cloudflare limits source maps
+// separately and enforces that limit itself.
+// https://developers.cloudflare.com/workers/platform/limits/#worker-size
+export const CLOUDFLARE_WORKER_SIZE_LIMIT_BYTES = 64 * 1024 * 1024;
+
+// A finalize accepts direct Worker uploads at most this old. The stale-input
+// sweep (`dispatchPendingDeployments`) removes unclaimed inputs after 24 hours,
+// so an accepted upload cannot be swept while its deploy is admitted or runs.
+export const WORKER_UPLOAD_MAX_AGE_MS = 12 * 60 * 60 * 1000;
 
 /**
  * Decode a base64 string to bytes with the lowest peak residency the
@@ -87,24 +99,21 @@ export const R2_HEAD_VERIFY_CONCURRENCY = 20;
 // stores. A fresh retained/in-flight hash snapshot is taken for every batch.
 export const ASSET_GC_LOCK_BATCH = 100;
 
-// Retention is post-cutover and best-effort. Bound all eviction + orphan work
-// across one request so cleanup can never consume the Worker's 1,000 external
-// operation budget before the already-live deployment emits `done`.
+// Retention is post-cutover and best effort. Cap the asset hashes one deploy
+// evicts or sweeps (each costs up to a KV delete and an R2 head) so eviction
+// only briefly delays the `done` event, and the orphan sweep that runs in
+// `waitUntil` after the response stays short.
 export const ASSET_GC_MAX_HASHES_PER_DEPLOY = 200;
 
 // Per-blake3 / per-md5 validation: 32 lowercase hex characters.
 export const HEX_32_REGEX = /^[0-9a-f]{32}$/;
 
-// Generous body cap for JSON-mode deploy POSTs. The body is dominated by
-// `workerFiles` (base64-encoded user worker modules); MAX_WORKER_FILE_BYTES
-// is 32 MiB per module and a worker can ship ~10 modules in practice.
-//
-// Base64 expansion is ~33%, so a single 32 MiB raw module weighs ~43 MiB
-// on the wire. 64 MiB comfortably accommodates one full-size module (with
-// safety margin) plus the manifest, assetManifest, vars, and source/commit
-// JSON, while staying well under the 128 MiB Worker memory limit. Asset
-// BYTES are NOT in this body — they go direct-to-R2 via presigned PUTs,
-// which is the whole reason this endpoint exists.
+// Body cap for JSON-mode deploy POSTs. Older CLIs send Worker modules inline
+// as base64 `workerFiles`, which dominate the body; current CLIs upload them
+// to R2 first (`workerInput`) and send only their names, sizes, and digests.
+// The cap keeps the inline path's parsed body well under the 128 MiB Worker
+// memory limit. Asset bytes never travel in this body — they go direct-to-R2
+// via presigned PUTs.
 export const MAX_JSON_DEPLOY_BODY_BYTES = 64 * 1024 * 1024;
 
 export type UploadUrlsRequestAsset = Readonly<{
@@ -174,6 +183,95 @@ export function workerFilesError(
     return `workerFiles must include the main module ${JSON.stringify(mainModule)}`;
   }
   return null;
+}
+
+const SHA256_HEX_REGEX = /^[0-9a-f]{64}$/;
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+/** One Worker module the CLI uploads to R2 before it finalizes a deploy. */
+export type WorkerUploadModule = Readonly<{ name: string; size: number; sha256: string }>;
+
+/** A direct Worker upload the CLI finished before calling the deploy endpoint. */
+export type WorkerInput = Readonly<{ id: string; modules: ReadonlyArray<WorkerUploadModule> }>;
+
+export type WorkerUploadProblem = Readonly<{
+  status: 400 | 413;
+  error?: 'worker_too_large';
+  message: string;
+}>;
+
+function roundedMiB(bytes: number): string {
+  return String(Math.ceil((bytes / 1024 / 1024) * 10) / 10);
+}
+
+/**
+ * Explain why a direct Worker upload's module list cannot be accepted, or
+ * return null. Names follow `workerModuleNameError`; the main module is
+ * checked once the manifest is known, at finalize.
+ */
+export function workerUploadModulesProblem(
+  value: unknown,
+  label: string,
+): WorkerUploadProblem | null {
+  if (!Array.isArray(value) || value.length === 0 || value.length > MAX_UPLOAD_URLS_BATCH) {
+    return {
+      status: 400,
+      message: `${label} must be an array of 1 to ${MAX_UPLOAD_URLS_BATCH} modules`,
+    };
+  }
+  const names = new Set<string>();
+  let codeBytes = 0;
+  for (let index = 0; index < value.length; index++) {
+    const entry: unknown = value[index];
+    const at = `${label}[${index}]`;
+    if (entry == null || typeof entry !== 'object' || Array.isArray(entry)) {
+      return { status: 400, message: `${at} must be an object` };
+    }
+    const { name, size, sha256 } = entry as Record<string, unknown>;
+    if (typeof name !== 'string') {
+      return { status: 400, message: `${at}.name must be a string` };
+    }
+    const nameError = workerModuleNameError(name);
+    if (nameError) {
+      return { status: 400, message: `${at}.name ${JSON.stringify(name)} ${nameError}` };
+    }
+    if (names.has(name)) {
+      return { status: 400, message: `${at}.name ${JSON.stringify(name)} is listed twice` };
+    }
+    names.add(name);
+    if (typeof size !== 'number' || !Number.isSafeInteger(size) || size < 0) {
+      return { status: 400, message: `${at}.size must be a non-negative integer` };
+    }
+    if (typeof sha256 !== 'string' || !SHA256_HEX_REGEX.test(sha256)) {
+      return { status: 400, message: `${at}.sha256 must be 64 lowercase hex characters` };
+    }
+    if (moduleContentType(name) !== 'application/source-map') {
+      codeBytes += size;
+    }
+  }
+  if (codeBytes > CLOUDFLARE_WORKER_SIZE_LIMIT_BYTES) {
+    return {
+      status: 413,
+      error: 'worker_too_large',
+      message: `The Worker is ${roundedMiB(codeBytes)} MiB without source maps, and Cloudflare allows ${roundedMiB(CLOUDFLARE_WORKER_SIZE_LIMIT_BYTES)} MiB.`,
+    };
+  }
+  return null;
+}
+
+/** Explain why a deploy body's `workerInput` cannot be accepted, or return null. */
+export function workerInputProblem(value: unknown): WorkerUploadProblem | null {
+  if (value == null || typeof value !== 'object' || Array.isArray(value)) {
+    return { status: 400, message: 'workerInput must be an object with id and modules' };
+  }
+  const { id, modules } = value as Record<string, unknown>;
+  if (typeof id !== 'string' || !UUID_REGEX.test(id)) {
+    return {
+      status: 400,
+      message: 'workerInput.id must be the id returned by /deploy/worker-upload-urls',
+    };
+  }
+  return workerUploadModulesProblem(modules, 'workerInput.modules');
 }
 
 export function moduleContentType(filename: string): string {

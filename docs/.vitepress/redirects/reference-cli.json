@@ -59,6 +59,7 @@
   "void-db-execute": "/reference/cli/database#void-db-execute",
   "void-db-migrate": "/reference/cli/database#void-db-migrate",
   "void-db-studio": "/reference/cli/database#void-db-studio",
+  "void-db-restore": "/reference/cli/database#void-db-restore",
   "void-db-rename-migrations": "/reference/cli/database#void-db-rename-migrations",
   "void-db-connect": "/reference/cli/database#void-db-connect",
   "void-db-set-url": "/reference/cli/database#void-db-set-url",

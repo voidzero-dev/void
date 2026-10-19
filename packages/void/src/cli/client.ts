@@ -13,7 +13,14 @@ import {
   type ProjectPermission,
 } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
-import type { DeployAssetUploadRequest, DeployEvent, DeployUploadPayload } from './types.ts';
+import type {
+  DeployAssetUploadRequest,
+  DeployEvent,
+  DeployUploadPayload,
+  DeployWorkerModule,
+  DeployWorkerUploadRequest,
+  DeployWorkerUploadResponse,
+} from './types.ts';
 
 // Null omits `X-Void-CLI-Version`: the platform answers an unparseable version with 426.
 function readCliVersion(): string | null {
@@ -34,21 +41,22 @@ export const MIN_PLATFORM_VERSION = '1.1.11';
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
 /**
- * Version checks keyed by platform base URL. Every outcome (pass, inconclusive,
- * or too old) is kept for the rest of the process, so polling commands probe
- * discovery once.
+ * Discovery probes keyed by platform base URL. Every outcome (pass,
+ * inconclusive, or too old) is kept for the rest of the process, so polling
+ * commands probe discovery once.
  */
-const platformVersionChecks = new Map<string, Promise<void>>();
+const platformVersionProbes = new Map<string, Promise<PlatformVersionProbe>>();
 
 /**
  * What public discovery says about the platform version:
- * - `version`: the reported `platformVersion`
+ * - `version`: the reported `platformVersion`, and whether the platform
+ *   accepts Worker modules uploaded straight to R2
  * - `missing`: discovery answered 404, so the platform predates discovery
  * - `unknown`: no usable answer (network error, timeout, disabled platform,
  *   Access login page, or an invalid document)
  */
 type PlatformVersionProbe =
-  | { kind: 'version'; version: string }
+  | { kind: 'version'; version: string; directWorkerUpload: boolean }
   | { kind: 'missing' }
   | { kind: 'unknown' };
 
@@ -661,19 +669,34 @@ export class PlatformClient {
 
   /**
    * Checks the platform version once per process and base URL. Concurrent
-   * first requests share one check, and its outcome is kept for later requests.
+   * first requests share one probe, and its outcome is kept for later requests.
    */
-  private ensureSupportedPlatform(): Promise<void> {
-    const apiUrl = this.baseUrl;
-    const cached = platformVersionChecks.get(apiUrl);
+  private async ensureSupportedPlatform(): Promise<void> {
+    assertSupportedPlatform(this.baseUrl, await this.platformProbe());
+  }
+
+  private platformProbe(): Promise<PlatformVersionProbe> {
+    const cached = platformVersionProbes.get(this.baseUrl);
     if (cached) {
       return cached;
     }
-    const check = this.probePlatformVersion().then((probe) =>
-      assertSupportedPlatform(apiUrl, probe),
-    );
-    platformVersionChecks.set(apiUrl, check);
-    return check;
+    const probe = this.probePlatformVersion();
+    platformVersionProbes.set(this.baseUrl, probe);
+    return probe;
+  }
+
+  /**
+   * Whether discovery says the platform accepts Worker modules uploaded to R2.
+   * False when discovery omits the field or gave no usable answer.
+   */
+  async supportsDirectWorkerUpload(): Promise<boolean> {
+    let probe = await this.platformProbe();
+    if (probe.kind === 'unknown') {
+      // One failed probe must not send a large Worker inline. Ask again,
+      // without replacing the outcome the version check keeps.
+      probe = await this.probePlatformVersion();
+    }
+    return probe.kind === 'version' && probe.directWorkerUpload;
   }
 
   /** Reads the platform version from public discovery, without credentials. */
@@ -695,7 +718,11 @@ export class PlatformClient {
     }
     try {
       const discovery = await readPlatformDiscoveryResponse(this.baseUrl, response);
-      return { kind: 'version', version: discovery.platformVersion };
+      return {
+        kind: 'version',
+        version: discovery.platformVersion,
+        directWorkerUpload: discovery.directWorkerUpload === true,
+      };
     } catch {
       return { kind: 'unknown' };
     }
@@ -1115,6 +1142,53 @@ export class PlatformClient {
       urls: Record<string, { url: string; headers: Record<string, string> }>;
     };
     return json.urls;
+  }
+
+  /**
+   * Requests one presigned R2 PUT per Worker module, in `modules` order. The
+   * platform refuses a Worker over Cloudflare's size limit here (413
+   * `worker_too_large`), before any bytes are uploaded.
+   */
+  async requestWorkerUploadUrls(
+    projectId: string,
+    modules: Array<DeployWorkerModule>,
+  ): Promise<DeployWorkerUploadResponse> {
+    const url = `${this.baseUrl}/projects/${projectId}/deploy/worker-upload-urls`;
+    this.cliLog?.info('worker_upload_urls_post', { url, moduleCount: modules.length });
+
+    const request: DeployWorkerUploadRequest = { modules };
+    const res = await this.request(url, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...this.authHeaders,
+      },
+      body: JSON.stringify(request),
+    });
+    this.cliLog?.info('worker_upload_urls_response', {
+      status: res.status,
+      cfRay: res.headers.get('cf-ray'),
+    });
+
+    if (!res.ok) {
+      await throwPlatformApiError('Failed to request worker upload URLs', res, 'deploy');
+    }
+
+    // Module i uploads to urls[i], so a short or malformed list must not start.
+    const json = (await res.json()) as Partial<DeployWorkerUploadResponse> | null;
+    if (
+      typeof json?.id !== 'string' ||
+      !json.id ||
+      !Array.isArray(json.urls) ||
+      json.urls.length !== modules.length ||
+      !json.urls.every(
+        (entry) =>
+          typeof entry?.url === 'string' && typeof entry.headers === 'object' && !!entry.headers,
+      )
+    ) {
+      throw new Error('Invalid worker upload URLs from platform.');
+    }
+    return { id: json.id, urls: json.urls };
   }
 
   async *finalizeDeploy(

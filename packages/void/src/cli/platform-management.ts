@@ -29,6 +29,8 @@ import {
   hyperdriveOriginFromConnectionString,
   hyperdriveOriginMatches,
   PlatformCloudflareClient,
+  PlatformRuntimeTokenEmailPermissionError,
+  verifyPlatformRuntimeTokenEmailPermissions,
   verifyPlatformRuntimeTokenPermissions,
 } from './platform-cloudflare.ts';
 import {
@@ -36,6 +38,12 @@ import {
   readLoginReplacementFile,
   replacePendingInstallationAuthentication,
 } from './platform-install-auth.ts';
+import {
+  findPlatformWorkerOutsideChanges,
+  formatPlatformWorkerOutsideChanges,
+  reviewPlatformWorkerOutsideChanges,
+  uploadPlatformWorkerOutsideChanges,
+} from './platform-installer-outside-changes.ts';
 import {
   acquirePlatformDatabaseLifecycleLock,
   createPlatformHealthProbeToken,
@@ -463,6 +471,15 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
           `Login settings will be replaced from ${loginFile}; a new setup code is printed at the end.`,
         );
       }
+      // A plan holds no lifecycle lock, so it cannot read the database.
+      const outsideChanges = await findPlatformWorkerOutsideChanges(client, plan, runtime!, {
+        manifest,
+      });
+      if (outsideChanges.length > 0) {
+        log.warn(
+          `${formatPlatformWorkerOutsideChanges(outsideChanges)}\nThis command replaces their configuration with the Void configuration. Run it in a terminal to review them first.`,
+        );
+      }
       outro('No Cloudflare or local installation state was changed.');
       return;
     }
@@ -574,6 +591,12 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       ...replacedLogin,
     });
     const runtimeTokenToPreflight = resolvePlatformRuntimeTokenToPreflight(plan, secrets);
+    // Shared email setup runs after traffic pauses and uses the runtime token,
+    // also when this run keeps the saved token. Check its email access first.
+    const emailZoneId =
+      installation.desiredState !== 'disabled' && plan.deployment.capabilities.email
+        ? plan.deployment.emailSharedZoneId
+        : undefined;
     if (runtimeTokenToPreflight) {
       await verifyPlatformRuntimeTokenPermissions(
         new PlatformCloudflareClient(runtimeTokenToPreflight),
@@ -581,9 +604,27 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
           accountId: manifest.account.id,
           applicationDomain: deployment.application.baseDomain,
           customDomains: plan.deployment.capabilities.customDomains,
+          ...(emailZoneId ? { emailZoneId } : {}),
           zoneId: plan.zone?.id ?? null,
         },
       );
+    } else if (emailZoneId && secrets.cloudflareApiToken) {
+      try {
+        await verifyPlatformRuntimeTokenEmailPermissions(
+          new PlatformCloudflareClient(secrets.cloudflareApiToken),
+          { accountId: manifest.account.id, savedToken: true, zoneId: emailZoneId },
+        );
+      } catch (error) {
+        // This run does not send the saved token to the Workers. A run from
+        // another machine can have replaced their token, and the old one was
+        // then revoked. Only a valid token that lacks a permission stops here.
+        if (!(error instanceof PlatformRuntimeTokenEmailPermissionError) || !error.tokenNotValid) {
+          throw error;
+        }
+        log.warn(
+          'The runtime API token saved on this machine is not valid (HTTP 401). Void cannot check the platform email permissions before it changes the platform, and it continues without this check. To do the check, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the runtime token of the platform.',
+        );
+      }
     }
     markPhase('runtime token');
     if (!databaseLock?.readAuthenticationState) {
@@ -591,6 +632,22 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         'platform: The database lifecycle lock cannot read authoritative authentication settings.',
       );
     }
+    // Without a terminal, the Cloudflare CLI stops the upload of a Worker
+    // changed outside Void, and the upgrade refuses an active version without
+    // Void's record of its triggers. Both happen after traffic pauses. Find
+    // them first.
+    const outsideChanges = await reviewPlatformWorkerOutsideChanges({
+      client,
+      plan,
+      runtime: runtime!,
+      installation: {
+        manifest: installation,
+        readAuthenticationState: databaseLock.readAuthenticationState,
+      },
+      interactive: process.stdin.isTTY === true && process.stdout.isTTY === true && !args.yes,
+      command: platformLifecycleResumeCommand({ ...args, yes: false }, manifest.id),
+    });
+    markPhase('outside changes');
     progress = createSpinner({
       // Preserve the subprocess signal coordinator used by platform installs.
       onCancel: () => {
@@ -654,6 +711,18 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         }),
       client,
       operatorApiToken: operatorCredential.token,
+      ...(outsideChanges.length > 0
+        ? {
+            replaceOutsideChanges: outsideChanges.map((change) => change.name),
+            uploadOutsideChanges: (configs: ReadonlyArray<Record<string, unknown>>) =>
+              uploadPlatformWorkerOutsideChanges(configs, {
+                changes: outsideChanges,
+                client,
+                operatorApiToken: operatorCredential.token,
+                progress,
+              }),
+          }
+        : {}),
       databaseRollbackSource: rollbackSourceRuntime ?? undefined,
       onProgress: (message) => {
         markPhase(message);

@@ -55,6 +55,15 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+const nativeSetTimeout = globalThis.setTimeout.bind(globalThis);
+
+function mockSetTimeout() {
+  vi.spyOn(globalThis, 'setTimeout').mockImplementation(((
+    fn: TimerHandler,
+    ...args: Array<unknown>
+  ) => nativeSetTimeout(fn, 0, ...args)) as typeof setTimeout);
+}
+
 // Synthetic 32-hex blake3 / md5 strings. Real hashes round-trip through the
 // presigner unchanged; the deploy pipeline only validates shape (32 hex)
 // and looks up bytes by `assets/${projectId}/${blake3}`. Tests put the
@@ -1853,5 +1862,414 @@ describe('CF asset-upload-session body never carries v2 manifest extras', () => 
     } finally {
       env.DISPATCH = originalDispatch;
     }
+  });
+});
+
+describe('direct Worker module upload', () => {
+  const MiB = 1024 * 1024;
+  let user: Awaited<ReturnType<typeof createTestUser>>;
+  let originalDispatch: DispatchNamespace;
+
+  beforeEach(async () => {
+    user = await createTestUser(env.db);
+    originalDispatch = env.DISPATCH;
+    env.DISPATCH = {
+      get: () => ({ fetch: async () => Response.json({ ready: true }) }),
+    } as unknown as DispatchNamespace;
+  });
+  afterEach(() => {
+    env.DISPATCH = originalDispatch;
+  });
+
+  async function sha256(bytes: Uint8Array<ArrayBuffer>): Promise<string> {
+    return Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', bytes)), (byte) =>
+      byte.toString(16).padStart(2, '0'),
+    ).join('');
+  }
+
+  function requestUrls(projectId: string, body: unknown) {
+    return app.fetch(
+      new Request(`http://localhost/projects/${projectId}/deploy/worker-upload-urls`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  }
+
+  /** What the CLI does: request URLs, then PUT each module to its URL's key. */
+  async function upload(projectId: string, files: Record<string, Uint8Array<ArrayBuffer>>) {
+    const modules = await Promise.all(
+      Object.entries(files).map(async ([name, bytes]) => ({
+        name,
+        size: bytes.byteLength,
+        sha256: await sha256(bytes),
+      })),
+    );
+    const res = await requestUrls(projectId, { modules });
+    expect(res.status).toBe(200);
+    const { id, urls } = (await res.json()) as {
+      id: string;
+      urls: Array<{ url: string; headers: Record<string, string> }>;
+    };
+    for (const [index, module] of modules.entries()) {
+      const key = decodeURI(new URL(urls[index]!.url).pathname).slice(
+        `/${env.R2_STATIC_ASSETS_BUCKET}/`.length,
+      );
+      await env.STATIC_ASSETS_R2.put(key, files[module.name]!);
+    }
+    return { id, modules };
+  }
+
+  function finalize(projectId: string, extra: Record<string, unknown>) {
+    return app.fetch(
+      new Request(`http://localhost/projects/${projectId}/deploy`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manifest: { version: 3, assetManifestVersion: 2, bindings: {}, type: 'void' },
+          assetManifest: {},
+          source: null,
+          commit: null,
+          preflight: null,
+          ...extra,
+        }),
+      }),
+      env,
+    );
+  }
+
+  function workerUploadCalls(cf: ReturnType<typeof mockCfApi>, slug: string) {
+    return cf.mock.calls.filter(
+      ([url, init]) =>
+        String(url).includes(`/scripts/user-${slug}-`) &&
+        (init as RequestInit | undefined)?.method === 'PUT',
+    );
+  }
+
+  it('signs one size-bound PUT per module under the deployment input prefix', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-sign');
+    const modules = [
+      { name: 'index.js', size: 10, sha256: 'a'.repeat(64) },
+      { name: 'index.js.map', size: 20, sha256: 'b'.repeat(64) },
+      { name: 'lib/add.wasm', size: 0, sha256: 'c'.repeat(64) },
+    ];
+    const res = await requestUrls(project.id, { modules });
+    expect(res.status).toBe(200);
+    const { id, urls } = (await res.json()) as {
+      id: string;
+      urls: Array<{ url: string; headers: Record<string, string> }>;
+    };
+    expect(id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+    expect(urls).toHaveLength(3);
+    const types = ['application/javascript+module', 'application/source-map', 'application/wasm'];
+    for (const [index, { url, headers }] of urls.entries()) {
+      const parsed = new URL(url);
+      expect(parsed.pathname).toBe(
+        `/${env.R2_STATIC_ASSETS_BUCKET}/deployment-inputs/${project.id}/${id}/${index}`,
+      );
+      expect(headers).toEqual({
+        'Content-Type': types[index],
+        'Content-Length': String(modules[index]!.size),
+      });
+      expect(parsed.searchParams.get('X-Amz-SignedHeaders')).toContain('content-length');
+      expect(parsed.searchParams.get('X-Amz-SignedHeaders')).toContain('content-type');
+      expect(parsed.searchParams.get('X-Amz-Expires')).toBe('1800');
+    }
+  });
+
+  it.each([
+    ['no modules field', {}],
+    ['an empty list', { modules: [] }],
+    [
+      'a path outside the bundle',
+      { modules: [{ name: '../a.js', size: 1, sha256: 'a'.repeat(64) }] },
+    ],
+    ['an unsupported extension', { modules: [{ name: 'a.css', size: 1, sha256: 'a'.repeat(64) }] }],
+    [
+      'a repeated name',
+      {
+        modules: [
+          { name: 'a.js', size: 1, sha256: 'a'.repeat(64) },
+          { name: 'a.js', size: 2, sha256: 'b'.repeat(64) },
+        ],
+      },
+    ],
+    ['a negative size', { modules: [{ name: 'a.js', size: -1, sha256: 'a'.repeat(64) }] }],
+    ['a fractional size', { modules: [{ name: 'a.js', size: 1.5, sha256: 'a'.repeat(64) }] }],
+    ['an uppercase digest', { modules: [{ name: 'a.js', size: 1, sha256: 'A'.repeat(64) }] }],
+    [
+      'more than 5000 modules',
+      {
+        modules: Array.from({ length: 5001 }, (_, index) => ({
+          name: `m${index}.js`,
+          size: 1,
+          sha256: 'a'.repeat(64),
+        })),
+      },
+    ],
+  ])('rejects a module list with %s', async (_case, body) => {
+    const project = await createTestProject(env.db, user.id, 'wu-invalid');
+    const res = await requestUrls(project.id, body);
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({ error: expect.any(String) });
+  });
+
+  it('applies the 64 MiB Worker limit to code but not to source maps', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-limit');
+    const tooLarge = await requestUrls(project.id, {
+      modules: [
+        { name: 'index.js', size: 40 * MiB, sha256: 'a'.repeat(64) },
+        { name: 'chunk.wasm', size: 24 * MiB + 1, sha256: 'b'.repeat(64) },
+        { name: 'index.js.map', size: 1, sha256: 'c'.repeat(64) },
+      ],
+    });
+    expect(tooLarge.status).toBe(413);
+    expect(await tooLarge.json()).toEqual({
+      error: 'worker_too_large',
+      message: 'The Worker is 64.1 MiB without source maps, and Cloudflare allows 64 MiB.',
+    });
+    const withMaps = await requestUrls(project.id, {
+      modules: [
+        { name: 'index.js', size: 64 * MiB, sha256: 'a'.repeat(64) },
+        { name: 'index.js.map', size: 500 * MiB, sha256: 'b'.repeat(64) },
+      ],
+    });
+    expect(withMaps.status).toBe(200);
+  });
+
+  it('streams uploaded modules byte-for-byte to Cloudflare and deletes the upload afterwards', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-deploy');
+    const files = {
+      'index.js': new TextEncoder().encode(
+        "import './lib/util.js'; export default { fetch() { return new Response('ok'); } }",
+      ),
+      'lib/util.js': new TextEncoder().encode('export const util = 1;'),
+      'index.js.map': new TextEncoder().encode('{"version":3,"sources":[],"mappings":""}'),
+      'add.wasm': Uint8Array.from({ length: 256 }, (_, index) => index),
+    };
+    const { id, modules } = await upload(project.id, files);
+    const cf = mockCfApi();
+    const res = await finalize(project.id, { workerInput: { id, modules } });
+    expect(res.status).toBe(200);
+    const events = await readAllEvents(res);
+    expect(events.find((e) => isEvent(e, 'done'))).toMatchObject({ workers: 4 });
+
+    const calls = workerUploadCalls(cf, project.slug);
+    expect(calls).toHaveLength(1);
+    const form = (calls[0]![1] as RequestInit).body as FormData;
+    const metadata = JSON.parse(await (form.get('metadata') as Blob).text()) as {
+      main_module: string;
+    };
+    expect(metadata.main_module).toBe('index.js');
+    const types: Record<string, string> = {
+      'index.js': 'application/javascript+module',
+      'lib/util.js': 'application/javascript+module',
+      'index.js.map': 'application/source-map',
+      'add.wasm': 'application/wasm',
+    };
+    for (const [name, bytes] of Object.entries(files)) {
+      const file = form.get(name) as File;
+      expect(file.type).toBe(types[name]);
+      expect(new Uint8Array(await file.arrayBuffer())).toEqual(bytes);
+    }
+    const [deployment] = await env.db
+      .select({ status: deployments.status })
+      .from(deployments)
+      .where(eq(deployments.project_id, project.id));
+    expect(deployment?.status).toBe('live');
+    const left = await env.STATIC_ASSETS_R2.list({
+      prefix: `deployment-inputs/${project.id}/${id}/`,
+    });
+    expect(left.objects).toEqual([]);
+  });
+
+  it('rejects an upload that is missing, resized, stale, oversized, from another project, or sent twice', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-reject');
+    const other = await createTestProject(env.db, user.id, 'wu-other');
+    const code = new TextEncoder().encode('export default {};');
+    const { id, modules } = await upload(project.id, { 'index.js': code });
+    const foreign = await upload(other.id, { 'index.js': code });
+    const cf = mockCfApi();
+    const reject = async (extra: Record<string, unknown>, status: number, message: string) => {
+      const res = await finalize(project.id, extra);
+      expect(res.status).toBe(status);
+      expect(await res.json()).toMatchObject({ message: expect.stringContaining(message) });
+    };
+
+    await reject(
+      {
+        workerInput: {
+          id,
+          modules: [...modules, { name: 'more.js', size: 3, sha256: 'a'.repeat(64) }],
+        },
+      },
+      400,
+      '"more.js" was not uploaded',
+    );
+    await reject(
+      { workerInput: { id, modules: [{ ...modules[0]!, size: code.byteLength + 1 }] } },
+      400,
+      `has ${code.byteLength} bytes in storage instead of ${code.byteLength + 1}`,
+    );
+    // Keys derive from the authenticated project, so another project's id
+    // names nothing here, and its upload stays untouched.
+    await reject({ workerInput: foreign }, 400, '"index.js" was not uploaded');
+    expect(
+      await env.STATIC_ASSETS_R2.head(`deployment-inputs/${other.id}/${foreign.id}/0`),
+    ).not.toBeNull();
+    await reject(
+      { workerInput: { id, modules }, workerFiles: { 'index.js': btoa('export default {};') } },
+      400,
+      'not both',
+    );
+    await reject(
+      { workerInput: { id: 'not-an-id', modules } },
+      400,
+      'workerInput.id must be the id returned',
+    );
+    await reject(
+      {
+        workerInput: {
+          id,
+          modules: [{ ...modules[0]!, size: 64 * MiB + 1 }],
+        },
+      },
+      413,
+      'Cloudflare allows 64 MiB',
+    );
+    (
+      env.STATIC_ASSETS_R2 as unknown as { setUploadedAt(key: string, uploaded: Date): void }
+    ).setUploadedAt(
+      `deployment-inputs/${project.id}/${id}/0`,
+      new Date(Date.now() - 13 * 60 * 60 * 1000),
+    );
+    await reject({ workerInput: { id, modules } }, 400, 'more than 12 hours ago');
+    expect(workerUploadCalls(cf, project.slug)).toEqual([]);
+    expect(await env.db.select().from(deployments)).toEqual([]);
+  });
+
+  it('fails the deploy without a complete Cloudflare upload when a stored module changes', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-corrupt');
+    const code = new TextEncoder().encode('export default {};');
+    const { id, modules } = await upload(project.id, { 'index.js': code });
+    const uploaded = vi.fn(async () => cfSuccess({}));
+    const cf = mockCfApi({ uploadWorker: uploaded });
+    // Same size, so the finalize listing accepts it; only the digest differs.
+    await env.STATIC_ASSETS_R2.put(
+      `deployment-inputs/${project.id}/${id}/0`,
+      new TextEncoder().encode('export default [];'),
+    );
+    const res = await finalize(project.id, { workerInput: { id, modules } });
+    const events = await readAllEvents(res);
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        event: 'error',
+        message: 'Durable deployment input digest mismatch',
+        step: 'worker_upload',
+      }),
+    );
+    expect(uploaded).not.toHaveBeenCalled();
+    // Changed bytes fail every attempt, so the upload is not retried.
+    expect(workerUploadCalls(cf, project.slug)).toHaveLength(1);
+    const [deployment] = await env.db
+      .select({ status: deployments.status })
+      .from(deployments)
+      .where(eq(deployments.project_id, project.id));
+    expect(deployment?.status).toBe('failed');
+    // A failed deploy is terminal too, so its upload is gone.
+    const left = await env.STATIC_ASSETS_R2.list({
+      prefix: `deployment-inputs/${project.id}/${id}/`,
+    });
+    expect(left.objects).toEqual([]);
+  });
+
+  it('retries the upload when reading a stored module fails once', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-read-retry');
+    const code = new TextEncoder().encode('export default {};');
+    const { id, modules } = await upload(project.id, { 'index.js': code });
+    const cf = mockCfApi();
+    const key = `deployment-inputs/${project.id}/${id}/0`;
+    const originalGet = env.STATIC_ASSETS_R2.get.bind(env.STATIC_ASSETS_R2);
+    let failed = false;
+    vi.spyOn(env.STATIC_ASSETS_R2, 'get').mockImplementation(async (getKey, options) => {
+      if (getKey === key && !failed) {
+        failed = true;
+        throw new Error('R2 unavailable');
+      }
+      return originalGet(getKey, options);
+    });
+    // Skip the retry backoff.
+    mockSetTimeout();
+
+    const events = await readAllEvents(
+      await finalize(project.id, { workerInput: { id, modules } }),
+    );
+
+    expect(events.find((e) => isEvent(e, 'done'))).toBeDefined();
+    expect(workerUploadCalls(cf, project.slug)).toHaveLength(2);
+  });
+
+  it('reopens every module when Cloudflare asks for the upload again', async () => {
+    mockSetTimeout();
+    const project = await createTestProject(env.db, user.id, 'wu-retry');
+    const files = {
+      'index.js': new TextEncoder().encode('export default {};'),
+      'index.js.map': new TextEncoder().encode('{"version":3}'),
+    };
+    const { id, modules } = await upload(project.id, files);
+    const received: Array<Record<string, string>> = [];
+    mockCfApi({
+      uploadWorker: async (_url, init) => {
+        const form = init!.body as FormData;
+        received.push({
+          'index.js': await (form.get('index.js') as Blob).text(),
+          'index.js.map': await (form.get('index.js.map') as Blob).text(),
+        });
+        return received.length === 1
+          ? new Response('Assets have already been uploaded', { status: 200 })
+          : cfSuccess({});
+      },
+    });
+    const events = await readAllEvents(
+      await finalize(project.id, { workerInput: { id, modules } }),
+    );
+    expect(events.find((e) => isEvent(e, 'done'))).toBeDefined();
+    const expected = {
+      'index.js': 'export default {};',
+      'index.js.map': '{"version":3}',
+    };
+    expect(received).toEqual([expected, expected]);
+  });
+
+  it('points an oversized inline Worker body at a CLI upgrade', async () => {
+    const project = await createTestProject(env.db, user.id, 'wu-inline-cap');
+    const chunk = new Uint8Array(MiB).fill(0x61);
+    let sent = 0;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sent > 64) {
+          controller.close();
+          return;
+        }
+        sent++;
+        controller.enqueue(chunk);
+      },
+    });
+    const res = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}/deploy`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.jwt}`, 'Content-Type': 'application/json' },
+        body,
+        duplex: 'half',
+      } as RequestInit),
+      env,
+    );
+    expect(res.status).toBe(413);
+    const { error } = (await res.json()) as { error: string };
+    expect(error).toContain('source maps');
+    expect(error).toContain('Upgrade the void CLI');
+    expect(error).not.toContain('asset bytes');
   });
 });
