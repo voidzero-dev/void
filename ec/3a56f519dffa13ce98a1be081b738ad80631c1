@@ -1,0 +1,21 @@
+platform/packages/api/src/admin/react/styles.css
+  s_1cbb8f9d8ae59c::t_9dc3a61cef203f 729-740
+platform/packages/api/src/admin/react/views/SignupControlPage.tsx
+  s_1cbb8f9d8ae59c::t_f4f00ff5696342 415
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ec3a56f519dffa13ce98a1be081b738ad80631c1",
+  "prompts": {},
+  "sessions": {
+    "s_1cbb8f9d8ae59c": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1377d-23d1-7ba3-a10f-199c8e386545",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
