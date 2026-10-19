@@ -5,7 +5,14 @@ import { dirname, isAbsolute, join, relative } from 'pathslash';
 import { normalizePath, type Plugin } from 'vite';
 import { DRIZZLE_OPERATORS, generateDbDts } from './codegen/db-types.ts';
 import { ensureProjectTsconfig } from './codegen/project-tsconfig.ts';
-import { getDatabaseDialect, readConfig, resolveBindingNames, type VoidConfig } from './config.ts';
+import {
+  getDatabaseCasing,
+  getDatabaseDialect,
+  readConfig,
+  resolveBindingNames,
+  type DatabaseCasing,
+  type VoidConfig,
+} from './config.ts';
 import { discoverSchema } from './drizzle/discover.ts';
 import { voidWarn } from './log.ts';
 import { readProjectPaths, resolveProjectPaths, type ProjectPaths } from './project-paths.ts';
@@ -50,6 +57,8 @@ function requestPool(resolve, own = {}) {
 type VoidDbModuleOptions = {
   d1BindingName?: string;
   forceVirtualDb?: boolean;
+  /** Drizzle's `casing` from `database.casing`. Unset passes none to drizzle. */
+  casing?: DatabaseCasing;
 };
 type DrizzlePluginOptions = VoidDbModuleOptions & {
   localD1DatabaseId?: string;
@@ -71,7 +80,13 @@ function createVoidDbModule(
 ) {
   const schema = discoverSchema(root, paths);
   // The package's own `void/db` is a D1 client, so PostgreSQL and MySQL always need this one.
-  const hasDbRuntime = schema != null || options.forceVirtualDb === true || dialect !== 'sqlite';
+  // It cannot apply `database.casing` either, which also names the columns of tables that an
+  // app keeps outside its schema.
+  const hasDbRuntime =
+    schema != null ||
+    options.forceVirtualDb === true ||
+    options.casing !== undefined ||
+    dialect !== 'sqlite';
   const d1BindingName = options.d1BindingName ?? 'DB';
 
   return {
@@ -130,12 +145,17 @@ export function createDb() {
         const schemaImport = schema
           ? `import * as schema from ${JSON.stringify(schema.path)};`
           : '';
-        const drizzleConfig = schema ? ', { schema }' : '';
+        const casingOption = options.casing ? `casing: ${JSON.stringify(options.casing)}` : '';
+        const drizzleOptions = [schema ? 'schema' : '', casingOption].filter(Boolean);
+        const drizzleConfig = drizzleOptions.length > 0 ? `, { ${drizzleOptions.join(', ')} }` : '';
+        // The same options as keys after the client in drizzle's single-object form.
+        const drizzleOptionKeys = drizzleOptions.map((option) => `, ${option}`).join('');
 
         if (dialect === 'mysql') {
           // drizzle builds the pool from `connection`, so its bare mysql2 import is the only one
           // and the worker prebundle serves it. Its config check rejects `mode` without `schema`.
-          const mysqlDrizzleConfig = schema ? ', schema, mode: "default"' : '';
+          const mysqlDrizzleConfig =
+            (schema ? ', schema, mode: "default"' : '') + (casingOption ? `, ${casingOption}` : '');
           return `
 import { drizzle } from ${JSON.stringify(drizzleMysql2Resolved)};
 import { getRuntimeBinding, getRuntimeRequestResource } from ${JSON.stringify(envModuleResolved)};
@@ -257,7 +277,7 @@ export const db = new Proxy({}, {
     // drizzle reports a query's errors as "Failed query", so build the request's pool here:
     // a missing connection string then throws its own message. Outside a request, build none.
     getRuntimeRequestResource(_requestResourceKey, createPool, () => undefined);
-    instance ??= drizzle({ client: requestPool(getPool)${schema ? ', schema' : ''} });
+    instance ??= drizzle({ client: requestPool(getPool)${drizzleOptionKeys} });
     const value = Reflect.get(instance, prop);
     return typeof value === "function" ? value.bind(instance) : value;
   },
@@ -438,7 +458,11 @@ export function voidDbBundlerPlugin(
     root,
     dialect,
     // The package's own `void/db` reads D1 from the `DB` binding.
-    { d1BindingName, forceVirtualDb: d1BindingName !== undefined },
+    {
+      d1BindingName,
+      forceVirtualDb: d1BindingName !== undefined,
+      casing: getDatabaseCasing(config),
+    },
     resolveProjectPaths(root, config),
   );
   const driverPackage =

@@ -141,6 +141,19 @@ Database backend. Omit for D1/SQLite (default). Set to `"pg"` or `"mysql"` for a
 | `"pg"`      | PostgreSQL via Hyperdrive; bring your own database      |
 | `"mysql"`   | MySQL via Hyperdrive; bring your own database           |
 
+Use an object to also set how Drizzle names columns declared without a name:
+
+```json
+{
+  "database": { "dialect": "pg", "casing": "snake_case" }
+}
+```
+
+| Key       | Values                                  | Description                                                                                                                                                                         |
+| --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dialect` | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                  |
+| `casing`  | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name |
+
 When using an external database:
 
 - Add `DATABASE_URL` to `.env` for local development

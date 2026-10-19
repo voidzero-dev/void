@@ -392,9 +392,29 @@
       "additionalProperties": false
     },
     "database": {
-      "type": "string",
-      "enum": ["pg", "mysql"],
-      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive."
+      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive, or use an object to also set the column casing.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["pg", "mysql"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "dialect": {
+              "type": "string",
+              "enum": ["sqlite", "pg", "mysql"],
+              "description": "Database backend. Defaults to \"sqlite\" (D1)."
+            },
+            "casing": {
+              "type": "string",
+              "enum": ["snake_case", "camelCase"],
+              "description": "Drizzle casing: how columns declared without a name are named in the database, for queries and generated migrations."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "ai": {
       "type": "object",

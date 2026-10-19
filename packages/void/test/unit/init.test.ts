@@ -36,6 +36,7 @@ const mockText = vi.fn();
 const mockNote = vi.fn();
 const mockOutro = vi.fn();
 const mockLogWarn = vi.fn();
+const mockLogInfo = vi.fn();
 const mockGetToken = vi.fn();
 const mockGetApiUrl = vi.fn();
 const mockRunLogin = vi.fn();
@@ -188,7 +189,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
     success: vi.fn(),
     warn: (...args: Array<unknown>) => mockLogWarn(...args),
     error: vi.fn(),
-    info: vi.fn(),
+    info: (...args: Array<unknown>) => mockLogInfo(...args),
     step: vi.fn(),
   },
   confirm: (...args: Array<unknown>) => mockConfirm(...args),
@@ -457,6 +458,7 @@ afterEach(() => {
   mockNote.mockReset();
   mockOutro.mockReset();
   mockLogWarn.mockReset();
+  mockLogInfo.mockReset();
   mockGetToken.mockReset();
   mockGetApiUrl.mockReset();
   mockRunLogin.mockReset();
@@ -2736,6 +2738,54 @@ export default config;
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('keeps database.casing when switching from pg to sqlite', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { dialect: 'pg', casing: 'snake_case' } }, null, 2) + '\n',
+      );
+      mockSelect.mockResolvedValueOnce('sqlite');
+      mockConfirm
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(readConfig(root)).toEqual({
+        database: { casing: 'snake_case' },
+        worker: {
+          compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a pg database object with casing when choosing pg', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { dialect: 'pg', casing: 'snake_case' } }, null, 2) + '\n',
+      );
+      mockSelect.mockResolvedValueOnce('postgresql');
+      mockConfirm
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(mockLogInfo).toHaveBeenCalledWith('PostgreSQL already configured in void.config.ts');
+      expect(readConfig(root).database).toEqual({ dialect: 'pg', casing: 'snake_case' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('removes the pg config when choosing no database yet', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {

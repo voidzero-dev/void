@@ -11,7 +11,14 @@ import { materializeCloudflareConfig } from '../cloudflare-config.ts';
 import { createProjectTsconfig, ensureProjectTsconfig } from '../codegen/project-tsconfig.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { canRewriteVoidProjectConfig, writeVoidProjectConfig } from '../config-write.ts';
-import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.ts';
+import {
+  databaseConfigValue,
+  getDatabaseCasing,
+  getDatabaseDialect,
+  readConfig,
+  type DatabaseDialect,
+  type VoidConfig,
+} from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
 import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
@@ -1361,46 +1368,54 @@ export function ensureVoidWorkerCompatibilityDate(root: string): void {
   log.step('Pinned worker compatibility_date in void.config.ts');
 }
 
+/** Write `dialect` to the config's `database`, keeping its casing. */
+function writeDatabaseDialect(root: string, config: VoidConfig, dialect: DatabaseDialect): void {
+  const next: VoidConfig = { ...config };
+  const database = databaseConfigValue(dialect, getDatabaseCasing(config));
+  if (database === undefined) {
+    delete next.database;
+  } else {
+    next.database = database;
+  }
+  writeVoidProjectConfig(root, next);
+}
+
 function clearConfiguredDatabase(
   root: string,
   messages: { unchanged: string; updated: string },
 ): void {
-  const config = readConfig(root) as Record<string, unknown>;
+  const config = readConfig(root);
 
-  if (config.database !== 'pg' && config.database !== 'mysql') {
+  if (getDatabaseDialect(config) === 'sqlite') {
     log.info(messages.unchanged);
     return;
   }
 
-  delete config.database;
-
-  writeVoidProjectConfig(root, config);
+  writeDatabaseDialect(root, config, 'sqlite');
   log.step(messages.updated);
 }
 
 function applyDatabaseDialect(root: string, dialect: DatabaseDialect): void {
-  const config = readConfig(root) as Record<string, unknown>;
+  const config = readConfig(root);
 
   if (dialect === 'postgresql') {
-    if (config.database === 'pg') {
+    if (getDatabaseDialect(config) === 'postgresql') {
       log.info('PostgreSQL already configured in void.config.ts');
       return;
     }
 
-    config.database = 'pg';
-    writeVoidProjectConfig(root, config);
+    writeDatabaseDialect(root, config, 'postgresql');
     log.step('Configured PostgreSQL in void.config.ts');
     return;
   }
 
   if (dialect === 'mysql') {
-    if (config.database === 'mysql') {
+    if (getDatabaseDialect(config) === 'mysql') {
       log.info('MySQL already configured in void.config.ts');
       return;
     }
 
-    config.database = 'mysql';
-    writeVoidProjectConfig(root, config);
+    writeDatabaseDialect(root, config, 'mysql');
     log.step('Configured MySQL in void.config.ts');
     return;
   }

@@ -241,6 +241,33 @@ describe('voidPlugin Vite environments', () => {
     },
   );
 
+  it.each([
+    ['a Pages app', {}],
+    ['a class A framework', { '@tanstack/react-start': '*' }],
+    ['a class B framework', { '@sveltejs/kit': '*' }],
+  ])('passes database.casing to the void/db client of %s', async (_, dependencies) => {
+    const root = createProjectRoot();
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module', dependencies }));
+    writeFileSync(
+      join(root, 'void.json'),
+      JSON.stringify({
+        database: { dialect: 'pg', casing: 'snake_case' },
+        worker: { compatibility_date: '2026-02-24' },
+      }),
+    );
+    mkdirSync(join(root, 'db'));
+    writeFileSync(join(root, 'db/schema.ts'), 'export {};\n');
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    const config = await resolveConfig({ root, plugins: [voidPlugin()] }, 'serve', 'development');
+    const plugin = config.plugins.find((candidate) => candidate.name === 'void:drizzle');
+    const load = getHookHandler(plugin?.load) as (this: object, id: string) => string;
+
+    expect(load.call({}, '\0virtual:void-db')).toContain(
+      'drizzle(connectionString, { schema, casing: "snake_case" })',
+    );
+  });
+
   it('serves the void/db virtual module to SvelteKit server code from an installed void', async () => {
     // Windows runners report a short-name temp path, which Vite refuses to serve.
     const root = realpathSync.native(createProjectRoot());

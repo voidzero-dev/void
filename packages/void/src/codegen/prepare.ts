@@ -4,7 +4,7 @@ import { join } from 'pathslash';
 import { analyzeApplication } from '../application-routing.ts';
 import { loadVoidAuthConfig } from '../auth/config.ts';
 import { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } from '../auth/drizzle.ts';
-import { readConfig } from '../config.ts';
+import { getDatabaseCasing, readConfig } from '../config.ts';
 import { discoverSchema } from '../drizzle/discover.ts';
 import { loadLocalEnv } from '../shared/env.ts';
 import { generateDbDts } from './db-types.ts';
@@ -74,7 +74,8 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   }
 
   const schema = discoverSchema(root, paths);
-  const hasDbRuntime = schema != null || authEnabled;
+  // Matches the Vite plugin, which serves its own `void/db` for `database.casing`.
+  const hasDbRuntime = schema != null || authEnabled || getDatabaseCasing(config) !== undefined;
   if (hasDbRuntime) {
     if (generateDbDts(outDir, schema, dialect)) {
       written.push(join('.void', 'db.d.ts'));

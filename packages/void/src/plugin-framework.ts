@@ -10,7 +10,7 @@ import {
   resolveLiveBindingConfig,
   syncWranglerBindings,
 } from './cli/wrangler.ts';
-import { readConfig } from './config.ts';
+import { getDatabaseCasing, readConfig } from './config.ts';
 import { findDependencyClosure, findVoidDependentPackages } from './installed-packages.ts';
 import { resolveLocalD1Target } from './local-d1.ts';
 import { voidLog } from './log.ts';
@@ -382,6 +382,7 @@ export default {
     drizzlePlugin(root, false, dialect, {
       d1BindingName: bindingNames?.d1,
       forceVirtualDb: bindingNames?.d1 !== undefined,
+      casing: getDatabaseCasing(config),
       localD1DatabaseId: localD1.databaseId,
       localD1PersistRoot: frameworkPersistRoot,
       nitroBundlesServer: detected.name === 'nuxt' || detected.name === 'analog',

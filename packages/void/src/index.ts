@@ -27,7 +27,7 @@ import {
   restoreCloudflarePreviewPointer,
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
-import { readConfig, isNodeTarget } from './config.ts';
+import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
 import { voidLog, voidWarn } from './log.ts';
@@ -762,6 +762,7 @@ export function voidPlugin(options?: {
       drizzlePlugin(root, false, dialect, {
         d1BindingName: bindingNames?.d1,
         forceVirtualDb: authEnabled || bindingNames?.d1 !== undefined,
+        casing: getDatabaseCasing(config),
         localD1DatabaseId: localD1.databaseId,
         localD1PersistRoot: localD1.persistRoot,
         redirectDbTypePaths,
@@ -999,6 +1000,7 @@ export function voidPlugin(options?: {
     drizzlePlugin(root, true, dialect, {
       d1BindingName: bindingNames?.d1,
       forceVirtualDb: authEnabled || bindingNames?.d1 !== undefined,
+      casing: getDatabaseCasing(config),
       localD1DatabaseId: localD1.databaseId,
       localD1PersistRoot: localD1.persistRoot,
     }),

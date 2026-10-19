@@ -114,6 +114,32 @@ export * from "./schema/users";
 export * from "./schema/posts";
 ```
 
+### Column casing
+
+By default, a column declared without a name, such as `createdAt: timestamp()`, uses its key as the column name. Set `database.casing` to `'snake_case'` to store these columns as `created_at` instead. It applies to `void/db` queries and to `void db` commands such as `generate`, `push`, and `seed`. Columns with an explicit name, such as `text('created_at')`, keep that name.
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  database: { dialect: 'pg', casing: 'snake_case' },
+});
+```
+
+```ts
+// db/schema.ts
+import { pgTable, serial, text, timestamp } from 'void/schema-pg';
+
+export const posts = pgTable('posts', {
+  id: serial().primaryKey(),
+  title: text().notNull(),
+  createdAt: timestamp().notNull().defaultNow(), // created_at
+});
+```
+
+Omit `dialect` for D1. If your database already has tables, run `void db generate` after you change `casing` and review the migration before you apply it.
+
 ## Querying
 
 Void re-exports all common [Drizzle query operators](https://orm.drizzle.team/docs/select) from `void/db` so you don't need to install `drizzle-orm` separately. Import `db` from `void/db` and your tables from `@schema`:

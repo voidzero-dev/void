@@ -15,8 +15,10 @@ import { createJiti } from 'jiti';
 import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
 import {
   readConfig,
+  getDatabaseCasing,
   getDatabaseDialect,
   resolveBindingNames,
+  type DatabaseCasing,
   type DatabaseDialect,
 } from '../config.ts';
 import type { DatabaseProviderAdapter, DatabaseProviderDialect } from '../database-provider.ts';
@@ -2399,11 +2401,12 @@ async function runSeedModule(
   dialect: DatabaseDialect,
 ): Promise<void> {
   const schema = await loadSeedSchema(root);
+  const casing = getDatabaseCasing(readConfig(root));
 
   if (dialect === 'postgresql') {
     const { drizzle } = await import('drizzle-orm/node-postgres');
     await withPgClient(root, async (client) => {
-      const options = getDrizzleSchemaOptions(schema);
+      const options = getDrizzleSchemaOptions(schema, casing);
       const drizzleClient = client as never;
       const db = options ? drizzle(drizzleClient, options) : drizzle(drizzleClient);
       await seed({ dialect, db, schema });
@@ -2416,7 +2419,7 @@ async function runSeedModule(
     const { createConnection } = await import('mysql2/promise');
     const connection = await createConnection(getLocalDatabaseUrl(root, 'mysql'));
     try {
-      const options = getDrizzleSchemaOptions(schema);
+      const options = getDrizzleSchemaOptions(schema, casing);
       const db = options
         ? drizzle(connection, { ...options, mode: 'default' })
         : drizzle(connection);
@@ -2432,7 +2435,7 @@ async function runSeedModule(
   const { databasePath: dbPath } = getLocalD1Target(root);
   const sqlite = await openSqliteDatabase(dbPath);
   try {
-    const options = getDrizzleSchemaOptions(schema);
+    const options = getDrizzleSchemaOptions(schema, casing);
     const db = options ? drizzle(sqlite as never, options) : drizzle(sqlite as never);
     await seed({ dialect, db, schema });
   } finally {
@@ -2510,8 +2513,14 @@ async function importLocalModule(modulePath: string): Promise<Record<string, unk
   return jiti.import<Record<string, unknown>>(modulePath);
 }
 
+/** The schema and casing that `void/db` gives drizzle, or undefined when neither is set. */
 function getDrizzleSchemaOptions(
   schema: Record<string, unknown>,
-): { schema: Record<string, unknown> } | undefined {
-  return Object.keys(schema).length > 0 ? { schema } : undefined;
+  casing: DatabaseCasing | undefined,
+): { schema?: Record<string, unknown>; casing?: DatabaseCasing } | undefined {
+  const options = {
+    ...(Object.keys(schema).length > 0 ? { schema } : {}),
+    ...(casing ? { casing } : {}),
+  };
+  return Object.keys(options).length > 0 ? options : undefined;
 }

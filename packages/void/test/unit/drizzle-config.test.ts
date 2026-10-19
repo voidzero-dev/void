@@ -1,9 +1,22 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, beforeEach, afterEach } from 'vite-plus/test';
+import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
+import { validateAuthMigrationSchema } from '../../src/cli/deploy-migrations.ts';
 import { withPrivateDrizzleConfig, writeDrizzleConfig } from '../../src/drizzle/config.ts';
+import { collectMigrations } from '../../src/migrations/collect.ts';
 
 describe('writeDrizzleConfig', () => {
   let root: string;
@@ -28,6 +41,13 @@ describe('writeDrizzleConfig', () => {
     expect(config.out).toBe('./db/migrations');
     expect(config.dbCredentials.url).toBe('/tmp/test.sqlite');
     expect(config.migrations).toEqual({ prefix: 'timestamp' });
+    expect(config).not.toHaveProperty('casing');
+  });
+
+  it.each(['snake_case', 'camelCase'])('passes database.casing %s to drizzle-kit', (casing) => {
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ database: { dialect: 'pg', casing } }));
+    const configPath = writeDrizzleConfig(root, 'postgresql://dummy', 'postgresql');
+    expect(JSON.parse(readFileSync(configPath, 'utf-8')).casing).toBe(casing);
   });
 
   it('generates PostgreSQL config', () => {
@@ -168,3 +188,100 @@ describe('withPrivateDrizzleConfig', () => {
     },
   );
 });
+
+const packageRoot = fileURLToPath(new URL('../..', import.meta.url));
+const drizzleKitBin = join(fileURLToPath(import.meta.resolve('drizzle-kit')), '..', 'bin.cjs');
+
+// Real drizzle-kit processes; Windows CI can take over five seconds for one.
+describe(
+  'drizzle-kit generate with database.casing',
+  {
+    timeout: process.platform === 'win32' ? 30_000 : 10_000,
+  },
+  () => {
+    let root: string;
+
+    beforeEach(() => {
+      // drizzle-kit loads the schema, which must resolve drizzle-orm from the package.
+      root = mkdtempSync(join(packageRoot, '.tmp-drizzle-casing-'));
+      mkdirSync(join(root, 'db'));
+    });
+
+    afterEach(() => {
+      rmSync(root, { recursive: true, force: true });
+    });
+
+    function generate(dialect: 'sqlite' | 'postgresql', additionalSchemas?: Array<string>) {
+      const configPath = writeDrizzleConfig(
+        root,
+        dialect === 'sqlite' ? ':memory:' : 'postgresql://dummy',
+        dialect,
+        { additionalSchemas },
+      );
+      execFileSync(process.execPath, [drizzleKitBin, 'generate', '--config', configPath], {
+        cwd: root,
+        stdio: 'pipe',
+      });
+      return collectMigrations(join(root, 'db', 'migrations'));
+    }
+
+    it('names PostgreSQL columns without a name in snake_case', () => {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { dialect: 'pg', casing: 'snake_case' } }),
+      );
+      writeFileSync(
+        join(root, 'db', 'schema.ts'),
+        [
+          'import { pgTable, serial, timestamp } from "drizzle-orm/pg-core";',
+          'export const posts = pgTable("posts", {',
+          '  id: serial().primaryKey(),',
+          '  createdAt: timestamp().notNull(),',
+          '});',
+          '',
+        ].join('\n'),
+      );
+
+      const [migration] = generate('postgresql');
+
+      expect(migration.sql).toContain('"created_at" timestamp NOT NULL');
+      expect(migration.sql).not.toContain('createdAt');
+    });
+
+    it('keeps the Better Auth column names that the auth schema declares', async () => {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { casing: 'snake_case' } }),
+      );
+      writeFileSync(
+        join(root, 'db', 'schema.ts'),
+        [
+          'import { integer, sqliteTable } from "drizzle-orm/sqlite-core";',
+          'export const posts = sqliteTable("posts", {',
+          '  id: integer().primaryKey(),',
+          '  createdAt: integer().notNull(),',
+          '});',
+          '',
+        ].join('\n'),
+      );
+      const authSchema = join(root, '.void', 'better-auth-schema.ts');
+      mkdirSync(dirname(authSchema), { recursive: true });
+      writeFileSync(
+        authSchema,
+        generateVoidAuthDrizzleSchema({ dialect: 'sqlite', providers: ['email'] }).replace(
+          '"void/schema-d1"',
+          '"drizzle-orm/sqlite-core"',
+        ),
+      );
+
+      const migrations = generate('sqlite', [authSchema]);
+
+      expect(migrations).toHaveLength(1);
+      expect(migrations[0].sql).toContain('`created_at` integer NOT NULL');
+      expect(migrations[0].sql).toContain('`emailVerified` integer');
+      expect(migrations[0].sql).not.toContain('email_verified');
+      // The deploy gate compares the SQL with the tables Better Auth reads and writes.
+      await expect(validateAuthMigrationSchema(root, migrations)).resolves.toBeUndefined();
+    });
+  },
+);
