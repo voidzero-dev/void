@@ -1,0 +1,21 @@
+packages/void/AGENTS.md
+  s_03ea17c70963f6::t_72c47da2145966 103
+packages/void/test/unit/plugin-entry-imports.test.ts
+  s_03ea17c70963f6::t_730cc5fd897aeb 1-27
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "46fcb55c1b8c9625d4ffd6c376bf25a1ffed293f",
+  "prompts": {},
+  "sessions": {
+    "s_03ea17c70963f6": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a3cd07f5afd05eeef",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
