@@ -9,8 +9,9 @@ import {
   type ApprovedCloudflareKvBinding,
 } from '@void/deploy-cloudflare';
 import { confirm, isCancel } from '@voidzero-dev/vite-plus-prompts';
-import { dirname, relative } from 'pathslash';
+import { basename, dirname, relative } from 'pathslash';
 import { analyzeApplicationSync, type ApplicationAnalysis } from '../application-analysis.ts';
+import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
 import { resolveBindingNames, type VoidConfig } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { assertSandboxNamespaceConfig, resolveSandboxConfig } from '../sandbox/config.ts';
@@ -66,7 +67,7 @@ import {
   provisionCloudflareResources,
   type ProvisionDriftEntry,
 } from './provision.ts';
-import { writeProvisionedWranglerConfig } from './wrangler.ts';
+import { sameMigrationsDir, writeProvisionedWranglerConfig } from './wrangler.ts';
 
 /** Validate source-level native deploy inputs before account operations or project code. */
 export async function prepareCloudflareDeploySource(
@@ -120,6 +121,41 @@ export async function prepareCloudflareDeploySource(
         'provision Hyperdrive and apply checked-in migrations before uploading the Worker; it is',
         'never written to wrangler.jsonc or the generated Worker config.',
       ].join('\n'),
+    );
+    return null;
+  }
+
+  // Void generates and applies migrations from one folder only, and the provisioner never
+  // rewrites a set migrations_dir. Any spelling of that folder matches; another folder stops
+  // the deploy here. A handoff applies no migrations, so it is kept.
+  const storedDir =
+    desired.d1 &&
+    readStoredResourceName(
+      parseRootWranglerConfig(configPath),
+      'd1_databases',
+      desired.d1.binding,
+      'migrations_dir',
+    );
+  if (
+    !(options.reuseExistingWorker || readCloudflareLink(root)) &&
+    desired.d1?.migrationsDir !== undefined &&
+    storedDir !== undefined &&
+    !sameMigrationsDir(configPath, storedDir, desired.d1.migrationsDir)
+  ) {
+    const expected = JSON.stringify(desired.d1.migrationsDir);
+    let fix = `Set migrations_dir to ${expected} in d1_databases of ${basename(configPath)}, or remove it and Void will fill it in.`;
+    if (basename(configPath) === MATERIALIZED_CLOUDFLARE_FILE) {
+      // Removing helps only for an authored value; one Void filled in lives in void.lock.json.
+      const authored = readStoredResourceName(
+        voidConfig.cloudflare ?? {},
+        'd1_databases',
+        desired.d1.binding,
+        'migrations_dir',
+      );
+      fix = `Set migrations_dir to ${expected} in cloudflare.d1_databases of void.config.ts${authored === undefined ? '.' : ', or remove it and Void will fill it in.'}`;
+    }
+    log.error(
+      `deploy: D1 binding ${JSON.stringify(desired.d1.binding)} sets migrations_dir ${JSON.stringify(storedDir)}, but Void generates and applies migrations from ${expected}. ${fix}`,
     );
     return null;
   }
@@ -459,15 +495,16 @@ export async function preflightCloudflareWorker(input: {
     cliLog.info('cloudflare_sandbox_available');
   }
 
-  // Whether the root config's D1 migrations_dir differs from the source-derived directory.
-  const d1MigrationsDirDiffers = (): boolean =>
-    desired.d1 != null &&
+  // Whether the root config lacks the D1 migrations_dir. A set one for another folder already
+  // stopped the deploy in prepareCloudflareDeploySource.
+  const d1MigrationsDirMissing = (): boolean =>
+    desired.d1?.migrationsDir !== undefined &&
     readStoredResourceName(
       parseRootWranglerConfig(configPath),
       'd1_databases',
       desired.d1.binding,
       'migrations_dir',
-    ) !== desired.d1.migrationsDir;
+    ) === undefined;
 
   // Create missing inferred resources. Missing ids trigger this directly, absent queues after
   // the probe below; `--provision` forces it. The provisioner is read-first and idempotent.
@@ -534,7 +571,7 @@ export async function preflightCloudflareWorker(input: {
       );
       return exit(1);
     }
-    if (desired.d1 && d1MigrationsDirDiffers()) {
+    if (desired.d1 && d1MigrationsDirMissing()) {
       log.error(
         `deploy: provisioning did not set migrations_dir for D1 binding ${desired.d1.binding}. Retry \`void deploy --platform cloudflare\`.`,
       );
@@ -545,7 +582,7 @@ export async function preflightCloudflareWorker(input: {
   const { missing: initiallyMissing } = checkCloudflareProvisionDrift(configPath, desired);
   // A handoff applies no migrations, so preserve the existing local migration settings.
   // Reconciling migrations_dir must not send an already-bound database to the provisioner.
-  const d1NeedsConfigReconciliation = !existingWorker && d1MigrationsDirDiffers();
+  const d1NeedsConfigReconciliation = !existingWorker && d1MigrationsDirMissing();
   if (options.provision || initiallyMissing.length > 0 || d1NeedsConfigReconciliation) {
     await provisionAndVerify();
   } else {

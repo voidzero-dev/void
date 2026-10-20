@@ -3575,6 +3575,148 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
     expect(trace).toContain('build');
     expect(trace).toContain('wrangler:deploy');
   });
+
+  /** A D1 app whose wrangler.jsonc sets `migrations_dir`; `<root>` becomes the project path. */
+  function d1ProjectWithDir(migrationsDir: string, sourceDir?: string): string {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'myapp' }),
+      'void.json': JSON.stringify(sourceDir ? { sourceDir } : {}),
+      [`${sourceDir ? `${sourceDir}/` : ''}routes/index.ts`]: `export const GET = (c) => c.env.DB.prepare('SELECT 1').first();`,
+    });
+    const config = structuredClone(PROVISIONED_D1);
+    config.d1_databases[0]!.migrations_dir = migrationsDir.replace('<root>', root);
+    writeFileSync(join(root, 'wrangler.jsonc'), JSON.stringify(config, null, 2));
+    return root;
+  }
+
+  it.each([
+    ['db/migrations', undefined],
+    ['db/migrations/', undefined],
+    ['./db/migrations/', undefined],
+    ['db\\migrations', undefined],
+    ['<root>/db/migrations', undefined],
+    ['src/db/migrations', 'src'],
+  ])('accepts migrations_dir %s naming the same folder without provisioning', async (dir, src) => {
+    const root = d1ProjectWithDir(dir, src);
+    const { deps, trace, exitCalls } = harness();
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(exitCalls).toEqual([]);
+    expect(trace).not.toContain('provision');
+    expect(trace).toContain('wrangler:deploy');
+  });
+
+  /** Run a deploy that must stop on the migrations_dir check; returns the logged errors. */
+  async function rejectedDeployMessages(root: string): Promise<Array<string>> {
+    const messages: Array<string> = [];
+    const restore = log.error;
+    log.error = (message: string) => messages.push(message);
+    try {
+      const { deps, trace, wranglerArgs } = harness();
+      await expect(
+        runCloudflareDeploy(root, { platform: 'cloudflare', provision: true }, silentCliLog, deps),
+      ).rejects.toMatchObject({ code: 1 });
+      expect(trace).not.toContain('provision');
+      expect(trace).not.toContain('build');
+      expect(wranglerArgs).toEqual([]);
+    } finally {
+      log.error = restore;
+    }
+    return messages;
+  }
+
+  it.each([
+    ['wrangler.jsonc', undefined, 'd1_databases of wrangler.jsonc'],
+    ['wrangler.jsonc', 'src', 'd1_databases of wrangler.jsonc'],
+    ['void.config.ts', undefined, 'cloudflare.d1_databases of void.config.ts'],
+  ])(
+    'rejects a migrations_dir for another folder in %s (sourceDir %s) before any account call',
+    async (file, sourceDir, where) => {
+      const database = {
+        binding: 'DB',
+        database_name: 'myapp-db',
+        database_id: REAL_D1_ID,
+        migrations_dir: 'drizzle',
+      };
+      const root = makeProject({
+        'package.json': JSON.stringify({ name: 'myapp' }),
+        [`${sourceDir ? `${sourceDir}/` : ''}routes/index.ts`]: `export const GET = (c) => c.env.DB.prepare('SELECT 1').first();`,
+        ...(file === 'void.config.ts'
+          ? {
+              'void.config.ts': `export default { cloudflare: ${JSON.stringify({ account_id: 'acc123', name: 'myapp', d1_databases: [database] })} };`,
+            }
+          : {
+              'void.json': JSON.stringify(sourceDir ? { sourceDir } : {}),
+              'wrangler.jsonc': JSON.stringify(
+                { account_id: 'acc123', name: 'myapp', d1_databases: [database] },
+                null,
+                2,
+              ),
+            }),
+      });
+      const expected = sourceDir ? `./${sourceDir}/db/migrations` : './db/migrations';
+      expect(await rejectedDeployMessages(root)).toContain(
+        `deploy: D1 binding "DB" sets migrations_dir "drizzle", but Void generates and applies migrations from "${expected}". Set migrations_dir to "${expected}" in ${where}, or remove it and Void will fill it in.`,
+      );
+    },
+  );
+
+  it('does not offer removal when the other folder comes only from void.lock.json', async () => {
+    const cloudflare = {
+      account_id: 'acc123',
+      name: 'myapp',
+      d1_databases: [{ binding: 'DB', database_name: 'myapp-db', database_id: REAL_D1_ID }],
+    };
+    const resolved = structuredClone(PROVISIONED_D1);
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'myapp' }),
+      'void.config.ts': `export default { sourceDir: 'src', cloudflare: ${JSON.stringify(cloudflare)} };`,
+      'void.lock.json': JSON.stringify({
+        version: 1,
+        source: cloudflare,
+        resolved,
+        text: `${JSON.stringify(resolved, null, 2)}\n`,
+      }),
+      'src/routes/index.ts': `export const GET = (c) => c.env.DB.prepare('SELECT 1').first();`,
+    });
+    expect(await rejectedDeployMessages(root)).toContain(
+      'deploy: D1 binding "DB" sets migrations_dir "./db/migrations", but Void generates and applies migrations from "./src/db/migrations". Set migrations_dir to "./src/db/migrations" in cloudflare.d1_databases of void.config.ts.',
+    );
+  });
+
+  it('provisions a void.config.ts D1 binding with migrations_dir "db/migrations", then deploys without provisioning', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'myapp' }),
+      'void.config.ts': `export default { cloudflare: { account_id: 'acc123', name: 'myapp', d1_databases: [{ binding: 'DB', database_name: 'myapp-db', migrations_dir: 'db/migrations' }] } };`,
+      'routes/index.ts': `export const GET = (c) => c.env.DB.prepare('SELECT 1').first();`,
+      ...INIT_MIGRATION,
+    });
+    for (const expectedProvisions of [1, 0]) {
+      let provisions = 0;
+      const { deps, trace, exitCalls, wranglerArgs } = harness({
+        // Adopt the database the way the provisioner does; the writer keeps the spelling.
+        provision: (async (_root, configPath): Promise<ProvisionResult> => {
+          provisions++;
+          writeProvisionedWranglerConfig(
+            root,
+            {
+              d1: { binding: 'DB', databaseName: 'myapp-db', databaseId: REAL_D1_ID },
+              d1MigrationsDir: { binding: 'DB', dir: './db/migrations' },
+            },
+            { configPath },
+          );
+          return { resources: [], configPath, accountIdWritten: false };
+        }) as CloudflareDeployDeps['provision'],
+      });
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+      expect(exitCalls).toEqual([]);
+      expect(provisions).toBe(expectedProvisions);
+      expect(wranglerArgs.some((a) => a[0] === 'd1' && a[2] === 'apply')).toBe(true);
+      expect(trace).toContain('wrangler:deploy');
+      expect(
+        parseRootWranglerConfig(join(root, '.void-wrangler.jsonc')).d1_databases,
+      ).toMatchObject([{ database_id: REAL_D1_ID, migrations_dir: 'db/migrations' }]);
+    }
+  });
 });
 
 describe('runCloudflareDeploy — full Void app queues', () => {
