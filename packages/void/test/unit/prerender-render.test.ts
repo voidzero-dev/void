@@ -2,10 +2,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { serializePageData } from '../../src/pages/serialize.ts';
 import { renderPrerenderPaths } from '../../src/prerender-render.ts';
 import { createAssetFallback } from '../../src/runtime/routing-worker.ts';
 
 const roots: Array<string> = [];
+const pageHtml = (pageData: unknown) =>
+  `<script id="__VOID_PAGE_DATA__" type="application/json">${serializePageData(pageData)}</script>`;
 const fixture = () => {
   const root = mkdtempSync(join(tmpdir(), 'void-render-pool-'));
   roots.push(root);
@@ -18,34 +21,49 @@ afterEach(() => {
 });
 
 describe('prerender pool', () => {
-  it('bounds overlapping renders, keeps result order, and writes each page data after its HTML', async () => {
+  it('bounds overlapping renders, keeps result order, and writes each page data', async () => {
     const root = fixture();
     const paths = Array.from({ length: 12 }, (_, i) => `/page-${i}`);
     let active = 0;
     let peak = 0;
-    const htmlDone = new Set<string>();
-    const result = await renderPrerenderPaths(
-      paths,
-      root,
-      async (path) => {
-        peak = Math.max(peak, ++active);
-        await new Promise((resolve) => setTimeout(resolve, path === '/page-0' ? 12 : 2));
-        active--;
-        htmlDone.add(path);
-        return new Response(path, { status: path === '/page-3' ? 503 : 200 });
-      },
-      async (path) => {
-        expect(htmlDone.has(path)).toBe(true);
-        expect(readFileSync(join(root, `${path.slice(1)}.html`), 'utf8')).toBe(path);
-        return Response.json({ path }, { headers: { 'X-VoidPages': 'true' } });
-      },
-    );
+    const result = await renderPrerenderPaths(paths, root, async (path) => {
+      peak = Math.max(peak, ++active);
+      await new Promise((resolve) => setTimeout(resolve, path === '/page-0' ? 12 : 2));
+      active--;
+      return new Response(pageHtml({ path }), { status: path === '/page-3' ? 503 : 200 });
+    });
     expect(peak).toBe(4);
     expect(result.rendered).toEqual(paths.filter((path) => path !== '/page-3'));
     expect(result.failed).toEqual([{ path: '/page-3', error: 'HTTP 503' }]);
     expect(JSON.parse(readFileSync(join(root, '_void/pages/page-11.json'), 'utf8'))).toEqual({
       path: '/page-11',
     });
+  });
+
+  it('writes resolved page data for deferred pages and none for HTML without page data', async () => {
+    const root = fixture();
+    const result = await renderPrerenderPaths(
+      ['/deferred', '/island'],
+      root,
+      async (path) =>
+        new Response(
+          path === '/deferred'
+            ? pageHtml({ component: 'deferred', props: {}, deferredKeys: { stats: 'stats' } })
+            : '<h1>island</h1>',
+        ),
+      async () =>
+        Response.json(
+          { component: 'deferred', props: { stats: 1 }, deferredKeys: { stats: 'stats' } },
+          { headers: { 'X-VoidPages': 'true' } },
+        ),
+    );
+    expect(result).toEqual({ rendered: ['/deferred', '/island'], failed: [] });
+    expect(JSON.parse(readFileSync(join(root, '_void/pages/deferred.json'), 'utf8'))).toEqual({
+      component: 'deferred',
+      props: { stats: 1 },
+      deferredKeys: { stats: 'stats' },
+    });
+    expect(existsSync(join(root, '_void/pages/island.json'))).toBe(false);
   });
 
   it.each([
@@ -128,9 +146,9 @@ describe('prerender pool', () => {
       clientDir,
       async (path) => {
         fetched.push(path);
-        return new Response('<h1>page</h1>');
+        return new Response(pageHtml({ path }));
       },
-      async (path) => Response.json({ path }, { headers: { 'X-VoidPages': 'true' } }),
+      undefined,
       (path, outputFile, error) => outputs.push([path, outputFile, error]),
     );
     const error = 'prerender path resolves outside the output directory';
@@ -145,7 +163,7 @@ describe('prerender pool', () => {
     expect(existsSync(join(clientDir, '_void/escape.json'))).toBe(false);
     expect(existsSync(join(clientDir, 'data-escape.html'))).toBe(false);
     expect(existsSync(join(clientDir, '_void/client/data-escape.json'))).toBe(false);
-    expect(readFileSync(join(clientDir, 'ok.html'), 'utf8')).toBe('<h1>page</h1>');
+    expect(readFileSync(join(clientDir, 'ok.html'), 'utf8')).toBe(pageHtml({ path: '/ok' }));
     expect(JSON.parse(readFileSync(join(clientDir, '_void/pages/ok.json'), 'utf8'))).toEqual({
       path: '/ok',
     });

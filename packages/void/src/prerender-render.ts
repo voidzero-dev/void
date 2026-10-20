@@ -1,5 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { extractPageDataFromHtml } from '@void/isr/core';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
+
+const PAGE_DATA_SCRIPT_ID = '__VOID_PAGE_DATA__';
 
 export type PrerenderResult = {
   rendered: Array<string>;
@@ -157,13 +160,23 @@ export async function renderPrerenderPaths(
             }
             mkdirSync(dirname(outputPath), { recursive: true });
             writeFileSync(outputPath, html);
-            if (fetchPageData) {
+            // Page HTML embeds the same page object the X-VoidPages request
+            // returns, so one render produces both files. Pages with deferred
+            // props embed them unresolved and still need the prefetch request,
+            // which resolves them inline.
+            const embeddedPageData = extractPageDataFromHtml(html);
+            let pageData: unknown;
+            if (embeddedPageData !== null) {
+              pageData = JSON.parse(embeddedPageData);
+            } else if (fetchPageData && html.includes(PAGE_DATA_SCRIPT_ID)) {
               const pageDataResponse = await fetchPageData(path);
               if (pageDataResponse.headers.get('X-VoidPages')) {
-                const pageData = await pageDataResponse.json();
-                mkdirSync(dirname(pageDataPath), { recursive: true });
-                writeFileSync(pageDataPath, JSON.stringify(pageData));
+                pageData = await pageDataResponse.json();
               }
+            }
+            if (pageData !== undefined) {
+              mkdirSync(dirname(pageDataPath), { recursive: true });
+              writeFileSync(pageDataPath, JSON.stringify(pageData));
             }
             result.rendered.push(path);
             onResult?.(path, outputFile);
