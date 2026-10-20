@@ -1,0 +1,25 @@
+docs/integrations/cloudflare.md
+  s_f572b1deb5ef86::t_83f4fc3eb4c30b 55
+docs/reference/api/env.md
+  s_f572b1deb5ef86::t_921134d5f647c1 48
+docs/reference/api/types.md
+  s_f572b1deb5ef86::t_80953018b66090 27
+packages/void/test/integration/env-types-typecheck.test.ts
+  s_f572b1deb5ef86::t_4b48a0d4020687 17-24,44-46
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f49841a78cde440b7e4ada5ed9927348c82f5a19",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
