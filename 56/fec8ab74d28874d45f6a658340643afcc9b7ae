@@ -1,0 +1,29 @@
+packages/void/src/cli/cf-build-output.ts
+  s_f572b1deb5ef86::t_91b95ffe8d942c 31,392-396
+packages/void/test/unit/cf-build-output.test.ts
+  s_97a30747f5495a::t_a6f21de3fa8a4c 27-30,39-42,838-930
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "56fec8ab74d28874d45f6a658340643afcc9b7ae",
+  "prompts": {},
+  "sessions": {
+    "s_97a30747f5495a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a5986da651e4d07f1",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
