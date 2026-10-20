@@ -42,6 +42,8 @@ describe('generated env types in a consumer project', () => {
         'const direct: string = env.API_SECRET;\n' +
         'export const GET = defineHandler((c) => c.text(direct + c.env.API_SECRET.toUpperCase()));\n' +
         'export const POST = defineHandler((c) => c.env.ASSETS.fetch(c.req.raw));\n' +
+        '// @ts-expect-error Node, Bun and Deno targets fetch assets only by Request.\n' +
+        'export const PUT = defineHandler((c) => c.env.ASSETS.fetch("/logo.png"));\n' +
         'export const fetchAsset = (bindings: Cloudflare.Env) => bindings.ASSETS.fetch("https://app.test/");\n' +
         wranglerTypes,
     );

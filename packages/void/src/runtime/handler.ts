@@ -4,6 +4,7 @@ import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
 import { convertReturnValue } from './response.ts';
+import type { AssetBinding } from './routing-worker.ts';
 import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
 
 /**
@@ -55,7 +56,8 @@ export interface CloudBindings extends VoidGeneratedEnvBindings {
   STORAGE: R2Bucket;
   AI: Ai;
   SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
-  ASSETS: Fetcher;
+  /** Node, Bun and Deno targets serve static files through a provider that takes only a `Request`. */
+  ASSETS: AssetBinding;
   [key: string]: unknown;
 }
 
