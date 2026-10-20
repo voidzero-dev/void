@@ -12,7 +12,6 @@ import {
   type AssetRoutingPolicy,
 } from './asset-routing.ts';
 import { loadVoidAuthConfig } from './auth/config.ts';
-import { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } from './auth/drizzle.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
 import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
 import { findEnvFileForPaths } from './codegen/env-types.ts';
@@ -266,6 +265,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       return;
     }
 
+    // Better Auth's schema helpers load zod and most of better-auth; only auth apps need them.
+    const { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } =
+      await import('./auth/drizzle.ts');
     const authRuntime: VoidAuthRuntimeOptions = {
       dialect: compileOptions.auth.dialect,
       providers: compileOptions.auth.providers,
