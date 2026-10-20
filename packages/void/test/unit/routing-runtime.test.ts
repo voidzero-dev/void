@@ -638,6 +638,39 @@ describe('typed client asset tags', () => {
     expect(islandTags.preloads).not.toContain('/md.js');
     expect(binding).toHaveBeenCalledTimes(1);
   });
+  it('shares one manifest fetch between concurrent cold loads', async () => {
+    const binding = vi.fn(async () => Response.json({ page: { file: 'page.js' } }));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    const request = new Request('https://app.test/page');
+    const manifests = await Promise.all(Array.from({ length: 8 }, () => loader(request, env)));
+    expect(binding).toHaveBeenCalledTimes(1);
+    expect(new Set(manifests).size).toBe(1);
+    expect(manifests[0]).toEqual({ page: { file: 'page.js' } });
+    expect(await loader(request, env)).toBe(manifests[0]);
+    expect(binding).toHaveBeenCalledTimes(1);
+  });
+  it('retries the manifest after a missing response or a rejected fetch', async () => {
+    const manifest = { page: { file: 'page.js' } };
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+      .mockRejectedValueOnce(new Error('assets unavailable'))
+      .mockImplementation(async () => Response.json(manifest));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    const request = new Request('https://app.test/page');
+    expect(await loader(request, env)).toBeNull();
+    expect(binding).toHaveBeenCalledTimes(1);
+    const rejected = [loader(request, env), loader(request, env)];
+    await expect(rejected[0]).rejects.toThrow('assets unavailable');
+    await expect(rejected[1]).rejects.toThrow('assets unavailable');
+    expect(binding).toHaveBeenCalledTimes(2);
+    expect(await loader(request, env)).toEqual(manifest);
+    expect(binding).toHaveBeenCalledTimes(3);
+    await loader(request, env);
+    expect(binding).toHaveBeenCalledTimes(3);
+  });
   it('loads development CSS with active roots and omits client tags when production has no manifest', async () => {
     const devCss = vi.fn(
       async (
