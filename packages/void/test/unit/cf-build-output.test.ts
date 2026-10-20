@@ -24,7 +24,10 @@ import {
   writeContainerConfig,
 } from '@cloudflare/build-output-utils';
 import { cloudflare } from '@cloudflare/vite-plugin';
-import { renderCloudflareStaticEntry } from '@void/deploy-cloudflare';
+import {
+  renderCloudflareStaticEntry,
+  writeCloudflareFrameworkDeployConfig,
+} from '@void/deploy-cloudflare';
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
@@ -33,6 +36,10 @@ import {
   prepareCfFrameworkBuildOutput,
   prepareCfStaticBuildOutput,
 } from '../../src/cli/cf-build-output.ts';
+import { resolveGeneratedDeployConfigPathDefault } from '../../src/cli/deploy-artifact-validation.ts';
+import { deployPointerPath } from '../../src/cli/deploy-binding-snapshot.ts';
+import { writeWranglerPublishedTrafficSnapshot } from '../../src/cli/wrangler.ts';
+import { materializeCloudflareConfig } from '../../src/cloudflare-config.ts';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 
 const roots: Array<string> = [];
@@ -826,6 +833,99 @@ it('bundles a generated static Worker and staged assets into prebuilt cf output'
       expectCfDryRun(prepared.directory, ['deploy']);
     },
   );
+});
+
+/** The comment line `void domain add` writes, in the format of writeWranglerPublishedTrafficSnapshot. */
+const PUBLISHED_TRAFFIC_COMMENT = `// void:published-traffic:v1:${Buffer.from(
+  JSON.stringify({ workers_dev: false, preview_urls: false, routes: [] }),
+  'utf8',
+).toString('base64url')}`;
+
+it(
+  'bundles framework output whose restored generated config keeps the published traffic comment',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-jsonc-test-'));
+    roots.push(root);
+    const output = join(root, 'framework');
+    mkdirSync(output);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    writeFileSync(
+      join(root, 'void.config.ts'),
+      `export default { cloudflare: ${JSON.stringify({
+        name: 'void-framework-test',
+        account_id: 'account-id',
+        compatibility_date: '2026-09-29',
+      })} };\n`,
+    );
+    writeFileSync(
+      join(output, '_worker.js'),
+      'export default { fetch() { return new Response("ok") } };\n',
+    );
+    writeFileSync(join(output, 'index.html'), '<h1>public</h1>');
+    writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
+
+    // `void domain add` records the traffic snapshot into the lock; a fresh checkout restores it.
+    const configPath = materializeCloudflareConfig(root);
+    writeWranglerPublishedTrafficSnapshot(configPath, {
+      workers_dev: false,
+      preview_urls: false,
+      routes: [{ pattern: 'app.example.com', custom_domain: true }],
+    });
+    rmSync(configPath);
+    expect(materializeCloudflareConfig(root)).toBe(configPath);
+    // `void deploy` then points the restored config at the framework output.
+    writeCloudflareFrameworkDeployConfig({
+      configPath,
+      deployPointerPath: deployPointerPath(root),
+      name: 'void-framework-test',
+      accountId: 'account-id',
+      main: 'framework/_worker.js',
+      assetsDirectory: 'framework',
+      compatibilityDate: '2026-09-29',
+    });
+    const deployConfigPath = resolveGeneratedDeployConfigPathDefault(root);
+    expect(readFileSync(deployConfigPath, 'utf8').startsWith('// void:published-traffic:v1:')).toBe(
+      true,
+    );
+
+    await withPrepared(
+      prepareCfFrameworkBuildOutput({
+        projectRoot: root,
+        configPath: deployConfigPath,
+        accountId: 'account-id',
+      }),
+      async (prepared) => {
+        const built = await readBuildOutput(prepared.directory);
+        expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
+        const assets = getWorkerAssetsDir(prepared.directory);
+        expect(readFileSync(join(assets, 'index.html'), 'utf8')).toContain('public');
+        expect(existsSync(join(assets, '_worker.js'))).toBe(false);
+      },
+    );
+  },
+  CF_BUILD_TIMEOUT_MS,
+);
+
+it('reads a framework config as JSONC and still rejects one that is not an object', async () => {
+  const output = worker({});
+  const configPath = join(output, 'wrangler.jsonc');
+  const prepare = () =>
+    prepareCfFrameworkBuildOutput({
+      projectRoot: dirname(output),
+      configPath,
+      accountId: 'account-id',
+    });
+  // A hand-written root config may have a BOM and trailing commas. It has no Worker entry here.
+  writeFileSync(configPath, `\uFEFF${PUBLISHED_TRAFFIC_COMMENT}\n{ "name": "void-test", }`);
+  await expect(prepare()).resolves.toBeNull();
+
+  for (const text of [
+    `${PUBLISHED_TRAFFIC_COMMENT}\n{ "main": `,
+    `${PUBLISHED_TRAFFIC_COMMENT}\n[]`,
+  ]) {
+    writeFileSync(configPath, text);
+    await expect(prepare()).rejects.toThrow('Invalid Wrangler JSON/JSONC config.');
+  }
 });
 
 it.skipIf(process.platform === 'win32')(

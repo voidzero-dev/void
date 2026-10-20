@@ -28,6 +28,7 @@ import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
 import { migrateBuiltWranglerConfig, record } from './cf-config-migrate.ts';
 import { buildContainerImage } from './container-image.ts';
+import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
 
 export interface CfBuildOutput {
   directory: string;
@@ -388,9 +389,11 @@ export async function prepareCfFrameworkBuildOutput(options: {
   configPath: string;
   accountId: string;
 }): Promise<CfBuildOutput | null> {
-  const raw = record(JSON.parse(readFileSync(options.configPath, 'utf8')));
-  const assets = record(raw?.assets);
-  if (!raw || typeof raw.main !== 'string' || typeof assets?.directory !== 'string') {
+  // The root config is JSONC: it may be hand-written, or restored from void.lock.json with Void's
+  // published-traffic comment.
+  const raw = readGeneratedWranglerConfigFile(options.configPath);
+  const assets = record(raw.assets);
+  if (typeof raw.main !== 'string' || typeof assets?.directory !== 'string') {
     return null;
   }
   const configDirectory = dirname(options.configPath);
