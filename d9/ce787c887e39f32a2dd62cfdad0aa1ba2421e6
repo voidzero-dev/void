@@ -1,0 +1,21 @@
+packages/void/src/index.ts
+  s_a6366f8c8935ed::t_a20d2e0814aa73 121-124
+packages/void/test/unit/plugin-vite-environment.test.ts
+  s_a6366f8c8935ed::t_a2ce2454ffdfe7 1109-1157
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d9ce787c887e39f32a2dd62cfdad0aa1ba2421e6",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
