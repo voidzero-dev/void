@@ -1452,6 +1452,24 @@ describe('writeProvisionedWranglerConfig', () => {
     }
   });
 
+  it('keeps an absolute migrations_dir that names the same folder', () => {
+    const existing = join(tmpDir, 'db', 'migrations');
+    setup(
+      'wrangler.jsonc',
+      `{
+  "d1_databases": [
+    { "binding": "DB", "database_name": "app", "database_id": "id", "migrations_dir": ${JSON.stringify(existing)} }
+  ]
+}`,
+    );
+    const before = readRaw('wrangler.jsonc');
+    const result = writeProvisionedWranglerConfig(tmpDir, {
+      d1MigrationsDir: { binding: 'DB', dir: './db/migrations' },
+    });
+    expect(result.modified).toBe(false);
+    expect(readRaw('wrangler.jsonc')).toBe(before);
+  });
+
   it('refuses to fill migrations_dir when migrations_pattern is outside it — throws without writing', () => {
     // Wrangler requires migrations_pattern to start with `<migrations_dir>/`.
     setup(

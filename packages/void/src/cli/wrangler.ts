@@ -18,7 +18,7 @@ import {
   type Node,
   type ParseError,
 } from 'jsonc-parser';
-import { basename, dirname, join, normalize } from 'pathslash';
+import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import {
   materializeCloudflareConfig,
   MATERIALIZED_CLOUDFLARE_FILE,
@@ -1297,10 +1297,7 @@ export function writeProvisionedWranglerConfig(
         );
       }
       if (typeof existingDir === 'string') {
-        if (
-          normalizeMigrationsPath(existingDir) !==
-          normalizeMigrationsPath(patch.d1MigrationsDir.dir)
-        ) {
+        if (!sameMigrationsDir(configPath, existingDir, patch.d1MigrationsDir.dir)) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
               `${JSON.stringify(patch.d1MigrationsDir.binding)} already sets "migrations_dir": ` +
@@ -1311,7 +1308,8 @@ export function writeProvisionedWranglerConfig(
               `move the migrations and keep your directory, then retry.`,
           );
         }
-        // An equivalent spelling (`./db/migrations`, a trailing slash) is kept as written.
+        // An equivalent spelling (`./db/migrations`, a trailing slash, an absolute path) is
+        // kept as written.
       } else {
         if (
           existingPattern !== undefined &&
@@ -2516,6 +2514,15 @@ function bindingSetError(problem: string, hidden: string): Error {
       `partially-readable binding set (a ${hidden} could hide a real collision). Fix the ` +
       `wrangler config and retry.`,
   );
+}
+
+/**
+ * Whether two `migrations_dir` values name the same folder. Wrangler resolves the value
+ * against the config file's directory and accepts either slash.
+ */
+export function sameMigrationsDir(configPath: string, a: string, b: string): boolean {
+  const base = dirname(configPath);
+  return resolve(base, a.replaceAll('\\', '/')) === resolve(base, b.replaceAll('\\', '/'));
 }
 
 /** Wrangler's rule: the normalized pattern starts with `<dir>/`, unless the dir is ".". */
