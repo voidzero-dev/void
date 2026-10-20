@@ -52,6 +52,7 @@ This provides binding types and Workers runtime types.
 | `KV`             | KV              | `c.env.KV` or `void/kv`           |
 | `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
 | `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
+| `ASSETS`         | Static assets   | `c.env.ASSETS.fetch(request)`     |
 | `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
 | Filename-derived | Durable Objects | A module in `durable-objects/`    |
 

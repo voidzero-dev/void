@@ -14,7 +14,14 @@ afterEach(() => {
 });
 
 describe('generated env types in a consumer project', () => {
-  it('types schema keys on both env and handler c.env', () => {
+  // `wrangler types` declares an assets binding as `ASSETS: Fetcher`, which must merge with Void's.
+  it.each([
+    ['', ''],
+    [
+      ' next to wrangler types output',
+      'declare global { namespace Cloudflare { interface Env { ASSETS: Fetcher } } }\n',
+    ],
+  ])('types schema keys and ASSETS on both env and handler c.env%s', (_, wranglerTypes) => {
     // This nested fixture resolves the workspace's installed void package just
     // as a consumer does, while keeping its source out of the playground routes.
     const root = mkdtempSync(join(workspaceRoot, 'playground/kitchen-sink/.tmp-env-types-'));
@@ -34,7 +41,9 @@ describe('generated env types in a consumer project', () => {
         'import { env } from "void/env";\n' +
         'const direct: string = env.API_SECRET;\n' +
         'export const GET = defineHandler((c) => c.text(direct + c.env.API_SECRET.toUpperCase()));\n' +
-        'export const POST = defineHandler((c) => c.env.ASSETS.fetch(c.req.raw));\n',
+        'export const POST = defineHandler((c) => c.env.ASSETS.fetch(c.req.raw));\n' +
+        'export const fetchAsset = (bindings: Cloudflare.Env) => bindings.ASSETS.fetch("https://app.test/");\n' +
+        wranglerTypes,
     );
     writeFileSync(
       join(root, 'tsconfig.json'),

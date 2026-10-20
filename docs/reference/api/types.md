@@ -24,6 +24,7 @@ interface CloudEnv extends Env {
     STORAGE: R2Bucket;
     AI: Ai;
     SANDBOX: DurableObjectNamespace<import('void/sandbox').VoidPlatformSandbox>;
+    ASSETS: Fetcher;
     [key: string]: unknown;
   };
   Variables: CloudContextVariables;
