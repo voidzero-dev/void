@@ -25,12 +25,12 @@ allowBuilds:
 catalog:
   '@cloudflare/workers-types': ^5.20261019.1
   '@types/node': ^26.6.5
-  '@voidzero-dev/vite-plus-prompts': 1.3.0
+  '@voidzero-dev/vite-plus-prompts': 0.0.0-commit.80a3cbc3c533232d294cc28335097f71c7f51205
   typescript: 7.0.2
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.3.0
-  vite-plus: 1.3.0
+  vite: npm:@voidzero-dev/vite-plus-core@0.0.0-commit.80a3cbc3c533232d294cc28335097f71c7f51205
+  vite-plus: 0.0.0-commit.80a3cbc3c533232d294cc28335097f71c7f51205
   vitest: 5.0.5
   wrangler: ^4.151.1
   cf: ^1.0.0-beta.18
@@ -157,3 +157,4 @@ minimumReleaseAgeExclude:
   - mysql2@3.24.6
   - vue@3.5.44
   - vite-plus@1.3.0
+  - vite-plus@0.0.0-commit.80a3cbc3c533232d294cc28335097f71c7f51205

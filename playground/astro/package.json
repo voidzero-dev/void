@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "astro build",
+    "build": "NODE_USE_SYSTEM_CA=1 astro build",
     "dev": "astro dev"
   },
   "dependencies": {

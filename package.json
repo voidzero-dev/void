@@ -2,7 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vp run --filter './packages/**' --parallel build",
+    "build": "vp run --filter './packages/**' --filter '!./packages/md' build && vp run --filter ./packages/md build",
     "build:core": "vp run --filter ./packages/deploy-core --filter ./packages/deploy-cloudflare --filter ./packages/edge --filter ./packages/isr --filter ./packages/platform --filter ./packages/void build",
     "build:docs": "vp run --filter ./docs build",
     "build:platform": "vp run --filter './platform/packages/**' build",

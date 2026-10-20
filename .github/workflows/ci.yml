@@ -21,6 +21,13 @@ jobs:
     runs-on: ${{ matrix.os == 'ubuntu-latest' && github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || matrix.os }}
     permissions:
       contents: read
+      # Remote cache uploads authenticate with a GitHub Actions OIDC token.
+      id-token: write
+    env:
+      # Remote task cache, on when the repository variable is set. Pushes and pull requests from
+      # this repository upload results; fork pull requests get no OIDC token and only download.
+      VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
+      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository) && 'read-write' || 'read' }}
     strategy:
       fail-fast: false
       matrix:
@@ -32,7 +39,7 @@ jobs:
       - uses: ./.github/actions/test-setup
       # Build every playground once per OS for complete build/type coverage.
       # Integration tests build their own selected fixtures in separate checkouts.
-      - run: vp run build:all
+      - run: vp run --cache build:all
       - run: vp run build:docs
       - run: node test/check-playground-build-artifacts.mjs
       - run: vp run check
