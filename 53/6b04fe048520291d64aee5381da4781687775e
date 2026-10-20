@@ -1,0 +1,33 @@
+packages/void/test/unit/cloudflare-deploy.test.ts
+  s_8743c3ea1c25c5::t_0ac7acc2587405 3578-3719
+packages/void/test/unit/wrangler.test.ts
+  s_2d2708cae97e2d::t_a7398f56537928 1455-1472
+packages/void/src/cli/deploy-cloudflare-preflight.ts
+  s_8743c3ea1c25c5::t_ed4a0da0997216 12,14,70,128-162,498-501,507,574,585
+packages/void/src/cli/wrangler.ts
+  s_8743c3ea1c25c5::t_1c7e7cc7bd16de 21,1300,1311-1312,2519-2527
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "536b04fe048520291d64aee5381da4781687775e",
+  "prompts": {},
+  "sessions": {
+    "s_2d2708cae97e2d": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a8c9056bed0ba79b9",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_8743c3ea1c25c5": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-a21f99e77e848da9d",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
