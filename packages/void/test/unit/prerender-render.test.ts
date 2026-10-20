@@ -21,27 +21,45 @@ afterEach(() => {
 });
 
 describe('prerender pool', () => {
-  it('bounds overlapping renders, keeps result order, and writes each page data', async () => {
+  it('bounds overlapping renders, keeps result order, and writes page data from one render', async () => {
     const root = fixture();
     const paths = Array.from({ length: 12 }, (_, i) => `/page-${i}`);
+    // Characters the embedded script escapes; the JSON file must keep the plain text.
+    const escapedPage = { path: '/page-11', props: { title: '</script><b>a&b</b>\u2028' } };
     let active = 0;
     let peak = 0;
-    const result = await renderPrerenderPaths(paths, root, async (path) => {
-      peak = Math.max(peak, ++active);
-      await new Promise((resolve) => setTimeout(resolve, path === '/page-0' ? 12 : 2));
-      active--;
-      return new Response(pageHtml({ path }), { status: path === '/page-3' ? 503 : 200 });
-    });
+    const dataRequests: Array<string> = [];
+    const result = await renderPrerenderPaths(
+      paths,
+      root,
+      async (path) => {
+        peak = Math.max(peak, ++active);
+        await new Promise((resolve) => setTimeout(resolve, path === '/page-0' ? 12 : 2));
+        active--;
+        return new Response(pageHtml(path === escapedPage.path ? escapedPage : { path }), {
+          status: path === '/page-3' ? 503 : 200,
+        });
+      },
+      async (path) => {
+        dataRequests.push(path);
+        return Response.json({ path }, { headers: { 'X-VoidPages': 'true' } });
+      },
+    );
     expect(peak).toBe(4);
     expect(result.rendered).toEqual(paths.filter((path) => path !== '/page-3'));
     expect(result.failed).toEqual([{ path: '/page-3', error: 'HTTP 503' }]);
-    expect(JSON.parse(readFileSync(join(root, '_void/pages/page-11.json'), 'utf8'))).toEqual({
-      path: '/page-11',
+    expect(dataRequests).toEqual([]);
+    expect(readFileSync(join(root, '_void/pages/page-11.json'), 'utf8')).toBe(
+      JSON.stringify(escapedPage),
+    );
+    expect(JSON.parse(readFileSync(join(root, '_void/pages/page-10.json'), 'utf8'))).toEqual({
+      path: '/page-10',
     });
   });
 
   it('writes resolved page data for deferred pages and none for HTML without page data', async () => {
     const root = fixture();
+    const dataRequests: Array<string> = [];
     const result = await renderPrerenderPaths(
       ['/deferred', '/island'],
       root,
@@ -51,13 +69,20 @@ describe('prerender pool', () => {
             ? pageHtml({ component: 'deferred', props: {}, deferredKeys: { stats: 'stats' } })
             : '<h1>island</h1>',
         ),
-      async () =>
-        Response.json(
+      async (path) => {
+        dataRequests.push(path);
+        if (path !== '/deferred') {
+          return new Response('<h1>island</h1>');
+        }
+        expect(existsSync(join(root, 'deferred.html'))).toBe(true);
+        return Response.json(
           { component: 'deferred', props: { stats: 1 }, deferredKeys: { stats: 'stats' } },
           { headers: { 'X-VoidPages': 'true' } },
-        ),
+        );
+      },
     );
     expect(result).toEqual({ rendered: ['/deferred', '/island'], failed: [] });
+    expect(dataRequests).toEqual(['/deferred']);
     expect(JSON.parse(readFileSync(join(root, '_void/pages/deferred.json'), 'utf8'))).toEqual({
       component: 'deferred',
       props: { stats: 1 },
@@ -140,6 +165,7 @@ describe('prerender pool', () => {
     const root = fixture();
     const clientDir = join(root, 'client');
     const fetched: Array<string> = [];
+    const dataRequests: Array<string> = [];
     const outputs: Array<[string, string, string | undefined]> = [];
     const result = await renderPrerenderPaths(
       ['/blog/../../escape', '/ok', '/../client/data-escape'],
@@ -148,7 +174,10 @@ describe('prerender pool', () => {
         fetched.push(path);
         return new Response(pageHtml({ path }));
       },
-      undefined,
+      async (path) => {
+        dataRequests.push(path);
+        return Response.json({ path }, { headers: { 'X-VoidPages': 'true' } });
+      },
       (path, outputFile, error) => outputs.push([path, outputFile, error]),
     );
     const error = 'prerender path resolves outside the output directory';
@@ -158,6 +187,7 @@ describe('prerender pool', () => {
       { path: '/../client/data-escape', error },
     ]);
     expect(fetched).toEqual(['/ok']);
+    expect(dataRequests).toEqual([]);
     expect(outputs).toContainEqual(['/blog/../../escape', 'blog/../../escape.html', error]);
     expect(existsSync(join(root, 'escape.html'))).toBe(false);
     expect(existsSync(join(clientDir, '_void/escape.json'))).toBe(false);

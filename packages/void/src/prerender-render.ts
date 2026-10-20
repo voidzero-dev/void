@@ -160,10 +160,9 @@ export async function renderPrerenderPaths(
             }
             mkdirSync(dirname(outputPath), { recursive: true });
             writeFileSync(outputPath, html);
-            // Page HTML embeds the same page object the X-VoidPages request
-            // returns, so one render produces both files. Pages with deferred
-            // props embed them unresolved and still need the prefetch request,
-            // which resolves them inline.
+            // Reuse the page object the HTML embeds for hydration, re-stringified to drop
+            // the \u003c-style escapes. Deferred props embed unresolved, so those pages
+            // still make the X-VoidPages request. HTML without the script gets no JSON.
             const embeddedPageData = extractPageDataFromHtml(html);
             let pageData: unknown;
             if (embeddedPageData !== null) {
