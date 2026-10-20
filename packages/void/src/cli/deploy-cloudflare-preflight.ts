@@ -160,12 +160,13 @@ export async function prepareCloudflareDeploySource(
     return null;
   }
 
-  // Custom migration patterns must stay under migrations_dir.
+  // Custom migration patterns must stay under migrations_dir, as written: Wrangler checks the
+  // pattern against that spelling.
   if (desired.d1) {
     const migrationsPattern = resolveWranglerMigrationPattern(
       parseRootWranglerConfig(configPath),
       desired.d1.binding,
-      desired.d1.migrationsDir ?? relative(dirname(configPath), migrationsDir),
+      storedDir ?? desired.d1.migrationsDir ?? relative(dirname(configPath), migrationsDir),
     );
     if (!migrationsPattern.ok) {
       log.error(migrationsPattern.reason);

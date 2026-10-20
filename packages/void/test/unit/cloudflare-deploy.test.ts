@@ -3577,7 +3577,7 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
   });
 
   /** A D1 app whose wrangler.jsonc sets `migrations_dir`; `<root>` becomes the project path. */
-  function d1ProjectWithDir(migrationsDir: string, sourceDir?: string): string {
+  function d1ProjectWithDir(migrationsDir: string, sourceDir?: string, pattern?: string): string {
     const root = makeProject({
       'package.json': JSON.stringify({ name: 'myapp' }),
       'void.json': JSON.stringify(sourceDir ? { sourceDir } : {}),
@@ -3585,6 +3585,11 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
     });
     const config = structuredClone(PROVISIONED_D1);
     config.d1_databases[0]!.migrations_dir = migrationsDir.replace('<root>', root);
+    if (pattern) {
+      Object.assign(config.d1_databases[0]!, {
+        migrations_pattern: pattern.replace('<root>', root),
+      });
+    }
     writeFileSync(join(root, 'wrangler.jsonc'), JSON.stringify(config, null, 2));
     return root;
   }
@@ -3602,6 +3607,18 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
     expect(exitCalls).toEqual([]);
     expect(trace).not.toContain('provision');
+    expect(trace).toContain('wrangler:deploy');
+  });
+
+  it('checks a custom migrations_pattern against migrations_dir as written', async () => {
+    const root = d1ProjectWithDir(
+      '<root>/db/migrations',
+      undefined,
+      '<root>/db/migrations/**/*.sql',
+    );
+    const { deps, trace, exitCalls } = harness();
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(exitCalls).toEqual([]);
     expect(trace).toContain('wrangler:deploy');
   });
 
