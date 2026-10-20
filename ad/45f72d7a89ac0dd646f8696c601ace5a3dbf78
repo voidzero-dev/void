@@ -1,0 +1,59 @@
+packages/void/src/cli/cloudflare-operation-process.ts
+  s_6821f17c79ebfc::t_270a42c7d44963 17-22,970-972
+packages/void/src/cli/cloudflare-process.ts
+  s_fe834b00f92102::t_70500dfbed9a9e 137-140
+  s_a6366f8c8935ed::t_eb0095f11461ff 3
+packages/void/test/unit/cf-version-runner.test.ts
+  s_6821f17c79ebfc::t_5dca85f04937b6 145-147,150-154,191-193,199-202
+  s_651a73645e0cc8::t_7b3b25ff1cd1d8 2665-2667,2697-2699,2708-2710,2739,2741
+packages/void/src/cli/cf-command-values.ts
+  s_a6366f8c8935ed::t_f44ddd39cc2877 1-3
+packages/void/test/unit/cloudflare-operation-process.test.ts
+  s_6821f17c79ebfc::t_2a3944e7ff0a3f 101,174-223
+packages/void/src/cli/cf-version-runner.ts
+  s_6821f17c79ebfc::t_a33fdf6204b7e4 15-19,585
+packages/void/test/unit/cloudflare-process.test.ts
+  s_fe834b00f92102::t_b824125ca7bec9 1-3
+  s_fe834b00f92102::t_4db9b3e41d4a18 4-6
+  s_a6366f8c8935ed::t_5533eddb199589 7,16-41
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ad45f72d7a89ac0dd646f8696c601ace5a3dbf78",
+  "prompts": {},
+  "sessions": {
+    "s_651a73645e0cc8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15951-d7e9-7c12-9df7-1a048f017d98",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    },
+    "s_6821f17c79ebfc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15945-1927-7373-b09d-494855654ac7",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    },
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    },
+    "s_fe834b00f92102": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a0f81c-d441-7101-9b29-8192255330e8",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
