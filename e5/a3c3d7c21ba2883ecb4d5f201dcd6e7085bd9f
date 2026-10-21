@@ -1,0 +1,19 @@
+packages/void/test/unit/cf-version-runner.test.ts
+  s_651a73645e0cc8::t_7b3b25ff1cd1d8 2665-2667,2697-2699,2708-2710,2739,2741
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e5a3c3d7c21ba2883ecb4d5f201dcd6e7085bd9f",
+  "prompts": {},
+  "sessions": {
+    "s_651a73645e0cc8": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15951-d7e9-7c12-9df7-1a048f017d98",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}

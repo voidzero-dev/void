@@ -1,0 +1,57 @@
+.gitignore
+  s_0803b0bd03b53e::t_6e90c140f6531c 9-10
+.node-version
+  s_0803b0bd03b53e::t_23e4a04b9c5346 1
+README.md
+  s_0803b0bd03b53e::t_fdaeaadb0554ff 15
+docs/guide/platform/installation/prerequisites.md
+  s_0803b0bd03b53e::t_40cba75c8ed25a 37
+packages/create-void/README.md
+  s_0803b0bd03b53e::t_385aeb13cc4a3e 7
+packages/create-void/package.json
+  s_0803b0bd03b53e::t_f68ae537060835 38
+packages/void/README.md
+  s_0803b0bd03b53e::t_6ff0dc9eab6adc 15
+packages/void/src/cli/deploy-cloudflare-build.ts
+  s_0803b0bd03b53e::t_e4540fc82fa3cd 2-3,336-339
+packages/void/src/cli/template.ts
+  s_0803b0bd03b53e::t_c9406010431eea 7-8
+packages/void/test/unit/application-analysis-consumers.test.ts
+  s_0803b0bd03b53e::t_5206092f55733c 14
+packages/void/test/unit/cf-build-output.test.ts
+  s_0803b0bd03b53e::t_007478ea3fec48 399-400,429,433,438
+packages/void/test/unit/plugin-class-a-wrapper.test.ts
+  s_0803b0bd03b53e::t_71d180d01687b4 21
+packages/void/test/unit/plugin-database-bindings.test.ts
+  s_0803b0bd03b53e::t_68e269719e6bba 11
+packages/void/test/unit/plugin-dev-asset-routing.test.ts
+  s_0803b0bd03b53e::t_eee99a5860b4d2 19
+packages/void/test/unit/plugin-email-config.test.ts
+  s_0803b0bd03b53e::t_94d2fc54326ece 28
+packages/void/test/unit/plugin-framework-ai.test.ts
+  s_0803b0bd03b53e::t_75ebe67c75198d 8
+packages/void/test/unit/plugin-prerender-managed.test.ts
+  s_0803b0bd03b53e::t_35294a00fdba56 1,18-20
+packages/void/test/unit/plugin-route-binding-environment.test.ts
+  s_0803b0bd03b53e::t_455025701111b4 11
+packages/void/test/unit/plugin-version-metadata.test.ts
+  s_0803b0bd03b53e::t_dba96c511c6a97 14
+pnpm-workspace.yaml
+  s_0803b0bd03b53e::t_0482193f5ec512 36-37,47,54
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "0fe6eb9768d76b0c4167b60ffb2252621063d227",
+  "prompts": {},
+  "sessions": {
+    "s_0803b0bd03b53e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15954-6ee4-78a0-8ceb-69baf69f1e24",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}

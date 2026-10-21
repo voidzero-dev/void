@@ -1,0 +1,35 @@
+packages/deploy-cloudflare/test/unit/version.test.ts
+  s_269543c17c5000::t_f9ceb94c0025ba 1720-1776,2921,2961,2970-2975
+packages/void/src/cli/cf-worker-settings.ts
+  s_269543c17c5000::t_850bb22ae3c32c 1-31
+packages/void/test/unit/cloudflare-operation-process.test.ts
+  s_269543c17c5000::t_43e5503147e150 108-168
+packages/void/AGENTS.md
+  s_269543c17c5000::t_f1ae93a4def06e 111-113
+packages/void/src/cli/cloudflare-operation-process.ts
+  s_269543c17c5000::t_b26a188b075555 20,1086,1089-1098
+packages/void/src/cli/cf-version-runner.ts
+  s_269543c17c5000::t_5783519bcb87b3 23,771,776-799
+packages/void/src/cli/cf-version-api.ts
+  s_269543c17c5000::t_a44f38530ed195 1064-1065
+packages/void/test/unit/cf-version-runner.test.ts
+  s_269543c17c5000::t_b530749bef6813 26,338,346,350,380-384,519-526,2032,2040,2043,2053-2064,2162,2497-2573
+packages/deploy-cloudflare/src/version.ts
+  s_269543c17c5000::t_9b0c88b158a38e 43-44,194-195,201-204,217,592,639,656,678-680,717
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "5ce29be4aa3d1c329fa4fcb51e48343c58ae38e9",
+  "prompts": {},
+  "sessions": {
+    "s_269543c17c5000": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a15932-8e6f-75e2-8060-077daddb6dfd",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
