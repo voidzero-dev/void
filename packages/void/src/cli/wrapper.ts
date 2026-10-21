@@ -18,6 +18,7 @@ import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { voidDbBundlerPlugin } from '../plugin-drizzle.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
+import { WORKER_CONDITIONS } from './worker-conditions.ts';
 import { transformWorkerRequireBundle } from './worker-require-transform.ts';
 
 export type WrapperFeatures = {
@@ -312,8 +313,6 @@ async function bundleMigrationHandler(
   }
 }
 
-// workerd's conditions, then a browser build's, so packages pick their Worker builds.
-const WORKER_CONDITIONS = ['workerd', 'worker', 'browser', 'module', 'import', 'default'];
 const SQL_WORKER_EXTERNAL = [/^cloudflare:/, /^node:/, /^pgpass$/];
 
 /** pg's workerd socket and its CommonJS pool, resolved from the pg that `fromPath` loads. */

@@ -26,9 +26,11 @@ import {
 import { type ModuleType, OutputContainerSchema } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
+import type { Plugin } from 'vite';
 import { migrateBuiltWranglerConfig, record } from './cf-config-migrate.ts';
 import { buildContainerImage } from './container-image.ts';
 import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
+import { WORKER_CONDITIONS } from './worker-conditions.ts';
 
 export interface CfBuildOutput {
   directory: string;
@@ -321,6 +323,37 @@ async function prepareNativeBuildOutput(
   }
 }
 
+// The Cloudflare Vite plugin's additional module rules (CompiledWasm, Data and Text).
+const additionalModuleRE = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
+const modulePlaceholderRE = /__VOID_MODULE__(.*?)__VOID_MODULE__/g;
+
+/** Emit additional module imports beside the bundle, like `@cloudflare/vite-plugin`. */
+function additionalModulesPlugin(): Plugin {
+  return {
+    name: 'void:additional-modules',
+    enforce: 'pre',
+    async resolveId(source, importer, options) {
+      if (!additionalModuleRE.test(source) && !source.startsWith('#')) {
+        return null;
+      }
+      const resolved = await this.resolve(source, importer, { ...options, skipSelf: true });
+      if (!resolved || !additionalModuleRE.test(resolved.id)) {
+        return resolved;
+      }
+      return { id: `__VOID_MODULE__${resolved.id.split('?')[0]}__VOID_MODULE__`, external: true };
+    },
+    renderChunk(code, chunk) {
+      return code.replace(modulePlaceholderRE, (_, path: string) => {
+        const fileName = this.getFileName(
+          this.emitFile({ type: 'asset', name: basename(path), source: readFileSync(path) }),
+        );
+        const importPath = relative(dirname(chunk.fileName), fileName);
+        return importPath.startsWith('.') ? importPath : `./${importPath}`;
+      });
+    },
+  };
+}
+
 /** Bundle a generated Worker entry with Vite, then hand the result to `prepareCfBuildOutput`. */
 async function prepareBundledBuildOutput(options: {
   projectRoot: string;
@@ -339,6 +372,8 @@ async function prepareBundledBuildOutput(options: {
       root: options.projectRoot,
       publicDir: false,
       logLevel: 'error',
+      plugins: [additionalModulesPlugin()],
+      resolve: { conditions: WORKER_CONDITIONS },
       build: {
         outDir: scratch,
         emptyOutDir: true,
