@@ -1,4 +1,5 @@
 import type { Context, MiddlewareHandler } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
@@ -26,12 +27,17 @@ export type PageRouteOptions = {
 function actionNameOf(url: string): string | undefined {
   return new URL(url).searchParams.keys().next().value;
 }
+const namedActionHandlers = new WeakSet<Function>();
 /**
- * Runs before auth and user middleware on pages with named actions, so a
- * c.redirect() there leaves the action key out too.
+ * Runs before auth and user middleware, so a c.redirect() there leaves the
+ * action key out too. It marks the request only when a page with named actions
+ * is the route that will answer it, not when a broad page pattern also matches.
  */
 export const markNamedActionRequest: MiddlewareHandler = async (c, next) => {
-  if (actionNameOf(c.req.url)) {
+  const routes = matchedRoutes(c);
+  // Middleware takes (c, next); the first one-argument handler answers.
+  const answer = routes.slice(c.req.routeIndex + 1).find((route) => route.handler.length < 2);
+  if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
     markActionKey(c.req.raw);
   }
   await next();
@@ -54,7 +60,7 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
 export function createPageMutationHandler(
   options: PageRouteOptions,
 ): (c: Context) => Promise<Response> {
-  return async (context) => {
+  const mutationHandler = async (context: Context) => {
     const mod = options.load ? await options.load() : {};
     const actionName = options.namedActions ? actionNameOf(context.req.url) : undefined;
     // The name comes from the query string, so only own function properties
@@ -87,6 +93,10 @@ export function createPageMutationHandler(
       options.renderOptions,
     );
   };
+  if (options.namedActions) {
+    namedActionHandlers.add(mutationHandler);
+  }
+  return mutationHandler;
 }
 
 export function createPagesFallback(options: {

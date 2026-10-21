@@ -253,12 +253,13 @@ export function createRoutingRuntime(
 
 function redirectSearch(request: Request, status: RedirectStatusCode | undefined): string {
   const search = new URL(request.url).search;
-  // 307 and 308 send the same method and body again, so the destination still
-  // needs the action key to pick the action.
-  if (!hasActionKey(request) || status === 307 || status === 308) {
-    return search;
-  }
-  return searchWithoutActionKey(search);
+  // The key goes only when the browser follows with a GET: after a 303, or after
+  // a 301/302 (the default) to a POST. Other redirects send the same method and
+  // body again, and the destination needs the key to pick the action.
+  const followsWithGet =
+    status === 303 ||
+    ((status === undefined || status === 301 || status === 302) && request.method === 'POST');
+  return hasActionKey(request) && followsWithGet ? searchWithoutActionKey(search) : search;
 }
 
 /** A rewrite that keeps the query keeps the action key in it too. */

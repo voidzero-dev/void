@@ -84,9 +84,7 @@ describe('Pages metadata wiring', () => {
         { ...testOptions, redirectRules: [{ source: '/old', destination: '/', status: 301 }] },
         pagesOptions,
       );
-      const marker = code.indexOf(
-        'app.on(["POST", "PUT", "PATCH", "DELETE"], "/", __markNamedActionRequest);',
-      );
+      const marker = code.indexOf('app.use(__markNamedActionRequest);');
       expect(marker !== -1).toBe(marked);
       if (marked) {
         expect(marker).toBeGreaterThan(code.indexOf('__routingRuntime.routingMiddleware('));

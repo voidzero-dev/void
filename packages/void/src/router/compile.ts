@@ -263,14 +263,8 @@ export function compileRouteTable(
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
-  if (pages) {
-    for (const page of scan.pages.pages) {
-      if (page.methods.includes('actions')) {
-        lines.push(
-          `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(page.pattern)}, __markNamedActionRequest);`,
-        );
-      }
-    }
+  if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+    lines.push('app.use(__markNamedActionRequest);');
   }
 
   if (auth) {
