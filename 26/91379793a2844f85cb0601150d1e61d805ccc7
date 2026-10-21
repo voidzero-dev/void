@@ -1,0 +1,39 @@
+docs/guide/pages-routing/actions-and-forms.md
+  s_f572b1deb5ef86::t_0dac60d09fb461 200
+docs/reference/api/rewrites.md
+  s_f572b1deb5ef86::t_8675aeb2dd240e 13
+packages/void/src/pages/action-key.ts
+  s_f572b1deb5ef86::t_f16c371e816d07 1-28
+packages/void/src/pages/navigation-engine.ts
+  s_f572b1deb5ef86::t_66edba70aa7051 3,13-28,829
+packages/void/src/pages/protocol.ts
+  s_f572b1deb5ef86::t_e1d3949a13cab5 3,615-617
+packages/void/src/router/compile.ts
+  s_f572b1deb5ef86::t_7226fcf5796bf1 157,246-257
+packages/void/src/runtime/routing-pages.ts
+  s_f572b1deb5ef86::t_e0e18cc1828eaa 1-2,26-27,29-38,59,76
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_4ce51e56d61705 11,122,173,181-184,254,256-258,261-267,302
+packages/void/test/unit/pages-compile.test.ts
+  s_f572b1deb5ef86::t_be5b9bb06397b5 64-88
+packages/void/test/unit/routing-runtime.test.ts
+  s_f572b1deb5ef86::t_da9272e5bd8f1e 11,491-542
+packages/void/test/unit/pages-client.test.ts
+  s_f572b1deb5ef86::t_08861ba12c9a76 512-529
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2691379793a2844f85cb0601150d1e61d805ccc7",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
