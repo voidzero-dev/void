@@ -34,6 +34,8 @@ export type PageObject = {
   head?: HeadDescriptor;
   deferred?: Array<string>;
   deferredKeys?: Record<string, string>;
+  /** Error message per failed deferred group in a prefetch payload. */
+  deferredErrors?: Record<string, string>;
 };
 
 export type PageRenderResult = string | ReadableStream<Uint8Array>;
@@ -270,6 +272,30 @@ async function extractProps(result: unknown): Promise<Record<string, unknown>> {
   return (result as Record<string, unknown>) ?? {};
 }
 
+/**
+ * Run a page loader. Responses from convertReturnValue (withValidator/middleware
+ * paths) always flow through to extractProps — they wrap plain return values
+ * (objects as 200 JSON, null/undefined as 204, strings as text/html) and must be
+ * unwrapped as page props.
+ *
+ * User-returned Responses: pass through errors/redirects (>= 300) and non-JSON
+ * 200s (file downloads, streams). JSON 200s are still extracted as props for
+ * backward compat with loaders using c.json().
+ */
+async function runLoader(
+  handler: NonNullable<PageHandler>,
+  c: CloudContext,
+): Promise<Response | Record<string, unknown>> {
+  const result = await handler(c);
+  if (result instanceof Response && !isConvertedResponse(result)) {
+    const contentType = result.headers.get('content-type') || '';
+    if (result.status >= 300 || !contentType.includes('application/json')) {
+      return result;
+    }
+  }
+  return extractProps(result);
+}
+
 /** Flatten withValidator's { issues: [{ slot, issues: [{ message, path }] }] } into { field: message } */
 export function flattenValidationErrors(body: unknown): Record<string, string> {
   const errors: Record<string, string> = {};
@@ -410,22 +436,11 @@ export async function handlePageGet(
   // Run loader and check for redirect/error responses before extracting props
   let props: Record<string, unknown> = {};
   if (handler) {
-    const result = await handler(c);
-    // Responses from convertReturnValue (withValidator/middleware paths) always
-    // flow through to extractProps — they wrap plain return values (objects as
-    // 200 JSON, null/undefined as 204, strings as text/html) and must be
-    // unwrapped as page props.
-    //
-    // User-returned Responses: pass through errors/redirects (>= 300) and
-    // non-JSON 200s (file downloads, streams). JSON 200s are still extracted
-    // as props for backward compat with loaders using c.json().
-    if (result instanceof Response && !isConvertedResponse(result)) {
-      const contentType = result.headers.get('content-type') || '';
-      if (result.status >= 300 || !contentType.includes('application/json')) {
-        return result;
-      }
+    const loaded = await runLoader(handler, c);
+    if (loaded instanceof Response) {
+      return loaded;
     }
-    props = await extractProps(result);
+    props = loaded;
   }
 
   const pageHead = headFn ? headFn(c, props) : undefined;
@@ -463,21 +478,24 @@ export async function handlePageGet(
     const isPrefetch = c.req.header('purpose') === 'prefetch';
     if (isPrefetch && hasDeferred) {
       const resolvedProps: Record<string, unknown> = { ...immediateProps };
+      let deferredErrors: Record<string, string> | undefined;
       await Promise.all(
-        Object.entries(deferredMap).map(async ([, { resolver, keys }]) => {
+        Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
           try {
             const data = await resolver(c);
             if (keys.length === 1) {
-              resolvedProps[keys[0]] = data;
+              resolvedProps[keys[0]] = data ?? null;
             } else {
-              const obj = data as Record<string, unknown>;
+              const obj =
+                typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
               for (const key of keys) {
                 resolvedProps[key] = obj[key];
               }
             }
-          } catch {
+          } catch (err) {
+            (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
             for (const key of keys) {
-              resolvedProps[key] = null;
+              delete resolvedProps[key];
             }
           }
         }),
@@ -486,6 +504,7 @@ export async function handlePageGet(
         ...pageObj,
         props: resolvedProps,
         deferred: undefined,
+        ...(deferredErrors && { deferredErrors }),
       });
     }
 
@@ -503,7 +522,7 @@ export async function handlePageGet(
       c,
       'application/x-ndjson',
       options?.dev === true,
-      (group, data) => JSON.stringify({ __deferred: group, data }) + '\n',
+      (group, data) => JSON.stringify({ __deferred: group, data: data ?? null }) + '\n',
       (group, error) => JSON.stringify({ __deferred: group, error }) + '\n',
     );
   }
@@ -600,8 +619,11 @@ export async function handlePageMutation(
 
   /** Re-run the GET loader and respond with the page, optionally carrying validation errors. */
   async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
-    const rawProps = getHandler ? await extractProps(await getHandler(c)) : {};
-    const pageObj = buildMutationPageObj(stripDeferred(rawProps), errors);
+    const loaded = getHandler ? await runLoader(getHandler, c) : {};
+    if (loaded instanceof Response) {
+      return loaded;
+    }
+    const pageObj = buildMutationPageObj(stripDeferred(loaded), errors);
     if (isPagesRequest(c)) {
       return pageJsonResponse(c, pageObj);
     }
@@ -640,9 +662,16 @@ export async function handlePageMutation(
     if (status >= 300 && status < 400) {
       return result;
     }
-    // withValidator 400
+    // Only a withValidator issues body becomes field errors; other 400s pass through
     if (status === 400) {
-      return respondWithErrors(flattenValidationErrors(await result.json()));
+      const body: unknown = await result
+        .clone()
+        .json()
+        .catch(() => null);
+      if (Array.isArray((body as ValidationErrorBody | null)?.issues)) {
+        return respondWithErrors(flattenValidationErrors(body));
+      }
+      return result;
     }
     // 204 (void from withValidator) — fall through to re-run GET
     if (status !== 204) {

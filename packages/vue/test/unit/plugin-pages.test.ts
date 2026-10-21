@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
@@ -36,7 +36,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-function setupWatcher(plugin: PagesPluginHooks) {
+function setupWatcher(plugin: PagesPluginHooks, logError = vi.fn(), invalidateModule = vi.fn()) {
   const handlers = new Map<string, Array<(path: string) => Promise<void> | void>>();
   plugin.configureServer?.({
     watcher: {
@@ -46,7 +46,10 @@ function setupWatcher(plugin: PagesPluginHooks) {
         handlers.set(event, eventHandlers);
       },
     },
-    environments: {},
+    environments: {
+      client: { moduleGraph: { getModuleById: (id: string) => ({ id }), invalidateModule } },
+    },
+    config: { logger: { error: logError } },
   });
   return handlers;
 }
@@ -78,5 +81,44 @@ describe('pagesPlugin dev HMR', () => {
     const renderer = await load('\0virtual:void-pages-renderer');
 
     expect(renderer).toContain('"test": () => import');
+  });
+
+  it('logs a page scan error from the watcher and keeps the last scan', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+    getHookHandler(plugin.config)({}, { command: 'serve' });
+    await getHookHandler(plugin.buildStart).call({});
+    const logError = vi.fn();
+    const invalidateModule = vi.fn();
+    const handlers = setupWatcher(plugin, logError, invalidateModule);
+    const emitAdd = async (relativePath: string) => {
+      for (const handler of handlers.get('add') ?? []) {
+        await expect(handler(join(PAGES_DIR, relativePath))).resolves.toBeUndefined();
+      }
+    };
+
+    writePage('about.md', '---\nlayout: docs\n---\n# About\n');
+    await emitAdd('about.md');
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError.mock.calls[0]?.[0]).toContain("specifies layout 'docs'");
+    expect(invalidateModule).not.toHaveBeenCalled();
+    const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+    expect(renderer).toContain('"index": () => import');
+    expect(renderer).not.toContain('"about"');
+
+    writePage('_layouts/docs.vue', '<template><main><slot /></main></template>\n');
+    await emitAdd('_layouts/docs.vue');
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(invalidateModule).toHaveBeenCalled();
+    const recovered = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+    expect(recovered).toContain('"about"');
   });
 });

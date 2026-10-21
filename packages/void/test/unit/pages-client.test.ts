@@ -235,6 +235,47 @@ describe('createVoidRouter', () => {
     },
   );
 
+  it('rejects a failed deferred group from a prefetched payload', async () => {
+    stubClientGlobals();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        pageJson({
+          component: 'users',
+          props: { stats: { count: 1 } },
+          deferredKeys: { stats: 'stats', usage: 'usage' },
+          deferredErrors: { usage: 'Internal Server Error' },
+        }),
+      ),
+    );
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({
+      adapter: {
+        applyUpdate,
+        createDeferred: () => ({ loading: true, value: null, error: null }),
+        isLoading: (ref) => (ref as { loading: boolean }).loading,
+        resolveDeferred: (_ref, value) => ({ loading: false, value, error: null }),
+        rejectDeferred: (_ref, error) => ({ loading: false, value: null, error }),
+      },
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+    });
+    try {
+      await router.prefetch('/users');
+      await router.visit('/users');
+
+      const rendered = applyUpdate.mock.calls.at(-1)![0];
+      expect(rendered.props.stats).toEqual({ loading: false, value: { count: 1 }, error: null });
+      expect(rendered.props.usage).toEqual({
+        loading: false,
+        value: null,
+        error: 'Internal Server Error',
+      });
+    } finally {
+      router.flushAll();
+    }
+  });
+
   it('serves revalidated data after a stale-while-revalidate refresh', async () => {
     stubClientGlobals();
     let n = 0;
@@ -395,6 +436,77 @@ describe('createVoidRouter', () => {
     (window as unknown as DeferredTestWindow).__resolveDeferred('stats', { count: 42 });
 
     expect(resolveDeferred).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: 'routes an ungrouped deferred object to its own prop only',
+      deferredKeys: { stats: 'stats', comments: 'comments' },
+      messages: [
+        ['stats', { comments: 12, views: 100 }],
+        ['comments', [{ id: 1 }]],
+      ],
+      pendingAfterFirst: ['comments'],
+      expected: { stats: { comments: 12, views: 100 }, comments: [{ id: 1 }] },
+    },
+    {
+      name: 'splits a named group object across its props',
+      deferredKeys: { metrics: 'analytics', chart: 'analytics' },
+      messages: [['analytics', { metrics: 1, chart: 2 }]],
+      pendingAfterFirst: [],
+      expected: { metrics: 1, chart: 2 },
+    },
+    {
+      name: 'resolves each named group prop to undefined for non-object data',
+      deferredKeys: { metrics: 'analytics', chart: 'analytics' },
+      messages: [['analytics', null]],
+      pendingAfterFirst: [],
+      expected: { metrics: undefined, chart: undefined },
+    },
+  ])('$name', async ({ deferredKeys, messages, pendingAfterFirst, expected }) => {
+    stubClientGlobals();
+    const initialPayload = { component: 'home', deferredKeys, props: {} };
+    vi.mocked(document.getElementById).mockImplementation((id: string) => {
+      if (id === '__VOID_PAGE_DATA__') {
+        return { textContent: JSON.stringify(initialPayload) } as HTMLElement;
+      }
+      if (id === 'app') {
+        return { getAttribute: vi.fn(() => null) } as unknown as HTMLElement;
+      }
+      return null;
+    });
+    let props: Record<string, unknown> = {};
+    const { start } = await createTestRouter({
+      adapter: {
+        createDeferred: () => ({ loading: true, value: null, error: null }),
+        isLoading: (ref) => Boolean((ref as { loading?: boolean })?.loading),
+        resolveDeferred: (_ref, value) => ({ loading: false, value, error: null }),
+        rejectDeferred: (_ref, error) => ({ loading: false, value: null, error }),
+        onDeferredUpdate: (next) => {
+          props = { ...next };
+        },
+      },
+    });
+
+    start();
+    const resolveDeferred = (window as unknown as DeferredTestWindow).__resolveDeferred;
+    for (const [index, [group, data]] of messages.entries()) {
+      resolveDeferred(group as string, data);
+      if (index === 0) {
+        for (const key of pendingAfterFirst) {
+          expect(props[key]).toEqual({ loading: true, value: null, error: null });
+        }
+      }
+    }
+
+    expect(props).toEqual(
+      Object.fromEntries(
+        Object.entries(expected).map(([key, value]) => [
+          key,
+          { loading: false, value, error: null },
+        ]),
+      ),
+    );
   });
 
   it('runs navigation listeners for same-page hash visits', async () => {
@@ -788,6 +900,51 @@ describe('createVoidRouter', () => {
       value: { count: 42 },
       error: null,
     });
+  });
+
+  it('splits a group object when a mutation preserves only part of the group', async () => {
+    stubClientGlobals();
+    vi.mocked(document.getElementById).mockImplementation((id: string) => {
+      if (id === '__VOID_PAGE_DATA__') {
+        return {
+          textContent: JSON.stringify({
+            component: 'home',
+            deferredKeys: { metrics: 'analytics', chart: 'analytics' },
+            props: {},
+          }),
+        } as HTMLElement;
+      }
+      if (id === 'app') {
+        return { getAttribute: vi.fn(() => null) } as unknown as HTMLElement;
+      }
+      return null;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() =>
+        Promise.resolve(pageJson({ component: 'home', props: { metrics: null, chart: 'new' } })),
+      ),
+    );
+    const resolveDeferred = vi.fn((_ref, value) => ({ loading: false, value, error: null }));
+
+    const { router, start } = await createTestRouter({
+      adapter: {
+        applyUpdate: vi.fn(),
+        createDeferred: () => ({ loading: true, value: null, error: null }),
+        isLoading: (ref) => Boolean((ref as { loading?: boolean })?.loading),
+        rejectDeferred: (_ref, error) => ({ loading: false, value: null, error }),
+        resolveDeferred,
+      },
+    });
+
+    start();
+    await router.visit('/', { method: 'POST', data: { ok: true } });
+    (window as unknown as DeferredTestWindow).__resolveDeferred('analytics', {
+      metrics: 1,
+      chart: 2,
+    });
+
+    expect(resolveDeferred).toHaveBeenCalledExactlyOnceWith(expect.anything(), 1);
   });
 
   it('keeps the committed page deferred registry alive while a new navigation is pending', async () => {

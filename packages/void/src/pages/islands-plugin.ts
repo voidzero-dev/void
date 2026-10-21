@@ -327,16 +327,25 @@ export function watchPagesForRescan(
     }
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      pending = scanPages(root, { pagesDir }).then((pageScan) => {
-        onRescan(pageScan);
-        for (const env of Object.values(server.environments)) {
-          const mod = env.moduleGraph.getModuleById('\0' + ISLANDS_RENDERER_ID);
-          if (mod) {
-            env.moduleGraph.invalidateModule(mod);
-          }
-        }
-        pending = null;
-      });
+      pending = scanPages(root, { pagesDir })
+        .then(
+          (pageScan) => {
+            onRescan(pageScan);
+            for (const env of Object.values(server.environments)) {
+              const mod = env.moduleGraph.getModuleById('\0' + ISLANDS_RENDERER_ID);
+              if (mod) {
+                env.moduleGraph.invalidateModule(mod);
+              }
+            }
+          },
+          () => {
+            // The adapter pages plugin runs the same scan on the same events and
+            // logs its error. Keep the last good scan until the next change.
+          },
+        )
+        .finally(() => {
+          pending = null;
+        });
     }, 50);
   };
 

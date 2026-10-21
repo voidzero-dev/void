@@ -423,6 +423,79 @@ describe('handlePageGet', () => {
     // deferredKeys is preserved so clients can wrap resolved values
     expect(body.deferredKeys).toEqual({ usage: 'usage' });
   });
+
+  it.each([
+    { dev: false, message: 'Internal Server Error' },
+    { dev: true, message: 'db down' },
+  ])(
+    'prefetch request — sends a failed deferred group as an inline error (dev=$dev)',
+    async ({ dev, message }) => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const c = await createTestContext('GET', '/dashboard', {
+        headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
+      });
+      const error = new Error('db down');
+
+      try {
+        const response = await handlePageGet(
+          () => ({
+            stats: { count: 1 },
+            usage: defer(async () => {
+              throw error;
+            }),
+            ok: defer(async () => 1),
+          }),
+          undefined,
+          c,
+          'dashboard',
+          mockRenderFn,
+          mockGetAssetTags,
+          undefined,
+          { dev },
+        );
+
+        const body = await json<PageResponse & { deferredErrors?: Record<string, string> }>(
+          response,
+        );
+        expect(body.deferredErrors).toEqual({ usage: message });
+        expect(body.props).toEqual({ stats: { count: 1 }, ok: 1 });
+        expect(body.deferredKeys).toEqual({ usage: 'usage', ok: 'ok' });
+        expect(consoleError).toHaveBeenCalledExactlyOnceWith(error);
+      } finally {
+        consoleError.mockRestore();
+      }
+    },
+  );
+
+  it('prefetch request — resolves empty deferred results like the stream does', async () => {
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const c = await createTestContext('GET', '/dashboard', {
+      headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
+    });
+
+    try {
+      const response = await handlePageGet(
+        () => ({
+          post: defer(async () => undefined),
+          a: defer('g', async () => null),
+          b: defer('g', async () => null),
+        }),
+        undefined,
+        c,
+        'dashboard',
+        mockRenderFn,
+        mockGetAssetTags,
+      );
+
+      const body = await json<PageResponse & { deferredErrors?: Record<string, string> }>(response);
+      expect(body.props).toEqual({ post: null });
+      expect(body.deferredErrors).toBeUndefined();
+      expect(body.deferredKeys).toEqual({ post: 'post', a: 'g', b: 'g' });
+      expect(consoleError).not.toHaveBeenCalled();
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
 });
 
 describe('handlePageMutation', () => {
@@ -642,6 +715,87 @@ describe('handlePageMutation', () => {
     expect(body.errors).toEqual({ name: 'required' });
   });
 
+  it.each([
+    {
+      name: 'JSON without withValidator issues',
+      response: () => Response.json({ error: 'Slug taken' }, { status: 400 }),
+      body: '{"error":"Slug taken"}',
+    },
+    {
+      name: 'text',
+      response: () => new Response('Missing title', { status: 400 }),
+      body: 'Missing title',
+    },
+  ])('Response 400 with $name passes through unchanged', async ({ response, body }) => {
+    const c = await createTestContext('POST', '/users', {
+      headers: { 'x-voidpages': 'true' },
+    });
+    const getHandler = vi.fn(() => ({ users: [] }));
+
+    const result = await handlePageMutation(
+      () => response(),
+      getHandler,
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(result.status).toBe(400);
+    expect(await result.text()).toBe(body);
+    expect(getHandler).not.toHaveBeenCalled();
+  });
+
+  it.each<{
+    name: string;
+    headers: Record<string, string>;
+    action: () => undefined;
+    loader: (c: Context) => Response | Promise<Response>;
+    status: number;
+  }>([
+    {
+      name: 'void action passes through a loader redirect',
+      headers: { 'x-voidpages': 'true' },
+      action: () => undefined,
+      loader: (c: Context) => c.redirect('/posts'),
+      status: 302,
+    },
+    {
+      name: 'void action passes through a loader 404',
+      headers: {},
+      action: () => undefined,
+      loader: (c: Context) => c.notFound(),
+      status: 404,
+    },
+    {
+      name: 'ValidationError passes through a loader redirect',
+      headers: { 'x-voidpages': 'true' },
+      action: () => {
+        throw new ValidationError({ title: 'required' });
+      },
+      loader: (c: Context) => c.redirect('/posts'),
+      status: 302,
+    },
+  ])('$name', async ({ headers, action, loader, status }) => {
+    const c = await createTestContext('POST', '/posts/1', { headers });
+    const render = vi.fn(async () => '<html></html>');
+
+    const response = await handlePageMutation(
+      action,
+      loader,
+      undefined,
+      c,
+      'post',
+      render,
+      mockGetAssetTags,
+    );
+
+    expect(response.status).toBe(status);
+    expect(response.headers.get('Location')).toBe(status === 302 ? '/posts' : null);
+    expect(render).not.toHaveBeenCalled();
+  });
+
   it('Response 204 (void from withValidator) — re-runs GET', async () => {
     const c = await createTestContext('POST', '/users', {
       headers: { 'x-voidpages': 'true' },
@@ -855,6 +1009,24 @@ describe('handlePageGet with deferred props', () => {
     const deferredLine = JSON.parse(lines[1]);
     expect(deferredLine.__deferred).toBe('usage');
     expect(deferredLine.data).toEqual({ requests: 100 });
+  });
+
+  it('SPA — streams null for a deferred resolver that returns undefined', async () => {
+    const c = await createTestContext('GET', '/post', {
+      headers: { 'x-voidpages': 'true' },
+    });
+
+    const response = await handlePageGet(
+      () => ({ title: 'x', post: defer(() => Promise.resolve(undefined)) }),
+      undefined,
+      c,
+      'post',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const lines = (await response.text()).trim().split('\n');
+    expect(JSON.parse(lines[1])).toEqual({ __deferred: 'post', data: null });
   });
 
   it('SPA — dev streams the raw error for a failed deferred resolver', async () => {

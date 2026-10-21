@@ -128,7 +128,16 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
         if (event === 'change' && !normalizedPath.endsWith('.md')) {
           return;
         }
-        await runRescan();
+        try {
+          await runRescan();
+        } catch (error) {
+          // Keep the last good scan; the next change rescans.
+          server.config.logger.error(error instanceof Error ? error.message : String(error), {
+            error: error instanceof Error ? error : undefined,
+            timestamp: true,
+          });
+          return;
+        }
         invalidatePageModules(server);
       };
 

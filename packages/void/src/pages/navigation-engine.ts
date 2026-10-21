@@ -293,8 +293,14 @@ export async function createPageNavigationEngine(
       }
 
       for (const [key, group] of Object.entries(pageData.deferredKeys) as Array<[string, string]>) {
-        const ref = adapter.createDeferred();
-        const value = resolved ? adapter.resolveDeferred(ref, pageData.props[key]) : ref;
+        let value = adapter.createDeferred();
+        if (resolved) {
+          const error = pageData.deferredErrors?.[group];
+          value =
+            error === undefined
+              ? adapter.resolveDeferred(value, pageData.props[key])
+              : adapter.rejectDeferred(value, error);
+        }
         this.keyRefs[key] = value;
         this.props[key] = value;
         (this.groups[group] ??= []).push(key);
@@ -340,20 +346,7 @@ export async function createPageNavigationEngine(
       }
 
       if (data !== undefined) {
-        if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-          let resolvedAny = false;
-          for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-            if (this.keyRefs[key]) {
-              this.resolveKey(key, value);
-              resolvedAny = true;
-            }
-          }
-          if (!resolvedAny) {
-            this.resolveGroup(group, data);
-          }
-        } else {
-          this.resolveGroup(group, data);
-        }
+        this.resolveGroup(group, data);
       } else if (error !== undefined) {
         this.rejectGroup(group, typeof error === 'string' ? error : String(error));
       }
@@ -388,7 +381,6 @@ export async function createPageNavigationEngine(
 
     private retainOnly(keys: Set<string>, props: Record<string, unknown>): void {
       const keyRefs: Record<string, unknown> = {};
-      const groups: Record<string, Array<string>> = {};
       for (const [key, ref] of Object.entries(this.keyRefs)) {
         if (keys.has(key)) {
           keyRefs[key] = ref;
@@ -397,22 +389,24 @@ export async function createPageNavigationEngine(
           adapter.rejectDeferred(ref, 'Navigation disposed before deferred props resolved');
         }
       }
-      for (const [group, groupKeys] of Object.entries(this.groups)) {
-        const preservedGroupKeys = groupKeys.filter((key) => keys.has(key));
-        if (preservedGroupKeys.length > 0) {
-          groups[group] = preservedGroupKeys;
-        }
-      }
+      // Groups keep every key so a group resolves with its original shape.
+      // Keys dropped from keyRefs are skipped when the group settles.
       this.props = props;
       this.keyRefs = keyRefs;
-      this.groups = groups;
       adapter.onDeferredUpdate?.(this.props);
     }
 
+    /** A one-key group takes the raw value; a larger group takes each key from the object. */
     private resolveGroup(group: string, data: unknown): void {
       const keys = this.groups[group] ?? (this.keyRefs[group] ? [group] : []);
+      if (keys.length === 1) {
+        this.resolveKey(keys[0]!, data);
+        return;
+      }
+      const values =
+        typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
       for (const key of keys) {
-        this.resolveKey(key, data);
+        this.resolveKey(key, values[key]);
       }
     }
 
