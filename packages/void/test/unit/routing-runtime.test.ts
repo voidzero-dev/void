@@ -638,6 +638,7 @@ describe('typed client asset tags', () => {
     expect(islandTags.preloads).not.toContain('/md.js');
     expect(binding).toHaveBeenCalledTimes(1);
   });
+
   it('shares one manifest fetch between concurrent cold loads', async () => {
     const binding = vi.fn(async () => Response.json({ page: { file: 'page.js' } }));
     const loader = createManifestLoader();
@@ -650,6 +651,7 @@ describe('typed client asset tags', () => {
     expect(await loader(request, env)).toBe(manifests[0]);
     expect(binding).toHaveBeenCalledTimes(1);
   });
+
   it('retries the manifest after a missing response or a rejected fetch', async () => {
     const manifest = { page: { file: 'page.js' } };
     const binding = vi
@@ -671,6 +673,7 @@ describe('typed client asset tags', () => {
     await loader(request, env);
     expect(binding).toHaveBeenCalledTimes(3);
   });
+
   it('loads development CSS with active roots and omits client tags when production has no manifest', async () => {
     const devCss = vi.fn(
       async (
