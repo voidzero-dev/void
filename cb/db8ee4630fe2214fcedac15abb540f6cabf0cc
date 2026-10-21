@@ -1,0 +1,29 @@
+packages/void/src/router/compile.ts
+  s_f572b1deb5ef86::t_625e29c4ecfda1 266-267
+packages/void/src/runtime/routing-pages.ts
+  s_f572b1deb5ef86::t_66432f1d9e4790 2,30,32-34,37-40,63,96-99
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_5732760d977190 256-262
+packages/void/test/unit/routing-runtime.test.ts
+  s_f572b1deb5ef86::t_de4e0879440dce 492,496,499-501,507,521-527,530,537-543
+docs/reference/api/rewrites.md
+  s_f572b1deb5ef86::t_595203dc0b8613 13
+packages/void/test/unit/pages-compile.test.ts
+  s_f572b1deb5ef86::t_5016aeba58bec3 87
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "cbdb8ee4630fe2214fcedac15abb540f6cabf0cc",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
