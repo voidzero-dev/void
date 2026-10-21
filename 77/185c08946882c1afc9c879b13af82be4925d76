@@ -1,0 +1,23 @@
+packages/void/src/runtime/routing-pages.ts
+  s_f572b1deb5ef86::t_c69cd0e5da8ad0 25-29,70
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_24438320e25b48 14,251,254-266
+packages/void/test/unit/routing-runtime.test.ts
+  s_f572b1deb5ef86::t_3b4f3ddedda7af 459-467,487-488
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "77185c08946882c1afc9c879b13af82be4925d76",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
