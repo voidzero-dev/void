@@ -80,7 +80,7 @@ describe('pagesPlugin dev HMR', () => {
     const load = getHookHandler(plugin.load);
     const renderer = await load('\0virtual:void-pages-renderer');
 
-    expect(renderer).toContain('"test": () => import');
+    expect(renderer).toContain('["test", () => import');
   });
 
   it('logs a page scan error from the watcher and keeps the last scan', async () => {
@@ -110,7 +110,7 @@ describe('pagesPlugin dev HMR', () => {
     expect(logError.mock.calls[0]?.[0]).toContain("specifies layout 'docs'");
     expect(invalidateModule).not.toHaveBeenCalled();
     const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
-    expect(renderer).toContain('"index": () => import');
+    expect(renderer).toContain('["index", () => import');
     expect(renderer).not.toContain('"about"');
 
     writePage('_layouts/docs.vue', '<template><main><slot /></main></template>\n');
