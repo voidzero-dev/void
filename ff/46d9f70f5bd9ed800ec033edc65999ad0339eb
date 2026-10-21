@@ -1,0 +1,27 @@
+packages/void/src/router/compile.ts
+  s_f572b1deb5ef86::t_66c2dfaa9bf23d 159,310,312,314,316,404,505,573,719,722,725,728,732,747,754
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_1848c6454fc144 307
+packages/void/test/unit/compile-auth.test.ts
+  s_f572b1deb5ef86::t_b26d4976a01dbb 68-69
+packages/void/test/unit/compile.test.ts
+  s_f572b1deb5ef86::t_09bcb39bdeef98 175
+packages/void/test/unit/routing-runtime.test.ts
+  s_f572b1deb5ef86::t_57aa184b2c2f98 13,562-581
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ff46d9f70f5bd9ed800ec033edc65999ad0339eb",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
