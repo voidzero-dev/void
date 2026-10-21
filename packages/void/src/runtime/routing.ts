@@ -130,10 +130,7 @@ export function createRoutingRuntime(
           `${kind}[${rule.source}] -> ${destination} (${rule.origin || 'unknown'})`,
         );
       }
-      const location = mergeQueryIntoLocation(
-        destination,
-        redirectSearch(c.req.raw, rule.status as RedirectStatusCode),
-      );
+      const location = mergeQueryIntoLocation(destination, url.search);
       return annotate(
         c.redirect(location, rule.status as RedirectStatusCode),
         `redirect[${rule.source}] -> ${destination} ${rule.status} (${rule.origin || 'unknown'})`,

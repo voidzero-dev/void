@@ -243,18 +243,6 @@ export function compileRouteTable(
   lines.push('app.use(__routingRuntime.requestMiddleware);');
   lines.push('');
 
-  // Before routing rules, auth and user middleware, so their redirects and
-  // rewrites treat a named action's key the same way the action does.
-  if (pages) {
-    for (const page of scan.pages.pages) {
-      if (page.methods.includes('actions')) {
-        lines.push(
-          `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(page.pattern)}, __markNamedActionRequest);`,
-        );
-      }
-    }
-  }
-
   // Edge routing middleware. Every target without managed platform dispatch
   // owns routing end-to-end, including native Cloudflare production builds.
   // Managed bundles omit it because dispatch applies the same rules first.
@@ -271,6 +259,18 @@ export function compileRouteTable(
   }
   if (emitEdgeRules && options.headerRules?.length) {
     compileHeaderMiddleware(lines, options.headerRules);
+  }
+
+  // After routing rules, which ignore the action key as platform dispatch does,
+  // and before auth and user middleware, so their c.redirect() drops it too.
+  if (pages) {
+    for (const page of scan.pages.pages) {
+      if (page.methods.includes('actions')) {
+        lines.push(
+          `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(page.pattern)}, __markNamedActionRequest);`,
+        );
+      }
+    }
   }
 
   if (auth) {
