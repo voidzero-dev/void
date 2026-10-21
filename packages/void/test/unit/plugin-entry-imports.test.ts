@@ -22,6 +22,7 @@ vi.mock('terminal-link', () => {
 });
 
 it('keeps auth codegen and CLI output out of the plugin entry', async () => {
+  // The first import of the whole plugin entry takes a few seconds.
   await import('../../src/index.ts');
   expect(loaded).toEqual([]);
-});
+}, 30_000);

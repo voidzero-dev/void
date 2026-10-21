@@ -11,7 +11,7 @@ import {
 import module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { pathToFileURL } from 'node:url';
 import { cloudflare } from '@cloudflare/vite-plugin';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -955,18 +955,10 @@ describe('voidPlugin Vite environments', () => {
       'export * from "../src/resources/projects/projects.schema";\n',
     );
     mkdirSync(join(root, 'src/resources/projects'), { recursive: true });
-    const sqliteCore = fileURLToPath(import.meta.resolve('drizzle-orm/sqlite-core'));
+    // A top-level sql`` call, as in a column default, is enough to need the helper.
     writeFileSync(
       join(root, 'src/resources/projects/projects.schema.ts'),
-      [
-        "import { sql } from 'void/db';",
-        `import { integer, sqliteTable, text } from ${JSON.stringify(normalizePath(sqliteCore))};`,
-        "export const projects = sqliteTable('projects', {",
-        "  id: integer('id').primaryKey(),",
-        "  createdAt: text('created_at').default(sql`(datetime('now'))`),",
-        '});',
-        '',
-      ].join('\n'),
+      "import { sql } from 'void/db';\nexport const projects = sql`(datetime('now'))`;\n",
     );
     mkdirSync(join(root, 'routes/api'), { recursive: true });
     writeFileSync(
@@ -986,7 +978,9 @@ describe('voidPlugin Vite environments', () => {
       logLevel: 'silent',
       plugins: [voidPlugin()],
       optimizeDeps: { noDiscovery: true },
-      server: { middlewareMode: true, ws: false, preTransformRequests: false },
+      // No watcher: macOS can report the files just written as changed, which
+      // reloads void/db while the route is still loading it.
+      server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
     });
     try {
       const route = await server.ssrLoadModule('/routes/api/projects.ts');
@@ -996,7 +990,7 @@ describe('voidPlugin Vite environments', () => {
     } finally {
       await server.close();
     }
-  });
+  }, 30_000);
 
   describe('Node target builds with an installed void', () => {
     /** An API-only Node-target app whose route imports void and an adapter from node_modules. */

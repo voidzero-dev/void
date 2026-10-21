@@ -101,7 +101,9 @@ describe('Class A framework custom entry', () => {
         configFile: false,
         logLevel: 'silent',
         optimizeDeps: { noDiscovery: true },
-        server: { middlewareMode: true, ws: false, preTransformRequests: false },
+        // No watcher: macOS can report server.mjs, written just before startup, as
+        // changed, and the reload would give the second import a new Counter.
+        server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
       });
       try {
         const wrapped = await server.ssrLoadModule(
