@@ -16,7 +16,7 @@ void email domain add acme.com
 
 `add` opens a Cloudflare API-token template. Restrict the token to the selected account and mail zone before creating it; Workers Scripts permission applies across that account. The CLI accepts a masked paste or a newly copied token and asks you to confirm those restrictions. The platform encrypts the credential for the zone connection, so projects sharing that zone do not need separate ingress Workers.
 
-Platform-managed custom inbound email requires the apex of a Cloudflare zone. Cloudflare’s catch-all only covers that apex, so a subdomain of the selected zone cannot receive arbitrary addresses. Choose an apex without another mail provider, or use the platform’s shared mail address. Void preserves foreign MX records and enabled catch-alls. Each custom apex belongs to one project; a project can register more than one apex.
+Platform-managed custom inbound email requires the apex of a Cloudflare zone. Cloudflare’s catch-all only covers that apex, so a subdomain of the selected zone cannot receive arbitrary addresses. `add` refuses an apex that already has MX records, or whose catch-all already routes elsewhere, so it never takes over mail hosted with another provider such as Microsoft 365 or Google Workspace. Use an apex that has no mail yet, or the platform’s shared mail address. Each custom apex belongs to one project; a project can register more than one apex.
 
 If setup is interrupted, use `void email domain status <domain>` to inspect the saved operation before retrying.
 
