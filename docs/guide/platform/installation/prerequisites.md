@@ -34,7 +34,7 @@ The platform stores request metrics and logs in Analytics Engine. If installatio
 
 ## Install the CLI and Preview
 
-With Node.js 24.21.0 or later, install the CLI:
+With Node.js 24.22.0 or Node.js 26.12.0 or later, install the CLI:
 
 ```sh
 pnpm add --global void

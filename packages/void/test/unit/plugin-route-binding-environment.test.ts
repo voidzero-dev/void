@@ -8,7 +8,7 @@ type MockCloudflareConfig = {
   config: (resolved: Record<string, unknown>) => Record<string, unknown>;
 };
 
-vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
+vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
 
 // Binding inference must not consult a developer's system keychain.
 vi.mock('../../src/cli/auth.ts', async (importOriginal) => ({

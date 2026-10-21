@@ -195,7 +195,8 @@ function assertHandledFollowUps(followUps: Array<MigrationFollowUp>): void {
     }
     const path = item.sourcePath ?? item.code;
     const handled =
-      (path === 'assets.directory' && item.message.includes('assets directory')) ||
+      ((path === 'assets.directory' || /^env\.[^.]+\.assets\.directory$/.test(path)) &&
+        item.message.includes('assets directory')) ||
       (/^d1_databases\.\d+$/.test(path) && /`migrations_(?:dir|table)`/.test(item.message)) ||
       /^durable_objects\.bindings\.\d+$/.test(path) ||
       path === 'migrations' ||
@@ -363,13 +364,27 @@ if (executable === generated && migration.status !== 'complete') {
 }
 const executablePath = join(directory, 'cloudflare.config.mjs');
 writeFileSync(executablePath, executable, { mode: 0o600 });
-const config = (await import(pathToFileURL(executablePath).href)).default;
+const input = (await import(pathToFileURL(executablePath).href)).default;
+const { resolveAndParseConfig } = await import(process.argv[3]);
+const parsed = await resolveAndParseConfig(input, { isPreview: false, mode: process.argv[4] ?? 'production' });
+if (!parsed.success) throw new Error('cf did not generate a valid Worker configuration.');
+const config = parsed.data;
 process.stdout.write(JSON.stringify({ config, followUps: migration.followUps }));
 `;
 
 export function migrateBuiltWranglerConfig(
   raw: JsonObject,
+  mode = 'production',
 ): ReturnType<typeof InputConfigSchema.parse> {
+  const environment = record(record(raw.env)?.[mode]);
+  const effective = environment ? { ...raw, ...environment } : raw;
+  if (environment) {
+    for (const key of ['durable_objects', 'workflows', 'containers']) {
+      if (!(key in environment)) {
+        delete effective[key];
+      }
+    }
+  }
   const cfPackage = fileURLToPath(import.meta.resolve('cf/package.json'));
   const directory = mkdtempSync(join(tmpdir(), 'void-cf-config-'));
   try {
@@ -395,6 +410,8 @@ export function migrateBuiltWranglerConfig(
         migrationScript,
         import.meta.resolve('@cloudflare/codemods'),
         configPath,
+        import.meta.resolve('@cloudflare/config'),
+        mode,
       ],
       {
         cwd: directory,
@@ -417,18 +434,18 @@ export function migrateBuiltWranglerConfig(
     if (!result || !worker) {
       throw new Error('cf did not generate a Worker configuration.');
     }
-    applyPreservationFlags(raw, worker);
-    applyWorkflows(raw, worker);
-    const exports = { ...record(worker.exports), ...durableObjectExports(raw) };
-    const containers = containersFromWrangler(raw, exports);
+    applyPreservationFlags(effective, worker);
+    applyWorkflows(effective, worker);
+    const exports = { ...record(worker.exports), ...durableObjectExports(effective) };
+    const containers = containersFromWrangler(effective, exports);
     if (containers.length > 0) {
       const envBindings = record(worker.env);
-      const durableBindings = record(raw.durable_objects)?.bindings;
+      const durableBindings = record(effective.durable_objects)?.bindings;
       if (!envBindings || !Array.isArray(durableBindings)) {
         throw new Error('A Container Durable Object binding was not found in the built config.');
       }
       for (const container of containers) {
-        const className = (raw.containers as Array<JsonObject>).find(
+        const className = (effective.containers as Array<JsonObject>).find(
           (entry) => entry.name === container.name,
         )?.class_name;
         const binding = durableBindings.find((entry) => record(entry)?.class_name === className);

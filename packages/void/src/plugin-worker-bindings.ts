@@ -1,4 +1,3 @@
-import { type WorkerConfig } from '@cloudflare/vite-plugin';
 import { appendSqliteClassMigration } from '@void/deploy-core';
 import { type ApplicationAnalysis } from './application-analysis.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
@@ -17,6 +16,7 @@ import {
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
 import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
+import { type WorkerConfig } from './plugin-cloudflare-config.ts';
 import { type EnvSchemaFacts } from './plugin-env-schema.ts';
 import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
 import { DEV_INBOX_ENV_VAR, DEV_INBOX_TOKEN_ENV_VAR } from './runtime/email/dev-inbox.ts';

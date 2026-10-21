@@ -18,7 +18,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { getOriginalFrameworkEntry } from '../../src/plugin-framework-entry.ts';
 import { frameworkTriggersDispatchPath } from '../../src/plugin-framework-triggers.ts';
 
-vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
+vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
 
 const roots: Array<string> = [];
 

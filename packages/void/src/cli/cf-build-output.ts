@@ -129,6 +129,61 @@ export async function prepareCfBuildOutput(
 ): Promise<CfBuildOutput | null> {
   const source = resolve(workerDirectory);
   if (existsSync(getRootConfigPath(source))) {
+    const deferredContainers = join(dirname(getRootConfigPath(source)), 'void-containers.json');
+    if (existsSync(deferredContainers)) {
+      const built = await readBuildOutput(source);
+      if (
+        (accountId !== undefined &&
+          built.rootConfig.accountId !== undefined &&
+          accountId !== built.rootConfig.accountId) ||
+        (mode !== undefined && mode !== built.rootConfig.buildContext.mode)
+      ) {
+        return null;
+      }
+      const metadata = record(JSON.parse(readFileSync(deferredContainers, 'utf8')));
+      const path = metadata?.workerDirectory;
+      if (
+        typeof path !== 'string' ||
+        isAbsolute(path) ||
+        path.includes('\\') ||
+        path.includes(':') ||
+        !isInside(source, resolve(source, path)) ||
+        resolve(source, path) === source
+      ) {
+        throw new Error('Invalid Void Container build output directory.');
+      }
+      const directory = realpathSync(resolve(source, path));
+      const canonicalRoot = realpathSync(source);
+      if (directory === canonicalRoot || !isInside(canonicalRoot, directory)) {
+        throw new Error('Void Container output must stay inside the project.');
+      }
+      const prepared = await prepareCfBuildOutput(
+        directory,
+        accountId,
+        mode ?? built.rootConfig.buildContext.mode,
+      );
+      if (!prepared) {
+        return null;
+      }
+      try {
+        // Container preparation replaces only the entry Worker. Auxiliary Workers
+        // remain part of the native build and must travel with the final upload.
+        for (const [name, worker] of Object.entries(built.workers)) {
+          if (name !== 'default') {
+            cpSync(
+              dirname(worker.configPath),
+              dirname(getWorkerConfigPath(prepared.directory, name)),
+              { recursive: true },
+            );
+          }
+        }
+        await readBuildOutput(prepared.directory);
+        return prepared;
+      } catch (error) {
+        await prepared.dispose();
+        throw error;
+      }
+    }
     return prepareNativeBuildOutput(source, accountId, mode);
   }
   if (!existsSync(join(source, 'wrangler.json'))) {

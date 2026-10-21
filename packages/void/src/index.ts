@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
 import { type Plugin } from 'vite';
@@ -35,6 +34,7 @@ import { pagesDevCssAssetsPlugin } from './pages/dev-css-assets.ts';
 import { readVoidDevCredentials, runAiSetupPrompt } from './plugin-ai-setup.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { createClientStubsPlugin } from './plugin-client-stubs.ts';
+import { cloudflare, type AuxiliaryWorkerConfig, type WorkerConfig } from './plugin-cloudflare.ts';
 import {
   afterServerReady,
   warnIfPackageJsonIsNotEsm,
@@ -88,7 +88,7 @@ const scheduledPreviewPointerCleanups = new Set<string>();
 /** Returns the Vite plugins that build and serve a Void app for its configured target. */
 export function voidPlugin(options?: {
   persistTo?: string;
-  auxiliaryWorkers?: PluginConfig['auxiliaryWorkers'];
+  auxiliaryWorkers?: Array<AuxiliaryWorkerConfig>;
 }): Array<Plugin> {
   // Resolve root relative to CWD — this runs at config time
   const root = process.cwd();
@@ -1011,7 +1011,6 @@ export function voidPlugin(options?: {
       enabled: authEnabled,
       configPath: authConfigPath,
     }),
-    prerenderPlugin(root, config),
     devTriggersHintPlugin(root, devTriggerToken),
     ...cloudflare({
       configPath: cloudflareConfigPath,
@@ -1021,6 +1020,7 @@ export function voidPlugin(options?: {
       viteEnvironment: { name: DEFAULT_WORKER_ENVIRONMENT_NAME },
       config: mergeBindings,
     }),
+    prerenderPlugin(root, config),
     implicitDeployGuard,
   ];
 }

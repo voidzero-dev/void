@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, it } from 'vite-plus/test';
 import { prerenderPlugin } from '../../src/plugin-prerender.ts';
 
 describe('managed static prerender isolation', () => {
@@ -15,10 +15,8 @@ describe('managed static prerender isolation', () => {
   it('defers prerender instead of running inside the Vite build child', async () => {
     process.env.VOID_DEPLOY_BUILD = '1';
     const plugin = prerenderPlugin('/path/that/must/not/be-read', { output: 'static' });
-    expect(typeof plugin.closeBundle).toBe('function');
-
-    await (plugin.closeBundle as () => Promise<void>).call({
-      environment: { name: 'client' },
-    });
+    const hook = plugin.buildApp;
+    const handler = typeof hook === 'function' ? hook : hook?.handler;
+    await handler!.call({} as never, {} as never);
   });
 });

@@ -33,9 +33,8 @@ catalog:
   vite-plus: 1.3.0
   vitest: 5.0.5
   wrangler: ^4.151.3
-  # beta.19 adds a second workerd release beside the stable Vite plugin's runtime.
-  # Recheck packed install size before widening this range.
-  cf: '>=1.0.0-beta.18 <1.0.0-beta.19'
+  # Keep cf, Miniflare and the Vite plugin on the same workerd release.
+  cf: ^1.0.0-beta.20
   oauth4webapi: ^3.8.8
   '@astryxdesign/core': 0.7.1
   '@astryxdesign/theme-neutral': 0.7.1
@@ -45,15 +44,14 @@ catalog:
   '@cloudflare/build-output-utils': ^0.9.3
   '@cloudflare/codemods': ^0.5.1
   '@cloudflare/config': ^0.27.0
-  '@cloudflare/vite-plugin': ^1.64.0
+  '@cloudflare/vite-plugin': ^2.0.0-beta.v.3
   '@cloudflare/workers-auth': ^0.14.1
   '@nkzw/fate': 1.9.0
   '@vitejs/plugin-react': ^6.1.2
   '@vitejs/plugin-rsc': ^0.5.38
   astro: ^7.4.0
   magic-string: ^1.4.3
-  # Match cf beta.18; the stable Vite plugin shares this workerd release.
-  miniflare: ^5.20261012.1-beta
+  miniflare: ^5.20261019.1-beta
   nuxt: ^4.6.2
   playwright: ^1.64.1
   postal-mime: ^4.0.11

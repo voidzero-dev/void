@@ -11,7 +11,7 @@ import {
 } from '../../src/shared/version-metadata.ts';
 
 type Config = { config: (resolved: Record<string, unknown>) => Record<string, unknown> };
-vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
+vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
 vi.mock('../../src/cli/auth.ts', async (original) => ({
   ...(await original<typeof import('../../src/cli/auth.ts')>()),
   getToken: () => null,

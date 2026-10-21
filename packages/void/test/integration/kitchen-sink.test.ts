@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
 import spawn from 'cross-spawn';
 import { chromium, type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
@@ -474,5 +475,10 @@ function preparePreviewWranglerConfig(pg: string): string {
   };
   delete wranglerConfig.ai;
   writeFileSync(wranglerPath, `${JSON.stringify(wranglerConfig, null, 2)}\n`);
+  const nativePath = getWorkerConfigPath(pg);
+  const native = JSON.parse(readFileSync(nativePath, 'utf8'));
+  native.env.BETTER_AUTH_SECRET = { type: 'text', value: 'void-preview-test-secret-1234567890' };
+  delete native.env.AI;
+  writeFileSync(nativePath, `${JSON.stringify(native, null, 2)}\n`);
   return databaseId;
 }

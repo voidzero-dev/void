@@ -6,6 +6,8 @@ dist
 .DS_Store
 .wrangler
 .void-wrangler.jsonc
+.cloudflare
+cloudflare.config.ts
 .env
 .claude
 plan.md

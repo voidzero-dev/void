@@ -12,11 +12,12 @@ import module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { cloudflare } from '@cloudflare/vite-plugin';
+import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
 import { findVoidDependentPackages } from '../../src/installed-packages.ts';
+import { cloudflare } from '../../src/plugin-cloudflare.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 const roots: Array<string> = [];
@@ -88,7 +89,7 @@ describe('voidPlugin Vite environments', () => {
       environments: {
         void_worker: {
           build: {
-            outDir: 'dist/ssr',
+            outDir: getWorkerBundleDir(realpathSync(root)),
           },
         },
       },
@@ -123,7 +124,7 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.void_worker.resolve.conditions).toContain('workerd');
     expect(config.environments.void_worker.build).toMatchObject({
       emptyOutDir: false,
-      outDir: 'dist/ssr',
+      outDir: getWorkerBundleDir(realpathSync(root)),
     });
   });
 
@@ -202,6 +203,7 @@ describe('voidPlugin Vite environments', () => {
       // @astrojs/cloudflare runs Astro's ssr environment in workerd this way.
       const adapter = cloudflare({
         configPath: join(root, 'wrangler.jsonc'),
+        config: () => ({}),
         viteEnvironment: { name: 'ssr' },
       });
 

@@ -395,14 +395,9 @@ it(
     const root = mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-'));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
-    const configPath = join(root, 'wrangler.json');
     writeFileSync(
-      configPath,
-      JSON.stringify({
-        name: 'void-additional-modules',
-        main: 'index.js',
-        compatibility_date: '2026-09-29',
-      }),
+      join(root, 'cloudflare.config.ts'),
+      `export default { worker: { name: 'void-additional-modules', entrypoint: ${JSON.stringify(join(root, 'index.js'))}, compatibilityDate: '2026-09-29' } };`,
     );
     const assets = {
       'message.txt': 'hello',
@@ -431,16 +426,16 @@ export default { fetch() {
       root,
       configFile: false,
       logLevel: 'silent',
-      plugins: [cloudflare({ configPath })],
+      plugins: [cloudflare()],
       build: { sourcemap: true },
     });
     await builder.buildApp();
-    const output = join(root, 'dist', 'void_additional_modules');
+    const output = getWorkerBundleDir(root);
     expect(
       readdirSync(output, { recursive: true }).some((name) => String(name).endsWith('.css')),
     ).toBe(true);
     await withPrepared(
-      prepareCfBuildOutput(output, { accountId: 'account-id' }),
+      prepareCfBuildOutput(root, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
         const manifest = built.workers.default.config.manifest!;

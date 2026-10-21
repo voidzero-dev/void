@@ -12,7 +12,7 @@ The SDK's features are optional and composable. Use React, Vue, Svelte, or Solid
 
 ## Getting Started
 
-Use Node.js 24.21.0 or later. In an empty directory, run:
+Use Node.js 24.22.0 or Node.js 26.12.0 or later. In an empty directory, run:
 
 ```sh
 npm install -D void

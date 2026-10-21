@@ -25,7 +25,7 @@ type MockCloudflarePlugin = Plugin & {
   };
 };
 
-vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
+vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
 
 const tempDirs: Array<string> = [];
 

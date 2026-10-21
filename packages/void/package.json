@@ -379,6 +379,7 @@
     "pg": "^8.23.1",
     "postal-mime": "catalog:",
     "proper-lockfile": "^4.1.2",
+    "smol-toml": "^1.9.1",
     "terminal-link": "^5.0.0",
     "yaml": "^2.9.1"
   },
@@ -427,6 +428,6 @@
     }
   },
   "engines": {
-    "node": ">=24.21.0"
+    "node": "^24.22.0 || >=26.12.0"
   }
 }
