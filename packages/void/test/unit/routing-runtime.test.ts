@@ -8,6 +8,7 @@ import {
   createPageMutationHandler,
   createPagesFallback,
   createSsrFallback,
+  markNamedActionRequest,
 } from '../../src/runtime/routing-pages.ts';
 import {
   applyAssetCachePolicy,
@@ -486,6 +487,58 @@ describe('typed Pages and SSR execution', () => {
     );
     const response = await app.fetch(new Request('https://app.test' + path, { method: 'POST' }));
     expect(response.headers.get('location')).toBe(location);
+  });
+  describe('the named action key around the action', () => {
+    function createNamedActionApp() {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.on(['POST'], '/named', markNamedActionRequest);
+      app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
+      app.post('/api/x', (c) => c.redirect('/done'));
+      app.post(
+        '/named',
+        createPageMutationHandler({
+          ...pageOptions,
+          load: async () => ({
+            actions: {
+              delete: (c: Context) => c.redirect('/named'),
+              move: (c: Context) => c.redirect('/named-v2', 307),
+              go: (c: Context) => c.rewrite('/api/x'),
+              goWithQuery: (c: Context) => c.rewrite('/api/x?q=1'),
+              save: () => undefined,
+            },
+          }),
+          namedActions: true,
+        }),
+      );
+      return app;
+    }
+
+    it.each([
+      ['/named?delete&page=2', 'middleware', '/login?page=2'],
+      ['/named?move&page=2', 'a 307 redirect', '/named-v2?move&page=2'],
+      ['/named?go&page=2', 'a rewrite', '/done?page=2'],
+      ['/named?goWithQuery&page=2', 'a rewrite with its own query', '/done?q=1'],
+    ])('POST %s through %s redirects to %s', async (path, through, location) => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test' + path, {
+          method: 'POST',
+          headers: through === 'middleware' ? { 'x-anon': '1' } : {},
+        }),
+      );
+      expect(response.headers.get('location')).toBe(location);
+    });
+
+    it('leaves the key out of the page URL when the action renders the page again', async () => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test/named?save&page=2', {
+          method: 'POST',
+          headers: { 'x-voidpages': 'true' },
+        }),
+      );
+      expect(((await response.json()) as { url: string }).url).toBe('/named?page=2');
+    });
   });
   it('executes the real page loader and protocol', async () => {
     const app = new Hono();

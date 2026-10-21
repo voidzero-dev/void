@@ -154,7 +154,7 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, markNamedActionRequest as __markNamedActionRequest, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
@@ -242,6 +242,18 @@ export function compileRouteTable(
   lines.push('app.use(__routingRuntime.contextMiddleware);');
   lines.push('app.use(__routingRuntime.requestMiddleware);');
   lines.push('');
+
+  // Before routing rules, auth and user middleware, so their redirects and
+  // rewrites treat a named action's key the same way the action does.
+  if (pages) {
+    for (const page of scan.pages.pages) {
+      if (page.methods.includes('actions')) {
+        lines.push(
+          `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(page.pattern)}, __markNamedActionRequest);`,
+        );
+      }
+    }
+  }
 
   // Edge routing middleware. Every target without managed platform dispatch
   // owns routing end-to-end, including native Cloudflare production builds.

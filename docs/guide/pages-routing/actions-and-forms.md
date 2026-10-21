@@ -197,7 +197,7 @@ export const actions = {
 };
 ```
 
-Named actions are dispatched via a `?actionName` suffix on the URL (e.g. `/users/42?update`). The client primitives `useForm` and `action()` handle this automatically.
+Named actions are dispatched via a `?actionName` suffix on the URL (e.g. `/users/42?update`). The client primitives `useForm` and `action()` handle this automatically. The action key stays out of the page URL. When `POST /users/42?update&tab=profile` renders the page again, `useForm` and `action()` leave the address bar at `/users/42?tab=profile`, and `c.redirect('/users/42')` goes to `/users/42?tab=profile`.
 
 Use `action` or `actions` in a file, not both.
 

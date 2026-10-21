@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 
+import { searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
 import type { HeadDescriptor } from './head.ts';
@@ -8,6 +9,22 @@ import type { CacheForInput, CacheForResult } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { isSameOrigin } from './url.ts';
+
+/**
+ * The server leaves a named action's key out of the page URL. When the page URL
+ * shows that, drop the key from the URL written to history as well.
+ */
+function withoutActionKey(fetchUrl: string, pageUrl: string): string {
+  const q = fetchUrl.indexOf('?');
+  if (q === -1) {
+    return fetchUrl;
+  }
+  const search = searchWithoutActionKey(fetchUrl.slice(q));
+  const pageQ = pageUrl.indexOf('?');
+  return search === (pageQ === -1 ? '' : pageUrl.slice(pageQ))
+    ? fetchUrl.slice(0, q) + search
+    : fetchUrl;
+}
 
 export type PageComponentModule = {
   default: unknown;
@@ -809,6 +826,7 @@ export async function createPageNavigationEngine(
 
     if (method !== 'GET') {
       deferredRegistry.preserveValuesFrom(_committedDeferredRegistry, pageData);
+      commitTarget.fetchUrl = withoutActionKey(fetchUrl, pageData.url);
     }
 
     const [component, layouts] = await Promise.race([

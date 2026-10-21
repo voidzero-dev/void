@@ -61,6 +61,31 @@ describe('Pages metadata wiring', () => {
     expect(code).toContain('namedActions: true');
     expect(code).not.toContain('handlePageMutation(handler');
   });
+  it.each([
+    [['loader', 'actions'], true],
+    [['loader', 'action'], false],
+  ] as const)('marks named action requests before user middleware for %j', (methods, marked) => {
+    const code = compileRouteTable(
+      {
+        ...makeScan({ pages: [{ ...page, methods: [...methods] }], layouts: [], namedLayouts: [] }),
+        middleware: [{ order: 1, filePath: '01.auth.ts' }],
+      },
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      testOptions,
+      pagesOptions,
+    );
+    const marker = code.indexOf(
+      'app.on(["POST", "PUT", "PATCH", "DELETE"], "/", __markNamedActionRequest);',
+    );
+    expect(marker !== -1).toBe(marked);
+    if (marked) {
+      expect(marker).toBeLessThan(code.indexOf('app.use(middleware0);'));
+    }
+  });
   it('marks page render options as dev only in dev builds', () => {
     expect(compile()).toContain('renderOptions: {"renderMode":"server","dev":true} }');
     const prod = compile({ ...testOptions, dev: false });

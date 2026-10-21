@@ -1,5 +1,6 @@
 import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
 import { isConvertedResponse } from '../runtime/response.ts';
+import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
 import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
 import {
   resolveHead,
@@ -611,7 +612,9 @@ export async function handlePageMutation(
       props,
       params: requestParams(c),
       shared,
-      url: requestPathWithSearch(c),
+      url: hasActionKey(c.req.raw)
+        ? c.req.path + searchWithoutActionKey(new URL(c.req.url).search)
+        : requestPathWithSearch(c),
       errors,
       ...(head && { head }),
     };

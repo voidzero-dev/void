@@ -8,10 +8,10 @@ import {
 } from '@void/edge';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
+import { hasActionKey, markActionKey, searchWithoutActionKey } from '../pages/action-key.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
-import { hasActionQueryKey } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -119,6 +119,7 @@ export function createRoutingRuntime(
         }
         const request = new Request(rewriteUrl.toString(), c.req.raw);
         rememberOriginal(request, c);
+        keepActionKey(c.req.raw, request, search);
         if (fallback) {
           fallbackHandled.add(request);
         }
@@ -169,6 +170,7 @@ export function createRoutingRuntime(
       }
       const request = new Request(url.toString(), c.req.raw);
       rememberOriginal(request, c);
+      keepActionKey(c.req.raw, request, search);
       return dispatch(request, c).then((response) =>
         annotate(response, `c.rewrite -> ${path} (middleware)`),
       );
@@ -176,7 +178,10 @@ export function createRoutingRuntime(
     const redirect = c.redirect.bind(c);
     c.redirect = (location, status) => {
       if (typeof location === 'string' && location.startsWith('/') && !location.startsWith('//')) {
-        return redirect(mergeQueryIntoLocation(location, redirectSearch(c.req.raw)), status);
+        return redirect(
+          mergeQueryIntoLocation(location, redirectSearch(c.req.raw, status)),
+          status,
+        );
       }
       return redirect(location, status);
     };
@@ -246,24 +251,21 @@ export function createRoutingRuntime(
   };
 }
 
-function redirectSearch(request: Request): string {
+function redirectSearch(request: Request, status: RedirectStatusCode | undefined): string {
   const search = new URL(request.url).search;
-  if (!hasActionQueryKey(request)) {
+  // 307 and 308 send the same method and body again, so the destination still
+  // needs the action key to pick the action.
+  if (!hasActionKey(request) || status === 307 || status === 308) {
     return search;
   }
-  // The action key is the first non-empty segment; keep the rest as sent.
-  let start = 1;
-  while (search[start] === '&') {
-    start++;
+  return searchWithoutActionKey(search);
+}
+
+/** A rewrite that keeps the query keeps the action key in it too. */
+function keepActionKey(from: Request, to: Request, destinationSearch: string): void {
+  if (!destinationSearch && hasActionKey(from)) {
+    markActionKey(to);
   }
-  let rest = search.indexOf('&', start);
-  if (rest === -1) {
-    return '';
-  }
-  while (search[rest] === '&') {
-    rest++;
-  }
-  return rest < search.length ? '?' + search.slice(rest) : '';
 }
 
 export function markNoMatch(request: Request, response: Response): Response {
@@ -297,6 +299,7 @@ export {
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
+  markNamedActionRequest,
 } from './routing-pages.ts';
 
 export function createModuleLoader<T>(load: () => Promise<T>, cache = true): () => Promise<T> {

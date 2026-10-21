@@ -1,4 +1,5 @@
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
+import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
 import type { ErrorRenderer } from './routing-errors.ts';
@@ -22,12 +23,19 @@ export type PageRouteOptions = {
   renderOptions: PageGetArguments[7];
   namedActions?: boolean;
 };
-// Requests whose first query key selected a named action. That key addresses
-// the action, not the page, so c.redirect() must not carry it over.
-const actionQueryRequests = new WeakSet<Request>();
-export function hasActionQueryKey(request: Request): boolean {
-  return actionQueryRequests.has(request);
+function actionNameOf(url: string): string | undefined {
+  return new URL(url).searchParams.keys().next().value;
 }
+/**
+ * Runs before auth and user middleware on pages with named actions, so a
+ * c.redirect() there leaves the action key out too.
+ */
+export const markNamedActionRequest: MiddlewareHandler = async (c, next) => {
+  if (actionNameOf(c.req.url)) {
+    markActionKey(c.req.raw);
+  }
+  await next();
+};
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
   return async (context) => {
     const mod = options.load ? await options.load() : { head: options.head };
@@ -48,9 +56,7 @@ export function createPageMutationHandler(
 ): (c: Context) => Promise<Response> {
   return async (context) => {
     const mod = options.load ? await options.load() : {};
-    const actionName = options.namedActions
-      ? new URL(context.req.url).searchParams.keys().next().value
-      : undefined;
+    const actionName = options.namedActions ? actionNameOf(context.req.url) : undefined;
     // The name comes from the query string, so only own function properties
     // count; `?constructor` or `?valueOf` must not reach Object.prototype.
     const name = actionName || 'default';
@@ -67,7 +73,7 @@ export function createPageMutationHandler(
       });
     }
     if (actionName) {
-      actionQueryRequests.add(context.req.raw);
+      markActionKey(context.req.raw);
     }
     return handlePageMutation(
       handler,

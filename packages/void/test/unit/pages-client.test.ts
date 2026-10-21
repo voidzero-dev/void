@@ -509,6 +509,24 @@ describe('createVoidRouter', () => {
     );
   });
 
+  it.each([
+    ['/books?delete&page=2', '/books?page=2', '/books?page=2'],
+    ['/books?delete', '/books', '/books'],
+    ['/books?page=2', '/books?page=2', '/books?page=2'],
+    ['/books?a&b', '/books?a&b', '/books?a&b'],
+  ])('writes POST %s with page URL %s to history as %s', async (url, pageUrl, historyUrl) => {
+    stubClientGlobals();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => pageJson({ component: 'home', props: {}, url: pageUrl, errors: null })),
+    );
+    const { router } = await createTestRouter();
+
+    await router.visit(url, { method: 'POST' });
+
+    expect(history.pushState).toHaveBeenCalledWith(expect.anything(), '', historyUrl);
+  });
+
   it('runs navigation listeners for same-page hash visits', async () => {
     const documentStub = stubClientGlobals();
     window.location.pathname = '/docs';
