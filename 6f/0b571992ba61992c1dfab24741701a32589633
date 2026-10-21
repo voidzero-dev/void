@@ -1,0 +1,49 @@
+packages/void/src/plugin-routing.ts
+  s_f572b1deb5ef86::t_d26d08cce07f65 207
+packages/void/src/router/compile.ts
+  s_f572b1deb5ef86::t_c3845807889959 36-37,159,269-272
+packages/void/src/runtime/routing-pages.ts
+  s_f572b1deb5ef86::t_2232c2ebf5c302 34-36,38-51
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_0bac0e641f2b61 303
+packages/void/test/integration/queue-dispatch.test.ts
+  s_f572b1deb5ef86::t_ac1cc6981cc3f1 93
+packages/void/test/integration/resource-name-migration.test.ts
+  s_f572b1deb5ef86::t_9cb8f3383c7b35 164
+packages/void/test/integration/trigger-auth.test.ts
+  s_f572b1deb5ef86::t_5727bdcb12267d 51
+packages/void/test/integration/typed-routing-runtime.test.ts
+  s_f572b1deb5ef86::t_ffd5cb942618fe 107
+packages/void/test/integration/websocket-middleware.test.ts
+  s_f572b1deb5ef86::t_0d9fc9012a0051 173
+packages/void/test/unit/compile-auth.test.ts
+  s_f572b1deb5ef86::t_ce3edba89305cd 15
+packages/void/test/unit/compile.test.ts
+  s_f572b1deb5ef86::t_08e97b30c39c90 32
+packages/void/test/unit/deploy-prerender-skip.test.ts
+  s_f572b1deb5ef86::t_40a2aff96615b4 76
+packages/void/test/unit/email-inbound.test.ts
+  s_f572b1deb5ef86::t_a115ab29955eaf 286
+packages/void/test/unit/pages-compile.test.ts
+  s_f572b1deb5ef86::t_8c2bcf66c66603 8,88,90-94
+packages/void/test/unit/routing-runtime.test.ts
+  s_f572b1deb5ef86::t_1144a43b6392bf 3,11,497
+packages/void/test/unit/scheduled-dispatch.test.ts
+  s_f572b1deb5ef86::t_4fcaba26482829 43
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "6f0b571992ba61992c1dfab24741701a32589633",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
