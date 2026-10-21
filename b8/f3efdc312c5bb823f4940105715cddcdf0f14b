@@ -1,0 +1,31 @@
+packages/void/src/plugin-drizzle.ts
+  s_f572b1deb5ef86::t_16da0979d56250 148-151,167,249,301
+packages/void/test/unit/plugin-drizzle.test.ts
+  s_1e6b213f04580a::t_3744f2996216ba 753-768
+packages/void/test/unit/plugin-vite-environment.test.ts
+  s_1e6b213f04580a::t_90e18493366df3 14,948-1000
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b8f3efdc312c5bb823f4940105715cddcdf0f14b",
+  "prompts": {},
+  "sessions": {
+    "s_1e6b213f04580a": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "agent-ab2bf943e1583a61c",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    },
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
