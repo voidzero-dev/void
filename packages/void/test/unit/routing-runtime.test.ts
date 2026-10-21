@@ -534,6 +534,12 @@ describe('typed Pages and SSR execution', () => {
       ['POST', '/named?delete&page=2', 'middleware', '/login?page=2'],
       ['POST', '/named?move&page=2', 'a 307 redirect', '/named-v2?move&page=2'],
       ['POST', '/named?moveTab&page=2', 'a 307 redirect', '/named-v2?moveTab&tab=details&page=2'],
+      [
+        'POST',
+        '/named?moveTab&moveTab=secondary&page=2',
+        'a 307 redirect',
+        '/named-v2?moveTab&tab=details&moveTab=secondary&page=2',
+      ],
       ['PUT', '/named?replace&page=2', 'a 302 redirect', '/named-v2?replace&tab=details&page=2'],
       [
         'PUT',

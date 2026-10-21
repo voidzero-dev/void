@@ -296,7 +296,15 @@ function redirectLocation(
   const segments = q === -1 ? [] : base.slice(q + 1).split('&');
   const key = actionKeySegment(search);
   const name = queryKey(key);
-  const own = segments.findIndex((segment) => segment !== '' && queryKey(segment) === name);
+  const hasName = (segment: string) => segment !== '' && queryKey(segment) === name;
+  // Only the destination's own value replaces the key. The merge then left out
+  // the request's values for that name and put the destination's first.
+  const own = location
+    .slice(destinationQuery + 1, hash === -1 ? location.length : hash)
+    .split('&')
+    .some(hasName)
+    ? segments.findIndex(hasName)
+    : -1;
   const first = own === -1 ? key : segments.splice(own, 1)[0];
   const rest = segments.join('&');
   return (
