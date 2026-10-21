@@ -530,6 +530,23 @@ describe('typed Pages and SSR execution', () => {
       expect(response.headers.get('location')).toBe(location);
     });
 
+    it.each([
+      [301, ['page']],
+      [308, ['delete', 'page']],
+    ] as const)('a %i redirect rule carries the query keys %j', async (status, keys) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.on(['POST'], '/named', markNamedActionRequest);
+      app.use(runtime.routingMiddleware([{ source: '/named', destination: '/library', status }]));
+      const response = await app.fetch(
+        new Request('https://app.test/named?delete&page=2', { method: 'POST' }),
+      );
+      const location = new URL(response.headers.get('location')!, 'https://app.test');
+      expect(location.pathname).toBe('/library');
+      expect([...location.searchParams.keys()]).toEqual(keys);
+    });
+
     it('leaves the key out of the page URL when the action renders the page again', async () => {
       const response = await createNamedActionApp().fetch(
         new Request('https://app.test/named?save&page=2', {
