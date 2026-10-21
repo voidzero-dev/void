@@ -65,8 +65,8 @@ describe('compileRouteTable auth integration', () => {
     expect(code).toContain('handleVoidAuthRequest');
     expect(code).toContain('runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase)');
     expect(code).toContain('handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase)');
-    expect(code).toContain('app.all("/api/auth"');
-    expect(code).toContain('app.all("/api/auth/*"');
+    expect(code).toContain('app.all("/api/auth", __markRouteHandler(');
+    expect(code).toContain('app.all("/api/auth/*", __markRouteHandler(');
     expect(code).not.toContain('app.post("/auth/register"');
     expect(code).not.toContain('app.post("/auth/login"');
     expect(code).not.toContain('app.get("/auth/me"');

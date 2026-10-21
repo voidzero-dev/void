@@ -156,7 +156,7 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
@@ -307,13 +307,13 @@ export function compileRouteTable(
   }
 
   if (auth) {
-    lines.push('app.all("/api/auth", async (c) => {');
+    lines.push('app.all("/api/auth", __markRouteHandler(async (c) => {');
     lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
-    lines.push('app.all("/api/auth/*", async (c) => {');
+    lines.push('app.all("/api/auth/*", __markRouteHandler(async (c) => {');
     lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
   }
 
@@ -401,7 +401,7 @@ export function compileRouteTable(
   // Pages handlers win for their methods; upgrades were forwarded above.
   for (let i = 0; i < webSockets.length; i++) {
     lines.push(
-      `app.all(${JSON.stringify(webSockets[i].pattern)}, (c) => __forwardWebSocketRequest(c.req.raw, c.env, __voidWebSocketRoutes[${i}]));`,
+      `app.all(${JSON.stringify(webSockets[i].pattern)}, __markRouteHandler((c) => __forwardWebSocketRequest(c.req.raw, c.env, __voidWebSocketRoutes[${i}])));`,
     );
   }
   if (webSockets.length > 0) {
@@ -502,7 +502,7 @@ export function compileRouteTable(
     lines.push('  await scheduled(controller, c.env, c.executionCtx);');
     lines.push('  return c.json({ ok: true });');
     lines.push('};');
-    lines.push('app.post("/__void/scheduled", __scheduledHandler);');
+    lines.push('app.post("/__void/scheduled", __markRouteHandler(__scheduledHandler));');
     lines.push('');
   }
 
@@ -570,7 +570,7 @@ export function compileRouteTable(
     lines.push('  const result = await __processQueue(payload, c.env);');
     lines.push('  return c.json(result);');
     lines.push('};');
-    lines.push('app.post("/__void/queue", __queueHandler);');
+    lines.push('app.post("/__void/queue", __markRouteHandler(__queueHandler));');
     lines.push('');
   }
 
@@ -716,20 +716,20 @@ export function compileRouteTable(
     lines.push('  return null;');
     lines.push('}');
     lines.push(
-      `app.post("/__void/migrate", (c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(c.req.raw));`,
+      `app.post("/__void/migrate", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(c.req.raw)));`,
     );
     lines.push(
-      `app.get("/__void/migrate/capabilities", (c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(c.req.raw));`,
+      `app.get("/__void/migrate/capabilities", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(c.req.raw)));`,
     );
     lines.push(
-      'app.post("/__void/migrate/app", (c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw));',
+      'app.post("/__void/migrate/app", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
     );
     lines.push(
-      'app.get("/__void/migrate/app/attempt/:attemptId", (c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw));',
+      'app.get("/__void/migrate/app/attempt/:attemptId", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
     );
     if (auth) {
       lines.push(
-        'app.post("/__void/migrate/auth", (c) => __voidCreateMigrationRequestHandler(true, true)(c.req.raw));',
+        'app.post("/__void/migrate/auth", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(true, true)(c.req.raw)));',
       );
     }
     lines.push('');
@@ -744,14 +744,14 @@ export function compileRouteTable(
       `import { createBindingHandler as __createBindingHandler } from ${JSON.stringify(options.bindingHandlerPath)};`,
     );
     lines.push('let __voidBindingApp;');
-    lines.push('app.all("/__void/*", async (c) => {');
+    lines.push('app.all("/__void/*", __markRouteHandler(async (c) => {');
     lines.push(
       '  if (!__voidBindingApp) __voidBindingApp = __createBindingHandler(__getRawEnv());',
     );
     lines.push('  const url = new URL(c.req.url);');
     lines.push('  url.pathname = url.pathname.slice(7);');
     lines.push('  return __voidBindingApp.fetch(new Request(url.toString(), c.req.raw));');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
   }
 

@@ -10,6 +10,7 @@ import {
   createPagesFallback,
   createNamedActionMarker,
   createSsrFallback,
+  markRouteHandler,
 } from '../../src/runtime/routing-pages.ts';
 import {
   applyAssetCachePolicy,
@@ -556,6 +557,26 @@ describe('typed Pages and SSR execution', () => {
         new Request('https://app.test/api/x?return=/a&page=2', { method: 'POST' }),
       );
       expect(response.headers.get('location')).toBe('/done?return=/a&page=2');
+    });
+
+    it('leaves the query alone when a tagged Void route answers before a catch-all page', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
+      app.all(
+        '/api/auth/*',
+        markRouteHandler(async () => new Response('auth')),
+      );
+      app.post('/*', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+      const response = await app.fetch(
+        new Request('https://app.test/api/auth/callback?code=1&state=2', {
+          method: 'POST',
+          headers: { 'x-anon': '1' },
+        }),
+      );
+      expect(response.headers.get('location')).toBe('/login?code=1&state=2');
     });
 
     it('leaves the key out of the page URL when the action renders the page again', async () => {
