@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import {
   cpSync,
   copyFileSync,
@@ -26,6 +27,7 @@ import {
 import { type ModuleType, OutputContainerSchema } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
+import type { Plugin } from 'vite';
 import { migrateBuiltWranglerConfig, record } from './cf-config-migrate.ts';
 import { buildContainerImage } from './container-image.ts';
 import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
@@ -321,6 +323,28 @@ async function prepareNativeBuildOutput(
   }
 }
 
+/** Emit `.wasm` imports beside the bundle so cf uploads them as Worker Wasm modules. */
+function workerWasmModules(): Plugin {
+  return {
+    name: 'void:worker-wasm-modules',
+    enforce: 'pre',
+    async resolveId(source, importer) {
+      if (!source.endsWith('.wasm')) {
+        return null;
+      }
+      const resolved = await this.resolve(source, importer, { skipSelf: true });
+      if (!resolved) {
+        return null;
+      }
+      const wasm = readFileSync(resolved.id);
+      const hash = createHash('sha256').update(wasm).digest('hex').slice(0, 8);
+      const fileName = `${basename(resolved.id, '.wasm')}-${hash}.wasm`;
+      this.emitFile({ type: 'asset', fileName, source: wasm });
+      return { id: `./${fileName}`, external: true };
+    },
+  };
+}
+
 /** Bundle a generated Worker entry with Vite, then hand the result to `prepareCfBuildOutput`. */
 async function prepareBundledBuildOutput(options: {
   projectRoot: string;
@@ -339,6 +363,7 @@ async function prepareBundledBuildOutput(options: {
       root: options.projectRoot,
       publicDir: false,
       logLevel: 'error',
+      plugins: [workerWasmModules()],
       build: {
         outDir: scratch,
         emptyOutDir: true,

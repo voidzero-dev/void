@@ -563,6 +563,73 @@ it(
 );
 
 it(
+  'keeps framework Wasm imports as Worker Wasm modules',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-wasm-test-'));
+    roots.push(root);
+    const output = join(root, 'framework');
+    mkdirSync(join(output, 'chunks'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    writeFileSync(
+      join(root, 'wrangler.json'),
+      JSON.stringify({
+        name: 'void-framework-test',
+        account_id: 'account-id',
+        main: 'framework/_worker.js',
+        compatibility_date: '2026-09-29',
+        assets: { directory: 'framework', binding: 'ASSETS' },
+      }),
+    );
+    // Imports `wbg`, like wasm-bindgen output.
+    const bindgenWasm = Buffer.from([
+      0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 2, 9, 1, 3, 119, 98, 103, 1, 102, 0, 0,
+    ]);
+    const plainWasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    mkdirSync(join(root, 'node_modules/bindgen'), { recursive: true });
+    writeFileSync(join(root, 'node_modules/bindgen/index_bg.wasm'), bindgenWasm);
+    writeFileSync(join(output, 'plain.wasm'), plainWasm);
+    writeFileSync(
+      join(output, '_worker.js'),
+      "import plain from './plain.wasm'; import { render } from './chunks/render.js';\n" +
+        'export default { async fetch() { return new Response(String(plain) + await render()) } };\n',
+    );
+    writeFileSync(
+      join(output, 'chunks/render.js'),
+      "import plain from '../plain.wasm';\n" +
+        "export async function render() { return String(plain) + String(await import('bindgen/index_bg.wasm')); }\n",
+    );
+    writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
+
+    await withPrepared(
+      prepareCfFrameworkBuildOutput({
+        projectRoot: root,
+        configPath: join(root, 'wrangler.json'),
+        accountId: 'account-id',
+      }),
+      async (prepared) => {
+        const built = await readBuildOutput(prepared.directory);
+        const modules = built.workers.default.config.manifest?.modules ?? {};
+        const wasm = Object.keys(modules).filter((name) => modules[name].type === 'wasm');
+        const bundle = getWorkerBundleDir(prepared.directory);
+        expect(wasm.map((name) => readFileSync(join(bundle, name)))).toEqual(
+          expect.arrayContaining([bindgenWasm, plainWasm]),
+        );
+        expect(wasm).toHaveLength(2);
+        const code = readdirSync(bundle)
+          .filter((name) => name.endsWith('.js'))
+          .map((name) => readFileSync(join(bundle, name), 'utf8'))
+          .join('\n');
+        for (const name of wasm) {
+          expect(code).toContain(`./${name}`);
+        }
+        expectCfDryRun(prepared.directory);
+      },
+    );
+  },
+  CF_BUILD_TIMEOUT_MS,
+);
+
+it(
   'accepts a nested hashed Worker entry with a relative module import',
   async () => {
     const output = worker({
