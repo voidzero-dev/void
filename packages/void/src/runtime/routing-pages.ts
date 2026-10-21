@@ -1,5 +1,4 @@
 import type { Context, MiddlewareHandler } from 'hono';
-import { matchedRoutes } from 'hono/route';
 import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
@@ -32,16 +31,24 @@ const namedActionHandlers = new WeakSet<Function>();
  * Runs before auth and user middleware, so a c.redirect() there leaves the
  * action key out too. It marks the request only when a page with named actions
  * is the route that will answer it, not when a broad page pattern also matches.
+ *
+ * `matchedRoutes` comes from 'hono/route' of the same Hono copy as the app: it
+ * reads the request through a Symbol that each copy defines for itself.
  */
-export const markNamedActionRequest: MiddlewareHandler = async (c, next) => {
-  const routes = matchedRoutes(c);
-  // Middleware takes (c, next); the first one-argument handler answers.
-  const answer = routes.slice(c.req.routeIndex + 1).find((route) => route.handler.length < 2);
-  if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
-    markActionKey(c.req.raw);
-  }
-  await next();
-};
+export function createNamedActionMarker(
+  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
+): MiddlewareHandler {
+  return async (c, next) => {
+    // Middleware takes (c, next); the first one-argument handler answers.
+    const answer = matchedRoutes(c)
+      .slice(c.req.routeIndex + 1)
+      .find((route) => route.handler.length < 2);
+    if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
+      markActionKey(c.req.raw);
+    }
+    await next();
+  };
+}
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
   return async (context) => {
     const mod = options.load ? await options.load() : { head: options.head };

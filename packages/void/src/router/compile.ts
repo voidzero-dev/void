@@ -33,6 +33,8 @@ export type AuthCompileOptions = {
 export type CompileOptions = {
   /** Absolute path to the hono module entry */
   honoPath: string;
+  /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
+  honoRoutePath: string;
   /** Absolute path to the void/_env module */
   runtimeEnvPath: string;
   /** Absolute path to the project's `email/` directory; enables `__emailHandler`. */
@@ -154,7 +156,7 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, markNamedActionRequest as __markNamedActionRequest, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
@@ -264,7 +266,10 @@ export function compileRouteTable(
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
   if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
-    lines.push('app.use(__markNamedActionRequest);');
+    lines.push(
+      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
+    );
+    lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
   }
 
   if (auth) {

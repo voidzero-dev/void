@@ -29,6 +29,7 @@ import {
 
 const testOptions = {
   honoPath: '/resolved/hono/index.mjs',
+  honoRoutePath: '/resolved/hono/route.mjs',
 
   runtimeEnvPath: '/resolved/void/runtime/env.mjs',
   projectRoot: '/project',

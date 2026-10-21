@@ -104,6 +104,7 @@ describe('typed routing in generated Workers', () => {
           null,
           {
             honoPath: fileURLToPath(import.meta.resolve('hono')),
+            honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
             runtimeEnvPath: source('env.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),

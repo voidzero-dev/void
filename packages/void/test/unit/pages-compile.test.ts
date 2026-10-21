@@ -5,6 +5,7 @@ import type { ScanResult } from '../../src/router/scan.ts';
 
 const testOptions = {
   honoPath: '/resolved/hono/index.mjs',
+  honoRoutePath: '/resolved/hono/route.mjs',
 
   runtimeEnvPath: '/resolved/void/runtime/env.mjs',
   projectRoot: '/project',
@@ -84,8 +85,13 @@ describe('Pages metadata wiring', () => {
         { ...testOptions, redirectRules: [{ source: '/old', destination: '/', status: 301 }] },
         pagesOptions,
       );
-      const marker = code.indexOf('app.use(__markNamedActionRequest);');
+      const marker = code.indexOf('app.use(__createNamedActionMarker(__matchedRoutes));');
       expect(marker !== -1).toBe(marked);
+      expect(
+        code.includes(
+          'import { matchedRoutes as __matchedRoutes } from "/resolved/hono/route.mjs";',
+        ),
+      ).toBe(marked);
       if (marked) {
         expect(marker).toBeGreaterThan(code.indexOf('__routingRuntime.routingMiddleware('));
         expect(marker).toBeLessThan(code.indexOf('app.use(middleware0);'));

@@ -1,5 +1,6 @@
 import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
+import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
@@ -7,8 +8,8 @@ import {
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
+  createNamedActionMarker,
   createSsrFallback,
-  markNamedActionRequest,
 } from '../../src/runtime/routing-pages.ts';
 import {
   applyAssetCachePolicy,
@@ -493,7 +494,7 @@ describe('typed Pages and SSR execution', () => {
       const app = new Hono();
       const runtime = createRoutingRuntime(app, { nodeTarget: true });
       app.use(runtime.contextMiddleware);
-      app.use(markNamedActionRequest);
+      app.use(createNamedActionMarker(matchedRoutes));
       app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
       app.post('/api/x', (c) => c.redirect('/done'));
       app.on(

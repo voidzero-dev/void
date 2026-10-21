@@ -300,7 +300,7 @@ export {
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
-  markNamedActionRequest,
+  createNamedActionMarker,
 } from './routing-pages.ts';
 
 export function createModuleLoader<T>(load: () => Promise<T>, cache = true): () => Promise<T> {
