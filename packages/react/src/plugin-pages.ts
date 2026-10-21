@@ -12,15 +12,9 @@ const RENDERER_ID = 'virtual:void-pages-renderer';
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 const WORKER_ENVIRONMENT_NAME = 'void_worker';
 const REACT_DEDUPE = ['react', 'react-dom'];
-const REACT_OPTIMIZE_DEPS = [
-  'react',
-  'react/jsx-runtime',
-  'react/jsx-dev-runtime',
-  'react-dom',
-  'react-dom/client',
-  'react-dom/server',
-];
-const WORKER_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'void/live/client'];
+const REACT_OPTIMIZE_DEPS = ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom'];
+const CLIENT_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'react-dom/client'];
+const WORKER_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'react-dom/server', 'void/live/client'];
 
 // SSR HTML bypasses transformIndexHtml, so @vitejs/plugin-react cannot inject
 // its Fast Refresh preamble. Without it, the dev client entry fails to load.
@@ -193,11 +187,11 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
             // Pre-include React entries that are discovered late via dynamic
             // imports during SPA navigation, avoiding a full-page reload
             // from Vite's dep optimizer.
-            include: REACT_OPTIMIZE_DEPS,
+            include: CLIENT_OPTIMIZE_DEPS,
           },
           ssr: {
             optimizeDeps: {
-              include: REACT_OPTIMIZE_DEPS,
+              include: [...CLIENT_OPTIMIZE_DEPS, 'react-dom/server'],
             },
           },
           environments: {

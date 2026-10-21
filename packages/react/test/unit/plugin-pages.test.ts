@@ -89,6 +89,29 @@ describe('pagesPlugin dev config', () => {
     });
   });
 
+  it('includes only the React entry points needed by each environment', () => {
+    const config = loadServeConfig() as {
+      optimizeDeps: { include: Array<string> };
+      ssr?: { optimizeDeps?: { include?: Array<string> } };
+      environments: {
+        void_worker: { optimizeDeps: { include: Array<string> } };
+      };
+    };
+
+    expect(config.optimizeDeps.include).toContain('react-dom/client');
+    expect(config.optimizeDeps.include).not.toContain('react-dom/server');
+    expect(config.environments.void_worker.optimizeDeps.include).toContain('react-dom/server');
+    expect(config.environments.void_worker.optimizeDeps.include).not.toContain('react-dom/client');
+    expect(config.ssr?.optimizeDeps?.include).toEqual([
+      'react',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+      'react-dom',
+      'react-dom/client',
+      'react-dom/server',
+    ]);
+  });
+
   it('rescans dev renderer loads after adding a page file', async () => {
     writePage('index.tsx', 'export default function Index() { return <h1>Home</h1>; }\n');
 
