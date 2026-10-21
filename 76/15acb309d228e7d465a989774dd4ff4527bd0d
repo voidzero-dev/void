@@ -1,0 +1,23 @@
+packages/void/src/router/compile.ts
+  s_f572b1deb5ef86::t_964ef08222582a 264-275
+packages/void/src/runtime/routing.ts
+  s_f572b1deb5ef86::t_97fb9233b277af 133
+packages/void/test/unit/pages-compile.test.ts
+  s_f572b1deb5ef86::t_d6b4faf5832d12 67-96
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7615acb309d228e7d465a989774dd4ff4527bd0d",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
