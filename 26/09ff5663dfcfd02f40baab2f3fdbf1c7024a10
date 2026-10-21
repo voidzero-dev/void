@@ -1,0 +1,23 @@
+packages/void/test/unit/plugin-class-a-wrapper.test.ts
+  s_f572b1deb5ef86::t_b1d249869b5707 104-106
+packages/void/test/unit/plugin-entry-imports.test.ts
+  s_f572b1deb5ef86::t_5fd4e5f84b655e 25,28
+packages/void/test/unit/plugin-vite-environment.test.ts
+  s_f572b1deb5ef86::t_26544d9d0932c5 14,958,961,981-983,993
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "2609ff5663dfcfd02f40baab2f3fdbf1c7024a10",
+  "prompts": {},
+  "sessions": {
+    "s_f572b1deb5ef86": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "0700e228-a7a7-4128-b9d1-cb467955aa33",
+        "model": "unknown"
+      },
+      "human_author": "LongYinan <github@lyn.one>"
+    }
+  }
+}
