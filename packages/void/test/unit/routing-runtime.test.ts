@@ -496,7 +496,10 @@ describe('typed Pages and SSR execution', () => {
       app.use(runtime.contextMiddleware);
       app.use(createNamedActionMarker(matchedRoutes));
       app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
-      app.post('/api/x', (c) => c.redirect('/done'));
+      app.post(
+        '/api/x',
+        createHttpRouteHandler(async () => ({ POST: (c: Context) => c.redirect('/done') }), 'POST'),
+      );
       app.on(
         ['POST', 'PUT'],
         pagePattern,
@@ -533,6 +536,19 @@ describe('typed Pages and SSR execution', () => {
         }),
       );
       expect(response.headers.get('location')).toBe(location);
+    });
+
+    it('marks the request for a one-argument middleware that answers first', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use('/named', async (c) => c.redirect('/maintenance'));
+      app.post('/named', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+      const response = await app.fetch(
+        new Request('https://app.test/named?delete&page=2', { method: 'POST' }),
+      );
+      expect(response.headers.get('location')).toBe('/maintenance?page=2');
     });
 
     it('leaves the query alone when another route answers a catch-all page pattern', async () => {

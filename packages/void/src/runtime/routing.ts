@@ -12,6 +12,7 @@ import { hasActionKey, markActionKey, searchWithoutActionKey } from '../pages/ac
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
+import { markRouteHandler } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -293,7 +294,9 @@ export function createHttpRouteHandler(
   load: () => Promise<Record<string, (c: Context) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
-  return async (c) => convertReturnValue(await (await load())[method](c));
+  return markRouteHandler(async (c: Context) =>
+    convertReturnValue(await (await load())[method](c)),
+  );
 }
 
 export {

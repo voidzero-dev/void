@@ -26,7 +26,13 @@ export type PageRouteOptions = {
 function actionNameOf(url: string): string | undefined {
   return new URL(url).searchParams.keys().next().value;
 }
+const routeHandlers = new WeakSet<Function>();
 const namedActionHandlers = new WeakSet<Function>();
+/** Records a handler that answers a route, so the marker can tell it from middleware. */
+export function markRouteHandler<T extends Function>(handler: T): T {
+  routeHandlers.add(handler);
+  return handler;
+}
 /**
  * Runs before auth and user middleware, so a c.redirect() there leaves the
  * action key out too. It marks the request only when a page with named actions
@@ -39,10 +45,9 @@ export function createNamedActionMarker(
   matchedRoutes: (c: Context) => Array<{ handler: Function }>,
 ): MiddlewareHandler {
   return async (c, next) => {
-    // Middleware takes (c, next); the first one-argument handler answers.
     const answer = matchedRoutes(c)
       .slice(c.req.routeIndex + 1)
-      .find((route) => route.handler.length < 2);
+      .find((route) => routeHandlers.has(route.handler));
     if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
       markActionKey(c.req.raw);
     }
@@ -50,7 +55,7 @@ export function createNamedActionMarker(
   };
 }
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
-  return async (context) => {
+  return markRouteHandler(async (context: Context) => {
     const mod = options.load ? await options.load() : { head: options.head };
     return handlePageGet(
       mod.loader,
@@ -62,7 +67,7 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
       options.headConfig ?? undefined,
       options.renderOptions,
     );
-  };
+  });
 }
 export function createPageMutationHandler(
   options: PageRouteOptions,
@@ -103,7 +108,7 @@ export function createPageMutationHandler(
   if (options.namedActions) {
     namedActionHandlers.add(mutationHandler);
   }
-  return mutationHandler;
+  return markRouteHandler(mutationHandler);
 }
 
 export function createPagesFallback(options: {
