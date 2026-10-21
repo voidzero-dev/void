@@ -614,7 +614,7 @@ it(
       }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
-        const modules = built.workers.default.config.manifest?.modules ?? {};
+        const { modules } = built.workers.default.config.manifest!;
         const bundle = getWorkerBundleDir(prepared.directory);
         const additional = Object.keys(modules)
           .filter((name) => modules[name].type !== 'esm')

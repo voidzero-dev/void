@@ -324,10 +324,10 @@ async function prepareNativeBuildOutput(
 
 // The Cloudflare Vite plugin's additional module rules (CompiledWasm, Data and Text).
 const additionalModuleRE = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
-const moduleReferenceRE = /__VOID_MODULE__(.*?)__VOID_MODULE__/g;
+const modulePlaceholderRE = /__VOID_MODULE__(.*?)__VOID_MODULE__/g;
 
 /** Emit additional module imports beside the bundle, like `@cloudflare/vite-plugin`. */
-function additionalModules(): Plugin {
+function additionalModulesPlugin(): Plugin {
   return {
     name: 'void:additional-modules',
     enforce: 'pre',
@@ -342,7 +342,7 @@ function additionalModules(): Plugin {
       return { id: `__VOID_MODULE__${resolved.id.split('?')[0]}__VOID_MODULE__`, external: true };
     },
     renderChunk(code, chunk) {
-      return code.replace(moduleReferenceRE, (_, path: string) => {
+      return code.replace(modulePlaceholderRE, (_, path: string) => {
         const fileName = this.getFileName(
           this.emitFile({ type: 'asset', name: basename(path), source: readFileSync(path) }),
         );
@@ -371,7 +371,7 @@ async function prepareBundledBuildOutput(options: {
       root: options.projectRoot,
       publicDir: false,
       logLevel: 'error',
-      plugins: [additionalModules()],
+      plugins: [additionalModulesPlugin()],
       build: {
         outDir: scratch,
         emptyOutDir: true,
