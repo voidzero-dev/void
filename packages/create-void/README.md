@@ -12,8 +12,6 @@ cd my-app
 npm run dev
 ```
 
-Use a lowercase project name, such as `my-app`.
-
 Choose Vite+ or Vite, then React, Vue, Svelte, or Solid. Pick a D1, PostgreSQL, MySQL, or Static Pages starter. The wizard installs dependencies and sets up TypeScript and coding agents; choose Cloudflare to deploy to your account, or connect to a team platform.
 
 When you're ready to deploy:
