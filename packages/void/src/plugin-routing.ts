@@ -37,6 +37,7 @@ import type { RouteEnvironment } from './router/parse-filename.ts';
 import type { ScanResult } from './router/scan.ts';
 import type { VoidAuthRuntimeOptions } from './runtime/better-auth-shared.ts';
 import { loadLocalEnv } from './shared/env.ts';
+import { invalidateSourceAnalysis } from './shared/source-analysis-cache.ts';
 import {
   validateSsrEntries,
   SSR_SERVER_ENTRY_RELATIVE_PATHS,
@@ -102,6 +103,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   let previewing = false;
   let ssr: SsrCompileOptions | null = null;
   let authConfigPath: string | null = null;
+  // Everything a rescan feeds into the route table and generated entries.
+  const routeInputsKey = () => JSON.stringify([scan, authConfigPath, ssr]);
   const paths = readProjectPaths(root);
   const routesDir = paths.routesDir;
   const middlewareDir = paths.middlewareDir;
@@ -664,6 +667,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
 
       const handleFileChange = async (path: string, event: 'add' | 'change' | 'unlink') => {
         const normalizedPath = normalizePath(path);
+        invalidateSourceAnalysis(normalizedPath);
         const sourceConventionChanged =
           isInDirectory(normalizedPath, normalizedRoutesDir) ||
           isInDirectory(normalizedPath, normalizedMiddlewareDir) ||
@@ -680,6 +684,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         // Re-scan and invalidate the virtual module in ALL environments.
         // The route table virtual module lives in the workerd environment,
         // not the client — so we must iterate all environments.
+        const previousRouteInputs = routeInputsKey();
         try {
           await rescan(true);
         } catch (error) {
@@ -700,7 +705,19 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           }
           return;
         }
-        resolveAuthCompileOptions();
+        // Saving a page body or handler usually changes nothing the scan reports.
+        // Vite already invalidates the saved module, so the route table only needs
+        // regenerating when the scan moved: it re-transforms and re-runs a module
+        // that grows with the number of pages.
+        const routeInputsChanged =
+          event !== 'change' ||
+          isPotentialAuthConfigPath(normalizedPath) ||
+          isPotentialEnvFilePath(normalizedPath) ||
+          ssrEntryAbsPaths.has(normalizedPath) ||
+          routeInputsKey() !== previousRouteInputs;
+        if (routeInputsChanged) {
+          resolveAuthCompileOptions();
+        }
         const shouldRestartForAssetRouting =
           event !== 'change' &&
           options.onDevAssetRoutingPolicyChange?.(resolveCurrentAssetRoutingPolicy()) === true;
@@ -708,13 +725,15 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           await devServer.restart();
           return;
         }
-        await writeAuthDatabaseFiles();
-        writeRouteTypes();
-        writeQueueTypes();
-        if (options.target) {
-          writeNodeEntries(options.target);
-        } else {
-          writeWorkerEntry(undefined);
+        if (routeInputsChanged) {
+          await writeAuthDatabaseFiles();
+          writeRouteTypes();
+          writeQueueTypes();
+          if (options.target) {
+            writeNodeEntries(options.target);
+          } else {
+            writeWorkerEntry(undefined);
+          }
         }
 
         // For structural changes (file add/remove), send full-reload to trigger
@@ -738,7 +757,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
             }
           }
           const mod = env.moduleGraph.getModuleById(VIRTUAL_ROUTES_ID);
-          if (mod) {
+          if (mod && routeInputsChanged) {
             env.moduleGraph.invalidateModule(mod);
             if (structural) {
               env.hot.send({ type: 'full-reload' });

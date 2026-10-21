@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join, dirname, basename, extname } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
@@ -16,6 +16,7 @@ import {
   type AstProgram,
   type AstVariableDeclaration,
 } from '../shared/ast.ts';
+import { deriveFromSource } from '../shared/source-analysis-cache.ts';
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
 import { scriptBlocks } from './island-imports.ts';
 import { resolveNamedLayout } from './layout-resolution.ts';
@@ -298,8 +299,9 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       const candidate = `${serverBase}.server.${serverExt}`;
       if (existsSync(join(pagesDir, candidate))) {
         serverPath = candidate;
-        const content = readFileSync(join(pagesDir, candidate), 'utf-8');
-        const metadata = detectPageServerMetadata(content, candidate);
+        const metadata = deriveFromSource(join(pagesDir, candidate), 'page-server', (source) =>
+          detectPageServerMetadata(source, candidate),
+        );
         methods.push(...metadata.methods);
         revalidate = metadata.revalidate;
         prerender = metadata.prerender;
@@ -332,12 +334,14 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     let metadata: { title?: string; description?: string } | undefined;
     let layout: string | false | undefined;
     if (ext === '.md') {
-      const mdContent = readFileSync(join(pagesDir, file), 'utf-8');
-      metadata = extractFrontmatterMeta(mdContent);
-      layout = extractFrontmatterLayout(mdContent);
+      ({ metadata, layout } = deriveFromSource(join(pagesDir, file), 'page-markdown', (source) => ({
+        metadata: extractFrontmatterMeta(source),
+        layout: extractFrontmatterLayout(source),
+      })));
     } else {
-      const componentContent = readFileSync(join(pagesDir, file), 'utf-8');
-      layout = componentLayout(componentContent, file);
+      layout = deriveFromSource(join(pagesDir, file), 'page-layout', (source) =>
+        componentLayout(source, file),
+      );
     }
 
     pages.push({

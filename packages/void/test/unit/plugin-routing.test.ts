@@ -335,19 +335,61 @@ describe('routingPlugin', () => {
     },
   );
 
-  it('does not invalidate page renderer modules for component-only page saves', async () => {
+  it('keeps page and route modules for saves that change no scanned facts', async () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'pages'), { recursive: true });
     const pagePath = join(root, 'pages', 'index.tsx');
+    const serverPath = join(root, 'pages', 'index.server.ts');
+    const routePath = join(root, 'routes', 'health.ts');
     writeFileSync(pagePath, 'export default function Index() { return null; }');
+    writeFileSync(serverPath, 'export const loader = () => ({ count: 1 });');
+    writeFileSync(routePath, 'export const GET = () => new Response("ok");');
 
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
     const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
 
     writeFileSync(pagePath, 'export default function Index() { return <h1>Updated</h1>; }');
     await emit('change', pagePath);
+    writeFileSync(serverPath, 'export const loader = () => ({ count: 2 });');
+    await emit('change', serverPath);
+    writeFileSync(routePath, 'export const GET = () => new Response("still ok");');
+    await emit('change', routePath);
 
+    expect(invalidated).toEqual([]);
+  });
+
+  it('regenerates the route table when a save changes scanned facts', async () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    const serverPath = join(root, 'pages', 'index.server.ts');
+    const routePath = join(root, 'routes', 'health.ts');
+    writeFileSync(
+      join(root, 'pages', 'index.tsx'),
+      'export default function Index() { return null; }',
+    );
+    writeFileSync(serverPath, 'export const loader = () => ({});');
+    writeFileSync(routePath, 'export const GET = () => new Response("ok");');
+
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
+    const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
+
+    writeFileSync(
+      serverPath,
+      'export const loader = () => ({});\nexport const action = () => ({});',
+    );
+    await emit('change', serverPath);
     expect(invalidated).toEqual(['virtual:void-routes']);
+
+    writeFileSync(
+      routePath,
+      'export const GET = () => new Response("ok");\nexport const POST = () => new Response("ok");',
+    );
+    await emit('change', routePath);
+    expect(invalidated).toEqual(['virtual:void-routes', 'virtual:void-routes']);
   });
 
   it('rescans sourceDir route changes during dev', async () => {

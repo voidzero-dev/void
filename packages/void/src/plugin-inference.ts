@@ -11,6 +11,7 @@ import {
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
+import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 
 const SOURCE_GLOB = '**/*.{ts,tsx,mts,js,jsx,mjs,astro}';
@@ -168,8 +169,9 @@ export function inferProjectBindings(
         return;
       }
     }
-    const code = readFileSync(file, 'utf-8');
-    allBindings.push(inferBindingsFromFile(file, code));
+    allBindings.push(
+      deriveFromSource(file, 'bindings', (code) => inferBindingsFromFile(file, code)),
+    );
   };
 
   for (const dir of dirs) {

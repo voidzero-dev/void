@@ -1080,3 +1080,45 @@ describe('resolveLayoutIds', () => {
     ).toEqual(['_layouts/home']);
   });
 });
+
+describe('scanPages between saves', () => {
+  beforeEach(() => {
+    mkdirSync(join(TMP, 'pages'), { recursive: true });
+    // Files written by a test are too recent to reuse; move the clock past that window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60_000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('picks up page metadata changed since the previous scan', async () => {
+    writeFile('cached/post.tsx', 'export default function Post() { return null; }');
+    writeFile('cached/post.server.ts', 'export const revalidate = 60;');
+    writeFile('cached/notes.md', '---\ntitle: Draft\n---\n# Notes');
+
+    const before = await scanPages(TMP);
+    expect(before.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
+      methods: [],
+      revalidate: 60,
+    });
+    expect(before.pages.find((page) => page.componentId === 'cached/notes')?.metadata).toEqual({
+      title: 'Draft',
+    });
+
+    writeFile('cached/post.tsx', 'export const layout = false;\nexport default function Post() {}');
+    writeFile('cached/post.server.ts', 'export const loader = () => ({});');
+    writeFile('cached/notes.md', '---\ntitle: Published\n---\n# Notes');
+
+    const after = await scanPages(TMP);
+    expect(after.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
+      methods: ['loader'],
+      layout: false,
+    });
+    expect(after.pages.find((page) => page.componentId === 'cached/notes')?.metadata).toEqual({
+      title: 'Published',
+    });
+  });
+});
