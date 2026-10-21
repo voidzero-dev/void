@@ -8,7 +8,12 @@ import {
 } from '@void/edge';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
-import { hasActionKey, markActionKey, searchWithoutActionKey } from '../pages/action-key.ts';
+import {
+  actionKeySegment,
+  hasActionKey,
+  markActionKey,
+  searchWithoutActionKey,
+} from '../pages/action-key.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
@@ -179,10 +184,7 @@ export function createRoutingRuntime(
     const redirect = c.redirect.bind(c);
     c.redirect = (location, status) => {
       if (typeof location === 'string' && location.startsWith('/') && !location.startsWith('//')) {
-        return redirect(
-          mergeQueryIntoLocation(location, redirectSearch(c.req.raw, status)),
-          status,
-        );
+        return redirect(redirectLocation(c.req.raw, location, status), status);
       }
       return redirect(location, status);
     };
@@ -252,15 +254,58 @@ export function createRoutingRuntime(
   };
 }
 
-function redirectSearch(request: Request, status: RedirectStatusCode | undefined): string {
-  const search = new URL(request.url).search;
+function redirectLocation(
+  request: Request,
+  location: string,
+  status: RedirectStatusCode | undefined,
+): string {
+  const url = new URL(request.url);
+  const search = url.search;
+  if (!hasActionKey(request)) {
+    return mergeQueryIntoLocation(location, search);
+  }
   // The key goes only when the browser follows with a GET: after a 303, or after
   // a 301/302 (the default) to a POST. Other redirects send the same method and
   // body again, and the destination needs the key to pick the action.
   const followsWithGet =
     status === 303 ||
     ((status === undefined || status === 301 || status === 302) && request.method === 'POST');
-  return hasActionKey(request) && followsWithGet ? searchWithoutActionKey(search) : search;
+  if (followsWithGet) {
+    return mergeQueryIntoLocation(location, searchWithoutActionKey(search));
+  }
+  const hash = location.indexOf('#');
+  const destinationQuery = location.indexOf('?');
+  if (destinationQuery === -1 || (hash !== -1 && hash < destinationQuery)) {
+    return mergeQueryIntoLocation(location, search);
+  }
+  const merged = mergeQueryIntoLocation(location, searchWithoutActionKey(search));
+  // On the same page, a key the destination starts with picks the action itself.
+  const destinationKey = actionKeySegment(
+    location.slice(destinationQuery, hash === -1 ? location.length : hash),
+  );
+  if (destinationKey && new URL(location, url).pathname === url.pathname) {
+    return merged;
+  }
+  // Elsewhere the key goes first again, ahead of the destination parameters; a
+  // value the destination gives the same key wins. A bare "?" still drops the
+  // rest of the request query.
+  const mergedHash = merged.indexOf('#');
+  const base = mergedHash === -1 ? merged : merged.slice(0, mergedHash);
+  const fragment = mergedHash === -1 ? '' : merged.slice(mergedHash);
+  const q = base.indexOf('?');
+  const segments = q === -1 ? [] : base.slice(q + 1).split('&');
+  const key = actionKeySegment(search);
+  const name = queryKey(key);
+  const own = segments.findIndex((segment) => segment !== '' && queryKey(segment) === name);
+  const first = own === -1 ? key : segments.splice(own, 1)[0];
+  const rest = segments.join('&');
+  return (
+    base.slice(0, q === -1 ? base.length : q) + '?' + first + (rest ? '&' + rest : '') + fragment
+  );
+}
+
+function queryKey(segment: string): string | undefined {
+  return new URLSearchParams(segment).keys().next().value;
 }
 
 /** A rewrite that keeps the query keeps the action key in it too. */

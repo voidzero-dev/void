@@ -11,6 +11,16 @@ export function hasActionKey(request: Request): boolean {
   return actionKeyRequests.has(request);
 }
 
+/** The first non-empty segment of `search` as sent: `delete` in `?delete&page=2`. */
+export function actionKeySegment(search: string): string {
+  let start = 1;
+  while (search[start] === '&') {
+    start++;
+  }
+  const end = search.indexOf('&', start);
+  return search.slice(start, end === -1 ? search.length : end);
+}
+
 /** `search` without its first non-empty segment; the rest is kept as sent. */
 export function searchWithoutActionKey(search: string): string {
   let start = 1;
