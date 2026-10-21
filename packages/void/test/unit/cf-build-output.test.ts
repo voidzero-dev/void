@@ -563,6 +563,136 @@ it(
 );
 
 it(
+  'keeps framework Wasm, text and data imports as Worker modules',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-wasm-test-'));
+    roots.push(root);
+    const output = join(root, 'framework');
+    mkdirSync(join(output, 'chunks'), { recursive: true });
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ type: 'module', imports: { '#plain': './framework/plain.wasm' } }),
+    );
+    writeFileSync(
+      join(root, 'wrangler.json'),
+      JSON.stringify({
+        name: 'void-framework-test',
+        account_id: 'account-id',
+        main: 'framework/_worker.js',
+        compatibility_date: '2026-09-29',
+        assets: { directory: 'framework', binding: 'ASSETS' },
+      }),
+    );
+    // Imports `wbg`, like wasm-bindgen output.
+    const bindgenWasm = Buffer.from([
+      0, 97, 115, 109, 1, 0, 0, 0, 1, 4, 1, 96, 0, 0, 2, 9, 1, 3, 119, 98, 103, 1, 102, 0, 0,
+    ]);
+    const plainWasm = Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]);
+    mkdirSync(join(root, 'node_modules/bindgen'), { recursive: true });
+    writeFileSync(join(root, 'node_modules/bindgen/index_bg.wasm'), bindgenWasm);
+    writeFileSync(join(output, 'plain.wasm'), plainWasm);
+    writeFileSync(join(output, 'message.txt'), 'text module');
+    writeFileSync(join(output, 'data.bin'), Buffer.from([0, 255]));
+    writeFileSync(
+      join(output, '_worker.js'),
+      "import plain from './plain.wasm'; import message from './message.txt'; import data from './data.bin';\n" +
+        "import { render } from './chunks/render.js';\n" +
+        'export default { async fetch() { return new Response(String([plain, message, data, await render()])) } };\n',
+    );
+    writeFileSync(
+      join(output, 'chunks/render.js'),
+      "import plain from '#plain';\n" +
+        "export async function render() { return String(plain) + String(await import('bindgen/index_bg.wasm')); }\n",
+    );
+    writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
+
+    await withPrepared(
+      prepareCfFrameworkBuildOutput({
+        projectRoot: root,
+        configPath: join(root, 'wrangler.json'),
+        accountId: 'account-id',
+      }),
+      async (prepared) => {
+        const built = await readBuildOutput(prepared.directory);
+        const { modules } = built.workers.default.config.manifest!;
+        const bundle = getWorkerBundleDir(prepared.directory);
+        const additional = Object.keys(modules)
+          .filter((name) => modules[name].type !== 'esm')
+          .map((name) => [modules[name].type, readFileSync(join(bundle, name))]);
+        expect(additional).toHaveLength(4);
+        expect(additional).toEqual(
+          expect.arrayContaining([
+            ['wasm', bindgenWasm],
+            ['wasm', plainWasm],
+            ['text', Buffer.from('text module')],
+            ['data', Buffer.from([0, 255])],
+          ]),
+        );
+        expectCfDryRun(prepared.directory);
+      },
+    );
+  },
+  CF_BUILD_TIMEOUT_MS,
+);
+
+it(
+  'resolves framework Worker dependencies with Worker conditions',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-conditions-test-'));
+    roots.push(root);
+    const output = join(root, 'framework');
+    mkdirSync(output);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    writeFileSync(
+      join(root, 'wrangler.json'),
+      JSON.stringify({
+        name: 'void-framework-test',
+        account_id: 'account-id',
+        main: 'framework/_worker.js',
+        compatibility_date: '2026-09-29',
+        assets: { directory: 'framework', binding: 'ASSETS' },
+      }),
+    );
+    const dual = join(root, 'node_modules/dual');
+    mkdirSync(dual, { recursive: true });
+    writeFileSync(
+      join(dual, 'package.json'),
+      JSON.stringify({
+        name: 'dual',
+        type: 'module',
+        exports: { workerd: './worker.js', browser: './browser.js', default: './node.js' },
+      }),
+    );
+    writeFileSync(join(dual, 'worker.js'), "export const target = 'dual-workerd';\n");
+    writeFileSync(join(dual, 'browser.js'), "export const target = 'dual-browser';\n");
+    writeFileSync(join(dual, 'node.js'), "export const target = 'dual-node';\n");
+    writeFileSync(
+      join(output, '_worker.js'),
+      "import { target } from 'dual';\n" +
+        'export default { fetch() { return new Response(target) } };\n',
+    );
+    writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
+
+    await withPrepared(
+      prepareCfFrameworkBuildOutput({
+        projectRoot: root,
+        configPath: join(root, 'wrangler.json'),
+        accountId: 'account-id',
+      }),
+      async (prepared) => {
+        const bundle = readFileSync(
+          join(getWorkerBundleDir(prepared.directory), 'index.js'),
+          'utf8',
+        );
+        expect(bundle).toContain('dual-workerd');
+        expect(bundle).not.toContain('dual-browser');
+      },
+    );
+  },
+  CF_BUILD_TIMEOUT_MS,
+);
+
+it(
   'accepts a nested hashed Worker entry with a relative module import',
   async () => {
     const output = worker({

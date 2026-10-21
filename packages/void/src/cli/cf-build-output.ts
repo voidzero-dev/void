@@ -26,9 +26,11 @@ import {
 import { type ModuleType, OutputContainerSchema } from '@cloudflare/config';
 import ignore from 'ignore';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
+import type { Plugin } from 'vite';
 import { migrateBuiltWranglerConfig, record } from './cf-config-migrate.ts';
 import { buildContainerImage } from './container-image.ts';
 import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts';
+import { WORKER_CONDITIONS } from './worker-conditions.ts';
 
 export interface CfBuildOutput {
   directory: string;
@@ -321,6 +323,48 @@ async function prepareNativeBuildOutput(
   }
 }
 
+// The additional module rules of the Cloudflare Vite plugin, which does not export them.
+const ADDITIONAL_MODULE_RE = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
+const MODULE_REFERENCE_RE = /__VOID_MODULE__(.*?)__VOID_MODULE__/g;
+
+/**
+ * Keep Wasm, data and text imports out of the bundle and emit each file beside it, as
+ * `@cloudflare/vite-plugin` does, so `copyBundle` uploads them as Worker modules.
+ */
+function additionalModulesPlugin(): Plugin {
+  return {
+    name: 'void:additional-modules',
+    enforce: 'pre',
+    resolveId: {
+      filter: { id: [ADDITIONAL_MODULE_RE, /^#/] },
+      async handler(source, importer, options) {
+        const resolved = await this.resolve(source, importer, options);
+        if (!resolved || !ADDITIONAL_MODULE_RE.test(resolved.id)) {
+          return resolved;
+        }
+        return { id: `__VOID_MODULE__${resolved.id.split('?')[0]}__VOID_MODULE__`, external: true };
+      },
+    },
+    renderChunk: {
+      filter: { code: /__VOID_MODULE__/ },
+      handler(code, chunk) {
+        return code.replace(MODULE_REFERENCE_RE, (_, path: string) => {
+          const fileName = this.getFileName(
+            this.emitFile({
+              type: 'asset',
+              name: basename(path),
+              originalFileName: path,
+              source: readFileSync(path),
+            }),
+          );
+          const importPath = relative(dirname(chunk.fileName), fileName);
+          return importPath.startsWith('.') ? importPath : `./${importPath}`;
+        });
+      },
+    },
+  };
+}
+
 /** Bundle a generated Worker entry with Vite, then hand the result to `prepareCfBuildOutput`. */
 async function prepareBundledBuildOutput(options: {
   projectRoot: string;
@@ -339,6 +383,8 @@ async function prepareBundledBuildOutput(options: {
       root: options.projectRoot,
       publicDir: false,
       logLevel: 'error',
+      plugins: [additionalModulesPlugin()],
+      resolve: { conditions: WORKER_CONDITIONS },
       build: {
         outDir: scratch,
         emptyOutDir: true,
