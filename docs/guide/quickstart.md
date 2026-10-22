@@ -32,6 +32,11 @@ bun add -D void
 bunx void init
 ```
 
+```sh [vite+]
+vp add -D void
+vpx void init
+```
+
 :::
 
 Choose your UI framework, a starter, and a deployment target. Vite+ is the default build tool. D1 is a good first database: it runs locally without a separate database server. Choose Cloudflare to deploy to your own account, or skip deployment setup for now.
@@ -42,9 +47,29 @@ With pnpm, `pnpm create void my-app` also creates the project directory and conf
 
 ## Run locally
 
-```sh
+::: code-group
+
+```sh [npm]
 npm run dev
 ```
+
+```sh [pnpm]
+pnpm run dev
+```
+
+```sh [yarn]
+yarn run dev
+```
+
+```sh [bun]
+bun run dev
+```
+
+```sh [vite+]
+vpr dev
+```
+
+:::
 
 Open `http://localhost:5173`. In a Pages starter, `pages/` contains your UI and companion `.server.ts` files contain its server loaders and actions. Loaders return data to page components as typed props.
 

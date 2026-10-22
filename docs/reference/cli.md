@@ -79,7 +79,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 
 ## Binary Invocation {#binary-invocation}
 
-The docs use `void` for brevity. Outside package scripts, run it with your package manager: `npx void`, `pnpm void`, `yarn void`, or `bunx void`.
+The docs use `void` for brevity. Outside package scripts, run it with your package manager: `npx void`, `pnpm void`, `yarn void`, `bunx void`, or `vpx void`.
 
 Alternatively, you can add `./node_modules/.bin` to your `PATH` so that you can invoke `void` directly when you are in the root directory of your app.
 
