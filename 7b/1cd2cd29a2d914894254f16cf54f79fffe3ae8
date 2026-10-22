@@ -1,0 +1,19 @@
+packages/create-void/test/unit/args.test.ts
+  s_1405c34d98b91e::t_a10274015952c8 24-29
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "7b1cd2cd29a2d914894254f16cf54f79fffe3ae8",
+  "prompts": {},
+  "sessions": {
+    "s_1405c34d98b91e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a160f6-2fc7-7a33-a5c7-ab07d610699d",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
