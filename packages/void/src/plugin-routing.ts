@@ -11,7 +11,11 @@ import {
   resolveAssetRoutingPolicy,
   type AssetRoutingPolicy,
 } from './asset-routing.ts';
-import { isGeneratedAssetHeaders, resolveAssetWorkerBypass } from './asset-worker-bypass.ts';
+import {
+  isAssetBypassRule,
+  isGeneratedAssetHeaders,
+  resolveAssetWorkerBypass,
+} from './asset-worker-bypass.ts';
 import { loadVoidAuthConfig } from './auth/config.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
@@ -386,14 +390,16 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   let clientImmutableFiles: Array<string> = [];
 
   /**
-   * The generated `_headers` text and the patched `wrangler.json` text when
-   * this build can skip the Worker for its assets folder, or null. Reads only,
-   * so a read failure leaves the output unchanged.
+   * The generated `_headers` text when this build can skip the Worker for its
+   * hashed files, and the new `wrangler.json` text when it changes; null when
+   * there is no built Worker config. Reads only, so a read failure leaves the
+   * output unchanged.
    */
   function planAssetWorkerBypass(
     clientDir: string,
     assetsDir: string,
-  ): { headers: string; wranglerPath: string; wranglerText: string } | null {
+    userHeaders: boolean,
+  ): { headers: string | null; wranglerPath: string; wranglerText: string | null } | null {
     if (!scan || !resolvedConfig || compileOptions.managedDispatch) {
       return null;
     }
@@ -416,7 +422,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       return null;
     }
     const revalidate = options.routing?.revalidate;
-    const bypass = resolveAssetWorkerBypass({
+    const facts = {
       runWorkerFirst: assets.run_worker_first,
       notFoundHandling: assets.not_found_handling,
       base: resolvedConfig.base,
@@ -437,17 +443,18 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       ],
       assetsDir,
       immutableFiles: clientImmutableFiles,
-    });
-    if (!bypass) {
-      return null;
-    }
+    };
+    const bypass = userHeaders ? null : resolveAssetWorkerBypass(facts);
+    // A client-only watch rebuild finds the rule an earlier bypass wrote.
+    const runWorkerFirst =
+      bypass?.runWorkerFirst ??
+      (isAssetBypassRule(assets.run_worker_first, assetsDir) ? ['/**'] : null);
     return {
-      headers: bypass.headers,
+      headers: bypass?.headers ?? null,
       wranglerPath,
-      wranglerText: JSON.stringify({
-        ...wrangler,
-        assets: { ...assets, run_worker_first: bypass.runWorkerFirst },
-      }),
+      wranglerText:
+        runWorkerFirst &&
+        JSON.stringify({ ...wrangler, assets: { ...assets, run_worker_first: runWorkerFirst } }),
     };
   }
 
@@ -623,6 +630,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       const clientDir = resolve(resolvedConfig.root, outDir);
       const headersPath = join(clientDir, '_headers');
       let generatedHeaders = false;
+      let userHeaders = false;
       if (existsSync(headersPath)) {
         try {
           generatedHeaders = isGeneratedAssetHeaders(readFileSync(headersPath, 'utf8'));
@@ -630,22 +638,20 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           return;
         }
         // A user-authored `_headers` keeps the Worker in front, as before.
-        if (!generatedHeaders) {
-          return;
-        }
+        userHeaders = !generatedHeaders;
       }
-      const plan = planAssetWorkerBypass(clientDir, assetsDir);
-      if (!plan) {
-        // A `_headers` left by an earlier build must not outlive the bypass.
-        if (generatedHeaders) {
-          rmSync(headersPath);
-        }
-        return;
-      }
+      const plan = planAssetWorkerBypass(clientDir, assetsDir, userHeaders);
       // `_headers` first: on its own it changes nothing, as the Worker sets
       // the same policy for these files. Write errors fail the build.
-      writeFileSync(headersPath, plan.headers);
-      writeFileSync(plan.wranglerPath, plan.wranglerText);
+      if (plan?.headers) {
+        writeFileSync(headersPath, plan.headers);
+      } else if (generatedHeaders) {
+        // A `_headers` left by an earlier build must not outlive the bypass.
+        rmSync(headersPath);
+      }
+      if (plan?.wranglerText) {
+        writeFileSync(plan.wranglerPath, plan.wranglerText);
+      }
     },
 
     async buildStart() {

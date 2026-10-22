@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   GENERATED_ASSET_HEADERS_MARKER,
+  isAssetBypassRule,
   isGeneratedAssetHeaders,
   normalizeAssetsDir,
   patternCanReachUnder,
@@ -75,6 +76,13 @@ describe('resolveAssetWorkerBypass', () => {
     expect(resolveAssetWorkerBypass(facts({ authEnabled: true }))).toEqual(expected);
   });
 
+  it('replaces the rule an earlier bypass wrote', () => {
+    expect(
+      resolveAssetWorkerBypass(facts({ runWorkerFirst: ['/**', '!/assets/old-12345678.js'] }))
+        ?.runWorkerFirst,
+    ).toEqual(['/**', '!/assets/chunk-12345678.js', '!/assets/main-abcdefgh.js']);
+  });
+
   it('lists only immutable files under the assets folder', () => {
     const headers = resolveAssetWorkerBypass(
       facts({ immutableFiles: ['root-abcdefgh.js', 'assets/a-12345678.js'] }),
@@ -118,6 +126,17 @@ describe('resolveAssetWorkerBypass', () => {
     const bypass = resolveAssetWorkerBypass(facts({ immutableFiles: files(99) }));
     expect(bypass?.runWorkerFirst).toHaveLength(100);
     expect(bypass?.headers.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(99);
+  });
+});
+
+describe('isAssetBypassRule', () => {
+  it('recognises only /** followed by negative rules in the assets folder', () => {
+    expect(isAssetBypassRule(['/**', '!/assets/a-12345678.js'], '/assets/')).toBe(true);
+    expect(isAssetBypassRule(['/**'], 'assets')).toBe(false);
+    expect(isAssetBypassRule(['/**', '/x'], 'assets')).toBe(false);
+    expect(isAssetBypassRule(['/**', '!/other/a-12345678.js'], 'assets')).toBe(false);
+    expect(isAssetBypassRule(['/api/*', '!/assets/a-12345678.js'], 'assets')).toBe(false);
+    expect(isAssetBypassRule(true, 'assets')).toBe(false);
   });
 });
 

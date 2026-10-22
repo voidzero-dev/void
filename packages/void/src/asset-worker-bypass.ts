@@ -118,13 +118,32 @@ function isPlainPath(path: string): boolean {
   return path.split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..');
 }
 
+/**
+ * Whether `run_worker_first` is the rule an earlier bypass wrote. A watch
+ * rebuild of only the client still finds it, because the Worker build that
+ * would write `['/**']` again did not run.
+ */
+export function isAssetBypassRule(runWorkerFirst: unknown, assetsDir: string): boolean {
+  const dir = normalizeAssetsDir(assetsDir);
+  return (
+    dir !== null &&
+    Array.isArray(runWorkerFirst) &&
+    runWorkerFirst.length > 1 &&
+    runWorkerFirst[0] === '/**' &&
+    runWorkerFirst
+      .slice(1)
+      .every((rule) => typeof rule === 'string' && rule.startsWith('!/' + dir + '/'))
+  );
+}
+
 /** The bypass this build can use, or null when any rule keeps the Worker in front. */
 export function resolveAssetWorkerBypass(facts: AssetWorkerBypassFacts): AssetWorkerBypass | null {
   const { runWorkerFirst } = facts;
+  const allPaths =
+    (Array.isArray(runWorkerFirst) && runWorkerFirst.length === 1 && runWorkerFirst[0] === '/**') ||
+    isAssetBypassRule(runWorkerFirst, facts.assetsDir);
   if (
-    !Array.isArray(runWorkerFirst) ||
-    runWorkerFirst.length !== 1 ||
-    runWorkerFirst[0] !== '/**' ||
+    !allPaths ||
     facts.notFoundHandling !== 'none' ||
     facts.base !== '/' ||
     facts.hasMiddleware ||

@@ -612,6 +612,28 @@ describe('routingPlugin native asset Worker bypass', () => {
     expect(existsSync(headersPath(root))).toBe(false);
   });
 
+  function writeEarlierBypass(root: string): void {
+    const wrangler = JSON.parse(WRANGLER);
+    wrangler.assets.run_worker_first = ['/**', '!/assets/old-12345678.js'];
+    writeFileSync(join(root, 'dist', 'ssr', 'wrangler.json'), JSON.stringify(wrangler));
+  }
+
+  it('refreshes an earlier bypass on a client-only watch rebuild', async () => {
+    const root = createBuildRoot();
+    writeEarlierBypass(root);
+    await runClientBuild(root);
+    expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(['/**', `!/${CHUNK}`]);
+    expect(readFileSync(headersPath(root), 'utf8')).toContain(`/${CHUNK}\n`);
+  });
+
+  it('sends every path to the Worker again when a client-only rebuild is not eligible', async () => {
+    const root = createBuildRoot();
+    writeEarlierBypass(root);
+    await runClientBuild(root, { routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } });
+    expect(wranglerText(root)).toBe(WRANGLER);
+    expect(existsSync(headersPath(root))).toBe(false);
+  });
+
   it('writes nothing without a built wrangler.json', async () => {
     const root = createBuildRoot({ wrangler: false });
     await runClientBuild(root);
