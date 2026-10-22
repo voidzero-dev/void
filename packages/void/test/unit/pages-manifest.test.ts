@@ -78,30 +78,13 @@ function definePage(
   };
 }
 
-/** The previous matcher: test each page's RegExp in route order. */
-function linearMatchRoute(pages: Array<PageDefinition>, url: string): string | null {
-  const path = new URL(url, 'http://x').pathname;
-  for (const page of pages) {
-    const source = page.pattern
-      .split('/')
-      .map((segment) => {
-        if (segment === '*') {
-          return '(.*)';
-        }
-        if (/^:[^/{}]+\{\.\+\}$/.test(segment)) {
-          return '(.+)';
-        }
-        if (/^:[^/]+$/.test(segment)) {
-          return '([^/]+)';
-        }
-        return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      })
-      .join('/');
-    if (new RegExp(`^${source}$`).test(path)) {
-      return page.componentId;
-    }
-  }
-  return null;
+/**
+ * The ordered RegExp scan alone: a dynamic route placed first leaves no static
+ * prefix, so every page is tested by its RegExp in route order.
+ */
+function regexOnlyMatchRoute(scan: PageScanResult): (url: string) => string | null {
+  const first = definePage('__first', '/__first/:never', '__first.tsx', { params: ['never'] });
+  return evaluateManifest({ ...scan, pages: [first, ...scan.pages] }).matchRoute;
 }
 
 const layouts: Array<LayoutDefinition> = [
@@ -134,6 +117,7 @@ const pages = [
 describe('compact Pages route manifest', () => {
   it('matches the same route as testing each page pattern in order', () => {
     const { matchRoute } = evaluateManifest({ pages, layouts, namedLayouts });
+    const regexOnly = regexOnlyMatchRoute({ pages, layouts, namedLayouts });
     const urls = [
       '/',
       '/about',
@@ -155,7 +139,7 @@ describe('compact Pages route manifest', () => {
       '/missing',
     ];
     for (const url of urls) {
-      expect([url, matchRoute(url)]).toEqual([url, linearMatchRoute(pages, url)]);
+      expect([url, matchRoute(url)]).toEqual([url, regexOnly(url)]);
     }
   });
 
@@ -189,6 +173,6 @@ describe('compact Pages route manifest', () => {
       },
       '/project/pages',
     );
-    expect(source).not.toMatch(/\/\^/);
+    expect(source).not.toContain('/^');
   });
 });

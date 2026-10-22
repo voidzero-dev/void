@@ -60,7 +60,7 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   if (chain >= 0) layoutTree[id] = __voidLayoutChains[chain];
   routes.push({ pattern, id });
 }`);
-  // Layouts follow pages, as in the previous object literal where a layout won a shared key.
+  // Layouts are set after pages, so a layout keeps an id it shares with a page.
   for (const layout of [...scan.layouts, ...scan.namedLayouts]) {
     lines.push(`components[${JSON.stringify(toLayoutId(layout))}] = ${load(layout.filePath)};`);
   }
@@ -87,27 +87,39 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   return lines.join('\n');
 }
 
+const REGEX_SYNTAX = '.*+?^${}()|[]\\';
+
+/** The capture group for `*`, `:name{.+}` and `:name`; other segments match as written. */
+function captureGroup(segment: string): string | undefined {
+  if (segment === '*') {
+    return '(.*)';
+  }
+  if (segment.length < 2 || segment[0] !== ':') {
+    return undefined;
+  }
+  const name = segment.endsWith('{.+}') ? segment.slice(1, -4) : '';
+  return name && !name.includes('{') && !name.includes('}') ? '(.+)' : '([^\\/]+)';
+}
+
 /** Whether `patternToRegex` matches only the pattern's own text. */
 function isStaticPattern(pattern: string): boolean {
-  return pattern.split('/').every((segment) => segment !== '*' && !/^:[^/]+$/.test(segment));
+  return pattern.split('/').every((segment) => captureGroup(segment) === undefined);
 }
 
 function patternToRegex(pattern: string): string {
   const regexSource = pattern
     .split('/')
     .map((segment) => {
-      if (segment === '*') {
-        return '(.*)';
+      const group = captureGroup(segment);
+      if (group) {
+        return group;
       }
-      if (/^:[^/{}]+\{\.\+\}$/.test(segment)) {
-        return '(.+)';
+      let literal = '';
+      for (const char of segment) {
+        literal += REGEX_SYNTAX.includes(char) ? '\\' + char : char;
       }
-      if (/^:[^/]+$/.test(segment)) {
-        return '([^/]+)';
-      }
-      return segment.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return literal;
     })
-    .join('/')
-    .replace(/\//g, '\\/');
+    .join('\\/');
   return `/^${regexSource}$/`;
 }
