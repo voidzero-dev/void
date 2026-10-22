@@ -1,9 +1,10 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { readConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -450,4 +451,171 @@ describe('routingPlugin', () => {
       }
     },
   );
+});
+
+describe('routingPlugin native asset Worker bypass', () => {
+  const CHUNK = 'assets/main-abcdefgh.js';
+  const WRANGLER = JSON.stringify({
+    name: 'app',
+    main: 'index.js',
+    assets: {
+      binding: 'ASSETS',
+      not_found_handling: 'none',
+      run_worker_first: ['/**'],
+      directory: '../client',
+    },
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  function createBuildRoot(options: { wrangler?: boolean } = {}): string {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'routes', 'index.ts'), 'export const GET = () => "ok";\n');
+    mkdirSync(join(root, 'dist', 'ssr'), { recursive: true });
+    mkdirSync(join(root, 'dist', 'client', 'assets'), { recursive: true });
+    if (options.wrangler !== false) {
+      writeFileSync(join(root, 'dist', 'ssr', 'wrangler.json'), WRANGLER);
+    }
+    return root;
+  }
+
+  function clientBundle(): Record<string, unknown> {
+    return {
+      [CHUNK]: { type: 'chunk', fileName: CHUNK, preliminaryFileName: 'assets/main-!~{001}~.js' },
+      '.vite/manifest.json': {
+        type: 'asset',
+        fileName: '.vite/manifest.json',
+        source: JSON.stringify({ 'main.js': { file: CHUNK, isEntry: true } }),
+      },
+    };
+  }
+
+  async function runClientBuild(
+    root: string,
+    options: Partial<Omit<Parameters<typeof routingPlugin>[1], 'getApplicationAnalysis'>> = {},
+    base = '/',
+  ): Promise<void> {
+    const plugin = createRoutingPlugin(root, {
+      isAuthEnabled: () => false,
+      assetWorkerBypass: true,
+      ...options,
+    });
+    runConfig(plugin, { command: 'build', mode: 'production' });
+    (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+      build: { assetsDir: 'assets' },
+      base,
+      root,
+      publicDir: join(root, 'public'),
+      command: 'build',
+      mode: 'production',
+      plugins: [],
+    } as unknown as ResolvedConfig);
+    await runBuildStart(plugin);
+    const environment = {
+      name: 'client',
+      config: { build: { manifest: true, outDir: 'dist/client', assetsDir: 'assets' } },
+    };
+    (getHookHandler(plugin.generateBundle) as (...args: Array<unknown>) => void).call(
+      { environment },
+      {},
+      clientBundle(),
+    );
+    (getHookHandler(plugin.writeBundle) as (...args: Array<unknown>) => void).call(
+      { environment },
+      {},
+      {},
+    );
+  }
+
+  const wranglerText = (root: string) =>
+    readFileSync(join(root, 'dist', 'ssr', 'wrangler.json'), 'utf8');
+  const headersPath = (root: string) => join(root, 'dist', 'client', '_headers');
+
+  it('excludes the assets folder from the Worker and lists the chunk as immutable', async () => {
+    const root = createBuildRoot();
+    await runClientBuild(root);
+    const wrangler = JSON.parse(wranglerText(root));
+    expect(wrangler.assets.run_worker_first).toEqual(['/**', '!/assets/*']);
+    expect({ ...wrangler, assets: { ...wrangler.assets, run_worker_first: ['/**'] } }).toEqual(
+      JSON.parse(WRANGLER),
+    );
+    const headers = readFileSync(headersPath(root), 'utf8');
+    expect(headers.split('\n')[0]).toBe(GENERATED_ASSET_HEADERS_MARKER);
+    expect(headers).toContain(`/${CHUNK}\n  Cache-Control: public, max-age=31536000, immutable\n`);
+  });
+
+  it('rewrites its own _headers on the next build', async () => {
+    const root = createBuildRoot();
+    writeFileSync(
+      headersPath(root),
+      `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/old-12345678.js\n`,
+    );
+    await runClientBuild(root);
+    const headers = readFileSync(headersPath(root), 'utf8');
+    expect(headers).toContain(`/${CHUNK}`);
+    expect(headers).not.toContain('old-12345678');
+  });
+
+  it.each<[string, (root: string) => void, Parameters<typeof runClientBuild>[1]?, string?]>([
+    ['managed builds', () => vi.stubEnv('VOID_DEPLOY_PROJECT_ID', 'project-id')],
+    [
+      'global middleware',
+      (root) => {
+        mkdirSync(join(root, 'middleware'));
+        writeFileSync(
+          join(root, 'middleware', '01.log.ts'),
+          'export default async (_c, next) => next();\n',
+        );
+      },
+    ],
+    [
+      'a routing header rule',
+      () => {},
+      { routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } },
+    ],
+    [
+      'a public _headers file',
+      (root) => {
+        mkdirSync(join(root, 'public'));
+        writeFileSync(join(root, 'public', '_headers'), '');
+      },
+    ],
+    ['a non-root base', () => {}, {}, '/app/'],
+    ['the option unset', () => {}, { assetWorkerBypass: undefined }],
+  ])('leaves the output unchanged for %s', async (_name, prepare, options, base) => {
+    const root = createBuildRoot();
+    prepare(root);
+    await runClientBuild(root, options, base);
+    expect(wranglerText(root)).toBe(WRANGLER);
+    expect(existsSync(headersPath(root))).toBe(false);
+  });
+
+  it('keeps a user-authored _headers file and the Worker in front', async () => {
+    const root = createBuildRoot();
+    const userHeaders = '/assets/*\n  X-Frame-Options: DENY\n';
+    writeFileSync(headersPath(root), userHeaders);
+    await runClientBuild(root);
+    expect(wranglerText(root)).toBe(WRANGLER);
+    expect(readFileSync(headersPath(root), 'utf8')).toBe(userHeaders);
+  });
+
+  it('removes its stale _headers when the app is no longer eligible', async () => {
+    const root = createBuildRoot();
+    writeFileSync(headersPath(root), `${GENERATED_ASSET_HEADERS_MARKER}\n/${CHUNK}\n`);
+    await runClientBuild(root, { routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } });
+    expect(wranglerText(root)).toBe(WRANGLER);
+    expect(existsSync(headersPath(root))).toBe(false);
+  });
+
+  it('writes nothing without a built wrangler.json', async () => {
+    const root = createBuildRoot({ wrangler: false });
+    await runClientBuild(root);
+    expect(existsSync(join(root, 'dist', 'ssr', 'wrangler.json'))).toBe(false);
+    expect(existsSync(headersPath(root))).toBe(false);
+  });
 });

@@ -37,6 +37,8 @@ With `void deploy --platform cloudflare`, generated JavaScript bundles with cont
 
 Use [Custom Headers](./headers) to choose a cache policy for other files. Apply immutable caching only to URLs that change whenever their content changes.
 
+If your app has no global middleware and no header, redirect, rewrite or fallback rules, Cloudflare serves the files in the assets directory (`assets/` by default) without starting your Worker, so they do not count as Worker requests. Adding global middleware, one of those rules, or a route or page that matches paths in the assets directory sends these files through your Worker again.
+
 ## Non-hashed assets
 
 Other static files, such as `index.html` and `favicon.ico`, are cached until the next deploy. You do not need to purge them manually.

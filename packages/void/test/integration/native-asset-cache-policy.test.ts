@@ -6,6 +6,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build, type Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
+import { renderGeneratedAssetHeaders, withAssetBypassRule } from '../../src/asset-worker-bypass.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 
 const runtimeSource = (file: string) => join(import.meta.dirname, '../../src/runtime', file);
@@ -280,5 +281,87 @@ describe('native asset cache policy in real Workers', () => {
       resultPolicy: 'public, max-age=600',
       body: [1, 2, 3],
     });
+  });
+});
+
+describe('native asset Worker bypass in real Workers', () => {
+  let bypassDirectory: string;
+  let bypass: Miniflare | undefined;
+
+  beforeAll(async () => {
+    bypassDirectory = mkdtempSync(join(tmpdir(), 'void-native-asset-bypass-'));
+    const assets = join(bypassDirectory, 'client');
+    mkdirSync(join(assets, 'static', 'nested'), { recursive: true });
+    for (const file of ['client-abcdefgh.js', 'client.js', 'nested/chunk-abcdefgh.js']) {
+      writeFileSync(join(assets, 'static', file), 'export const value = 1;');
+    }
+    writeFileSync(
+      join(assets, '_headers'),
+      renderGeneratedAssetHeaders([
+        'static/client-abcdefgh.js',
+        'static/nested/chunk-abcdefgh.js',
+      ])!,
+    );
+    const runWorkerFirst = withAssetBypassRule(['/**'], 'static')!;
+    expect(runWorkerFirst).toEqual(['/**', '!/static/*']);
+    bypass = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: `export default { async fetch(request, env) {
+          const asset = await env.ASSETS.fetch(request);
+          const response = new Response(asset.body, asset);
+          response.headers.set('x-void-worker', '1');
+          return response;
+        } };`,
+        assets: {
+          directory: assets,
+          binding: 'ASSETS',
+          run_worker_first: runWorkerFirst,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { html_handling: 'none', not_found_handling: 'none' },
+        },
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await bypass?.dispose();
+    if (bypassDirectory) {
+      rmSync(bypassDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves listed chunks immutable without starting the Worker, even with cookies', async () => {
+    for (const path of ['/static/client-abcdefgh.js', '/static/nested/chunk-abcdefgh.js']) {
+      const response = await bypass!.dispatchFetch(`https://app.test${path}`, {
+        headers: { cookie: '__Secure-better-auth.session_token=abc; _ga=1' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(response.headers.get('etag')).toBeTruthy();
+      expect(response.headers.has('x-void-worker')).toBe(false);
+      await response.arrayBuffer();
+    }
+  });
+
+  it('keeps the default policy for unlisted files and does not cache misses', async () => {
+    const unlisted = await bypass!.dispatchFetch('https://app.test/static/client.js');
+    expect(unlisted.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(unlisted.headers.has('x-void-worker')).toBe(false);
+    await unlisted.arrayBuffer();
+    const missing = await bypass!.dispatchFetch('https://app.test/static/gone-abcdefgh.js');
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('cache-control') ?? '').not.toContain('immutable');
+    expect(missing.headers.has('x-void-worker')).toBe(false);
+    await missing.arrayBuffer();
+  });
+
+  it('still sends other paths to the Worker', async () => {
+    for (const path of ['/', '/api/x', '/static']) {
+      const response = await bypass!.dispatchFetch(`https://app.test${path}`);
+      expect(response.headers.get('x-void-worker')).toBe('1');
+      await response.arrayBuffer();
+    }
   });
 });

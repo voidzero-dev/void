@@ -8,6 +8,7 @@ import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
+  getWorkerAssetsDir,
   getWorkerConfigPath,
   readBuildOutput,
   writeContainerConfig,
@@ -27,6 +28,7 @@ import {
 } from '../../../deploy-cloudflare/src/version.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { exportsFromOutput, uploadPinnedCloudflareVersion } from '../../src/cli/cf-version-api.ts';
 import {
@@ -1195,6 +1197,97 @@ it(
     }
   },
   REAL_CF_TIMEOUT_MS,
+);
+
+it.each([
+  [
+    'Void-generated',
+    `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/a-12345678.js\n  Cache-Control: public, max-age=31536000, immutable\n`,
+  ],
+  ['user-authored', '/assets/*\n  X-Frame-Options: DENY\n'],
+  ['missing', undefined],
+] as const)(
+  'uploads only a Void-generated _headers file with pinned secrets (%s)',
+  async (_kind, headers) => {
+    const prepared = await output({
+      secrets: { required: ['AUTH_SECRET'] },
+      assets: {
+        directory: '../client',
+        binding: 'ASSETS',
+        not_found_handling: 'none',
+        run_worker_first: ['/**', '!/assets/*'],
+      },
+    });
+    try {
+      if (headers !== undefined) {
+        writeFileSync(join(getWorkerAssetsDir(prepared.directory), '_headers'), headers);
+      }
+      await pinActiveWorkerSecrets({
+        output: prepared,
+        activeVersionId: '11111111-1111-4111-8111-111111111111',
+        bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+        requiredNames: ['AUTH_SECRET'],
+      });
+      const posts: Array<{ url: string; body: string }> = [];
+      const server = createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        const url = request.url ?? '';
+        if (request.method === 'POST') {
+          posts.push({ url, body: Buffer.concat(chunks).toString('utf8') });
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: true,
+            errors: [],
+            result: url.endsWith('/assets-upload-session')
+              ? { jwt: 'asset-token', buckets: [] }
+              : request.method === 'GET'
+                ? {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+                  }
+                : { id: '22222222-2222-4222-8222-222222222222', urls: [] },
+          }),
+        );
+      });
+      await uploadPinnedCloudflareVersion({
+        output: prepared,
+        accountId: 'account-id',
+        apiBaseUrl: await listen(server),
+        workerName: 'void-test',
+        token: 'synthetic-token',
+        atomic: false,
+        verifyUploader: () => true,
+      });
+      const session = posts.find(({ url }) => url.endsWith('/assets-upload-session'));
+      expect(Object.keys(JSON.parse(session!.body).manifest)).toEqual(['/index.html']);
+      const body = JSON.parse(posts.find(({ url }) => url.endsWith('/versions'))!.body);
+      expect(body.assets).toEqual({
+        jwt: 'asset-token',
+        config: { not_found_handling: 'none', run_worker_first: ['/**', '!/assets/*'] },
+      });
+      const modules = (body.modules as Array<{ name: string }>).filter(
+        ({ name }) => name === '_headers',
+      );
+      expect(modules).toEqual(
+        _kind === 'Void-generated'
+          ? [
+              {
+                name: '_headers',
+                content_type: 'text/plain',
+                content_base64: Buffer.from(headers!).toString('base64'),
+              },
+            ]
+          : [],
+      );
+    } finally {
+      prepared.dispose();
+    }
+  },
 );
 
 it('uploads Worker limits, placement and cache with pinned secrets', async () => {

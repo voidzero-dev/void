@@ -999,6 +999,8 @@ export function voidPlugin(options?: {
       durableObjects,
       websocketTombstones,
       onDevAssetRoutingPolicyChange: updateDevAssetRoutingPolicy,
+      // Native builds of eligible apps let Cloudflare serve hashed build files directly.
+      assetWorkerBypass: true,
     }),
     drizzlePlugin(root, true, dialect, {
       d1BindingName: bindingNames?.d1,

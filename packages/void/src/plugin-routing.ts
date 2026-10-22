@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
-import { dirname, join, relative } from 'pathslash';
+import { dirname, join, relative, resolve } from 'pathslash';
 import { normalizePath, type Plugin } from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { completeApplicationAnalysis } from './application-routing.ts';
@@ -11,7 +11,14 @@ import {
   resolveAssetRoutingPolicy,
   type AssetRoutingPolicy,
 } from './asset-routing.ts';
+import {
+  isGeneratedAssetHeaders,
+  renderGeneratedAssetHeaders,
+  resolveAssetWorkerBypass,
+  withAssetBypassRule,
+} from './asset-worker-bypass.ts';
 import { loadVoidAuthConfig } from './auth/config.ts';
+import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
 import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
 import { findEnvFileForPaths } from './codegen/env-types.ts';
@@ -88,6 +95,12 @@ type RoutingPluginOptions = {
   /** Data-preserving exports for removed WebSocket Durable Object routes. */
   websocketTombstones?: Array<string>;
   onDevAssetRoutingPolicyChange?: (policy: AssetRoutingPolicy) => boolean;
+  /**
+   * Let Cloudflare serve fingerprinted build files without the Worker when the
+   * app allows it (see `asset-worker-bypass.ts`). Only the native Cloudflare
+   * app build sets this.
+   */
+  assetWorkerBypass?: boolean;
 };
 
 /**
@@ -374,6 +387,88 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     });
   }
 
+  // Immutable files stamped into the current client build's manifest.
+  let clientImmutableFiles: Array<string> = [];
+
+  /**
+   * The generated `_headers` text and the patched `wrangler.json` text when
+   * this build can skip the Worker for its assets folder, or null. Reads only,
+   * so a read failure leaves the output unchanged.
+   */
+  function planAssetWorkerBypass(
+    clientDir: string,
+    assetsDir: string,
+  ): { headers: string; wranglerPath: string; wranglerText: string } | null {
+    if (!scan || !resolvedConfig || compileOptions.managedDispatch) {
+      return null;
+    }
+    let wranglerPath: string;
+    let text: string;
+    let wrangler: { assets?: Record<string, unknown> };
+    try {
+      const distDir = resolveDistDir(root);
+      wranglerPath = join(distDir, resolveWorkerDirName(distDir), 'wrangler.json');
+      text = readFileSync(wranglerPath, 'utf8');
+      wrangler = JSON.parse(text);
+    } catch {
+      return null;
+    }
+    const assets = wrangler?.assets;
+    if (
+      !assets ||
+      typeof assets !== 'object' ||
+      typeof assets.directory !== 'string' ||
+      resolve(dirname(wranglerPath), assets.directory) !== clientDir
+    ) {
+      return null;
+    }
+    const revalidate = options.routing?.revalidate;
+    const bypass = resolveAssetWorkerBypass({
+      runWorkerFirst: assets.run_worker_first,
+      notFoundHandling: assets.not_found_handling,
+      base: resolvedConfig.base,
+      hasMiddleware: scan.middleware.length > 0,
+      authEnabled: compileOptions.auth !== null,
+      headerRuleCount: compileOptions.headerRules?.length ?? 0,
+      redirectRuleCount: compileOptions.redirectRules?.length ?? 0,
+      fallbackRuleCount: compileOptions.fallbackRules?.length ?? 0,
+      publicEdgeFiles:
+        publicDir !== null &&
+        (existsSync(join(publicDir, '_headers')) || existsSync(join(publicDir, '_redirects'))),
+      patterns: [
+        ...scan.routes.map((route) => route.pattern),
+        ...scan.pages.pages.map((page) => page.pattern),
+        ...(scan.websockets ?? []).map((route) => route.pattern),
+        ...(options.prerenderPaths ?? []).filter((path) => typeof path === 'string'),
+        ...(revalidate && typeof revalidate === 'object' ? Object.keys(revalidate) : []),
+      ],
+      assetsDir,
+      immutableFiles: clientImmutableFiles,
+    });
+    const runWorkerFirst = bypass && withAssetBypassRule(assets.run_worker_first, bypass.assetsDir);
+    const headers = bypass && renderGeneratedAssetHeaders(bypass.files);
+    if (!runWorkerFirst || !headers) {
+      return null;
+    }
+    // Keep the file's own layout: only `run_worker_first` changes.
+    let indent = '';
+    if (text[1] === '\n') {
+      for (let i = 2; text[i] === ' ' || text[i] === '\t'; i++) {
+        indent += text[i];
+      }
+    }
+    const patched = JSON.stringify(
+      { ...wrangler, assets: { ...assets, run_worker_first: runWorkerFirst } },
+      null,
+      indent || undefined,
+    );
+    return {
+      headers,
+      wranglerPath,
+      wranglerText: text.endsWith('\n') ? patched + '\n' : patched,
+    };
+  }
+
   const sandboxEntry = options.hasSandbox
     ? {
         bindingName: options.sandboxBindingName,
@@ -519,14 +614,56 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       order: 'post',
       handler(_output, bundle) {
         const manifest = this.environment.config.build.manifest;
-        if (this.environment.name === 'client' && manifest) {
-          stampClientAssetCachePolicy(
-            bundle,
-            typeof manifest === 'string' ? manifest : '.vite/manifest.json',
-            compileOptions.headerRules,
-          );
+        if (this.environment.name === 'client') {
+          clientImmutableFiles = manifest
+            ? stampClientAssetCachePolicy(
+                bundle,
+                typeof manifest === 'string' ? manifest : '.vite/manifest.json',
+                compileOptions.headerRules,
+              )
+            : [];
         }
       },
+    },
+
+    // Runs after the Cloudflare plugin wrote the Worker's `wrangler.json` and
+    // before the client `closeBundle` prerender reads it.
+    writeBundle() {
+      if (
+        !options.assetWorkerBypass ||
+        options.target ||
+        resolvedConfig?.command !== 'build' ||
+        this.environment.name !== 'client'
+      ) {
+        return;
+      }
+      const { outDir, assetsDir } = this.environment.config.build;
+      const clientDir = resolve(resolvedConfig.root, outDir);
+      const headersPath = join(clientDir, '_headers');
+      let generatedHeaders = false;
+      if (existsSync(headersPath)) {
+        try {
+          generatedHeaders = isGeneratedAssetHeaders(readFileSync(headersPath, 'utf8'));
+        } catch {
+          return;
+        }
+        // A user-authored `_headers` keeps the Worker in front, as before.
+        if (!generatedHeaders) {
+          return;
+        }
+      }
+      const plan = planAssetWorkerBypass(clientDir, assetsDir);
+      if (!plan) {
+        // A `_headers` left by an earlier build must not outlive the bypass.
+        if (generatedHeaders) {
+          rmSync(headersPath);
+        }
+        return;
+      }
+      // `_headers` first: on its own it changes nothing, as the Worker sets
+      // the same policy for these files. Write errors fail the build.
+      writeFileSync(headersPath, plan.headers);
+      writeFileSync(plan.wranglerPath, plan.wranglerText);
     },
 
     async buildStart() {
