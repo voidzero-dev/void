@@ -587,6 +587,35 @@ describe('routingPlugin native asset Worker bypass', () => {
     ],
     ['a non-root base', () => {}, {}, '/app/'],
     ['the option unset', () => {}, { assetWorkerBypass: undefined }],
+    [
+      'a route under the assets folder',
+      (root) => {
+        mkdirSync(join(root, 'routes', 'assets'));
+        writeFileSync(join(root, 'routes', 'assets', '[id].ts'), 'export const GET = () => "";\n');
+      },
+    ],
+    [
+      'a page under the assets folder',
+      (root) => {
+        mkdirSync(join(root, 'pages', 'assets'), { recursive: true });
+        writeFileSync(join(root, 'pages', 'assets', '[id].tsx'), 'export default () => null;\n');
+      },
+    ],
+    ['a redirect rule', () => {}, { routing: { redirects: { '/old': '/new' } } }],
+    ['a fallback rule', () => {}, { routing: { fallbacks: { '/*': '/index.html' } } }],
+    [
+      'a public _redirects file',
+      (root) => {
+        mkdirSync(join(root, 'public'));
+        writeFileSync(join(root, 'public', '_redirects'), '');
+      },
+    ],
+    [
+      'a revalidate key under the assets folder',
+      () => {},
+      { routing: { revalidate: { '/assets/*': 60 } } },
+    ],
+    ['a prerender path under the assets folder', () => {}, { prerenderPaths: ['/assets/page'] }],
   ])('leaves the output unchanged for %s', async (_name, prepare, options, base) => {
     const root = createBuildRoot();
     prepare(root);
