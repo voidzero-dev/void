@@ -185,6 +185,21 @@ describe('rendered help advertises the flags the parser honours', () => {
     }
   });
 
+  it('lists `email alias [name]` and shows both usages with --project and --yes', () => {
+    expect(render(['email'])).toContain('alias [name]');
+    expect(hasHelpPage(['email', 'alias'])).toBe(true);
+    expect(getHelpPath(['email', 'alias', 'short', '--yes', '--help'])).toEqual(['email', 'alias']);
+
+    const page = render(['email', 'alias']);
+    expect(page).toContain('void email alias [options]');
+    expect(page).toContain('void email alias <name> [options]');
+    expect(page).toContain('--project <name>');
+    expect(page).toContain('--yes');
+    expect(page).toContain('permanent');
+    expect(page).not.toContain('--limit');
+    expect(page).not.toContain('--platform');
+  });
+
   // `status` / `setup` read the local project + wrangler session, never a Void project,
   // so their pages carry `--platform cloudflare` and no `--project`.
   it('shows --platform cloudflare, and no --project, on `email status` and `email setup`', () => {

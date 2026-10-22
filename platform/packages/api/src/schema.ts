@@ -372,11 +372,17 @@ export const projects = pgTable(
     // Highest proxy token generation issued for this project. 0 = legacy token.
     proxy_token_gen: integer('proxy_token_gen').notNull().default(0),
     status: text('status').notNull().default('active').$type<'active' | 'deleting'>(),
+    // A second mailbox name on the shared mail domain, set once by the owner. It
+    // shares one namespace with slugs; a database trigger keeps them apart.
+    email_alias: text('email_alias'),
     created_at: timestamp('created_at', { mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [
     unique().on(table.user_id, table.slug),
     uniqueIndex('idx_projects_slug').on(table.slug),
+    uniqueIndex('idx_projects_email_alias')
+      .on(table.email_alias)
+      .where(sql`${table.email_alias} IS NOT NULL`),
     index('idx_projects_user_id').on(table.user_id),
     uniqueIndex('projects_preview_workspace').on(
       table.preview_client_id,

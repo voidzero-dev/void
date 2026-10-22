@@ -50,6 +50,19 @@ void email disallow <address> [--project <name>]
 
 Remove one recipient from the project's destination list. New sends to that address are refused immediately; previously admitted attempts may finish. No deploy is involved.
 
+## `void email alias` {#void-email-alias}
+
+```
+void email alias [--project <name>]
+void email alias <name> [--yes] [--project <name>]
+```
+
+With no name, show the project's address on the platform's shared mail domain and whether inbound mail reaches it.
+
+With a name, give that address a shorter name: `void email alias acme` makes `acme@<mail domain>` and `acme+<tag>@<mail domain>` reach the project and lets it send from them. Only the project owner can set it. The name follows the same rules as a project slug, must not be used by any other project's slug or alias, and names of five characters or fewer need a plan that allows short names.
+
+The alias is permanent: it cannot be changed or removed, and it is freed only when the project is deleted. The slug address keeps working for sending and receiving, so nothing that already uses it breaks. The CLI asks for confirmation; pass `--yes` to skip the prompt, which is required outside an interactive terminal. Inbound mail at the alias starts once the project has `email/` handlers deployed and its recipient rule is ready; run `void email alias` to check. Redeploy with the current `void` before you share the alias: an app built with an older version sees `message.to` with the alias still in front (`acme+support@…` instead of `support@…`).
+
 ## `void email domain` {#void-email-domain}
 
 ```

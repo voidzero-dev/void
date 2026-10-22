@@ -37,6 +37,16 @@ With `void deploy --platform cloudflare`, generated JavaScript bundles with cont
 
 Use [Custom Headers](./headers) to choose a cache policy for other files. Apply immutable caching only to URLs that change whenever their content changes.
 
+Cloudflare serves these fingerprinted JavaScript bundles without starting your Worker, so they do not count as Worker requests, when your app:
+
+- has no global middleware
+- has no header, redirect, rewrite or fallback rules, and no `routing.notFound` setting
+- uses the default `base` of `/`
+- has no route or page that matches paths in the assets directory (`assets/` by default)
+- builds at most 99 fingerprinted bundles
+
+Otherwise these bundles go through your Worker and keep the same caching.
+
 ## Non-hashed assets
 
 Other static files, such as `index.html` and `favicon.ico`, are cached until the next deploy. You do not need to purge them manually.

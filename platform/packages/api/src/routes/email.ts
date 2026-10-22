@@ -1,12 +1,16 @@
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, isNull, ne, sql } from 'drizzle-orm';
 import { Hono } from 'hono';
 import type { Context } from 'hono';
+import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import { signConfirmToken, type ConfirmTokenPayload } from '../auth/confirm-token.ts';
 import { capabilityMiddleware } from '../capabilities.ts';
 import {
   deleteEmailDestination,
   getEmailDestinationByAddress,
   getEmailDestinationsByProjectId,
+  getProject,
+  getProjectByEmailAlias,
+  getProjectBySlug,
   getUser,
   promoteEmailDestinationWithOwnerAudit,
   queueUnreferencedEmailDestinationCleanup,
@@ -17,6 +21,7 @@ import {
 } from '../db.ts';
 import { getProjectEmailUsage, getProjectEmailLogs } from '../email/admission.ts';
 import { emailDomainRoutes, emailZoneConnections } from '../email/connection-schema.ts';
+import { EmailOperationError } from '../email/connection-service.ts';
 import {
   addEmailDomainForProject,
   getEmailDomainStatusForProject,
@@ -32,14 +37,21 @@ import {
   getEmailRecipientPolicy,
   repairEmailRecipientPolicyMirror,
 } from '../email/settings.ts';
-import { getSharedEmailRecipientReadiness } from '../email/shared-recipient-service.ts';
-import type { ApiEnv } from '../env.ts';
-import { isForeignKeyViolation } from '../pg-errors.ts';
 import {
+  checkSharedEmailAliasRoutable,
+  getSharedEmailRecipientReadiness,
+  reconcileSharedEmailRecipient,
+} from '../email/shared-recipient-service.ts';
+import type { ApiEnv } from '../env.ts';
+import { hasSqlState, isForeignKeyViolation } from '../pg-errors.ts';
+import { resolvePlan } from '../plans.ts';
+import {
+  PROJECT_PERMISSION_MESSAGES,
   ProjectAccessDeniedError,
   ProjectNotFoundError,
   projectAccessErrorBody,
 } from '../project-access.ts';
+import { projectNameError } from '../project-names.ts';
 import { runEmailDestinationCleanup } from '../provisioning/email-destination-cleanup.ts';
 import {
   addDestination,
@@ -47,6 +59,7 @@ import {
   listDestinations,
   type CfDestinationAddress,
 } from '../provisioning/email-routing.ts';
+import { projects } from '../schema.ts';
 import type { EmailDestination } from '../types.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
@@ -544,8 +557,107 @@ const app = new Hono<ApiEnv>()
     return context.json({
       domains: { management, projectSlug: access.project.slug },
       recipientPolicy: { mode: recipientPolicy.mode, domains: [...recipientPolicy.domains] },
+      emailAlias: access.project.email_alias,
+      // Set even when the platform has no shared inbound route: projects can
+      // still send from the slug or alias on it.
+      sharedDomain: context.env.EMAIL_SENDER_DOMAIN?.toLowerCase() ?? null,
       sharedInbound,
     });
+  })
+
+  // Give the project a shorter name on the shared mail domain. The alias is set
+  // once and never changes, so reply addresses built on it keep working. The
+  // slug keeps sending and receiving too.
+  .put('/:id/email/alias', async (context) => {
+    const projectId = context.req.param('id');
+    const db = context.get('db');
+    const access = await requireProjectRouteCapability(context, projectId, 'settings');
+    if (access instanceof Response) {
+      return access;
+    }
+    if (access.role !== 'owner') {
+      return context.json(
+        { error: 'forbidden', message: PROJECT_PERMISSION_MESSAGES['email-alias'] },
+        403,
+      );
+    }
+    if (!context.env.EMAIL_SENDER_DOMAIN) {
+      return context.json({ error: 'this platform has no shared mail domain' }, 409);
+    }
+    let body: { alias?: unknown };
+    try {
+      body = await context.req.json();
+    } catch {
+      return context.json({ error: 'alias is required' }, 400);
+    }
+    const alias = typeof body.alias === 'string' ? body.alias : '';
+    if (!alias) {
+      return context.json({ error: 'alias is required' }, 400);
+    }
+    const nameError = projectNameError(alias, 'alias');
+    if (nameError) {
+      return context.json({ error: nameError }, 400);
+    }
+    // A retry of a request that already applied gets the same answer.
+    if (access.project.email_alias === alias) {
+      return aliasResponse(context, alias);
+    }
+    if (access.project.email_alias) {
+      return context.json(
+        {
+          error: `this project already has the email alias ${access.project.email_alias}; it cannot be changed`,
+        },
+        409,
+      );
+    }
+    if (alias === access.project.slug) {
+      return context.json({ error: 'alias must differ from the project slug' }, 400);
+    }
+    // The same plan rule as short project slugs.
+    if (alias.length <= 5 && !(await resolvePlan(db, access.owner.plan)).allowShortSlugs) {
+      return context.json(
+        { error: 'the selected plan does not permit short names (5 characters or fewer)' },
+        403,
+      );
+    }
+    if ((await getProjectBySlug(db, alias)) ?? (await getProjectByEmailAlias(db, alias))) {
+      return context.json({ error: 'this name is already taken' }, 409);
+    }
+    try {
+      await checkSharedEmailAliasRoutable(db, context.env, access.project.slug, alias);
+    } catch (error) {
+      if (error instanceof EmailOperationError) {
+        return context.json({ error: error.message }, error.status as ContentfulStatusCode);
+      }
+      throw error;
+    }
+    let saved: boolean;
+    try {
+      saved = await db.transaction(async (tx) => {
+        const rows = await tx
+          .update(projects)
+          .set({ email_alias: alias })
+          .where(
+            and(
+              eq(projects.id, projectId),
+              eq(projects.status, 'active'),
+              isNull(projects.email_alias),
+            ),
+          )
+          .returning({ id: projects.id });
+        return rows.length === 1;
+      });
+    } catch (error) {
+      // The trigger and unique index refuse a name another project claimed meanwhile.
+      if (hasSqlState(error, '23505')) {
+        return context.json({ error: 'this name is already taken' }, 409);
+      }
+      throw error;
+    }
+    if (!saved && (await getProject(db, projectId))?.email_alias !== alias) {
+      return context.json({ error: 'the project changed; reload it and try again' }, 409);
+    }
+    return aliasResponse(context, alias);
   })
 
   .get('/:id/email/domains', async (context) => {
@@ -692,6 +804,25 @@ export function parseCounter(raw: string | null): number {
  * Routing — we just want to keep obviously-bad input out of the rate
  * limiter / CF API call.
  */
+/**
+ * Answer for a saved alias. Creates the alias rule now when the project
+ * already receives mail; the scheduled repair retries a failure.
+ */
+async function aliasResponse(context: Context<ApiEnv>, alias: string): Promise<Response> {
+  const db = context.get('db');
+  const projectId = context.req.param('id')!;
+  try {
+    await reconcileSharedEmailRecipient(db, context.env, projectId);
+  } catch (error) {
+    console.error('[email-alias] shared recipient reconcile failed', { projectId, error });
+  }
+  return context.json({
+    emailAlias: alias,
+    address: `${alias}@${context.env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
+    sharedInbound: await getSharedEmailRecipientReadiness(db, context.env, projectId),
+  });
+}
+
 function isValidEmail(s: string): boolean {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 }

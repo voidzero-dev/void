@@ -1,5 +1,5 @@
 import type { DeployManifest } from '@void/deploy-core';
-import { and, asc, eq, ne, sql } from 'drizzle-orm';
+import { and, asc, eq, ne, notInArray, sql } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
@@ -19,6 +19,7 @@ import {
   emailInstallationId,
   inspectEmailInboundRoute,
 } from './connection-service.ts';
+import { projectMailbox, projectMailboxNames } from './mailbox.ts';
 
 type Bindings = ApiEnv['Bindings'];
 type Recipient = typeof emailSharedRecipients.$inferSelect;
@@ -328,6 +329,53 @@ function ruleConflicts(rule: CfEmailRoutingRule, recipient: string) {
   });
 }
 
+/**
+ * Read-only check before a permanent email alias is saved: Cloudflare must be
+ * able to route it. No unrelated rule may own the address or its plus
+ * addresses, and the shared mail domain needs room for one more rule.
+ */
+export async function checkSharedEmailAliasRoutable(
+  db: Db,
+  env: Bindings,
+  slug: string,
+  alias: string,
+): Promise<void> {
+  const shared = await sharedRoute(db, env);
+  if (!shared) {
+    return;
+  }
+  const recipient = `${alias}@${shared.route.domain}`;
+  if (recipient.length > 90) {
+    throw new EmailOperationError(
+      'Shared email address exceeds Cloudflare’s 90-character routing-rule limit; choose a shorter alias',
+      400,
+    );
+  }
+  const client = createCfCustomerClient(await credentialFor(env, db, shared.connection));
+  const rules = await client.listRoutingRules(shared.connection.zone_id);
+  if (rules.some((rule) => ruleConflicts(rule, recipient))) {
+    throw new EmailOperationError(
+      `A Cloudflare Email Routing rule already routes ${recipient} or one of its plus addresses; choose another alias`,
+      409,
+    );
+  }
+  // A project that does not receive mail yet will need a slug rule too.
+  const slugRecipient = `${slug}@${shared.route.domain}`;
+  const needed = rules.some((rule) => rule.addresses.includes(slugRecipient)) ? 1 : 2;
+  if (
+    rules.filter((rule) =>
+      rule.addresses.some((address) => address.endsWith(`@${shared.route.domain}`)),
+    ).length +
+      needed >
+    200
+  ) {
+    throw new EmailOperationError(
+      'Shared mail domain has no room for the alias under Cloudflare’s 200 routing-rule limit; ask a platform administrator to remove unused rules or request a higher limit',
+      409,
+    );
+  }
+}
+
 async function ownershipName(installation: string, projectId: string, recipient: string) {
   return `void-shared-${await digest([installation, projectId, recipient])}`;
 }
@@ -409,8 +457,34 @@ export async function reconcileSharedEmailRecipient(
   if (!project || project.status !== 'active') {
     return;
   }
-  const recipient = `${project.slug}@${shared.route.domain}`;
-  await removeSharedEmailRecipients(db, env, projectId, recipient);
+  // One exact rule per mailbox name: the slug, plus the email alias once set.
+  const recipients = projectMailboxNames(project).map((name) => `${name}@${shared.route.domain}`);
+  await removeSharedEmailRecipients(db, env, projectId, recipients);
+  // Try every name before failing: a slug rule that keeps failing must not
+  // stop the alias row from being created, or the cron, which orders by the
+  // alias row, would pick this project first on every run.
+  let failure: { error: unknown } | undefined;
+  for (const recipient of recipients) {
+    try {
+      await reconcileProjectRecipient(db, env, project, shared, recipient, incomingManifest);
+    } catch (error) {
+      failure ??= { error };
+    }
+  }
+  if (failure) {
+    throw failure.error;
+  }
+}
+
+async function reconcileProjectRecipient(
+  db: Db,
+  env: Bindings,
+  project: typeof projects.$inferSelect,
+  shared: NonNullable<Awaited<ReturnType<typeof sharedRoute>>>,
+  recipient: string,
+  incomingManifest: Pick<DeployManifest, 'emailProtocolVersion'> | undefined,
+): Promise<void> {
+  const projectId = project.id;
   const name = await ownershipName(shared.connection.installation_id, projectId, recipient);
   const claimed = await db.transaction(async (tx) => {
     const [lockedProject] = await tx
@@ -422,6 +496,7 @@ export async function reconcileSharedEmailRecipient(
       !lockedProject ||
       lockedProject.status !== 'active' ||
       lockedProject.slug !== project.slug ||
+      lockedProject.email_alias !== project.email_alias ||
       (!incomingManifest && !(await hasActiveEmailHandlers(tx, projectId)))
     ) {
       return null;
@@ -437,7 +512,7 @@ export async function reconcileSharedEmailRecipient(
         rule_name: name,
       })
       .onConflictDoNothing();
-    const [row] = await tx
+    let [row] = await tx
       .select()
       .from(emailSharedRecipients)
       .where(
@@ -448,10 +523,42 @@ export async function reconcileSharedEmailRecipient(
         ),
       )
       .for('update');
+    // A removed row for a wanted address comes back: an older runtime, after a
+    // platform rollback, removes the alias rule it does not know about.
+    if (row?.status === 'removed') {
+      const [restored] = await tx
+        .update(emailSharedRecipients)
+        .set({
+          status: 'pending',
+          removing: false,
+          rule_id: null,
+          create_started_at: null,
+          reason: null,
+          updated_at: sql`now()`,
+        })
+        .where(eq(emailSharedRecipients.id, row.id))
+        .returning();
+      row = restored;
+    } else if (
+      row?.removing &&
+      !(
+        row.status === 'reconciling' &&
+        Date.parse(row.lease_started_at ?? '') > Date.now() - LEASE_MS
+      )
+    ) {
+      // A removal that stopped part way, also from an older runtime. Keep the
+      // recorded rule and creation intent: the checks below adopt a rule that
+      // still exists and refuse to guess about an unclear creation.
+      const [restored] = await tx
+        .update(emailSharedRecipients)
+        .set({ status: 'pending', removing: false, reason: null, updated_at: sql`now()` })
+        .where(eq(emailSharedRecipients.id, row.id))
+        .returning();
+      row = restored;
+    }
     if (
       !row ||
       row.removing ||
-      row.status === 'removed' ||
       (row.status === 'reconciling' &&
         Date.parse(row.lease_started_at ?? '') > Date.now() - LEASE_MS)
     ) {
@@ -602,11 +709,17 @@ export async function reconcileSharedEmailRecipient(
   }
 }
 
+/**
+ * Readiness of one mailbox name, or of the whole project when `name` is left
+ * out: then every name must be ready, and the result names the address the
+ * project shows unless another one is the problem.
+ */
 export async function getSharedEmailRecipientReadiness(
   db: Db,
   env: Bindings,
   projectId: string,
   verifyProvider = false,
+  name?: string,
 ) {
   const shared = await sharedRoute(db, env);
   if (!shared) {
@@ -616,7 +729,36 @@ export async function getSharedEmailRecipientReadiness(
   if (!project) {
     return null;
   }
-  const recipient = `${project.slug}@${shared.route.domain}`;
+  const names = name ? [name] : projectMailboxNames(project);
+  const results = [];
+  for (const candidate of names) {
+    results.push(
+      await recipientReadiness(
+        db,
+        env,
+        shared,
+        project,
+        `${candidate}@${shared.route.domain}`,
+        verifyProvider,
+      ),
+    );
+  }
+  const shown = `${name ?? projectMailbox(project)}@${shared.route.domain}`;
+  return (
+    results.find((result) => result.status !== 'ready') ??
+    results.find((result) => result.recipient === shown)!
+  );
+}
+
+async function recipientReadiness(
+  db: Db,
+  env: Bindings,
+  shared: NonNullable<Awaited<ReturnType<typeof sharedRoute>>>,
+  project: typeof projects.$inferSelect,
+  recipient: string,
+  verifyProvider: boolean,
+) {
+  const projectId = project.id;
   const [row] = await db
     .select()
     .from(emailSharedRecipients)
@@ -684,7 +826,7 @@ export async function removeSharedEmailRecipients(
   db: Db,
   env: Bindings,
   projectId: string,
-  exceptRecipient?: string,
+  keepRecipients: ReadonlyArray<string> = [],
 ): Promise<void> {
   const rows = await db
     .select()
@@ -693,7 +835,9 @@ export async function removeSharedEmailRecipients(
       and(
         eq(emailSharedRecipients.project_id, projectId),
         ne(emailSharedRecipients.status, 'removed'),
-        exceptRecipient ? ne(emailSharedRecipients.recipient, exceptRecipient) : undefined,
+        keepRecipients.length > 0
+          ? notInArray(emailSharedRecipients.recipient, [...keepRecipients])
+          : undefined,
       ),
     );
   for (const initial of rows) {
@@ -805,13 +949,15 @@ export async function reconcileSharedEmailRecipients(db: Db, env: Bindings, limi
         eq(deployments.status, 'live'),
       ),
     )
+    // Order by the shown name's row, so a project whose new alias has no rule
+    // yet comes first. Each run reconciles every name of the project.
     .leftJoin(
       emailSharedRecipients,
       and(
         eq(emailSharedRecipients.project_id, projects.id),
         eq(
           emailSharedRecipients.recipient,
-          sql`${projects.slug} || '@' || ${env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
+          sql`coalesce(${projects.email_alias}, ${projects.slug}) || '@' || ${env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
         ),
       ),
     )

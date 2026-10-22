@@ -1,6 +1,5 @@
 import { tokenizeSql } from '@void/deploy-core';
 import type { ProjectZeroTrustRouting } from '@void/edge';
-import { PLATFORM_HEALTH_HOSTNAME_LABEL } from '@void/platform';
 import { sql as drizzleSql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { deployTokenTtlSecondsForBuildMinutes, signPrerenderToken } from '../auth/deploy-token.ts';
@@ -22,6 +21,7 @@ import {
   getBuild,
   getProjectBuilds,
   getProjectBySlug,
+  getProjectByEmailAlias,
   getAccessibleProjectsByUserId,
   getAccessibleProjectBySlug,
   getLatestDeploymentsByProjectIds,
@@ -61,8 +61,10 @@ import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts
 import { ensureTrackingTable, queryD1, runRemoteMigrations } from '../migrations/remote-runner.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
 import { LOG_ROW_GROUP_BY } from '../observability/log-rows.ts';
+import { hasSqlState } from '../pg-errors.ts';
 import { resolvePlan, resolvePlanLimits } from '../plans.ts';
 import { PROJECT_PERMISSION_MESSAGES } from '../project-access.ts';
+import { MAX_SLUG_LENGTH, projectNameError } from '../project-names.ts';
 import { encryptProjectSecret, decryptProjectSecret } from '../project-secrets.ts';
 import { ProjectRequiresNormalizationError, requireNormalizedProject } from '../project-state.ts';
 import { projectWithUrl } from '../project-url.ts';
@@ -93,7 +95,6 @@ import {
   proxyTokenRotationWarnings,
   requestRotationIfReplacingUntrustedCode,
 } from '../proxy-token-rotation.ts';
-import { EMAIL_RESERVED_SLUGS } from '../reserved-slugs.ts';
 import { projectRouteKey } from '../routing.ts';
 import {
   buildRoutingJson,
@@ -114,76 +115,6 @@ import { publicProjectZeroTrustState } from '../zero-trust/state.ts';
 import { rollbackCfDestination } from './email.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 import { getRequestsDataset, queryAnalyticsEngine, queryProjectRequestOverview } from './usage.ts';
-
-/**
- * Slugs no project may claim. Three overlapping reasons:
- *
- *  - hostname collisions on `*.void.app` (`www`, `api`, `dash`, `cname`, …),
- *    including the hostname dispatch keeps for platform health probes;
- *  - EMAIL sender identity: `EMAIL_RESERVED_SLUGS` (`../reserved-slugs.ts`).
- *    A project's outbound `from` is `<slug>[+tag]@<EMAIL_SENDER_DOMAIN>`,
- *    so owning a slug owns that mailbox, and a user registering `noreply`
- *    could send mail indistinguishable from the platform's own. That set
- *    is folded in here rather than listed twice: this check only reaches
- *    NEW projects, so the email path enforces the same set on its own
- *    against a project that registered the slug before it was reserved;
- *  - certificate-authority domain-validation mailboxes on the shared mail
- *    domain (`admin`, `administrator`, `hostmaster`, `postmaster`,
- *    `webmaster`): a project receiving one could pass a CA email check and
- *    get a certificate for that domain. Reserved for new projects only.
- */
-export const RESERVED_SLUGS = new Set([
-  ...EMAIL_RESERVED_SLUGS,
-  PLATFORM_HEALTH_HOSTNAME_LABEL,
-  'admin',
-  'administrator',
-  'api',
-  'app',
-  'assets',
-  'auth',
-  'billing',
-  'blog',
-  'cdn',
-  'cname',
-  'dash',
-  'dashboard',
-  'docs',
-  'ftp',
-  'gateway',
-  'help',
-  'hostmaster',
-  'imap',
-  'login',
-  'mail',
-  'ns1',
-  'ns2',
-  'ns3',
-  'ns4',
-  'oauth',
-  'pop',
-  'proxy',
-  'register',
-  'signup',
-  'smtp',
-  'sso',
-  'staging',
-  'static',
-  'status',
-  'support',
-  'webmaster',
-  'www',
-]);
-
-/**
- * Longest slug a project may claim. The slug is an EMAIL local-part prefix:
- * the runtime's default sender is `<slug>+noreply@<EMAIL_SENDER_DOMAIN>` and
- * inbound mail arrives at `<slug>+<tag>@`. RFC 5321 § 4.5.3.1.1 caps a
- * local-part at 64 octets and `+noreply` takes 8 of them, so a slug over 56
- * has no working default sender (the runtime's `VALID_SLUG` refuses it and
- * `sendEmail` returns `INVALID_FROM`). 56 also sits inside the 63-octet DNS
- * label `<slug>.void.app` needs, which nothing else enforced either.
- */
-export const MAX_SLUG_LENGTH = 56;
 
 const DESTRUCTIVE_PATTERNS = [
   /\bDROP\s+TABLE\b/i,
@@ -3422,19 +3353,12 @@ export async function createUserProject(
     return context.json({ error: 'slug is required' }, 400);
   }
 
-  // Validate slug format: lowercase alphanumeric + dashes, no leading/trailing dashes
-  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?$/.test(body.slug)) {
-    return context.json({ error: 'slug must be lowercase alphanumeric with dashes' }, 400);
-  }
-
-  // See MAX_SLUG_LENGTH: the slug has to fit in front of `+noreply@` in a
-  // 64-octet SMTP local-part. The CLI treats this 400 as re-promptable.
-  if (body.slug.length > MAX_SLUG_LENGTH) {
-    return context.json({ error: `slug must be at most ${MAX_SLUG_LENGTH} characters` }, 400);
-  }
-
-  if (RESERVED_SLUGS.has(body.slug) || body.slug.startsWith('preview-')) {
-    return context.json({ error: 'this name is reserved' }, 400);
+  // Lowercase alphanumeric with dashes, short enough to fit in front of `+noreply@`
+  // in a 64-octet SMTP local-part, and not reserved. The CLI treats this 400 as
+  // re-promptable.
+  const nameError = projectNameError(body.slug, 'slug');
+  if (nameError) {
+    return context.json({ error: nameError }, 400);
   }
 
   // Preserve short-slug eligibility when an administrator copies or renames a plan.
@@ -3447,8 +3371,11 @@ export async function createUserProject(
     }
   }
 
-  // Check for slug uniqueness
-  const existing = await getProjectBySlug(context.get('db'), body.slug);
+  // A slug is also a mailbox on the shared mail domain, so it may not equal
+  // another project's email alias either.
+  const existing =
+    (await getProjectBySlug(context.get('db'), body.slug)) ??
+    (await getProjectByEmailAlias(context.get('db'), body.slug));
   if (existing) {
     return context.json({ error: 'slug already taken' }, 409);
   }
@@ -3540,11 +3467,9 @@ export async function createUserProject(
         err.status,
       );
     }
-    // Unique constraint violation — slug was taken between check and insert
-    if (
-      err instanceof Error &&
-      err.message.includes('duplicate key value violates unique constraint')
-    ) {
+    // Unique constraint violation: the slug, or an alias with that name, was
+    // taken between check and insert.
+    if (hasSqlState(err, '23505')) {
       return context.json({ error: 'slug already taken' }, 409);
     }
     throw err;

@@ -386,6 +386,13 @@
       "when": 1792665459659,
       "tag": "0061_email_inbound_mode",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1792672482613,
+      "tag": "0062_project_email_alias",
+      "breakpoints": true
     }
   ]
 }
