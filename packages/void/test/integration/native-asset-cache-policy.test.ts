@@ -311,7 +311,11 @@ describe('native asset Worker bypass in real Workers', () => {
     })!;
     writeFileSync(join(assets, '_headers'), plan.headers);
     const runWorkerFirst = plan.runWorkerFirst;
-    expect(runWorkerFirst).toEqual(['/**', '!/static/*']);
+    expect(runWorkerFirst).toEqual([
+      '/**',
+      '!/static/client-abcdefgh.js',
+      '!/static/nested/chunk-abcdefgh.js',
+    ]);
     bypass = new Miniflare(
       convertV4MiniflareOptions({
         compatibilityDate: '2026-07-01',
@@ -353,16 +357,18 @@ describe('native asset Worker bypass in real Workers', () => {
     }
   });
 
-  it('keeps the default policy for unlisted files and does not cache misses', async () => {
+  it('sends unlisted files and misses in the assets folder to the Worker', async () => {
     const unlisted = await bypass!.dispatchFetch('https://app.test/static/client.js');
     expect(unlisted.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
-    expect(unlisted.headers.has('x-void-worker')).toBe(false);
+    expect(unlisted.headers.get('x-void-worker')).toBe('1');
     await unlisted.arrayBuffer();
-    const missing = await bypass!.dispatchFetch('https://app.test/static/gone-abcdefgh.js');
-    expect(missing.status).toBe(404);
-    expect(missing.headers.get('cache-control') ?? '').not.toContain('immutable');
-    expect(missing.headers.has('x-void-worker')).toBe(false);
-    await missing.arrayBuffer();
+    for (const path of ['/static/gone-abcdefgh.js', '/static/42', '/static/']) {
+      const missing = await bypass!.dispatchFetch(`https://app.test${path}`);
+      expect(missing.status, path).toBe(404);
+      expect(missing.headers.get('cache-control') ?? '').not.toContain('immutable');
+      expect(missing.headers.get('x-void-worker'), path).toBe('1');
+      await missing.arrayBuffer();
+    }
   });
 
   it('still sends other paths to the Worker', async () => {

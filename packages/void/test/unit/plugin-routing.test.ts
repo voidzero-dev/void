@@ -536,11 +536,11 @@ describe('routingPlugin native asset Worker bypass', () => {
     readFileSync(join(root, 'dist', 'ssr', 'wrangler.json'), 'utf8');
   const headersPath = (root: string) => join(root, 'dist', 'client', '_headers');
 
-  it('excludes the assets folder from the Worker and lists the chunk as immutable', async () => {
+  it('excludes the hashed chunk from the Worker and lists it as immutable', async () => {
     const root = createBuildRoot();
     await runClientBuild(root);
     const wrangler = JSON.parse(wranglerText(root));
-    expect(wrangler.assets.run_worker_first).toEqual(['/**', '!/assets/*']);
+    expect(wrangler.assets.run_worker_first).toEqual(['/**', `!/${CHUNK}`]);
     expect({ ...wrangler, assets: { ...wrangler.assets, run_worker_first: ['/**'] } }).toEqual(
       JSON.parse(WRANGLER),
     );

@@ -140,7 +140,9 @@ describe('playground/ssr build + preview', () => {
       kv_namespaces?: Array<{ binding: string }>;
     };
     // No middleware or routing rules: Cloudflare serves the hashed bundles itself.
-    expect(wranglerConfig.assets?.run_worker_first).toEqual(['/**', '!/assets/*']);
+    const runWorkerFirst = wranglerConfig.assets?.run_worker_first as Array<string>;
+    expect(runWorkerFirst[0]).toBe('/**');
+    expect(runWorkerFirst).toContain(`!/${clientEntryFile()}`);
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
     expect(wranglerConfig.kv_namespaces?.some((b) => b.binding === 'KV')).toBe(true);
 

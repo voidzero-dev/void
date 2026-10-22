@@ -63,7 +63,7 @@ describe('normalizeAssetsDir', () => {
 describe('resolveAssetWorkerBypass', () => {
   it('lets eligible apps, including auth apps, skip the Worker for the assets folder', () => {
     const expected = {
-      runWorkerFirst: ['/**', '!/assets/*'],
+      runWorkerFirst: ['/**', '!/assets/chunk-12345678.js', '!/assets/main-abcdefgh.js'],
       headers: `${GENERATED_ASSET_HEADERS_MARKER}
 /assets/chunk-12345678.js
   Cache-Control: public, max-age=31536000, immutable
@@ -104,7 +104,7 @@ describe('resolveAssetWorkerBypass', () => {
       { authEnabled: true, assetsDir: 'api/auth', immutableFiles: ['api/auth/a-12345678.js'] },
     ],
     ['no immutable files', { immutableFiles: [] }],
-    ['101 immutable files', { immutableFiles: files(101) }],
+    ['100 immutable files', { immutableFiles: files(100) }],
     ['a file name with a placeholder', { immutableFiles: ['assets/a:b-12345678.js'] }],
     [
       'a rule over 100 characters',
@@ -114,9 +114,10 @@ describe('resolveAssetWorkerBypass', () => {
     expect(resolveAssetWorkerBypass(facts(overrides))).toBeNull();
   });
 
-  it('accepts exactly 100 immutable files', () => {
-    const headers = resolveAssetWorkerBypass(facts({ immutableFiles: files(100) }))?.headers;
-    expect(headers?.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(100);
+  it('accepts 99 immutable files, one run_worker_first rule each', () => {
+    const bypass = resolveAssetWorkerBypass(facts({ immutableFiles: files(99) }));
+    expect(bypass?.runWorkerFirst).toHaveLength(100);
+    expect(bypass?.headers.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(99);
   });
 });
 
