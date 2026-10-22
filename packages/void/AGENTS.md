@@ -16,9 +16,6 @@ and deployment consumers share these snapshots. Apply binding overrides per fiel
 auth and migrations still require a database. Provider identity and post-build
 artifact/SQL validation belong to the target. See the
 [shared analysis record](../../platform/meta/design-docs/0086-shared-application-analysis.md).
-Scanners read source through `deriveFromSource` (`shared/source-analysis-cache.ts`),
-so dev rescans only re-parse edited files. A derived value must depend only on
-that file's contents; anything that reads other files belongs outside the callback.
 
 Project settings live in `void.config.ts` through `void/config` and `defineConfig`. `void init` and `void deploy` migrate legacy `void.json` and root Wrangler JSON/JSONC files before using their settings. The `cloudflare` field is authored and checked in; `.void-wrangler.jsonc` is generated and ignored; `void.lock.json` records provisioned IDs and migration history and is checked in. Cloudflare writers must persist every generated change to the lock. Framework adapters that read Cloudflare config during development must point to the generated file. Direct Cloudflare deploys use installed `cf` Build Output upload and activation. Deployment, provisioning and installation callers use the typed `CloudflareOperation` contract from `@void/deploy-cloudflare`. The private `cloudflare-operation-process.ts` entry executes installed `cf` commands or API requests and returns structured process envelopes. Provider presentation is decoded only at the actual CLI boundary; orchestrators consume `data`, codes and process provenance. Secret values travel through stdin or private temporary files. Do not restore historical command arguments, imitation output or a direct Wrangler CLI dependency in `void`.
 

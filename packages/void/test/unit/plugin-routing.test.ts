@@ -352,8 +352,10 @@ describe('routingPlugin', () => {
 
     writeFileSync(pagePath, 'export default function Index() { return <h1>Updated</h1>; }');
     await emit('change', pagePath);
+
     writeFileSync(serverPath, 'export const loader = () => ({ count: 2 });');
     await emit('change', serverPath);
+
     writeFileSync(routePath, 'export const GET = () => new Response("still ok");');
     await emit('change', routePath);
 
@@ -382,6 +384,7 @@ describe('routingPlugin', () => {
       'export const loader = () => ({});\nexport const action = () => ({});',
     );
     await emit('change', serverPath);
+
     expect(invalidated).toEqual(['virtual:void-routes']);
 
     writeFileSync(
@@ -389,6 +392,7 @@ describe('routingPlugin', () => {
       'export const GET = () => new Response("ok");\nexport const POST = () => new Response("ok");',
     );
     await emit('change', routePath);
+
     expect(invalidated).toEqual(['virtual:void-routes', 'virtual:void-routes']);
   });
 

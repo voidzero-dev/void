@@ -1084,6 +1084,7 @@ describe('resolveLayoutIds', () => {
 describe('scanPages between saves', () => {
   beforeEach(() => {
     mkdirSync(join(TMP, 'pages'), { recursive: true });
+
     // Files written by a test are too recent to reuse; move the clock past that window.
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(Date.now() + 60_000);
@@ -1100,6 +1101,7 @@ describe('scanPages between saves', () => {
     writeFile('cached/notes.md', '---\ntitle: Draft\n---\n# Notes');
 
     const before = await scanPages(TMP);
+
     expect(before.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
       methods: [],
       revalidate: 60,
@@ -1113,6 +1115,7 @@ describe('scanPages between saves', () => {
     writeFile('cached/notes.md', '---\ntitle: Published\n---\n# Notes');
 
     const after = await scanPages(TMP);
+
     expect(after.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
       methods: ['loader'],
       layout: false,

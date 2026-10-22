@@ -103,8 +103,10 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   let previewing = false;
   let ssr: SsrCompileOptions | null = null;
   let authConfigPath: string | null = null;
+
   // Everything a rescan feeds into the route table and generated entries.
   const routeInputsKey = () => JSON.stringify([scan, authConfigPath, ssr]);
+
   const paths = readProjectPaths(root);
   const routesDir = paths.routesDir;
   const middlewareDir = paths.middlewareDir;
@@ -668,6 +670,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       const handleFileChange = async (path: string, event: 'add' | 'change' | 'unlink') => {
         const normalizedPath = normalizePath(path);
         invalidateSourceAnalysis(normalizedPath);
+
         const sourceConventionChanged =
           isInDirectory(normalizedPath, normalizedRoutesDir) ||
           isInDirectory(normalizedPath, normalizedMiddlewareDir) ||
@@ -705,6 +708,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           }
           return;
         }
+
         // Saving a page body or handler usually changes nothing the scan reports.
         // Vite already invalidates the saved module, so the route table only needs
         // regenerating when the scan moved: it re-transforms and re-runs a module
@@ -715,9 +719,11 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           isPotentialEnvFilePath(normalizedPath) ||
           ssrEntryAbsPaths.has(normalizedPath) ||
           routeInputsKey() !== previousRouteInputs;
+
         if (routeInputsChanged) {
           resolveAuthCompileOptions();
         }
+
         const shouldRestartForAssetRouting =
           event !== 'change' &&
           options.onDevAssetRoutingPolicyChange?.(resolveCurrentAssetRoutingPolicy()) === true;
@@ -725,10 +731,12 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           await devServer.restart();
           return;
         }
+
         if (routeInputsChanged) {
           await writeAuthDatabaseFiles();
           writeRouteTypes();
           writeQueueTypes();
+
           if (options.target) {
             writeNodeEntries(options.target);
           } else {

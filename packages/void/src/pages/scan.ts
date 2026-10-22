@@ -299,9 +299,11 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       const candidate = `${serverBase}.server.${serverExt}`;
       if (existsSync(join(pagesDir, candidate))) {
         serverPath = candidate;
+
         const metadata = deriveFromSource(join(pagesDir, candidate), 'page-server', (source) =>
           detectPageServerMetadata(source, candidate),
         );
+
         methods.push(...metadata.methods);
         revalidate = metadata.revalidate;
         prerender = metadata.prerender;
@@ -333,6 +335,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     // Extract frontmatter metadata and layout from .md files, or layout from component files
     let metadata: { title?: string; description?: string } | undefined;
     let layout: string | false | undefined;
+
     if (ext === '.md') {
       ({ metadata, layout } = deriveFromSource(join(pagesDir, file), 'page-markdown', (source) => ({
         metadata: extractFrontmatterMeta(source),

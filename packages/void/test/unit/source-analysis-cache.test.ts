@@ -27,8 +27,10 @@ describe('deriveFromSource', () => {
 
   it('reuses a derived value until the file changes', () => {
     const file = join(dir, 'page.ts');
+
     writeFileSync(file, 'export const loader = 1;');
     settle();
+
     const derive = vi.fn((source: string) => source.length);
 
     expect(deriveFromSource(file, 'length', derive)).toBe(24);
@@ -36,13 +38,16 @@ describe('deriveFromSource', () => {
     expect(derive).toHaveBeenCalledTimes(1);
 
     writeFileSync(file, 'export const action = 2;;');
+
     expect(deriveFromSource(file, 'length', derive)).toBe(25);
     expect(derive).toHaveBeenCalledTimes(2);
   });
 
   it('derives again from files that changed too recently to trust their stat', () => {
     const file = join(dir, 'page.ts');
+
     writeFileSync(file, 'one');
+
     const derive = vi.fn((source: string) => source);
 
     expect(deriveFromSource(file, 'source', derive)).toBe('one');
@@ -52,6 +57,7 @@ describe('deriveFromSource', () => {
 
   it('keeps analyses of one file separate', () => {
     const file = join(dir, 'page.ts');
+
     writeFileSync(file, 'abc');
     settle();
 
@@ -62,13 +68,16 @@ describe('deriveFromSource', () => {
 
   it('derives again after a watcher invalidates the file', () => {
     const file = join(dir, 'page.ts');
+
     writeFileSync(file, 'abc');
     settle();
+
     const derive = vi.fn((source: string) => source);
 
     deriveFromSource(file, 'source', derive);
     invalidateSourceAnalysis(file);
     deriveFromSource(file, 'source', derive);
+
     expect(derive).toHaveBeenCalledTimes(2);
   });
 

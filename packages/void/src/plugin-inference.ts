@@ -169,6 +169,7 @@ export function inferProjectBindings(
         return;
       }
     }
+
     allBindings.push(
       deriveFromSource(file, 'bindings', (code) => inferBindingsFromFile(file, code)),
     );

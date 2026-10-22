@@ -24,20 +24,25 @@ const entries = new Map<string, SourceEntry>();
 export function deriveFromSource<T>(path: string, kind: string, derive: (source: string) => T): T {
   const key = toSlash(path);
   const stat = statSync(key, { bigint: true, throwIfNoEntry: false });
+
   if (!stat) {
     // Keep the read error callers already handle.
     return derive(readFileSync(key, 'utf-8'));
   }
+
   const signature = `${stat.ino}:${stat.size}:${stat.mtimeNs}:${stat.ctimeNs}`;
   const changedAt = Number(
     (stat.mtimeNs > stat.ctimeNs ? stat.mtimeNs : stat.ctimeNs) / 1_000_000n,
   );
   const trusted = Date.now() - changedAt > RACY_WINDOW_MS;
   const entry = entries.get(key);
+
   if (trusted && entry?.signature === signature && entry.derived.has(kind)) {
     return entry.derived.get(kind) as T;
   }
+
   const value = derive(readFileSync(key, 'utf-8'));
+
   if (!trusted) {
     entries.delete(key);
   } else if (entry?.signature === signature) {
@@ -45,6 +50,7 @@ export function deriveFromSource<T>(path: string, kind: string, derive: (source:
   } else {
     entries.set(key, { signature, derived: new Map([[kind, value]]) });
   }
+
   return value;
 }
 
