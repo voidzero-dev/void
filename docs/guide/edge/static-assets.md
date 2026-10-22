@@ -37,7 +37,15 @@ With `void deploy --platform cloudflare`, generated JavaScript bundles with cont
 
 Use [Custom Headers](./headers) to choose a cache policy for other files. Apply immutable caching only to URLs that change whenever their content changes.
 
-If your app has no global middleware and no header, redirect, rewrite or fallback rules, Cloudflare serves the files in the assets directory (`assets/` by default) without starting your Worker, so they do not count as Worker requests. Adding global middleware, one of those rules, or a route or page that matches paths in the assets directory sends these files through your Worker again.
+Cloudflare serves these fingerprinted JavaScript bundles without starting your Worker, so they do not count as Worker requests, when your app:
+
+- has no global middleware
+- has no header, redirect, rewrite or fallback rules, and no `routing.notFound` setting
+- uses the default `base` of `/`
+- has no route or page that matches paths in the assets directory (`assets/` by default)
+- builds at most 99 fingerprinted bundles
+
+Otherwise these bundles go through your Worker and keep the same caching.
 
 ## Non-hashed assets
 
