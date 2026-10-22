@@ -220,9 +220,13 @@ describe('real authenticated Better Auth session cache policy', () => {
               },
             });
           }
-          return ['/assets/client-abcdefgh.js', '/favicon.ico'].includes(path)
-            ? new Response('file', { headers: { 'cache-control': revalidate, etag: '"file"' } })
-            : new Response('Not Found', { status: 404 });
+          if (!['/assets/client-abcdefgh.js', '/favicon.ico'].includes(path)) {
+            return new Response('Not Found', { status: 404 });
+          }
+          const headers = { 'cache-control': revalidate, etag: '"file"' };
+          return request.headers.get('if-none-match') === '"file"'
+            ? new Response(null, { status: 304, headers })
+            : new Response('file', { headers });
         },
       },
     };
@@ -274,6 +278,16 @@ describe('real authenticated Better Auth session cache policy', () => {
         const publicFile = await fetchAsset(app, '/favicon.ico', { cookie });
         expect(publicFile.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
         expect(publicFile.headers.has('pragma')).toBe(false);
+
+        const revalidated = await fetchAsset(app, '/favicon.ico', {
+          cookie,
+          'if-none-match': '"file"',
+        });
+        expect(revalidated.status).toBe(304);
+        expect(revalidated.headers.get('cache-control')).toBe(
+          'private, max-age=0, must-revalidate',
+        );
+        expect(revalidated.headers.has('pragma')).toBe(false);
       },
     );
 
