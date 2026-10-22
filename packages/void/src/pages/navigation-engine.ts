@@ -104,7 +104,8 @@ export type PageNavigationResource = {
   immediate: boolean;
   shell: Promise<PageNavigationResult | undefined>;
   abort(): void;
-  commit(): Promise<void>;
+  /** Resolves false when a newer visit has already set the URL, so nothing was committed. */
+  commit(): Promise<boolean>;
   dispose(): void;
 };
 
@@ -252,6 +253,9 @@ export async function createPageNavigationEngine(
 
   const _prefetchCache = new PrefetchCache();
   let _nextNavigationId = 0;
+  // The newest visit whose URL is in the address bar: the last commit, or a back/forward
+  // visit, which the browser has already moved to. An older visit must not commit over it.
+  let _urlNavigationId = 0;
   let _pendingResource: PageNavigationResource | null = null;
   let _committedResource: PageNavigationResource | null = null;
   let _committedDeferredRegistry: DeferredRegistry | null = null;
@@ -853,17 +857,23 @@ export async function createPageNavigationEngine(
     deferredRegistry: DeferredRegistry,
     resourceId: number,
     getResource: () => PageNavigationResource,
-  ): () => Promise<void> {
+  ): () => Promise<boolean> {
     let committed = false;
     return async () => {
       if (committed) {
-        return;
+        return false;
       }
       committed = true;
       const result = await shell;
       if (!result) {
-        return;
+        return false;
       }
+      // A newer visit committed while this one was being applied. Committing now would put
+      // back this page's URL, head, scroll and Deferred ownership over the newer page.
+      if (resourceId < _urlNavigationId) {
+        return false;
+      }
+      _urlNavigationId = resourceId;
       if (_pendingResource?.id === resourceId) {
         _pendingResource = null;
       }
@@ -922,6 +932,7 @@ export async function createPageNavigationEngine(
           restoreScroll(options._scrollPosition, commitTarget.hash);
         }
       });
+      return true;
     };
   }
 
@@ -993,9 +1004,19 @@ export async function createPageNavigationEngine(
           immediate: true,
           shell: Promise.resolve(undefined),
           abort() {},
-          async commit() {},
+          // Same-page hash visits commit right away. They do not stop an older visit
+          // whose page is already on screen from committing its URL.
+          async commit() {
+            return true;
+          },
           dispose() {},
         };
+      }
+
+      if (options._popstate) {
+        // The browser has already moved to this entry. A same-page hash entry is left out
+        // above: it renders nothing, so an older page on screen still commits its URL.
+        _urlNavigationId = id;
       }
 
       const controller = new AbortController();
@@ -1012,7 +1033,7 @@ export async function createPageNavigationEngine(
         deferredRegistry,
       );
 
-      let commitResource: () => Promise<void> = async () => {};
+      let commitResource: () => Promise<boolean> = async () => false;
       const stop = () => {
         controller.abort(abortError());
         deferredRegistry.dispose();

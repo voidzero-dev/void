@@ -437,6 +437,7 @@ function App({
           // with the browser URL, so one that renders the query falls back to a client render.
           React.startTransition(() => setHydrated(true));
         }
+        return true;
       },
       dispose() {},
     }),
@@ -459,7 +460,7 @@ function App({
       committedResources.add(resource.id);
       resource
         .commit()
-        .then(() => {
+        .then((committed) => {
           const resolveViewTransition = viewTransitionWaiters.get(resource.id);
           if (resolveViewTransition) {
             viewTransitionWaiters.delete(resource.id);
@@ -468,7 +469,17 @@ function App({
           const visitSettler = pendingVisitSettlers.get(resource.id);
           if (visitSettler) {
             pendingVisitSettlers.delete(resource.id);
-            visitSettler.resolve(result.pageData);
+            if (committed) {
+              visitSettler.resolve(result.pageData);
+            } else if (resource.method.toUpperCase() === 'GET') {
+              // A newer visit committed first. Settle like any abandoned visit.
+              visitSettler.resolve(undefined);
+            } else {
+              visitSettler.reject(new DOMException('Navigation aborted', 'AbortError'));
+            }
+          }
+          if (!committed) {
+            return;
           }
           if (activePendingNavigationId === resource.id) {
             activePendingNavigationId = null;

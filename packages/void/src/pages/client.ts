@@ -357,15 +357,26 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
           preserveState: resource.options.preserveState ?? resource.method !== 'GET',
         });
 
+      let applied = true;
       const useTransition = resource.options.viewTransition ?? config.viewTransitions;
       if (useTransition && document.startViewTransition) {
-        const transition = document.startViewTransition(() => applyUpdate());
+        // The callback runs on a later frame. A newer visit started by then renders instead.
+        const transition = document.startViewTransition(() => {
+          if (activeNavigationId !== resource.id) {
+            applied = false;
+            return;
+          }
+          return applyUpdate();
+        });
         await transition.updateCallbackDone;
       } else {
         await applyUpdate();
       }
 
-      await resource.commit();
+      // A newer visit can commit while this page is being applied; its URL stays.
+      if (!applied || !(await resource.commit())) {
+        throw new DOMException('Navigation aborted', 'AbortError');
+      }
       if (activeNavigationId === resource.id) {
         setRouteState(currentUrl(), result.pageData.params ?? {});
       }

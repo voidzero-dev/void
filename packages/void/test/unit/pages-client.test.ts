@@ -1350,3 +1350,280 @@ describe('preserveState history updates (#506)', () => {
     expect(history.replaceState).not.toHaveBeenCalled();
   });
 });
+
+describe('superseded navigation commits (#507)', () => {
+  function gate() {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    return { promise, release };
+  }
+
+  // pushState and replaceState move window.location, like a browser.
+  function setup() {
+    const documentStub = stubClientGlobals();
+    Object.assign(documentStub, { title: 'Home' });
+    const writeHistory = (_state: unknown, _title: string, url?: string | URL | null) => {
+      if (url != null) {
+        const target = new URL(url, window.location.origin);
+        Object.assign(window.location, {
+          pathname: target.pathname,
+          search: target.search,
+          hash: target.hash,
+        });
+      }
+    };
+    vi.mocked(history.pushState).mockImplementation(writeHistory);
+    vi.mocked(history.replaceState).mockImplementation(writeHistory);
+    const fetchGates = new Map<string, Promise<void>>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        await fetchGates.get(url);
+        return url === '/a'
+          ? pageJson({ component: 'a', url, props: {}, head: { title: 'A' } })
+          : pageJson({
+              component: 'b',
+              url,
+              props: { stats: null },
+              deferredKeys: { stats: 'stats' },
+              head: { title: 'B' },
+            });
+      }),
+    );
+    const updateGates = new Map<string, Promise<void>>();
+    const rendered: Array<string> = [];
+    const applyUpdate = vi.fn((pageData: { url?: string }) => {
+      rendered.push(pageData.url ?? '');
+      return updateGates.get(pageData.url ?? '');
+    });
+    const rejectDeferred = vi.fn((_ref, error) => error);
+    return { documentStub, fetchGates, updateGates, rendered, applyUpdate, rejectDeferred };
+  }
+
+  async function router(page: ReturnType<typeof setup>, config: TestRouterConfig = {}) {
+    const created = await createTestRouter({
+      ...config,
+      adapter: {
+        applyUpdate: page.applyUpdate,
+        createDeferred: () => ({ loading: true }),
+        isLoading: () => true,
+        rejectDeferred: page.rejectDeferred,
+      },
+      components: { a: loadComponent, b: loadComponent, home: loadComponent },
+      matchRoute: (url) => (url.startsWith('/a') ? 'a' : url.startsWith('/b') ? 'b' : 'home'),
+    });
+    vi.mocked(history.pushState).mockClear();
+    vi.mocked(history.replaceState).mockClear();
+    vi.mocked(window.scrollTo).mockClear();
+    return created.router;
+  }
+
+  async function entered(page: ReturnType<typeof setup>, url: string) {
+    await vi.waitFor(() => expect(page.rendered).toContain(url));
+  }
+
+  it('commits each visit in order when they do not overlap', async () => {
+    const page = setup();
+    const r = await router(page);
+
+    await r.visit('/a');
+    await r.visit('/b');
+
+    expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/a', '/b']);
+    expect(window.location.pathname).toBe('/b');
+    expect(page.documentStub).toMatchObject({ title: 'B' });
+  });
+
+  it('keeps the newer page when an older visit finishes applying after it commits', async () => {
+    const page = setup();
+    const a = gate();
+    page.updateGates.set('/a', a.promise);
+    const r = await router(page);
+
+    const visitA = r.visit('/a');
+    await entered(page, '/a');
+    await r.visit('/b');
+    vi.mocked(window.scrollTo).mockClear();
+    a.release();
+
+    await expect(visitA).resolves.toBeUndefined();
+    expect(window.location.pathname).toBe('/b');
+    expect(r.url.pathname).toBe('/b');
+    expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/b']);
+    expect(page.documentStub).toMatchObject({ title: 'B' });
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    // A's commit would have disposed B and rejected its pending Deferred prop.
+    expect(page.rejectDeferred).not.toHaveBeenCalled();
+  });
+
+  it('commits an older visit that finishes before the newer one commits', async () => {
+    const page = setup();
+    const a = gate();
+    const b = gate();
+    page.updateGates.set('/a', a.promise);
+    page.fetchGates.set('/b', b.promise);
+    const r = await router(page);
+
+    const visitA = r.visit('/a');
+    await entered(page, '/a');
+    const visitB = r.visit('/b');
+    a.release();
+    // A is on screen, so its URL is written until B commits.
+    await expect(visitA).resolves.toMatchObject({ url: '/a' });
+    expect(window.location.pathname).toBe('/a');
+
+    b.release();
+    await visitB;
+    expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/a', '/b']);
+    expect(window.location.pathname).toBe('/b');
+  });
+
+  it('lets a visit started while the new page mounts replace that page', async () => {
+    const page = setup();
+    const r = await router(page);
+    // Like a redirect from Vue's onMounted, which runs before applyUpdate settles.
+    page.applyUpdate.mockImplementation((pageData: { url?: string }) => {
+      page.rendered.push(pageData.url ?? '');
+      if (pageData.url === '/a') {
+        void r.visit('/b', { replace: true });
+      }
+      return Promise.resolve();
+    });
+
+    await r.visit('/a');
+    await vi.waitFor(() => expect(window.location.pathname).toBe('/b'));
+
+    expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/a']);
+    expect(vi.mocked(history.replaceState).mock.calls.at(-1)?.[2]).toBe('/b');
+  });
+
+  it('keeps page and URL together when a same-page hash visit starts during an update', async () => {
+    const page = setup();
+    const a = gate();
+    page.updateGates.set('/a', a.promise);
+    const r = await router(page);
+
+    const visitA = r.visit('/a');
+    await entered(page, '/a');
+    await r.visit('#x');
+    a.release();
+
+    await expect(visitA).resolves.toMatchObject({ url: '/a' });
+    expect(window.location.pathname).toBe('/a');
+    expect(page.documentStub).toMatchObject({ title: 'A' });
+  });
+
+  it('does not push an older URL after a back/forward visit', async () => {
+    const page = setup();
+    const a = gate();
+    const b = gate();
+    page.updateGates.set('/a', a.promise);
+    page.fetchGates.set('/b', b.promise);
+    const r = await router(page);
+
+    const visitA = r.visit('/a');
+    await entered(page, '/a');
+    // The browser has already moved to /b when popstate fires, before /b loads.
+    window.location.pathname = '/b';
+    const visitB = r.visit('/b', { _popstate: true, _scrollPosition: null });
+    a.release();
+    await expect(visitA).resolves.toBeUndefined();
+    b.release();
+    await visitB;
+
+    expect(history.pushState).not.toHaveBeenCalled();
+    expect(window.location.pathname).toBe('/b');
+  });
+
+  it('keeps page and URL together after Back to a same-page hash entry during an update', async () => {
+    const page = setup();
+    const a = gate();
+    page.updateGates.set('/a', a.promise);
+    const r = await router(page);
+    await r.visit('#s');
+
+    const visitA = r.visit('/a');
+    await entered(page, '/a');
+    // Back from /#s to /: a same-page entry, so nothing new renders.
+    window.location.hash = '';
+    await r.visit('/', { _popstate: true, _scrollPosition: null });
+    a.release();
+
+    await expect(visitA).resolves.toMatchObject({ url: '/a' });
+    expect(window.location.pathname).toBe('/a');
+    expect(page.documentStub).toMatchObject({ title: 'A' });
+  });
+
+  it('rejects a superseded form submission with an AbortError', async () => {
+    const page = setup();
+    const a = gate();
+    page.updateGates.set('/a', a.promise);
+    const r = await router(page);
+
+    const submitA = r.visit('/a', { method: 'post', data: { name: 'x' } });
+    await entered(page, '/a');
+    await r.visit('/b');
+    a.release();
+
+    await expect(submitA).rejects.toMatchObject({ name: 'AbortError' });
+    expect(window.location.pathname).toBe('/b');
+  });
+
+  it('does not apply an older view transition after a newer visit rendered', async () => {
+    const page = setup();
+    const callbacks: Array<() => unknown> = [];
+    Object.assign(document, {
+      startViewTransition(callback: () => unknown) {
+        const updateCallbackDone = new Promise<void>((resolve) => {
+          callbacks.push(async () => {
+            await callback();
+            resolve();
+          });
+        });
+        return { updateCallbackDone };
+      },
+    });
+    const r = await router(page);
+
+    const visitA = r.visit('/a', { viewTransition: true });
+    await vi.waitFor(() => expect(callbacks).toHaveLength(1));
+    await r.visit('/b', { viewTransition: false });
+    await callbacks[0]();
+
+    await expect(visitA).resolves.toBeUndefined();
+    expect(page.rendered).toEqual(['/b']);
+    expect(window.location.pathname).toBe('/b');
+  });
+
+  it('skips an older engine commit after a newer one, as the React adapter calls it', async () => {
+    const page = setup();
+    const engine = await createPageNavigationEngine({
+      adapter: {
+        createDeferred: () => ({ loading: true }),
+        isLoading: () => true,
+        resolveDeferred: (_ref, value) => value,
+        rejectDeferred: page.rejectDeferred,
+      },
+      components: { a: loadComponent, b: loadComponent, home: loadComponent },
+      layoutTree: {},
+      routeMeta: {},
+      matchRoute: (url) => (url.startsWith('/a') ? 'a' : 'b'),
+      viewTransitions: false,
+      prefetchHoverDelay: 75,
+      prefetchDefaultCacheFor: parseCacheFor('30s'),
+    });
+
+    const a = engine.prepareVisit('/a');
+    await a.shell;
+    const b = engine.prepareVisit('/b');
+    await b.shell;
+    await b.commit();
+    await a.commit();
+
+    expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/b']);
+    expect(page.documentStub).toMatchObject({ title: 'B' });
+    expect(page.rejectDeferred).not.toHaveBeenCalled();
+  });
+});
