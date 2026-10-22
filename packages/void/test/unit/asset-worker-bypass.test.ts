@@ -4,9 +4,7 @@ import {
   isGeneratedAssetHeaders,
   normalizeAssetsDir,
   patternCanReachUnder,
-  renderGeneratedAssetHeaders,
   resolveAssetWorkerBypass,
-  withAssetBypassRule,
   type AssetWorkerBypassFacts,
 } from '../../src/asset-worker-bypass.ts';
 
@@ -65,19 +63,24 @@ describe('normalizeAssetsDir', () => {
 describe('resolveAssetWorkerBypass', () => {
   it('lets eligible apps, including auth apps, skip the Worker for the assets folder', () => {
     const expected = {
-      assetsDir: 'assets',
-      files: ['assets/chunk-12345678.js', 'assets/main-abcdefgh.js'],
+      runWorkerFirst: ['/**', '!/assets/*'],
+      headers: `${GENERATED_ASSET_HEADERS_MARKER}
+/assets/chunk-12345678.js
+  Cache-Control: public, max-age=31536000, immutable
+/assets/main-abcdefgh.js
+  Cache-Control: public, max-age=31536000, immutable
+`,
     };
     expect(resolveAssetWorkerBypass(facts())).toEqual(expected);
     expect(resolveAssetWorkerBypass(facts({ authEnabled: true }))).toEqual(expected);
   });
 
   it('lists only immutable files under the assets folder', () => {
-    expect(
-      resolveAssetWorkerBypass(
-        facts({ immutableFiles: ['root-abcdefgh.js', 'assets/a-12345678.js'] }),
-      )?.files,
-    ).toEqual(['assets/a-12345678.js']);
+    const headers = resolveAssetWorkerBypass(
+      facts({ immutableFiles: ['root-abcdefgh.js', 'assets/a-12345678.js'] }),
+    )?.headers;
+    expect(headers).toContain('/assets/a-12345678.js\n');
+    expect(headers).not.toContain('root-abcdefgh');
   });
 
   it.each<[string, Partial<AssetWorkerBypassFacts>]>([
@@ -112,36 +115,8 @@ describe('resolveAssetWorkerBypass', () => {
   });
 
   it('accepts exactly 100 immutable files', () => {
-    expect(resolveAssetWorkerBypass(facts({ immutableFiles: files(100) }))?.files).toHaveLength(
-      100,
-    );
-  });
-});
-
-describe('withAssetBypassRule', () => {
-  it('adds the negative rule only to a lone /** rule', () => {
-    expect(withAssetBypassRule(['/**'], 'assets')).toEqual(['/**', '!/assets/*']);
-    expect(withAssetBypassRule(['/**', '/x'], 'assets')).toBeNull();
-    expect(withAssetBypassRule(true, 'assets')).toBeNull();
-    expect(withAssetBypassRule(['/**'], 'a'.repeat(100))).toBeNull();
-  });
-});
-
-describe('renderGeneratedAssetHeaders', () => {
-  it('writes one immutable rule per file after the marker', () => {
-    expect(renderGeneratedAssetHeaders(['assets/a-12345678.js', 'assets/b-abcdefgh.js'])).toBe(
-      `${GENERATED_ASSET_HEADERS_MARKER}
-/assets/a-12345678.js
-  Cache-Control: public, max-age=31536000, immutable
-/assets/b-abcdefgh.js
-  Cache-Control: public, max-age=31536000, immutable
-`,
-    );
-  });
-
-  it('returns null outside the rule limit', () => {
-    expect(renderGeneratedAssetHeaders([])).toBeNull();
-    expect(renderGeneratedAssetHeaders(files(101))).toBeNull();
+    const headers = resolveAssetWorkerBypass(facts({ immutableFiles: files(100) }))?.headers;
+    expect(headers?.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(100);
   });
 });
 

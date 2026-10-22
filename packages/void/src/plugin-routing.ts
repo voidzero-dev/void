@@ -11,12 +11,7 @@ import {
   resolveAssetRoutingPolicy,
   type AssetRoutingPolicy,
 } from './asset-routing.ts';
-import {
-  isGeneratedAssetHeaders,
-  renderGeneratedAssetHeaders,
-  resolveAssetWorkerBypass,
-  withAssetBypassRule,
-} from './asset-worker-bypass.ts';
+import { isGeneratedAssetHeaders, resolveAssetWorkerBypass } from './asset-worker-bypass.ts';
 import { loadVoidAuthConfig } from './auth/config.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
@@ -403,13 +398,11 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       return null;
     }
     let wranglerPath: string;
-    let text: string;
     let wrangler: { assets?: Record<string, unknown> };
     try {
       const distDir = resolveDistDir(root);
       wranglerPath = join(distDir, resolveWorkerDirName(distDir), 'wrangler.json');
-      text = readFileSync(wranglerPath, 'utf8');
-      wrangler = JSON.parse(text);
+      wrangler = JSON.parse(readFileSync(wranglerPath, 'utf8'));
     } catch {
       return null;
     }
@@ -445,17 +438,15 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       assetsDir,
       immutableFiles: clientImmutableFiles,
     });
-    const runWorkerFirst = bypass && withAssetBypassRule(assets.run_worker_first, bypass.assetsDir);
-    const headers = bypass && renderGeneratedAssetHeaders(bypass.files);
-    if (!runWorkerFirst || !headers) {
+    if (!bypass) {
       return null;
     }
     return {
-      headers,
+      headers: bypass.headers,
       wranglerPath,
       wranglerText: JSON.stringify({
         ...wrangler,
-        assets: { ...assets, run_worker_first: runWorkerFirst },
+        assets: { ...assets, run_worker_first: bypass.runWorkerFirst },
       }),
     };
   }

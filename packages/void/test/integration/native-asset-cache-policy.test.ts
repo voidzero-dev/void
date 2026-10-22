@@ -6,7 +6,7 @@ import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build, type Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
-import { renderGeneratedAssetHeaders, withAssetBypassRule } from '../../src/asset-worker-bypass.ts';
+import { resolveAssetWorkerBypass } from '../../src/asset-worker-bypass.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 
 const runtimeSource = (file: string) => join(import.meta.dirname, '../../src/runtime', file);
@@ -295,14 +295,22 @@ describe('native asset Worker bypass in real Workers', () => {
     for (const file of ['client-abcdefgh.js', 'client.js', 'nested/chunk-abcdefgh.js']) {
       writeFileSync(join(assets, 'static', file), 'export const value = 1;');
     }
-    writeFileSync(
-      join(assets, '_headers'),
-      renderGeneratedAssetHeaders([
-        'static/client-abcdefgh.js',
-        'static/nested/chunk-abcdefgh.js',
-      ])!,
-    );
-    const runWorkerFirst = withAssetBypassRule(['/**'], 'static')!;
+    const plan = resolveAssetWorkerBypass({
+      runWorkerFirst: ['/**'],
+      notFoundHandling: 'none',
+      base: '/',
+      hasMiddleware: false,
+      authEnabled: false,
+      headerRuleCount: 0,
+      redirectRuleCount: 0,
+      fallbackRuleCount: 0,
+      publicEdgeFiles: false,
+      patterns: ['/'],
+      assetsDir: 'static',
+      immutableFiles: ['static/client-abcdefgh.js', 'static/nested/chunk-abcdefgh.js'],
+    })!;
+    writeFileSync(join(assets, '_headers'), plan.headers);
+    const runWorkerFirst = plan.runWorkerFirst;
     expect(runWorkerFirst).toEqual(['/**', '!/static/*']);
     bypass = new Miniflare(
       convertV4MiniflareOptions({
