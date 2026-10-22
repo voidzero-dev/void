@@ -19,6 +19,7 @@ import {
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
 import { scriptBlocks } from './island-imports.ts';
 import { resolveNamedLayout } from './layout-resolution.ts';
+import { patternToRegex } from './manifest.ts';
 import type {
   ExplicitBoolean,
   PageDefinition,
@@ -37,6 +38,8 @@ export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 
 /** Layout paths already reported; a dev server rescans pages on every file change. */
 const warnedLayoutPaths = new Set<string>();
+/** Unreachable pages already reported, for the same reason. */
+const warnedShadowedPages = new Set<string>();
 
 type PageRenderingSource = {
   componentPath: string;
@@ -49,7 +52,13 @@ type PageRenderingSource = {
   hasGetPrerenderPaths?: boolean;
 };
 
-type PageScanOptions = { output?: 'server' | 'static'; paths?: ProjectPaths; pagesDir?: string };
+type PageScanOptions = {
+  output?: 'server' | 'static';
+  paths?: ProjectPaths;
+  pagesDir?: string;
+  /** Report pages that share a route. Off when another framework owns pages/ (Nuxt nests users.vue and users/index.vue). */
+  checkRoutes?: boolean;
+};
 
 type ResolvedPageRendering = {
   ssrMode: SsrMode;
@@ -363,6 +372,11 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     return a.pattern.localeCompare(b.pattern);
   });
 
+  if (options?.checkRoutes !== false) {
+    assertOnePagePerRoute(pages);
+    warnShadowedPages(pagesDir, pages);
+  }
+
   // Validate: throw when regular pages are under island layouts
   for (const page of pages) {
     if (page.island) {
@@ -403,6 +417,84 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   }
 
   return { pages, layouts, namedLayouts };
+}
+
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Group sorted pages by `key`, keeping only groups with more than one page. */
+function pagesSharing(
+  pages: Array<PageDefinition>,
+  key: (page: PageDefinition) => string,
+): Array<Array<PageDefinition>> {
+  const groups = new Map<string, Array<PageDefinition>>();
+  for (const page of pages) {
+    const group = groups.get(key(page));
+    if (group) {
+      group.push(page);
+    } else {
+      groups.set(key(page), [page]);
+    }
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
+/**
+ * Two files for one path have no stable winner: the server and the client can
+ * each pick a different one, and the order can change between runs.
+ */
+function assertOnePagePerRoute(pages: Array<PageDefinition>): void {
+  assertNoneShare(
+    pages,
+    (page) => page.pattern,
+    'pages: Multiple page files resolve to the same route:',
+    'Keep one page file per route and rename or remove the others.',
+  );
+  // index.tsx and index/index.tsx have different routes but the same page id.
+  assertNoneShare(
+    pages,
+    (page) => page.componentId,
+    'pages: Multiple page files resolve to the same page id:',
+    'Rename or remove one of them.',
+  );
+}
+
+function assertNoneShare(
+  pages: Array<PageDefinition>,
+  key: (page: PageDefinition) => string,
+  title: string,
+  hint: string,
+): void {
+  const clashes = pagesSharing(pages, key)
+    .map((group) => ({
+      key: key(group[0]),
+      files: group.map((page) => page.componentPath).sort(compareText),
+    }))
+    .sort((left, right) => compareText(left.key, right.key))
+    .map(
+      (clash) =>
+        `  ${JSON.stringify(clash.key)}: ${clash.files.map((file) => JSON.stringify(file)).join(', ')}`,
+    );
+  if (clashes.length > 0) {
+    throw new Error([title, ...clashes, hint].join('\n'));
+  }
+}
+
+/** Dynamic routes that match the same URLs, such as [id] and [slug]: only the first is ever used. */
+function warnShadowedPages(pagesDir: string, pages: Array<PageDefinition>): void {
+  for (const [used, ...shadowed] of pagesSharing(pages, (page) => patternToRegex(page.pattern))) {
+    for (const page of shadowed) {
+      const key = `${pagesDir}\0${used.componentPath}\0${page.componentPath}`;
+      if (warnedShadowedPages.has(key)) {
+        continue;
+      }
+      warnedShadowedPages.add(key);
+      voidWarn(
+        `pages: Page '${page.componentPath}' (${page.pattern}) is never used: '${used.componentPath}' (${used.pattern}) matches the same URLs first. Remove one of them.`,
+      );
+    }
+  }
 }
 
 // Same leading-script rule as @void/md's extractScript: a markdown page may open

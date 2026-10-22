@@ -10,6 +10,8 @@ export async function completeApplicationAnalysis(
   const scan = await scanRoutes(analysis.root, {
     output: analysis.config.output,
     paths: analysis.paths,
+    // A framework app's pages/ follows that framework's rules, not Void Pages.
+    checkPageRoutes: !analysis.framework,
     inventory: {
       routes: analysis.routes,
       middleware: analysis.middleware,

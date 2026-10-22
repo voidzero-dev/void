@@ -680,7 +680,26 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         // Re-scan and invalidate the virtual module in ALL environments.
         // The route table virtual module lives in the workerd environment,
         // not the client — so we must iterate all environments.
-        await rescan(true);
+        try {
+          await rescan(true);
+        } catch (error) {
+          // Keep the last good route table; the next change rescans.
+          const message = error instanceof Error ? error.message : String(error);
+          // An adapter's pages plugin rescans page adds, removals and .md saves
+          // and logs the same page error, so log it once.
+          const adapterLogs =
+            message.startsWith('pages:') &&
+            isInDirectory(normalizedPath, normalizedPagesDir) &&
+            (event !== 'change' || normalizedPath.endsWith('.md')) &&
+            resolvedConfig?.plugins?.some((plugin) => plugin.name.endsWith(':pages')) === true;
+          if (!adapterLogs) {
+            devServer.config.logger.error(message, {
+              error: error instanceof Error ? error : undefined,
+              timestamp: true,
+            });
+          }
+          return;
+        }
         resolveAuthCompileOptions();
         const shouldRestartForAssetRouting =
           event !== 'change' &&

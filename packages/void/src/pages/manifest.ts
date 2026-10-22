@@ -8,10 +8,23 @@ import type { PageScanResult } from './types.ts';
  * Client entries load this eagerly, so it grows with every page. Each page id
  * is written once, identical layout chains are shared, and static routes are
  * matched by exact lookup instead of a RegExp per page. The emitted bindings
- * (`components`, `layoutTree`, `routeMeta`, `matchRoute`) keep their shape.
+ * (`components`, `layoutTree`, `routeMeta`, `matchRoute`) keep their shape;
+ * `matchRoute` takes a decoded pathname (see `decodePagePath`).
  */
 export function generateComponentManifest(scan: PageScanResult, pagesDir: string): string {
   const load = (filePath: string) => `() => import(${JSON.stringify(`${pagesDir}/${filePath}`)})`;
+
+  // A page in a folder named "layout" (layout/index.tsx) has the id of the
+  // layout file beside it (layout.tsx). No page path has a segment starting
+  // with "_", so that layout is keyed "_layout" instead.
+  const pageIds = new Set(scan.pages.map((page) => page.componentId));
+  const layoutKey = (id: string): string => {
+    if (!pageIds.has(id)) {
+      return id;
+    }
+    const slash = id.lastIndexOf('/');
+    return id.slice(0, slash + 1) + '_' + id.slice(slash + 1);
+  };
 
   const chains: Array<string> = [];
   const chainIndexes = new Map<string, number>();
@@ -21,7 +34,9 @@ export function generateComponentManifest(scan: PageScanResult, pagesDir: string
   // can be looked up exactly without changing which route matches first.
   let inStaticPrefix = true;
   for (const page of scan.pages) {
-    const chain = JSON.stringify(resolveLayoutIds(page, scan.layouts, scan.namedLayouts));
+    const chain = JSON.stringify(
+      resolveLayoutIds(page, scan.layouts, scan.namedLayouts).map(layoutKey),
+    );
     let chainIndex = chain === '[]' ? -1 : chainIndexes.get(chain);
     if (chainIndex === undefined) {
       chainIndex = chains.push(chain) - 1;
@@ -60,9 +75,10 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   if (chain >= 0) layoutTree[id] = __voidLayoutChains[chain];
   routes.push({ pattern, id });
 }`);
-  // Layouts are set after pages, so a layout keeps an id it shares with a page.
   for (const layout of [...scan.layouts, ...scan.namedLayouts]) {
-    lines.push(`components[${JSON.stringify(toLayoutId(layout))}] = ${load(layout.filePath)};`);
+    lines.push(
+      `components[${JSON.stringify(layoutKey(toLayoutId(layout)))}] = ${load(layout.filePath)};`,
+    );
   }
 
   // Route metadata (sparse — only island pages)
@@ -74,8 +90,7 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
   }
   lines.push('};');
 
-  lines.push(`function matchRoute(url) {
-  const path = new URL(url, "http://x").pathname;
+  lines.push(`function matchRoute(path) {
   const id = __voidStaticRouteIds.get(path);
   if (id !== undefined) return id;
   for (const r of routes) {
@@ -106,7 +121,8 @@ function isStaticPattern(pattern: string): boolean {
   return pattern.split('/').every((segment) => captureGroup(segment) === undefined);
 }
 
-function patternToRegex(pattern: string): string {
+/** The RegExp literal a page pattern matches with, the same on the client and the server. */
+export function patternToRegex(pattern: string): string {
   const regexSource = pattern
     .split('/')
     .map((segment) => {

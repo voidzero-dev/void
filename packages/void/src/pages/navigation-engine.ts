@@ -8,7 +8,7 @@ import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
-import { isSameOrigin } from './url.ts';
+import { decodePagePath, isSameOrigin } from './url.ts';
 
 /**
  * The server leaves a named action's key out of the page URL. When the page URL
@@ -77,7 +77,8 @@ export type PageNavigationEngineConfig = {
   components: Record<string, () => Promise<PageComponentModule>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean }>;
-  matchRoute(url: string): string | null;
+  /** Page id for a decoded pathname (see `decodePagePath`). */
+  matchRoute(path: string): string | null;
   staticPageData?: boolean;
   staticPageDataFastPath?: boolean;
   viewTransitions: boolean;
@@ -239,13 +240,15 @@ export async function createPageNavigationEngine(
     components,
     layoutTree,
     routeMeta,
-    matchRoute,
     staticPageData: STATIC_PAGE_DATA_ENABLED = false,
     staticPageDataFastPath: STATIC_PAGE_DATA_FAST_PATH = STATIC_PAGE_DATA_ENABLED,
     prefetchHoverDelay: PREFETCH_HOVER_DELAY,
     prefetchDefaultCacheFor: PREFETCH_DEFAULT_CACHE_FOR,
     cacheVisitedPageData: CACHE_VISITED_PAGE_DATA = false,
   } = config;
+
+  const matchRoute = (url: string) =>
+    config.matchRoute(decodePagePath(new URL(url, 'http://x').pathname));
 
   const _prefetchCache = new PrefetchCache();
   let _nextNavigationId = 0;

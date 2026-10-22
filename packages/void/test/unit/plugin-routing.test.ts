@@ -41,12 +41,16 @@ function runConfig(plugin: RoutingPlugin, env: ConfigEnv): void {
   (getHookHandler(plugin.config) as (config: UserConfig, env: ConfigEnv) => unknown)({}, env);
 }
 
-function resolveConfig(plugin: RoutingPlugin, command: 'build' | 'serve'): void {
+function resolveConfig(
+  plugin: RoutingPlugin,
+  command: 'build' | 'serve',
+  plugins: Array<{ name: string }> = [],
+): void {
   (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
     build: { assetsDir: 'assets' },
     command,
     mode: command === 'build' ? 'production' : 'development',
-    plugins: [],
+    plugins,
   } as unknown as ResolvedConfig);
 }
 
@@ -58,8 +62,10 @@ function fakeDevServer(moduleIds: Array<string> = []) {
   const handlers = new Map<string, Array<(path: string) => Promise<void> | void>>();
   const invalidated: Array<string> = [];
   const restart = vi.fn(async () => {});
+  const logError = vi.fn();
   const modules = new Map(moduleIds.map((id) => [id, { id }]));
   const server = {
+    config: { logger: { error: logError } },
     watcher: {
       on(event: string, handler: (path: string) => Promise<void> | void) {
         handlers.set(event, [...(handlers.get(event) ?? []), handler]);
@@ -85,7 +91,7 @@ function fakeDevServer(moduleIds: Array<string> = []) {
       await handler(path);
     }
   }
-  return { server, invalidated, restart, emit };
+  return { server, invalidated, restart, emit, logError };
 }
 
 function startDevServer(plugin: RoutingPlugin, moduleIds?: Array<string>) {
@@ -292,6 +298,42 @@ describe('routingPlugin', () => {
 
     expect(invalidated).toEqual(PAGE_MODULE_IDS);
   });
+
+  it.each([
+    ['logs it', [], 1],
+    ['leaves the log to the adapter pages plugin', [{ name: 'void-react:pages' }], 0],
+  ])(
+    'keeps the last route table when a page added in dev clashes, and %s',
+    async (_, plugins, logs) => {
+      const root = createTempRoot();
+      mkdirSync(join(root, 'pages', 'about'), { recursive: true });
+      const flatPath = join(root, 'pages', 'about.tsx');
+      writeFileSync(flatPath, 'export default function About() { return null; }');
+
+      const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+      resolveConfig(plugin, 'serve', plugins);
+      const { emit, invalidated, logError } = startDevServer(plugin, PAGE_MODULE_IDS);
+
+      // Moving about.tsx to about/index.tsx adds the new file before the old one goes.
+      const indexPath = join(root, 'pages', 'about', 'index.tsx');
+      writeFileSync(indexPath, 'export default function About() { return null; }');
+      await emit('add', indexPath);
+
+      expect(logError).toHaveBeenCalledTimes(logs);
+      if (logs) {
+        expect(logError.mock.calls[0][0]).toContain(
+          'pages: Multiple page files resolve to the same route:',
+        );
+      }
+      expect(invalidated).toEqual([]);
+
+      rmSync(flatPath);
+      await emit('unlink', flatPath);
+
+      expect(logError).toHaveBeenCalledTimes(logs);
+      expect(invalidated).toEqual(PAGE_MODULE_IDS);
+    },
+  );
 
   it('does not invalidate page renderer modules for component-only page saves', async () => {
     const root = createTempRoot();

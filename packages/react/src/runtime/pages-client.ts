@@ -48,7 +48,8 @@ export type ReactPagesConfig = Readonly<{
   components: Record<string, () => Promise<ComponentModule>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean }>;
-  matchRoute(url: string): string | null;
+  /** Page id for a decoded pathname. */
+  matchRoute(path: string): string | null;
   staticPageData: boolean;
   staticPageDataFastPath: boolean;
   viewTransitions: boolean;

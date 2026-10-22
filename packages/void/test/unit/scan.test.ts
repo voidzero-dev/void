@@ -28,6 +28,25 @@ describe('scanRoutes', () => {
     rmSync(TMP, { recursive: true, force: true });
   });
 
+  it.each([
+    ['a Void Pages app', {}, true],
+    ['a Nuxt app, whose pages/ nests routes', { nuxt: '1.0.0' }, false],
+  ])('checks page routes in %s', async (_, dependencies, throws) => {
+    createFile('package.json', JSON.stringify({ dependencies }));
+    createFile('pages/users.vue', '<template><NuxtPage /></template>');
+    createFile('pages/users/index.vue', '<template><div /></template>');
+
+    const scan = scanRoutes(TMP);
+    if (throws) {
+      await expect(scan).rejects.toThrow('pages: Multiple page files resolve to the same route:');
+    } else {
+      expect((await scan).pages.pages.map((page) => page.componentPath).sort()).toEqual([
+        'users.vue',
+        'users/index.vue',
+      ]);
+    }
+  });
+
   it('discovers route files with methods from exports', async () => {
     createFile('routes/api/hello.ts', 'export const GET = () => {}');
     createFile(

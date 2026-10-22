@@ -814,6 +814,84 @@ const example = 'export const layout = "home"';
       }
     });
   });
+
+  describe('route clashes', () => {
+    it('throws once, listing every route that more than one page file resolves to', async () => {
+      writeFile('about.tsx', 'export default () => null;');
+      writeFile('about/index.tsx', 'export default () => null;');
+      writeFile('(a)/team.tsx', 'export default () => null;');
+      writeFile('(b)/team.tsx', 'export default () => null;');
+      writeFile('docs/x.tsx', 'export default () => null;');
+      writeFile('docs/x.vue', '<template><div /></template>');
+      writeFile('docs/y.tsx', 'export default () => null;');
+      writeFile('docs/y.island.tsx', 'export default () => null;');
+
+      await expect(scanPages(TMP)).rejects.toThrow(
+        [
+          'pages: Multiple page files resolve to the same route:',
+          '  "/about": "about.tsx", "about/index.tsx"',
+          '  "/docs/x": "docs/x.tsx", "docs/x.vue"',
+          '  "/docs/y": "docs/y.island.tsx", "docs/y.tsx"',
+          '  "/team": "(a)/team.tsx", "(b)/team.tsx"',
+          'Keep one page file per route and rename or remove the others.',
+        ].join('\n'),
+      );
+    });
+
+    it('throws when two page files on different routes get the same page id', async () => {
+      writeFile('index.tsx', 'export default () => null;');
+      writeFile('index/index.tsx', 'export default () => null;');
+
+      await expect(scanPages(TMP)).rejects.toThrow(
+        [
+          'pages: Multiple page files resolve to the same page id:',
+          '  "index": "index.tsx", "index/index.tsx"',
+          'Rename or remove one of them.',
+        ].join('\n'),
+      );
+    });
+
+    it('warns once about a dynamic page another page with the same shape hides', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('shadow/[id].tsx', 'export default () => null;');
+        writeFile('shadow/[slug].tsx', 'export default () => null;');
+        const { pages } = await scanPages(TMP);
+        await scanPages(TMP);
+
+        expect(pages.map((page) => page.componentId)).toEqual(['shadow/[id]', 'shadow/[slug]']);
+        expect(log).toHaveBeenCalledOnce();
+        expect(log.mock.calls[0][0]).toContain(
+          "pages: Page 'shadow/[slug].tsx' (/shadow/:slug) is never used: 'shadow/[id].tsx' (/shadow/:id) matches the same URLs first. Remove one of them.",
+        );
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('allows the same param under different names on different routes', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('users/[id].tsx', 'export default () => null;');
+        writeFile('users/[id]/edit.tsx', 'export default () => null;');
+        writeFile('users/[userId]/posts.tsx', 'export default () => null;');
+        writeFile('layout.tsx', 'export default ({ children }) => children;');
+        writeFile('layout/index.tsx', 'export default () => null;');
+
+        const { pages } = await scanPages(TMP);
+
+        expect(pages.map((page) => page.pattern).sort()).toEqual([
+          '/layout',
+          '/users/:id',
+          '/users/:id/edit',
+          '/users/:userId/posts',
+        ]);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+  });
 });
 
 describe('resolveLayoutChain', () => {

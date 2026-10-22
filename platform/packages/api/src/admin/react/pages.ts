@@ -77,8 +77,8 @@ export const adminLayoutTree: Record<AdminPageId, Array<string>> = Object.fromEn
     .map((name) => [name, ['adminLayout']]),
 ) as Record<AdminPageId, Array<string>>;
 
-export function matchAdminRoute(url: string): AdminPageId | null {
-  const path = new URL(url, 'https://void.invalid').pathname;
+/** Page id for a decoded pathname, as the Pages navigation engine passes it. */
+export function matchAdminRoute(path: string): AdminPageId | null {
   if (path === '/admin/connected-apps') {
     return 'connectedApps';
   }

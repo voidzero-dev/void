@@ -94,6 +94,8 @@ Pages can be flat files such as `about.vue` or directory-based routes such as `a
 
 <PagesFileTree />
 
+Keep one file per route. Void reports an error when two page files resolve to the same path, such as `about.vue` and `about/index.vue`, or the same page in two route groups.
+
 Each page can have a companion `.server.ts` file that runs exclusively on the server. It can export:
 
 - A [**loader**](./loaders), which runs on `GET` and returns the data that becomes the page component's props

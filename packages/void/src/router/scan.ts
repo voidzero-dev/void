@@ -75,10 +75,15 @@ export async function scanRoutes(
     output?: 'server' | 'static';
     paths: ProjectPaths;
     inventory: Omit<ScanResult, 'pages'>;
+    checkPageRoutes?: boolean;
   },
 ): Promise<ScanResult> {
   const { paths, inventory } = options;
-  const pages = await scanPages(root, { output: options.output, paths });
+  const pages = await scanPages(root, {
+    output: options.output,
+    paths,
+    checkRoutes: options.checkPageRoutes,
+  });
   const routes = inventory.routes
     .map((route) => ({
       ...route,
