@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { readConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
+import { readProjectPaths } from '../../src/project-paths.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 const tempDirs: Array<string> = [];
@@ -394,6 +395,73 @@ describe('routingPlugin', () => {
     await emit('change', routePath);
 
     expect(invalidated).toEqual(['virtual:void-routes', 'virtual:void-routes']);
+  });
+
+  it.each([
+    { change: 'route exports', failure: 'generated-file write' },
+    { change: 'an environment file', failure: 'generated-file write' },
+    { change: 'route exports', failure: 'module invalidation' },
+  ])('retries after a failed $failure for $change', async ({ change, failure }) => {
+    const root = createTempRoot();
+    const routePath = join(root, 'routes', 'health.ts');
+    const envPath = readProjectPaths(root).envFileCandidates[0]!;
+    const changesExports = change === 'route exports';
+    const failsWrite = failure === 'generated-file write';
+
+    writeFileSync(routePath, 'export const GET = () => new Response("ok");');
+    writeFileSync(envPath, 'export default {};');
+
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
+
+    const typesPath = join(root, '.void', 'routes.d.ts');
+    const previousTypes = readFileSync(typesPath, 'utf-8');
+    const { server, emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+
+    expect(previousTypes).not.toContain('POST: {');
+
+    if (failsWrite) {
+      rmSync(typesPath);
+      mkdirSync(typesPath);
+    } else {
+      vi.spyOn(
+        server.environments.void_worker.moduleGraph,
+        'invalidateModule',
+      ).mockImplementationOnce(() => {
+        throw new Error('Transient module invalidation failure');
+      });
+    }
+
+    const postExport = changesExports ? '\nexport const POST = () => new Response("created");' : '';
+
+    if (changesExports) {
+      writeFileSync(routePath, 'export const GET = () => new Response("ok");' + postExport);
+    } else {
+      writeFileSync(envPath, 'export default { example: true };');
+    }
+
+    await expect(emit('change', changesExports ? routePath : envPath)).rejects.toThrow();
+    expect(invalidated).toEqual([]);
+
+    if (failsWrite) {
+      rmSync(typesPath, { recursive: true });
+      writeFileSync(typesPath, previousTypes);
+    }
+
+    writeFileSync(routePath, 'export const GET = () => new Response("updated");' + postExport);
+    await emit('change', routePath);
+
+    expect(invalidated).toEqual(['virtual:void-routes']);
+    expect(readFileSync(typesPath, 'utf-8').includes('POST: {')).toBe(changesExports);
+
+    writeFileSync(
+      routePath,
+      'export const GET = () => new Response("updated again");' + postExport,
+    );
+    await emit('change', routePath);
+
+    expect(invalidated).toEqual(['virtual:void-routes']);
   });
 
   it('rescans sourceDir route changes during dev', async () => {

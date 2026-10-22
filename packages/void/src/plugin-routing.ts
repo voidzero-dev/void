@@ -106,6 +106,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
 
   // Everything a rescan feeds into the route table and generated entries.
   const routeInputsKey = () => JSON.stringify([scan, authConfigPath, ssr]);
+  let generatedRouteInputs: string | undefined;
 
   const paths = readProjectPaths(root);
   const routesDir = paths.routesDir;
@@ -535,7 +536,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     },
 
     async buildStart() {
+      generatedRouteInputs = undefined;
       await rescan();
+      const nextRouteInputs = routeInputsKey();
       if (options.target && (scan?.websockets?.length ?? 0) > 0) {
         throw new Error('routing: WebSocket routes require the default Cloudflare target.');
       }
@@ -594,6 +597,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           : undefined;
         writeWorkerEntry(isr);
       }
+
+      generatedRouteInputs = nextRouteInputs;
     },
 
     resolveId: {
@@ -687,7 +692,16 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         // Re-scan and invalidate the virtual module in ALL environments.
         // The route table virtual module lives in the workerd environment,
         // not the client — so we must iterate all environments.
-        const previousRouteInputs = routeInputsKey();
+        const forceRegeneration =
+          event !== 'change' ||
+          isPotentialAuthConfigPath(normalizedPath) ||
+          isPotentialEnvFilePath(normalizedPath) ||
+          ssrEntryAbsPaths.has(normalizedPath);
+
+        if (forceRegeneration) {
+          generatedRouteInputs = undefined;
+        }
+
         try {
           await rescan(true);
         } catch (error) {
@@ -708,19 +722,17 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           }
           return;
         }
+        const nextRouteInputs = routeInputsKey();
 
         // Saving a page body or handler usually changes nothing the scan reports.
         // Vite already invalidates the saved module, so the route table only needs
         // regenerating when the scan moved: it re-transforms and re-runs a module
         // that grows with the number of pages.
-        const routeInputsChanged =
-          event !== 'change' ||
-          isPotentialAuthConfigPath(normalizedPath) ||
-          isPotentialEnvFilePath(normalizedPath) ||
-          ssrEntryAbsPaths.has(normalizedPath) ||
-          routeInputsKey() !== previousRouteInputs;
+        const routeInputsChanged = nextRouteInputs !== generatedRouteInputs;
 
         if (routeInputsChanged) {
+          // A failed forced update must also retry when the scan itself is unchanged.
+          generatedRouteInputs = undefined;
           resolveAuthCompileOptions();
         }
 
@@ -778,6 +790,10 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         // .md pages are implicit islands (no client JS), so reload those too.
         if (/\.island\./.test(normalizedPath) || normalizedPath.endsWith('.md')) {
           devServer.environments.client?.hot.send({ type: 'full-reload' });
+        }
+
+        if (routeInputsChanged) {
+          generatedRouteInputs = nextRouteInputs;
         }
       };
 
