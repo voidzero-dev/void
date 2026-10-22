@@ -938,7 +938,7 @@ describe('static asset marker', () => {
     for (const path of ['/favicon.ico', '/assets/client-abcdefgh.js']) {
       const response = await app.fetch(new Request('https://app.test' + path), env);
       expect(response.status).toBe(200);
-      expect(seen.pop()).toBe(response.headers.get('cache-control'));
+      expect(seen.pop()).toMatchObject({ policy: response.headers.get('cache-control') });
     }
     for (const path of unmarked) {
       await app.fetch(new Request('https://app.test' + path), env);

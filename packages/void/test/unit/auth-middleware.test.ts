@@ -472,6 +472,18 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
   it.each([
     ['changes its Cache-Control', (c: Context) => c.header('cache-control', 'public, max-age=60')],
     ['adds a cookie', (c: Context) => c.header('set-cookie', 'route=value; Path=/')],
+    [
+      'replaces the body',
+      (c: Context) => {
+        c.res = c.html('<h1>Please sign in</h1>');
+      },
+    ],
+    [
+      'rewrites the body with the same headers',
+      (c: Context) => {
+        c.res = new Response('export const user = "a"', c.res);
+      },
+    ],
   ])('treats a file as a route when later middleware %s', async (_label, change) => {
     const app = createApp({ response: null, headers: sessionLookup() });
     app.use(async (c, next) => {
@@ -484,6 +496,20 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
     const response = await withCookie(app);
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('pragma')).toBe('no-cache');
+  });
+
+  it('keeps the file policy when later middleware only adds a header', async () => {
+    const app = createApp({ response: null, headers: sessionLookup() });
+    app.use(async (c, next) => {
+      await next();
+      c.header('x-frame-options', 'DENY');
+    });
+    app.get('/assets/client-abcdefgh.js', (c) =>
+      markStaticAsset(c, new Response('export {}', { headers: { 'cache-control': immutable } })),
+    );
+    const response = await withCookie(app);
+    expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
   });
 
   it('treats a marked response with a failure status as a route', async () => {

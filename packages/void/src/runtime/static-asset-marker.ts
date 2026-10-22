@@ -2,27 +2,36 @@ import type { Context } from 'hono';
 
 const STATIC_ASSET_KEY = '__voidStaticAsset';
 
+type StaticAssetMark = { policy: string; body: ReadableStream | null };
+
 /**
- * Records that the fallback answered with a file from the ASSETS binding, and
- * the Cache-Control it carried. The value lives on the context, not on the
- * response object: `c.header()` after the handler rebuilds `c.res`, so a
- * response identity check would miss the file.
+ * Records that the fallback answered with a file from the ASSETS binding: the
+ * Cache-Control it carried and its body stream. The value lives on the
+ * context, not on the response object: `c.header()` after the handler rebuilds
+ * `c.res`, so a response identity check would miss the file. The rebuild keeps
+ * the body stream, while a middleware that swaps the body does not.
  */
 export function markStaticAsset(c: Context, response: Response): Response {
-  c.set(STATIC_ASSET_KEY, response.headers.get('cache-control') ?? '');
+  const mark: StaticAssetMark = {
+    policy: response.headers.get('cache-control') ?? '',
+    body: response.body,
+  };
+  c.set(STATIC_ASSET_KEY, mark);
   return response;
 }
 
 /**
  * True when the final response is still the marked file: a success status, the
- * Cache-Control the fallback served, and no cookie added by later middleware.
+ * same body and Cache-Control the fallback served, and no cookie added by
+ * later middleware.
  */
 export function isUnchangedStaticAsset(c: Context): boolean {
-  const policy: unknown = c.get(STATIC_ASSET_KEY);
+  const mark = c.get(STATIC_ASSET_KEY) as StaticAssetMark | undefined;
   return (
-    typeof policy === 'string' &&
+    mark !== undefined &&
     [200, 206, 304].includes(c.res.status) &&
-    (c.res.headers.get('cache-control') ?? '') === policy &&
+    c.res.body === mark.body &&
+    (c.res.headers.get('cache-control') ?? '') === mark.policy &&
     !c.res.headers.has('set-cookie')
   );
 }
