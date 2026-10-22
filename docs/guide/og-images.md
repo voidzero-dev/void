@@ -84,15 +84,15 @@ export const GET = defineHandler(async (c) => {
 
 The second argument sets the image and the response:
 
-| Option                            | Default       | Description                                                                        |
-| --------------------------------- | ------------- | ---------------------------------------------------------------------------------- |
-| `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                              |
-| `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                      |
-| `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`. |
-| `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.         |
-| `debug`                           | `false`       | Draws a border around every box.                                                   |
-| `format`                          | `'png'`       | Image format: `png`, `jpeg`, or `webp`.                                            |
-| `status`, `statusText`, `headers` |               | The response status and headers.                                                   |
+| Option                            | Default       | Description                                                                                                                  |
+| --------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                                                                        |
+| `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                                                                |
+| `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, `fluentFlat`, or `from-font` to draw emoji with the fonts. |
+| `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                   |
+| `debug`                           | `false`       | Draws a border around every box.                                                                                             |
+| `format`                          | `'png'`       | Image format: `png`, `jpeg`, `webp`, or `ico`.                                                                               |
+| `status`, `statusText`, `headers` |               | The response status and headers.                                                                                             |
 
 Takumi's other render options, such as `devicePixelRatio`, are passed through. See [Takumi's reference](https://takumi.kane.tw/docs/reference).
 
@@ -109,9 +109,9 @@ Emoji and remote `<img>` sources are downloaded while the image renders. An emoj
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching Noto Sans font from Google Fonts while rendering. If the download fails, those characters are drawn as boxes.
+Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching Noto Sans font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
-Chinese characters are drawn in the Japanese style, as in `next/og`, unless the text has Korean or Chinese around them, or `lang` names the language:
+Chinese characters are drawn in the Japanese style, as in `next/og`, unless the text has Korean around them, or the `lang` option or the root element's `lang` attribute names the language:
 
 ```ts
 return new ImageResponse(`<div lang="zh-TW" style="display: flex">${title}</div>`);
@@ -137,6 +137,10 @@ Point an `og:image` tag at the route from your page's [`head()`](./pages-routing
 ```ts
 // pages/posts/[slug].server.ts
 import { defineHead } from 'void';
+
+export interface Props {
+  post: { title: string; slug: string };
+}
 
 export const head = defineHead<Props>((c, props) => {
   return {
