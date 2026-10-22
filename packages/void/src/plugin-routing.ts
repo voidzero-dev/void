@@ -450,22 +450,13 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     if (!runWorkerFirst || !headers) {
       return null;
     }
-    // Keep the file's own layout: only `run_worker_first` changes.
-    let indent = '';
-    if (text[1] === '\n') {
-      for (let i = 2; text[i] === ' ' || text[i] === '\t'; i++) {
-        indent += text[i];
-      }
-    }
-    const patched = JSON.stringify(
-      { ...wrangler, assets: { ...assets, run_worker_first: runWorkerFirst } },
-      null,
-      indent || undefined,
-    );
     return {
       headers,
       wranglerPath,
-      wranglerText: text.endsWith('\n') ? patched + '\n' : patched,
+      wranglerText: JSON.stringify({
+        ...wrangler,
+        assets: { ...assets, run_worker_first: runWorkerFirst },
+      }),
     };
   }
 
