@@ -81,6 +81,22 @@
     {
       "platformVersion": "1.1.0",
       "schemaDigest": "bd1c4f124ee52cde71a9e2e974e3af2f1431cc7c92796be233784d5790b06eb4"
+    },
+    {
+      "platformVersion": "1.1.11",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.1.12",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.2.0",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.2.1",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
     }
   ]
 }

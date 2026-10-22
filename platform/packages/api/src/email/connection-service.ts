@@ -27,6 +27,7 @@ import {
   emailOperations,
   emailOperationSteps,
   emailZoneConnections,
+  type EmailInboundMode,
 } from './connection-schema.ts';
 import { isValidEmailDomain, normalizeEmailDomain } from './domain-name.ts';
 import { RELAY_COMPATIBILITY_DATE, RELAY_SOURCE, RELAY_VERSION } from './relay-worker.ts';
@@ -160,6 +161,10 @@ const NATIVE_CUSTOM_SYNC_STEPS = [
   'sending_onboard',
   'publish',
 ] as const;
+// Outbound-only routes never deploy ingress or touch Email Routing, so the apex MX is left alone.
+const OUTBOUND_ONLY_STEPS = ['sending_onboard', 'publish'] as const;
+const OUTBOUND_ONLY_INBOUND_REASON =
+  "Outbound only: inbound mail stays with the domain's MX provider";
 const REMOVE_STEPS = ['route_disable', 'catchall_detach', 'ingress_delete', 'publish'] as const;
 const ROTATE_STEPS = [
   'secret_put',
@@ -171,6 +176,7 @@ const ROTATE_STEPS = [
 type StepKind =
   | (typeof SETUP_STEPS)[number]
   | (typeof STAGED_SECRET_REPAIR_STEPS)[number]
+  | (typeof OUTBOUND_ONLY_STEPS)[number]
   | (typeof REMOVE_STEPS)[number]
   | (typeof SHARED_SYNC_STEPS)[number]
   | (typeof ROTATE_STEPS)[number];
@@ -1354,6 +1360,16 @@ export async function readStagedConnectionSecret(
   );
 }
 
+/** The inbound columns a route starts with, or returns to when it is reactivated. */
+function outboundOnlyInbound(inboundMode: EmailInboundMode) {
+  return {
+    inbound_mode: inboundMode,
+    inbound_status: inboundMode === 'none' ? ('disabled' as const) : ('pending' as const),
+    inbound_reason: inboundMode === 'none' ? OUTBOUND_ONLY_INBOUND_REASON : null,
+    inbound_observed_at: null,
+  };
+}
+
 export async function requestEmailDomainAdd(
   db: Db,
   env: Bindings,
@@ -1363,9 +1379,12 @@ export async function requestEmailDomainAdd(
     actor: EmailActor;
     token?: string;
     attemptId?: string;
+    inboundMode?: EmailInboundMode;
   },
 ): Promise<{ operationId: string; routeId: string }> {
   const domain = normalizeEmailDomain(input.domain);
+  const inboundMode = input.inboundMode ?? 'managed';
+  const outboundOnly = inboundMode === 'none';
   if (!isValidEmailDomain(domain)) {
     throw new EmailOperationError('invalid email domain', 400);
   }
@@ -1373,6 +1392,9 @@ export async function requestEmailDomainAdd(
     throw new EmailOperationError('system cannot assign project email domains', 403);
   }
   const actor = input.actor as Exclude<EmailActor, { kind: 'system' }>;
+  if (outboundOnly && actor.kind !== 'admin') {
+    throw new EmailOperationError('outbound-only email domains are administrator-managed', 403);
+  }
   const installationId = emailInstallationId(env);
   const key = input.attemptId ?? generateId('eadd');
   const actorScope = `${actor.kind}:${actor.userId}:${input.projectId}`;
@@ -1381,6 +1403,8 @@ export async function requestEmailDomainAdd(
     domain,
     actor: input.actor.kind,
     tokenDigest: input.token ? await digest(input.token) : null,
+    // Only outbound-only requests carry the mode, so earlier managed digests still match.
+    ...(outboundOnly ? { inboundMode } : {}),
   });
   const previous = await findEmailOperationByKey(db, installationId, actorScope, key);
   if (previous) {
@@ -1411,11 +1435,19 @@ export async function requestEmailDomainAdd(
   }
   if (domain !== zone.name) {
     throw new EmailOperationError(
-      'Cloudflare catch-all routing requires a zone apex; use the apex domain for custom inbound email',
+      outboundOnly
+        ? 'outbound-only email domains must be a zone apex'
+        : 'Cloudflare catch-all routing requires a zone apex; use the apex domain for custom inbound email',
       400,
     );
   }
   if (zone.account.id === env.EMAIL_SHARED_ACCOUNT_ID && zone.id === env.EMAIL_SHARED_ZONE_ID) {
+    if (outboundOnly) {
+      throw new EmailOperationError(
+        'the installation shared mail zone receives mail and cannot be outbound-only',
+        409,
+      );
+    }
     if (actor.kind !== 'admin') {
       throw new EmailOperationError(
         'the installation shared mail zone is administrator-managed',
@@ -1441,7 +1473,11 @@ export async function requestEmailDomainAdd(
     }
     verifiedToken = verifiedApiTokenMetadata(verification);
     // The actual zone read above proves resource scope more reliably than a template URL.
-    await client.getRoutingSettings(zone.id);
+    if (outboundOnly) {
+      await client.listSendingSubdomains(zone.id);
+    } else {
+      await client.getRoutingSettings(zone.id);
+    }
   }
   const existingConnection = (
     await db
@@ -1457,7 +1493,10 @@ export async function requestEmailDomainAdd(
       .limit(1)
   )[0];
   const existingAssignment = await resolveEmailDomain(db, domain);
-  if (!existingAssignment || existingAssignment.route.desired_state !== 'active') {
+  // Outbound-only setup never takes the apex MX or catch-all, so their owners do not matter.
+  const mxPreflight =
+    !outboundOnly && (!existingAssignment || existingAssignment.route.desired_state !== 'active');
+  if (mxPreflight) {
     const preflight = await Promise.all([
       lookupMxOverDns(domain),
       client.getCatchAll(zone.id),
@@ -1492,7 +1531,9 @@ export async function requestEmailDomainAdd(
       );
     }
   }
-  gatewayOrigin(env);
+  if (!outboundOnly) {
+    gatewayOrigin(env);
+  }
   const connectionId = generateId('econ');
   const routeId = generateId('eroute');
   const operationId = generateId('eop');
@@ -1621,6 +1662,22 @@ export async function requestEmailDomainAdd(
             403,
           );
         }
+        // The MX preflight was skipped for an active route. If it was removed meanwhile,
+        // reactivating it here could take over mail that another provider now receives.
+        if (!outboundOnly && !mxPreflight && existingRoute.desired_state !== 'active') {
+          throw new EmailOperationError('email domain changed during the request; retry', 409);
+        }
+        if (
+          existingRoute.desired_state === 'active' &&
+          existingRoute.inbound_mode !== inboundMode
+        ) {
+          throw new EmailOperationError(
+            existingRoute.inbound_mode === 'none'
+              ? 'email domain is set up as outbound-only; remove it before adding it with inbound mail'
+              : 'email domain receives mail through Void; remove it before adding it as outbound-only',
+            409,
+          );
+        }
         const blockedAssignment = (
           await tx
             .select({ id: emailOperations.id })
@@ -1693,9 +1750,7 @@ export async function requestEmailDomainAdd(
             ...(reactivating
               ? {
                   desired_generation: sql`${emailDomainRoutes.desired_generation} + 1`,
-                  inbound_status: 'pending' as const,
-                  inbound_reason: null,
-                  inbound_observed_at: null,
+                  ...outboundOnlyInbound(inboundMode),
                   outbound_status: 'pending' as const,
                   outbound_reason: null,
                   outbound_observed_at: null,
@@ -1725,16 +1780,18 @@ export async function requestEmailDomainAdd(
           request_digest: requestDigest,
           desired_generation: generation,
         });
-        const steps = isSharedGatewayConnection(env, connection)
-          ? NATIVE_CUSTOM_SYNC_STEPS
-          : connection.staged_secret_generation !== null
-            ? STAGED_SECRET_REPAIR_STEPS
-            : connection.inbound_status !== 'ready' ||
-                existingRoute.inbound_status !== 'ready' ||
-                reactivating ||
-                blockedAssignment
-              ? SETUP_STEPS
-              : SYNC_STEPS;
+        const steps = outboundOnly
+          ? OUTBOUND_ONLY_STEPS
+          : isSharedGatewayConnection(env, connection)
+            ? NATIVE_CUSTOM_SYNC_STEPS
+            : connection.staged_secret_generation !== null
+              ? STAGED_SECRET_REPAIR_STEPS
+              : connection.inbound_status !== 'ready' ||
+                  existingRoute.inbound_status !== 'ready' ||
+                  reactivating ||
+                  blockedAssignment
+                ? SETUP_STEPS
+                : SYNC_STEPS;
         const stepRoute: EmailStepRoute = {
           id: existingRoute.id,
           domain,
@@ -1842,6 +1899,7 @@ export async function requestEmailDomainAdd(
         addressing: 'custom',
         managed_by: actor.kind,
         assigned_by_user_id: actor.userId,
+        ...outboundOnlyInbound(inboundMode),
       });
       await tx.insert(emailOperations).values({
         id: operationId,
@@ -1857,13 +1915,15 @@ export async function requestEmailDomainAdd(
         request_digest: requestDigest,
         desired_generation: connection.desired_generation,
       });
-      const steps = isSharedGatewayConnection(env, connection)
-        ? NATIVE_CUSTOM_SYNC_STEPS
-        : repairStaged
-          ? STAGED_SECRET_REPAIR_STEPS
-          : created || connection.inbound_status !== 'ready'
-            ? SETUP_STEPS
-            : SIBLING_STEPS;
+      const steps = outboundOnly
+        ? OUTBOUND_ONLY_STEPS
+        : isSharedGatewayConnection(env, connection)
+          ? NATIVE_CUSTOM_SYNC_STEPS
+          : repairStaged
+            ? STAGED_SECRET_REPAIR_STEPS
+            : created || connection.inbound_status !== 'ready'
+              ? SETUP_STEPS
+              : SIBLING_STEPS;
       const stepRoute: EmailStepRoute = { id: routeId, domain, desired_generation: 1 };
       await insertEmailOperationSteps(tx, env, {
         operationId,
@@ -2560,15 +2620,17 @@ async function requestExistingOperation(
     });
     const steps =
       kind === 'sync'
-        ? isSharedGatewayConnection(env, connection)
-          ? route.addressing === 'shared'
-            ? SHARED_SYNC_STEPS
-            : NATIVE_CUSTOM_SYNC_STEPS
-          : connection.staged_secret_generation !== null
-            ? STAGED_SECRET_REPAIR_STEPS
-            : connection.inbound_status !== 'ready' || route.inbound_status !== 'ready'
-              ? SETUP_STEPS
-              : SYNC_STEPS
+        ? route.inbound_mode === 'none'
+          ? OUTBOUND_ONLY_STEPS
+          : isSharedGatewayConnection(env, connection)
+            ? route.addressing === 'shared'
+              ? SHARED_SYNC_STEPS
+              : NATIVE_CUSTOM_SYNC_STEPS
+            : connection.staged_secret_generation !== null
+              ? STAGED_SECRET_REPAIR_STEPS
+              : connection.inbound_status !== 'ready' || route.inbound_status !== 'ready'
+                ? SETUP_STEPS
+                : SYNC_STEPS
         : REMOVE_STEPS;
     await insertEmailOperationSteps(tx, env, {
       operationId: opId,
@@ -2713,7 +2775,11 @@ export async function runEmailOperation(db: Db, env: Bindings, operationId: stri
         op.route_id
       ) {
         const [route] = await tx
-          .select({ projectId: emailDomainRoutes.project_id, domain: emailDomainRoutes.domain })
+          .select({
+            projectId: emailDomainRoutes.project_id,
+            domain: emailDomainRoutes.domain,
+            inboundMode: emailDomainRoutes.inbound_mode,
+          })
           .from(emailDomainRoutes)
           .where(eq(emailDomainRoutes.id, op.route_id))
           .limit(1);
@@ -2742,14 +2808,21 @@ export async function runEmailOperation(db: Db, env: Bindings, operationId: stri
             ),
           )
           .limit(1);
+        // An outbound-only route never installed a catch-all or ingress Worker, so its
+        // removal has nothing to clean up in Email Routing or Workers.
         const retained = sibling
           ? { retainedForSibling: true }
-          : !canManageConnection(
-                { kind: op.actor_kind, userId: op.actor_user_id ?? '' } as EmailActor,
-                connection,
-              )
-            ? { retainedForManager: true }
-            : null;
+          : route?.inboundMode === 'none'
+            ? { outboundOnly: true }
+            : !canManageConnection(
+                  { kind: op.actor_kind, userId: op.actor_user_id ?? '' } as EmailActor,
+                  connection,
+                )
+              ? { retainedForManager: true }
+              : null;
+        if (retained && 'outboundOnly' in retained && step.kind === 'ingress_delete') {
+          await forgetUnusedEmailCredential(tx, connection.id, op.route_id);
+        }
         if (retained) {
           // Local retention is atomic with its outcome, so a driver crash cannot
           // turn a step that never called the provider into an unknown write.
@@ -3266,6 +3339,48 @@ async function executeEmailStep(
     if (!route || route.desired_state !== 'active') {
       return { skipped: true };
     }
+    const outboundOnly = route.inbound_mode === 'none';
+    const blockOutbound = async (reason: string, message: string): Promise<never> => {
+      await db
+        .update(emailDomainRoutes)
+        .set({
+          outbound_status: 'blocked',
+          outbound_reason: reason,
+          outbound_observed_at: sql`now()`,
+        })
+        .where(
+          and(
+            eq(emailDomainRoutes.id, route.id),
+            eq(emailDomainRoutes.connection_id, connection.id),
+            eq(emailDomainRoutes.desired_generation, route.desired_generation),
+            eq(emailDomainRoutes.desired_state, 'active'),
+          ),
+        );
+      throw new EmailOperationError(message, 409);
+    };
+    // The apex usually belongs to another mail provider. Onboarding only adds records on
+    // cf-bounce.<domain> and _dmarc.<domain>; refuse before writing if any of them clash.
+    // Missing records are expected here, since onboarding creates them. A domain that is
+    // already onboarded owns those records, so a later sync skips the check.
+    if (
+      outboundOnly &&
+      !(await emailOperationPreflight(() =>
+        sendingOnboardedReadback(client, connection.zone_id, route.domain),
+      ))
+    ) {
+      const conflicts = (
+        await emailOperationPreflight(() => client.previewSending(connection.zone_id, route.domain))
+      ).filter((issue) => !issue.code.endsWith('.missing'));
+      if (conflicts.length > 0) {
+        const list = conflicts
+          .map((issue) => (issue.name ? `${issue.code} at ${issue.name}` : issue.code))
+          .join('; ');
+        await blockOutbound(
+          'Existing DNS records conflict with Cloudflare Email Sending',
+          `Cloudflare Email Sending cannot onboard ${route.domain}: ${list}. Fix these DNS records, then run domain-sync.`,
+        );
+      }
+    }
     try {
       await client.onboardSending(connection.zone_id, route.domain);
     } catch (error) {
@@ -3282,6 +3397,13 @@ async function executeEmailStep(
           error instanceof CloudflareApiError && error.status < 500 && error.status !== 408;
         if (!definitiveRefusal) {
           throw error;
+        }
+        if (outboundOnly) {
+          // Verified-only sending needs an Email Routing domain, so it is no fallback here.
+          await blockOutbound(
+            'Cloudflare Sending onboarding unavailable',
+            `Cloudflare refused Email Sending for ${route.domain} (HTTP ${error.status}). It needs the Workers Paid plan; enable it, then run domain-sync.`,
+          );
         }
         await db
           .update(emailDomainRoutes)

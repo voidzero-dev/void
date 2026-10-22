@@ -83,6 +83,11 @@ const zones = Object.fromEntries(
     'occupied.example.com',
     'one.example.com',
     'other.example.com',
+    'outbound.example.com',
+    'outbound-conflict.example.com',
+    'outbound-mode.example.com',
+    'outbound-refused.example.com',
+    'outbound-timeout.example.com',
     'pending-original.example.com',
     'pending-replacement.example.com',
     'pending-rotation.example.com',
@@ -3072,5 +3077,288 @@ describe('durable zone email connections', () => {
         token: 'renewed-token',
       }),
     ).rejects.toThrow('unresolved');
+  });
+});
+
+describe('outbound-only email domains', () => {
+  // Microsoft 365 / Google Workspace keep the apex MX; Void only onboards Email Sending.
+  const FOREIGN_MX = { 'outbound.example.com': ['brand-example.mail.protection.outlook.com'] };
+  const INBOUND_TAGS = [
+    'mxLookup',
+    'routingDns',
+    'routingSettingsGet',
+    'routingRulesGet',
+    'catchAll',
+    'catchAllGet',
+    'scriptGet',
+    'scriptPut',
+    'secretPut',
+    'scriptDelete',
+    'subaddressing',
+    'relayProbe',
+    'gatewayProbe',
+  ] as const;
+  const inboundCalls = (calls: Parameters<typeof callsByTag>[0]) =>
+    INBOUND_TAGS.flatMap((tag) => callsByTag(calls, tag));
+  const stepKinds = async (operationId: string) =>
+    (
+      await env.db
+        .select({ kind: emailOperationSteps.kind })
+        .from(emailOperationSteps)
+        .where(eq(emailOperationSteps.operation_id, operationId))
+        .orderBy(emailOperationSteps.ordinal)
+    ).map((step) => step.kind);
+
+  it('onboards only Email Sending on an apex whose MX belongs to another provider', async () => {
+    const admin = await createTestUser(env.db);
+    const project = await createTestProject(env.db, admin.id, 'outbound-only');
+    const sendingSubdomains: Array<{ name: string; enabled: boolean }> = [];
+    const stub = stubCustomerCf({ zones, mx: FOREIGN_MX, sendingSubdomains });
+    const actor = { kind: 'admin' as const, userId: admin.id };
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'outbound.example.com',
+      token: TOKEN,
+      actor,
+      inboundMode: 'none',
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+
+    const operation = await getEmailOperation(env.db, project.id, added.operationId);
+    expect(operation?.operation.status).toBe('completed');
+    expect(await stepKinds(added.operationId)).toEqual(['sending_onboard', 'publish']);
+    const resolved = await resolveEmailDomain(env.db, 'outbound.example.com');
+    expect(resolved?.route).toMatchObject({
+      inbound_mode: 'none',
+      inbound_status: 'disabled',
+      inbound_reason: expect.stringContaining('Outbound only'),
+      outbound_status: 'ready',
+      managed_by: 'admin',
+    });
+    expect(callsByTag(stub.calls, 'sendingPreview')).toHaveLength(1);
+    expect(callsByTag(stub.calls, 'onboardSending')).toHaveLength(1);
+    expect(inboundCalls(stub.calls)).toEqual([]);
+    await expect(
+      resolveEmailIngress(env.db, {
+        installationId: 'void-hosted',
+        accountId: 'customer-account',
+        zoneId: zones['outbound.example.com'].id,
+        ingressName: resolved!.connection.ingress_worker_name,
+        recipient: 'support@outbound.example.com',
+      }),
+    ).resolves.toBeNull();
+
+    // A sync keeps to the same two steps and skips the preview once the domain is onboarded.
+    sendingSubdomains.push({ name: 'outbound.example.com', enabled: true });
+    const sync = await requestEmailDomainSync(env.db, bindings(), added.routeId, actor);
+    await runEmailOperation(env.db, bindings(), sync);
+    expect((await getEmailOperation(env.db, project.id, sync))?.operation.status).toBe('completed');
+    expect(await stepKinds(sync)).toEqual(['sending_onboard', 'publish']);
+    expect(callsByTag(stub.calls, 'sendingPreview')).toHaveLength(1);
+
+    // Removal never calls Email Routing or Workers, so a Sending-only token can finish it.
+    const removal = await requestEmailDomainRemove(env.db, bindings(), added.routeId, actor);
+    await runEmailOperation(env.db, bindings(), removal);
+    expect((await getEmailOperation(env.db, project.id, removal))?.operation.status).toBe(
+      'completed',
+    );
+    expect(inboundCalls(stub.calls)).toEqual([]);
+    expect((await resolveEmailDomain(env.db, 'outbound.example.com'))?.route.desired_state).toBe(
+      'removed',
+    );
+    expect((await env.db.select().from(emailZoneConnections))[0]?.credential_id).toBeNull();
+  });
+
+  it('blocks before onboarding when the preview reports conflicting DNS records', async () => {
+    const admin = await createTestUser(env.db);
+    const project = await createTestProject(env.db, admin.id, 'outbound-conflict');
+    const previewErrors: Array<{ code: string; existing?: { name: string } }> = [
+      { code: 'dmarc.missing' },
+      { code: 'dmarc.multiple', existing: { name: '_dmarc.outbound-conflict.example.com' } },
+    ];
+    const stub = stubCustomerCf({ zones, sendingPreviewErrors: previewErrors });
+    const actor = { kind: 'admin' as const, userId: admin.id };
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'outbound-conflict.example.com',
+      token: TOKEN,
+      actor,
+      inboundMode: 'none',
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+
+    const operation = (await getEmailOperation(env.db, project.id, added.operationId))?.operation;
+    expect(operation).toMatchObject({ status: 'blocked', current_step: 'sending_onboard' });
+    expect(operation?.failure_detail).toContain(
+      'dmarc.multiple at _dmarc.outbound-conflict.example.com',
+    );
+    expect(operation?.failure_detail).not.toContain('dmarc.missing');
+    expect(callsByTag(stub.calls, 'onboardSending')).toEqual([]);
+    expect(
+      (await resolveEmailDomain(env.db, 'outbound-conflict.example.com'))?.route,
+    ).toMatchObject({ outbound_status: 'blocked', inbound_status: 'disabled' });
+
+    previewErrors.splice(1);
+    const resumed = await requestEmailDomainSync(env.db, bindings(), added.routeId, actor);
+    expect(resumed).toBe(added.operationId);
+    await runEmailOperation(env.db, bindings(), resumed);
+    expect((await getEmailOperation(env.db, project.id, resumed))?.operation.status).toBe(
+      'completed',
+    );
+    expect(
+      (await resolveEmailDomain(env.db, 'outbound-conflict.example.com'))?.route.outbound_status,
+    ).toBe('ready');
+  });
+
+  it('blocks instead of falling back to verified-only sending when Cloudflare refuses', async () => {
+    const admin = await createTestUser(env.db);
+    const project = await createTestProject(env.db, admin.id, 'outbound-refused');
+    const failures: NonNullable<Parameters<typeof stubCustomerCf>[0]>['failOn'] = {
+      onboardSending: { message: 'entitlement required', status: 403 },
+    };
+    const stub = stubCustomerCf({ zones, failOn: failures });
+    const actor = { kind: 'admin' as const, userId: admin.id };
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'outbound-refused.example.com',
+      token: TOKEN,
+      actor,
+      inboundMode: 'none',
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+
+    expect(
+      (await getEmailOperation(env.db, project.id, added.operationId))?.operation,
+    ).toMatchObject({
+      status: 'blocked',
+      current_step: 'sending_onboard',
+      failure_detail: expect.stringContaining('Workers Paid'),
+    });
+    expect((await resolveEmailDomain(env.db, 'outbound-refused.example.com'))?.route).toMatchObject(
+      {
+        outbound_status: 'blocked',
+        outbound_reason: 'Cloudflare Sending onboarding unavailable',
+      },
+    );
+
+    delete failures.onboardSending;
+    const resumed = await requestEmailDomainSync(env.db, bindings(), added.routeId, actor);
+    await runEmailOperation(env.db, bindings(), resumed);
+    expect(
+      (await resolveEmailDomain(env.db, 'outbound-refused.example.com'))?.route.outbound_status,
+    ).toBe('ready');
+    expect(callsByTag(stub.calls, 'onboardSending')).toHaveLength(2);
+  });
+
+  it('still falls back to verified-only sending for a domain that receives mail', async () => {
+    const owner = await createTestUser(env.db);
+    const project = await createTestProject(env.db, owner.id, 'managed-refused');
+    stubCustomerCf({
+      zones,
+      failOn: { onboardSending: { message: 'entitlement required', status: 403 } },
+    });
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'refused.example.com',
+      token: TOKEN,
+      actor: { kind: 'owner', userId: owner.id },
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+    expect((await getEmailOperation(env.db, project.id, added.operationId))?.operation.status).toBe(
+      'completed',
+    );
+    expect((await resolveEmailDomain(env.db, 'refused.example.com'))?.route).toMatchObject({
+      inbound_mode: 'managed',
+      inbound_status: 'ready',
+      outbound_status: 'verified_only',
+    });
+  });
+
+  it('keeps a timed-out outbound-only onboarding unknown', async () => {
+    const admin = await createTestUser(env.db);
+    const project = await createTestProject(env.db, admin.id, 'outbound-timeout');
+    stubCustomerCf({
+      zones,
+      failOn: { onboardSending: { message: 'write outcome unavailable', status: 504 } },
+    });
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'outbound-timeout.example.com',
+      token: TOKEN,
+      actor: { kind: 'admin', userId: admin.id },
+      inboundMode: 'none',
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+    expect(
+      (await getEmailOperation(env.db, project.id, added.operationId))?.operation,
+    ).toMatchObject({
+      status: 'unknown',
+      current_step: 'sending_onboard',
+      failure_code: 'outcome_unknown',
+    });
+    expect(
+      (await resolveEmailDomain(env.db, 'outbound-timeout.example.com'))?.route.outbound_status,
+    ).toBe('pending');
+  });
+
+  it('refuses owners, the shared mail zone, subdomains and a mode change on an active route', async () => {
+    const admin = await createTestUser(env.db);
+    const project = await createTestProject(env.db, admin.id, 'outbound-mode');
+    const stub = stubCustomerCf({ zones });
+    await expect(
+      requestEmailDomainAdd(env.db, bindings(), {
+        projectId: project.id,
+        domain: 'outbound-mode.example.com',
+        token: TOKEN,
+        actor: { kind: 'owner', userId: admin.id },
+        inboundMode: 'none',
+      }),
+    ).rejects.toThrow('administrator-managed');
+    const actor = { kind: 'admin' as const, userId: admin.id };
+    await expect(
+      requestEmailDomainAdd(env.db, bindings(), {
+        projectId: project.id,
+        domain: 'news.outbound-mode.example.com',
+        token: TOKEN,
+        actor,
+        inboundMode: 'none',
+      }),
+    ).rejects.toThrow('must be a zone apex');
+    const shared = {
+      ...bindings(),
+      EMAIL_SHARED_ACCOUNT_ID: 'customer-account',
+      EMAIL_SHARED_ZONE_ID: zones['outbound-mode.example.com'].id,
+    } as ApiEnv['Bindings'];
+    await expect(
+      requestEmailDomainAdd(env.db, shared, {
+        projectId: project.id,
+        domain: 'outbound-mode.example.com',
+        token: TOKEN,
+        actor,
+        inboundMode: 'none',
+      }),
+    ).rejects.toThrow('cannot be outbound-only');
+    expect(stub.calls.filter((call) => call.method !== 'GET')).toEqual([]);
+
+    const added = await requestEmailDomainAdd(env.db, bindings(), {
+      projectId: project.id,
+      domain: 'outbound-mode.example.com',
+      token: TOKEN,
+      actor,
+      inboundMode: 'none',
+    });
+    await runEmailOperation(env.db, bindings(), added.operationId);
+    await expect(
+      requestEmailDomainAdd(env.db, bindings(), {
+        projectId: project.id,
+        domain: 'outbound-mode.example.com',
+        token: TOKEN,
+        actor,
+      }),
+    ).rejects.toThrow('set up as outbound-only');
+    expect(stub.calls.filter((call) => call.method !== 'GET').map((call) => call.tag)).toEqual([
+      'sendingPreview',
+      'onboardSending',
+    ]);
   });
 });

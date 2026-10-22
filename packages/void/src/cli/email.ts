@@ -470,7 +470,7 @@ export async function emailDomainAdd(
   // A foreign MX on the apex stops here; an unreadable one is left to the platform, which
   // re-checks over public DNS.
   const dns = deps.dns ?? (await createNodeEmailDns());
-  const checkApexMx = async (): Promise<void> => {
+  const checkApexMx = async (adminProject?: string): Promise<void> => {
     const mx = await probeMx(dns, domain);
     if (mx.state === 'unknown') {
       log.info(
@@ -478,7 +478,11 @@ export async function emailDomainAdd(
       );
     } else if (mx.state === 'foreign') {
       fail(
-        `email: ${domain} already receives mail from another provider. Platform custom inbound email requires an unused Cloudflare zone apex; choose another apex or use the platform shared mail address.`,
+        `email: ${domain} already receives mail from another provider. Platform custom inbound email requires an unused Cloudflare zone apex; choose another apex or use the platform shared mail address.${
+          adminProject
+            ? ` To only send from ${domain}, ask your administrator to run \`void platform email domain-add ${domain} --project ${adminProject} --outbound-only\`.`
+            : ''
+        }`,
       );
     } else {
       log.info(`MX        using the requested apex ${domain}`);
@@ -493,8 +497,8 @@ export async function emailDomainAdd(
     const rows = await client.listEmailDomains(projectId);
     renewal = rows.some((row) => row.domain === domain && row.managed_by !== 'admin');
     if (!renewal) {
-      await checkApexMx();
       const project = settings.domains.projectSlug ?? projectId;
+      await checkApexMx(project);
       log.info(
         [
           'Email domains on this platform are managed by its administrator.',

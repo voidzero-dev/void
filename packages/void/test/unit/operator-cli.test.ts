@@ -521,6 +521,19 @@ describe('operator argument and help coverage', () => {
       tokenStdin: true,
       yes: true,
     });
+    const outboundOnly = parseOperatorArgs([
+      'email',
+      'domain-add',
+      'brand.example.com',
+      '--project',
+      'hr-portal',
+      '--outbound-only',
+    ]);
+    expect(outboundOnly.body).toEqual({
+      domain: 'brand.example.com',
+      project: 'hr-portal',
+      outboundOnly: true,
+    });
     expect(parseOperatorArgs(['email', 'domain-status', 'mail.example.com'])).toMatchObject({
       method: 'GET',
       path: '/email/domains/mail.example.com',
@@ -1259,6 +1272,39 @@ describe('operator transport and execution', () => {
       );
     await expect(runOperatorCommand(args)).rejects.toMatchObject({ code: 'invalid_preview' });
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+  it('stops an outbound-only add when the platform preview ignores the mode', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const preview = (target: Record<string, unknown>) =>
+      Response.json({ dryRun: true, action: 'email.domain.add', target });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(preview({ domain: 'brand.example.com' }));
+    vi.stubGlobal('fetch', fetcher);
+    const args = parseOperatorArgs([
+      'email',
+      'domain-add',
+      'brand.example.com',
+      '--project',
+      'hr-portal',
+      '--outbound-only',
+      '--yes',
+    ]);
+    await expect(runOperatorCommand(args)).rejects.toMatchObject({ code: 'unsupported' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(preview({ domain: 'brand.example.com', inboundMode: 'none' }))
+      .mockResolvedValueOnce(Response.json({ domain: { operationStatus: 'completed' } }));
+    await runOperatorCommand(args);
+    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+      domain: 'brand.example.com',
+      project: 'hr-portal',
+      outboundOnly: true,
+    });
   });
   it('drains runtime cursors and rejects repeated cursors instead of spinning', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});

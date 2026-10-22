@@ -66,14 +66,14 @@ Register and maintain email domains for projects whose owners hold no Cloudflare
 
 ```sh
 void platform email domains [--project <id|slug>]
-void platform email domain-add <domain> --project <id|slug> [--token-stdin]
+void platform email domain-add <domain> --project <id|slug> [--token-stdin] [--outbound-only]
 void platform email domain-status <domain>
 void platform email domain-sync <domain>
 void platform email domain-rotate-secret <domain>
 void platform email domain-remove <domain> [--token-stdin]
 ```
 
-`domain-add` uses the platform's Cloudflare credential for zones in its account. For another account, pipe a scoped Cloudflare API token on standard input with `--token-stdin --yes`. Managed custom inbound email requires the Cloudflare zone apex (`example.com`). If its MX records already belong to another mail provider, use the project's shared email address or choose another unused zone. Native Cloudflare deployments also support literal recipient addresses on subdomains; see [Your own Cloudflare account](../../guide/email/domains.md#your-own-cloudflare-account).
+`domain-add` uses the platform's Cloudflare credential for zones in its account. For another account, pipe a scoped Cloudflare API token on standard input with `--token-stdin --yes`. Managed custom inbound email requires the Cloudflare zone apex (`example.com`). If its MX records already belong to another mail provider, such as Microsoft 365 or Google Workspace, add `--outbound-only` to send from the apex while that provider keeps receiving its mail; see [Sending from a domain that already receives mail](../../guide/platform/administration/email.md#sending-from-a-domain-that-already-receives-mail). Otherwise use the project's shared email address or choose another unused zone. Native Cloudflare deployments also support literal recipient addresses on subdomains; see [Your own Cloudflare account](../../guide/email/domains.md#your-own-cloudflare-account).
 
 `domain-status` shows inbound, outbound, and credential-management readiness with the latest operation. A blocked operation resumes through `domain-sync`; a blocked rotation resumes through `domain-rotate-secret`, preserving already confirmed steps and its staged credential. An uncertain operation remains stopped until read-back proves the result or an administrator uses `operation-resolve`. Domains an administrator adds show `managed_by: admin`; their owners can list and inspect them but use these commands for `sync`, `domain-rotate-secret`, and `remove`.
 

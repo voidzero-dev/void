@@ -451,6 +451,8 @@ export type EmailDomainResponse = {
   domain: string;
   projectId: string;
   managed_by: 'owner' | 'admin';
+  /** `none` sends only; the domain's MX provider keeps inbound mail. */
+  inboundMode?: 'managed' | 'none';
   status: EmailReadiness['inbound']['status'];
   connectionId: string;
   account_id: string;

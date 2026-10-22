@@ -303,3 +303,59 @@ it('retains rollback to 0.27.0 after adding registered OAuth clients', () => {
     schemaDigest,
   });
 });
+
+// 1.1.11 through 1.2.1 ignore email_domain_routes.inbound_mode and insert managed routes.
+it('upgrades the 1.1.11 through 1.2.1 schema to outbound-only email routes', async () => {
+  const root = resolve(import.meta.dirname, '../../drizzle');
+  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ idx: number; tag: string; when: number }>;
+  };
+  const compatibility = JSON.parse(readFileSync(resolve(root, 'compatibility.json'), 'utf8'));
+  const previous = journal.entries.filter((entry) => entry.idx < 61);
+  expect(previous.at(-1)?.tag).toBe('0060_private_previews');
+  const schemaDigest = platformDatabaseSchemaDigest(
+    compatibility.lineage,
+    previous.map((entry) => ({
+      index: entry.idx,
+      tag: entry.tag,
+      timestampMillis: entry.when,
+      sha256: createHash('sha256')
+        .update(readFileSync(resolve(root, entry.tag + '.sql')))
+        .digest('hex'),
+    })),
+  );
+  for (const platformVersion of ['1.1.11', '1.1.12', '1.2.0', '1.2.1']) {
+    expect(compatibility.rollbackSafeFrom).toContainEqual({ platformVersion, schemaDigest });
+  }
+  const db = new PGlite();
+  const route = (id: string, domain: string, addressing: string, project: string | null) =>
+    `INSERT INTO email_domain_routes (id, domain, connection_id, project_id, addressing, managed_by) VALUES ('${id}', '${domain}', 'connection', ${project ? `'${project}'` : 'NULL'}, '${addressing}', 'admin');`;
+  try {
+    for (const entry of previous) {
+      await db.exec(readFileSync(resolve(root, entry.tag + '.sql'), 'utf8'));
+    }
+    await db.exec(
+      "INSERT INTO users (id, login) VALUES ('migration-user', 'migration-user'); INSERT INTO projects (id, user_id, slug) VALUES ('project', 'migration-user', 'project'); INSERT INTO email_zone_connections (id, installation_id, account_id, zone_id, zone_name, managed_by, ingress_worker_name, secret_ciphertext, secret_iv, secret_key_version) VALUES ('connection', 'installation', 'account', 'zone', 'example.com', 'admin', 'ingress', 'ciphertext', 'iv', 1);" +
+        route('existing', 'example.com', 'custom', 'project'),
+    );
+    await db.exec(readFileSync(resolve(root, '0061_email_inbound_mode.sql'), 'utf8'));
+    // The previous runtime can still insert routes; they stay managed.
+    await db.exec(route('older-runtime', 'shared.example.com', 'shared', null));
+    expect(
+      (await db.query('SELECT id, inbound_mode FROM email_domain_routes ORDER BY id')).rows,
+    ).toEqual([
+      { id: 'existing', inbound_mode: 'managed' },
+      { id: 'older-runtime', inbound_mode: 'managed' },
+    ]);
+    await db.exec("UPDATE email_domain_routes SET inbound_mode = 'none' WHERE id = 'existing'");
+    // Only custom routes can be outbound-only, and the mode has two values.
+    await expect(
+      db.exec("UPDATE email_domain_routes SET inbound_mode = 'none' WHERE id = 'older-runtime'"),
+    ).rejects.toThrow('email_domain_routes_inbound_mode_check');
+    await expect(
+      db.exec("UPDATE email_domain_routes SET inbound_mode = 'other' WHERE id = 'existing'"),
+    ).rejects.toThrow('email_domain_routes_inbound_mode_check');
+  } finally {
+    await db.close();
+  }
+}, 30_000);

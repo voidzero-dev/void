@@ -689,6 +689,18 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
       }
       recoveryFence = { recoveryFence: target.recoveryFence };
     }
+    // An older platform ignores outboundOnly and would take over the domain's MX.
+    if (
+      args.group === 'email' &&
+      args.action === 'domain-add' &&
+      args.body.outboundOnly === true &&
+      (preview.target as Record<string, unknown> | null)?.inboundMode !== 'none'
+    ) {
+      throw new OperatorClientError(
+        'This platform does not support outbound-only email domains. Upgrade it first. No change was requested.',
+        'unsupported',
+      );
+    }
     if (!(await confirmOperatorMutation(origin, preview, args))) {
       return;
     }

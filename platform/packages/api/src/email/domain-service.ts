@@ -7,7 +7,12 @@ import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import type { Project } from '../types.ts';
 import { createCfCustomerClient } from './cf-customer.ts';
-import { emailDomainRoutes, emailOperations, emailZoneConnections } from './connection-schema.ts';
+import {
+  emailDomainRoutes,
+  emailOperations,
+  emailZoneConnections,
+  type EmailInboundMode,
+} from './connection-schema.ts';
 import {
   EmailOperationError,
   credentialFor,
@@ -30,6 +35,7 @@ export type EmailDomainAddInput = Readonly<{
   apiToken?: string;
   attemptId?: unknown;
   managedBy: 'owner' | 'admin';
+  inboundMode?: EmailInboundMode;
 }>;
 export async function getEmailDomainRowByDomain(db: Db, domain: string) {
   return (
@@ -52,7 +58,14 @@ export function serializeEmailRoute(
     domain: route.domain,
     projectId: route.project_id,
     managed_by: route.managed_by,
-    status: route.desired_state === 'active' ? route.inbound_status : 'disabled',
+    inboundMode: route.inbound_mode,
+    // An outbound-only route is as ready as its sending.
+    status:
+      route.desired_state !== 'active'
+        ? 'disabled'
+        : route.inbound_mode === 'none'
+          ? route.outbound_status
+          : route.inbound_status,
     connectionId: connection.id,
     account_id: connection.account_id,
     zone_id: connection.zone_id,
@@ -152,6 +165,7 @@ export async function addEmailDomainForProject(
       actor: { kind: input.managedBy, userId: context.get('user').id },
       token: input.apiToken,
       attemptId: typeof input.attemptId === 'string' ? input.attemptId : undefined,
+      inboundMode: input.inboundMode,
     });
     await runEmailOperation(context.get('db'), context.env, operationId);
     return domainResult(context, project, input.domain, operationId);
@@ -180,21 +194,28 @@ export async function getEmailDomainStatusForProject(
       const client = createCfCustomerClient(
         await credentialFor(context.env, db, snapshot.connection),
       );
-      inboundIssue = await inspectEmailInboundRoute(
-        client,
-        snapshot.connection,
-        snapshot.route.domain,
-        snapshot.route.addressing,
-      );
+      // An outbound-only apex keeps its own MX, so there is no inbound route to inspect.
+      if (snapshot.route.inbound_mode !== 'none') {
+        inboundIssue = await inspectEmailInboundRoute(
+          client,
+          snapshot.connection,
+          snapshot.route.domain,
+          snapshot.route.addressing,
+        );
+      }
       try {
         const senders = await client.listSendingSubdomains(snapshot.connection.zone_id);
+        // Verified-only sending works from Email Routing domains, which an outbound-only
+        // route is not, so a domain without Sending cannot send at all.
         outbound = senders.some(
           (sender) => sender.enabled && sender.name.toLowerCase() === snapshot.route.domain,
         )
           ? 'ready'
-          : 'verified_only';
+          : snapshot.route.inbound_mode === 'none'
+            ? 'blocked'
+            : 'verified_only';
         outboundReason =
-          outbound === 'verified_only' ? 'Cloudflare Sending is not enabled for this domain' : null;
+          outbound === 'ready' ? null : 'Cloudflare Sending is not enabled for this domain';
       } catch {
         outboundReason = 'Cloudflare Sending status could not be verified';
       }
@@ -264,6 +285,11 @@ export async function getEmailDomainStatusForProject(
           snapshot.connection.inbound_status === 'ready' &&
           (snapshot.route.inbound_status === 'ready' ||
             snapshot.route.inbound_status === 'drifted');
+        // A setup step may have recorded a newer Sending result after the read above.
+        // Keep it: for an outbound-only route a stale 'blocked' would stop all sending.
+        const outboundUnchanged =
+          currentRoute.outbound_status === snapshot.route.outbound_status &&
+          currentRoute.outbound_observed_at === snapshot.route.outbound_observed_at;
         await tx
           .update(emailDomainRoutes)
           .set({
@@ -274,9 +300,14 @@ export async function getEmailDomainStatusForProject(
                   inbound_observed_at: sql`now()`,
                 }
               : {}),
-            outbound_status: outbound,
-            outbound_reason: outboundReason,
-            outbound_observed_at: sql`now()`,
+            ...(outboundUnchanged
+              ? {
+                  outbound_status: outbound,
+                  outbound_reason: outboundReason,
+                  outbound_observed_at: sql`now()`,
+                }
+              : {}),
+            updated_at: sql`now()`,
           })
           .where(
             and(
@@ -349,6 +380,12 @@ export async function rotateEmailIngressSecretForProject(
       resolved.route.desired_state !== 'active'
     ) {
       return context.json({ error: 'email domain not found' }, 404);
+    }
+    if (resolved.route.inbound_mode === 'none') {
+      return context.json(
+        { error: 'outbound-only email domains have no ingress secret to rotate' },
+        409,
+      );
     }
     const operationId = await requestEmailSecretRotation(
       context.get('db'),

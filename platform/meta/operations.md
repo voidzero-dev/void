@@ -184,6 +184,8 @@ the exact stored mutation. Record `applied` to continue without replaying it, or
 `not-applied` to retry only that fenced intent. Keep the same platform version and
 preserve staged secret state until the operation completes.
 
+Outbound-only domains (`domain-add --outbound-only`) need a release that knows the `inbound_mode` column. After a platform rollback to an earlier release, do not run `domain-add`, `domain-sync`, or `sync` for them: the older release treats them as normal domains and would enable Email Routing, which replaces the apex MX records and takes over the provider's mail. Sending keeps working without these commands. Upgrade again first.
+
 PostgreSQL is authoritative for consent, policy, suspension, and recipient-attempt quotas. Cache publication retries independently. `void email logs` exposes receipt and action metadata: provider acceptance is not proof of delivery, and an unknown result must not be retried with a new idempotency key. Removing one domain or project must preserve sibling routes and unresolved cleanup records.
 
 Before production enablement, complete the [email acceptance checks](./release-acceptance.md#email-acceptance), including live Cloudflare routing, forwarding/reply, scoped-token, rotation, and failure-recovery checks.

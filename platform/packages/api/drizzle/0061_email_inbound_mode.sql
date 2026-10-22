@@ -1,0 +1,2 @@
+ALTER TABLE "email_domain_routes" ADD COLUMN "inbound_mode" text DEFAULT 'managed' NOT NULL;--> statement-breakpoint
+ALTER TABLE "email_domain_routes" ADD CONSTRAINT "email_domain_routes_inbound_mode_check" CHECK ("email_domain_routes"."inbound_mode" = 'managed' OR ("email_domain_routes"."inbound_mode" = 'none' AND "email_domain_routes"."addressing" = 'custom'));

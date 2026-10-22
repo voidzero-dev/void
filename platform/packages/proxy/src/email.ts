@@ -480,7 +480,7 @@ function singleMailboxAddrSpec(value: string): string | null {
  *
  *   {
  *     projectId, aiToken,           // auth (validated by middleware)
- *     from,                          // envelope sender (must be on an Email-Routing-enabled zone)
+ *     from,                          // envelope sender (on an Email Sending or Email Routing zone)
  *     recipients: string[],          // unique normalized recipient addresses
  *     mimeBase64,                    // raw MIME, base64-encoded
  *     requestId                      // for logs and default operation identity

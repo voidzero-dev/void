@@ -150,3 +150,19 @@ Run recovery with the same platform version that created the persisted intent.
 `applied` continues without replaying the write; `not-applied` permits that exact
 step to retry. Secret rotation keeps its staged generation, and removal resumes
 from the unresolved cleanup step. Age alone never authorizes a retry.
+
+### Sending from a domain that already receives mail
+
+If an apex already receives mail with another provider, such as Microsoft 365 or Google Workspace, register it for sending only:
+
+```sh
+void platform email domain-add brand.example --project hr-portal --outbound-only
+```
+
+The project can then send from any address on the apex, such as `support@brand.example`. It cannot receive mail there: the MX records, the apex SPF record, and incoming mail stay with the current provider.
+
+- Cloudflare Email Sending must be available, which needs Workers Paid. Without it, setup is blocked instead of falling back to verified destinations only. Upgrade, then run `domain-sync`.
+- Email Sending adds its own records on `cf-bounce.<domain>` and `_dmarc.<domain>`. If Cloudflare reports that existing records conflict with them, for example several DMARC records, setup is blocked and the error lists each record. Fix them, then run `domain-sync`.
+- Only administrators can register an outbound-only domain, and it must be a zone apex. The platform's shared mail zone cannot be outbound-only.
+- `domain-rotate-secret` does not apply. `domain-remove` stops sending through the platform and leaves the MX records alone.
+- To switch an outbound-only domain to platform-managed inbound mail, or back, remove it first and add it again.

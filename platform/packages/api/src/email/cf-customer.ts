@@ -124,6 +124,13 @@ export type CfSendingSubdomain = Readonly<{
   enabled: boolean;
 }>;
 
+/** A DNS conflict that Email Sending onboarding reports for a name, from the read-only preview. */
+export type CfSendingIssue = Readonly<{
+  code: string;
+  /** The DNS name of the conflicting record, when Cloudflare reports one. */
+  name: string | null;
+}>;
+
 export type CfCustomerClient = Readonly<{
   /** Verify a user or account token against the zone's authoritative account. */
   verifyToken: (accountId: string) => Promise<CfTokenVerification>;
@@ -143,6 +150,11 @@ export type CfCustomerClient = Readonly<{
    * enabled (both required on the wire); malformed entries are dropped.
    */
   listSendingSubdomains: (zoneId: string) => Promise<ReadonlyArray<CfSendingSubdomain>>;
+  /**
+   * POST /zones/{z}/email/sending/subdomains/preview — a read-only dry run of onboarding.
+   * Returns every issue Cloudflare reports, including records that are only missing.
+   */
+  previewSending: (zoneId: string, name: string) => Promise<ReadonlyArray<CfSendingIssue>>;
   /** Raw script GET — true when the name is taken in this account, false on 404. */
   relayScriptExists: (accountId: string, scriptName: string) => Promise<boolean>;
   /**
@@ -269,6 +281,27 @@ export function createCfCustomerClient(credential: string): CfCustomerClient {
         }
       }
       return parsed;
+    },
+
+    previewSending: async (zoneId, name) => {
+      const preview = await call<{ errors?: unknown }>(
+        `/zones/${zoneId}/email/sending/subdomains/preview`,
+        { method: 'POST', body: JSON.stringify({ name }) },
+      );
+      const issues: Array<CfSendingIssue> = [];
+      for (const row of Array.isArray(preview?.errors) ? preview.errors : []) {
+        if (!row || typeof row !== 'object' || typeof row.code !== 'string') {
+          continue;
+        }
+        const existing = (row as { existing?: { name?: unknown } }).existing;
+        const multiple = (row as { multiple?: Array<{ name?: unknown }> }).multiple;
+        const recordName = existing?.name ?? (Array.isArray(multiple) ? multiple[0]?.name : null);
+        issues.push({
+          code: row.code,
+          name: typeof recordName === 'string' ? recordName : null,
+        });
+      }
+      return issues;
     },
 
     relayScriptExists: async (accountId, scriptName) => {
