@@ -120,8 +120,8 @@ See the [configuration reference](../reference/config.md#sandbox) for binding na
 Custom images must include the helper matching Void's installed Sandbox SDK version. The SDK image supplies this binary, but is not a runnable environment itself:
 
 ```dockerfile
-FROM node:26.10.0-trixie-slim
-COPY --from=docker.io/cloudflare/sandbox:1.0.1 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
+FROM node:26.12.1-trixie-slim
+COPY --from=docker.io/cloudflare/sandbox:1.0.2 /usr/local/bin/sandbox-shim /usr/local/bin/sandbox-shim
 WORKDIR /workspace
 CMD ["sleep", "infinity"]
 ```
