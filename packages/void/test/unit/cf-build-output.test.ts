@@ -593,11 +593,15 @@ it(
     writeFileSync(join(output, 'plain.wasm'), plainWasm);
     writeFileSync(join(output, 'message.txt'), 'text module');
     writeFileSync(join(output, 'data.bin'), Buffer.from([0, 255]));
+    // Same bytes, different module types; the quote must survive the module id.
+    writeFileSync(join(output, 'same.txt'), 'same');
+    writeFileSync(join(output, 'sa"me.bin'), 'same');
     writeFileSync(
       join(output, '_worker.js'),
       "import plain from './plain.wasm'; import message from './message.txt'; import data from './data.bin';\n" +
+        "import sameText from './same.txt'; import sameData from './sa\"me.bin';\n" +
         "import { render } from './chunks/render.js';\n" +
-        'export default { async fetch() { return new Response(String([plain, message, data, await render()])) } };\n',
+        'export default { async fetch() { return new Response(String([plain, message, data, sameText, sameData, await render()])) } };\n',
     );
     writeFileSync(
       join(output, 'chunks/render.js'),
@@ -619,13 +623,15 @@ it(
         const additional = Object.keys(modules)
           .filter((name) => modules[name].type !== 'esm')
           .map((name) => [modules[name].type, readFileSync(join(bundle, name))]);
-        expect(additional).toHaveLength(4);
+        expect(additional).toHaveLength(6);
         expect(additional).toEqual(
           expect.arrayContaining([
             ['wasm', bindgenWasm],
             ['wasm', plainWasm],
             ['text', Buffer.from('text module')],
             ['data', Buffer.from([0, 255])],
+            ['text', Buffer.from('same')],
+            ['data', Buffer.from('same')],
           ]),
         );
         expectCfDryRun(prepared.directory);
@@ -663,13 +669,25 @@ it(
         exports: { workerd: './worker.js', browser: './browser.js', default: './node.js' },
       }),
     );
+    const modes = join(root, 'node_modules/modes');
+    mkdirSync(modes, { recursive: true });
+    writeFileSync(
+      join(modes, 'package.json'),
+      JSON.stringify({
+        name: 'modes',
+        type: 'module',
+        exports: { development: './dev.js', production: './prod.js', default: './dev.js' },
+      }),
+    );
+    writeFileSync(join(modes, 'dev.js'), "export const mode = 'modes-development';\n");
+    writeFileSync(join(modes, 'prod.js'), "export const mode = 'modes-production';\n");
     writeFileSync(join(dual, 'worker.js'), "export const target = 'dual-workerd';\n");
     writeFileSync(join(dual, 'browser.js'), "export const target = 'dual-browser';\n");
     writeFileSync(join(dual, 'node.js'), "export const target = 'dual-node';\n");
     writeFileSync(
       join(output, '_worker.js'),
-      "import { target } from 'dual';\n" +
-        'export default { fetch() { return new Response(target) } };\n',
+      "import { target } from 'dual'; import { mode } from 'modes';\n" +
+        'export default { fetch() { return new Response(target + mode) } };\n',
     );
     writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
 
@@ -686,6 +704,8 @@ it(
         );
         expect(bundle).toContain('dual-workerd');
         expect(bundle).not.toContain('dual-browser');
+        expect(bundle).toContain('modes-production');
+        expect(bundle).not.toContain('modes-development');
       },
     );
   },

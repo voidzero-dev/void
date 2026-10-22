@@ -324,42 +324,115 @@ async function prepareNativeBuildOutput(
 }
 
 // The additional module rules of the Cloudflare Vite plugin, which does not export them.
-const ADDITIONAL_MODULE_RE = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
-const MODULE_REFERENCE_RE = /__VOID_MODULE__(.*?)__VOID_MODULE__/g;
+// Hook filters need a RegExp; `additionalModulePath` applies the same rules.
+const ADDITIONAL_MODULE_FILTER = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
+const ADDITIONAL_MODULE_EXTENSIONS = new Set(['.wasm', '.bin', '.txt', '.html', '.sql']);
+const MODULE_MARKER = '__VOID_MODULE__';
+
+/** Keep letters, digits, `.`, `_` and `-`: the name ends up inside a JS import string. */
+function safeFileStem(stem: string): string {
+  let safe = '';
+  for (const char of stem) {
+    const code = char.charCodeAt(0);
+    const allowed =
+      (code >= 48 && code <= 57) ||
+      (code >= 65 && code <= 90) ||
+      (code >= 97 && code <= 122) ||
+      char === '.' ||
+      char === '_' ||
+      char === '-';
+    safe += allowed ? char : '_';
+  }
+  return safe || 'module';
+}
+
+/** The file behind a resolved id that is uploaded as a Worker module, if it is one. */
+function additionalModulePath(id: string): string | undefined {
+  const query = id.indexOf('?');
+  const path = query === -1 ? id : id.slice(0, query);
+  if (query !== -1 && !(id.slice(query) === '?module' && path.endsWith('.wasm'))) {
+    return undefined;
+  }
+  return ADDITIONAL_MODULE_EXTENSIONS.has(extname(path)) ? path : undefined;
+}
 
 /**
  * Keep Wasm, data and text imports out of the bundle and emit each file beside it, as
  * `@cloudflare/vite-plugin` does, so `copyBundle` uploads them as Worker modules.
  */
 function additionalModulesPlugin(): Plugin {
+  // The external id carries a key, not the path: Rolldown escapes ids in the output.
+  const paths: Array<string> = [];
+  const keys = new Map<string, number>();
+  // Each file keeps its own name and extension. Assets with the same bytes would
+  // otherwise be merged, and the extension picks the module type.
+  const fileNames = new Map<string, string>();
+  const usedFileNames = new Set<string>();
   return {
     name: 'void:additional-modules',
     enforce: 'pre',
     resolveId: {
-      filter: { id: [ADDITIONAL_MODULE_RE, /^#/] },
+      filter: { id: [ADDITIONAL_MODULE_FILTER, /^#/] },
       async handler(source, importer, options) {
         const resolved = await this.resolve(source, importer, options);
-        if (!resolved || !ADDITIONAL_MODULE_RE.test(resolved.id)) {
+        const path = resolved ? additionalModulePath(resolved.id) : undefined;
+        if (!path) {
           return resolved;
         }
-        return { id: `__VOID_MODULE__${resolved.id.split('?')[0]}__VOID_MODULE__`, external: true };
+        let key = keys.get(path);
+        if (key === undefined) {
+          key = paths.push(path) - 1;
+          keys.set(path, key);
+        }
+        return { id: `${MODULE_MARKER}${key}${MODULE_MARKER}`, external: true };
       },
     },
     renderChunk: {
-      filter: { code: /__VOID_MODULE__/ },
+      filter: { code: MODULE_MARKER },
       handler(code, chunk) {
-        return code.replace(MODULE_REFERENCE_RE, (_, path: string) => {
-          const fileName = this.getFileName(
+        const emit = (path: string): string => {
+          let fileName = fileNames.get(path);
+          if (fileName === undefined) {
+            const extension = extname(path);
+            const stem = safeFileStem(basename(path, extension));
+            fileName = stem + extension;
+            for (let count = 2; usedFileNames.has(fileName); count++) {
+              fileName = `${stem}${count}${extension}`;
+            }
+            usedFileNames.add(fileName);
+            fileNames.set(path, fileName);
             this.emitFile({
               type: 'asset',
-              name: basename(path),
+              fileName,
               originalFileName: path,
               source: readFileSync(path),
-            }),
-          );
-          const importPath = relative(dirname(chunk.fileName), fileName);
-          return importPath.startsWith('.') ? importPath : `./${importPath}`;
-        });
+            });
+          }
+          return fileName;
+        };
+        let output = '';
+        let cursor = 0;
+        let start = code.indexOf(MODULE_MARKER);
+        while (start !== -1) {
+          const keyStart = start + MODULE_MARKER.length;
+          const end = code.indexOf(MODULE_MARKER, keyStart);
+          if (end === -1) {
+            break;
+          }
+          const keyText = code.slice(keyStart, end);
+          const path = keyText === String(Number(keyText)) ? paths[Number(keyText)] : undefined;
+          if (path === undefined) {
+            start = code.indexOf(MODULE_MARKER, keyStart);
+            continue;
+          }
+          const importPath = relative(dirname(chunk.fileName), emit(path));
+          output +=
+            code.slice(cursor, start) +
+            (importPath.startsWith('.') ? importPath : `./${importPath}`);
+          cursor = end + MODULE_MARKER.length;
+          start = code.indexOf(MODULE_MARKER, cursor);
+        }
+        return output + code.slice(cursor);
       },
     },
   };
@@ -384,7 +457,9 @@ async function prepareBundledBuildOutput(options: {
       publicDir: false,
       logLevel: 'error',
       plugins: [additionalModulesPlugin()],
-      resolve: { conditions: WORKER_CONDITIONS },
+      // Like @cloudflare/vite-plugin: Worker conditions plus the build mode. A deploy
+      // bundle is always a production build, whatever NODE_ENV says.
+      resolve: { conditions: [...WORKER_CONDITIONS, 'production'] },
       build: {
         outDir: scratch,
         emptyOutDir: true,
