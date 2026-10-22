@@ -1,0 +1,21 @@
+packages/void/src/cli/client.ts
+  s_1405c34d98b91e::t_a92003a71deebe 39
+packages/void/test/unit/client-platform-version.test.ts
+  s_1405c34d98b91e::t_c3f2395e7c0c3a 57,67,73-82,85,116
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "d031dea65ad2c1521920f341e4337b48a92cd59b",
+  "prompts": {},
+  "sessions": {
+    "s_1405c34d98b91e": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a160f6-2fc7-7a33-a5c7-ab07d610699d",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
