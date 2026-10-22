@@ -2337,6 +2337,23 @@ describe('PUT /projects/:id/email/alias', () => {
     expect(await storedAlias(project.id)).toBe('first-alias');
   });
 
+  it('answers a retry of the same alias with the saved state', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+    mockCfApi();
+
+    const first = await setAlias(project.id, user.jwt, { alias: 'first-alias' });
+    expect(first.status).toBe(200);
+    const retry = await setAlias(project.id, user.jwt, { alias: 'first-alias' });
+    expect(retry.status).toBe(200);
+    expect(await retry.json()).toEqual({
+      emailAlias: 'first-alias',
+      address: `first-alias@${MAIL_DOMAIN}`,
+      sharedInbound: null,
+    });
+    expect(await storedAlias(project.id)).toBe('first-alias');
+  });
+
   it('refuses the project slug', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'alias-project');

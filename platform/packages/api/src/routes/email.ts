@@ -8,6 +8,7 @@ import {
   deleteEmailDestination,
   getEmailDestinationByAddress,
   getEmailDestinationsByProjectId,
+  getProject,
   getProjectByEmailAlias,
   getProjectBySlug,
   getUser,
@@ -597,6 +598,10 @@ const app = new Hono<ApiEnv>()
     if (nameError) {
       return context.json({ error: nameError }, 400);
     }
+    // A retry of a request that already applied gets the same answer.
+    if (access.project.email_alias === alias) {
+      return aliasResponse(context, alias);
+    }
     if (access.project.email_alias) {
       return context.json(
         {
@@ -649,21 +654,10 @@ const app = new Hono<ApiEnv>()
       }
       throw error;
     }
-    if (!saved) {
+    if (!saved && (await getProject(db, projectId))?.email_alias !== alias) {
       return context.json({ error: 'the project changed; reload it and try again' }, 409);
     }
-    // Create the alias rule now when the project already receives mail. The
-    // scheduled repair retries a failure.
-    try {
-      await reconcileSharedEmailRecipient(db, context.env, projectId);
-    } catch (error) {
-      console.error('[email-alias] shared recipient reconcile failed', { projectId, error });
-    }
-    return context.json({
-      emailAlias: alias,
-      address: `${alias}@${context.env.EMAIL_SENDER_DOMAIN.toLowerCase()}`,
-      sharedInbound: await getSharedEmailRecipientReadiness(db, context.env, projectId),
-    });
+    return aliasResponse(context, alias);
   })
 
   .get('/:id/email/domains', async (context) => {
@@ -810,6 +804,25 @@ export function parseCounter(raw: string | null): number {
  * Routing — we just want to keep obviously-bad input out of the rate
  * limiter / CF API call.
  */
+/**
+ * Answer for a saved alias. Creates the alias rule now when the project
+ * already receives mail; the scheduled repair retries a failure.
+ */
+async function aliasResponse(context: Context<ApiEnv>, alias: string): Promise<Response> {
+  const db = context.get('db');
+  const projectId = context.req.param('id')!;
+  try {
+    await reconcileSharedEmailRecipient(db, context.env, projectId);
+  } catch (error) {
+    console.error('[email-alias] shared recipient reconcile failed', { projectId, error });
+  }
+  return context.json({
+    emailAlias: alias,
+    address: `${alias}@${context.env.EMAIL_SENDER_DOMAIN!.toLowerCase()}`,
+    sharedInbound: await getSharedEmailRecipientReadiness(db, context.env, projectId),
+  });
+}
+
 function isValidEmail(s: string): boolean {
   return /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s);
 }
