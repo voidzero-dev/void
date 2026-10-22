@@ -9,6 +9,7 @@ import {
   startServer,
   type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import { isGeneratedAssetHeaders } from '../../src/asset-worker-bypass.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 
@@ -152,6 +153,14 @@ function readBuiltAssetConfig(): {
   return emittedWrangler.assets ?? {};
 }
 
+/** Apps that keep the Worker in front of their assets get no generated `_headers`. */
+function expectNoGeneratedAssetHeaders(): void {
+  const headers = join(dist, 'client/_headers');
+  if (existsSync(headers)) {
+    expect(isGeneratedAssetHeaders(readFileSync(headers, 'utf-8'))).toBe(false);
+  }
+}
+
 beforeAll(() => {
   playground = createIsolatedPlayground(ROOT, SOURCE_PLAYGROUND);
   authMiddleware = join(playground.root, 'middleware/00.basic-auth-regression.ts');
@@ -200,6 +209,7 @@ describe('SPA asset routing policy', () => {
     const assetConfig = readBuiltAssetConfig();
     expect(assetConfig.not_found_handling).toBe('single-page-application');
     expect(assetConfig.run_worker_first).toEqual(['/api', '/api/*', '/__void', '/__void/*']);
+    expectNoGeneratedAssetHeaders();
   });
 
   it('applies native production routing rules before existing static assets', async () => {
@@ -230,6 +240,7 @@ describe('SPA asset routing policy', () => {
     });
 
     expect(readBuiltAssetConfig().run_worker_first).toEqual(['/**']);
+    expectNoGeneratedAssetHeaders();
     const base = await startSpaPreviewServer();
     const headerResponse = await fetch(`${base}/void-native-header-regression.txt`);
     expect(headerResponse.status).toBe(200);

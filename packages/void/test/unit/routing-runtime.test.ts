@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import {
+  createAssetNotFound,
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
@@ -873,5 +874,81 @@ describe('typed client asset tags', () => {
       preloads: '',
       body: '',
     });
+  });
+});
+
+describe('static asset marker', () => {
+  const policy = 'public, max-age=0, must-revalidate';
+  const env = {
+    ASSETS: {
+      fetch: async (request: Request) =>
+        ['/favicon.ico', '/assets/client-abcdefgh.js'].includes(new URL(request.url).pathname)
+          ? new Response('file', { headers: { 'cache-control': policy } })
+          : new Response('missing', { status: 404 }),
+    },
+  };
+
+  function markerApp(
+    fallback: (
+      routing: ReturnType<typeof createRoutingRuntime>,
+    ) => (c: Context) => Promise<Response>,
+    nodeTarget = false,
+  ) {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget });
+    const seen: Array<unknown> = [];
+    app.use(routing.contextMiddleware);
+    app.use(async (c, next) => {
+      await next();
+      seen.push((c as Context).get('__voidStaticAsset'));
+    });
+    app.get('/new', (c) => c.text('fallback rule'));
+    app.notFound(fallback(routing));
+    return { app, seen };
+  }
+  const fallbackRules = [{ source: '/old', destination: '/new', status: 200 }];
+  const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+
+  it.each([
+    [
+      'Pages',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createPagesFallback({ routing, errors, fallbackRules }),
+      ['/missing', '/missing.css', '/old', '/missing/'],
+    ],
+    [
+      'SSR',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createSsrFallback({
+          routing,
+          fallbackRules,
+          load: async () => ({ render: async () => new Response('rendered') }),
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+        }),
+      ['/document', '/missing.css', '/old.css'],
+    ],
+    [
+      'asset-only',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createAssetNotFound({ routing, fallbackRules }),
+      ['/missing', '/old'],
+    ],
+  ])('marks only ASSETS hits from the %s fallback', async (_label, fallback, unmarked) => {
+    const { app, seen } = markerApp(fallback);
+    for (const path of ['/favicon.ico', '/assets/client-abcdefgh.js']) {
+      const response = await app.fetch(new Request('https://app.test' + path), env);
+      expect(response.status).toBe(200);
+      expect(seen.pop()).toMatchObject({ policy: response.headers.get('cache-control') });
+    }
+    for (const path of unmarked) {
+      await app.fetch(new Request('https://app.test' + path), env);
+      expect(seen.pop(), path).toBeUndefined();
+    }
+  });
+
+  it('does not mark responses without an ASSETS binding', async () => {
+    const { app, seen } = markerApp((routing) => createPagesFallback({ routing, errors }));
+    await app.fetch(new Request('https://app.test/favicon.ico'));
+    expect(seen.pop()).toBeUndefined();
   });
 });

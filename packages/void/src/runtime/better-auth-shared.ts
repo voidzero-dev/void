@@ -11,6 +11,7 @@ import {
   type VoidSocialAuthProvider,
 } from '../auth/providers.ts';
 import { authContext, type AuthState, type VoidAuthConfig } from './auth.ts';
+import { isUnchangedStaticAsset } from './static-asset-marker.ts';
 
 export type VoidAuthDialect = 'sqlite' | 'postgresql' | 'mysql';
 
@@ -259,8 +260,29 @@ function appendAuthHeaders(
   c: Context,
   source: Headers | undefined,
   includeCachePolicy: boolean,
+  staticAsset: boolean,
 ): void {
   if (!source) {
+    return;
+  }
+
+  // A static file's policy belongs to the build output. A credentialed request
+  // only makes it private, so a shared cache never keeps a copy served through
+  // a Worker that user middleware may gate, while the browser still reuses it.
+  if (staticAsset) {
+    source.forEach((value, key) => {
+      if (!['cache-control', 'pragma'].includes(key.toLowerCase())) {
+        c.header(key, value, { append: key.toLowerCase() === 'set-cookie' });
+      }
+    });
+    if (includeCachePolicy) {
+      c.header(
+        'Cache-Control',
+        source.has('set-cookie')
+          ? 'private, no-store'
+          : privateCachePolicy(c.res.headers.get('cache-control')),
+      );
+    }
     return;
   }
 
@@ -304,6 +326,49 @@ function bareCacheDirectives(policy: string | null): Set<string> {
       .map((directive) => directive.trim().toLowerCase())
       .filter((directive) => !directive.includes('=')),
   );
+}
+
+/**
+ * The same policy for one browser only: `public`, `proxy-revalidate`,
+ * `s-maxage` and a field-scoped `private` give way to a leading `private`.
+ * A policy that is already private or no-store stays as it is.
+ */
+export function privateCachePolicy(policy: string | null): string {
+  const directives = splitCacheDirectives(policy ?? '');
+  if (directives.length === 0) {
+    return 'private, no-store';
+  }
+  const lowered = directives.map((directive) => directive.toLowerCase());
+  if (lowered.includes('private') || lowered.includes('no-store')) {
+    return policy!;
+  }
+  const kept = directives.filter((_directive, index) => {
+    const directive = lowered[index]!;
+    const equals = directive.indexOf('=');
+    const name = (equals === -1 ? directive : directive.slice(0, equals)).trim();
+    return !['public', 'proxy-revalidate', 's-maxage', 'private'].includes(name);
+  });
+  return ['private', ...kept].join(', ');
+}
+
+// Cache-Control directives split on commas outside quoted values, trimmed.
+function splitCacheDirectives(policy: string): Array<string> {
+  const directives: Array<string> = [];
+  let start = 0;
+  let quoted = false;
+  for (let index = 0; index < policy.length; index++) {
+    const char = policy[index];
+    if (quoted && char === '\\') {
+      index++;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === ',' && !quoted) {
+      directives.push(policy.slice(start, index));
+      start = index + 1;
+    }
+  }
+  directives.push(policy.slice(start));
+  return directives.map((directive) => directive.trim()).filter(Boolean);
 }
 
 function resolveUserConfig(
@@ -565,6 +630,7 @@ export function createVoidAuthRuntime(
       c,
       result.headers,
       state !== null || credentialed || result.headers?.has('set-cookie') === true,
+      isUnchangedStaticAsset(c),
     );
   }
 

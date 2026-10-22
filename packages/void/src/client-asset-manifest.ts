@@ -3,15 +3,18 @@ import type { Rolldown } from 'vite';
 import type { ClientManifest } from './runtime/routing-assets.ts';
 import type { RoutingHeaderRule } from './runtime/routing.ts';
 
-/** Attach cache provenance to the existing manifest without changing its entry inventory. */
+/**
+ * Attach cache provenance to the existing manifest without changing its entry inventory.
+ * Returns the stamped immutable files, sorted, relative to the client root.
+ */
 export function stampClientAssetCachePolicy(
   bundle: Rolldown.OutputBundle,
   manifestPath: string,
   headerRules: Array<RoutingHeaderRule> = [],
-): void {
+): Array<string> {
   const asset = bundle[manifestPath];
   if (asset?.type !== 'asset') {
-    return;
+    return [];
   }
   const fingerprinted = new Set<string>();
   const authoredCachePatterns = headerRules
@@ -36,12 +39,15 @@ export function stampClientAssetCachePolicy(
     }
   }
   const manifest = JSON.parse(String(asset.source)) as ClientManifest;
+  const stamped = new Set<string>();
   for (const entry of Object.values(manifest)) {
     if (entry.file && fingerprinted.has(entry.file)) {
       entry.immutableFiles = [entry.file];
+      stamped.add(entry.file);
     } else {
       delete entry.immutableFiles;
     }
   }
   asset.source = JSON.stringify(manifest, null, 2);
+  return [...stamped].sort();
 }
