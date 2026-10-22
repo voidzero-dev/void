@@ -76,15 +76,39 @@ export default defineConfig({ plugins: [voidPlugin()] });
   return root;
 }
 
-function build(root: string) {
-  const result = spawn.sync('vp', ['build'], {
+function runBuild(root: string) {
+  return spawn.sync('vp', ['build'], {
     cwd: root,
     encoding: 'utf8',
     timeout: 60_000,
     maxBuffer: 10 * 1024 * 1024,
     env: { ...userEnv, VOID_INSPECTOR_PORT: 'false' },
   });
+}
+
+function build(root: string) {
+  const result = runBuild(root);
   expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
+}
+
+async function renderBuilt(root: string, path: string, cacheControl: string) {
+  const output = join(root, 'dist/ssr');
+  const config = JSON.parse(readFileSync(join(output, 'wrangler.json'), 'utf8'));
+  const modules = collectPrerenderWorkerModules(output, config.main);
+  expect(modules.filter((module) => module.type === 'CompiledWasm')).toHaveLength(1);
+  const runtime = new Miniflare(
+    convertV4MiniflareOptions({
+      compatibilityDate: config.compatibility_date,
+      compatibilityFlags: config.compatibility_flags,
+      modules,
+      modulesRoot: output,
+    }),
+  ) as unknown as Runtime;
+  try {
+    await expectImage(await runtime.dispatchFetch(`http://localhost${path}`), cacheControl);
+  } finally {
+    await runtime.dispose();
+  }
 }
 
 async function expectImage(response: Response, cacheControl: string) {
@@ -155,28 +179,20 @@ describe('void/og in a Cloudflare app', () => {
   });
 
   describe('build', () => {
-    let runtime: Runtime | undefined;
-    afterAll(async () => {
-      await runtime?.dispose();
-    });
-
     it('renders HTML and JSX in the built Worker', async () => {
       build(root);
-      const output = join(root, 'dist/ssr');
-      const config = JSON.parse(readFileSync(join(output, 'wrangler.json'), 'utf8'));
-      const modules = collectPrerenderWorkerModules(output, config.main);
-      expect(modules.filter((module) => module.type === 'CompiledWasm')).toHaveLength(1);
-      runtime = new Miniflare(
-        convertV4MiniflareOptions({
-          compatibilityDate: config.compatibility_date,
-          compatibilityFlags: config.compatibility_flags,
-          modules,
-          modulesRoot: output,
-        }),
-      ) as unknown as Runtime;
-      await expectImage(await runtime.dispatchFetch('http://localhost/api/og'), BUILD_HEADER);
-      await expectImage(await runtime.dispatchFetch('http://localhost/api/card'), BUILD_HEADER);
+      await renderBuilt(root, '/api/og', BUILD_HEADER);
+      await renderBuilt(root, '/api/card', BUILD_HEADER);
     });
+  });
+});
+
+describe('void/og in a Cloudflare app without React', () => {
+  it('renders HTML in the built Worker', async () => {
+    // Takumi's JSX helper imports React as an optional peer; the HTML route needs none.
+    const root = createApp({ 'routes/api/og.ts': OG_ROUTE }, {});
+    build(root);
+    await renderBuilt(root, '/api/og', BUILD_HEADER);
   });
 });
 
@@ -222,5 +238,17 @@ describe('void/og on the Node.js target', () => {
       return child;
     }, 20_000);
     await expectImage(await fetch(`${server.base}/api/og`), BUILD_HEADER);
+  });
+
+  it('fails the build without takumi-js', () => {
+    const root = createApp(
+      { 'routes/api/og.ts': OG_ROUTE },
+      { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
+      `{ target: 'node' }`,
+    );
+    const result = runBuild(root);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('void/og needs takumi-js@^');
+    expect(result.stderr).toContain('npm install takumi-js@^');
   });
 });

@@ -27,7 +27,7 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/node-static.test.ts': 13667,
   'packages/void/test/integration/node-target.test.ts': 10833,
   'packages/void/test/integration/nuxt.test.ts': 43000,
-  'packages/void/test/integration/og-image.test.ts': 22000,
+  'packages/void/test/integration/og-image.test.ts': 40000,
   'packages/void/test/integration/operator-cli.test.ts': 4910,
   'packages/void/test/integration/pages-target-assets.test.ts': 10966,
   'packages/void/test/integration/pg-api-test.test.ts': 11000,
