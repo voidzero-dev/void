@@ -120,6 +120,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   // authored auth settings that can change without changing the source scan.
   const routeInputsKey = () => JSON.stringify([scan, authConfigPath, ssr, compileOptions.auth]);
   let generatedRouteInputs: string | undefined;
+  // Size and mtime of the generated files that checkpoint wrote.
+  let generatedFiles: string | undefined;
   let pendingRegeneration = Promise.resolve();
 
   // Startup and watcher callbacks share the scan and compile options. Keep their
@@ -293,14 +295,27 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     };
   }
 
-  function generatedFilesExist(): boolean {
+  /**
+   * Size and mtime of every generated file, or undefined when one is missing.
+   * Another void process in the same root (a build, `void db generate`) can
+   * rewrite them, and the dev watcher ignores `.void/`.
+   */
+  function generatedFilesSignature(): string | undefined {
     const files = [
       'routes.d.ts',
       'queues.d.ts',
       ...(options.target ? ['app.ts', 'index.ts'] : ['entry.ts']),
       ...(compileOptions.auth ? ['better-auth-db.ts', 'better-auth-schema.ts'] : []),
     ];
-    return files.every((file) => statSync(join(outDir, file), { throwIfNoEntry: false })?.isFile());
+    const parts: Array<string> = [];
+    for (const file of files) {
+      const stat = statSync(join(outDir, file), { throwIfNoEntry: false });
+      if (!stat?.isFile()) {
+        return undefined;
+      }
+      parts.push(`${file}:${stat.size}:${stat.mtimeMs}`);
+    }
+    return parts.join('|');
   }
 
   async function writeAuthDatabaseFiles(): Promise<void> {
@@ -749,7 +764,14 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         }
 
         generatedRouteInputs = nextRouteInputs;
+        generatedFiles = generatedFilesSignature();
       });
+    },
+
+    // `vite build --watch` reruns buildStart without the dev watcher below, so
+    // forget the analysis of each changed file here as well.
+    watchChange(id) {
+      invalidateSourceAnalysis(id);
     },
 
     resolveId: {
@@ -882,8 +904,11 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           // Vite already invalidates the saved module, so the route table only needs
           // regenerating when the scan moved: it re-transforms and re-runs a module
           // that grows with the number of pages.
+          const currentFiles = generatedFilesSignature();
           const routeInputsChanged =
-            nextRouteInputs !== generatedRouteInputs || !generatedFilesExist();
+            nextRouteInputs !== generatedRouteInputs ||
+            currentFiles === undefined ||
+            currentFiles !== generatedFiles;
 
           if (routeInputsChanged) {
             // A failed forced update must also retry when the scan itself is unchanged.
@@ -947,6 +972,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
 
           if (routeInputsChanged) {
             generatedRouteInputs = nextRouteInputs;
+            generatedFiles = generatedFilesSignature();
           }
         });
 
