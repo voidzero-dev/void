@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
+import * as authConfig from '../../src/auth/config.ts';
 import { readConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 import { readProjectPaths } from '../../src/project-paths.ts';
@@ -109,6 +110,7 @@ const PAGE_MODULE_IDS = [
 
 describe('routingPlugin', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;
       rmSync(dir, { recursive: true, force: true });
@@ -270,6 +272,7 @@ describe('routingPlugin', () => {
       resolveConfig(plugin, 'serve');
       await runBuildStart(plugin);
       const { emit, restart } = startDevServer(plugin);
+      restart.mockImplementation(() => runBuildStart(plugin));
 
       const addedPath = join(root, 'routes', addedRoute);
       writeFileSync(addedPath, routeSource);
@@ -401,6 +404,7 @@ describe('routingPlugin', () => {
     { change: 'route exports', failure: 'generated-file write' },
     { change: 'an environment file', failure: 'generated-file write' },
     { change: 'route exports', failure: 'module invalidation' },
+    { change: 'route exports', failure: 'auth generation' },
   ])('retries after a failed $failure for $change', async ({ change, failure }) => {
     const root = createTempRoot();
     const routePath = join(root, 'routes', 'health.ts');
@@ -411,19 +415,25 @@ describe('routingPlugin', () => {
     writeFileSync(routePath, 'export const GET = () => new Response("ok");');
     writeFileSync(envPath, 'export default {};');
 
-    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+    const plugin = createRoutingPlugin(root, {
+      isAuthEnabled: () => failure === 'auth generation',
+    });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
 
     const typesPath = join(root, '.void', 'routes.d.ts');
     const previousTypes = readFileSync(typesPath, 'utf-8');
-    const { server, emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { server, emit, invalidated, logError } = startDevServer(plugin, ['virtual:void-routes']);
 
     expect(previousTypes).not.toContain('POST: {');
 
     if (failsWrite) {
       rmSync(typesPath);
       mkdirSync(typesPath);
+    } else if (failure === 'auth generation') {
+      vi.spyOn(authConfig, 'loadVoidAuthConfig').mockRejectedValueOnce(
+        new Error('Transient auth generation failure'),
+      );
     } else {
       vi.spyOn(
         server.environments.void_worker.moduleGraph,
@@ -441,7 +451,8 @@ describe('routingPlugin', () => {
       writeFileSync(envPath, 'export default { example: true };');
     }
 
-    await expect(emit('change', changesExports ? routePath : envPath)).rejects.toThrow();
+    await expect(emit('change', changesExports ? routePath : envPath)).resolves.toBeUndefined();
+    expect(logError).toHaveBeenCalledTimes(1);
     expect(invalidated).toEqual([]);
 
     if (failsWrite) {
@@ -463,6 +474,130 @@ describe('routingPlugin', () => {
 
     expect(invalidated).toEqual(['virtual:void-routes']);
   });
+
+  it.each(['startup', 'another save'])('serializes regeneration with %s', async (overlap) => {
+    const root = createTempRoot();
+    const routePath = join(root, 'routes', 'health.ts');
+    const get = 'export const GET = () => new Response();';
+    const post = get + '\nexport const POST = () => new Response();';
+    const remove = get + '\nexport const DELETE = () => new Response();';
+    writeFileSync(routePath, get);
+
+    const getApplicationAnalysis = vi.fn((environment: 'dev' | 'prod') =>
+      analyzeApplicationSync(root, { config: readConfig(root), environment }),
+    );
+    const plugin = routingPlugin(root, { isAuthEnabled: () => true, getApplicationAnalysis });
+    resolveConfig(plugin, 'serve');
+    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    if (overlap === 'another save') {
+      await runBuildStart(plugin);
+    }
+    getApplicationAnalysis.mockClear();
+
+    let started!: () => void;
+    const entered = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let resume!: () => void;
+    const pause = new Promise<undefined>((resolve) => {
+      resume = () => resolve(undefined);
+    });
+    vi.spyOn(authConfig, 'loadVoidAuthConfig').mockImplementationOnce(() => {
+      started();
+      return pause;
+    });
+    writeFileSync(routePath, post);
+    const first = overlap === 'startup' ? runBuildStart(plugin) : emit('change', routePath);
+    await entered;
+    writeFileSync(routePath, remove);
+    const second = emit('change', routePath);
+    try {
+      // The second event must not replace the shared scan while the first writer awaits auth.
+      expect(getApplicationAnalysis).toHaveBeenCalledTimes(1);
+    } finally {
+      resume();
+      await Promise.all([first, second]);
+    }
+
+    const typesPath = join(root, '.void', 'routes.d.ts');
+    expect(readFileSync(typesPath, 'utf8')).toContain('DELETE: {');
+    invalidated.length = 0;
+    writeFileSync(routePath, post);
+    await emit('change', routePath);
+    expect(readFileSync(typesPath, 'utf8')).toContain('POST: {');
+    expect(readFileSync(typesPath, 'utf8')).not.toContain('DELETE: {');
+    expect(invalidated).toEqual(['virtual:void-routes']);
+  });
+
+  it.each([
+    {
+      change: 'providers',
+      config: { auth: { providers: ['google'] } },
+      expected: 'providers: ["google"]',
+    },
+    {
+      change: 'database dialect',
+      config: { database: 'pg', auth: { providers: ['email'] } },
+      expected: 'better-auth-pg.mjs',
+    },
+  ])('refreshes auth $change on a body save', async ({ config, expected }) => {
+    const root = createTempRoot();
+    const routePath = join(root, 'routes', 'health.ts');
+    const configPath = join(root, 'void.config.ts');
+    writeFileSync(
+      configPath,
+      'export default ' + JSON.stringify({ auth: { providers: ['email'] } }),
+    );
+    writeFileSync(routePath, 'export const GET = () => new Response();');
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
+    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    writeFileSync(configPath, 'export default ' + JSON.stringify(config));
+    writeFileSync(routePath, 'export const GET = () => new Response("updated");');
+    await emit('change', routePath);
+
+    const load = getHookHandler(plugin.load) as (id: string) => Promise<string>;
+    expect(await load('virtual:void-routes')).toContain(expected);
+    expect(invalidated).toEqual(['virtual:void-routes']);
+    await emit('change', routePath);
+    expect(invalidated).toEqual(['virtual:void-routes']);
+  });
+
+  it.each([
+    { target: undefined, auth: false, files: ['routes.d.ts', 'queues.d.ts', 'entry.ts'] },
+    {
+      target: 'node' as const,
+      auth: false,
+      files: ['routes.d.ts', 'queues.d.ts', 'app.ts', 'index.ts'],
+    },
+    { target: undefined, auth: true, files: ['better-auth-db.ts', 'better-auth-schema.ts'] },
+  ])(
+    'repairs deleted generated files for target $target with auth $auth',
+    async ({ target, auth, files }) => {
+      const root = createTempRoot();
+      const routePath = join(root, 'routes', 'health.ts');
+      writeFileSync(routePath, 'export const GET = () => new Response();');
+      const plugin = createRoutingPlugin(root, { target, isAuthEnabled: () => auth });
+      resolveConfig(plugin, 'serve');
+      await runBuildStart(plugin);
+      const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+      const outputs = files.map((file) => {
+        const path = join(root, '.void', file);
+        const content = readFileSync(path, 'utf8');
+        rmSync(path);
+        return { path, content };
+      });
+      writeFileSync(routePath, 'export const GET = () => new Response("updated");');
+      await emit('change', routePath);
+      for (const { path, content } of outputs) {
+        expect(readFileSync(path, 'utf8')).toBe(content);
+      }
+      expect(invalidated).toEqual(['virtual:void-routes']);
+      await emit('change', routePath);
+      expect(invalidated).toEqual(['virtual:void-routes']);
+    },
+  );
 
   it('rescans sourceDir route changes during dev', async () => {
     const root = createBareTempRoot();
