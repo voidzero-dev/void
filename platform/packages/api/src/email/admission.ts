@@ -22,6 +22,7 @@ import {
   DEFAULT_EMAIL_MONTHLY_LIMIT,
   MAX_EMAIL_LIMIT,
 } from './limits.ts';
+import { projectMailboxNames } from './mailbox.ts';
 import { getEmailRecipientPolicy } from './settings.ts';
 
 export type EmailActionState =
@@ -386,9 +387,10 @@ export async function admitEmailAction(
     let senderAllowed = false;
     let verifiedOnlyTransport = input.transport === 'native_forward';
     if (shared) {
+      const name = input.from.toLowerCase().split('@')[0]!.split('+')[0]!;
       senderAllowed =
         !isReservedEmailSlug(project.slug) &&
-        input.from.toLowerCase().split('@')[0]!.split('+')[0] === project.slug.toLowerCase();
+        projectMailboxNames(project).some((candidate) => candidate.toLowerCase() === name);
     } else {
       const domain = await resolveEmailDomain(tx, senderDomain);
       senderAllowed =

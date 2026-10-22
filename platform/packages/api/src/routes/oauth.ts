@@ -26,10 +26,11 @@ import { platformBrowserPage, platformBrowserError } from '../browser-page.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import { consumeCliAuthCode, getProjectBySlug, getUser } from '../db.ts';
 import { isDevBypass, type ApiEnv } from '../env.ts';
+import { MAX_SLUG_LENGTH } from '../project-names.ts';
 import { oauthClients, oauthGrants, oauthRequests } from '../schema.ts';
 import { isAdminSuspended } from '../suspension.ts';
 import previews from './previews.ts';
-import { createUserProject, MAX_SLUG_LENGTH } from './projects.ts';
+import { createUserProject } from './projects.ts';
 
 const app = new Hono<ApiEnv>();
 const FLOW_SECONDS = 300;

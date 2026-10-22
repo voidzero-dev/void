@@ -70,6 +70,12 @@ export async function getProjectBySlug(db: Db, slug: string): Promise<Project | 
   return row ?? null;
 }
 
+/** The project whose email alias is `alias`, if any. Aliases and slugs share one namespace. */
+export async function getProjectByEmailAlias(db: Db, alias: string): Promise<Project | null> {
+  const [row] = await db.select().from(projects).where(eq(projects.email_alias, alias)).limit(1);
+  return row ?? null;
+}
+
 export async function getOwnedProjectsByUserId(
   db: Db,
   userId: string,

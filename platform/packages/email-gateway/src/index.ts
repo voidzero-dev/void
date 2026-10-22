@@ -81,6 +81,8 @@ type Route = {
   workerName: string;
   deploymentId: string;
   slug: string;
+  mailbox?: string;
+  alias?: string;
   domain: string;
   addressing: 'shared' | 'custom';
   limits?: Record<string, number>;
@@ -199,6 +201,8 @@ async function resolveIngress(
     typeof value.workerName !== 'string' ||
     typeof value.deploymentId !== 'string' ||
     typeof value.slug !== 'string' ||
+    (value.mailbox !== undefined && typeof value.mailbox !== 'string') ||
+    (value.alias !== undefined && typeof value.alias !== 'string') ||
     typeof value.domain !== 'string' ||
     (value.addressing !== 'shared' && value.addressing !== 'custom')
   ) {

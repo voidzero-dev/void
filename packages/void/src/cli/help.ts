@@ -872,6 +872,10 @@ const HELP_TREE: HelpTree = {
       { command: 'allow <address>', description: 'Add a recipient and trigger CF verification' },
       { command: 'disallow <address>', description: 'Remove a recipient from the allowlist' },
       {
+        command: 'alias [name]',
+        description: 'Show the shared mail address, or set a shorter permanent name for it',
+      },
+      {
         command: 'domain <add|status|list|sync|rotate-secret|remove>',
         description: 'Send and receive at your own domain on a Cloudflare zone',
       },
@@ -915,6 +919,15 @@ const HELP_TREE: HelpTree = {
         'Remove a recipient from the verified allowlist.',
         'void email disallow <address> [options]',
       ),
+      alias: {
+        summary:
+          'Show the project address on the shared mail domain, or give it a shorter name. The alias is permanent; the slug address keeps working.',
+        usage: ['void email alias [options]', 'void email alias <name> [options]'],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--yes', description: 'Set the alias without asking (it cannot be changed)' },
+        ],
+      },
       // The one nested group: verbs parse in email-args.ts (`domain <add|status|list|sync|rotate-secret|remove>`).
       // Void-platform-only; custom inbound requires a zone apex.
       domain: {

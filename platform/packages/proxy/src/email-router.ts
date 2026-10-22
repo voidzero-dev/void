@@ -55,9 +55,21 @@ export interface AuthoritativeEmailRoute {
   workerName: string;
   deploymentId: string;
   slug: string;
+  /** The shared-domain name the recipient used: the slug or the project's email alias. */
+  mailbox?: string;
+  /** The project's email alias on the shared domain, when it has one. */
+  alias?: string;
   addressing: 'shared' | 'custom';
   domain: string;
   limits?: Record<string, number>;
+}
+
+/** Shared-domain names a reply or forward may be sent from: the slug and the email alias. */
+function mailboxNames(route: AuthoritativeEmailRoute): ReadonlyArray<string> {
+  const names = [route.slug, route.alias, route.mailbox]
+    .filter((name): name is string => typeof name === 'string')
+    .map((name) => name.toLowerCase());
+  return [...new Set(names)];
 }
 
 function receiptRouteFence(route: AuthoritativeEmailRoute): ReceiptRouteFence {
@@ -199,7 +211,8 @@ function forwardHeadersWithinBounds(headers: unknown): headers is Record<string,
 
 /** Pin shared-domain reply senders to the receiving project; admission checks ownership. */
 interface ReplySenderPin {
-  slug: string;
+  /** Lowercase shared-domain names of the receiving project: its slug and email alias. */
+  names: ReadonlyArray<string>;
   domain: string;
   customDomain: boolean;
 }
@@ -221,7 +234,7 @@ function isPermittedReplySender(from: string, pin: ReplySenderPin): boolean {
   if (pin.customDomain) {
     return true;
   }
-  return lower.slice(0, at).split('+')[0] === pin.slug;
+  return pin.names.includes(lower.slice(0, at).split('+')[0]!);
 }
 
 interface OutboundGate {
@@ -241,10 +254,12 @@ export async function routeInbound(
 
   const to = String(message.to ?? '').toLowerCase();
   const local = to.split('@')[0] ?? '';
-  // <slug>+<tag> — split on the first '+'. If there's no '+', the whole
-  // local-part is the slug and the user worker sees the tag-less address.
+  // <name>+<tag>, where <name> is the slug or the project's email alias. Split
+  // on the first '+'. If there's no '+', the whole local-part is the name and
+  // the user worker sees the tag-less address.
   const plus = local.indexOf('+');
   const slug = plus === -1 ? local : local.slice(0, plus);
+  const mailbox = (authoritative.mailbox ?? authoritative.slug).toLowerCase();
   // Domain CF pinned when it accepted this message. It is the expected
   // domain for any `reply` sender — see `ReplySenderPin`.
   const atIdx = to.indexOf('@');
@@ -266,7 +281,7 @@ export async function routeInbound(
     !authoritative.workerName ||
     !authoritative.deploymentId ||
     authoritative.domain?.toLowerCase() !== receivedDomain ||
-    (authoritative.addressing === 'shared' && authoritative.slug.toLowerCase() !== slug)
+    (authoritative.addressing === 'shared' && mailbox !== slug)
   ) {
     message.setReject(`${label}: authoritative route mismatch`);
     return;
@@ -364,7 +379,7 @@ export async function routeInbound(
   try {
     await enactActions(env, message, actions, gate, {
       customDomain: authoritative.addressing === 'custom',
-      slug: authoritative.slug.toLowerCase(),
+      names: mailboxNames(authoritative),
       domain: receivedDomain,
     });
   } catch {
@@ -451,7 +466,7 @@ export async function routeRelayed(
   try {
     await enactActions(env, relayed.message, actions, gate, {
       customDomain: authoritative.addressing === 'custom',
-      slug: slug.toLowerCase(),
+      names: mailboxNames(authoritative),
       domain,
     });
   } catch {
@@ -781,7 +796,7 @@ async function validateActions(
       // Check who the reply claims to be before asking the API to admit it.
       if (!isPermittedReplySender(action.from, replySender)) {
         console.error(
-          `[email-router] reply dropped: sender not owned by project "${sanitize(replySender.slug, 64)}" (from=${logAddress(action.from)})`,
+          `[email-router] reply dropped: sender not owned by project "${sanitize(replySender.names[0] ?? '', 64)}" (from=${logAddress(action.from)})`,
         );
         return null;
       }

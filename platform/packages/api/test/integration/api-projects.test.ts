@@ -2151,6 +2151,34 @@ describe('POST /projects', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'slug already taken' });
   });
+
+  // A slug is also a mailbox on the shared mail domain, so it may not take
+  // the name another project uses as its email alias.
+  it("rejects a slug equal to another project's email alias", async () => {
+    const user = await createTestUser(env.db);
+    const other = await createTestProject(env.db, user.id, 'alias-holder');
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'taken-alias' })
+      .where(eq(projects.id, other.id));
+
+    const res = await app.fetch(
+      new Request('http://localhost/projects', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user.jwt}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ slug: 'taken-alias' }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'slug already taken' });
+    expect(await env.db.select().from(projects).where(eq(projects.slug, 'taken-alias'))).toEqual(
+      [],
+    );
+  });
 });
 
 describe('GET /projects/:id/deployments', () => {

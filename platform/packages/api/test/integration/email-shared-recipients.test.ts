@@ -17,6 +17,7 @@ import {
   runEmailOperation,
 } from '../../src/email/connection-service.ts';
 import {
+  checkSharedEmailAliasRoutable,
   getSharedEmailRecipientReadiness,
   reconcileSharedEmailRecipient,
   reconcileSharedEmailRecipients,
@@ -902,5 +903,304 @@ describe('managed shared subdomain recipients', () => {
     expect(callsByTag(provider.calls, 'scriptPut')).toHaveLength(0);
     expect(callsByTag(provider.calls, 'catchAll')).toHaveLength(0);
     expect(callsByTag(provider.calls, 'routingDns')).toHaveLength(1);
+  });
+});
+
+async function setEmailAlias(projectId: string, alias: string) {
+  await env.db.update(projects).set({ email_alias: alias }).where(eq(projects.id, projectId));
+}
+async function recipientRows(projectId: string) {
+  const rows = await env.db
+    .select()
+    .from(emailSharedRecipients)
+    .where(eq(emailSharedRecipients.project_id, projectId));
+  return new Map(rows.map((row) => [row.recipient, row]));
+}
+const slugAddress = 'shared-project@mail.example.com';
+const aliasAddress = 'team-inbox@mail.example.com';
+
+describe('project email alias recipients', () => {
+  it('adds an alias rule while the slug rule stays in place', async () => {
+    const { project, provider } = await setup();
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const slugRow = await ledger();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const rows = await recipientRows(project.id);
+    expect(rows.size).toBe(2);
+    expect(rows.get(slugAddress)).toMatchObject({
+      id: slugRow.id,
+      rule_id: slugRow.rule_id,
+      status: 'ready',
+    });
+    expect(rows.get(aliasAddress)).toMatchObject({
+      status: 'ready',
+      rule_id: expect.any(String),
+      rule_name: expect.not.stringMatching(slugRow.rule_name),
+    });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(2);
+    expect(callsByTag(provider.calls, 'literalRuleDelete')).toHaveLength(0);
+    const addresses = [...provider.routingRuleStates.get('shared-zone')!.values()].map(
+      (rule) => (rule.matchers as Array<{ value: string }>)[0]!.value,
+    );
+    expect(addresses.sort()).toEqual([slugAddress, aliasAddress].sort());
+  });
+
+  it('recreates a removed alias or slug row on the next reconcile', async () => {
+    const { project, provider } = await setup();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    // An older runtime after a rollback knows only the slug, so it removes the alias rule.
+    await removeSharedEmailRecipients(env.db, bindings(), project.id, [slugAddress]);
+    const removed = (await recipientRows(project.id)).get(aliasAddress)!;
+    expect(removed).toMatchObject({ status: 'removed' });
+    expect(callsByTag(provider.calls, 'literalRuleDelete')).toHaveLength(1);
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    expect((await recipientRows(project.id)).get(aliasAddress)).toMatchObject({
+      id: removed.id,
+      status: 'ready',
+      removing: false,
+      rule_id: expect.any(String),
+    });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(3);
+    await removeSharedEmailRecipients(env.db, bindings(), project.id, [aliasAddress]);
+    expect((await recipientRows(project.id)).get(slugAddress)).toMatchObject({
+      status: 'removed',
+    });
+    // The stub numbers new rules by count; an unrelated rule keeps the next
+    // slug rule from reusing the alias rule's ID.
+    provider.routingRuleStates.get('shared-zone')!.set('support', {
+      id: 'support',
+      name: null,
+      enabled: true,
+      matchers: [{ type: 'literal', field: 'to', value: 'support@mail.example.com' }],
+      actions: [{ type: 'worker', value: ['support-worker'] }],
+    });
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const rows = await recipientRows(project.id);
+    expect(rows.get(slugAddress)).toMatchObject({ status: 'ready', removing: false });
+    expect(rows.get(aliasAddress)).toMatchObject({ status: 'ready' });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(4);
+  });
+
+  it('reports readiness for one mailbox name or for the whole project', async () => {
+    const { project } = await setup();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const readiness = (name?: string) =>
+      getSharedEmailRecipientReadiness(env.db, bindings(), project.id, false, name);
+    expect(await readiness()).toMatchObject({ recipient: aliasAddress, status: 'ready' });
+    expect(await readiness('shared-project')).toMatchObject({
+      recipient: slugAddress,
+      status: 'ready',
+    });
+    const block = (recipient: string, status: 'ready' | 'blocked') =>
+      env.db
+        .update(emailSharedRecipients)
+        .set({ status, reason: status === 'blocked' ? 'rule drifted' : null })
+        .where(eq(emailSharedRecipients.recipient, recipient));
+    await block(slugAddress, 'blocked');
+    expect(await readiness()).toMatchObject({
+      recipient: slugAddress,
+      status: 'blocked',
+      reason: 'rule drifted',
+    });
+    expect(await readiness('team-inbox')).toMatchObject({
+      recipient: aliasAddress,
+      status: 'ready',
+    });
+    await block(slugAddress, 'ready');
+    await block(aliasAddress, 'blocked');
+    expect(await readiness()).toMatchObject({ recipient: aliasAddress, status: 'blocked' });
+    expect(await readiness('shared-project')).toMatchObject({
+      recipient: slugAddress,
+      status: 'ready',
+    });
+    expect(await readiness('team-inbox')).toMatchObject({
+      recipient: aliasAddress,
+      status: 'blocked',
+    });
+  });
+
+  it('lets the scheduled repair pick up a project whose alias has no row yet', async () => {
+    const { project, user } = await setup();
+    const second = await createTestProject(env.db, user.id, 'second-project');
+    await deployEmailHandlers(second.id);
+    await reconcileSharedEmailRecipient(env.db, bindings(), second.id);
+    // The slug row is now the newest, so only the missing alias row puts this project first.
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipients(env.db, bindings(), 1);
+    expect((await recipientRows(project.id)).get(aliasAddress)).toMatchObject({
+      status: 'ready',
+    });
+    expect(await getSharedEmailRecipientReadiness(env.db, bindings(), project.id)).toMatchObject({
+      recipient: aliasAddress,
+      status: 'ready',
+    });
+  });
+
+  it('checks an alias can be routed before it is saved', async () => {
+    const { provider } = await setup({
+      routingRules: [
+        {
+          id: 'foreign',
+          enabled: true,
+          addresses: ['taken-alias+vip@mail.example.com'],
+          workerName: 'other-worker',
+        },
+      ],
+    });
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'team-inbox'),
+    ).resolves.toBeUndefined();
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'taken-alias'),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('already routes') });
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'a'.repeat(74)),
+    ).rejects.toMatchObject({ status: 400, message: expect.stringContaining('90-character') });
+    const rules = provider.routingRuleStates.get('shared-zone')!;
+    for (let index = rules.size; index < 200; index++) {
+      rules.set(`filler-${index}`, {
+        id: `filler-${index}`,
+        name: null,
+        enabled: true,
+        matchers: [{ type: 'literal', field: 'to', value: `address-${index}@mail.example.com` }],
+        actions: [{ type: 'worker', value: ['other-worker'] }],
+      });
+    }
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'team-inbox'),
+    ).rejects.toMatchObject({
+      status: 409,
+      message: expect.stringContaining('200 routing-rule limit'),
+    });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(0);
+  });
+
+  it('keeps room for the slug rule when the project does not receive mail yet', async () => {
+    const { project, provider } = await setup();
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'team-inbox'),
+    ).resolves.toBeUndefined();
+    const rules = provider.routingRuleStates.get('shared-zone')!;
+    const fill = (count: number) => {
+      for (let index = 0; rules.size < count; index++) {
+        rules.set(`filler-${index}`, {
+          id: `filler-${index}`,
+          name: null,
+          enabled: true,
+          matchers: [{ type: 'literal', field: 'to', value: `address-${index}@mail.example.com` }],
+          actions: [{ type: 'worker', value: ['other-worker'] }],
+        });
+      }
+    };
+    // 199 rules and no slug rule: the slug and the alias need two more.
+    fill(199);
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'team-inbox'),
+    ).rejects.toMatchObject({ status: 409, message: expect.stringContaining('no room') });
+    // Once the slug rule exists (rule 199), one more fits.
+    rules.delete('filler-0');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    expect(rules.size).toBe(199);
+    await expect(
+      checkSharedEmailAliasRoutable(env.db, bindings(), 'shared-project', 'team-inbox'),
+    ).resolves.toBeUndefined();
+  });
+
+  it('deploys when the slug rule is ready even though the alias rule is blocked', async () => {
+    const { project, user } = await setup({
+      routingRules: [
+        {
+          id: 'foreign',
+          enabled: true,
+          addresses: ['team-inbox+vip@mail.example.com'],
+          workerName: 'other-worker',
+        },
+      ],
+    });
+    await setEmailAlias(project.id, 'team-inbox');
+    const response = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}/deploy`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${user.jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          manifest: { version: 3, assetManifestVersion: 2, bindings: {}, emailProtocolVersion: 1 },
+          assetManifest: {},
+          hasWorker: true,
+        }),
+      }),
+      bindings(),
+    );
+    const rows = await recipientRows(project.id);
+    expect(rows.get(slugAddress)).toMatchObject({ status: 'ready' });
+    expect(rows.get(aliasAddress)).toMatchObject({ status: 'blocked' });
+    expect(await response.text()).not.toContain('Email Routing rule');
+  });
+
+  it('restores an alias row whose removal stopped part way', async () => {
+    const { project, provider } = await setup();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const ready = (await recipientRows(project.id)).get(aliasAddress)!;
+    // An older runtime claimed the alias row for removal, then Cloudflare failed.
+    await env.db
+      .update(emailSharedRecipients)
+      .set({ removing: true, status: 'blocked', reason: 'Cloudflare is unavailable' })
+      .where(eq(emailSharedRecipients.id, ready.id));
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    expect((await recipientRows(project.id)).get(aliasAddress)).toMatchObject({
+      id: ready.id,
+      status: 'ready',
+      removing: false,
+      rule_id: ready.rule_id,
+      reason: null,
+    });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(2);
+    // The same, after the older runtime had already deleted the rule.
+    await env.db
+      .update(emailSharedRecipients)
+      .set({ removing: true, status: 'blocked', reason: 'lost response' })
+      .where(eq(emailSharedRecipients.id, ready.id));
+    provider.routingRuleStates.get('shared-zone')!.delete(ready.rule_id!);
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    expect((await recipientRows(project.id)).get(aliasAddress)).toMatchObject({
+      id: ready.id,
+      status: 'ready',
+      removing: false,
+    });
+    expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(3);
+  });
+
+  it('leaves a row alone while a removal holds a live lease', async () => {
+    const { project } = await setup();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    const ready = (await recipientRows(project.id)).get(aliasAddress)!;
+    await env.db
+      .update(emailSharedRecipients)
+      .set({ removing: true, status: 'reconciling', lease_started_at: sql`now()` })
+      .where(eq(emailSharedRecipients.id, ready.id));
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    expect((await recipientRows(project.id)).get(aliasAddress)).toMatchObject({
+      removing: true,
+      status: 'reconciling',
+    });
+  });
+
+  it('removes both the slug and alias rules when the project is deleted', async () => {
+    const { project, provider } = await setup();
+    await setEmailAlias(project.id, 'team-inbox');
+    await reconcileSharedEmailRecipient(env.db, bindings(), project.id);
+    await env.db.update(projects).set({ status: 'deleting' }).where(eq(projects.id, project.id));
+    await removeSharedEmailRecipients(env.db, bindings(), project.id);
+    const rows = await recipientRows(project.id);
+    expect(rows.get(slugAddress)).toMatchObject({ status: 'removed' });
+    expect(rows.get(aliasAddress)).toMatchObject({ status: 'removed' });
+    expect(callsByTag(provider.calls, 'literalRuleDelete')).toHaveLength(2);
+    expect(provider.routingRuleStates.get('shared-zone')!.size).toBe(0);
+    await deleteProjectCascade(env.db, project.id);
   });
 });

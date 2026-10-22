@@ -43,12 +43,21 @@ import { revokeOwnerVerifiedDestinationsForUserChange } from '../../src/db.ts';
 import * as dbModule from '../../src/db.ts';
 import { emailMonthlyUsage } from '../../src/email/admission-schema.ts';
 import { setProjectEmailLimits, setProjectEmailSuspended } from '../../src/email/admission.ts';
+import { emailSharedRecipients } from '../../src/email/connection-schema.ts';
+import {
+  ensureSharedEmailConnection,
+  resolveEmailDomain,
+  runEmailOperation,
+} from '../../src/email/connection-service.ts';
+import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
+import { PROJECT_PERMISSION_MESSAGES } from '../../src/project-access.ts';
 import {
   reconcileEmailDestinationCleanups,
   runEmailDestinationCleanup,
 } from '../../src/provisioning/email-destination-cleanup.ts';
 import {
+  deployments,
   emailDestinationCleanups,
   emailDestinations,
   platformSettings,
@@ -56,10 +65,12 @@ import {
   projects,
   users,
 } from '../../src/schema.ts';
+import { callsByTag, stubCustomerCf } from './email-domain-cf-stub.ts';
 import {
   cfError,
   cfSuccess,
   clearTables,
+  createTestDeployment,
   createTestProject,
   createTestUser,
   mockCfApi,
@@ -2171,6 +2182,8 @@ describe('GET /projects/:id/email/settings', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
       domains: { management: 'self-serve', projectSlug: 'settings-project' },
+      emailAlias: null,
+      sharedDomain: null,
       sharedInbound: null,
       recipientPolicy: { mode: 'verified', domains: [] },
     });
@@ -2191,6 +2204,280 @@ describe('GET /projects/:id/email/settings', () => {
     expect(body).toMatchObject({
       domains: { management: 'admin' },
       recipientPolicy: { mode: 'domains', domains: ['corp.example'] },
+    });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PUT /projects/:id/email/alias
+// ---------------------------------------------------------------------------
+
+describe('PUT /projects/:id/email/alias', () => {
+  async function setAlias(
+    projectId: string,
+    jwt: string,
+    body: unknown,
+    bindings: TestEnv | ApiEnv['Bindings'] = emailEnv(),
+  ): Promise<Response> {
+    return app.fetch(
+      new Request(`http://localhost/projects/${projectId}/email/alias`, {
+        method: 'PUT',
+        headers: { Authorization: `Bearer ${jwt}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      }),
+      bindings,
+    );
+  }
+
+  async function storedAlias(projectId: string): Promise<string | null> {
+    const [row] = await env.db.select().from(projects).where(eq(projects.id, projectId));
+    return row!.email_alias;
+  }
+
+  async function seedAlias(projectId: string, alias: string): Promise<void> {
+    await env.db.update(projects).set({ email_alias: alias }).where(eq(projects.id, projectId));
+  }
+
+  it('sets the alias for the owner and shows it in the settings', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'alias-project');
+    // No shared inbound route is connected, so nothing reaches Cloudflare.
+    const fetchMock = mockCfApi();
+
+    const res = await setAlias(project.id, user.jwt, { alias: 'support-desk' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      emailAlias: 'support-desk',
+      address: `support-desk@${MAIL_DOMAIN}`,
+      sharedInbound: null,
+    });
+    expect(await storedAlias(project.id)).toBe('support-desk');
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    const settings = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}/email/settings`, {
+        headers: { Authorization: `Bearer ${user.jwt}` },
+      }),
+      emailEnv(),
+    );
+    expect(settings.status).toBe(200);
+    expect(await settings.json()).toMatchObject({
+      domains: { projectSlug: 'alias-project' },
+      emailAlias: 'support-desk',
+      sharedDomain: MAIL_DOMAIN,
+      sharedInbound: null,
+    });
+  });
+
+  it('refuses a non-owner admin with the owner-only message', async () => {
+    const { admin, project } = await createProjectWithAdmin('alias');
+
+    const res = await setAlias(project.id, admin.jwt, { alias: 'support-desk' });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: 'forbidden',
+      message: PROJECT_PERMISSION_MESSAGES['email-alias'],
+    });
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  it('returns 409 when the platform has no shared mail domain', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+
+    // `env` as-is: EMAIL_SENDER_DOMAIN unset.
+    const res = await setAlias(project.id, user.jwt, { alias: 'support-desk' }, env);
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'this platform has no shared mail domain' });
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  it('requires an alias string', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+
+    for (const body of [{}, { alias: '' }, { alias: 42 }]) {
+      const res = await setAlias(project.id, user.jwt, body);
+      expect(res.status, JSON.stringify(body)).toBe(400);
+      expect(await res.json()).toEqual({ error: 'alias is required' });
+    }
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  it('applies the slug shape, length and reserved-name rules', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+
+    const cases: Array<[string, string]> = [
+      ['Support-Desk', 'alias must be lowercase alphanumeric with dashes'],
+      ['support_desk', 'alias must be lowercase alphanumeric with dashes'],
+      ['-support', 'alias must be lowercase alphanumeric with dashes'],
+      [`len-${'a'.repeat(53)}`, 'alias must be at most 56 characters'],
+      ['postmaster', 'this name is reserved'],
+      ['preview-x', 'this name is reserved'],
+    ];
+    for (const [alias, error] of cases) {
+      const res = await setAlias(project.id, user.jwt, { alias });
+      expect(res.status, alias).toBe(400);
+      expect(await res.json()).toEqual({ error });
+    }
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  it('refuses to change an alias once set', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+    await seedAlias(project.id, 'first-alias');
+
+    const res = await setAlias(project.id, user.jwt, { alias: 'second-alias' });
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: 'this project already has the email alias first-alias; it cannot be changed',
+    });
+    expect(await storedAlias(project.id)).toBe('first-alias');
+  });
+
+  it('refuses the project slug', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'alias-project');
+
+    const res = await setAlias(project.id, user.jwt, { alias: 'alias-project' });
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({ error: 'alias must differ from the project slug' });
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  it('applies the short-name plan rule of project slugs', async () => {
+    const free = await createTestUser(env.db, 'free-owner');
+    const freeProject = await createTestProject(env.db, free.id);
+    const refused = await setAlias(freeProject.id, free.jwt, { alias: 'desk' });
+    expect(refused.status).toBe(403);
+    expect(await refused.json()).toEqual({
+      error: 'the selected plan does not permit short names (5 characters or fewer)',
+    });
+    expect(await storedAlias(freeProject.id)).toBeNull();
+
+    const paid = await createTestUser(env.db, 'paid-owner', 'github', undefined, 'solo');
+    const paidProject = await createTestProject(env.db, paid.id);
+    const allowed = await setAlias(paidProject.id, paid.jwt, { alias: 'desk' });
+    expect(allowed.status).toBe(200);
+    expect(await storedAlias(paidProject.id)).toBe('desk');
+  });
+
+  it('refuses a name another project uses as its slug or alias', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id);
+    await createTestProject(env.db, user.id, 'taken-slug');
+    const aliased = await createTestProject(env.db, user.id);
+    await seedAlias(aliased.id, 'taken-alias');
+
+    for (const alias of ['taken-slug', 'taken-alias']) {
+      const res = await setAlias(project.id, user.jwt, { alias });
+      expect(res.status, alias).toBe(409);
+      expect(await res.json()).toEqual({ error: 'this name is already taken' });
+    }
+    expect(await storedAlias(project.id)).toBeNull();
+  });
+
+  describe('with the shared inbound route connected', () => {
+    const SHARED_DOMAIN = 'mail.example.com';
+
+    function sharedEnv(): ApiEnv['Bindings'] {
+      return {
+        ...env,
+        HYPERDRIVE: {
+          ...env.HYPERDRIVE,
+          host: 'localhost',
+          ip: '127.0.0.1',
+          port: 5432,
+          user: 'test',
+          password: 'inert-test-password',
+          database: 'test',
+          connect() {
+            throw new Error('Tests use the injected database');
+          },
+        },
+        CRON_FIRES_QUEUE: {
+          send: vi.fn(),
+          sendBatch: vi.fn(),
+          metrics: async () => ({ backlogCount: 0, backlogBytes: 0 }),
+        },
+        PLATFORM_INSTALLATION_ID: 'installation-shared-test',
+        EMAIL_GATEWAY_ORIGIN: 'https://email-gateway.example.test',
+        EMAIL_SENDER_DOMAIN: SHARED_DOMAIN,
+        EMAIL_SHARED_ACCOUNT_ID: env.CF_ACCOUNT_ID,
+        EMAIL_SHARED_ZONE_ID: 'shared-zone',
+        EMAIL_SHARED_INGRESS_NAME: 'native-gateway',
+      } as ApiEnv['Bindings'];
+    }
+
+    async function connectShared(config: NonNullable<Parameters<typeof stubCustomerCf>[0]> = {}) {
+      const provider = stubCustomerCf({
+        zones: {
+          'example.com': { id: 'shared-zone', name: 'example.com', accountId: env.CF_ACCOUNT_ID },
+        },
+        mx: { [SHARED_DOMAIN]: ['route1.mx.cloudflare.net'] },
+        ...config,
+      });
+      const operation = await ensureSharedEmailConnection(env.db, sharedEnv());
+      await runEmailOperation(env.db, sharedEnv(), operation!);
+      expect((await resolveEmailDomain(env.db, SHARED_DOMAIN))?.route.inbound_status).toBe('ready');
+      return provider;
+    }
+
+    /** A live deployment that declares inbound email handlers. */
+    async function deployEmailHandlers(projectId: string): Promise<void> {
+      const deployment = await createTestDeployment(env.db, projectId);
+      await env.db
+        .update(deployments)
+        .set({ manifest: JSON.stringify({ version: 3, bindings: {}, emailProtocolVersion: 1 }) })
+        .where(eq(deployments.id, deployment.id));
+    }
+
+    it('refuses an alias a Cloudflare rule already routes and saves nothing', async () => {
+      const provider = await connectShared({
+        routingRules: [
+          {
+            enabled: true,
+            addresses: [`support-desk+vip@${SHARED_DOMAIN}`],
+            workerName: 'other-worker',
+          },
+        ],
+      });
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'alias-project');
+      await deployEmailHandlers(project.id);
+
+      const res = await setAlias(project.id, user.jwt, { alias: 'support-desk' }, sharedEnv());
+      expect(res.status).toBe(409);
+      expect(((await res.json()) as { error: string }).error).toContain(
+        `already routes support-desk@${SHARED_DOMAIN}`,
+      );
+      expect(await storedAlias(project.id)).toBeNull();
+      expect(await env.db.select().from(emailSharedRecipients)).toEqual([]);
+      expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(0);
+    });
+
+    it('adds an alias rule next to the slug rule when the project receives mail', async () => {
+      const provider = await connectShared();
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'alias-project');
+      await deployEmailHandlers(project.id);
+
+      const res = await setAlias(project.id, user.jwt, { alias: 'support-desk' }, sharedEnv());
+      expect(res.status).toBe(200);
+      expect(await res.json()).toMatchObject({
+        emailAlias: 'support-desk',
+        address: `support-desk@${SHARED_DOMAIN}`,
+        sharedInbound: { recipient: `support-desk@${SHARED_DOMAIN}`, status: 'ready' },
+      });
+      const rows = await env.db.select().from(emailSharedRecipients);
+      expect(rows.map((row) => row.recipient).sort()).toEqual([
+        `alias-project@${SHARED_DOMAIN}`,
+        `support-desk@${SHARED_DOMAIN}`,
+      ]);
+      expect(rows.every((row) => row.status === 'ready')).toBe(true);
+      expect(callsByTag(provider.calls, 'literalRuleCreate')).toHaveLength(2);
     });
   });
 });

@@ -1216,11 +1216,14 @@ ${envValidateCall}${remoteEnvSwap}${isrDeploymentStamp}  const userEnv = __filte
     ? `import { createMessageProxy as __createMessageProxy, enactEmailActions as __enactEmailActions, isForwardableEmailMessage as __isForwardableEmailMessage } from ${JSON.stringify(runtimeEmailPath)};\nimport { EMAIL_PROTOCOL_VERSION as __EMAIL_PROTOCOL_VERSION, encodeEmailActions as __encodeEmailActions, readEmailEnvelope as __readEmailEnvelope, verifyEmailReceiptThroughProxy as __verifyEmailReceiptThroughProxy } from "void/_email-protocol";\n`
     : '';
   // Custom-domain receipts (`viaDomain`) carry no `<slug>+` prefix, so they get no slug.
+  // On the shared domain the prefix is the slug or the project's email alias. The
+  // platform router already matched it to this project, so strip the name the
+  // recipient actually used.
   const emailHandler = hasEmail
     ? `async function handleEmail(envelope, env, ctx) {
 ${envValidateCall}${remoteEnvSwap}  const userEnv = __filterInternalBindings(env);
   const __relayed = typeof envelope.viaDomain === "string" && envelope.viaDomain.length > 0;
-  const __slug = __relayed ? undefined : (typeof env.__VOID_PROJECT_SLUG === "string" && env.__VOID_PROJECT_SLUG.length > 0 ? env.__VOID_PROJECT_SLUG : undefined);
+  const __slug = __relayed || typeof env.__VOID_PROJECT_SLUG !== "string" || env.__VOID_PROJECT_SLUG.length === 0 ? undefined : (String(envelope.to || "").split("@")[0].split("+")[0] || env.__VOID_PROJECT_SLUG);
   const { message, getActions } = __createMessageProxy(envelope, { slug: __slug });
   await __withRawEnv(env, () => withRuntimeEnv(env, () => __emailHandler(message, userEnv, ctx, { slug: __slug })));
   const __actions = getActions();

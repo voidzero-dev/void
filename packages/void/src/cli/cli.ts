@@ -321,7 +321,7 @@ if (helpPath) {
     },
     {
       name: 'email',
-      hint: 'usage | logs | destinations | allow | disallow | domain | status | setup',
+      hint: 'usage | logs | destinations | allow | disallow | alias | domain | status | setup',
       description: 'Inspect email activity and manage verified recipients',
     },
     {

@@ -18,6 +18,7 @@ import {
   emailDomainRoutes,
   emailOperationSteps,
   emailOperations,
+  emailSharedRecipients,
   emailZoneConnections,
 } from '../../src/email/connection-schema.ts';
 import {
@@ -3360,5 +3361,138 @@ describe('outbound-only email domains', () => {
       'sendingPreview',
       'onboardSending',
     ]);
+  });
+});
+
+describe('shared mail domain ingress', () => {
+  function sharedBindings(): ApiEnv['Bindings'] {
+    return {
+      ...bindings(),
+      EMAIL_SENDER_DOMAIN: 'mail.example.com',
+      EMAIL_SHARED_ACCOUNT_ID: env.CF_ACCOUNT_ID,
+      EMAIL_SHARED_ZONE_ID: 'platform-mail-zone',
+      EMAIL_SHARED_INGRESS_NAME: 'void-email-gateway',
+    } as ApiEnv['Bindings'];
+  }
+
+  // A shared-domain project with slug `acme`, alias `acme-mail` and one
+  // recipient row per name, each `ready` unless `statuses` says otherwise.
+  async function aliasedProject(
+    statuses: {
+      slug?: 'ready' | 'pending' | 'blocked';
+      alias?: 'ready' | 'pending' | 'blocked';
+    } = {},
+  ) {
+    stubCustomerCf({
+      zones: {
+        'example.com': {
+          id: 'platform-mail-zone',
+          name: 'example.com',
+          accountId: env.CF_ACCOUNT_ID,
+        },
+      },
+      mx: { 'mail.example.com': ['route1.mx.cloudflare.net'] },
+    });
+    const bootstrap = await ensureSharedEmailConnection(env.db, sharedBindings());
+    await runEmailOperation(env.db, sharedBindings(), bootstrap!);
+    const owner = await createTestUser(env.db);
+    const project = await createTestProject(env.db, owner.id, 'acme');
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'acme-mail' })
+      .where(eq(projects.id, project.id));
+    const deployment = await createTestDeployment(env.db, project.id);
+    await env.db
+      .update(deployments)
+      .set({ manifest: JSON.stringify({ emailProtocolVersion: 1 }) })
+      .where(eq(deployments.id, deployment.id));
+    const { connection, route } = (await resolveEmailDomain(env.db, 'mail.example.com'))!;
+    for (const [name, status] of [
+      ['acme', statuses.slug ?? 'ready'],
+      ['acme-mail', statuses.alias ?? 'ready'],
+    ] as const) {
+      await env.db.insert(emailSharedRecipients).values({
+        id: `recipient-${name}`,
+        installation_id: connection.installation_id,
+        project_id: project.id,
+        route_id: route.id,
+        recipient: `${name}@mail.example.com`,
+        rule_name: `rule-name-${name}`,
+        rule_id: `rule-${name}`,
+        status,
+      });
+    }
+    return { project, deployment, connection };
+  }
+
+  async function resolveIngress(
+    connection: typeof emailZoneConnections.$inferSelect,
+    to: string,
+  ): Promise<Response> {
+    const proof = await hmacSignState(
+      `email-ingress-v1\n${connection.account_id}\n${connection.zone_id}\n${connection.ingress_worker_name}\n${to}`,
+      env.EMAIL_SIGNING_SECRET,
+    );
+    return app.fetch(
+      new Request('https://api/internal/email/resolve-ingress', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json', 'x-void-internal': proof },
+        body: JSON.stringify({
+          accountId: connection.account_id,
+          zoneId: connection.zone_id,
+          ingressName: connection.ingress_worker_name,
+          to,
+          secret: await readConnectionSecret(sharedBindings(), connection),
+        }),
+      }),
+      sharedBindings(),
+    );
+  }
+
+  it.each([
+    ['acme-mail@mail.example.com', 'acme-mail'],
+    ['acme-mail+billing@mail.example.com', 'acme-mail'],
+    ['acme@mail.example.com', 'acme'],
+    ['acme+billing@mail.example.com', 'acme'],
+  ])('resolves %s to the project and the mailbox it used', async (to, mailbox) => {
+    const { project, deployment, connection } = await aliasedProject();
+    const response = await resolveIngress(connection, to);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      projectId: project.id,
+      slug: 'acme',
+      mailbox,
+      alias: 'acme-mail',
+      deploymentId: deployment.id,
+      addressing: 'shared',
+      domain: 'mail.example.com',
+    });
+  });
+
+  it('checks readiness of the alias row alone when mail uses the alias', async () => {
+    const { connection } = await aliasedProject({ alias: 'pending' });
+    const alias = await resolveIngress(connection, 'acme-mail+billing@mail.example.com');
+    expect(alias.status).toBe(503);
+    expect(await alias.json()).toEqual({ error: 'shared recipient routing is not ready' });
+    const slug = await resolveIngress(connection, 'acme@mail.example.com');
+    expect(slug.status).toBe(200);
+    expect(await slug.json()).toMatchObject({ mailbox: 'acme' });
+  });
+
+  it('checks readiness of the slug row alone when mail uses the slug', async () => {
+    const { connection } = await aliasedProject({ slug: 'blocked' });
+    const slug = await resolveIngress(connection, 'acme+billing@mail.example.com');
+    expect(slug.status).toBe(503);
+    expect(await slug.json()).toEqual({ error: 'shared recipient routing is not ready' });
+    const alias = await resolveIngress(connection, 'acme-mail@mail.example.com');
+    expect(alias.status).toBe(200);
+    expect(await alias.json()).toMatchObject({ mailbox: 'acme-mail' });
+  });
+
+  it('does not resolve a name that is neither the slug nor the alias', async () => {
+    const { connection } = await aliasedProject();
+    const response = await resolveIngress(connection, 'acme-other@mail.example.com');
+    expect(response.status).toBe(404);
+    expect(await response.json()).toEqual({ error: 'unknown shared recipient' });
   });
 });

@@ -636,6 +636,45 @@ describe('authoritative email admission', () => {
     expect((await getProjectEmailUsage(env.db, project.id)).attempts).toBe(1);
   });
 
+  it('admits a shared sender under the project slug or its email alias only', async () => {
+    const project = await fixture();
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'acme-mail' })
+      .where(eq(projects.id, project.id));
+    const otherUser = await createTestUser(env.db);
+    const other = await createTestProject(env.db, otherUser.id, 'other');
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'other-mail' })
+      .where(eq(projects.id, other.id));
+
+    for (const from of [
+      'acme-mail@mail.example.com',
+      'acme-mail+news@mail.example.com',
+      'acme+news@mail.example.com',
+    ]) {
+      const admitted = await admitEmailAction(env.db, {
+        ...input(project.id, `owned-${from}`),
+        from,
+      });
+      expect(admitted.recipients).toMatchObject([{ state: 'reserved', errorCode: null }]);
+    }
+    for (const from of [
+      'other-mail@mail.example.com',
+      'other-mail+news@mail.example.com',
+      'acme-mailx@mail.example.com',
+      'random+acme-mail@mail.example.com',
+    ]) {
+      const refused = await admitEmailAction(env.db, {
+        ...input(project.id, `refused-${from}`),
+        from,
+      });
+      expect(refused.recipients).toMatchObject([{ state: 'rejected', errorCode: 'INVALID_FROM' }]);
+    }
+    expect((await getProjectEmailUsage(env.db, project.id)).attempts).toBe(3);
+  });
+
   it('records unsupported relayed forwarding without charging and retains native verified forwarding', async () => {
     const project = await fixture();
     await env.db.insert(emailCredentials).values({

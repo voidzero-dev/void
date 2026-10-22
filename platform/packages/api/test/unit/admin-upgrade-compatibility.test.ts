@@ -359,3 +359,47 @@ it('upgrades the 1.1.11 through 1.2.1 schema to outbound-only email routes', asy
     await db.close();
   }
 }, 30_000);
+
+it('upgrades the 1.1.11 through 1.2.1 schema to project email aliases', async () => {
+  const root = resolve(import.meta.dirname, '../../drizzle');
+  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ idx: number; tag: string }>;
+  };
+  const released = journal.entries.filter((entry) => entry.idx < 61);
+  expect(journal.entries.find((entry) => entry.idx === 62)?.tag).toBe('0062_project_email_alias');
+  const db = new PGlite();
+  const project = (id: string, slug: string) =>
+    `INSERT INTO projects (id, user_id, slug) VALUES ('${id}', 'migration-user', '${slug}');`;
+  try {
+    for (const entry of released) {
+      await db.exec(readFileSync(resolve(root, entry.tag + '.sql'), 'utf8'));
+    }
+    await db.exec(
+      "INSERT INTO users (id, login) VALUES ('migration-user', 'migration-user');" +
+        project('brand', 'brand-feedback'),
+    );
+    await db.exec(readFileSync(resolve(root, '0061_email_inbound_mode.sql'), 'utf8'));
+    await db.exec(readFileSync(resolve(root, '0062_project_email_alias.sql'), 'utf8'));
+    expect((await db.query('SELECT slug, email_alias FROM projects')).rows).toEqual([
+      { slug: 'brand-feedback', email_alias: null },
+    ]);
+    await db.exec("UPDATE projects SET email_alias = 'bfb' WHERE id = 'brand'");
+    // The previous runtime still creates projects and previews without the column.
+    await db.exec(project('older-runtime', 'older-runtime') + project('preview', 'preview-1'));
+    // A slug and an alias may not share a name, in either direction or on one project.
+    await expect(db.exec(project('taken', 'bfb'))).rejects.toThrow(
+      'A project slug or email alias already uses this name',
+    );
+    await expect(
+      db.exec("UPDATE projects SET email_alias = 'older-runtime' WHERE id = 'brand'"),
+    ).rejects.toThrow('A project slug or email alias already uses this name');
+    await expect(
+      db.exec("UPDATE projects SET email_alias = 'older-runtime' WHERE id = 'older-runtime'"),
+    ).rejects.toThrow('A project slug or email alias already uses this name');
+    await expect(
+      db.exec("UPDATE projects SET email_alias = 'bfb' WHERE id = 'older-runtime'"),
+    ).rejects.toThrow('idx_projects_email_alias');
+  } finally {
+    await db.close();
+  }
+}, 30_000);

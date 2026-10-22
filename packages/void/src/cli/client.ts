@@ -438,12 +438,24 @@ export type EmailSettingsResponse = {
     projectSlug?: string;
   };
   recipientPolicy?: { mode: 'verified' | 'domains' | 'any'; domains: Array<string> };
-  sharedInbound?: {
-    recipient: string;
-    status: string;
-    reason: string | null;
-    observedAt: string | null;
-  } | null;
+  /** A second, permanent name on the shared mail domain; the slug keeps working. */
+  emailAlias?: string | null;
+  /** The platform's shared mail domain, or null when it has none. */
+  sharedDomain?: string | null;
+  sharedInbound?: EmailSharedInbound | null;
+};
+
+export type EmailSharedInbound = {
+  recipient: string;
+  status: string;
+  reason: string | null;
+  observedAt: string | null;
+};
+
+export type EmailAliasResponse = {
+  emailAlias: string;
+  address: string;
+  sharedInbound: EmailSharedInbound | null;
 };
 
 export type EmailDomainResponse = {
@@ -1920,6 +1932,14 @@ export class PlatformClient {
       `${this.baseUrl}/projects/${projectId}/email/settings`,
       'Failed to read email settings',
       { permission: 'read' },
+    );
+  }
+
+  async setEmailAlias(projectId: string, alias: string): Promise<EmailAliasResponse> {
+    return this.json(
+      `${this.baseUrl}/projects/${projectId}/email/alias`,
+      'Failed to set the email alias',
+      { method: 'PUT', body: { alias }, permission: 'settings' },
     );
   }
 

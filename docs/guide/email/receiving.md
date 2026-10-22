@@ -94,6 +94,8 @@ deployed `email/` handlers without per-project DNS setup once the platform has v
 handlers once its inbound readiness is `ready`. Use `void email domain status`
 to check current provider routing and any remaining setup steps.
 
+A project with an [email alias](../../reference/cli/email.md#void-email-alias) also receives at `<alias>+anything@<mail domain>`. Routing ignores which prefix was used: with the slug `acme-store` and the alias `acme`, both `acme-store+support@…` and `acme+support@…` reach `email/support.ts`.
+
 For direct deployments, follow [Your own Cloudflare account](./domains.md#your-own-cloudflare-account) to configure inbound addresses.
 
 The local dev server provides the outbound email inbox but has no inbound email trigger. Test inbound handlers with `createInboundTestHarness` below.
