@@ -129,7 +129,7 @@ Local development needs no secret setup. To preview a production build locally, 
 
 Responses to signed-in requests get `Cache-Control: no-store`, so neither the browser cache nor a shared cache keeps a user's data. A route keeps its own policy when it sets `no-store`, or `private` together with `no-cache`. To answer repeat requests with `304`, use `private, no-cache` with Hono's [`etag()`](https://hono.dev/docs/middleware/builtin/etag) middleware. If you set the `ETag` yourself, make it differ per user, so the `304` doesn't reuse another account's page. The browser cache keeps a copy of a `private, no-cache` page, so the Back button can show it again after the user signs out. Keep the default `no-store` for pages that must not stay in the browser cache.
 
-Static files from your build and `public/` keep their own cache policy for signed-in requests, marked `private`, so the browser reuses cached JavaScript and CSS. A request that refreshes the session cookie still gets `no-store`.
+Static files from your build and `public/` keep their own cache policy for signed-in requests, so the browser reuses cached JavaScript and CSS. When your app handles the request, the policy is marked `private`, and a request that refreshes the session cookie gets `no-store`.
 
 `POST`, `PUT`, `PATCH` and `DELETE` requests and WebSocket connections from another origin don't use the signed-in session unless that origin is in `trustedOrigins`. If a separate frontend calls your app, add its origin there (see [Customization](#customization)). If your routes use their own cookies, check the request `Origin` yourself, for example with Hono's [`csrf()`](https://hono.dev/docs/middleware/builtin/csrf) middleware.
 
