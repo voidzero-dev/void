@@ -223,7 +223,8 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   const layouts: Array<LayoutDefinition> = [];
   const namedLayouts: Array<NamedLayoutDefinition> = [];
 
-  for (const file of files) {
+  // Glob traversal order can vary between identical scans. Keep layout inventories stable too.
+  for (const file of files.sort()) {
     const segments = file.split('/');
     // Skip files starting with _ in any segment (except _layouts/)
     if (segments.some((s) => s.startsWith('_') && s !== '_layouts')) {
@@ -361,7 +362,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       ...rendering,
       hasGetPrerenderPaths,
       island,
-      metadata,
+      metadata: metadata ? { ...metadata } : undefined,
       layout,
     });
   }
