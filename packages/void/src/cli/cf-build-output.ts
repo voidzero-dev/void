@@ -1,3 +1,4 @@
+import { randomBytes } from 'node:crypto';
 import {
   cpSync,
   copyFileSync,
@@ -327,7 +328,6 @@ async function prepareNativeBuildOutput(
 // Hook filters need a RegExp; `additionalModulePath` applies the same rules.
 const ADDITIONAL_MODULE_FILTER = /\.(?:wasm(?:\?module)?|bin|txt|html|sql)$/;
 const ADDITIONAL_MODULE_EXTENSIONS = new Set(['.wasm', '.bin', '.txt', '.html', '.sql']);
-const MODULE_MARKER = '__VOID_MODULE__';
 
 /** Keep letters, digits, `.`, `_` and `-`: the name ends up inside a JS import string. */
 function safeFileStem(stem: string): string {
@@ -362,6 +362,8 @@ function additionalModulePath(id: string): string | undefined {
  */
 function additionalModulesPlugin(): Plugin {
   // The external id carries a key, not the path: Rolldown escapes ids in the output.
+  // The random marker keeps app strings that look like an id from being rewritten.
+  const marker = `__VOID_MODULE_${randomBytes(8).toString('hex')}__`;
   const paths: Array<string> = [];
   const keys = new Map<string, number>();
   // Each file keeps its own name and extension. Assets with the same bytes would
@@ -384,11 +386,11 @@ function additionalModulesPlugin(): Plugin {
           key = paths.push(path) - 1;
           keys.set(path, key);
         }
-        return { id: `${MODULE_MARKER}${key}${MODULE_MARKER}`, external: true };
+        return { id: `${marker}${key}${marker}`, external: true };
       },
     },
     renderChunk: {
-      filter: { code: MODULE_MARKER },
+      filter: { code: marker },
       handler(code, chunk) {
         const emit = (path: string): string => {
           let fileName = fileNames.get(path);
@@ -412,25 +414,25 @@ function additionalModulesPlugin(): Plugin {
         };
         let output = '';
         let cursor = 0;
-        let start = code.indexOf(MODULE_MARKER);
+        let start = code.indexOf(marker);
         while (start !== -1) {
-          const keyStart = start + MODULE_MARKER.length;
-          const end = code.indexOf(MODULE_MARKER, keyStart);
+          const keyStart = start + marker.length;
+          const end = code.indexOf(marker, keyStart);
           if (end === -1) {
             break;
           }
           const keyText = code.slice(keyStart, end);
           const path = keyText === String(Number(keyText)) ? paths[Number(keyText)] : undefined;
           if (path === undefined) {
-            start = code.indexOf(MODULE_MARKER, keyStart);
+            start = code.indexOf(marker, keyStart);
             continue;
           }
           const importPath = relative(dirname(chunk.fileName), emit(path));
           output +=
             code.slice(cursor, start) +
             (importPath.startsWith('.') ? importPath : `./${importPath}`);
-          cursor = end + MODULE_MARKER.length;
-          start = code.indexOf(MODULE_MARKER, cursor);
+          cursor = end + marker.length;
+          start = code.indexOf(marker, cursor);
         }
         return output + code.slice(cursor);
       },

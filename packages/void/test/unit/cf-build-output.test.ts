@@ -594,13 +594,17 @@ it(
     writeFileSync(join(output, 'message.txt'), 'text module');
     writeFileSync(join(output, 'data.bin'), Buffer.from([0, 255]));
     // Same bytes, different module types; the quote must survive the module id.
+    // Windows does not allow `"` in file names.
+    const quoted = process.platform === 'win32' ? "sa'me.bin" : 'sa"me.bin';
     writeFileSync(join(output, 'same.txt'), 'same');
-    writeFileSync(join(output, 'sa"me.bin'), 'same');
+    writeFileSync(join(output, quoted), 'same');
     writeFileSync(
       join(output, '_worker.js'),
       "import plain from './plain.wasm'; import message from './message.txt'; import data from './data.bin';\n" +
-        "import sameText from './same.txt'; import sameData from './sa\"me.bin';\n" +
+        `import sameText from './same.txt'; import sameData from ${JSON.stringify(`./${quoted}`)};\n` +
         "import { render } from './chunks/render.js';\n" +
+        // App text that looks like the old module id stays as it is.
+        "export const looksLikeId = '__VOID_MODULE__0__VOID_MODULE__';\n" +
         'export default { async fetch() { return new Response(String([plain, message, data, sameText, sameData, await render()])) } };\n',
     );
     writeFileSync(
@@ -624,6 +628,9 @@ it(
           .filter((name) => modules[name].type !== 'esm')
           .map((name) => [modules[name].type, readFileSync(join(bundle, name))]);
         expect(additional).toHaveLength(6);
+        expect(readFileSync(join(bundle, 'index.js'), 'utf8')).toContain(
+          '__VOID_MODULE__0__VOID_MODULE__',
+        );
         expect(additional).toEqual(
           expect.arrayContaining([
             ['wasm', bindgenWasm],
