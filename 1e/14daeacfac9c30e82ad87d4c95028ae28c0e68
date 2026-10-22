@@ -1,0 +1,41 @@
+packages/create-void/package.json
+  s_68dc1265b5acdc::t_2b70415816a816 3
+packages/deploy-cloudflare/package.json
+  s_68dc1265b5acdc::t_501b55f230f7e4 3
+packages/deploy-core/package.json
+  s_68dc1265b5acdc::t_d8161fa65d9a3a 3
+packages/edge/package.json
+  s_68dc1265b5acdc::t_2bbd5b7a766793 3
+packages/isr/package.json
+  s_68dc1265b5acdc::t_8ec355898dca62 3
+packages/md/package.json
+  s_68dc1265b5acdc::t_a79290f29ab2e1 3
+packages/platform/package.json
+  s_68dc1265b5acdc::t_da2b3c547d8408 3
+packages/react/package.json
+  s_68dc1265b5acdc::t_f83fff36600a72 3
+packages/solid/package.json
+  s_68dc1265b5acdc::t_eaeff235648a7e 3
+packages/svelte/package.json
+  s_68dc1265b5acdc::t_3ba28c1bed9e1c 3
+packages/void/package.json
+  s_68dc1265b5acdc::t_6800db05455fdd 3
+packages/vue/package.json
+  s_68dc1265b5acdc::t_d26c5a66e5aef7 3
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "1e14daeacfac9c30e82ad87d4c95028ae28c0e68",
+  "prompts": {},
+  "sessions": {
+    "s_68dc1265b5acdc": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a161aa-8636-7f01-9814-fc0e40c6e331",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
