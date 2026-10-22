@@ -163,18 +163,14 @@ app.post('/:id/deploy/upload-urls', async (context) => {
           context.get('companyIdentity'),
           true,
         );
-        const approved = Object.values(approval.data.artifact!.assetManifest);
+        const approved = new Set(
+          Object.values(approval.data.artifact!.assetManifest).map(
+            (entry) => `${entry.blake3}:${entry.md5}:${entry.size}`,
+          ),
+        );
         if (
           approval.data.projectId !== projectId ||
-          assets.some(
-            (asset) =>
-              !approved.some(
-                (entry) =>
-                  entry.blake3 === asset.blake3 &&
-                  entry.md5 === asset.md5 &&
-                  entry.size === asset.size,
-              ),
-          )
+          assets.some((asset) => !approved.has(`${asset.blake3}:${asset.md5}:${asset.size}`))
         ) {
           throw new OAuthError(
             'access_denied',

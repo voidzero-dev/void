@@ -208,9 +208,18 @@ describe('registered OAuth applications', () => {
       size: 3,
       contentType: 'text/javascript',
     };
+    const otherAsset = {
+      ...asset,
+      blake3: computeAssetHash(new TextEncoder().encode('page').buffer, '/page.js'),
+      md5: 'b'.repeat(32),
+      size: 4,
+    };
     const prepared = createDeployArtifact({
       ...artifact,
-      assetManifest: { '/app.js': { ...asset, hash: asset.blake3 } },
+      assetManifest: {
+        '/app.js': { ...asset, hash: asset.blake3 },
+        '/page.js': { ...otherAsset, hash: otherAsset.blake3 },
+      },
     });
     const issued = await request('/oauth/preview-deployment-requests', {
       method: 'POST',
@@ -222,15 +231,18 @@ describe('registered OAuth applications', () => {
       }),
     });
     const receipt = (await issued.json()) as { access_token: string; approval_id: string };
-    const upload = (entry: typeof asset) =>
+    const upload = (...assets: Array<typeof asset>) =>
       request('/projects/' + project.project_id + '/deploy/upload-urls', {
         method: 'POST',
         headers: { ...headers, Authorization: 'Bearer ' + receipt.access_token },
-        body: JSON.stringify({ assets: [entry] }),
+        body: JSON.stringify({ assets }),
       });
     expect((await upload(asset)).status).toBe(200);
+    expect((await upload(otherAsset, asset, asset)).status).toBe(200);
     expect((await upload({ ...asset, size: 4 })).status).toBe(403);
+    expect((await upload({ ...asset, md5: 'b'.repeat(32) })).status).toBe(403);
     expect((await upload({ ...asset, blake3: 'c'.repeat(32) })).status).toBe(403);
+    expect((await upload(otherAsset, { ...asset, size: 4 })).status).toBe(403);
     const [record] = await env.db
       .select()
       .from(oauthRequests)
