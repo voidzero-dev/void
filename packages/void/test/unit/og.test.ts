@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { toSlash } from 'pathslash';
 import { render } from 'takumi-js';
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import voidManifest from '../../package.json' with { type: 'json' };
 import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
 import { ImageResponse } from '../../src/runtime/og.ts';
@@ -71,6 +71,13 @@ function stubFetch(handler: (url: string) => Response | Promise<Response>) {
   );
   return requests;
 }
+
+// Only the cases below that stub fetch may reach the network.
+beforeEach(() => {
+  stubFetch(() => {
+    throw new Error('unexpected fetch');
+  });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -147,17 +154,21 @@ describe('ImageResponse', () => {
   });
 
   it('errors the body when the image cannot render', async () => {
-    // A next/og font entry may carry Satori's `lang`.
+    const data = new Uint8Array([1, 2, 3]);
+    // A next/og font entry may carry Satori's `lang`, which takumi does not take.
     const response = new ImageResponse(card, {
-      fonts: [{ name: 'Broken', data: new Uint8Array([1, 2, 3]), weight: 400, lang: 'ja-JP' }],
+      fonts: [{ name: 'Broken', data, weight: 400, lang: 'ja-JP' }],
     });
     await expect(response.arrayBuffer()).rejects.toThrow();
+    expect(vi.mocked(render).mock.lastCall?.[1]?.fonts).toEqual([
+      { name: 'Broken', data, weight: 400 },
+    ]);
   });
 });
 
 describe('ImageResponse fallback fonts', () => {
   it('requests no font for Latin text', async () => {
-    const requests = stubFetch(() => new Response(null, { status: 500 }));
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse(card).arrayBuffer();
     expect(requests).toEqual([]);
   });
@@ -197,14 +208,14 @@ describe('ImageResponse fallback fonts', () => {
 
   it('uses Noto Sans for accented Latin letters that Geist lacks', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const requests = stubFetch(() => new Response(null, { status: 503 }));
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse('<div style="display:flex">Łódź</div>').arrayBuffer();
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans:wght@400']);
   });
 
   it('draws Han text as Japanese unless lang says otherwise, like next/og', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const requests = stubFetch(() => new Response(null, { status: 503 }));
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
     const family = async (html: string, lang?: string) => {
       requests.length = 0;
       await new ImageResponse(html, { lang }).arrayBuffer();
@@ -224,6 +235,16 @@ describe('ImageResponse fallback fonts', () => {
     ]);
   });
 
+  it('draws emoji as images, without a font', async () => {
+    const requests = stubFetch(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"/>'));
+    expect(await pngSize(new ImageResponse('<div style="display:flex">🎉</div>'))).toEqual({
+      width: 1200,
+      height: 630,
+    });
+    expect(requests).toHaveLength(1);
+    expect(requests[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/.*\.svg$/);
+  });
+
   it('uses the symbol and math families for characters Geist lacks', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch((url) =>
@@ -231,7 +252,7 @@ describe('ImageResponse fallback fonts', () => {
         ? new Response('<svg xmlns="http://www.w3.org/2000/svg"/>', {
             headers: { 'content-type': 'image/svg+xml' },
           })
-        : new Response(null, { status: 503 }),
+        : new Response(null, { status: 404 }),
     );
     await new ImageResponse('<div style="display:flex">A → B ★ 🎉</div>').arrayBuffer();
     // The emoji is an image, so it asks for no font.
