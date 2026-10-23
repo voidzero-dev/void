@@ -16,7 +16,7 @@ import {
   type AstProgram,
   type AstVariableDeclaration,
 } from '../shared/ast.ts';
-import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
+import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
 import { scriptBlocks } from './island-imports.ts';
@@ -34,7 +34,6 @@ import type {
 } from './types.ts';
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
-const SERVER_EXTENSIONS = new Set<string>(ROUTE_EXTENSIONS.map((ext) => `.${ext}`));
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
 export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 
@@ -234,7 +233,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
 
     const ext = extname(file);
     let base = basename(file, ext);
-    if (base.endsWith('.server') && SERVER_EXTENSIONS.has(ext)) {
+    if (base.endsWith('.server') && ROUTE_EXTENSIONS_SET.has(ext)) {
       continue;
     }
 

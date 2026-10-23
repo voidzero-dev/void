@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, toSlash } from 'pathslash';
+import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
 import { applyBindingOverrides } from './application-features.ts';
 import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
@@ -11,7 +11,7 @@ import {
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
-import { isRouteFile } from './shared/convention-files.ts';
+import { conventionFileGlobs, isRouteFile } from './shared/convention-files.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 
@@ -151,15 +151,11 @@ export function inferProjectBindings(
   const allBindings: Array<InferredBindings> = [];
   const scannedFiles = new Set<string>();
   const routesPrefix = `${toSlash(paths.routesDir).replace(/\/$/, '')}/`;
-  const scanSourceFiles = (dirPath: string): Array<string> => {
-    const patterns = [SOURCE_GLOB];
-    const routesRelative = relative(dirPath, paths.routesDir);
-    // Include the router's .well-known directory without scanning other hidden source.
-    if (routesRelative !== '..' && !routesRelative.startsWith('../')) {
-      patterns.push(join(routesRelative, '.well-known', SOURCE_GLOB));
-    }
-    return globSync(patterns, { cwd: dirPath, absolute: true });
-  };
+  const scanSourceFiles = (dirPath: string): Array<string> =>
+    globSync(conventionFileGlobs(dirPath, SOURCE_GLOB, paths.routesDir), {
+      cwd: dirPath,
+      absolute: true,
+    });
   const addFile = (file: string): void => {
     const normalizedFile = toSlash(file);
     if (scannedFiles.has(normalizedFile)) {
