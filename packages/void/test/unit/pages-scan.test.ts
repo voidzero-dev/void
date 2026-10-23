@@ -125,6 +125,26 @@ describe('scanPages', () => {
     expect(page!.methods).toEqual(['loader', 'action']);
   });
 
+  it.each(['vue', 'svelte', 'md'])(
+    'keeps non-script pages named .server.%s discoverable',
+    async (ext) => {
+      writeFile(`web.server.${ext}`, '');
+      writeFile('web.server.server.jsx', 'export const loader = () => <p>Loaded</p>;');
+
+      const scan = await scanPages(TMP);
+      expect(scan.pages).toHaveLength(1);
+      expect(scan.pages[0]).toMatchObject({
+        pattern: '/web.server',
+        componentPath: `web.server.${ext}`,
+        serverPath: 'web.server.server.jsx',
+        methods: ['loader'],
+      });
+      const manifest = generateComponentManifest(scan, '/project/pages');
+      expect(manifest).toContain(`/project/pages/web.server.${ext}`);
+      expect(manifest).not.toContain('web.server.server.jsx');
+    },
+  );
+
   it.each(
     ['tsx', 'jsx'].flatMap((serverExt) =>
       ['foo.tsx', 'foo.island.tsx', 'foo.jsx', 'foo.vue', 'foo.svelte', 'foo.md'].map(

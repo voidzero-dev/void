@@ -11,7 +11,7 @@ import {
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
-import { ROUTE_EXTENSIONS } from './shared/route-extensions.ts';
+import { isRouteFile } from './shared/convention-files.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 
@@ -151,18 +151,25 @@ export function inferProjectBindings(
   const allBindings: Array<InferredBindings> = [];
   const scannedFiles = new Set<string>();
   const routesPrefix = `${toSlash(paths.routesDir).replace(/\/$/, '')}/`;
+  const scanSourceFiles = (dirPath: string): Array<string> => {
+    const patterns = [SOURCE_GLOB];
+    const routesRelative = relative(dirPath, paths.routesDir);
+    // Include the router's .well-known directory without scanning other hidden source.
+    if (routesRelative !== '..' && !routesRelative.startsWith('../')) {
+      patterns.push(join(routesRelative, '.well-known', SOURCE_GLOB));
+    }
+    return globSync(patterns, { cwd: dirPath, absolute: true });
+  };
   const addFile = (file: string): void => {
     const normalizedFile = toSlash(file);
     if (scannedFiles.has(normalizedFile)) {
       return;
     }
     scannedFiles.add(normalizedFile);
-    if (
-      options?.environment &&
-      normalizedFile.startsWith(routesPrefix) &&
-      ROUTE_EXTENSIONS.some((ext) => normalizedFile.endsWith(`.${ext}`))
-    ) {
-      const routePath = relative(paths.routesDir, normalizedFile);
+    const routePath = normalizedFile.startsWith(routesPrefix)
+      ? normalizedFile.slice(routesPrefix.length)
+      : undefined;
+    if (options?.environment && routePath !== undefined && isRouteFile(routePath)) {
       const route = isWebSocketPatternFile(routePath)
         ? parseWebSocketFilename(routePath)
         : parseRouteFilename(routePath);
@@ -180,7 +187,7 @@ export function inferProjectBindings(
     const dirPath = join(root, dir);
     let files: Array<string>;
     try {
-      files = globSync(SOURCE_GLOB, { cwd: dirPath, absolute: true });
+      files = scanSourceFiles(dirPath);
     } catch {
       continue;
     }
@@ -203,7 +210,7 @@ export function inferProjectBindings(
     const srcPath = paths.sourceDir ? paths.sourceRoot : join(root, 'src');
     let srcFiles: Array<string>;
     try {
-      srcFiles = globSync(SOURCE_GLOB, { cwd: srcPath, absolute: true });
+      srcFiles = scanSourceFiles(srcPath);
     } catch {
       srcFiles = [];
     }

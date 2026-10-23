@@ -16,6 +16,7 @@ import {
   type AstProgram,
   type AstVariableDeclaration,
 } from '../shared/ast.ts';
+import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
 import { scriptBlocks } from './island-imports.ts';
@@ -33,7 +34,7 @@ import type {
 } from './types.ts';
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
-const SERVER_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'mts'];
+const SERVER_EXTENSIONS = new Set<string>(ROUTE_EXTENSIONS.map((ext) => `.${ext}`));
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
 export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 
@@ -233,7 +234,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
 
     const ext = extname(file);
     let base = basename(file, ext);
-    if (base.endsWith('.server')) {
+    if (base.endsWith('.server') && SERVER_EXTENSIONS.has(ext)) {
       continue;
     }
 
@@ -298,7 +299,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     let ssr: ExplicitBoolean;
     let hasGetPrerenderPaths: boolean | undefined;
     const serverBase = hasIslandSuffix ? file.replace(`.island${ext}`, '') : file.replace(ext, '');
-    for (const serverExt of SERVER_EXTENSIONS) {
+    for (const serverExt of ROUTE_EXTENSIONS) {
       const candidate = `${serverBase}.server.${serverExt}`;
       if (existsSync(join(pagesDir, candidate))) {
         serverPath = candidate;
