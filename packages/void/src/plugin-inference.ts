@@ -8,10 +8,10 @@ import {
   isRouteEnabledForEnvironment,
   parseRouteFilename,
   parseWebSocketFilename,
-  ROUTE_EXTENSIONS,
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
+import { ROUTE_EXTENSIONS } from './shared/route-extensions.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 

@@ -1,5 +1,5 @@
 import { globSync } from 'tinyglobby';
-import { ROUTE_EXTENSIONS } from '../router/parse-filename.ts';
+import { ROUTE_EXTENSIONS } from './route-extensions.ts';
 
 /** Handler files under `dir`, relative to it, skipping paths with a `_`-prefixed segment. */
 function listFilesWithExtensions(dir: string, extensions: ReadonlyArray<string>): Array<string> {

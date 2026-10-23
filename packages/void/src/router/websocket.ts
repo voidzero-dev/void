@@ -11,8 +11,8 @@ import {
 import { listRouteFiles } from '../shared/convention-files.ts';
 import { readResourceDefinition } from '../shared/resource-definition.ts';
 import { resourceNameWords } from '../shared/resource-name.ts';
+import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
 import {
-  ROUTE_EXTENSIONS,
   isRouteEnabledForEnvironment,
   parseWebSocketFilename,
   type RouteDefinition,
