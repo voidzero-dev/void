@@ -61,7 +61,7 @@ describe('pagesPlugin build config', () => {
   });
 
   it.each(['tsx', 'jsx'])(
-    'omits pages-client for island-only pages with .server.%s companions',
+    'omits pages-client for island-only pages with .server.%s files',
     async (extension) => {
       writePage(
         'index.island.tsx',
