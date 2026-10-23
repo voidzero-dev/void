@@ -1,3 +1,5 @@
+import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
+
 export type RouteEnvironment = 'dev' | 'prod';
 
 export type RouteDefinition = {
@@ -15,7 +17,6 @@ export type RouteDefinition = {
   filePath: string;
 };
 
-export const ROUTE_EXTENSIONS = ['ts', 'tsx', 'mts', 'js', 'jsx', 'mjs'] as const;
 const ENV_SUFFIXES: Array<RouteEnvironment> = ['dev', 'prod'];
 
 function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefinition {
