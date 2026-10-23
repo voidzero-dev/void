@@ -2,7 +2,14 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, relative, resolve } from 'pathslash';
-import { normalizePath, type Plugin } from 'vite';
+import {
+  createRunnableDevEnvironment,
+  isRunnableDevEnvironment,
+  normalizePath,
+  type Plugin,
+  type ResolvedConfig,
+  type RunnableDevEnvironment,
+} from 'vite';
 import type { ApplicationAnalysis } from './application-analysis.ts';
 import { completeApplicationAnalysis } from './application-routing.ts';
 import {
@@ -16,7 +23,7 @@ import {
   isGeneratedAssetHeaders,
   resolveAssetWorkerBypass,
 } from './asset-worker-bypass.ts';
-import { loadVoidAuthConfig } from './auth/config.ts';
+import { AUTH_CONFIG_ENVIRONMENT, loadVoidAuthConfig } from './auth/config.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
 import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
@@ -144,6 +151,10 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   const pagesDir = paths.pagesDir;
   const ssrDir = paths.ssrDir;
   const authConfigPaths = new Set(paths.authConfigCandidates.map((path) => normalizePath(path)));
+  let authConfigEnvironment: RunnableDevEnvironment | undefined;
+  // Set when a file the auth config loaded changes, or a load fails, so the
+  // next load starts from an empty module graph.
+  let authConfigStale = false;
   const envFilePaths = new Set(paths.envFileCandidates.map((path) => normalizePath(path)));
   const normalizedRoutesDir = normalizePath(routesDir);
   const normalizedMiddlewareDir = normalizePath(middlewareDir);
@@ -318,6 +329,26 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     return parts.join('|');
   }
 
+  async function loadAuthConfig(configPath: string | null) {
+    const environment = authConfigEnvironment;
+    if (authConfigStale && environment) {
+      // The runner checks each import against the graph. Invalidate all of
+      // it: a failed import stays in it under the specifier it could not
+      // resolve, not under a file path.
+      environment.moduleGraph.invalidateAll();
+    }
+    authConfigStale = false;
+    try {
+      return await loadVoidAuthConfig(
+        configPath,
+        environment && ((path) => environment.runner.import(path)),
+      );
+    } catch (error) {
+      authConfigStale = true;
+      throw error;
+    }
+  }
+
   async function writeAuthDatabaseFiles(): Promise<void> {
     if (!compileOptions.auth) {
       return;
@@ -329,7 +360,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     const authRuntime: VoidAuthRuntimeOptions = {
       dialect: compileOptions.auth.dialect,
       providers: compileOptions.auth.providers,
-      userConfig: await loadVoidAuthConfig(compileOptions.auth.authConfigPath),
+      userConfig: await loadAuthConfig(compileOptions.auth.authConfigPath),
     };
     const local = resolvedConfig?.command === 'serve' ? loadLocalEnv(root) : {};
     const env = { ...local, ...process.env } as Record<string, unknown>;
@@ -387,7 +418,11 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
   }
 
   function isPotentialAuthConfigPath(path: string): boolean {
-    return authConfigPaths.has(normalizePath(path));
+    const normalized = normalizePath(path);
+    return (
+      authConfigPaths.has(normalized) ||
+      (authConfigEnvironment?.moduleGraph.getModulesByFile(normalized)?.size ?? 0) > 0
+    );
   }
 
   function isPotentialEnvFilePath(path: string): boolean {
@@ -603,6 +638,25 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     config(_, env) {
       previewing = env.isPreview === true;
       routeEnvironment = env.command === 'serve' && !env.isPreview ? 'dev' : 'prod';
+      // Dev only, so builds never see the environment.
+      const authConfigEnvironmentConfig =
+        routeEnvironment === 'dev'
+          ? {
+              environments: {
+                [AUTH_CONFIG_ENVIRONMENT]: {
+                  consumer: 'server' as const,
+                  dev: {
+                    createEnvironment: (name: string, config: ResolvedConfig) =>
+                      // Void invalidates it on saves; no HMR client to run.
+                      createRunnableDevEnvironment(name, config, {
+                        hot: false,
+                        runnerOptions: { hmr: false },
+                      }),
+                  },
+                },
+              },
+            }
+          : {};
       compileOptions.hasLive = options.live !== undefined;
       compileOptions.managedDispatch =
         !options.target && env.command === 'build' && Boolean(process.env.VOID_DEPLOY_PROJECT_ID);
@@ -622,12 +676,12 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           }
         });
 
-        return { resolve: { alias: resolvedAliases } };
+        return { ...authConfigEnvironmentConfig, resolve: { alias: resolvedAliases } };
       }
 
       const entries = validateSsrEntries(root, paths);
       if (env.command !== 'build') {
-        return;
+        return authConfigEnvironmentConfig;
       }
 
       return {
@@ -841,13 +895,32 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       },
     },
 
+    hotUpdate() {
+      // Void invalidates this environment itself; Vite's update pass would
+      // only log a page reload that nothing receives.
+      if (this.environment.name === AUTH_CONFIG_ENVIRONMENT) {
+        return [];
+      }
+    },
+
     configureServer(devServer) {
+      const authEnvironment = devServer.environments[AUTH_CONFIG_ENVIRONMENT];
+      authConfigEnvironment =
+        authEnvironment && isRunnableDevEnvironment(authEnvironment) ? authEnvironment : undefined;
+
       // Watch the source convention directories for file changes
       const watcher = devServer.watcher;
 
       const handleFileChange = async (path: string, event: 'add' | 'change' | 'unlink') => {
         const normalizedPath = normalizePath(path);
         invalidateSourceAnalysis(normalizedPath);
+        const authConfigChanged = isPotentialAuthConfigPath(normalizedPath);
+        if (authConfigChanged) {
+          authConfigStale = true;
+        }
+        // After a failed load, a new file may be the import that was missing.
+        const authImportCreated =
+          event === 'add' && authConfigStale && compileOptions.auth !== null;
 
         const sourceConventionChanged =
           isInDirectory(normalizedPath, normalizedRoutesDir) ||
@@ -856,7 +929,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           isInDirectory(normalizedPath, normalizedQueuesDir) ||
           isInDirectory(normalizedPath, normalizedEmailDir) ||
           isInDirectory(normalizedPath, normalizedPagesDir) ||
-          isPotentialAuthConfigPath(normalizedPath) ||
+          authConfigChanged ||
+          authImportCreated ||
           isPotentialEnvFilePath(normalizedPath);
         if (!sourceConventionChanged && !ssrEntryAbsPaths.has(normalizedPath)) {
           return;
@@ -869,7 +943,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
           // not the client — so we must iterate all environments.
           const forceRegeneration =
             event !== 'change' ||
-            isPotentialAuthConfigPath(normalizedPath) ||
+            authConfigChanged ||
             isPotentialEnvFilePath(normalizedPath) ||
             ssrEntryAbsPaths.has(normalizedPath);
 

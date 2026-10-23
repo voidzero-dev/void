@@ -40,10 +40,17 @@ vi.mock('mysql2/promise', () => ({
 }));
 
 const authFailure = vi.hoisted(() => ({ error: undefined as Error | undefined }));
+const authImporters = vi.hoisted((): Array<unknown> => []);
+
+vi.mock('../../src/auth/config.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/auth/config.ts')>()),
+  devAuthConfigImporter: (server: { authImporter?: unknown }) => server.authImporter,
+}));
 
 vi.mock('../../src/auth/node.ts', () => ({
   runLocalVoidAuthMigrations: async (...args: Array<unknown>) => {
     mysqlQueries.push('Better Auth migrations');
+    authImporters.push(args[6]);
     const databaseUrl = args[5];
     mysqlSteps.push(
       `auth ${typeof databaseUrl === 'string' ? new URL(databaseUrl).pathname.slice(1) : '(no URL)'}`,
@@ -78,16 +85,19 @@ afterEach(() => {
   }
 });
 
-async function runConfigureServer(plugin: ReturnType<typeof migrationPlugin>) {
+async function runConfigureServer(
+  plugin: ReturnType<typeof migrationPlugin>,
+  server: Record<string, unknown> = { environments: {} },
+) {
   const hook = plugin.configureServer as ConfigureServerHook | undefined;
   if (!hook) {
     return;
   }
   if (typeof hook === 'function') {
-    await hook.call({}, {});
+    await hook.call({}, server);
     return;
   }
-  await hook.handler.call({}, {});
+  await hook.handler.call({}, server);
 }
 
 describe('migrationPlugin persistence roots', () => {
@@ -110,6 +120,24 @@ describe('migrationPlugin persistence roots', () => {
 
     const dbPath = getMiniflareDatabasePath(persistRoot, 'local');
     expect(existsSync(dbPath)).toBe(true);
+  });
+});
+
+describe('migrationPlugin Better Auth config', () => {
+  it("loads the auth config through the dev server's runner, so a restarted server reads it again", async () => {
+    const root = createProjectRoot();
+    const authImporter = vi.fn();
+    authImporters.length = 0;
+
+    await runConfigureServer(
+      migrationPlugin(root, 'sqlite', 'local', join(root, '.void'), {
+        enabled: true,
+        configPath: null,
+      }),
+      { environments: {}, authImporter },
+    );
+
+    expect(authImporters).toEqual([authImporter]);
   });
 });
 

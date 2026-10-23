@@ -1,7 +1,21 @@
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdtempSync,
+  mkdirSync,
+  readFileSync,
+  realpathSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import type { ConfigEnv, ResolvedConfig, UserConfig } from 'vite';
+import { dirname, join } from 'node:path';
+import {
+  createServer,
+  type ConfigEnv,
+  type ResolvedConfig,
+  type RunnableDevEnvironment,
+  type UserConfig,
+} from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
@@ -61,7 +75,10 @@ async function runBuildStart(plugin: RoutingPlugin): Promise<void> {
   await (getHookHandler(plugin.buildStart) as () => Promise<void>).call({} as never);
 }
 
-function fakeDevServer(moduleIds: Array<string> = []) {
+function fakeDevServer(
+  moduleIds: Array<string> = [],
+  extraEnvironments: Record<string, unknown> = {},
+) {
   const handlers = new Map<string, Array<(path: string) => Promise<void> | void>>();
   const invalidated: Array<string> = [];
   const restart = vi.fn(async () => {});
@@ -75,6 +92,7 @@ function fakeDevServer(moduleIds: Array<string> = []) {
       },
     },
     environments: {
+      ...extraEnvironments,
       void_worker: {
         moduleGraph: {
           getModuleById(id: string) {
@@ -97,8 +115,12 @@ function fakeDevServer(moduleIds: Array<string> = []) {
   return { server, invalidated, restart, emit, logError };
 }
 
-function startDevServer(plugin: RoutingPlugin, moduleIds?: Array<string>) {
-  const dev = fakeDevServer(moduleIds);
+function startDevServer(
+  plugin: RoutingPlugin,
+  moduleIds?: Array<string>,
+  extraEnvironments?: Record<string, unknown>,
+) {
+  const dev = fakeDevServer(moduleIds, extraEnvironments);
   (getHookHandler(plugin.configureServer) as (server: unknown) => void)(dev.server);
   return dev;
 }
@@ -677,6 +699,120 @@ describe('routingPlugin', () => {
       expect(invalidated).toEqual(['virtual:void-routes']);
     },
   );
+
+  it.each([
+    { command: 'serve' as const, isPreview: false, declared: true },
+    { command: 'serve' as const, isPreview: true, declared: false },
+    { command: 'build' as const, isPreview: false, declared: false },
+  ])(
+    'declares the auth config environment for $command (preview $isPreview): $declared',
+    ({ command, isPreview, declared }) => {
+      const plugin = createRoutingPlugin(createTempRoot(), { isAuthEnabled: () => false });
+      const config = (
+        getHookHandler(plugin.config) as (config: UserConfig, env: ConfigEnv) => UserConfig | void
+      )({}, { command, mode: 'development', isPreview });
+      expect(Object.keys(config?.environments ?? {})).toEqual(declared ? ['void_auth_config'] : []);
+    },
+  );
+
+  it('leaves the auth config environment out of Vite hot updates', () => {
+    const plugin = createRoutingPlugin(createTempRoot(), { isAuthEnabled: () => true });
+    const hotUpdate = getHookHandler(plugin.hotUpdate) as (this: {
+      environment: { name: string };
+    }) => unknown;
+    expect(hotUpdate.call({ environment: { name: 'void_auth_config' } })).toEqual([]);
+    expect(hotUpdate.call({ environment: { name: 'void_worker' } })).toBeUndefined();
+  });
+
+  it('regenerates auth files when the auth config or a file it imports changes', async () => {
+    // Vite's module graph keys files by real path, as the watcher reports them for a real root;
+    // `.native` also expands Windows short names, as Vite does.
+    const root = realpathSync.native(createTempRoot());
+    const routePath = join(root, 'routes', 'health.ts');
+    writeFileSync(routePath, 'export const GET = () => new Response();');
+    const authPath = readProjectPaths(root).authConfigCandidates[0]!;
+    const helperPath = join(dirname(authPath), 'auth-fields.ts');
+    const extraPath = join(dirname(authPath), 'auth-extra.ts');
+    // The type-only export makes the file an auth config without loading void/auth.
+    const authSource = (imports: string, fields: string) =>
+      "export type {} from 'void/auth';\n" +
+      imports +
+      '\nexport default ({ defaults }) => ({ ...defaults, user: { additionalFields: { ' +
+      fields +
+      ' } } });';
+    const helperImport = "import { field } from './auth-fields.ts';";
+    writeFileSync(helperPath, "export const field = 'nickname';");
+    writeFileSync(authPath, authSource(helperImport, "[field]: { type: 'string' }"));
+
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
+    // A real dev server, so Vite runs its own watcher handling for the auth
+    // environment; events are sent by hand.
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [
+        plugin,
+        // Holds back Vite's own handling of each save, so recovery cannot rely on it.
+        {
+          name: 'slow-watch-change',
+          async watchChange() {
+            await new Promise((resolve) => setTimeout(resolve, 100));
+          },
+        },
+      ],
+      optimizeDeps: { noDiscovery: true },
+      server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
+    });
+    try {
+      const logError = vi.spyOn(server.config.logger, 'error');
+      const environment = server.environments.void_auth_config as RunnableDevEnvironment;
+      const imports = vi.spyOn(environment.runner, 'import');
+      const schemaPath = join(root, '.void', 'better-auth-schema.ts');
+      const schema = () => readFileSync(schemaPath, 'utf8');
+      const save = (event: 'add' | 'change', path: string, source: string) => {
+        writeFileSync(path, source);
+        server.watcher.emit(event, path);
+      };
+      await vi.waitFor(() => expect(schema()).toContain('"nickname"'));
+
+      save(
+        'change',
+        authPath,
+        authSource(helperImport, "[field]: { type: 'string' }, bio: { type: 'string' }"),
+      );
+      await vi.waitFor(() => expect(schema()).toContain('"bio"'));
+
+      save('change', helperPath, "export const field = 'displayName';");
+      await vi.waitFor(() => expect(schema()).toContain('"displayName"'));
+      expect(schema()).not.toContain('"nickname"');
+
+      // A save outside the config's files does not load it again.
+      const loads = imports.mock.calls.length;
+      writeFileSync(routePath, 'export const GET = () => new Response("updated");');
+      server.watcher.emit('change', routePath);
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      expect(imports).toHaveBeenCalledTimes(loads);
+
+      // A syntax error in a helper is reported, and fixing it regenerates.
+      save('change', helperPath, 'export const field =');
+      await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(1));
+      save('change', helperPath, "export const field = 'avatar';");
+      await vi.waitFor(() => expect(schema()).toContain('"avatar"'));
+
+      // A load that fails on a missing file retries once the file is created.
+      save(
+        'change',
+        authPath,
+        authSource("import { extra } from './auth-extra.ts';", "[extra]: { type: 'string' }"),
+      );
+      await vi.waitFor(() => expect(logError).toHaveBeenCalledTimes(2));
+      save('add', extraPath, "export const extra = 'created';");
+      await vi.waitFor(() => expect(schema()).toContain('"created"'));
+    } finally {
+      await server.close();
+    }
+  });
 
   it('rescans sourceDir route changes during dev', async () => {
     const root = createBareTempRoot();

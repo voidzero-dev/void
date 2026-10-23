@@ -326,4 +326,6 @@ it.each([390, 1280])(
       await browser.close();
     }
   },
+  // Launching Chromium alone can take longer than the default under a full parallel run.
+  30_000,
 );
