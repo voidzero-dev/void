@@ -30,14 +30,15 @@ Void apps can also use [`output: 'static'`](./ssg.md) to pre-render all pages at
 
 Void supports deploying Vite-based meta-framework apps with `void deploy`. The framework owns routing and SSR. Void handles [binding inference](../reference/resource-inference.md), [typed DB queries](./database.md), migrations, and deployment.
 
-| Framework                                           | Detected from package   | Setup guide                                           |
-| --------------------------------------------------- | ----------------------- | ----------------------------------------------------- |
-| [TanStack Start](https://tanstack.com/start/latest) | `@tanstack/react-start` | [Guide](../integrations/frameworks/tanstack-start.md) |
-| [React Router v7](https://reactrouter.com/)         | `@react-router/dev`     | [Guide](../integrations/frameworks/react-router.md)   |
-| [SvelteKit](https://svelte.dev/docs/kit)            | `@sveltejs/kit`         | [Guide](../integrations/frameworks/sveltekit.md)      |
-| [Nuxt](https://nuxt.com/)                           | `nuxt`                  | [Guide](../integrations/frameworks/nuxt.md)           |
-| [Analog](https://analogjs.org/)                     | `@analogjs/platform`    | [Guide](../integrations/frameworks/analog.md)         |
-| [Astro](https://astro.build/)                       | `astro`                 | [Guide](../integrations/frameworks/astro.md)          |
+| Framework                                           | Detected from package        | Setup guide                                           |
+| --------------------------------------------------- | ---------------------------- | ----------------------------------------------------- |
+| [TanStack Start](https://tanstack.com/start/latest) | `@tanstack/react-start`      | [Guide](../integrations/frameworks/tanstack-start.md) |
+| [React Router v7](https://reactrouter.com/)         | `@react-router/dev`          | [Guide](../integrations/frameworks/react-router.md)   |
+| [SvelteKit](https://svelte.dev/docs/kit)            | `@sveltejs/kit`              | [Guide](../integrations/frameworks/sveltekit.md)      |
+| [Nuxt](https://nuxt.com/)                           | `nuxt`                       | [Guide](../integrations/frameworks/nuxt.md)           |
+| [Analog](https://analogjs.org/)                     | `@analogjs/platform`         | [Guide](../integrations/frameworks/analog.md)         |
+| [Astro](https://astro.build/)                       | `astro`                      | [Guide](../integrations/frameworks/astro.md)          |
+| [pracht](https://pracht.resynapse.dev/)             | `@pracht/adapter-cloudflare` | [Guide](../integrations/frameworks/pracht.md)         |
 
 Add `voidPlugin()` to the framework's Vite config to get binding inference, typed DB generation, migration management, cron jobs, queues, and caching. Void-managed auth is not supported in framework mode; use Better Auth's official integration for your framework. See the [Meta Frameworks Integration](../integrations/frameworks/overview.md) for supported features and setup guides.
 

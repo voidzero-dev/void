@@ -38,6 +38,17 @@ describe('FRAMEWORK_PRESETS', () => {
     expect(preset.assetsDir).toBe('dist/client');
   });
 
+  it('has preset for pracht', () => {
+    const preset = FRAMEWORK_PRESETS.pracht;
+    expect(preset).toBeDefined();
+    expect(preset.cloudflareArtifact).toBe('worker-output');
+    expect(preset.buildCommand).toBe('pracht build');
+    expect(preset.workerDir).toBe('dist/server');
+    expect(preset.workerMain).toBe('worker.js');
+    expect(preset.assetsDir).toBe('dist/client');
+    expect(preset.htmlHandling).toBe('drop-trailing-slash');
+  });
+
   it.each([
     ['tanstack-start', 'dist/server'],
     ['react-router', 'build/server'],

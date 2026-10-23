@@ -363,6 +363,30 @@ describe('detectFramework', () => {
     expect(result).toEqual({ name: 'vinext-pages', class: 'a' });
   });
 
+  it('detects pracht from its Cloudflare adapter', () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@pracht/adapter-cloudflare': '^0.1.0', '@pracht/core': '^0.1.0' },
+        devDependencies: { '@pracht/vite-plugin': '^0.1.0' },
+      }),
+    );
+    expect(detectFramework(root)).toEqual({ name: 'pracht', class: 'c' });
+  });
+
+  it('does not detect pracht without its Cloudflare adapter', () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        dependencies: { '@pracht/adapter-node': '^0.1.0', '@pracht/core': '^0.1.0' },
+        devDependencies: { '@pracht/vite-plugin': '^0.1.0' },
+      }),
+    );
+    expect(detectFramework(root)).toBeUndefined();
+  });
+
   it('lets framework-mode configResolved run without touching websocket TDZ state', () => {
     const root = createTempRoot();
     writeCompatConfig(root);

@@ -32,6 +32,28 @@ describe('Cloudflare framework deployment', () => {
     },
   );
 
+  it.each([undefined, 'drop-trailing-slash'] as const)(
+    'writes the framework asset trailing-slash policy (%s)',
+    (htmlHandling) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-framework-html-'));
+      const configPath = join(root, 'wrangler.jsonc');
+      writeFileSync(configPath, '{}');
+      writeCloudflareFrameworkDeployConfig({
+        configPath,
+        deployPointerPath: join(root, '.wrangler/deploy/config.json'),
+        name: 'framework-app',
+        accountId: 'account-id',
+        main: 'dist/server/worker.js',
+        assetsDirectory: 'dist/client',
+        compatibilityDate: '2026-09-11',
+        htmlHandling,
+      });
+      expect(
+        (parseRootWranglerConfig(configPath).assets as { html_handling?: string }).html_handling,
+      ).toBe(htmlHandling);
+    },
+  );
+
   it('preserves root state and points Wrangler at the standalone Worker', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-framework-config-'));
     const configPath = join(root, 'wrangler.jsonc');

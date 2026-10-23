@@ -91,6 +91,7 @@ const integrationItems = [
       { text: 'SvelteKit', link: '/integrations/frameworks/sveltekit' },
       { text: 'Nuxt', link: '/integrations/frameworks/nuxt' },
       { text: 'Analog', link: '/integrations/frameworks/analog' },
+      { text: 'pracht', link: '/integrations/frameworks/pracht' },
     ],
   },
   { text: 'Coding Agents', link: '/integrations/agents' },
@@ -333,6 +334,7 @@ export default extendConfig(
             SvelteKit: 'logos:svelte-icon',
             Nuxt: 'logos:nuxt-icon',
             Analog: 'logos:analog',
+            pracht: 'logos:preact',
           };
           const itemIcons: Record<string, IconOption> = {
             'Coding Agents': 'lucide:bot',

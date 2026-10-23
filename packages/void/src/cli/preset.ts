@@ -68,6 +68,8 @@ export type FrameworkPreset = {
   hashedAssetsPrefix?: string;
   /** Whether the worker entry needs bundling (bare imports not resolved by framework build). */
   bundle?: boolean;
+  /** Assets `html_handling`; Cloudflare's default applies when unset. */
+  htmlHandling?: 'auto-trailing-slash' | 'force-trailing-slash' | 'drop-trailing-slash' | 'none';
 };
 
 /**
@@ -78,7 +80,7 @@ export type FrameworkPreset = {
  * Vite-compatible build command (`vite build` or `vp build`) and have their
  * output structure determined by the framework's Vite plugin.
  *
- * Class B/C frameworks (sveltekit, nuxt, analog, astro) use their own build CLI
+ * Class B/C frameworks (sveltekit, nuxt, analog, astro, pracht) use their own build CLI
  * and have framework-specific output conventions.
  */
 export const FRAMEWORK_PRESETS: Record<string, FrameworkPreset> = {
@@ -148,6 +150,17 @@ export const FRAMEWORK_PRESETS: Record<string, FrameworkPreset> = {
     workerMain: 'entry.mjs',
     assetsDir: 'dist/client',
     hashedAssetsPrefix: '_astro',
+  },
+  pracht: {
+    cloudflareArtifact: 'worker-output',
+    cloudflareCompatibilityFlags: ['nodejs_als'],
+    buildCommand: 'pracht build',
+    workerDir: 'dist/server',
+    workerMain: 'worker.js',
+    assetsDir: 'dist/client',
+    hashedAssetsPrefix: 'assets',
+    // pracht links to `/about`, not `/about/`.
+    htmlHandling: 'drop-trailing-slash',
   },
 };
 

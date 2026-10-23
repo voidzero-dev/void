@@ -8,20 +8,21 @@ Keep your framework's routes and rendering, and add Void for databases, storage,
 
 Add `voidPlugin()` to the framework's Vite config. It detects resource usage, generates database types, manages migrations, and prepares the app for `void deploy`.
 
-TanStack Start and React Router use the Cloudflare Vite plugin provided by Void. SvelteKit, Nuxt, Analog, and Astro use their own Cloudflare adapters. The setup differs, but your framework continues to handle routing and rendering.
+TanStack Start and React Router use the Cloudflare Vite plugin provided by Void. SvelteKit, Nuxt, Analog, Astro, and pracht use their own Cloudflare adapters. The setup differs, but your framework continues to handle routing and rendering.
 
 ![void relationships with meta frameworks and deployment targets](./void-relationships.svg)
 
 ## Supported Frameworks
 
-| Framework                             | Package                 | Integration                                                                  |
-| ------------------------------------- | ----------------------- | ---------------------------------------------------------------------------- |
-| [TanStack Start](./tanstack-start.md) | `@tanstack/react-start` | Vite plugin composition. `voidPlugin()` runs alongside the framework plugin. |
-| [React Router v7](./react-router.md)  | `@react-router/dev`     | Vite plugin composition. Setup matches TanStack Start.                       |
-| [SvelteKit](./sveltekit.md)           | `@sveltejs/kit`         | Vite-based, uses its own Cloudflare adapter                                  |
-| [Nuxt](./nuxt.md)                     | `nuxt`                  | Own CLI and build toolchain                                                  |
-| [Analog](./analog.md)                 | `@analogjs/platform`    | Vite-based, uses Nitro with Cloudflare preset                                |
-| [Astro **v6+**](./astro.md)           | `astro`                 | Own CLI and Cloudflare adapter (v6 required)                                 |
+| Framework                             | Package                      | Integration                                                                  |
+| ------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------- |
+| [TanStack Start](./tanstack-start.md) | `@tanstack/react-start`      | Vite plugin composition. `voidPlugin()` runs alongside the framework plugin. |
+| [React Router v7](./react-router.md)  | `@react-router/dev`          | Vite plugin composition. Setup matches TanStack Start.                       |
+| [SvelteKit](./sveltekit.md)           | `@sveltejs/kit`              | Vite-based, uses its own Cloudflare adapter                                  |
+| [Nuxt](./nuxt.md)                     | `nuxt`                       | Own CLI and build toolchain                                                  |
+| [Analog](./analog.md)                 | `@analogjs/platform`         | Vite-based, uses Nitro with Cloudflare preset                                |
+| [Astro **v6+**](./astro.md)           | `astro`                      | Own CLI and Cloudflare adapter (v6 required)                                 |
+| [pracht](./pracht.md)                 | `@pracht/adapter-cloudflare` | Own CLI and Cloudflare adapter                                               |
 
 Detection is automatic. The CLI reads your `package.json` dependencies.
 
@@ -40,7 +41,7 @@ With `voidPlugin()` added to the framework's Vite config, frameworks get most of
 
 For framework apps, Void revalidation caches public HTML document responses with both `void deploy` and `void deploy --platform cloudflare`. Client data requests continue to use the framework's own behavior. A response with `Set-Cookie` or `Cache-Control: private`, `no-store`, or `no-cache` is never shared.
 
-Frameworks can also access bindings directly via the framework's own mechanisms (e.g. `env` from `cloudflare:workers` in SvelteKit 3 and Analog, `platform.env` in SvelteKit 2, `event.context.cloudflare.env` in Nuxt, `Astro.locals.runtime.env` in Astro).
+Frameworks can also access bindings directly via the framework's own mechanisms (e.g. `env` from `cloudflare:workers` in SvelteKit 3 and Analog, `platform.env` in SvelteKit 2, `event.context.cloudflare.env` in Nuxt, `Astro.locals.runtime.env` in Astro, `context.env` in pracht).
 
 ## Configuration
 
