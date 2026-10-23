@@ -2534,7 +2534,7 @@ async function deployVersionPercentages(
   options: Pick<
     Parameters<typeof activateCloudflareVersion>[0],
     'runWrangler' | 'workerName' | 'preserveTriggers' | 'configPath'
-  >,
+  > & { bypassDeploymentChecks?: boolean },
   percentages: Array<string>,
   message: string,
 ): Promise<CloudflareCommandResult> {
@@ -2557,6 +2557,7 @@ async function deployVersionPercentages(
       configPath: options.configPath,
       workerName: options.workerName,
       message,
+      ...(options.bypassDeploymentChecks ? { bypassDeploymentChecks: true } : {}),
     },
     { capture: false },
   );
@@ -2569,6 +2570,7 @@ export async function deployCloudflareVersionTraffic(options: {
   workerName: string;
   percentages: Array<string>;
   message: string;
+  bypassDeploymentChecks?: boolean;
 }): Promise<CloudflareCommandResult> {
   const config = pickWranglerTriggerContext(parseRootWranglerConfig(options.configPath));
   const directory = mkdtempSync(join(tmpdir(), 'void-version-traffic-'));
@@ -2582,6 +2584,7 @@ export async function deployCloudflareVersionTraffic(options: {
         configPath: path,
         workerName: options.workerName,
         message: options.message,
+        ...(options.bypassDeploymentChecks ? { bypassDeploymentChecks: true } : {}),
       },
       { capture: false },
     );
@@ -2615,7 +2618,7 @@ async function restorePreviousVersion(
     return 'unsafe';
   }
   const result = await deployVersionPercentages(
-    options,
+    { ...options, bypassDeploymentChecks: true },
     [`${previousVersionId}@100`],
     `Void automatic rollback after ${cause}.`,
   );

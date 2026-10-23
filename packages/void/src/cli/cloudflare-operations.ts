@@ -537,6 +537,7 @@ export async function activateCloudflareExistingVersion(
         configPath: context.configPath,
         workerName: context.workerName,
         message: `Void automatic rollback after trigger synchronization failed.`,
+        bypassDeploymentChecks: true,
       },
       { capture: false },
     );

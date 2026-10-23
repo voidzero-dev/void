@@ -217,6 +217,69 @@ it.each([false, true])(
   },
 );
 
+it.each([undefined, false, true])(
+  'sends bypassDeploymentChecks=%s through cf alongside the deployment body',
+  async (bypassDeploymentChecks) => {
+    const directory = temporaryDirectory('void-cf-deployment-checks-');
+    const requests: Array<{ url: string | undefined; body: unknown }> = [];
+    const api = await listen(
+      createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) {
+          body += chunk;
+        }
+        requests.push({ url: request.url, body: JSON.parse(body) });
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ success: true, result: { id: 'deployment-id' } }));
+      }),
+    );
+    const preload = join(directory, 'capture-cf.mjs');
+    const callsPath = join(directory, 'calls.json');
+    writeFileSync(
+      preload,
+      `import child from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { writeFileSync } from 'node:fs';
+const spawnSync = child.spawnSync;
+child.spawnSync = (binary, args, options) => {
+  writeFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args.slice(1)));
+  return spawnSync(binary, args, options);
+};
+syncBuiltinESMExports();
+`,
+    );
+    const versionId = '11111111-1111-4111-8111-111111111111';
+    const message = 'Void automatic rollback after readiness failed.';
+    const output = await runOperation(
+      directory,
+      {
+        type: 'versions.deploy',
+        workerName: 'test-worker',
+        versions: [{ versionId, percentage: 100 }],
+        message,
+        bypassDeploymentChecks,
+      },
+      tokenEnv(api),
+      preload,
+    );
+    expect(output.status, output.stderr).toBe(0);
+    expect(decodeCloudflareOperationResult({ ...output, status: 0 }).status).toBe(0);
+    const args = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<string>;
+    expect(args.includes('--bypass-deployment-checks')).toBe(bypassDeploymentChecks === true);
+    expect(args).toContain('--body');
+    expect(requests).toEqual([
+      {
+        url: `/client/v4/accounts/test-account/workers/scripts/test-worker/deployments${bypassDeploymentChecks === true ? '?force=true' : ''}`,
+        body: {
+          strategy: 'percentage',
+          versions: [{ version_id: versionId, percentage: 100 }],
+          annotations: { 'workers/message': message },
+        },
+      },
+    ]);
+  },
+);
+
 it.each([200, 503])(
   'reports HTTP %i without loading the build toolchain when domain cleanup returns non-JSON',
   async (status) => {

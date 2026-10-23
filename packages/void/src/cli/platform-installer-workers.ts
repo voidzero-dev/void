@@ -1225,6 +1225,7 @@ export async function restorePlatformWorkerDeployment(input: {
         percentage: version.percentage,
       })),
       message: `Void platform restoration ${input.restoration.id}`,
+      bypassDeploymentChecks: true,
     },
     input.accountId,
     input.directory,

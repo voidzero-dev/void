@@ -39,6 +39,7 @@ export type CloudflareOperation =
       type: 'versions.deploy';
       versions: Array<{ versionId: string; percentage: number }>;
       message?: string;
+      bypassDeploymentChecks?: boolean;
     } & WorkerTarget)
   | ({
       type: 'versions.upload' | 'worker.deploy';

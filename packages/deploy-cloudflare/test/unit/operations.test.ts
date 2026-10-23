@@ -1,3 +1,6 @@
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { expect, it, vi } from 'vite-plus/test';
 import type { CloudflareCommandResult, CloudflareCommandRunner } from '../../src/execute.ts';
 import type { CloudflareOperation } from '../../src/operations.ts';
@@ -6,9 +9,10 @@ import { activateCloudflareVersion, encodeCloudflareVersionMessage } from '../..
 const current = '11111111-1111-4111-8111-111111111111';
 const next = '22222222-2222-4222-8222-222222222222';
 
-function setup(data: unknown) {
+function setup(data: unknown, failure?: 'activation' | 'triggers') {
   const calls: Array<CloudflareOperation> = [];
   let uploaded = false;
+  let triggerFailed = false;
   let versions = [{ version_id: current, percentage: 100 }];
   const runWrangler: CloudflareCommandRunner = vi.fn((operation: CloudflareOperation) => {
     calls.push(operation);
@@ -22,17 +26,45 @@ function setup(data: unknown) {
       case 'deployments.status':
         return ok({ versions });
       case 'versions.list':
-        return ok([{ id: current, number: 1 }, ...(uploaded ? [{ id: next, number: 2 }] : [])]);
+        return ok([
+          {
+            id: current,
+            number: 1,
+            annotations: {
+              'workers/message': encodeCloudflareVersionMessage([], {
+                workers_dev: true,
+                preview_urls: true,
+                routes: [],
+                crons: ['0 * * * *'],
+                queueConsumers: [],
+                workflows: [],
+              }),
+            },
+          },
+          ...(uploaded ? [{ id: next, number: 2 }] : []),
+        ]);
       case 'versions.upload':
         uploaded = true;
         return ok(data);
       case 'versions.deploy':
+        if (
+          failure === 'activation' &&
+          operation.versions.some(
+            (version) => version.versionId === next && version.percentage === 100,
+          )
+        ) {
+          return { ...ok(), status: 1 };
+        }
         versions = operation.versions.map(({ versionId, percentage }) => ({
           version_id: versionId,
           percentage,
         }));
         return ok();
       case 'triggers.deploy':
+        if (failure === 'triggers' && !triggerFailed) {
+          triggerFailed = true;
+          return { ...ok(), status: 1 };
+        }
         return ok();
       default:
         throw new Error(`Unexpected operation ${operation.type}.`);
@@ -63,7 +95,56 @@ it('activates structured upload data independently of provider presentation', as
     type: 'versions.deploy',
     versions: [{ versionId: next, percentage: 100 }],
   });
+  expect(calls.find((operation) => operation.type === 'versions.deploy')).not.toHaveProperty(
+    'bypassDeploymentChecks',
+  );
 });
+
+it.each([
+  { failure: 'readiness', preserveTriggers: false, reason: 'readiness-failed' },
+  { failure: 'readiness', preserveTriggers: true, reason: 'readiness-failed' },
+  { failure: 'activation', preserveTriggers: false, reason: 'activation-failed' },
+  { failure: 'activation', preserveTriggers: true, reason: 'activation-failed' },
+  { failure: 'triggers', preserveTriggers: false, reason: 'triggers-failed' },
+] as const)(
+  'bypasses deployment checks only for automatic $failure recovery with preserveTriggers=$preserveTriggers',
+  async ({ failure, preserveTriggers, reason }) => {
+    const directory = mkdtempSync(join(tmpdir(), 'void-rollback-checks-'));
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ name: 'site' }));
+    try {
+      const { calls, runWrangler } = setup(
+        { versionId: next },
+        failure === 'readiness' ? undefined : failure,
+      );
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        configPath,
+        workerName: 'site',
+        workersDevSubdomain: 'example',
+        preserveTriggers,
+        verifyUploader: () => true,
+        message: encodeCloudflareVersionMessage([]),
+        readinessAttempts: 1,
+        fetch: async () =>
+          failure === 'readiness'
+            ? new Response('not ready', { status: 503 })
+            : Response.json({ ready: true }),
+      });
+      expect(result).toMatchObject({ ok: false, reason, rollback: 'succeeded' });
+      const deployments = calls.filter((operation) => operation.type === 'versions.deploy');
+      expect(deployments.at(-1)).toMatchObject({
+        versions: [{ versionId: current, percentage: 100 }],
+        bypassDeploymentChecks: true,
+      });
+      for (const operation of deployments.slice(0, -1)) {
+        expect(operation).not.toHaveProperty('bypassDeploymentChecks');
+      }
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  },
+);
 
 it('rejects missing structured upload identity before activation', async () => {
   const { calls, runWrangler } = setup({ unrelated: 'value' });

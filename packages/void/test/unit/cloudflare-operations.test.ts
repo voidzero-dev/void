@@ -83,6 +83,7 @@ describe('Cloudflare operational parsing', () => {
       if (args.type === 'versions.deploy') {
         const config = JSON.parse(readFileSync(args.configPath!, 'utf8'));
         expect(config).toEqual({ account_id: 'account-1', name: 'my-worker' });
+        expect(args).not.toHaveProperty('bypassDeploymentChecks');
         active = 'original';
         return ok();
       }
@@ -321,6 +322,7 @@ describe('Cloudflare version operations', () => {
     expect(activation[0].type === 'versions.deploy' ? activation[0].message : undefined).toBe(
       'void:{"schema":2,"migrations":["0000_init.sql"],"triggerConfig":{"workers_dev":true,"preview_urls":true,"routes":[],"crons":["0 * * * *"],"queueConsumers":[],"workflows":[]}}',
     );
+    expect(activation[0]).not.toHaveProperty('bypassDeploymentChecks');
     expect(runner.mock.calls.some(([args]) => args.type === 'triggers.deploy')).toBe(true);
   });
 
@@ -370,12 +372,17 @@ describe('Cloudflare version operations', () => {
       ),
     ).rejects.toThrow(/traffic and triggers were restored to v2/);
     expect(
-      runner.mock.calls.some(
-        ([args]) =>
-          args.type === 'versions.deploy' &&
-          args.versions.some((version) => version.versionId === 'v2' && version.percentage === 100),
-      ),
-    ).toBe(true);
+      runner.mock.calls.filter(([args]) => args.type === 'versions.deploy').map(([args]) => args),
+    ).toEqual([
+      expect.objectContaining({ versions: [{ versionId: 'v1', percentage: 100 }] }),
+      expect.objectContaining({
+        versions: [{ versionId: 'v2', percentage: 100 }],
+        bypassDeploymentChecks: true,
+      }),
+    ]);
+    expect(
+      runner.mock.calls.find(([args]) => args.type === 'versions.deploy')![0],
+    ).not.toHaveProperty('bypassDeploymentChecks');
     expect(runner.mock.calls.filter(([args]) => args.type === 'triggers.deploy')).toHaveLength(2);
     expect(runner.mock.calls.filter(([args]) => args.type === 'triggers.clear-crons')).toHaveLength(
       1,

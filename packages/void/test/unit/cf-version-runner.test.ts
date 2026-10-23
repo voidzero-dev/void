@@ -2573,6 +2573,44 @@ it('preserves activation metadata and sorts cf version history for the existing 
   }
 });
 
+it.each([undefined, false, true])(
+  'passes bypassDeploymentChecks=%s only when true with and without a deployment body',
+  async (bypassDeploymentChecks) => {
+    const prepared = await output();
+    try {
+      const calls: Array<Array<string>> = [];
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+        runCf: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: '', stderr: '' };
+        },
+      });
+      for (const message of [undefined, 'Void automatic rollback after readiness failed.']) {
+        const result = await runner(
+          {
+            type: 'versions.deploy',
+            workerName: 'void-test',
+            versions: [{ versionId: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
+            message,
+            bypassDeploymentChecks,
+          },
+          { capture: false },
+        );
+        expect(result.status).toBe(0);
+        const args = calls.at(-1)!;
+        expect(args.includes('--bypass-deployment-checks')).toBe(bypassDeploymentChecks === true);
+        expect(args.includes('--body')).toBe(message !== undefined);
+        expect(args).toContain('--versions');
+      }
+    } finally {
+      prepared.dispose();
+    }
+  },
+);
+
 it.each(['newest-first', 'oldest-first'] as const)(
   'reads the actual latest ten versions when cf pages %s',
   async (order) => {

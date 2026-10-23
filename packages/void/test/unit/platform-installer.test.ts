@@ -1869,6 +1869,7 @@ describe('platform installer', () => {
         { versionId: 'version-b', percentage: 75 },
       ],
       message: 'Void platform restoration deployment-intervening',
+      bypassDeploymentChecks: true,
     });
     expect(commands.some((args) => args.type.endsWith('.delete'))).toBe(false);
   });
