@@ -705,36 +705,42 @@ describe('writeIsrCache — variant cap', () => {
   } {
     const kvStore = seed;
     const env = {
-      ISR_CACHE: {
-        getWithMetadata: async (key: string) => {
-          const value = kvStore.get(key);
+      STATIC_ASSETS_R2: {
+        head: async (key: string) => (kvStore.has(key.slice('isr-cache/'.length)) ? { key } : null),
+        get: async (key: string) => {
+          const value = kvStore.get(key.slice('isr-cache/'.length));
           return value
             ? {
-                value,
-                metadata: {
-                  s: 200,
-                  c: Date.now(),
-                  t: 60,
-                  p: SHARED_CACHE_POLICY_VERSION,
+                arrayBuffer: async () => value,
+                customMetadata: {
+                  isr: JSON.stringify({
+                    s: 200,
+                    c: Date.now(),
+                    t: 60,
+                    p: SHARED_CACHE_POLICY_VERSION,
+                  }),
                 },
               }
-            : { value: null, metadata: null };
+            : null;
         },
         put: async (key: string, value: ArrayBuffer) => {
-          kvStore.set(key, value);
+          kvStore.set(key.slice('isr-cache/'.length), value);
         },
         delete: async (key: string) => {
-          kvStore.delete(key);
+          kvStore.delete(key.slice('isr-cache/'.length));
         },
         list: async (opts: { prefix: string; limit?: number; cursor?: string }) => {
-          const all = [...kvStore.keys()].filter((k) => k.startsWith(opts.prefix)).sort();
+          const all = [...kvStore.keys()]
+            .map((key) => `isr-cache/${key}`)
+            .filter((k) => k.startsWith(opts.prefix))
+            .sort();
           const limit = opts.limit ?? 1000;
           const start = opts.cursor ? parseInt(opts.cursor, 10) : 0;
           const slice = all.slice(start, start + limit);
           const list_complete = start + limit >= all.length;
           return {
-            keys: slice.map((name) => ({ name })),
-            list_complete,
+            objects: slice.map((key) => ({ key })),
+            truncated: !list_complete,
             cursor: list_complete ? '' : String(start + limit),
           };
         },
@@ -791,6 +797,22 @@ describe('writeIsrCache — variant cap', () => {
     expect(kvStore.has(isrCacheKey('p', 'd', 'h', '/search', 'https://h/search?q=OVERFLOW'))).toBe(
       false,
     );
+  });
+
+  it('does not treat an empty nonfinal R2 page as free variant capacity', async () => {
+    const { env, kvStore } = createKvMock();
+    seedVariants(kvStore, MAX_ISR_VARIANTS_PER_PATH);
+    const list = vi.spyOn(env.STATIC_ASSETS_R2, 'list').mockResolvedValueOnce({
+      objects: [],
+      truncated: true,
+      cursor: '0',
+      delimitedPrefixes: [],
+    });
+    const url = 'https://h/search?q=OVERFLOW';
+    await writeIsrCache(env, 'p', 'd', 'h', '/search', new Response('fresh'), 600, url);
+    expect(list).toHaveBeenCalledTimes(2);
+    expect(kvStore.has(isrCacheKey('p', 'd', 'h', '/search', url))).toBe(false);
+    expect(kvStore.size).toBe(MAX_ISR_VARIANTS_PER_PATH);
   });
 
   it('still updates an existing variant past the cap (revalidation must keep working)', async () => {

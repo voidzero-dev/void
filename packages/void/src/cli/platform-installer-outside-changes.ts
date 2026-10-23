@@ -7,7 +7,10 @@ import {
   PlatformCloudflareApiError,
   type PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
-import { interruptedWorkerCutover } from './platform-installer-cutover.ts';
+import {
+  interruptedWorkerCutover,
+  workerCutoverUpdatesSecrets,
+} from './platform-installer-cutover.ts';
 import {
   platformWorkerVersionHasTriggerRecord,
   readActivePlatformWorkerDeployment,
@@ -116,9 +119,9 @@ function needsReviewUpload(change: PlatformWorkerOutsideChange): boolean {
  * The earlier version of each Worker that the installer makes active again
  * before it deploys. A run that stopped during a Worker cutover left Void's
  * version active, and the next run first restores the earlier one. Like the
- * installer, keep Void's version while the platform changes to configurable
- * sign-in and already requires sign-in. Every Worker that this check reads
- * exists, so the installation had Workers before.
+ * installer, retain rotated credentials or a configurable sign-in transition
+ * that already requires sign-in. Every Worker that this check reads exists,
+ * so the installation had Workers before.
  */
 async function restoredPlatformWorkerVersions(
   installation: PlatformOutsideChangeInstallation,
@@ -127,6 +130,7 @@ async function restoredPlatformWorkerVersions(
   const cutover = interruptedWorkerCutover(installation.manifest);
   if (
     !cutover ||
+    workerCutoverUpdatesSecrets(installation.manifest, cutover.generation) ||
     (installation.manifest.deployment.authentication.configurable !== true &&
       runtime.manifest.authenticationProtocolVersion === 1 &&
       (await installation.readAuthenticationState?.())?.sessionsRequired === true)

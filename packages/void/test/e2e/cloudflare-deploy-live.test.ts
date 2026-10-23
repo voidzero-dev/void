@@ -1,16 +1,15 @@
-import { existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
+import { readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CloudflareOperation } from '@void/deploy-cloudflare';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import {
-  encodeCloudflareOperation,
-  decodeCloudflareOperationResult,
-} from '../../src/cli/cloudflare-process.ts';
+import { createIsolatedPlayground } from '../../../../test/integration-helpers.ts';
+import { renderVoidConfig } from '../../src/config-write.ts';
+import { readConfig } from '../../src/config.ts';
 
 // Gated live-account e2e for the `void deploy --platform cloudflare` path. Runs only when
 // VOID_E2E_CF_TOKEN and VOID_E2E_CF_ACCOUNT_ID are set, and skips each test otherwise. See
-// README.md in this directory for prerequisites, CI wiring, and resource naming/cleanup.
+// README.md in this directory for prerequisites, CI wiring, and resource naming and retention.
 
 // Read env inside hooks and tests, never at module load: Vitest collects this file before the
 // runner injects the job env, so a top-level read sees empty credentials.
@@ -30,150 +29,52 @@ const NO_CREDS_NOTE =
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PACKAGE_ROOT = join(ROOT, 'packages', 'void');
 const CLI_ENTRY = join(PACKAGE_ROOT, 'dist', 'cli', 'cli.mjs');
-const CF_BIN = join(PACKAGE_ROOT, 'node_modules', 'cf', 'bin', 'cf');
-const OPERATION_ENTRY = join(PACKAGE_ROOT, 'dist', 'cli', 'cloudflare-operation-process.mjs');
-// `spawn.sync` blocks the event loop, so Vitest cannot time out a hung call and teardown would
-// never run. Bound every spawn below its hook timeout.
+// `spawn.sync` blocks the event loop, so Vitest cannot time out a hung call.
+// Bound every spawn below its hook timeout.
 const DEPLOY_TIMEOUT_MS = 480_000;
-const CF_TIMEOUT_MS = 120_000;
 const REQUEST_TIMEOUT_MS = 20_000;
-// Total cf time per hook, since several blocking calls run back to back. Setup: 90s +
-// DEPLOY_TIMEOUT_MS < 600s; teardown: 200s + the ~64s worker probe < 300s.
-const SETUP_CF_BUDGET_MS = 90_000;
-const TEARDOWN_CF_BUDGET_MS = 200_000;
-
-// The SPA playground uses D1, KV and a cron.
-const APP = join(ROOT, 'playground', 'spa');
-const APP_WRANGLER = join(APP, 'wrangler.jsonc');
-
-// A unique name per run keeps overlapping runs apart; the shared prefix keeps orphans greppable.
-// D1/KV names mirror the provisioner's `suffixedResourceName`.
-function uniqueRunSuffix(): string {
-  // `||`, not `??`: vite.config.ts forwards an unset VOID_E2E_RUN_ID as ''.
-  const raw =
-    process.env.VOID_E2E_RUN_ID ||
-    `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
-  // Cloudflare names are lowercase [a-z0-9-], cannot start or end with '-', and max out at 63 chars.
-  const cleaned = raw
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .slice(0, 28)
-    .replace(/^-+|-+$/g, '');
-  return cleaned || 'local';
-}
-let WORKER_NAME = '';
-let D1_NAME = '';
-let KV_TITLE = '';
-function computeResourceNames(): void {
-  WORKER_NAME = `void-e2e-cf-deploy-${uniqueRunSuffix()}`;
-  D1_NAME = `${WORKER_NAME}-db`;
-  KV_TITLE = `${WORKER_NAME}-kv`;
-}
-
-const COMPAT_DATE = '2026-02-24';
-
-let wranglerSnapshotTaken = false;
-let wranglerOriginal: string | undefined;
+let app = '';
+let workerName = '';
+let d1Name = '';
+let kvTitle = '';
 let deployOutput = '';
 let deployStatus: number | null = null;
-// Teardown deletes only after the ownership gate proved the names were free before the deploy.
-let ownershipVerified = false;
+let firstResourceIds: ReturnType<typeof resourceIds>;
+let createdEmail = '';
+let kvKey = '';
+let kvValue = '';
 
-/** The credentialed env every real Cloudflare call (deploy + teardown) shares. */
+// Randomness belongs in test records, never in retained remote resource names.
+function uniqueRecordSuffix(): string {
+  return `${Date.now().toString(36)}-${randomUUID().slice(0, 8)}`;
+}
+
+function resourceIds() {
+  const config = JSON.parse(readFileSync(join(app, '.void-wrangler.jsonc'), 'utf8')) as {
+    d1_databases?: Array<{ binding: string; database_id: string }>;
+    kv_namespaces?: Array<{ binding: string; id: string }>;
+  };
+  return {
+    d1: config.d1_databases?.find((binding) => binding.binding === 'DB')?.database_id,
+    kv: config.kv_namespaces?.find((binding) => binding.binding === 'KV')?.id,
+  };
+}
+
+/** The credentialed env every real Cloudflare call shares. */
 function cloudEnv(): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     CLOUDFLARE_API_TOKEN: cfToken(),
     CLOUDFLARE_ACCOUNT_ID: cfAccountId(),
   };
-  // The direct fetches use the public api.cloudflare.com, so cf must too. Otherwise teardown could
-  // miss a worker deployed to another API base and leak it.
+  // The CLI receives only its standard token variable, which it strips from app builds.
+  delete env.VOID_E2E_CF_TOKEN;
+  // The direct fetches and the CLI must use the same public Cloudflare API.
   delete env.CLOUDFLARE_API_BASE_URL;
   delete env.CF_API_BASE_URL;
   delete env.WRANGLER_API_ENVIRONMENT;
   delete env.CLOUDFLARE_COMPLIANCE_REGION;
   return env;
-}
-
-// Deadline for the current hook's total cf time (see SETUP_/TEARDOWN_CF_BUDGET_MS).
-let cfDeadline = Number.POSITIVE_INFINITY;
-
-/** Best-effort pinned cf invocation for setup and teardown. */
-function cf(args: Array<string> | CloudflareOperation): {
-  status: number;
-  stdout: string;
-  output: string;
-} {
-  // Once the hook budget is spent, fail the call instead of spawning; every caller fails closed.
-  const remaining = cfDeadline - Date.now();
-  if (remaining <= 0) {
-    return {
-      status: 1,
-      stdout: '',
-      output: `cf ${Array.isArray(args) ? args.join(' ') : args.type} skipped — hook Cloudflare time budget exhausted`,
-    };
-  }
-  const res = spawn.sync(
-    process.execPath,
-    Array.isArray(args) ? [CF_BIN, ...args] : [OPERATION_ENTRY, ...encodeCloudflareOperation(args)],
-    {
-      cwd: APP,
-      encoding: 'utf8',
-      maxBuffer: 10 * 1024 * 1024,
-      env: { ...cloudEnv(), CF_DELEGATION: '1' },
-      timeout: Math.min(CF_TIMEOUT_MS, remaining),
-    },
-  );
-  const decoded = Array.isArray(args)
-    ? res
-    : decodeCloudflareOperationResult({
-        status: res.status,
-        stdout: res.stdout ?? '',
-        stderr: res.stderr ?? '',
-        signal: res.signal,
-        error: res.error?.message,
-      });
-  const stdout =
-    'data' in decoded && decoded.data !== undefined
-      ? JSON.stringify(decoded.data)
-      : (decoded.stdout ?? '');
-  const stderr = decoded.stderr ?? '';
-  // Parse JSON from `stdout` only: cf can print notices to stderr on success.
-  return {
-    status: decoded.status ?? 1,
-    stdout,
-    output: `${stdout}${stderr}${res.error ? `\n${res.error}` : ''}`,
-  };
-}
-
-/**
- * Ask the CF API whether the worker exists: `cf` exits nonzero for a missing worker too, so its
- * exit code cannot tell. Returns 'unknown' after three tries without a 200 or 404.
- */
-async function workerExistence(): Promise<'exists' | 'absent' | 'unknown'> {
-  for (let attempt = 0; attempt < 3; attempt++) {
-    try {
-      const res = await fetch(
-        `https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/workers/scripts/${WORKER_NAME}`,
-        {
-          headers: { Authorization: `Bearer ${cfToken()}` },
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-        },
-      );
-      if (res.status === 200) {
-        return 'exists';
-      }
-      if (res.status === 404) {
-        return 'absent';
-      }
-    } catch {
-      // Retry network errors.
-    }
-    if (attempt < 2) {
-      await new Promise((resolve) => setTimeout(resolve, 2000));
-    }
-  }
-  return 'unknown';
 }
 
 /** Extract the deployed workers.dev URL the CLI prints on a successful deploy. */
@@ -252,7 +153,7 @@ async function fetchWithRetry(
 async function workersDevEnabled(): Promise<string> {
   try {
     const res = await fetch(
-      `https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/workers/scripts/${WORKER_NAME}/subdomain`,
+      `https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/workers/scripts/${workerName}/subdomain`,
       {
         headers: { Authorization: `Bearer ${cfToken()}` },
         signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
@@ -268,7 +169,7 @@ async function workersDevEnabled(): Promise<string> {
 /** Authenticated GET against the Cloudflare API for THIS deployed worker (Bearer `cfToken()`). */
 async function cfWorkerApi(path: string, signal?: AbortSignal): Promise<Response> {
   return fetch(
-    `https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/workers/scripts/${WORKER_NAME}${path}`,
+    `https://api.cloudflare.com/client/v4/accounts/${cfAccountId()}/workers/scripts/${workerName}${path}`,
     {
       headers: { Authorization: `Bearer ${cfToken()}` },
       signal: signal
@@ -279,83 +180,55 @@ async function cfWorkerApi(path: string, signal?: AbortSignal): Promise<Response
 }
 
 describe('void deploy --platform cloudflare (live account)', () => {
-  beforeAll(async () => {
+  beforeAll(() => {
     if (!e2eEnabled()) {
       return;
     }
-    cfDeadline = Date.now() + SETUP_CF_BUDGET_MS;
-    computeResourceNames();
-
-    // Ownership gate: provisioning adopts an existing D1/KV with the same name and teardown deletes
-    // by name, so refuse to run on any collision. An ambiguous lookup counts as a collision.
-    const collisions: Array<string> = [];
-
-    const worker = await workerExistence();
-    if (worker === 'exists') {
-      collisions.push(`worker ${WORKER_NAME}`);
-    } else if (worker === 'unknown') {
-      collisions.push(`worker ${WORKER_NAME} (could not confirm it is free — lookup errored)`);
-    }
-
-    // `d1 info` cannot tell a missing database from an error, so list them all.
-    const d1List = cf({ type: 'd1.list' });
-    if (d1List.status !== 0) {
-      collisions.push(`d1 database ${D1_NAME} (could not list databases to rule out a collision)`);
-    } else {
-      try {
-        const databases = JSON.parse(d1List.stdout) as Array<{ name: string }>;
-        if (databases.some((d) => d.name === D1_NAME)) {
-          collisions.push(`d1 database ${D1_NAME}`);
-        }
-      } catch {
-        collisions.push(
-          `d1 database ${D1_NAME} (non-JSON database list — cannot rule out a collision)`,
-        );
-      }
-    }
-
-    const kvList = cf({ type: 'kv.namespace.list' });
-    if (kvList.status !== 0) {
-      collisions.push(
-        `kv namespace ${KV_TITLE} (could not list namespaces to rule out a collision)`,
-      );
-    } else {
-      try {
-        const namespaces = JSON.parse(kvList.stdout) as Array<{ title: string }>;
-        if (namespaces.some((n) => n.title === KV_TITLE)) {
-          collisions.push(`kv namespace ${KV_TITLE}`);
-        }
-      } catch {
-        collisions.push(
-          `kv namespace ${KV_TITLE} (non-JSON namespace list — cannot rule out a collision)`,
-        );
-      }
-    }
-    if (collisions.length > 0) {
+    const namespace = process.env.VOID_E2E_NAMESPACE?.trim();
+    if (!namespace) {
       throw new Error(
-        'live e2e refuses to run — these throwaway-named resources already exist in the target ' +
-          'account, so provisioning would adopt/migrate them and teardown would delete them ' +
-          `(risking data this test does not own):\n  ${collisions.join('\n  ')}\n` +
-          'Remove them (or change WORKER_NAME) and rerun.',
+        'Set VOID_E2E_NAMESPACE to a stable namespace reserved for this test account.',
       );
     }
-    ownershipVerified = true;
+    workerName = `void-e2e-cf-deploy-${namespace}`;
+    d1Name = `${workerName}-db`;
+    kvTitle = `${workerName}-kv`;
+    app = createIsolatedPlayground(ROOT, 'playground/spa').root;
+    // Start from fixture source, not an operator's environment or old provider identity.
+    for (const name of readdirSync(app)) {
+      if (
+        name === '.env' ||
+        name.startsWith('.env.') ||
+        name === '.dev.vars' ||
+        name.startsWith('.dev.vars.') ||
+        [
+          '.void-wrangler.jsonc',
+          'void.lock.json',
+          'wrangler.jsonc',
+          'wrangler.json',
+          'wrangler.toml',
+        ].includes(name)
+      ) {
+        rmSync(join(app, name), { force: true });
+      }
+    }
 
-    // Snapshot before writing so an early failure never deletes a local file.
-    wranglerOriginal = existsSync(APP_WRANGLER) ? readFileSync(APP_WRANGLER, 'utf-8') : undefined;
-    wranglerSnapshotTaken = true;
-
-    // No D1/KV ids, so the deploy must provision them. `account_id` pins every step to the test
-    // account. The deploy migrates this file into void.config.ts.
-    const overlay = {
-      name: WORKER_NAME,
-      compatibility_date: COMPAT_DATE,
-      account_id: cfAccountId(),
-    };
-    writeFileSync(APP_WRANGLER, `${JSON.stringify(overlay, null, 2)}\n`);
+    // The explicit account-local namespace is reserved for this suite. The production provisioner
+    // discovers and pins its actual D1/KV IDs, including on retry after a partial deployment.
+    const config = readConfig(app);
+    writeFileSync(
+      join(app, 'void.config.ts'),
+      renderVoidConfig({
+        ...config,
+        cloudflare: {
+          name: workerName,
+          account_id: cfAccountId(),
+        },
+      }),
+    );
 
     const res = spawn.sync('node', [CLI_ENTRY, 'deploy', '--platform', 'cloudflare'], {
-      cwd: APP,
+      cwd: app,
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
       env: cloudEnv(),
@@ -365,82 +238,25 @@ describe('void deploy --platform cloudflare (live account)', () => {
     deployOutput = `${res.stdout ?? ''}${res.stderr ?? ''}${res.error ? `\n${res.error}` : ''}`;
   }, 600_000);
 
-  afterAll(async () => {
-    // Independent best-effort deletes, even after a failed deploy. A failed delete or a lookup that
-    // cannot confirm a resource is gone is collected and thrown after the config restore.
-    const failures: Array<string> = [];
-    const attemptDelete = (label: string, args: Array<string>): void => {
-      const res = cf(args);
-      if (res.status !== 0) {
-        failures.push(`${label} (exit ${res.status})\n${res.output.trim()}`);
-      }
-    };
-    if (e2eEnabled() && ownershipVerified) {
-      cfDeadline = Date.now() + TEARDOWN_CF_BUDGET_MS;
-      // Skip only a worker the API confirms absent; 'unknown' still tries the delete.
-      const worker = await workerExistence();
-      if (worker !== 'absent') {
-        attemptDelete(`worker ${WORKER_NAME}`, ['workers', 'delete', WORKER_NAME, '--force']);
-      }
-      const d1List = cf({ type: 'd1.list' });
-      if (d1List.status !== 0) {
-        failures.push(`d1 list (exit ${d1List.status})\n${d1List.output.trim()}`);
-      } else {
-        try {
-          const databases = JSON.parse(d1List.stdout) as Array<{ name: string; uuid: string }>;
-          const database = databases.find((d) => d.name === D1_NAME);
-          if (database && typeof database.uuid === 'string' && database.uuid) {
-            attemptDelete(`d1 ${D1_NAME}`, ['d1', 'delete', database.uuid, '--force']);
-          } else if (database) {
-            failures.push(`d1 ${D1_NAME} has no ID — delete the database manually`);
-          }
-        } catch {
-          failures.push(
-            `d1 list returned non-JSON output — delete the ${D1_NAME} database manually`,
-          );
-        }
-      }
-      // KV delete needs the namespace id; match the exact title.
-      const list = cf({ type: 'kv.namespace.list' });
-      if (list.status !== 0) {
-        failures.push(`kv namespace list (exit ${list.status})\n${list.output.trim()}`);
-      } else {
-        try {
-          const namespaces = JSON.parse(list.stdout) as Array<{ id: string; title: string }>;
-          const ns = namespaces.find((n) => n.title === KV_TITLE);
-          if (ns && typeof ns.id === 'string' && ns.id) {
-            attemptDelete(`kv ${KV_TITLE}`, ['kv', 'namespaces', 'delete', ns.id, '--force']);
-          } else if (ns) {
-            failures.push(`kv ${KV_TITLE} has no ID — delete the namespace manually`);
-          }
-        } catch {
-          failures.push(
-            `kv namespace list returned non-JSON output — delete the ${KV_TITLE} namespace manually`,
-          );
-        }
-      }
+  afterAll(() => {
+    if (app) {
+      // Keep the lockfile and remote resources for the next run and any failure investigation.
+      console.info(
+        `Live E2E targets retained when created: ${workerName}, ${d1Name}, ${kvTitle}. Fixture: ${app}`,
+      );
     }
-    // Restore the root config before surfacing teardown failures.
-    if (wranglerSnapshotTaken) {
-      if (wranglerOriginal === undefined) {
-        rmSync(APP_WRANGLER, { force: true });
-      } else {
-        writeFileSync(APP_WRANGLER, wranglerOriginal);
-      }
-    }
-    if (failures.length > 0) {
-      throw new Error(`live e2e teardown failed — manual cleanup needed:\n${failures.join('\n')}`);
-    }
-  }, 300_000);
+  });
 
   it('deploys the worker to the live account', (ctx) => {
     ctx.skip(!e2eEnabled(), NO_CREDS_NOTE);
     expect(deployStatus, deployOutput).toBe(0);
     const url = extractWorkerUrl(deployOutput);
     expect(url, deployOutput).toBeDefined();
-    // A concurrent local run sharing the playground could have deployed another worker.
     const workerLabel = new URL(url!).hostname.split('.')[0];
-    expect(workerLabel, `deployed host for ${url}`).toBe(WORKER_NAME);
+    expect(workerLabel, `deployed host for ${url}`).toBe(workerName);
+    firstResourceIds = resourceIds();
+    expect(firstResourceIds.d1).toBeTruthy();
+    expect(firstResourceIds.kv).toBeTruthy();
   });
 
   it('serves a live 200 from the deployed worker', async (ctx) => {
@@ -451,7 +267,7 @@ describe('void deploy --platform cloudflare (live account)', () => {
     const res = await fetchWithRetry(url, {}, 40, 3000, ctx.signal);
     const diagnostic =
       res.status === 200 ? '' : ` — GET ${url} → ${res.status}; ${await workersDevEnabled()}`;
-    expect(res.status, `worker ${WORKER_NAME}${diagnostic}`).toBe(200);
+    expect(res.status, `worker ${workerName}${diagnostic}`).toBe(200);
   }, 200_000);
 
   it('persists data through the live D1 binding', async (ctx) => {
@@ -459,20 +275,15 @@ describe('void deploy --platform cloudflare (live account)', () => {
     const base = extractWorkerUrl(deployOutput);
     expect(base, deployOutput).toBeDefined();
     const root = base!.replace(/\/$/, '');
-    // A 500 means the remote D1 migration or binding failed. The live-200 test already waited for
-    // the route, so shorter retries only cover cold start.
-    const email = `e2e-${uniqueRunSuffix()}@example.com`;
-    const created = await fetchWithRetry(
-      `${root}/api/users`,
-      {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ name: 'E2E User', email }),
-      },
-      15,
-      2000,
-      ctx.signal,
-    );
+    // Submit once: a failed response does not establish that the insert was rejected.
+    const email = `e2e-${uniqueRecordSuffix()}@example.com`;
+    createdEmail = email;
+    const created = await fetch(`${root}/api/users`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ name: 'E2E User', email }),
+      signal: AbortSignal.any([AbortSignal.timeout(REQUEST_TIMEOUT_MS), ctx.signal]),
+    });
     const createdBody = await created.text();
     expect(created.status, createdBody).toBe(200);
     expect(JSON.parse(createdBody)).toEqual({ created: true });
@@ -492,8 +303,10 @@ describe('void deploy --platform cloudflare (live account)', () => {
     const base = extractWorkerUrl(deployOutput);
     expect(base, deployOutput).toBeDefined();
     const root = base!.replace(/\/$/, '');
-    const key = `probe-${uniqueRunSuffix()}`;
+    const key = `probe-${uniqueRecordSuffix()}`;
     const value = `kv-${Date.now().toString(36)}`;
+    kvKey = key;
+    kvValue = value;
     const put = await fetchWithRetry(
       `${root}/api/kv/${key}`,
       { method: 'PUT', body: value },
@@ -544,7 +357,7 @@ describe('void deploy --platform cloudflare (live account)', () => {
     ctx.skip(!e2eEnabled(), NO_CREDS_NOTE);
     // Runs last: redeploys with the config the first deploy wrote, reusing the worker, D1 and KV.
     const res = spawn.sync('node', [CLI_ENTRY, 'deploy', '--platform', 'cloudflare'], {
-      cwd: APP,
+      cwd: app,
       encoding: 'utf8',
       maxBuffer: 20 * 1024 * 1024,
       env: cloudEnv(),
@@ -555,12 +368,18 @@ describe('void deploy --platform cloudflare (live account)', () => {
     // Read the URL from this deploy's own output, not the first deploy's.
     const base = extractWorkerUrl(output);
     expect(base, output).toBeDefined();
-    expect(new URL(base!).hostname.split('.')[0], output).toBe(WORKER_NAME);
+    expect(new URL(base!).hostname.split('.')[0], output).toBe(workerName);
     const root = base!.replace(/\/$/, '');
-    // /api/users reads D1, so a dropped binding would return 500.
+    expect(resourceIds()).toEqual(firstResourceIds);
+    // Verify the records survive the update, not only that the bindings answer.
     const served = await fetchWithRetry(`${root}/api/hello`, {}, 15, 2000, ctx.signal);
     expect(served.status).toBe(200);
     const dbRoute = await fetchWithRetry(`${root}/api/users`, {}, 15, 2000, ctx.signal);
-    expect(dbRoute.status, await dbRoute.text()).toBe(200);
+    const users = (await dbRoute.json()) as Array<{ email: string }>;
+    expect(dbRoute.status).toBe(200);
+    expect(users.some((user) => user.email === createdEmail)).toBe(true);
+    const kv = await fetchWithRetry(`${root}/api/kv/${kvKey}`, {}, 40, 2000, ctx.signal);
+    expect(kv.status).toBe(200);
+    expect(await kv.text()).toBe(kvValue);
   }, 600_000);
 });

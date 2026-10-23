@@ -650,6 +650,80 @@ describe('platform installation planning', () => {
       ),
     ).rejects.toThrow('KV access denied');
   });
+
+  it('reports both unpaid-account prerequisites from the existing read-only inventory', async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    const provider = new PlatformCloudflareClient('token', {
+      fetcher: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        requests.push({ path, method: init?.method ?? 'GET' });
+        const code = path.endsWith('/r2/buckets') ? 10042 : 10121;
+        return Response.json(
+          { success: false, errors: [{ code, message: 'Account prerequisite missing' }] },
+          { status: 403 },
+        );
+      },
+    });
+    const error = await createPlatformInstallPlan(
+      client({
+        listR2Buckets: provider.listR2Buckets.bind(provider),
+        listDispatchNamespaces: provider.listDispatchNamespaces.bind(provider),
+      }),
+      input,
+      null,
+    ).catch((error) => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.message).toContain('Cloudflare R2 is not enabled');
+    expect(error.message).toContain('Workers for Platforms requires a paid subscription');
+    expect(error.message).toContain('retry the same command');
+    expect(error.message).not.toContain('--resume');
+    expect(error.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 403, requestPath: '/accounts/account/r2/buckets' }),
+        expect.objectContaining({
+          status: 403,
+          requestPath: '/accounts/account/workers/dispatch/namespaces',
+        }),
+      ]),
+    );
+    expect(error.errors).toHaveLength(2);
+    expect(requests).toEqual([
+      { path: '/client/v4/accounts/account/r2/buckets', method: 'GET' },
+      { path: '/client/v4/accounts/account/workers/dispatch/namespaces', method: 'GET' },
+    ]);
+  });
+
+  it.each([401, 403, 500])(
+    'does not replace an HTTP %s inventory failure with a known prerequisite',
+    async (status) => {
+      const unknown = new PlatformCloudflareApiError(
+        'Unrelated provider failure',
+        status,
+        '/accounts/account/workers/dispatch/namespaces',
+      );
+      const provider = new PlatformCloudflareClient('token', {
+        fetcher: async () =>
+          Response.json(
+            { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+            { status: 403 },
+          ),
+      });
+      await expect(
+        createPlatformInstallPlan(
+          client({
+            listR2Buckets: provider.listR2Buckets.bind(provider),
+            listDispatchNamespaces: async () => {
+              await Promise.resolve();
+              throw unknown;
+            },
+          }),
+          input,
+          null,
+        ),
+      ).rejects.toBe(unknown);
+    },
+  );
+
   it('names the DNS permission when the token cannot read DNS records', async () => {
     const deniedDns = async () => {
       throw new PlatformCloudflareApiError('Authentication error', 403, '/zones/zone/dns_records');

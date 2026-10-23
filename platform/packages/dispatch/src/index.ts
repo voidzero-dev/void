@@ -705,9 +705,11 @@ const dispatcher = {
       return createMaintenanceResponse(request);
     }
     const startTime = Date.now();
-    // Budget for the bounded hot paths (static-asset reads, primary dispatch).
-    // See `resolveTimeoutMs` for the operator kill switch.
+    // Keep platform storage/background work bounded. Foreground user workers
+    // follow the client's lifetime unless the operator configures a deadline:
+    // returning early can cancel a mutation after its external side effect.
     const timeoutMs = resolveTimeoutMs(env.DISPATCH_TIMEOUT_MS);
+    const workerTimeoutMs = resolveTimeoutMs(env.DISPATCH_TIMEOUT_MS, 0);
 
     // Block Void-internal routes from external HTTP access.
     // Only /__void/* is reserved by the platform — other __ prefixes
@@ -885,7 +887,7 @@ const dispatcher = {
         method: request.method,
         url: request.url,
         status: 503,
-        timeoutMs,
+        timeoutMs: workerTimeoutMs,
       });
       return meter(timeoutResponse(503, 'dispatch'));
     };
@@ -1335,11 +1337,15 @@ const dispatcher = {
           requestType = 'isr';
           const worker = getWorker(env, routing);
           const isrWorkerStartedAt = Date.now();
+          const isrWorkerDeadline =
+            env.DISPATCH_TIMEOUT_MS === undefined
+              ? undefined
+              : { startedAt: isrWorkerStartedAt, timeoutMs: workerTimeoutMs };
           let workerResponse: Response;
           try {
             workerResponse = await withTimeout(
               worker.fetch(workerRequest),
-              remainingTimeoutBudget(isrWorkerStartedAt, timeoutMs, 'dispatch'),
+              remainingTimeoutBudget(isrWorkerStartedAt, workerTimeoutMs, 'dispatch'),
               'dispatch',
             );
           } catch (error) {
@@ -1364,7 +1370,7 @@ const dispatcher = {
               pathname,
               response: workerResponse,
               userAgent: request.headers.get('user-agent'),
-              deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+              deadline: isrWorkerDeadline,
             });
             workerResponse = assetFallbackResult.response;
             workerResponseFailureKind = assetFallbackResult.failureKind;
@@ -1383,7 +1389,7 @@ const dispatcher = {
                 originalRequestUrl: request.url,
                 originalUrlHeader,
                 originalUrlVariant: isrOriginalUrlVariant,
-                deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+                deadline: isrWorkerDeadline,
               });
             } catch (error) {
               if (error instanceof DispatchTimeoutError) {
@@ -1403,7 +1409,7 @@ const dispatcher = {
                   pathname: fallbackResult.pathname,
                   response: workerResponse,
                   userAgent: request.headers.get('user-agent'),
-                  deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+                  deadline: isrWorkerDeadline,
                 });
                 workerResponse = assetFallbackResult.response;
                 workerResponseFailureKind = assetFallbackResult.failureKind;
@@ -1730,9 +1736,13 @@ const dispatcher = {
       const dispatchReqForFallback =
         hasBodyMethod && routing.fallbackRules?.length ? dispatchReq.clone() : dispatchReq;
       const workerDispatchStartedAt = Date.now();
+      const workerDeadline =
+        env.DISPATCH_TIMEOUT_MS === undefined
+          ? undefined
+          : { startedAt: workerDispatchStartedAt, timeoutMs: workerTimeoutMs };
       let response = await withTimeout(
         worker.fetch(dispatchReq),
-        remainingTimeoutBudget(workerDispatchStartedAt, timeoutMs, 'dispatch'),
+        remainingTimeoutBudget(workerDispatchStartedAt, workerTimeoutMs, 'dispatch'),
         'dispatch',
       );
       let isEventStream = isEventStreamResponse(response);
@@ -1748,7 +1758,7 @@ const dispatcher = {
           pathname,
           response,
           userAgent: request.headers.get('user-agent'),
-          deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+          deadline: workerDeadline,
         });
         response = assetFallbackResult.response;
         responseFailureKind = assetFallbackResult.failureKind;
@@ -1776,7 +1786,7 @@ const dispatcher = {
           originalRequestUrl: request.url,
           originalUrlHeader,
           originalUrlVariant,
-          deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+          deadline: workerDeadline,
         });
         if (fallbackResult.applied) {
           writebackFallbackApplied = true;
@@ -1792,7 +1802,7 @@ const dispatcher = {
               pathname,
               response,
               userAgent: request.headers.get('user-agent'),
-              deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+              deadline: workerDeadline,
             });
             response = assetFallbackResult.response;
             responseFailureKind = assetFallbackResult.failureKind;

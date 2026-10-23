@@ -314,6 +314,10 @@ describe('DELETE /projects/:id', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'full-app');
     mockCfApi();
+    const isrKey = `isr-cache/${project.id}/isr/v3/dpl_test1/full-app.void.app/page`;
+    const otherIsrKey = 'isr-cache/other-project/isr/v3/other/other.void.app/page';
+    await env.STATIC_ASSETS_R2.put(isrKey, 'cached page');
+    await env.STATIC_ASSETS_R2.put(otherIsrKey, 'unrelated cache');
 
     await addResource(project.id, 'd1', 'd1-uuid-123', 'DB');
     await addResource(project.id, 'kv', 'kv-id-456', 'KV');
@@ -358,6 +362,8 @@ describe('DELETE /projects/:id', () => {
 
     const routing = await env.ROUTING.get('full-app');
     expect(routing).toBeNull();
+    expect(await env.STATIC_ASSETS_R2.get(isrKey)).toBeNull();
+    expect(await env.STATIC_ASSETS_R2.get(otherIsrKey)).not.toBeNull();
   });
 
   it('terminalizes in-flight builds and tears down their container DOs', async () => {

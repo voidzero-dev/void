@@ -24,6 +24,7 @@ import {
   type Db,
 } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { createIsrStore } from '../isr-store.ts';
 import { getProjectQueueName } from '../naming.ts';
 import { type DeployLogger } from '../observability/logger.ts';
 import { resolvePlanLimits } from '../plans.ts';
@@ -268,7 +269,11 @@ export async function publishWorkerDeployment(input: {
 
   const hasCrons = manifest.schedules && manifest.schedules.length > 0;
 
-  await clearIsrCache(context.env.ISR_CACHE, projectId, deployment.id);
+  await clearIsrCache(
+    createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
+    projectId,
+    deployment.id,
+  );
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
   input.currentStep = 'prerender';
@@ -331,7 +336,7 @@ export async function publishWorkerDeployment(input: {
           const headers = serializePrerenderHeaders(response);
           const body = await response.arrayBuffer();
           const packed = packIsrValue(headers, body);
-          await context.env.ISR_CACHE.put(key, packed, {
+          await createIsrStore(context.env.STATIC_ASSETS_R2).put(key, packed, {
             // `c` (createdAt) + `t` (ttl) are REQUIRED by dispatch's
             // `readIsrCache` — it returns null (permanent cold miss)
             // without them. `satisfies IsrCacheMetadata` makes any field
@@ -603,7 +608,11 @@ export async function publishWorkerDeployment(input: {
             });
           }
         }
-        await clearIsrCache(context.env.ISR_CACHE, projectId, old.id).catch((e) =>
+        await clearIsrCache(
+          createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
+          projectId,
+          old.id,
+        ).catch((e) =>
           input.logger.error('retention_cleanup', 'evicted_isr_cache_clear_failed', e, {
             evictedDeploymentId: old.id,
           }),

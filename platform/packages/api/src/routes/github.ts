@@ -1267,7 +1267,8 @@ function isValidWorkflowPath(path: string): boolean {
 // route checks the required live project capability.
 // ---------------------------------------------------------------------------
 export const githubProjectRoutes = new Hono<ApiEnv>()
-  .use('*', capabilityMiddleware('managedBuilds'))
+  // Other routers share /projects, so this gate must only cover GitHub connections.
+  .use('/:id/github', capabilityMiddleware('managedBuilds'))
 
   // Connect a project to a repo within one of the caller's installations.
   .post('/:id/github', async (context) => {

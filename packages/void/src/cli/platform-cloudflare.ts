@@ -1,4 +1,5 @@
 import { createHash, randomUUID } from 'node:crypto';
+import { formatUrl } from './output.ts';
 import { resolvePinnedApiBaseUrl } from './provision.ts';
 
 type CloudflareEnvelope<T> = Readonly<{
@@ -22,6 +23,16 @@ export class PlatformCloudflareApiError extends Error {
     this.name = 'PlatformCloudflareApiError';
     this.status = status;
     this.requestPath = requestPath;
+  }
+}
+
+export class PlatformCloudflarePrerequisiteError extends PlatformCloudflareApiError {
+  override readonly cause: PlatformCloudflareApiError;
+
+  constructor(message: string, cause: PlatformCloudflareApiError) {
+    super(message, cause.status, cause.requestPath);
+    this.name = 'PlatformCloudflarePrerequisiteError';
+    this.cause = cause;
   }
 }
 
@@ -326,11 +337,17 @@ export class PlatformCloudflareClient {
     }
     if (!response.ok || envelope.success !== true || envelope.result === undefined) {
       const details = cloudflareErrorDetails(envelope, response.status);
-      throw new PlatformCloudflareApiError(
-        `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${path.split('?')[0]}).`,
+      const requestPath = path.split('?')[0];
+      const error = new PlatformCloudflareApiError(
+        `Cloudflare API error: ${details} (HTTP ${response.status}; ${init?.method ?? 'GET'} ${requestPath}).`,
         response.status,
-        path.split('?')[0],
+        requestPath,
       );
+      const prerequisite = cloudflarePrerequisiteHelp(envelope, response.status, requestPath);
+      if (prerequisite) {
+        throw new PlatformCloudflarePrerequisiteError(prerequisite, error);
+      }
+      throw error;
     }
     return { result: envelope.result, resultInfo: envelope.result_info };
   }
@@ -1424,6 +1441,37 @@ function deletionPath(
       return `/zones/${encoded}`;
     default:
       return null;
+  }
+}
+
+function cloudflarePrerequisiteHelp(
+  envelope: CloudflareEnvelope<unknown>,
+  status: number,
+  path: string,
+): string | undefined {
+  if (status !== 403) {
+    return;
+  }
+  const [, scope, accountId, service, resource] = path.split('/');
+  if (scope !== 'accounts' || !accountId) {
+    return;
+  }
+  if (service === 'r2' && envelope.errors?.some((error) => error.code === 10042)) {
+    return (
+      'Cloudflare R2 is not enabled for this account (code 10042). ' +
+      `Complete R2 activation at ${formatUrl(`https://dash.cloudflare.com/${accountId}/r2/overview`)}, then retry the same command.`
+    );
+  }
+  if (
+    service === 'workers' &&
+    resource === 'dispatch' &&
+    envelope.errors?.some((error) => error.code === 10121)
+  ) {
+    return (
+      'Cloudflare Workers for Platforms requires a paid subscription for this account (code 10121). ' +
+      `Enable it at ${formatUrl(`https://dash.cloudflare.com/${accountId}/workers-for-platforms`)}. ` +
+      'Enterprise customers can contact their account team. Then retry the same command.'
+    );
   }
 }
 

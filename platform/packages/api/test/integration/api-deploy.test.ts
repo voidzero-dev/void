@@ -24,6 +24,7 @@ import {
   type Db,
 } from '../../src/db.ts';
 import app from '../../src/index.ts';
+import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
 import * as projectAccess from '../../src/project-access.ts';
 import * as projectIngress from '../../src/project-ingress.ts';
@@ -5537,8 +5538,10 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    // Verify ISR cache entries were written to KV (packed binary format)
-    const { value: homeValue, metadata: homeMeta } = await env.ISR_CACHE.getWithMetadata<{
+    // Verify ISR cache entries were written to authoritative R2 (packed binary format)
+    const { value: homeValue, metadata: homeMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -5552,7 +5555,7 @@ describe('Deploy with prerendering', () => {
     expect(homeMeta?.s).toBe(200);
     expect(homeMeta?.t).toBe(3600);
 
-    const { value: aboutValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
@@ -5592,7 +5595,7 @@ describe('Deploy with prerendering', () => {
       .select({ id: deployments.id })
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
-    const { value } = await env.ISR_CACHE.getWithMetadata(
+    const { value } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/data`,
       'arrayBuffer',
     );
@@ -5642,9 +5645,11 @@ describe('Deploy with prerendering', () => {
     // deployments' v2 entries remain intact.
     expect(await env.ISR_CACHE.get(`${project.id}/isr/v2/previous/about`)).toBe('previous-v2');
     expect(
-      await env.ISR_CACHE.get(
-        `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
-      ),
+      (
+        await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
+          `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+        )
+      ).value,
     ).not.toBeNull();
   });
 
@@ -5688,14 +5693,14 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     // /about should have ISR entry
-    const { value: aboutValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
 
     // /private should NOT have ISR entry
-    const { value: privateValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/private`,
       'arrayBuffer',
     );
@@ -5768,24 +5773,26 @@ describe('Deploy with prerendering', () => {
     const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
 
     // The normal 200 render is warmed.
-    const { value: warmValue, metadata: warmMetadata } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: warmValue, metadata: warmMetadata } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       p: number;
     }>(`${base}/warm`, 'arrayBuffer');
     expect(warmValue).not.toBeNull();
     expect(warmMetadata?.p).toBe(SHARED_CACHE_POLICY_VERSION);
 
     // Neither opt-out render is warmed.
-    const { value: headerOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: headerOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-header`,
       'arrayBuffer',
     );
     expect(headerOptOut).toBeNull();
-    const { value: ccOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: ccOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-cc`,
       'arrayBuffer',
     );
     expect(ccOptOut).toBeNull();
-    const { value: cookieOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: cookieOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-cookie`,
       'arrayBuffer',
     );
@@ -5841,12 +5848,12 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
     const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
 
-    const { value: otherValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: otherValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/other`,
       'arrayBuffer',
     );
     expect(otherValue).not.toBeNull();
-    const { value: privateValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/private`,
       'arrayBuffer',
     );
@@ -5899,14 +5906,14 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     // /blog/hello should have an ISR entry.
-    const { value: helloValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: helloValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/hello`,
       'arrayBuffer',
     );
     expect(helloValue).not.toBeNull();
 
     // /blog/a/b must NOT have an ISR entry (single-segment anchor).
-    const { value: nestedValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: nestedValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/a/b`,
       'arrayBuffer',
     );
@@ -5964,7 +5971,9 @@ describe('Deploy with prerendering', () => {
     // `c`) exists as bytes but is a permanent cold miss — dispatch's
     // `readIsrCache` returns null without `c`/`t`. Assert the readable shape,
     // not just presence.
-    const { value: introValue, metadata: introMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: introValue, metadata: introMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -5975,11 +5984,12 @@ describe('Deploy with prerendering', () => {
     expect(introMeta!.c).toBeGreaterThan(0);
 
     // The NESTED path /docs/guide/setup must ALSO have a readable ISR entry.
-    const { value: nestedCatchAllValue, metadata: nestedMeta } =
-      await env.ISR_CACHE.getWithMetadata<{ s: number; c: number; t: number }>(
-        `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
-        'arrayBuffer',
-      );
+    const { value: nestedCatchAllValue, metadata: nestedMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{ s: number; c: number; t: number }>(
+      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
+      'arrayBuffer',
+    );
     expect(nestedCatchAllValue).not.toBeNull();
     expect(nestedMeta).toMatchObject({ s: 200, t: 3600 });
     expect(typeof nestedMeta?.c).toBe('number');
@@ -6097,7 +6107,9 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    const { value: pValue, metadata: pMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: pValue, metadata: pMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -6156,13 +6168,15 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    const { value: specificValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: specificValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/specific`,
       'arrayBuffer',
     );
     expect(specificValue).toBeNull();
 
-    const { value: otherValue, metadata: otherMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: otherValue, metadata: otherMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;

@@ -86,6 +86,13 @@ export function recordWorkerSecretUpdateState(
   );
 }
 
+export function workerCutoverUpdatesSecrets(
+  manifest: PlatformInstallationManifest,
+  generation: number,
+): boolean {
+  return manifest.steps.some((step) => step.key === `worker-secret-updates:${generation}:pending`);
+}
+
 export function recordWorkerCutoverStage(
   manifest: PlatformInstallationManifest,
   generation: number,

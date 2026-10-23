@@ -43,10 +43,17 @@ describe('queryProjectAiUsage strict accounting', () => {
     const [url, init] = vi.mocked(fetch).mock.calls[0];
     expect(url).toBe('https://api.cloudflare.com/client/v4/graphql');
     const request = JSON.parse(String(init?.body));
+    expect(request.query).toContain('aiGatewayRequests: aiGatewayRequestsAdaptiveGroups(');
+    expect(request.query).toContain('limit: 1');
+    expect(request.query).toContain('gateway: "void"');
     expect(request.query).toContain(
-      `metadata_projectId: "${await deriveAiUsageTag(jwtSecret, 'project-1')}"`,
+      `metadataRaw: ${JSON.stringify(
+        JSON.stringify({ projectId: await deriveAiUsageTag(jwtSecret, 'project-1') }),
+      )}`,
     );
-    expect(request.query).not.toContain('metadata_projectId: "project-1"');
+    expect(request.query).not.toContain('metadata_projectId');
+    expect(request.query).not.toContain('gatewayId:');
+    expect(request.query).not.toContain('"project-1"');
     expect(request.query).toContain(`datetime_geq: "${since.toISOString()}"`);
     expect(request.query).toContain(`datetime_lt: "${until.toISOString()}"`);
   });

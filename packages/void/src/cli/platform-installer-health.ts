@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { normalizeApplicationDomain, PLATFORM_HEALTH_HOSTNAME_LABEL } from '@void/platform';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { type PlatformHealthCheckContext } from './platform-installer-types.ts';
@@ -72,16 +73,28 @@ export async function verifyPlatformHealth(
   dispatchOrigin?: string,
   context?: PlatformHealthCheckContext,
 ): Promise<void> {
-  const request = (url: string) =>
-    fetcher(url, {
-      headers: {
-        'X-Void-Platform-Probe': healthProbeToken,
-        ...cfAccessHeaders(process.env, url),
-      },
-      // A login redirect must not forward the installation's probe credential.
-      redirect: 'manual',
-      signal: AbortSignal.timeout(30_000),
-    });
+  const request = async (url: string): Promise<Response> => {
+    for (let attempt = 0; ; attempt++) {
+      try {
+        return await fetcher(url, {
+          headers: {
+            'X-Void-Platform-Probe': healthProbeToken,
+            ...cfAccessHeaders(process.env, url),
+          },
+          // A login redirect must not forward the installation's probe credential.
+          redirect: 'manual',
+          signal: AbortSignal.timeout(30_000),
+        });
+      } catch (error) {
+        if (attempt === 2) {
+          throw new Error(`platform: Health check could not reach ${url} after 3 attempts.`, {
+            cause: error,
+          });
+        }
+        await delay(250 * (attempt + 1));
+      }
+    }
+  };
   // Project Zero Trust leaves only this application-domain hostname outside Access.
   const dispatchUrl =
     dispatchOrigin ?? `https://${PLATFORM_HEALTH_HOSTNAME_LABEL}.${applicationBaseDomain}`;

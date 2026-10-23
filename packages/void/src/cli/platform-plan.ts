@@ -19,7 +19,10 @@ import {
   type PlatformInstallationManifest,
 } from '@void/platform';
 import { pc } from './output.ts';
-import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import {
+  PlatformCloudflareApiError,
+  PlatformCloudflarePrerequisiteError,
+} from './platform-cloudflare.ts';
 import type {
   CloudflareAccount,
   CloudflareDnsRecord,
@@ -346,6 +349,14 @@ export async function createPlatformInstallPlan(
     }
     throw error;
   });
+  const prerequisites: Array<PlatformCloudflarePrerequisiteError> = [];
+  const collectPrerequisite = (error: unknown): [] => {
+    if (!(error instanceof PlatformCloudflarePrerequisiteError)) {
+      throw error;
+    }
+    prerequisites.push(error);
+    return [];
+  };
   const [
     aiGateways,
     routingKv,
@@ -363,17 +374,26 @@ export async function createPlatformInstallPlan(
     client.listKvNamespaces(account.id, names.routingKv),
     client.listKvNamespaces(account.id, names.isrCacheKv),
     client.listKvNamespaces(account.id, names.legacyAssetsKv),
-    client.listR2Buckets(account.id),
+    client.listR2Buckets(account.id).catch(collectPrerequisite),
     client.listQueues(account.id, names.usageQueue),
     client.listQueues(account.id, names.cronQueue),
     (options?.deploymentExecution ??
     existing?.resources.some((resource) => resource.key === 'deployment-queue'))
       ? client.listQueues(account.id, names.deploymentQueue)
       : Promise.resolve([]),
-    client.listDispatchNamespaces(account.id),
+    client.listDispatchNamespaces(account.id).catch(collectPrerequisite),
     client.listHyperdriveConfigs(account.id),
     client.listWorkerNames(account.id),
   ]);
+  if (prerequisites.length === 1) {
+    throw prerequisites[0];
+  }
+  if (prerequisites.length > 1) {
+    throw new AggregateError(
+      prerequisites,
+      `platform: Cloudflare account prerequisites are missing:\n\n${prerequisites.map((error) => error.message).join('\n\n')}`,
+    );
+  }
   const dnsRecords = zone ? await listZoneDnsRecords(client, zone, wildcardHostname) : [];
   const remoteOwnership = existing
     ? await readRemoteOwnership(client, account.id, routingKv, existing)

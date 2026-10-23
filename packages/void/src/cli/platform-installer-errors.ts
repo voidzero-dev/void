@@ -4,11 +4,10 @@ import {
   stabilizeCloudflareVersionTriggers,
   type CloudflareCommandResult,
 } from '@void/deploy-cloudflare';
+import { formatUrl } from './output.ts';
 
 // Cloudflare refuses a Worker with an Analytics Engine binding (code 10089)
-// until the account has used Analytics Engine once. No API turns it on, and
-// the dashboard page may offer only "Create dataset"; deploying a binding from
-// the dashboard once enables it (cloudflare/workers-sdk#9312).
+// until Analytics Engine is enabled for the account, including on Workers Free.
 const ANALYTICS_ENGINE_NOT_ENABLED = 10089;
 
 // Without a terminal, the Cloudflare CLI stops an upload when it must ask
@@ -67,6 +66,7 @@ function uploadConflictMessage(result: CloudflareCommandResult, operation: strin
 export function assertCleanPlatformWrangler(
   result: CloudflareCommandResult,
   operation: string,
+  accountId?: string,
 ): void {
   if (result.status !== 0 || result.signal || result.error) {
     const conflict = uploadConflictMessage(result, operation);
@@ -80,12 +80,22 @@ export function assertCleanPlatformWrangler(
     const analyticsEngineDisabled =
       result.errorCode === ANALYTICS_ENGINE_NOT_ENABLED ||
       result.errors?.some((error) => error.code === ANALYTICS_ENGINE_NOT_ENABLED) ||
-      /\b10089\b/.test(diagnostic ?? '');
+      (result.errorCode === undefined &&
+        !result.errors?.some((error) => error.code !== undefined) &&
+        (diagnostic?.includes('[code: 10089]') || diagnostic?.includes('[10089]')));
+    if (analyticsEngineDisabled) {
+      const dashboard = accountId
+        ? `https://dash.cloudflare.com/${accountId}/workers/analytics-engine`
+        : 'https://dash.cloudflare.com/';
+      throw new Error(
+        `platform: Cloudflare could not ${operation}: Analytics Engine is not enabled for this account (code 10089). ` +
+          `Open ${formatUrl(dashboard)}${accountId ? '' : ', select your account, and open Analytics Engine'}, then select Enable. ` +
+          'Analytics Engine is available on Workers Free. After enabling it, use the printed recovery command if one is shown; otherwise retry this command. ' +
+          `If Enable is unavailable, see ${formatUrl('https://void.cloud/guide/platform/installation/prerequisites#if-cloudflare-rejects-analytics-engine')}.`,
+      );
+    }
     throw new Error(
-      `platform: Wrangler failed to ${operation} (${diagnostic || `exit ${result.status}`}).` +
-        (analyticsEngineDisabled
-          ? ' If the Analytics Engine page offers no way to enable it, follow https://void.cloud/guide/platform/installation/prerequisites#if-cloudflare-rejects-analytics-engine, then retry.'
-          : ''),
+      `platform: Cloudflare failed to ${operation} (${diagnostic || `exit ${result.status}`}).`,
     );
   }
 }

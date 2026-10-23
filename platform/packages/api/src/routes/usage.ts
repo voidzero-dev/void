@@ -595,14 +595,16 @@ async function queryProjectAiUsage(
   // anyone can write a log row with any metadata. The proxy tags its rows with
   // a value signed under JWT_SECRET; filtering on that value means rows the
   // platform did not write are never counted.
+  // The proxy owns the whole metadata object and writes only this projectId.
   const usageTag = await deriveAiUsageTag(jwtSecret, projectId);
   const query = `query {
   viewer {
     accounts(filter: { accountTag: "${accountId}" }) {
-      aiGatewayRequests(
+      aiGatewayRequests: aiGatewayRequestsAdaptiveGroups(
+        limit: 1
         filter: {
-          gatewayId: "${gatewayId}"
-          metadata_projectId: "${usageTag}"
+          gateway: "${gatewayId}"
+          metadataRaw: ${JSON.stringify(JSON.stringify({ projectId: usageTag }))}
           datetime_geq: "${since.toISOString()}"
           ${until ? `datetime_lt: "${until.toISOString()}"` : ''}
         }

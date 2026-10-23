@@ -1,9 +1,10 @@
 import { isrCachePrefix } from '@void/isr';
 import { R2_CONCURRENCY, uploadPool } from '../concurrency.ts';
 import { legacyIsrCachePrefix } from '../isr-legacy-keys.ts';
+import type { IsrStore } from '../isr-store.ts';
 
 export async function clearIsrCache(
-  kv: KVNamespace,
+  cache: Pick<IsrStore, 'list' | 'delete'>,
   projectId: string,
   deploymentId: string,
 ): Promise<void> {
@@ -19,17 +20,20 @@ export async function clearIsrCache(
   // `revalidate-core.ts`. The two prefixes are disjoint (`…/isr/v3/…` vs
   // `…/isr/v2/…`), so nothing is listed or deleted twice. Transition-only:
   // drop the v2 sweep once no v2 entries remain in production.
-  await deleteIsrKeysByPrefix(kv, isrCachePrefix(projectId, deploymentId));
-  await deleteIsrKeysByPrefix(kv, legacyIsrCachePrefix(projectId, deploymentId));
+  await deleteIsrKeysByPrefix(cache, isrCachePrefix(projectId, deploymentId));
+  await deleteIsrKeysByPrefix(cache, legacyIsrCachePrefix(projectId, deploymentId));
 }
 
-async function deleteIsrKeysByPrefix(kv: KVNamespace, prefix: string): Promise<void> {
+async function deleteIsrKeysByPrefix(
+  cache: Pick<IsrStore, 'list' | 'delete'>,
+  prefix: string,
+): Promise<void> {
   let cursor: string | undefined;
 
   do {
-    const listed = await kv.list({ prefix, cursor });
+    const listed = await cache.list({ prefix, cursor });
     if (listed.keys.length > 0) {
-      await uploadPool(listed.keys, R2_CONCURRENCY, (key) => kv.delete(key.name));
+      await uploadPool(listed.keys, R2_CONCURRENCY, (key) => cache.delete(key.name));
     }
     cursor = listed.list_complete ? undefined : listed.cursor;
   } while (cursor);

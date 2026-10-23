@@ -87,9 +87,9 @@ jobs:
   # workflow cannot exfiltrate it. The `if` also keeps the job off everything except a direct push to
   # the `main` branch: tag pushes and `workflow_call` (release) carry a non-main ref, so they are
   # skipped — which both avoids a branch-policy failure and matches where the secret is allowed, and
-  # it is scoped to the canonical repo so forks don't run it. It deploys a UNIQUELY-named worker
-  # (VOID_E2E_RUN_ID) to a throwaway account and tears it down. A preflight step fails the job when a
-  # credential is empty (unset / deleted / not-yet-rotated token), so a missing secret can never turn
+  # it is scoped to the canonical repo so forks don't run it. It updates a reusable test Worker
+  # and retains its resources; job concurrency serializes that shared target. A preflight step fails
+  # the job when a credential is empty (unset / deleted / not-yet-rotated token), so a missing secret can never turn
   # the live-deploy gate into a silent green no-op (the `test` job's uncredentialed run still skips).
   live-e2e:
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' && github.repository == 'voidzero-dev/void' }}
@@ -97,10 +97,13 @@ jobs:
     permissions:
       contents: read
     environment: cloudflare-e2e
+    concurrency:
+      group: cloudflare-live-e2e
+      cancel-in-progress: false
     env:
       VOID_E2E_CF_TOKEN: ${{ secrets.VOID_E2E_CF_TOKEN }}
       VOID_E2E_CF_ACCOUNT_ID: ${{ secrets.VOID_E2E_CF_ACCOUNT_ID }}
-      VOID_E2E_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      VOID_E2E_NAMESPACE: ci
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:

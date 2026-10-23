@@ -37,6 +37,7 @@ import {
 import {
   recordWorkerCutoverResolution,
   recordWorkerCutoverStage,
+  recordWorkerSecretUpdateState,
 } from '../../src/cli/platform-installer-cutover.ts';
 import {
   findPlatformWorkerOutsideChanges,
@@ -557,6 +558,21 @@ describe('platform Workers changed outside Void', () => {
       earlierMessage = recordedMessage;
       await expect(find({ manifest: stopped() })).resolves.toEqual([]);
       expect(earlierReads()).toHaveLength(1);
+    });
+
+    it('does not inspect old secret versions when resuming a credential update', async () => {
+      await expect(
+        find({
+          manifest: recordWorkerSecretUpdateState(
+            stopped(),
+            1,
+            'pending',
+            'rotation',
+            '2026-10-23T00:00:00.000Z',
+          ),
+        }),
+      ).resolves.toEqual([]);
+      expect(earlierReads()).toEqual([]);
     });
 
     it('decides like the installer whether the run restores the earlier version', async () => {

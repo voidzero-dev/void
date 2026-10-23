@@ -35,15 +35,15 @@ const sdkPgliteUnitTests = [
 ];
 
 // Vitest forwards a FILTERED env to test workers — in CI only VOID_E2E_CF_TOKEN survives, while
-// VOID_E2E_CF_ACCOUNT_ID and VOID_E2E_RUN_ID are dropped. The gated live Cloudflare deploy e2e
+// VOID_E2E_CF_ACCOUNT_ID and VOID_E2E_NAMESPACE are dropped. The gated live Cloudflare deploy e2e
 // (packages/void/test/e2e/cloudflare-deploy-live.test.ts) needs all three, so forward them into the
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
-// Absent/unset → empty strings → the suite skips itself as designed.
+// Absent credentials become empty strings so ordinary test runs skip the live suite.
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
   VOID_E2E_CF_ACCOUNT_ID: process.env.VOID_E2E_CF_ACCOUNT_ID ?? '',
-  VOID_E2E_RUN_ID: process.env.VOID_E2E_RUN_ID ?? '',
+  VOID_E2E_NAMESPACE: process.env.VOID_E2E_NAMESPACE ?? '',
 };
 
 // Windows CI runners are 2-3x slower for builds and server startup.
@@ -90,7 +90,7 @@ export default defineConfig({
         // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
         // into the task's cache fingerprint (credentials must not bust the cache).
         cache: {
-          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_RUN_ID'],
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
         },
       },
     },

@@ -155,12 +155,18 @@ function createEnv(h: Harness): {
         return { value: asset.content, metadata: asset.ct ? { ct: asset.ct } : null };
       },
     },
-    STATIC_ASSETS_R2: { get: async () => null },
-    ISR_CACHE: {
-      getWithMetadata: async () => h.isrCacheEntry ?? { value: null, metadata: null },
+    STATIC_ASSETS_R2: {
+      get: async (key: string) =>
+        key.startsWith('isr-cache/') && h.isrCacheEntry
+          ? {
+              arrayBuffer: async () => h.isrCacheEntry!.value,
+              customMetadata: { isr: JSON.stringify(h.isrCacheEntry.metadata) },
+            }
+          : null,
       put: async () => {},
       delete: isrDelete,
     },
+    ISR_CACHE: { delete: async () => {} },
     ANALYTICS: { writeDataPoint: analyticsWrite },
     USAGE_QUEUE: { send: usageSend },
     DISPATCH_TIMEOUT_MS: h.dispatchTimeoutMs,

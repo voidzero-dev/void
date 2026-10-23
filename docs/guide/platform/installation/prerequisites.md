@@ -13,16 +13,17 @@ To run a Void platform, you need:
 
 Void creates the Workers, storage, queues, routing, and database tables through the CLI.
 
-Workers for Platforms requires a paid plan. Your database and Cloudflare usage are billed separately.
+Workers for Platforms requires its own paid plan. Analytics Engine is available on Workers Free, but you must enable it for the account. Review [Analytics Engine pricing and allowances](https://developers.cloudflare.com/analytics/analytics-engine/pricing/). Your database and Cloudflare usage are billed separately.
 
 ## Prepare Your Cloudflare Account and Domain
 
 In the [Cloudflare dashboard](https://dash.cloudflare.com/), select the account where you want the platform to live:
 
 1. Open **Workers & Pages** once to let Cloudflare provision Workers for the account.
-2. Open **Workers for Platforms** and enable its plan. Review [Workers for Platforms pricing](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/platform/pricing/) before confirming.
+2. Open **Workers for Platforms** and enable its plan. Review [Workers for Platforms pricing](https://developers.cloudflare.com/cloudflare-for-platforms/workers-for-platforms/reference/pricing/) before confirming.
 3. Open **R2 Object Storage** and complete its activation. Void creates the bucket later.
-4. For a domain installation, choose a domain you own, such as `example.app`. If you need one, register it with your preferred registrar. Use a spare domain's root: apps will be served at `my-app.example.app`. For workers.dev testing, skip this step and the DNS setup below.
+4. Open **Analytics Engine** and select **Enable** if prompted. You do not need to create a dataset manually. If the page has no **Enable** action and installation reports code 10089, follow the [steps below](#if-cloudflare-rejects-analytics-engine).
+5. For a domain installation, choose a domain you own, such as `example.app`. If you need one, register it with your preferred registrar. Use a spare domain's root: apps will be served at `my-app.example.app`. For workers.dev testing, skip this step and the DNS setup below.
 
 If that domain is already in this Cloudflare account, use its existing zone. Otherwise, [add the domain to Cloudflare](https://developers.cloudflare.com/dns/zone-setups/full-setup/setup/) and follow the nameserver instructions until the zone is active. A zone is Cloudflare's DNS configuration for a domain; creating one does not buy the domain.
 
@@ -30,7 +31,9 @@ You can also let Void create the zone during installation. Setting it up now let
 
 ### If Cloudflare rejects Analytics Engine
 
-The platform stores request metrics and logs in Analytics Engine. If installation stops with "You need to enable Analytics Engine" (code 10089), add an Analytics Engine binding to a Worker that is not part of the platform under **Settings** > **Bindings**, and deploy it once from the dashboard. A new Hello World Worker works. Do not edit the platform's own Workers. Then run the printed `void platform install --resume` command.
+The platform stores request metrics and logs in Analytics Engine. If installation stops with "You need to enable Analytics Engine" (code 10089), open the Analytics Engine dashboard link in the error and select **Enable** for that account. Activation is available on Workers Free; this error does not require a Workers plan upgrade or a replacement API token. Then run the printed `void platform install --resume` command.
+
+If your account's dashboard has no **Enable** action, create a disposable Hello World Worker, add an Analytics Engine binding under **Settings** > **Bindings**, and deploy it once from the dashboard. Then resume installation. Use a separate Worker for this step; leave the platform's own Workers unchanged.
 
 ## Install the CLI and Preview
 
@@ -81,6 +84,8 @@ Use any PostgreSQL provider that accepts connections from your computer and Clou
 | ------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | [PlanetScale Postgres](https://planetscale.com/docs/postgres/connecting) | Choose **Postgres**, not Vitess/MySQL. Open **Connect**, create role credentials, and use the direct primary connection on port `5432`, not PgBouncer on `6432`. |
 | [Neon](https://neon.com/docs/get-started-with-neon/connect-neon)         | Open **Connect**, select the database and owner role, and turn **connection pooling off**.                                                                       |
+
+When sizing your database, include the connection pools for every platform installation and application sharing that server. Adjust each Hyperdrive's [origin connection limit](https://developers.cloudflare.com/hyperdrive/configuration/tune-connection-pool/) to fit the server's capacity, leaving room for migrations, administration, provider-reserved connections, and temporary bursts.
 
 Once installation claims the database, continue using that same database for resume and maintenance commands. If installation stops because it cannot use the database, for example because the database is not empty, set `VOID_PLATFORM_DATABASE_URL` to another database's URL before you resume. Uninstall never deletes external PostgreSQL.
 

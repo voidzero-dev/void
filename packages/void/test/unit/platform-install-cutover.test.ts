@@ -5,17 +5,28 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { PLATFORM_DISABLED_KEY, type PlatformInstallationManifest } from '@void/platform';
+import {
+  createPlatformDeploymentManifest,
+  PLATFORM_DISABLED_KEY,
+  PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY,
+  type PlatformInstallationManifest,
+} from '@void/platform';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { hyperdriveOriginFromConnectionString } from '../../src/cli/platform-cloudflare.ts';
 import { verifyPlatformWorkerCutoverVersions } from '../../src/cli/platform-installer-cutover.ts';
-import { type PlatformInstallerDependencies } from '../../src/cli/platform-installer-types.ts';
+import {
+  type PlatformInstallerDependencies,
+  type PlatformInstallationSecrets,
+} from '../../src/cli/platform-installer-types.ts';
 import {
   createPlatformInstallationSecrets,
   installPlatform,
 } from '../../src/cli/platform-installer.ts';
 import { createPlatformInstallPlan } from '../../src/cli/platform-plan.ts';
-import { listInstallationManifests } from '../../src/cli/platform-registry.ts';
+import {
+  listInstallationManifests,
+  readInstallationRecoverySecrets,
+} from '../../src/cli/platform-registry.ts';
 import type { RunWrangler } from '../../src/cli/provision.ts';
 
 // Runs the real Worker deploy, cutover checkpoint, and pre-traffic verification
@@ -305,6 +316,9 @@ async function createFakeCloudflare() {
       worker.versions.set(replacement.id, replacement);
       activate(name, replacement.id);
     },
+    restorePreviousVersion: (name: string) => {
+      activate(name, workers.get(name)!.deployments[1]!.versions[0]!.version_id);
+    },
   };
 }
 
@@ -356,29 +370,36 @@ async function runInstall(
   options: {
     sharedEmail?: boolean;
     bootstrapEmail?: PlatformInstallerDependencies['bootstrapEmail'];
+    secrets?: PlatformInstallationSecrets;
+    verifyHealth?: PlatformInstallerDependencies['verifyHealth'];
   } = {},
 ) {
   const plan = await planInstallation(cloud, existing, options.sharedEmail);
-  return installPlatform(plan, installationSecrets(options.sharedEmail), existing, {
-    acquireDatabaseLifecycleLock: async () =>
-      Object.assign(async () => {}, {
-        prepareSandboxDrain: async () => ({
-          admissionProtocol: 3 as const,
-          generation: 'generation-1',
-          state: 'complete' as const,
+  return installPlatform(
+    plan,
+    options.secrets ?? installationSecrets(options.sharedEmail),
+    existing,
+    {
+      acquireDatabaseLifecycleLock: async () =>
+        Object.assign(async () => {}, {
+          prepareSandboxDrain: async () => ({
+            admissionProtocol: 3 as const,
+            generation: 'generation-1',
+            state: 'complete' as const,
+          }),
         }),
+      claimDatabase: async () => {},
+      client: cloud.client,
+      prepareDatabase: async () => ({
+        appliedMigrations: 0,
+        previousSchemaDigest: '',
+        schemaDigest: '',
       }),
-    claimDatabase: async () => {},
-    client: cloud.client,
-    prepareDatabase: async () => ({
-      appliedMigrations: 0,
-      previousSchemaDigest: '',
-      schemaDigest: '',
-    }),
-    revalidateBeforeWorkerDeploy: async () => {},
-    verifyHealth: async () => {},
-    ...(options.bootstrapEmail ? { bootstrapEmail: options.bootstrapEmail } : {}),
-  });
+      revalidateBeforeWorkerDeploy: async () => {},
+      verifyHealth: options.verifyHealth ?? (async () => {}),
+      ...(options.bootstrapEmail ? { bootstrapEmail: options.bootstrapEmail } : {}),
+    },
+  );
 }
 
 function currentManifest(): PlatformInstallationManifest {
@@ -390,6 +411,270 @@ function workerStepKeys(manifest: PlatformInstallationManifest) {
 }
 
 const WORKER_KEYS = ['api', 'proxy', 'emailGateway', 'tail', 'dispatch'];
+
+function rotateSecrets(manifest: PlatformInstallationManifest) {
+  return createPlatformInstallationSecrets({
+    ...installationSecrets(),
+    checkpoint: readInstallationRecoverySecrets(manifest),
+    cloudflareApiToken: 'rotated-runtime-token',
+    existingInstallation: true,
+    updateExistingWorkers: true,
+  });
+}
+
+function resumeSecrets(manifest: PlatformInstallationManifest) {
+  return createPlatformInstallationSecrets({
+    ...installationSecrets(),
+    checkpoint: readInstallationRecoverySecrets(manifest),
+    cloudflareApiToken: '',
+    githubClientId: '',
+    githubClientSecret: '',
+    r2AccessKeyId: '',
+    r2SecretAccessKey: '',
+    existingInstallation: true,
+    updateExistingWorkers: true,
+  });
+}
+
+it('rolls forward a partially restored credential update without restoring old secret versions', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  const existing = {
+    ...installed.manifest,
+    deployment: createPlatformDeploymentManifest({
+      ...installed.manifest.deployment,
+      authentication: { ...installed.manifest.deployment.authentication, configurable: true },
+    }),
+  };
+  const start = cloud.commands.length;
+  await expect(
+    runInstall(cloud, existing, {
+      secrets: rotateSecrets(existing),
+      verifyHealth: async () => {
+        throw new Error('network unavailable');
+      },
+    }),
+  ).rejects.toThrow('network unavailable');
+  const failed = currentManifest();
+  const routing = failed.resources.find((resource) => resource.key === 'routing-kv')!;
+  expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(true);
+  expect(
+    cloud.commands
+      .slice(start)
+      .filter(
+        ({ args }) =>
+          args.type === 'versions.deploy' && args.message?.startsWith('Void platform restoration'),
+      ),
+  ).toEqual([]);
+
+  // Older installers restored these Workers before Cloudflare rejected the
+  // API/proxy rollback because CF_API_TOKEN and R2 credentials had changed.
+  for (const name of [
+    failed.deployment.resources.emailGatewayWorker,
+    failed.deployment.resources.tailWorker,
+    failed.deployment.resources.dispatchWorker,
+  ]) {
+    cloud.restorePreviousVersion(name);
+  }
+  const resumeStart = cloud.commands.length;
+  let healthChecks = 0;
+  const result = await runInstall(cloud, failed, {
+    secrets: rotateSecrets(failed),
+    verifyHealth: async () => {
+      if (healthChecks++ === 0) {
+        expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(true);
+      }
+    },
+  });
+  expect(result.manifest.status).toBe('installed');
+  expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(false);
+  expect(
+    cloud.commands
+      .slice(resumeStart)
+      .filter(
+        ({ args }) =>
+          args.type === 'versions.deploy' && args.message?.startsWith('Void platform restoration'),
+      ),
+  ).toEqual([]);
+  expect(readInstallationRecoverySecrets(result.manifest)?.workerSecretUpdatesJson).toBeUndefined();
+});
+
+it('refuses a concurrent version replacement while recovering a credential update', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  const existing = {
+    ...installed.manifest,
+    deployment: createPlatformDeploymentManifest({
+      ...installed.manifest.deployment,
+      authentication: { ...installed.manifest.deployment.authentication, configurable: true },
+    }),
+  };
+  await expect(
+    runInstall(cloud, existing, {
+      secrets: rotateSecrets(existing),
+      verifyHealth: async () => {
+        throw new Error('network unavailable');
+      },
+    }),
+  ).rejects.toThrow('network unavailable');
+  const failed = currentManifest();
+  cloud.replaceActiveVersion(failed.deployment.resources.apiWorker);
+  const start = cloud.commands.length;
+  await expect(runInstall(cloud, failed, { secrets: rotateSecrets(failed) })).rejects.toThrow(
+    'changed concurrently after the credential update',
+  );
+  expect(
+    cloud.commands
+      .slice(start)
+      .filter(({ args }) =>
+        ['versions.deploy', 'versions.upload', 'worker.deploy'].includes(args.type),
+      ),
+  ).toEqual([]);
+});
+
+it('resumes from encrypted credentials after the prior generation commits but before staging', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  const existing = {
+    ...installed.manifest,
+    deployment: createPlatformDeploymentManifest({
+      ...installed.manifest.deployment,
+      authentication: { ...installed.manifest.deployment.authentication, configurable: true },
+    }),
+  };
+  await expect(
+    runInstall(cloud, existing, {
+      secrets: rotateSecrets(existing),
+      verifyHealth: async () => {
+        throw new Error('network unavailable');
+      },
+    }),
+  ).rejects.toThrow('network unavailable');
+  const failed = currentManifest();
+  const put = cloud.client.putKvValue;
+  let stopped = false;
+  cloud.client.putKvValue = async (...args) => {
+    await put(...args);
+    if (
+      !stopped &&
+      args[2] === PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY &&
+      workerStepKeys(JSON.parse(args[3])).includes('worker-cutover:3:committed')
+    ) {
+      stopped = true;
+      throw new Error('interrupted after recovery checkpoint');
+    }
+  };
+  await expect(runInstall(cloud, failed, { secrets: rotateSecrets(failed) })).rejects.toThrow(
+    'interrupted after recovery checkpoint',
+  );
+  const checkpoint = currentManifest();
+  expect(stagedKeys(checkpoint, 4)).toEqual([]);
+  const routing = checkpoint.resources.find((resource) => resource.key === 'routing-kv')!;
+  expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(true);
+  const recovered = resumeSecrets(checkpoint);
+  expect(recovered.pendingWorkerSecretUpdateIntent?.updates.CF_API_TOKEN).toBe(
+    'rotated-runtime-token',
+  );
+  const resumed = await runInstall(cloud, checkpoint, { secrets: recovered });
+  expect(resumed.manifest.status).toBe('installed');
+  expect(stagedKeys(resumed.manifest, 5)).toEqual([...WORKER_KEYS].sort());
+});
+
+it('resumes a credential update that stopped before activating any Worker', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  cloud.failUpload(installed.manifest.deployment.resources.apiWorker);
+  await expect(
+    runInstall(cloud, installed.manifest, { secrets: rotateSecrets(installed.manifest) }),
+  ).rejects.toThrow('upload failed');
+  const failed = currentManifest();
+  expect(stagedKeys(failed, 3)).toEqual([]);
+  const resumed = await runInstall(cloud, failed, { secrets: resumeSecrets(failed) });
+  expect(resumed.manifest.status).toBe('installed');
+  expect(stagedKeys(resumed.manifest, 5)).toEqual([...WORKER_KEYS].sort());
+});
+
+it('resumes when the next pending generation is saved before its encrypted checkpoint', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  const existing = {
+    ...installed.manifest,
+    deployment: createPlatformDeploymentManifest({
+      ...installed.manifest.deployment,
+      authentication: { ...installed.manifest.deployment.authentication, configurable: true },
+    }),
+  };
+  await expect(
+    runInstall(cloud, existing, {
+      secrets: rotateSecrets(existing),
+      verifyHealth: async () => {
+        throw new Error('network unavailable');
+      },
+    }),
+  ).rejects.toThrow('network unavailable');
+  const failed = currentManifest();
+  const intentId = resumeSecrets(failed).pendingWorkerSecretUpdateIntent!.id;
+  const put = cloud.client.putKvValue;
+  let stopped = false;
+  cloud.client.putKvValue = async (...args) => {
+    await put(...args);
+    if (
+      !stopped &&
+      args[2] === PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY &&
+      workerStepKeys(JSON.parse(args[3])).includes('worker-secret-updates:4:pending')
+    ) {
+      stopped = true;
+      throw new Error('interrupted after next pending marker');
+    }
+  };
+  await expect(runInstall(cloud, failed, { secrets: resumeSecrets(failed) })).rejects.toThrow(
+    'interrupted after next pending marker',
+  );
+  const checkpoint = currentManifest();
+  expect(workerStepKeys(checkpoint)).toContain('worker-secret-updates:4:pending');
+  expect(stagedKeys(checkpoint, 4)).toEqual([]);
+  const recovered = resumeSecrets(checkpoint);
+  expect(recovered.pendingWorkerSecretUpdateIntent).toMatchObject({
+    id: intentId,
+    updates: { CF_API_TOKEN: 'rotated-runtime-token' },
+  });
+  const routing = checkpoint.resources.find((resource) => resource.key === 'routing-kv')!;
+  expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(true);
+  const resumed = await runInstall(cloud, checkpoint, { secrets: recovered });
+  expect(resumed.manifest.status).toBe('installed');
+  expect(cloud.kv.has(`${routing.id}/${PLATFORM_DISABLED_KEY}`)).toBe(false);
+});
+
+it('still restores a failed cutover without credential updates', async () => {
+  const cloud = await createFakeCloudflare();
+  const installed = await runInstall(cloud, null);
+  const existing = {
+    ...installed.manifest,
+    usageProtocolVersion: 1 as const,
+    deployment: createPlatformDeploymentManifest({
+      ...installed.manifest.deployment,
+      authentication: { ...installed.manifest.deployment.authentication, configurable: true },
+    }),
+  };
+  const start = cloud.commands.length;
+  await expect(
+    runInstall(cloud, existing, {
+      secrets: resumeSecrets(existing),
+      verifyHealth: async () => {
+        throw new Error('health unavailable');
+      },
+    }),
+  ).rejects.toThrow('health unavailable');
+  expect(workerStepKeys(currentManifest())).toContain('worker-cutover:3:restored');
+  expect(
+    cloud.commands
+      .slice(start)
+      .some(
+        ({ args }) =>
+          args.type === 'versions.deploy' && args.message?.startsWith('Void platform restoration'),
+      ),
+  ).toBe(true);
+});
 
 function stagedKeys(manifest: PlatformInstallationManifest, generation: number) {
   const prefix = `worker-cutover:${generation}:staged:`;

@@ -442,10 +442,14 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
     const head = vi.spyOn(env.STATIC_ASSETS_R2, 'head');
     const originalList = env.STATIC_ASSETS_R2.list.bind(env.STATIC_ASSETS_R2);
     let releaseList: (() => void) | undefined;
+    const assetPrefix = `assets/${project.id}/`;
     const list = vi.spyOn(env.STATIC_ASSETS_R2, 'list').mockImplementation(async (options) => {
-      await new Promise<void>((resolve) => {
-        releaseList = resolve;
-      });
+      // Only asset GC is deferred; ISR cleanup uses the same bucket.
+      if (options?.prefix === assetPrefix) {
+        await new Promise<void>((resolve) => {
+          releaseList = resolve;
+        });
+      }
       return originalList(options);
     });
     const pending: Array<Promise<unknown>> = [];
@@ -479,7 +483,11 @@ describe('POST /projects/:id/deploy (JSON mode — direct-to-R2)', () => {
       expect(events.find((event) => isEvent(event, 'done'))).toBeDefined();
       expect(head).not.toHaveBeenCalled();
       expect(pending).toHaveLength(1);
-      await vi.waitFor(() => expect(list).toHaveBeenCalledOnce());
+      await vi.waitFor(() =>
+        expect(list.mock.calls.filter(([options]) => options?.prefix === assetPrefix)).toHaveLength(
+          1,
+        ),
+      );
     } finally {
       releaseList?.();
       await Promise.allSettled(pending);
