@@ -163,14 +163,19 @@ app.post('/:id/deploy/upload-urls', async (context) => {
           context.get('companyIdentity'),
           true,
         );
+        // JSON preserves tuple boundaries and field types, including malformed
+        // approval metadata that must not match a valid upload through coercion.
+        function assetApprovalKey(
+          asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>,
+        ): string {
+          return JSON.stringify([asset.blake3, asset.md5, asset.size]);
+        }
         const approved = new Set(
-          Object.values(approval.data.artifact!.assetManifest).map(
-            (entry) => `${entry.blake3}:${entry.md5}:${entry.size}`,
-          ),
+          Object.values(approval.data.artifact!.assetManifest).map(assetApprovalKey),
         );
         if (
           approval.data.projectId !== projectId ||
-          assets.some((asset) => !approved.has(`${asset.blake3}:${asset.md5}:${asset.size}`))
+          assets.some((asset) => !approved.has(assetApprovalKey(asset)))
         ) {
           throw new OAuthError(
             'access_denied',

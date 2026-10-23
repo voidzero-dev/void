@@ -219,6 +219,12 @@ describe('registered OAuth applications', () => {
       assetManifest: {
         '/app.js': { ...asset, hash: asset.blake3 },
         '/page.js': { ...otherAsset, hash: otherAsset.blake3 },
+        '/wrong-type.js': {
+          ...asset,
+          blake3: 'd'.repeat(32),
+          hash: 'd'.repeat(32),
+          size: '3' as unknown as number,
+        },
       },
     });
     const issued = await request('/oauth/preview-deployment-requests', {
@@ -243,6 +249,7 @@ describe('registered OAuth applications', () => {
     expect((await upload({ ...asset, md5: 'b'.repeat(32) })).status).toBe(403);
     expect((await upload({ ...asset, blake3: 'c'.repeat(32) })).status).toBe(403);
     expect((await upload(otherAsset, { ...asset, size: 4 })).status).toBe(403);
+    expect((await upload({ ...asset, blake3: 'd'.repeat(32) })).status).toBe(403);
     const [record] = await env.db
       .select()
       .from(oauthRequests)
