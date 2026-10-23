@@ -1,3 +1,5 @@
+import { ROUTE_EXTENSIONS } from '../shared/route-extensions.ts';
+
 export type RouteEnvironment = 'dev' | 'prod';
 
 export type RouteDefinition = {
@@ -15,7 +17,6 @@ export type RouteDefinition = {
   filePath: string;
 };
 
-const EXTENSIONS = ['.ts', '.mts', '.js', '.mjs'];
 const ENV_SUFFIXES: Array<RouteEnvironment> = ['dev', 'prod'];
 
 function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefinition {
@@ -25,9 +26,9 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
   let path = relativePath.replace(/\\/g, '/');
 
   // 1. Strip extension
-  for (const ext of EXTENSIONS) {
-    if (path.endsWith(ext)) {
-      path = path.slice(0, -ext.length);
+  for (const ext of ROUTE_EXTENSIONS) {
+    if (path.endsWith(`.${ext}`)) {
+      path = path.slice(0, -(ext.length + 1));
       break;
     }
   }
@@ -103,7 +104,7 @@ function parsePath(relativePath: string, isWebSocketRoute: boolean): RouteDefini
  * Parse a route filename (relative to routes/) into a RouteDefinition.
  *
  * Rules (applied in order):
- * 1. Strip file extension (.ts, .js, .mts, .mjs)
+ * 1. Strip file extension (.ts, .tsx, .js, .jsx, .mts, .mjs)
  * 2. Check for env suffix (.dev, .prod) → strip and record
  * 3. Strip trailing "index" segment
  * 4. Remove route group directories: (groupname)

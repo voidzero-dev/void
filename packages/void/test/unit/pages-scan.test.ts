@@ -4,6 +4,7 @@ import * as tinyglobby from 'tinyglobby';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';
+import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import {
   scanPages,
   resolveLayoutChain,
@@ -123,6 +124,83 @@ describe('scanPages', () => {
     expect(page!.serverPath).toBe('users/index.server.ts');
     expect(page!.methods).toEqual(['loader', 'action']);
   });
+
+  it.each(['vue', 'svelte', 'md'])(
+    'keeps non-script pages named .server.%s discoverable',
+    async (ext) => {
+      writeFile(`web.server.${ext}`, '');
+      writeFile('web.server.server.jsx', 'export const loader = () => <p>Loaded</p>;');
+
+      const scan = await scanPages(TMP);
+      expect(scan.pages).toHaveLength(1);
+      expect(scan.pages[0]).toMatchObject({
+        pattern: '/web.server',
+        componentPath: `web.server.${ext}`,
+        serverPath: 'web.server.server.jsx',
+        methods: ['loader'],
+      });
+      const manifest = generateComponentManifest(scan, '/project/pages');
+      expect(manifest).toContain(`/project/pages/web.server.${ext}`);
+      expect(manifest).not.toContain('web.server.server.jsx');
+    },
+  );
+
+  it.each(
+    ['tsx', 'jsx'].flatMap((serverExt) =>
+      ['foo.tsx', 'foo.island.tsx', 'foo.jsx', 'foo.vue', 'foo.svelte', 'foo.md'].map(
+        (component) => ({ component, serverExt }),
+      ),
+    ),
+  )(
+    'keeps the .server.$serverExt companion of $component out of page discovery and component manifests',
+    async ({ component, serverExt }) => {
+      writeFile(component, '');
+      writeFile(
+        `foo.server.${serverExt}`,
+        `export const loader = () => ({ html: <p>Loaded</p> });
+export const actions = { save: () => <p>Saved</p> };
+export const revalidate = 60;
+export const prerender = false;
+export const ssr = true;`,
+      );
+      writeFile(`orphan.server.${serverExt}`, 'export const loader = () => <p>Orphan</p>;');
+      writeFile('layout.tsx', 'export default () => null;');
+      writeFile(`layout.server.${serverExt}`, 'export const helper = () => <p>Server</p>;');
+      writeFile('_layouts/marketing.tsx', 'export default () => null;');
+      writeFile(
+        `_layouts/marketing.server.${serverExt}`,
+        'export const helper = () => <p>Server</p>;',
+      );
+
+      const scan = await scanPages(TMP);
+      expect(scan.pages).toHaveLength(1);
+      expect(scan.pages[0]).toMatchObject({
+        pattern: '/foo',
+        componentPath: component,
+        serverPath: `foo.server.${serverExt}`,
+        methods: ['loader', 'actions'],
+        revalidate: 60,
+        prerenderMode: 'disabled',
+        ssrMode: 'server',
+      });
+      expect(scan.layouts.map((layout) => layout.filePath)).toEqual(['layout.tsx']);
+      expect(scan.namedLayouts.map((layout) => layout.filePath)).toEqual([
+        '_layouts/marketing.tsx',
+      ]);
+      const manifest = generateComponentManifest(scan, '/project/pages');
+      expect(manifest).toContain(`/project/pages/${component}`);
+      expect(manifest).not.toContain('.server.');
+      const { dts } = generateRouteTypes(
+        { routes: [], middleware: [], jobs: [], queues: [], pages: scan },
+        join(TMP, 'routes'),
+        join(TMP, '.void'),
+        join(TMP, 'pages'),
+      );
+      expect(dts).toContain('"/foo": {');
+      expect(dts).toContain(`typeof import("../pages/foo.server.${serverExt}")`);
+      expect(dts).not.toContain('"/foo.server"');
+    },
+  );
 
   it('detects actions (plural) export from .server.ts', async () => {
     writeFile('settings.vue', '<template><div>Settings</div></template>');

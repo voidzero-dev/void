@@ -25,17 +25,20 @@ afterEach(() => {
   }
 });
 
-function createProject(): string {
+function createProject(ext: string, sourceDir = ''): string {
   const root = mkdtempSync(join(tmpdir(), 'void-route-binding-env-'));
   roots.push(root);
-  mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+  mkdirSync(join(root, sourceDir, 'routes', 'api'), { recursive: true });
   writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
   writeFileSync(
     join(root, 'void.json'),
-    JSON.stringify({ worker: { compatibility_date: '2026-02-24' } }),
+    JSON.stringify({
+      sourceDir: sourceDir || undefined,
+      worker: { compatibility_date: '2026-02-24' },
+    }),
   );
   writeFileSync(
-    join(root, 'routes', 'api', 'debug.dev.ts'),
+    join(root, sourceDir, 'routes', 'api', `debug.dev.${ext}`),
     `import { db } from 'void/db';
 import { kv } from 'void/kv';
 import { storage } from 'void/storage';
@@ -69,34 +72,96 @@ async function generatedBindings(
 }
 
 describe('environment-specific route binding inference', () => {
-  it('does not emit production bindings for imports exclusive to a dev route', async () => {
-    const root = createProject();
-    const config = await generatedBindings(root, { command: 'build', mode: 'production' });
+  it.each([
+    { ext: 'tsx', sourceDir: '' },
+    { ext: 'jsx', sourceDir: 'src' },
+  ])(
+    'emits .well-known and helper bindings in .$ext under sourceDir=$sourceDir',
+    async ({ ext, sourceDir }) => {
+      const root = createProject(ext, sourceDir);
+      const routesDir = join(root, sourceDir, 'routes');
+      rmSync(join(routesDir, 'api', `debug.dev.${ext}`));
+      mkdirSync(join(routesDir, '.well-known'));
+      mkdirSync(join(routesDir, '_components'));
+      writeFileSync(
+        join(routesDir, '.well-known', `status.prod.${ext}`),
+        "import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('status')}</p>;",
+      );
+      writeFileSync(
+        join(routesDir, '_components', `Toolbar.prod.${ext}`),
+        "import { storage } from 'void/storage'; export const Toolbar = () => <p>Toolbar</p>;",
+      );
 
-    expect(config.d1_databases).toBeUndefined();
-    expect(config.kv_namespaces).toBeUndefined();
-    expect(config.r2_buckets).toBeUndefined();
-    expect(config.ai).toBeUndefined();
-  });
+      const development = await generatedBindings(root, { command: 'serve', mode: 'development' });
+      expect(development.kv_namespaces).toBeUndefined();
+      expect(development.r2_buckets).toBeDefined();
+      const production = await generatedBindings(root, { command: 'build', mode: 'production' });
+      expect(production.kv_namespaces).toBeDefined();
+      expect(production.r2_buckets).toBeDefined();
+    },
+  );
 
-  it('keeps the same bindings when serving the dev route', async () => {
-    const root = createProject();
-    const config = await generatedBindings(root, { command: 'serve', mode: 'development' });
+  it.each(['tsx', 'jsx'])(
+    'emits JSX WebSocket bindings only in the selected environment for .ws.%s',
+    async (ext) => {
+      const root = createProject(ext);
+      rmSync(join(root, 'routes', 'api', `debug.dev.${ext}`));
+      writeFileSync(
+        join(root, 'routes', 'api', `debug.dev.ws.${ext}`),
+        `import { kv } from 'void/kv';
+import { defineWebSocket } from 'void/ws';
+export default defineWebSocket({ onMessage() { return <p>{kv.get('debug')}</p>; } });`,
+      );
 
-    expect(config.d1_databases).toBeDefined();
-    expect(config.kv_namespaces).toBeDefined();
-    expect(config.r2_buckets).toBeDefined();
-  });
+      const production = await generatedBindings(root, { command: 'build', mode: 'production' });
+      expect(production.kv_namespaces).toBeUndefined();
+      expect(production.durable_objects).toBeUndefined();
 
-  it('does not emit container or live Durable Object bindings from a dev route', async () => {
-    const root = createProject();
-    writeFileSync(
-      join(root, 'routes', 'api', 'debug.dev.ts'),
-      "import { getSandbox } from 'void/sandbox'; import { defineLiveStream } from 'void/live'; export const GET = () => ({ getSandbox, defineLiveStream });",
-    );
+      const development = await generatedBindings(root, { command: 'serve', mode: 'development' });
+      expect(development.kv_namespaces).toBeDefined();
+      expect(development.durable_objects).toEqual({
+        bindings: [{ name: 'ApiDebugWs', class_name: 'ApiDebugWs' }],
+      });
+    },
+  );
 
-    const config = await generatedBindings(root, { command: 'build', mode: 'production' });
-    expect(config.containers).toBeUndefined();
-    expect(config.durable_objects).toBeUndefined();
-  });
+  it.each(['ts', 'tsx', 'jsx'])(
+    'does not emit production bindings for a dev .%s route',
+    async (ext) => {
+      const root = createProject(ext);
+      const config = await generatedBindings(root, { command: 'build', mode: 'production' });
+
+      expect(config.d1_databases).toBeUndefined();
+      expect(config.kv_namespaces).toBeUndefined();
+      expect(config.r2_buckets).toBeUndefined();
+      expect(config.ai).toBeUndefined();
+    },
+  );
+
+  it.each(['ts', 'tsx', 'jsx'])(
+    'keeps the same bindings when serving the dev .%s route',
+    async (ext) => {
+      const root = createProject(ext);
+      const config = await generatedBindings(root, { command: 'serve', mode: 'development' });
+
+      expect(config.d1_databases).toBeDefined();
+      expect(config.kv_namespaces).toBeDefined();
+      expect(config.r2_buckets).toBeDefined();
+    },
+  );
+
+  it.each(['ts', 'tsx', 'jsx'])(
+    'does not emit container or live bindings from a dev .%s route',
+    async (ext) => {
+      const root = createProject(ext);
+      writeFileSync(
+        join(root, 'routes', 'api', `debug.dev.${ext}`),
+        "import { getSandbox } from 'void/sandbox'; import { defineLiveStream } from 'void/live'; export const GET = () => ({ getSandbox, defineLiveStream });",
+      );
+
+      const config = await generatedBindings(root, { command: 'build', mode: 'production' });
+      expect(config.containers).toBeUndefined();
+      expect(config.durable_objects).toBeUndefined();
+    },
+  );
 });

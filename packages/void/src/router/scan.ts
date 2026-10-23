@@ -5,7 +5,7 @@ import { scanPages } from '../pages/scan.ts';
 import type { PageScanResult } from '../pages/types.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import type { QueueDefinition } from '../queues/scan.ts';
-import { listConventionFiles } from '../shared/convention-files.ts';
+import { listRouteFiles } from '../shared/convention-files.ts';
 import { detectHttpExports } from './detect-exports.ts';
 import type { EmailHandlersScan } from './email.ts';
 import {
@@ -105,7 +105,7 @@ export function scanRoutePatternsSync(
   paths: ProjectPaths = readProjectPaths(root),
   environment?: RouteEnvironment,
 ): Array<RouteDefinition> {
-  return listConventionFiles(paths.routesDir)
+  return listRouteFiles(paths.routesDir)
     .filter((f) => !isWebSocketPatternFile(f))
     .map((f) => parseRouteFilename(f))
     .filter((route) => isRouteEnabledForEnvironment(route, environment))
