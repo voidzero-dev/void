@@ -616,7 +616,12 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         const betterAuthSubpaths = ['client', 'react', 'vue', 'svelte', 'solid'];
         const resolvedAliases = betterAuthSubpaths.flatMap((sub) => {
           try {
-            return [{ find: `better-auth/${sub}`, replacement: resolveFile(`better-auth/${sub}`) }];
+            return [
+              {
+                find: new RegExp(`^better-auth/${sub}$`),
+                replacement: resolveFile(`better-auth/${sub}`),
+              },
+            ];
           } catch {
             return [];
           }

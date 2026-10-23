@@ -150,6 +150,33 @@ describe('routingPlugin', () => {
     );
   });
 
+  it('aliases only the exact better-auth client specifiers in dev', () => {
+    const root = createTempRoot();
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
+    const config = (
+      getHookHandler(plugin.config) as (config: UserConfig, env: ConfigEnv) => UserConfig
+    )({}, { command: 'serve', mode: 'development' });
+    const aliases = config.resolve?.alias as Array<{ find: string | RegExp; replacement: string }>;
+
+    // Mirrors Vite's alias matching: strings also match `find + '/'` prefixes.
+    const rewrite = (id: string) => {
+      for (const { find, replacement } of aliases) {
+        if (typeof find === 'string') {
+          if (id === find || id.startsWith(`${find}/`)) {
+            return id.replace(find, replacement);
+          }
+        } else if (find.test(id)) {
+          return id.replace(find, replacement);
+        }
+      }
+      return id;
+    };
+
+    expect(rewrite('better-auth/client')).toMatch(/client[/\\]index\.m?js$/);
+    // Other subpaths are left to normal resolution.
+    expect(rewrite('better-auth/client/plugins')).toBe('better-auth/client/plugins');
+  });
+
   it('bakes explicit page opt-outs into the native ISR policy', async () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'pages'), { recursive: true });
