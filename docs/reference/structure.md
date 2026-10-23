@@ -67,6 +67,7 @@ File-based HTTP API endpoints built on [Hono](https://hono.dev). Each file expor
 <RoutesFileTree />
 
 - **Named exports**: `export const GET = defineHandler(...)`, `export const POST = ...`
+- **Extensions**: `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, or `.mjs`; use `.tsx` or `.jsx` for JSX handlers
 - **Dynamic segments**: `[id]` becomes `:id` route parameter
 - **Catch-all**: `[...slug]` matches the remaining path
 - **Route groups**: `(admin)/` organizes files without affecting URL paths

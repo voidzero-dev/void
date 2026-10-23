@@ -14,13 +14,15 @@ For example, `/rooms/[id]` gives each chat room its own instance. Use it for cha
 
 ## Route files
 
-Create WebSocket routes in `routes/` with the `.ws.ts` suffix:
+Create WebSocket routes in `routes/` using `.ws.ts`, `.ws.tsx`, `.ws.js`, `.ws.jsx`, `.ws.mts`, or `.ws.mjs`:
 
 ```text
 routes/
   chat/[room].ws.ts
   notifications.ws.ts
 ```
+
+Use `.ws.tsx` or `.ws.jsx` when a handler contains JSX, such as rendering HTML fragments to send to connected clients. JSX uses your app's configured runtime.
 
 Filename rules match regular server routes:
 

@@ -8,17 +8,20 @@ import {
   type AstNode,
   type AstProperty,
 } from '../shared/ast.ts';
-import { listConventionFiles } from '../shared/convention-files.ts';
+import { listRouteFiles } from '../shared/convention-files.ts';
 import { readResourceDefinition } from '../shared/resource-definition.ts';
 import { resourceNameWords } from '../shared/resource-name.ts';
 import {
+  ROUTE_EXTENSIONS,
   isRouteEnabledForEnvironment,
   parseWebSocketFilename,
   type RouteDefinition,
   type RouteEnvironment,
 } from './parse-filename.ts';
 
-const WEBSOCKET_ROUTE_RE = /(?:\.(?:dev|prod))?\.ws\.(?:ts|mts|js|mjs)$/;
+const WEBSOCKET_ROUTE_RE = new RegExp(
+  `(?:\\.(?:dev|prod))?\\.ws\\.(?:${ROUTE_EXTENSIONS.join('|')})$`,
+);
 
 export type WebSocketRouteDefinition = RouteDefinition & {
   className: string;
@@ -59,7 +62,11 @@ export function deriveWebSocketClassNameFromName(name: string): string {
 }
 
 export function inferWebSocketResourceName(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, '/').replace(/\.(ts|mts|js|mjs)$/, '');
+  let normalized = filePath.replace(/\\/g, '/');
+  const extension = ROUTE_EXTENSIONS.find((ext) => normalized.endsWith(`.${ext}`));
+  if (extension) {
+    normalized = normalized.slice(0, -(extension.length + 1));
+  }
   const parts = normalized
     .split('/')
     .filter((segment) => segment.length > 0 && !(segment.startsWith('(') && segment.endsWith(')')))
@@ -168,7 +175,7 @@ export function scanWebSocketRoutesSync(
   paths: ProjectPaths = readProjectPaths(root),
   environment?: RouteEnvironment,
 ): Array<WebSocketRouteDefinition> {
-  return parseWebSocketFiles(root, listConventionFiles(paths.routesDir), paths, environment);
+  return parseWebSocketFiles(root, listRouteFiles(paths.routesDir), paths, environment);
 }
 
 export function isWebSocketPatternFile(filePath: string): boolean {
