@@ -514,8 +514,11 @@ describe('createVoidRouter', () => {
     ['/books?delete', '/books', '/books'],
     ['/books?page=2', '/books?page=2', '/books?page=2'],
     ['/books?a&b', '/books?a&b', '/books?a&b'],
-  ])('writes POST %s with page URL %s to history as %s', async (url, pageUrl, historyUrl) => {
+  ])('replaces history for POST %s with page URL %s as %s', async (url, pageUrl, historyUrl) => {
     stubClientGlobals();
+    const historyLocation = new URL(historyUrl, 'http://localhost');
+    window.location.pathname = historyLocation.pathname;
+    window.location.search = historyLocation.search;
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => pageJson({ component: 'home', props: {}, url: pageUrl, errors: null })),
@@ -524,7 +527,44 @@ describe('createVoidRouter', () => {
 
     await router.visit(url, { method: 'POST' });
 
-    expect(history.pushState).toHaveBeenCalledWith(expect.anything(), '', historyUrl);
+    expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', historyUrl);
+    expect(history.pushState).not.toHaveBeenCalled();
+  });
+
+  it('pushes history when a POST changes the page URL', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/books';
+    window.location.search = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        pageJson({ component: 'home', props: {}, url: '/books?page=2', errors: null }),
+      ),
+    );
+    const { router } = await createTestRouter();
+
+    await router.visit('/books?delete', { method: 'POST' });
+
+    expect(history.pushState).toHaveBeenCalledWith(expect.anything(), '', '/books?page=2');
+    expect(history.replaceState).not.toHaveBeenCalled();
+  });
+
+  it('does not grow history on repeated same-page named action submits', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/db';
+    window.location.search = '';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => pageJson({ component: 'home', props: {}, url: '/db', errors: null })),
+    );
+    const { router } = await createTestRouter();
+
+    await router.visit('/db?create', { method: 'POST' });
+    await router.visit('/db?create', { method: 'POST' });
+
+    expect(history.pushState).not.toHaveBeenCalled();
+    expect(history.replaceState).toHaveBeenCalledTimes(2);
+    expect(history.replaceState).toHaveBeenLastCalledWith(expect.anything(), '', '/db');
   });
 
   it('runs navigation listeners for same-page hash visits', async () => {

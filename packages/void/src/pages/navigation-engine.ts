@@ -26,6 +26,22 @@ function withoutActionKey(fetchUrl: string, pageUrl: string): string {
     : fetchUrl;
 }
 
+/** URL to commit after a page mutation (strip action keys, then prefer the server page URL). */
+function mutationCommitUrl(fetchUrl: string, pageUrl?: string): string {
+  if (!pageUrl) {
+    return withoutActionKey(fetchUrl, '');
+  }
+  const withoutKey = withoutActionKey(fetchUrl, pageUrl);
+  if (withoutKey !== fetchUrl) {
+    return withoutKey;
+  }
+  const fetchPathEnd = fetchUrl.indexOf('?');
+  const fetchPath = fetchPathEnd === -1 ? fetchUrl : fetchUrl.slice(0, fetchPathEnd);
+  const pagePathEnd = pageUrl.indexOf('?');
+  const pagePath = pagePathEnd === -1 ? pageUrl : pageUrl.slice(0, pagePathEnd);
+  return fetchPath === pagePath ? pageUrl : fetchUrl;
+}
+
 export type PageComponentModule = {
   default: unknown;
 };
@@ -835,7 +851,7 @@ export async function createPageNavigationEngine(
 
     if (method !== 'GET') {
       deferredRegistry.preserveValuesFrom(_committedDeferredRegistry, pageData);
-      commitTarget.fetchUrl = withoutActionKey(fetchUrl, pageData.url);
+      commitTarget.fetchUrl = mutationCommitUrl(fetchUrl, pageData.url);
     }
 
     const [component, layouts] = await Promise.race([
@@ -923,7 +939,12 @@ export async function createPageNavigationEngine(
       // preserveState only controls component state; back/forward traversal already moved history.
       if (!options._popstate) {
         const historyUrl = commitTarget.fetchUrl + commitTarget.hash;
-        scrollRestoration.writeHistory(historyUrl, !!options.replace);
+        const resource = getResource();
+        const currentDocumentUrl = window.location.pathname + window.location.search;
+        const replaceHistory =
+          !!options.replace ||
+          (resource.method !== 'GET' && historyUrl === currentDocumentUrl + commitTarget.hash);
+        scrollRestoration.writeHistory(historyUrl, replaceHistory);
       }
       scrollRestoration.commit();
 
