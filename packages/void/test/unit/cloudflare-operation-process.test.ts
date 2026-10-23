@@ -667,6 +667,45 @@ it('uses pinned cf despite a project-local CLI and preserves D1 results and the 
   ]);
 }, 30_000);
 
+it('sends D1 SQL that starts with a comment as one --sql value through the pinned cf', async () => {
+  const directory = temporaryDirectory('void-cf-d1-comment-sql-');
+  const bodies: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      bodies.push(JSON.parse(body));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({
+          success: true,
+          errors: [],
+          messages: [],
+          result: [{ results: [], success: true, meta: {} }],
+        }),
+      );
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const sql = '-- leading comment\nSELECT 1;';
+  const output = await runOperation(
+    directory,
+    { type: 'd1.execute', database: 'DB', sql, configPath },
+    tokenEnv(api, 'CF_API_TOKEN'),
+  );
+  expect(output.status, output.stderr).toBe(0);
+  expect(bodies).toEqual([{ sql }]);
+}, 30_000);
+
 it('uses the configured HTTP proxy for cf resource requests', async () => {
   const directory = temporaryDirectory('void-cf-resource-proxy-');
   let proxied = 0;
@@ -1405,7 +1444,7 @@ syncBuiltinESMExports();`,
       {
         type: 'versions.upload',
         configPath,
-        message: 'review',
+        message: '-review',
         ...(interactive ? { interactive } : {}),
       },
       unproxiedEnv(api),
@@ -1418,8 +1457,7 @@ syncBuiltinESMExports();`,
       'versions',
       'create',
       '--prebuilt',
-      '--message',
-      'review',
+      '--message=-review',
     ]);
     if (interactive) {
       expect(called.stdio).toBe('inherit');

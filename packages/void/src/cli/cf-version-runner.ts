@@ -621,7 +621,8 @@ export function createCfVersionRunner(options: {
             'versions',
             'create',
             '--prebuilt',
-            ...(operation.message ? ['--message', operation.message] : []),
+            // One argv item, so a message that starts with "-" is not read as a flag.
+            ...(operation.message ? [`--message=${operation.message}`] : []),
             ...(operation.secretsFilePath ? ['--secrets-file', operation.secretsFilePath] : []),
             ...(operation.previewAlias ? ['--preview-alias', operation.previewAlias] : []),
           ],
@@ -696,7 +697,8 @@ export function createCfVersionRunner(options: {
           [
             'deploy',
             '--prebuilt',
-            ...(operation.message ? ['--message', operation.message] : []),
+            // One argv item, so a message that starts with "-" is not read as a flag.
+            ...(operation.message ? [`--message=${operation.message}`] : []),
             ...(operation.secretsFilePath ? ['--secrets-file', operation.secretsFilePath] : []),
           ],
           command.capture,

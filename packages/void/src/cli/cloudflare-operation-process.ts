@@ -662,7 +662,8 @@ async function resources(): Promise<Result> {
   switch (operation.type) {
     case 'd1.execute': {
       const database = d1Database(operation.database);
-      return runCf(['d1', 'query', database.id, '--sql', operation.sql]);
+      // One argv item, so cf cannot read SQL that starts with "-" (such as a comment) as a flag.
+      return runCf(['d1', 'query', database.id, `--sql=${operation.sql}`]);
     }
     case 'd1.migrations.list':
     case 'd1.migrations.apply': {
@@ -1116,7 +1117,8 @@ async function workerChanges(): Promise<Result> {
         [
           ...(request.type === 'worker.deploy' ? ['deploy'] : ['workers', 'versions', 'create']),
           '--prebuilt',
-          ...(request.message ? ['--message', request.message] : []),
+          // One argv item, so a message that starts with "-" is not read as a flag.
+          ...(request.message ? [`--message=${request.message}`] : []),
           ...(request.secretsFilePath ? ['--secrets-file', request.secretsFilePath] : []),
         ],
         directory,
