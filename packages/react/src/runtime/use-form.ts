@@ -13,7 +13,9 @@ import {
   interpolateRouteParams,
   isAbortError,
   isEqualFormValue,
+  parseFormResetArgs,
   submitAction,
+  type FormResetOptions,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext } from './context.ts';
@@ -32,6 +34,7 @@ type UntypedForm = {
   put(formData: FormData): void;
   patch(formData: FormData): void;
   delete(formData: FormData): void;
+  reset(options: FormResetOptions, ...fields: ReadonlyArray<string>): void;
   reset(...fields: ReadonlyArray<string>): void;
   clearErrors(...fields: ReadonlyArray<string>): void;
   clearError(): void;
@@ -58,6 +61,10 @@ export function useForm<U extends ActionUrl & string>(
   put(formData: FormData): void;
   patch(formData: FormData): void;
   delete(formData: FormData): void;
+  reset(
+    options: FormResetOptions,
+    ...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>
+  ): void;
   reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
   clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
   clearError(): void;
@@ -66,7 +73,7 @@ export function useForm<U extends ActionUrl & string>(
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string> },
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
 ): UntypedForm {
   const router = useContext(RouterContext);
   const [data, setDataState] = useState<Record<string, unknown>>(() => ({ ...defaults }));
@@ -79,6 +86,7 @@ export function useForm(
   const [recentlySuccessful, setRecentlySuccessful] = useState(false);
 
   const defaultsRef = useRef(defaultsState);
+  const initialRef = useRef<Record<string, unknown>>({ ...defaults });
   const dataRef = useRef(data);
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -93,13 +101,15 @@ export function useForm(
     setDataState(dataRef.current);
   }, []);
 
-  const reset = useCallback((...fields: ReadonlyArray<string>) => {
+  const reset = useCallback((...args: ReadonlyArray<string | FormResetOptions>) => {
+    const { initial, fields } = parseFormResetArgs(args);
+    const source = initial ? initialRef.current : defaultsRef.current;
     if (fields.length === 0) {
-      dataRef.current = { ...defaultsRef.current };
+      dataRef.current = { ...source };
     } else {
       const next = { ...dataRef.current };
       for (const field of fields) {
-        next[field] = defaultsRef.current[field];
+        next[field] = source[field];
       }
       dataRef.current = next;
     }
@@ -167,9 +177,17 @@ export function useForm(
         return previousSuccessVersion;
       }
 
-      const nextDefaults = { ...dataRef.current };
-      defaultsRef.current = nextDefaults;
-      setDefaultsState(nextDefaults);
+      if (options?.resetOnSuccess) {
+        const initial = { ...initialRef.current };
+        dataRef.current = initial;
+        setDataState(initial);
+        defaultsRef.current = initial;
+        setDefaultsState(initial);
+      } else {
+        const nextDefaults = { ...dataRef.current };
+        defaultsRef.current = nextDefaults;
+        setDefaultsState(nextDefaults);
+      }
       setWasSuccessful(true);
       setRecentlySuccessful(true);
       successTimeoutRef.current = setTimeout(() => {

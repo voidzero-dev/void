@@ -154,10 +154,11 @@ The types are inferred from your action's `withValidator()` schema in the compan
 | `error`                          | Action error, or `null`.                                                           |
 | `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks. |
 | `pending`                        | `true` while the submission is in flight.                                          |
-| `hasChanges`                     | `true` if form data differs from initial values.                                   |
+| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values so `hasChanges` becomes `false`. |
 | `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.      |
 | `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.     |
-| `reset(...fields)`               | Reset form data to initial values. Field names autocomplete.                       |
+| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`. |
+| `resetOnSuccess` (option)        | When `true`, a successful submit resets both form data and defaults to the mount-time values. Useful for create forms that should clear after save. |
 | `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                 |
 | `clearError()`                   | Clear `error`.                                                                     |
 
@@ -170,6 +171,8 @@ For dynamic routes, pass `params` in the options:
 const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
 <Form form={form} method="put">{/* submits to /users/42 */}</Form>
 ```
+
+Create forms often need empty fields again after a successful save. Either pass `resetOnSuccess: true` in the third argument, or call `form.reset({ initial: true })` when `form.wasSuccessful` becomes `true`.
 
 ## Named Actions
 

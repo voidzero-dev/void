@@ -127,10 +127,12 @@ export function generateRouteTypes(
   lines.push('  export type HasActionParams<U extends string> =');
   lines.push('    ResolveActionParams<U> extends Record<string, string> ? true : false;');
   lines.push('');
-  lines.push('  export type ActionFormOptions<U extends string> =');
-  lines.push(
-    '    HasActionParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never };',
-  );
+  lines.push('  type ActionFormBaseOptions = { resetOnSuccess?: boolean };');
+  lines.push('');
+  lines.push('  export type ActionFormOptions<U extends string> = ActionFormBaseOptions &');
+  lines.push('    (HasActionParams<U> extends true');
+  lines.push('      ? { params: ResolveActionParams<U> }');
+  lines.push('      : { params?: never });');
   lines.push('');
   lines.push('  export type ActionUrl =');
   lines.push('    | {');

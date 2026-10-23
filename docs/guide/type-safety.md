@@ -109,7 +109,7 @@ The `action()` helper gets the same type checking. See [Actions & Forms](./pages
 | Database     | Table columns, value types, insert/update shapes from Drizzle schema |
 | Handlers     | `c.env` bindings, validator input, return type                       |
 | Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type    |
-| `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args, `params`  |
+| `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
 | `action()`   | Action URLs, `data` payload, `params`                                |
 
 ## Serialization

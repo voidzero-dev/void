@@ -54,9 +54,13 @@ export type ResolveActionParams<U extends string> =
 export type HasActionParams<U extends string> =
   ResolveActionParams<U> extends Record<string, string> ? true : false;
 
+type ActionFormBaseOptions = { resetOnSuccess?: boolean };
+
 /** Form options type (requires params for dynamic routes) */
-export type ActionFormOptions<U extends string> =
-  HasActionParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never };
+export type ActionFormOptions<U extends string> = ActionFormBaseOptions &
+  (HasActionParams<U> extends true
+    ? { params: ResolveActionParams<U> }
+    : { params?: never });
 
 /** Valid useForm URLs — single-action pages + "page?name" combos + default actions */
 export type ActionUrl =

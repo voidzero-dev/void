@@ -4,7 +4,9 @@ import {
   interpolateRouteParams,
   isAbortError,
   isEqualFormValue,
+  parseFormResetArgs,
   submitAction,
+  type FormResetOptions,
   type VisitOptions,
   type VoidRouter,
 } from 'void/pages-client';
@@ -26,6 +28,7 @@ type UntypedForm = {
   put(opts?: FormSubmitOptions): Promise<void>;
   patch(opts?: FormSubmitOptions): Promise<void>;
   delete(opts?: FormSubmitOptions): Promise<void>;
+  reset(options: FormResetOptions, ...fields: ReadonlyArray<string>): void;
   reset(...fields: ReadonlyArray<string>): void;
   clearErrors(...fields: ReadonlyArray<string>): void;
   clearError(): void;
@@ -47,6 +50,10 @@ export function useForm<U extends ActionUrl & string>(
   put(opts?: FormSubmitOptions): Promise<void>;
   patch(opts?: FormSubmitOptions): Promise<void>;
   delete(opts?: FormSubmitOptions): Promise<void>;
+  reset(
+    options: FormResetOptions,
+    ...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>
+  ): void;
   reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
   clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
   clearError(): void;
@@ -55,7 +62,7 @@ export function useForm<U extends ActionUrl & string>(
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string> },
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
 ): UntypedForm {
   const formDefaults = defaults;
   const router = inject<VoidRouter | null>('__void_router', null);
@@ -67,6 +74,7 @@ export function useForm(
   const recentlySuccessful = ref(false);
 
   let defaults_ = { ...formDefaults };
+  const initialDefaults = { ...formDefaults };
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const hasChanges = ref(false);
@@ -80,12 +88,14 @@ export function useForm(
     { deep: true },
   );
 
-  function reset(...fields: ReadonlyArray<string>) {
+  function reset(...args: ReadonlyArray<string | FormResetOptions>) {
+    const { initial, fields } = parseFormResetArgs(args);
+    const source = initial ? initialDefaults : defaults_;
     if (fields.length === 0) {
-      Object.assign(data, { ...defaults_ });
+      Object.assign(data, { ...source });
     } else {
       for (const field of fields) {
-        data[field] = defaults_[field];
+        data[field] = source[field];
       }
     }
   }
@@ -141,7 +151,12 @@ export function useForm(
 
       wasSuccessful.value = true;
       recentlySuccessful.value = true;
-      defaults_ = { ...data };
+      if (options?.resetOnSuccess) {
+        Object.assign(data, { ...initialDefaults });
+        defaults_ = { ...initialDefaults };
+      } else {
+        defaults_ = { ...data };
+      }
       successTimeout = setTimeout(() => {
         recentlySuccessful.value = false;
       }, 2000);
