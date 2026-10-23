@@ -38,7 +38,7 @@ type PagesPluginOptions = {
   prefetch?: PrefetchConfig;
 };
 
-/** Check if the pages directory has any non-island page files (.tsx/.jsx without .island.). */
+/** Check if the pages directory has any page components that need the full client runtime. */
 function hasNonIslandPages(dir: string): boolean {
   try {
     for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
@@ -46,7 +46,7 @@ function hasNonIslandPages(dir: string): boolean {
         continue;
       }
       const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.')) {
+      if (name.startsWith('_') || name.startsWith('layout.') || name.includes('.server.')) {
         continue;
       }
       if (/\.(tsx|jsx)$/.test(name) && !name.includes('.island.')) {
