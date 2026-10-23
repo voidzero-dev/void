@@ -100,7 +100,7 @@ Each page can have a companion `.server.ts`, `.server.tsx`, `.server.js`, `.serv
 
 | File                   | Role                           |
 | ---------------------- | ------------------------------ |
-| `routes/foo.tsx`       | Server HTTP handler at `/foo`  |
+| `routes/api.tsx`       | Server HTTP handler at `/api`  |
 | `pages/foo.tsx`        | Page component at `/foo`       |
 | `pages/foo.server.tsx` | Server companion for that page |
 | `pages/bar.jsx`        | Page component at `/bar`       |

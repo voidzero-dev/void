@@ -139,6 +139,109 @@ describe('inferProjectBindings', () => {
     },
   );
 
+  it.each(['', 'src', 'app'])('infers .well-known bindings under sourceDir=%s', (sourceDir) => {
+    const root = createTempRoot();
+    if (sourceDir) {
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir }));
+    }
+    const routesDir = join(root, sourceDir, 'routes', '.well-known');
+    mkdirSync(join(routesDir, '_helpers'), { recursive: true });
+    writeFileSync(
+      join(routesDir, 'status.dev.tsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('status')}</p>;",
+    );
+    writeFileSync(
+      join(routesDir, 'status.prod.jsx'),
+      "import { storage } from 'void/storage'; export const GET = () => <p>{storage.list()}</p>;",
+    );
+    writeFileSync(
+      join(routesDir, 'events.dev.ws.jsx'),
+      "import { db } from 'void/db'; export default defineWebSocket({ onMessage: () => <p>{db.select()}</p> });",
+    );
+    writeFileSync(
+      join(routesDir, '_helpers', 'stream.prod.tsx'),
+      "import { defineLiveStream } from 'void/live'; export const Stream = () => <p>Stream</p>;",
+    );
+
+    expect(inferProjectBindings(root, { environment: 'dev' })).toMatchObject({
+      needsKV: true,
+      needsR2: false,
+      needsD1: true,
+      needsLive: true,
+    });
+    expect(inferProjectBindings(root, { environment: 'prod' })).toMatchObject({
+      needsKV: false,
+      needsR2: true,
+      needsD1: false,
+      needsLive: true,
+    });
+    expect(inferProjectBindings(root)).toMatchObject({
+      needsKV: true,
+      needsR2: true,
+      needsD1: true,
+      needsLive: true,
+    });
+  });
+
+  it('keeps unrelated hidden directories out of .well-known inference', () => {
+    const root = createTempRoot();
+    for (const directory of [
+      'routes/.cache',
+      'routes/.well-known/.cache',
+      'routes/nested/.well-known',
+      'pages/.well-known',
+    ]) {
+      mkdirSync(join(root, directory), { recursive: true });
+      writeFileSync(join(root, directory, 'hidden.tsx'), "import { storage } from 'void/storage';");
+    }
+    writeFileSync(
+      join(root, 'routes/.well-known/status.tsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>Status</p>;",
+    );
+
+    expect(inferProjectBindings(root)).toMatchObject({ needsKV: true, needsR2: false });
+    expect(inferProjectBindings(root, undefined, ['pages']).needsKV).toBe(false);
+  });
+
+  it('infers .well-known bindings in the configured source fallback with custom scan directories', () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'app' }));
+    mkdirSync(join(root, 'app/routes/.well-known'), { recursive: true });
+    writeFileSync(
+      join(root, 'app/routes/.well-known/status.prod.jsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>Status</p>;",
+    );
+
+    expect(inferProjectBindings(root, { environment: 'prod' }, ['server']).needsKV).toBe(true);
+    expect(inferProjectBindings(root, { environment: 'dev' }, ['server']).needsKV).toBe(false);
+  });
+
+  it.each(['tsx', 'jsx'])('keeps bindings from underscored route helpers in .%s', (ext) => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'routes/_components'), { recursive: true });
+    mkdirSync(join(root, 'routes/components'), { recursive: true });
+    writeFileSync(
+      join(root, `routes/_components/Toolbar.prod.${ext}`),
+      "import { kv } from 'void/kv'; export const Toolbar = () => <p>Toolbar</p>;",
+    );
+    writeFileSync(
+      join(root, `routes/components/_Toolbar.dev.${ext}`),
+      "import { storage } from 'void/storage'; export const Toolbar = () => <p>Toolbar</p>;",
+    );
+    writeFileSync(
+      join(root, `routes/_helper.prod.ws.${ext}`),
+      "import { db } from 'void/db'; export const helper = () => <p>Helper</p>;",
+    );
+
+    for (const environment of ['dev', 'prod'] as const) {
+      expect(inferProjectBindings(root, { environment })).toMatchObject({
+        needsKV: true,
+        needsR2: true,
+        needsD1: true,
+      });
+    }
+  });
+
   it('keeps bindings from non-route files with environment-like suffixes', () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'routes'), { recursive: true });

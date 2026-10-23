@@ -25,17 +25,20 @@ afterEach(() => {
   }
 });
 
-function createProject(ext: string): string {
+function createProject(ext: string, sourceDir = ''): string {
   const root = mkdtempSync(join(tmpdir(), 'void-route-binding-env-'));
   roots.push(root);
-  mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+  mkdirSync(join(root, sourceDir, 'routes', 'api'), { recursive: true });
   writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
   writeFileSync(
     join(root, 'void.json'),
-    JSON.stringify({ worker: { compatibility_date: '2026-02-24' } }),
+    JSON.stringify({
+      sourceDir: sourceDir || undefined,
+      worker: { compatibility_date: '2026-02-24' },
+    }),
   );
   writeFileSync(
-    join(root, 'routes', 'api', `debug.dev.${ext}`),
+    join(root, sourceDir, 'routes', 'api', `debug.dev.${ext}`),
     `import { db } from 'void/db';
 import { kv } from 'void/kv';
 import { storage } from 'void/storage';
@@ -69,6 +72,35 @@ async function generatedBindings(
 }
 
 describe('environment-specific route binding inference', () => {
+  it.each([
+    { ext: 'tsx', sourceDir: '' },
+    { ext: 'jsx', sourceDir: 'src' },
+  ])(
+    'emits .well-known and helper bindings in .$ext under sourceDir=$sourceDir',
+    async ({ ext, sourceDir }) => {
+      const root = createProject(ext, sourceDir);
+      const routesDir = join(root, sourceDir, 'routes');
+      rmSync(join(routesDir, 'api', `debug.dev.${ext}`));
+      mkdirSync(join(routesDir, '.well-known'));
+      mkdirSync(join(routesDir, '_components'));
+      writeFileSync(
+        join(routesDir, '.well-known', `status.prod.${ext}`),
+        "import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('status')}</p>;",
+      );
+      writeFileSync(
+        join(routesDir, '_components', `Toolbar.prod.${ext}`),
+        "import { storage } from 'void/storage'; export const Toolbar = () => <p>Toolbar</p>;",
+      );
+
+      const development = await generatedBindings(root, { command: 'serve', mode: 'development' });
+      expect(development.kv_namespaces).toBeUndefined();
+      expect(development.r2_buckets).toBeDefined();
+      const production = await generatedBindings(root, { command: 'build', mode: 'production' });
+      expect(production.kv_namespaces).toBeDefined();
+      expect(production.r2_buckets).toBeDefined();
+    },
+  );
+
   it.each(['tsx', 'jsx'])(
     'emits JSX WebSocket bindings only in the selected environment for .ws.%s',
     async (ext) => {
