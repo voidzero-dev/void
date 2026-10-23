@@ -86,34 +86,66 @@ describe('inferProjectBindings', () => {
     });
   });
 
-  it('filters route-only bindings for the selected environment', () => {
-    const root = createTempRoot();
-    mkdirSync(join(root, 'routes', 'api'), { recursive: true });
-    writeFileSync(
-      join(root, 'routes', 'api', 'debug.dev.ts'),
-      `
+  it.each(['ts', 'tsx', 'jsx'])(
+    'filters route-only bindings in .%s for the selected environment',
+    (ext) => {
+      const root = createTempRoot();
+      mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+      writeFileSync(
+        join(root, 'routes', 'api', `debug.dev.${ext}`),
+        `
       import { storage } from "void/storage";
       export const GET = async () => Response.json(await storage.list());
       `,
-    );
-    writeFileSync(
-      join(root, 'routes', 'api', 'events.dev.ws.ts'),
-      "import { defineLiveStream } from 'void/live';",
-    );
+      );
+      writeFileSync(
+        join(root, 'routes', 'api', `events.dev.ws.${ext}`),
+        "import { defineLiveStream } from 'void/live';",
+      );
 
-    expect(inferProjectBindings(root, undefined, ['routes']).needsR2).toBe(true);
-    expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsR2).toBe(true);
-    const production = inferProjectBindings(root, { environment: 'prod' }, ['routes']);
-    expect(production.needsR2).toBe(false);
-    expect(production.needsLive).toBe(false);
-  });
+      expect(inferProjectBindings(root, undefined, ['routes']).needsR2).toBe(true);
+      expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsR2).toBe(true);
+      expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsLive).toBe(true);
+      const production = inferProjectBindings(root, { environment: 'prod' }, ['routes']);
+      expect(production.needsR2).toBe(false);
+      expect(production.needsLive).toBe(false);
+    },
+  );
+
+  it.each(['tsx', 'jsx'])(
+    'infers JSX bindings from .server.%s companions under sourceDir',
+    (serverExt) => {
+      const root = createTempRoot();
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'src' }));
+      mkdirSync(join(root, 'src/routes'), { recursive: true });
+      mkdirSync(join(root, 'src/pages'), { recursive: true });
+      writeFileSync(
+        join(root, `src/routes/report.prod.${serverExt}`),
+        `import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('report')}</p>;`,
+      );
+      writeFileSync(
+        join(root, `src/pages/report.server.${serverExt}`),
+        `import { storage } from 'void/storage'; export const loader = () => <p>{storage.list()}</p>;`,
+      );
+
+      expect(inferProjectBindings(root, { environment: 'dev' })).toMatchObject({
+        needsKV: false,
+        needsR2: true,
+      });
+      expect(inferProjectBindings(root, { environment: 'prod' })).toMatchObject({
+        needsKV: true,
+        needsR2: true,
+      });
+    },
+  );
 
   it('keeps bindings from non-route files with environment-like suffixes', () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'routes'), { recursive: true });
     mkdirSync(join(root, 'queues'), { recursive: true });
     writeFileSync(join(root, 'queues', 'sync.dev.ts'), "import { storage } from 'void/storage';");
-    writeFileSync(join(root, 'routes', 'helper.dev.tsx'), "import { kv } from 'void/kv';");
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    writeFileSync(join(root, 'pages', 'helper.dev.server.tsx'), "import { kv } from 'void/kv';");
 
     const result = inferProjectBindings(root, { environment: 'prod' });
     expect(result.needsR2).toBe(true);

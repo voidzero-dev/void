@@ -8,6 +8,7 @@ import {
   isRouteEnabledForEnvironment,
   parseRouteFilename,
   parseWebSocketFilename,
+  ROUTE_EXTENSIONS,
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
@@ -159,7 +160,7 @@ export function inferProjectBindings(
     if (
       options?.environment &&
       normalizedFile.startsWith(routesPrefix) &&
-      /\.(?:ts|mts|js|mjs)$/.test(normalizedFile)
+      ROUTE_EXTENSIONS.some((ext) => normalizedFile.endsWith(`.${ext}`))
     ) {
       const routePath = relative(paths.routesDir, normalizedFile);
       const route = isWebSocketPatternFile(routePath)

@@ -33,7 +33,7 @@ import type {
 } from './types.ts';
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
-const SERVER_EXTENSIONS = ['ts', 'tsx', 'js', 'mjs', 'mts'];
+const SERVER_EXTENSIONS = ['ts', 'tsx', 'js', 'jsx', 'mjs', 'mts'];
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
 export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 
@@ -233,6 +233,9 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
 
     const ext = extname(file);
     let base = basename(file, ext);
+    if (base.endsWith('.server')) {
+      continue;
+    }
 
     // Detect island suffix (.island.tsx, .island.vue, etc.)
     let island: boolean | undefined;
@@ -274,8 +277,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
 
     // Page files — parse as route
-    // parseRouteFilename only strips .ts/.js/.mts/.mjs — convert component
-    // extension to .ts so the parser handles it correctly.
+    // Convert component extensions to .ts so the route parser handles them uniformly.
     // Strip .island suffix before parsing so route patterns are clean.
     const parseName = hasIslandSuffix
       ? file.replace(`.island${ext}`, '.ts')
@@ -288,7 +290,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         .replace(/\/index$/, '')
         .replace(/^index$/, '') || 'index';
 
-    // Check for companion .server.ts — server files never have .island suffix
+    // Check for a server companion — server files never have .island suffix
     let serverPath: string | null = null;
     const methods: Array<string> = [];
     let revalidate: number | undefined;

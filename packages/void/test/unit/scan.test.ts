@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
+import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { readConfig } from '../../src/config.ts';
 import type { RouteEnvironment } from '../../src/router/parse-filename.ts';
 import { scanRoutePatternsSync } from '../../src/router/scan.ts';
@@ -63,6 +64,53 @@ describe('scanRoutes', () => {
     const users = result.routes.find((r) => r.pattern === '/api/users')!;
     expect(users.methods).toEqual(['GET', 'POST']);
     expect(result.jobs).toEqual([]);
+  });
+
+  it.each(
+    ['tsx', 'jsx'].flatMap((ext) =>
+      ([undefined, 'dev', 'prod'] as const).map((environment) => ({ ext, environment })),
+    ),
+  )(
+    'discovers .$ext handlers and generates types for environment=$environment',
+    async ({ ext, environment }) => {
+      createFile(`routes/api/hello.${ext}`, 'export const GET = () => <h1>Hello</h1>;');
+      createFile(`routes/api/env.dev.${ext}`, 'export const GET = () => <p>Dev</p>;');
+      createFile(`routes/api/env.prod.${ext}`, 'export const POST = () => <p>Prod</p>;');
+      createFile(`routes/.well-known/status.${ext}`, 'export const GET = () => <p>OK</p>;');
+      createFile(`routes/_private.${ext}`, 'export const GET = () => <p>Private</p>;');
+      createFile(`routes/.cache/ignored.${ext}`);
+
+      const result = await scanRoutes(TMP, { environment });
+      const expected = [
+        `.well-known/status.${ext}`,
+        ...(environment !== 'prod' ? [`api/env.dev.${ext}`] : []),
+        ...(environment !== 'dev' ? [`api/env.prod.${ext}`] : []),
+        `api/hello.${ext}`,
+      ];
+      expect(result.routes.map((route) => route.filePath).sort()).toEqual(expected);
+      expect(result.routes.find((route) => route.pattern === '/api/hello')?.methods).toEqual([
+        'GET',
+      ]);
+      const { dts } = generateRouteTypes(result, join(TMP, 'routes'), join(TMP, '.void'));
+      expect(dts).toContain('"/api/hello": {');
+      for (const file of expected) {
+        expect(dts).toContain(`typeof import("../routes/${file}")`);
+      }
+      if (environment) {
+        expect(dts).not.toContain(`env.${environment === 'dev' ? 'prod' : 'dev'}.${ext}`);
+      }
+    },
+  );
+
+  it.each(['tsx', 'jsx'])('keeps .%s out of cron and queue discovery', async (ext) => {
+    createFile(`routes/hello.${ext}`, 'export const GET = () => <p>Hello</p>;');
+    createFile(`crons/sync.${ext}`, 'export const cron = "0 * * * *"; export default () => {};');
+    createFile(`queues/emails.${ext}`, 'export default async () => {};');
+
+    const result = await scanRoutes(TMP);
+    expect(result.routes.map((route) => route.filePath)).toEqual([`hello.${ext}`]);
+    expect(result.jobs).toEqual([]);
+    expect(result.queues).toEqual([]);
   });
 
   it('discovers conventions under explicit sourceDir only', async () => {
@@ -267,6 +315,24 @@ export default () => {};`,
 
     expect(dev.websockets?.map((r) => r.filePath)).toEqual(['chat.dev.ws.ts']);
     expect(prod.websockets?.map((r) => r.filePath)).toEqual(['chat.prod.ws.ts']);
+  });
+
+  it('discovers all WebSocket route extensions separately from HTTP handlers', async () => {
+    createFile('routes/tsx.tsx', 'export const GET = () => <p>TSX</p>;');
+    createFile('routes/jsx.jsx', 'export const GET = () => <p>JSX</p>;');
+    for (const ext of ['ts', 'mts', 'js', 'mjs', 'tsx', 'jsx']) {
+      createFile(`routes/chat-${ext}.ws.${ext}`, 'export default defineWebSocket({});');
+    }
+    const result = await scanRoutes(TMP);
+    expect(result.websockets?.map((route) => route.filePath).sort()).toEqual([
+      'chat-js.ws.js',
+      'chat-jsx.ws.jsx',
+      'chat-mjs.ws.mjs',
+      'chat-mts.ws.mts',
+      'chat-ts.ws.ts',
+      'chat-tsx.ws.tsx',
+    ]);
+    expect(result.routes.map((route) => route.pattern)).toEqual(['/jsx', '/tsx']);
   });
 });
 

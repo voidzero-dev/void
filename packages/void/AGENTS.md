@@ -154,7 +154,7 @@ Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 
 Applied in order to a path relative to `routes/`:
 
-1. Strip extension (`.ts`, `.js`, `.mts`, `.mjs`)
+1. Strip extension (`.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, `.mjs`)
 2. Strip env suffix (`.dev`, `.prod`) and record it on `RouteDefinition.env`
 3. Strip trailing `index`
 4. Remove route group dirs `(groupname)`
@@ -162,6 +162,8 @@ Applied in order to a path relative to `routes/`:
 6. Prefix with `/`
 
 HTTP methods are determined by **named exports** in each file (detected by `detect-exports.ts` via `parseSync`), not by filename suffixes. Files/dirs starting with `_` are ignored by the scanner.
+
+`listRouteFiles()` uses `ROUTE_EXTENSIONS`, shared with HTTP/WebSocket filename parsing, resource-name inference, and route binding inference. Both route scanners use it, with `isWebSocketPatternFile()` sharing the WebSocket filename regex to distinguish `.ws.*` files. `listConventionFiles()` keeps fixed script extensions for crons and queues. JSX uses the app's configured runtime. Page `.server.tsx` and `.server.jsx` companions supply server metadata and handlers; exclude them from component inventories and component manifests.
 
 The recorded `env` is enforced by `isRouteEnabledForEnvironment()`. The scanners take an optional `environment` (`'dev' | 'prod'`); when it is omitted no filtering happens. `dev` is the Vite dev server, `prod` is every build, `void deploy`, and `vite preview`. A dev-only route is absent from the production bundle, types, generated route/WebSocket config, and inferred bindings. `void prepare` boots no Vite, passes no `environment`, and generates types for both environments. `voidPlugin()` scans unfiltered source during construction for binding-name reservation and plugin membership, then recomputes environment-specific bindings in its `config` hook before emitting Cloudflare config. Binding inference filters only recognized route files under `paths.routesDir`; the suffix has no effect in `pages/`, `middleware/`, `crons/`, `queues/`, or other source files.
 
