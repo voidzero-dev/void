@@ -1131,18 +1131,15 @@ describe('createVoidRouter other-origin visits', () => {
 
   it('follows a same-host Capacitor action redirect in place', async () => {
     const { router, fetchMock, applyUpdate } = await createRouter('capacitor://localhost');
-    const response = pageJson({});
+    const response = pageJson({ component: 'users', props: { users: [] } });
     Object.defineProperties(response, {
       redirected: { value: true },
       url: { value: 'capacitor://localhost/users' },
     });
     fetchMock.mockResolvedValueOnce(response);
     await router.visit('/submit', { method: 'POST' });
-    expect(fetchMock).toHaveBeenNthCalledWith(
-      2,
-      '/users',
-      expect.objectContaining({ method: 'GET' }),
-    );
+    // The redirect destination is rendered from the followed response, not fetched again.
+    expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(applyUpdate).toHaveBeenCalledTimes(1);
     expect(window.location.href).toBeUndefined();
   });

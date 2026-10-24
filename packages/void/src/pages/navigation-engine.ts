@@ -706,23 +706,13 @@ export async function createPageNavigationEngine(
           window.location.href = method === 'GET' ? url : response.url;
           return undefined;
         }
-        commitTarget.fetchUrl = redirectUrl.pathname + redirectUrl.search;
+        // The browser already followed the redirect: treat the final response as the GET
+        // result for the destination instead of fetching it a second time.
+        method = 'GET';
+        fetchUrl = redirectUrl.pathname + redirectUrl.search;
+        url = fetchUrl + redirectUrl.hash;
+        commitTarget.fetchUrl = fetchUrl;
         commitTarget.hash = redirectUrl.hash;
-        return loadNavigationShell(
-          id,
-          redirectUrl.pathname + redirectUrl.search + redirectUrl.hash,
-          redirectUrl.pathname + redirectUrl.search,
-          'GET',
-          {
-            preserveScroll: options.preserveScroll,
-            preserveState: options.preserveState,
-            replace: options.replace,
-            viewTransition: options.viewTransition,
-          },
-          signal,
-          commitTarget,
-          deferredRegistry,
-        );
       }
 
       if (response && method !== 'GET' && !response.ok) {
