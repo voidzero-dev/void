@@ -42,6 +42,7 @@ it('packages real Worker and asset bytes without credentials or provider calls',
   expect(Buffer.from(result.assets['/index.html']!, 'base64').toString()).toBe('<h1>Hello</h1>');
   expect(result.artifact.manifest.assetManifestVersion).toBe(2);
   expect(result.artifact.manifest.bindings).toEqual({});
+  expect(result.artifact.manifest).not.toHaveProperty('vars');
   expect(result.artifact.assetManifest['/index.html']).toMatchObject({
     blake3: expect.stringMatching(/^[a-f0-9]{32}$/),
     md5: expect.stringMatching(/^[a-f0-9]{32}$/),
@@ -61,6 +62,38 @@ it('packages real Worker and asset bytes without credentials or provider calls',
       manifest: { ...result.artifact.manifest, bindings: { kv: ['KV'] } },
     }),
   ).not.toBe(digest);
+});
+it('includes configured Worker vars without copying dotenv or generated vars', async () => {
+  writeFileSync(
+    join(root, 'void.config.ts'),
+    "export default { worker: { vars: { API_URL: 'https://api.example.test', EMPTY_SETTING: '' } } };",
+  );
+  writeFileSync(join(root, '.env'), 'API_URL=https://local.example.test\nLOCAL_ONLY=local-value\n');
+  writeFileSync(
+    join(root, 'dist/server/wrangler.json'),
+    JSON.stringify({
+      main: 'index.js',
+      compatibility_date: '2026-10-08',
+      compatibility_flags: ['nodejs_compat'],
+      vars: { API_URL: 'https://built.example.test', BUILD_ONLY: 'generated-value' },
+    }),
+  );
+
+  const result = await prepareDeployArtifact(root);
+
+  expect(result.artifact.manifest.vars).toEqual({
+    API_URL: 'https://api.example.test',
+    EMPTY_SETTING: '',
+  });
+  expect(fetch).not.toHaveBeenCalled();
+});
+it('omits empty configured Worker vars', async () => {
+  writeFileSync(join(root, 'void.config.ts'), 'export default { worker: { vars: {} } };');
+
+  const result = await prepareDeployArtifact(root);
+
+  expect(result.artifact.manifest).not.toHaveProperty('vars');
+  expect(fetch).not.toHaveBeenCalled();
 });
 it('fails when Worker build output is missing', async () => {
   rmSync(join(root, 'dist/server'), { recursive: true });
@@ -103,7 +136,7 @@ it('packages a detected Vite SPA as assets without a Worker or provider calls', 
 it('honors static output directories and routing rules without packaging stale Worker output', async () => {
   writeFileSync(
     join(root, 'void.config.ts'),
-    `export default { inference: { appType: 'static', outputDir: 'site' }, routing: { notFound: '404-page' } };`,
+    `export default { inference: { appType: 'static', outputDir: 'site' }, routing: { notFound: '404-page' }, worker: { vars: { API_URL: 'https://api.example.test' } } };`,
   );
   mkdirSync(join(root, 'site'));
   writeFileSync(join(root, 'site/index.html'), '<h1>Static</h1>');
@@ -117,6 +150,7 @@ it('honors static output directories and routing rules without packaging stale W
     redirectRules: [{ source: '/old', destination: '/new', status: 301 }],
   });
   expect(result.artifact.workerFiles).toBeUndefined();
+  expect(result.artifact.manifest).not.toHaveProperty('vars');
   expect(Object.keys(result.assets)).toEqual(['/index.html']);
   expect(fetch).not.toHaveBeenCalled();
 });

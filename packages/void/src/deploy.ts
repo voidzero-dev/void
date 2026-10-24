@@ -150,6 +150,7 @@ export async function prepareDeployArtifact(
     false,
     {
       bindings,
+      vars: config.worker?.vars,
       hasEmailHandlers: scan.email !== undefined && hasEmailHandlers(scan.email),
       migrations,
       schedules,
