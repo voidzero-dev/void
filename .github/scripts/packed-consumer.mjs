@@ -116,6 +116,67 @@ async function run(command, args, cwd, env = environment) {
   }
 }
 
+async function verifyStarterForm(fixture, cli, vite, framework, label, browser) {
+  await run(process.execPath, [cli, 'db', 'reset', '--yes'], fixture);
+  const task = launch(
+    process.execPath,
+    [vite, 'dev', '--host', '127.0.0.1', '--port', '0', '--strictPort'],
+    fixture,
+  );
+  const page = await browser.newPage();
+  const diagnostics = collectBrowserDiagnostics(page);
+  try {
+    const deadline = Date.now() + 90_000;
+    let base;
+    while (Date.now() < deadline) {
+      if (task.child.exitCode !== null) {
+        throw new Error(task.failure());
+      }
+      base ??= packedServerUrl(task.output());
+      if (base) {
+        try {
+          const response = await fetch(base, { signal: AbortSignal.timeout(2000) });
+          if (response.ok) {
+            break;
+          }
+        } catch {
+          /* server is starting */
+        }
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
+    }
+    assert(base, task.failure());
+    await page.goto(base);
+    await page.locator('#app[data-hydrated="true"]').waitFor();
+    await page.getByRole('heading', { name: 'Welcome to Void', exact: true }).waitFor();
+    await page.getByText('No messages yet.', { exact: false }).waitFor();
+    const input = page.getByRole('textbox', { name: 'Message', exact: true });
+    const submit = page.getByRole('button', { name: 'Add message', exact: true });
+    await input.fill('   ');
+    await submit.click();
+    await page.getByRole('alert').waitFor();
+    assert.equal(await page.locator('.messages li').count(), 0);
+    const message = `Message from the ${framework} starter`;
+    await input.fill(message);
+    await submit.click();
+    await page.locator('.messages').getByText(message, { exact: true }).waitFor();
+    await page.reload();
+    await page.locator('.messages').getByText(message, { exact: true }).waitFor();
+    assert.equal(await page.locator('.messages li').count(), 1);
+    console.log(
+      `Passed packed ${label} starter: empty state, validation, form submission, and persisted messages`,
+    );
+  } catch (error) {
+    throw new Error(
+      `Packed ${label} starter form failed:\n${String(error.stack ?? error)}\n${diagnostics()}\n${task.failure()}`,
+      { cause: error },
+    );
+  } finally {
+    await page.close();
+    await task.stop();
+  }
+}
+
 const packages = [];
 for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })) {
   if (!entry.isDirectory()) {
@@ -308,6 +369,18 @@ try {
         );
         await run(process.execPath, [cli, 'prepare'], fixture);
         await run(manager, manager === 'npm' ? ['ci'] : ['install', '--frozen-lockfile'], fixture);
+        const vite = join(
+          fixture,
+          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
+        );
+        if (browser) {
+          await run(
+            process.execPath,
+            [join(fixture, 'node_modules/typescript/bin/tsc'), '--noEmit'],
+            fixture,
+          );
+          await verifyStarterForm(fixture, cli, vite, framework, label, browser);
+        }
         const extension = framework === 'vue' ? 'vue' : framework === 'svelte' ? 'svelte' : 'tsx';
         writeFileSync(join(fixture, `pages/index.${extension}`), pages[framework]);
         writeFileSync(join(fixture, `pages/next.${extension}`), pages[framework]);
@@ -331,10 +404,6 @@ try {
         );
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
-        const vite = join(
-          fixture,
-          useVitePlus ? 'node_modules/vite-plus/bin/vp' : 'node_modules/vite/bin/vite.js',
-        );
         await run(process.execPath, [vite, 'build'], fixture);
         await run(
           process.execPath,

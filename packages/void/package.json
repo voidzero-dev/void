@@ -20,6 +20,7 @@
     "docs",
     "schema.json",
     "skills",
+    "templates",
     "AGENTS_TEMPLATE.md",
     "README.md",
     "sandbox.Dockerfile"

@@ -1327,7 +1327,32 @@ describe('isScaffoldableEmptyProject', () => {
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
       expect(reactViteConfig).toContain('from "@void/react/plugin"');
       expect(reactViteConfig).toContain('voidReact({ react: { compiler: true } })');
-      expect(readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8')).toContain('Welcome to Void');
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).toContain('The list below is loaded from your database in');
+      expect(page).toContain('href="/api/hello"');
+      expect(page).toContain('void db seed');
+      expect(page).not.toContain('no database or server code yet');
+      expect(page).not.toContain('Void +');
+      expect(page).toContain('src="/react.svg"');
+      expect(page).toContain('import "./style.css"');
+      expect(page).toContain('messages.map');
+      expect(page).toContain('useForm');
+      expect(page).toContain('<Form form={form}');
+      expect(page).toContain('No messages yet.');
+      expect(readFileSync(join(root, 'pages', 'style.css'), 'utf-8')).toContain(
+        'prefers-color-scheme: dark',
+      );
+      expect(readFileSync(join(root, 'pages', 'vite-env.d.ts'), 'utf-8')).toContain(
+        'reference types="vite/client"',
+      );
+      expect(readFileSync(join(root, 'public', 'void.svg'), 'utf-8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'react.svg'), 'utf-8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'stack.svg'), 'utf-8')).toContain('<svg');
+      expect(page).toContain('src="/stack.svg"');
+      expect(readFileSync(join(root, 'public', 'icons.svg'), 'utf-8')).toContain(
+        'id="documentation-icon"',
+      );
       expect(readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toContain(
         'import { messages } from "@schema";',
       );
@@ -1395,7 +1420,12 @@ describe('isScaffoldableEmptyProject', () => {
       const vueViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
       expect(vueViteConfig).toContain('from "@void/vue/plugin"');
       expect(vueViteConfig).toContain('voidVue()');
-      expect(readFileSync(join(root, 'pages', 'index.vue'), 'utf-8')).toContain('Welcome to Void');
+      const page = readFileSync(join(root, 'pages', 'index.vue'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).not.toContain('Void +');
+      expect(page).toContain('src="/vue.svg"');
+      expect(page).toContain('v-for="message in messages"');
+      expect(page).toContain('<Form :form="form"');
       expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf-8')).toContain(
         'from "void/schema-pg"',
       );
@@ -1500,9 +1530,15 @@ describe('isScaffoldableEmptyProject', () => {
       expect(installCalls()[0][0]).toBe('vp');
       expect(pkg.scripts.dev).toBe('vp dev');
 
-      expect(readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8')).toContain(
-        'no database or server code yet',
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).toContain(
+        'This starter is running in Pages mode with no database or server code yet.',
       );
+      expect(page).toContain('you want to grow into full-stack features.');
+      expect(page).not.toContain('href="/api/hello"');
+      expect(page).not.toContain('useForm');
+      expect(page).not.toContain('<Form');
 
       expect(() => readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toThrow();
       expect(() => readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf-8')).toThrow();
@@ -1666,7 +1702,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.devDependencies['vite-plus']).toBe('^1.3.0');
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf-8')).toContain(
-        'no database or server code yet',
+        'Welcome to Void',
       );
 
       const locationPrompt = mockSelect.mock.calls[0]?.[0];
