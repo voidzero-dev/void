@@ -214,9 +214,7 @@ workspace links can hide. They do not publish packages or deploy applications.
 Smoke coverage checks package contents and exports, real initialization, CLI help, a frozen
 reinstall, public Vite builds, TypeScript, and development HTTP requests for pages, assets, and
 KV. It uses no browser. Full coverage adds Vue, Svelte, Solid, Markdown, production preview,
-and browser hydration/navigation. It also checks each generated starter's empty state,
-validation, form submission, and message persistence against local D1 before replacing its pages
-with the broader runtime fixtures. Superseded PR/main runs are cancelled; release runs are not.
+and browser hydration/navigation. Superseded PR/main runs are cancelled; release runs are not.
 
 The selector reads all PR file pages or the complete pushed commit range. Renames consider both
 paths. Incomplete or unavailable change lists fall back to full coverage.
