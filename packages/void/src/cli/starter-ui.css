@@ -1,4 +1,4 @@
-export const STARTER_STYLES: string = `:root {
+:root {
   --text: rgb(22 23 29 / 70%);
   --text-h: #16171d;
   --bg: #fff;
@@ -7,8 +7,7 @@ export const STARTER_STYLES: string = `:root {
   --accent: #6c3bff;
   --error: #b42318;
   --social-bg: #f2f1f4;
-  --shadow:
-    rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
+  --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
   --heading: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -39,10 +38,8 @@ export const STARTER_STYLES: string = `:root {
     --accent: #b39aff;
     --error: #fda29b;
     --social-bg: #3b3440;
-    --shadow:
-      rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
+    --shadow: rgba(0, 0, 0, 0.4) 0 10px 15px -3px, rgba(0, 0, 0, 0.25) 0 4px 6px -2px;
   }
-
 }
 
 .starter {
@@ -126,8 +123,7 @@ code {
     z-index: 1;
     top: 34px;
     height: 28px;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
-      scale(1.4);
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg) scale(1.4);
   }
 
   .void {
@@ -135,8 +131,7 @@ code {
     top: 107px;
     height: 22px;
     width: auto;
-    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
-      scale(0.8);
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg) scale(0.8);
   }
 }
 
@@ -394,4 +389,3 @@ code {
     border-right-color: var(--border);
   }
 }
-`;

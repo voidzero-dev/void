@@ -432,6 +432,7 @@ export default defineConfig({
         test: {
           name: 'cli-unit',
           fsModuleCache: true,
+          css: { include: [/starter-ui\.css(?:\?|$)/] },
           include: cliUnitTests,
           pool: 'threads',
           maxWorkers,
@@ -443,6 +444,7 @@ export default defineConfig({
         test: {
           name: 'unit',
           fsModuleCache: true,
+          css: { include: [/starter-ui\.css(?:\?|$)/] },
           include: ['packages/*/test/unit/**/*.test.ts'],
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },

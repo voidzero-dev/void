@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { defineConfig } from 'vite-plus';
 
 const WORKERS_TYPES_REFERENCE = '/// <reference types="@cloudflare/workers-types" />';
@@ -144,7 +145,20 @@ export default defineConfig({
     format: 'esm',
     dts: true,
     clean: true,
-    plugins: [injectWorkersTypesReferencePlugin()],
+    plugins: [
+      {
+        name: 'void:raw-css',
+        load: {
+          filter: { id: /\.css\?raw$/ },
+          handler(id) {
+            const file = id.slice(0, -'?raw'.length);
+            this.addWatchFile(file);
+            return `export default ${JSON.stringify(readFileSync(file, 'utf8'))};`;
+          },
+        },
+      },
+      injectWorkersTypesReferencePlugin(),
+    ],
     deps: {
       resolveDepSubpath: true,
       neverBundle: [

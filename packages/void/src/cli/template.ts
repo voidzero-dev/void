@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
 import { getPackageDir } from './agents.ts';
-import { STARTER_STYLES } from './starter-ui.ts';
+import starterStyles from './starter-ui.css?raw';
 
 export const SCAFFOLD_GITIGNORE_LINES = [
   'node_modules',
@@ -186,7 +186,7 @@ export function createPagesStarterTemplate(options: {
   const files: PagesStarterTemplate['files'] = {
     'vite.config.ts': getViteConfig(framework, config),
     [`pages/index.${config.pageExtension}`]: getIndexPage(framework, starterMode),
-    'pages/style.css': STARTER_STYLES,
+    'pages/style.css': starterStyles,
     'pages/vite-env.d.ts': '/// <reference types="vite/client" />\n',
     'public/stack.svg': readFileSync(join(assets, 'stack.svg'), 'utf8'),
     'public/void.svg': readFileSync(join(assets, 'void.svg'), 'utf8'),
