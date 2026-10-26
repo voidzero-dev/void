@@ -364,6 +364,31 @@ describe('routingPlugin', () => {
     },
   );
 
+  it('ignores a .prod page added next to its .dev page in dev', async () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    const action = 'export const action = () => ({});';
+    writeFileSync(join(root, 'pages', 'home.dev.tsx'), 'export default () => null;');
+    writeFileSync(join(root, 'pages', 'home.dev.server.ts'), action);
+
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
+    runConfig(plugin, { command: 'serve', mode: 'development' });
+    resolveConfig(plugin, 'serve');
+    await runBuildStart(plugin);
+    const { emit, logError } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const typesPath = join(root, '.void', 'routes.d.ts');
+    const before = readFileSync(typesPath, 'utf8');
+    expect(before).toContain('pages/home.dev.server.ts');
+
+    writeFileSync(join(root, 'pages', 'home.prod.server.ts'), action);
+    const prodPath = join(root, 'pages', 'home.prod.tsx');
+    writeFileSync(prodPath, 'export default () => null;');
+    await emit('add', prodPath);
+
+    expect(logError).not.toHaveBeenCalled();
+    expect(readFileSync(typesPath, 'utf8')).toBe(before);
+  });
+
   it('keeps page and route modules for saves that change no scanned facts', async () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'pages'), { recursive: true });

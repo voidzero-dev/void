@@ -76,6 +76,8 @@ export async function scanRoutes(
     paths: ProjectPaths;
     inventory: Omit<ScanResult, 'pages'>;
     checkPageRoutes?: boolean;
+    /** Keep only pages for this environment. Unset keeps every page. */
+    environment?: RouteEnvironment;
   },
 ): Promise<ScanResult> {
   const { paths, inventory } = options;
@@ -83,6 +85,7 @@ export async function scanRoutes(
     output: options.output,
     paths,
     checkRoutes: options.checkPageRoutes,
+    environment: options.environment,
   });
   const routes = inventory.routes
     .map((route) => ({

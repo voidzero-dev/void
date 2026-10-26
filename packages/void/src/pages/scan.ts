@@ -1,10 +1,14 @@
 import { existsSync } from 'node:fs';
-import { join, dirname, basename, extname } from 'pathslash';
+import { join, dirname, basename, extname, toSlash } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
 import { voidWarn } from '../log.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import { parseRouteFilename } from '../router/parse-filename.ts';
+import {
+  isRouteEnabledForEnvironment,
+  parseRouteFilename,
+  type RouteEnvironment,
+} from '../router/parse-filename.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
@@ -59,6 +63,8 @@ type PageScanOptions = {
   pagesDir?: string;
   /** Report pages that share a route. Off when another framework owns pages/ (Nuxt nests users.vue and users/index.vue). */
   checkRoutes?: boolean;
+  /** Keep only pages for this environment (`.dev` / `.prod` suffix). Unset keeps every page. */
+  environment?: RouteEnvironment;
 };
 
 type ResolvedPageRendering = {
@@ -210,6 +216,31 @@ function resolvePageRendering(
   return { ssrMode, prerenderMode, renderMode, shouldPrerender };
 }
 
+/**
+ * The environment a file under pages/ is limited to, read from its name the way
+ * scanPages does: `home.dev.tsx`, `home.dev.island.vue` and `home.dev.server.ts`
+ * give 'dev'. Files the scanner skips (`_` segments, other extensions) give null.
+ */
+export function pageFileEnvironment(relativePath: string): RouteEnvironment | null {
+  const segments = toSlash(relativePath).split('/');
+  if (segments.some((segment) => segment.startsWith('_'))) {
+    return null;
+  }
+  const file = segments[segments.length - 1];
+  const ext = extname(file);
+  let base = basename(file, ext);
+  if (ROUTE_EXTENSIONS_SET.has(ext) && base.endsWith('.server')) {
+    base = base.slice(0, -'.server'.length);
+  } else if (COMPONENT_EXTENSIONS.includes(ext.slice(1))) {
+    if (base.endsWith('.island')) {
+      base = base.slice(0, -'.island'.length);
+    }
+  } else {
+    return null;
+  }
+  return base.endsWith('.dev') ? 'dev' : base.endsWith('.prod') ? 'prod' : null;
+}
+
 export async function scanPages(root: string, options?: PageScanOptions): Promise<PageScanResult> {
   const pagesDir = options?.pagesDir ?? options?.paths?.pagesDir ?? readProjectPaths(root).pagesDir;
   if (!existsSync(pagesDir)) {
@@ -283,6 +314,10 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       ? file.replace(`.island${ext}`, '.ts')
       : file.replace(ext, '.ts');
     const route = parseRouteFilename(parseName);
+    // Skip pages for the other environment before reading their companion.
+    if (!isRouteEnabledForEnvironment(route, options?.environment)) {
+      continue;
+    }
     const componentId =
       file
         .replace(ext, '')
@@ -366,6 +401,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       island,
       metadata: metadata ? { ...metadata } : undefined,
       layout,
+      ...(route.env ? { env: route.env } : {}),
     });
   }
 
@@ -383,8 +419,16 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   });
 
   if (options?.checkRoutes !== false) {
-    assertOnePagePerRoute(pages);
-    warnShadowedPages(pagesDir, pages);
+    // At most one page per route in each environment. A scan for every
+    // environment checks dev and prod on their own, so a .dev + .prod pair is fine.
+    const environments = options?.environment ? [options.environment] : (['dev', 'prod'] as const);
+    for (const environment of environments) {
+      const live = pages.filter((page) =>
+        isRouteEnabledForEnvironment({ env: page.env ?? null }, environment),
+      );
+      assertOnePagePerRoute(live);
+      warnShadowedPages(pagesDir, live);
+    }
   }
 
   // Validate: throw when regular pages are under island layouts

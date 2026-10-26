@@ -11,9 +11,12 @@ import {
   resolveNamedLayout,
   resolveEffectiveLayoutChain,
   MAX_REVALIDATE,
+  pageFileEnvironment,
 } from '../../src/pages/scan.ts';
+import * as sourceAnalysisCache from '../../src/shared/source-analysis-cache.ts';
 
 vi.mock('tinyglobby', { spy: true });
+vi.mock('../../src/shared/source-analysis-cache.ts', { spy: true });
 
 const TMP = join(import.meta.dirname, '__tmp_pages_scan__');
 
@@ -973,6 +976,120 @@ const example = 'export const layout = "home"';
       }
     });
   });
+
+  describe('environment suffixes', () => {
+    const page = 'export default () => null;';
+    const ids = async (environment?: 'dev' | 'prod') =>
+      (await scanPages(TMP, { environment })).pages.map((p) => p.componentId);
+
+    it('keeps a .dev page only in dev and in unfiltered scans', async () => {
+      writeFile('debug.dev.tsx', page);
+
+      for (const environment of ['dev', undefined] as const) {
+        const { pages } = await scanPages(TMP, { environment });
+        expect(pages).toHaveLength(1);
+        expect(pages[0]).toMatchObject({
+          pattern: '/debug',
+          componentId: 'debug.dev',
+          componentPath: 'debug.dev.tsx',
+          env: 'dev',
+        });
+      }
+      expect(await ids('prod')).toEqual([]);
+    });
+
+    it('allows a .dev + .prod pair on one route', async () => {
+      writeFile('home.dev.tsx', page);
+      writeFile('home.prod.tsx', page);
+
+      expect(await ids('dev')).toEqual(['home.dev']);
+      expect(await ids('prod')).toEqual(['home.prod']);
+      expect(await ids()).toEqual(['home.dev', 'home.prod']);
+    });
+
+    it('rejects a plain page and a .dev page on one route where both run', async () => {
+      writeFile('home.tsx', page);
+      writeFile('home.dev.tsx', page);
+      const message = [
+        'pages: Multiple page files resolve to the same route:',
+        '  "/home": "home.dev.tsx", "home.tsx"',
+      ].join('\n');
+
+      await expect(scanPages(TMP, { environment: 'dev' })).rejects.toThrow(message);
+      await expect(scanPages(TMP)).rejects.toThrow(message);
+      expect(await ids('prod')).toEqual(['home']);
+    });
+
+    it('rejects two .dev pages on one route', async () => {
+      writeFile('home.dev.tsx', page);
+      writeFile('home/index.dev.tsx', page);
+
+      await expect(scanPages(TMP, { environment: 'dev' })).rejects.toThrow(
+        '  "/home": "home.dev.tsx", "home/index.dev.tsx"',
+      );
+    });
+
+    it('warns about shadowed pages only when both run in one environment', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('env-a/[id].dev.tsx', page);
+        writeFile('env-a/[slug].prod.tsx', page);
+        writeFile('env-b/[id].tsx', page);
+        writeFile('env-b/[slug].dev.tsx', page);
+        await scanPages(TMP);
+
+        expect(log).toHaveBeenCalledOnce();
+        expect(log.mock.calls[0][0]).toContain(
+          "pages: Page 'env-b/[slug].dev.tsx' (/env-b/:slug) is never used: 'env-b/[id].tsx' (/env-b/:id)",
+        );
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('reads the suffix before .island', async () => {
+      writeFile('x.dev.island.tsx', page);
+
+      const { pages } = await scanPages(TMP, { environment: 'dev' });
+      expect(pages[0]).toMatchObject({ pattern: '/x', componentId: 'x.dev', island: true });
+      expect(await ids('prod')).toEqual([]);
+    });
+
+    it('never reads the companion of a page left out', async () => {
+      writeFile('x.dev.tsx', page);
+      writeFile('x.dev.server.ts', 'export const loader = () => ({});');
+
+      const dev = await scanPages(TMP, { environment: 'dev' });
+      expect(dev.pages[0]).toMatchObject({ serverPath: 'x.dev.server.ts', methods: ['loader'] });
+
+      writeFile('x.dev.server.ts', 'export const loader = (');
+      const derive = vi.mocked(sourceAnalysisCache.deriveFromSource);
+      derive.mockClear();
+      expect((await scanPages(TMP, { environment: 'prod' })).pages).toEqual([]);
+      expect(derive.mock.calls.map(([path]) => path)).toEqual([]);
+    });
+
+    it('drops the suffix from an index page but keeps it in the id', async () => {
+      writeFile('index.dev.tsx', page);
+
+      const { pages } = await scanPages(TMP, { environment: 'dev' });
+      expect(pages[0]).toMatchObject({ pattern: '/', componentId: 'index.dev' });
+    });
+
+    it('does not scope layouts', async () => {
+      writeFile('layout.dev.tsx', page);
+      writeFile('_layouts/a.dev.vue', '<template><slot /></template>');
+
+      const dev = await scanPages(TMP, { environment: 'dev' });
+      expect(dev.pages.map((p) => p.pattern)).toEqual(['/layout']);
+      expect(dev.layouts).toEqual([]);
+      const prod = await scanPages(TMP, { environment: 'prod' });
+      expect(prod.pages).toEqual([]);
+      for (const scan of [dev, prod]) {
+        expect(scan.namedLayouts.map((layout) => layout.name)).toEqual(['a.dev']);
+      }
+    });
+  });
 });
 
 describe('resolveLayoutChain', () => {
@@ -1230,6 +1347,61 @@ describe('scanPages between saves', () => {
     });
     expect(after.pages.find((page) => page.componentId === 'cached/notes')?.metadata).toEqual({
       title: 'Published',
+    });
+  });
+});
+
+describe('pageFileEnvironment', () => {
+  it.each([
+    ['home.tsx', null],
+    ['home.dev.tsx', 'dev'],
+    ['home.dev.island.vue', 'dev'],
+    ['home.prod.server.ts', 'prod'],
+    ['docs.dev.md', 'dev'],
+    ['_lib/x.dev.ts', null],
+    ['utils.dev.ts', null],
+    ['layout.dev.tsx', 'dev'],
+    ['_layouts/x.dev.vue', null],
+  ])('%s -> %s', (file, env) => {
+    expect(pageFileEnvironment(file)).toBe(env);
+  });
+
+  describe('matches scanPages', () => {
+    beforeEach(() => {
+      mkdirSync(join(TMP, 'pages'), { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(TMP, { recursive: true, force: true });
+    });
+
+    it('for every page and companion the scanner keeps', async () => {
+      const files = [
+        'debug.dev.tsx',
+        'home.dev.tsx',
+        'home.prod.tsx',
+        'about.tsx',
+        'x.dev.island.tsx',
+        'y.dev.tsx',
+        'index.dev.tsx',
+        'layout.dev.tsx',
+        '(g)/[id].prod.vue',
+        'notes.prod.md',
+      ];
+      for (const file of files) {
+        writeFile(file, 'export default () => null;');
+      }
+      writeFile('y.dev.server.ts', 'export const loader = () => ({});');
+
+      const { pages } = await scanPages(TMP, { checkRoutes: false });
+      expect(pages.map((page) => page.componentPath).sort()).toEqual([...files].sort());
+      for (const page of pages) {
+        expect(pageFileEnvironment(page.componentPath)).toBe(page.env ?? null);
+        if (page.serverPath) {
+          expect(pageFileEnvironment(page.serverPath)).toBe(page.env ?? null);
+        }
+      }
+      expect(pages.find((page) => page.serverPath)?.serverPath).toBe('y.dev.server.ts');
     });
   });
 });

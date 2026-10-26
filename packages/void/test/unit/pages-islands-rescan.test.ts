@@ -3,7 +3,8 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ViteDevServer } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { watchPagesForRescan } from '../../src/pages/islands-plugin.ts';
+import { hasIslandPages, watchPagesForRescan } from '../../src/pages/islands-plugin.ts';
+import type { PageScanResult } from '../../src/pages/types.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_islands_rescan__');
 const PAGES_DIR = join(TMP, 'pages');
@@ -15,7 +16,7 @@ function writePage(relativePath: string, source: string): string {
   return full;
 }
 
-function setup(onRescan: () => void) {
+function setup(onRescan: (scan: PageScanResult) => void) {
   const watcher = new EventEmitter();
   const server = { watcher, environments: {} } as unknown as ViteDevServer;
   const { flush } = watchPagesForRescan(server, PAGES_DIR, TMP, onRescan);
@@ -60,5 +61,30 @@ describe('watchPagesForRescan', () => {
     });
 
     await expect(emitAdd(writePage('about.md', '# About\n'))).rejects.toThrow('rescan failed');
+  });
+
+  it('keeps only dev pages', async () => {
+    writePage('x.dev.island.tsx', 'export default () => null;');
+    const onRescan = vi.fn();
+    const { emitAdd } = setup(onRescan);
+
+    await emitAdd(writePage('x.prod.island.tsx', 'export default () => null;'));
+    const scan = onRescan.mock.calls[0]![0] as PageScanResult;
+    expect(scan.pages.map((page) => page.componentPath)).toEqual(['x.dev.island.tsx']);
+  });
+});
+
+describe('hasIslandPages', () => {
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('counts only the island pages a build keeps', async () => {
+    writePage('index.tsx', 'export default () => null;');
+    writePage('x.dev.island.tsx', 'export default () => null;');
+    expect(await hasIslandPages(TMP, PAGES_DIR)).toBe(false);
+
+    writePage('y.prod.island.tsx', 'export default () => null;');
+    expect(await hasIslandPages(TMP, PAGES_DIR)).toBe(true);
   });
 });

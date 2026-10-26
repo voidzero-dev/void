@@ -1,3 +1,5 @@
+import type { RouteEnvironment } from '../router/parse-filename.ts';
+
 export type ExplicitBoolean = true | false | undefined;
 
 export type SsrMode = 'auto' | 'server' | 'client';
@@ -43,6 +45,8 @@ export type PageDefinition = {
   metadata?: { title?: string; description?: string };
   /** Named layout selection: "name", "!name", or false */
   layout?: string | false;
+  /** Environment from a `.dev` / `.prod` file suffix. Unset means both. */
+  env?: RouteEnvironment;
 };
 
 export type LayoutDefinition = {

@@ -3,6 +3,7 @@ export {
   resolveLayoutChain,
   resolveNamedLayout,
   resolveEffectiveLayoutChain,
+  pageFileEnvironment,
 } from './scan.ts';
 export type {
   PageDefinition,

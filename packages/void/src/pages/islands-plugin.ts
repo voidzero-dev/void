@@ -68,7 +68,10 @@ export async function hasIslandPages(root: string, pagesDir: string): Promise<bo
     return false;
   }
   try {
-    return (await scanPages(root, { pagesDir })).pages.some((page) => page.island);
+    // Only builds call this, so count the pages a build keeps.
+    return (await scanPages(root, { pagesDir, environment: 'prod' })).pages.some(
+      (page) => page.island,
+    );
   } catch {
     // buildStart scans the pages again and reports the error.
     return false;
@@ -327,7 +330,8 @@ export function watchPagesForRescan(
     }
     debounceTimer = setTimeout(() => {
       debounceTimer = null;
-      pending = scanPages(root, { pagesDir })
+      // Only the dev server watches pages, so keep the dev pages.
+      pending = scanPages(root, { pagesDir, environment: 'dev' })
         .then(
           (pageScan) => {
             onRescan(pageScan);
