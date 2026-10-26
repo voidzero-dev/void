@@ -1,0 +1,23 @@
+packages/void/test/unit/plugin-routing.test.ts
+  s_a6366f8c8935ed::t_9730a445f5dc0e 15,743-744
+packages/vue/src/plugin-pages.ts
+  s_a6366f8c8935ed::t_698ea2ba737c94 157,171
+packages/vue/test/unit/plugin-pages.test.ts
+  s_a6366f8c8935ed::t_3ae34a2650d128 16,214-234
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "3497f75fe0a948fdfac3ec9c79baf6860b234cb6",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
