@@ -308,7 +308,7 @@ describe('generateRouteTypes', () => {
         '    "/users/:id": {',
         `      body: ExtractInput<${dev}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         '      params: { id: string };',
-        '    } & {',
+        '    } | {',
         `      actions: { [K in keyof ${prod}]: {`,
       ].join('\n'),
     );

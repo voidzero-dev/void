@@ -134,7 +134,7 @@ describe('scanRoutes', () => {
           expect(dts).not.toContain(`home.${env}`);
         }
       }
-      expect(actionMap.includes('} & {')).toBe(environment === undefined);
+      expect(actionMap.includes('} | {')).toBe(environment === undefined);
     },
   );
 

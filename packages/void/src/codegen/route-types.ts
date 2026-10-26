@@ -224,7 +224,9 @@ export function generateRouteTypes(
   if (actionPages.length > 0 && pagesDir) {
     lines.push('  interface PageActionMap {');
 
-    // A .dev + .prod page pair shares one pattern: write one key and join the shapes with &.
+    // A .dev + .prod page pair shares one pattern: write one key and join the shapes
+    // with |. The page at that URL is one environment's page or the other's, so each
+    // page's own action body must type-check.
     const bodiesByPattern = new Map<string, Array<Array<string>>>();
     for (const page of actionPages) {
       const hasAction = page.methods.includes('action');
@@ -271,7 +273,7 @@ export function generateRouteTypes(
       lines.push(`    ${JSON.stringify(pattern)}: {`);
       bodies.forEach((body, index) => {
         if (index > 0) {
-          lines.push('    } & {');
+          lines.push('    } | {');
         }
         lines.push(...body);
       });

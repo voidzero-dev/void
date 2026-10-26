@@ -27,19 +27,23 @@ export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer 
   : { base: U; action: never };
 
 /** Resolve body type for a useForm URL (single action or named action) */
+// A .dev + .prod page pair is a union of two page shapes. A type parameter
+// makes these read each shape on its own.
+type PageActionBody<P> = P extends { body: infer B } ? B : Record<string, unknown>;
+
+type PageNamedActionBody<P, K> = P extends { actions: infer A }
+  ? K extends keyof A
+    ? A[K] extends { body: infer B }
+      ? B
+      : Record<string, unknown>
+    : never
+  : never;
+
 export type ResolveActionBody<U extends string> =
   ParseActionUrl<U>['base'] extends keyof PageActionMap
     ? ParseActionUrl<U>['action'] extends never
-      ? PageActionMap[ParseActionUrl<U>['base']] extends { body: infer B }
-        ? B
-        : Record<string, unknown>
-      : PageActionMap[ParseActionUrl<U>['base']] extends { actions: infer A }
-        ? ParseActionUrl<U>['action'] extends keyof A
-          ? A[ParseActionUrl<U>['action']] extends { body: infer B }
-            ? B
-            : Record<string, unknown>
-          : never
-        : never
+      ? PageActionBody<PageActionMap[ParseActionUrl<U>['base']]>
+      : PageNamedActionBody<PageActionMap[ParseActionUrl<U>['base']], ParseActionUrl<U>['action']>
     : Record<string, unknown>;
 
 /** Resolve params type */
