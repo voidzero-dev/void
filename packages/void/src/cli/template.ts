@@ -414,7 +414,7 @@ ${indent(description, 8)}
           </a>
         </li>
         <li>
-          <a href="https://x.com/voidzerodev" target="_blank" rel="noreferrer">
+          <a href="https://x.com/deploytovoid" target="_blank" rel="noreferrer">
             <svg class="button-icon" role="presentation" aria-hidden="true">
               <use href="/icons.svg#x-icon"></use>
             </svg>
