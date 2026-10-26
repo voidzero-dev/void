@@ -29,7 +29,7 @@ routes/
 
 `.dev` routes run only in development; `.prod` routes run in builds, deployments, and production previews. A resource used only by `.dev` routes is not provisioned for production.
 
-Suffixes apply only in `routes/`, not in `pages/`, `middleware/`, `crons/`, or `queues/`. `void prepare` generates types for both environments.
+Suffixes apply in `routes/` and [`pages/`](./pages-routing/overview.md#environment-only-pages), not in `middleware/`, `crons/`, or `queues/`. `void prepare` generates types for both environments.
 
 Each file exports named HTTP method constants to handle specific methods:
 

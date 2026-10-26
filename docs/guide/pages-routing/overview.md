@@ -109,7 +109,29 @@ A companion can export:
 - [**Actions**](./actions-and-forms), which handle mutations from forms and programmatic calls. Export a single `action` or multiple [named actions](./actions-and-forms#named-actions) when a page has several mutations
 - `ssr = false` to opt a route out of server-rendered component HTML while keeping server loaders and client-side routing
 
-File-based routing rules are the same as [server routing](../server-routing.md): `[param]` for dynamic segments, `[...param]` for catch-all, `(group)/` for route groups.
+File-based routing rules are the same as [server routing](../server-routing.md): `[param]` for dynamic segments, `[...param]` for catch-all, `(group)/` for route groups, and a `.dev` or `.prod` suffix for [environment-only pages](#environment-only-pages).
+
+### Environment-only pages
+
+Add a `.dev` or `.prod` suffix before the extension to include a page in only one environment. The suffix is not part of the URL:
+
+```
+pages/
+  about.tsx       →  /about, always
+  debug.dev.tsx   →  /debug, development only
+  stats.prod.tsx  →  /stats, production only
+  home.dev.tsx    →  /home in development
+  home.prod.tsx   →  /home in production
+```
+
+`.dev` pages run only on the dev server; `.prod` pages run in builds, deployments, and production previews.
+
+- A `.dev` page and a `.prod` page can share a URL. A plain page and a suffixed page for the same URL, such as `home.tsx` and `home.dev.tsx`, is an error.
+- The suffix goes **before** `.island`: `chart.dev.island.tsx` is a development-only island page. `chart.island.dev.tsx` is not an island page.
+- A companion repeats the suffix: `home.dev.server.ts` belongs to `home.dev.tsx`.
+- Suffixes apply to page files only. Layouts take no suffix.
+- A resource used only by `.dev` pages and their companions is not provisioned for production.
+- `void prepare` generates types for both environments.
 
 ## How Navigation Works
 

@@ -241,6 +241,8 @@ import pages from '@void/md/pages';
 // [{ path: "/docs/getting-started", title: "Getting Started", frontmatter: {...}, headings: [...] }, ...]
 ```
 
+The list holds only the pages for the current [environment](./overview.md#environment-only-pages): `.dev` pages on the dev server, `.prod` pages in builds. The suffix is dropped from `path`: `debug.dev.md` is listed as `/debug`.
+
 Each entry has this shape:
 
 ```ts
