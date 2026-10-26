@@ -15,6 +15,12 @@ const companionPages = [
   { name: 'foo', extension: 'tsx' },
   { name: 'bar', extension: 'jsx' },
 ];
+// Environment-only pages as [file, text]; each has a server-rendered companion with an action.
+const environmentPages = [
+  ['debug.dev', 'DEV_ONLY_PAGE'],
+  ['greeting.dev', 'Development page'],
+  ['greeting.prod', 'Production page'],
+];
 
 describe.each(['react', 'hono/jsx'])('server JSX with %s', (jsxImportSource) => {
   let playground: IsolatedPlayground;
@@ -77,6 +83,20 @@ export const ssr = true;
 export const prerender = false;
 export const loader = defineHandler(() => ({ html: renderToStaticMarkup(<p>{basename('/private/${name}_COMPANION_SERVER_ONLY')}</p>) }));
 export const actions = { save: defineHandler(c => c.html(renderToStaticMarkup(<strong>${name}_COMPANION_ACTION_ONLY</strong>))) };`,
+        );
+      }
+      for (const [file, text] of environmentPages) {
+        writeFileSync(
+          join(root, `pages/${file}.tsx`),
+          'export default function Page({ text }) { return <h1>{text}</h1>; }',
+        );
+        writeFileSync(
+          join(root, `pages/${file}.server.tsx`),
+          `import { defineHandler } from 'void';
+export const ssr = true;
+export const prerender = false;
+export const loader = defineHandler(() => ({ text: ${JSON.stringify(text)} }));
+export const action = defineHandler(c => c.text(${JSON.stringify(text)}));`,
         );
       }
     }
@@ -158,6 +178,37 @@ export const actions = { save: defineHandler(c => c.html(renderToStaticMarkup(<s
   });
 
   if (jsxImportSource === 'react') {
+    it.each(['dev', 'prod'])('serves only the pages for %s', async (env) => {
+      const debug = await fetch(`${bases[env]}/debug`);
+      expect(debug.status).toBe(env === 'dev' ? 200 : 404);
+      if (env === 'dev') {
+        expect(await debug.text()).toContain('DEV_ONLY_PAGE');
+      }
+      const greeting = await fetch(`${bases[env]}/greeting`);
+      expect(greeting.status).toBe(200);
+      expect(await greeting.text()).toContain(
+        `<h1>${env === 'dev' ? 'Development' : 'Production'} page</h1>`,
+      );
+    });
+
+    it('leaves .dev pages out of the production types and bundles', () => {
+      const prodTypes = readFileSync(join(playground.root, '.void/routes.d.ts'), 'utf8');
+      expect(devTypes).toContain('pages/greeting.dev.server.tsx');
+      expect(devTypes).not.toContain('greeting.prod');
+      expect(prodTypes).toContain('pages/greeting.prod.server.tsx');
+      expect(prodTypes).not.toContain('greeting.dev');
+      expect(prodTypes).not.toContain('debug.dev');
+      for (const graph of readdirSync(join(playground.root, '.void')).filter(
+        (file) => file.startsWith('jsx-') && file.endsWith('.json'),
+      )) {
+        const modules = readFileSync(join(playground.root, '.void', graph), 'utf8');
+        expect(modules, graph).not.toContain('debug.dev');
+        expect(modules, graph).not.toContain('greeting.dev');
+      }
+      const client = readFileSync(join(playground.root, '.void/jsx-client.json'), 'utf8');
+      expect(client).toContain('pages/greeting.prod.tsx');
+    });
+
     it.each(companionPages.flatMap((page) => ['dev', 'prod'].map((env) => ({ ...page, env }))))(
       'executes .server.$extension companion loaders and actions in $env',
       async ({ name, env }) => {
