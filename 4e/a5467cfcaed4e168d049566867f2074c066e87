@@ -1,0 +1,21 @@
+packages/vue/src/plugin-pages.ts
+  s_99b3e9ae3cfc46::t_a1a459fecf5951 26-39
+packages/vue/test/unit/plugin-pages.test.ts
+  s_99b3e9ae3cfc46::t_e37f1fcf9a1d77 2,5-7,15,46-61,162-210
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4ea5467cfcaed4e168d049566867f2074c066e87",
+  "prompts": {},
+  "sessions": {
+    "s_99b3e9ae3cfc46": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a1765d-4aef-7c80-b07e-85d9577499b7",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
