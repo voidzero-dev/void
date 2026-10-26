@@ -996,6 +996,7 @@ export async function runDeploymentPipeline(input: {
           set workerUploaded(value: boolean) {
             workerUploaded = value;
           },
+          deadline: execution?.deadline,
         });
         const workerBindings = uploadDeploymentWorkerResult.workerBindings;
         const assetConfig = uploadDeploymentWorkerResult.assetConfig;
@@ -1111,6 +1112,7 @@ export async function runDeploymentPipeline(input: {
           workerFiles,
           migrationsApplied,
           finishOrphanSweep,
+          deadline: execution?.deadline,
         });
       } catch (err) {
         return await recoverFailedDeployment({

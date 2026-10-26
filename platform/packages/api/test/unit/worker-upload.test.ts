@@ -1,11 +1,15 @@
 import { createHash } from 'node:crypto';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import {
+  WORKER_UPLOAD_BUDGET_MS,
+  WORKER_UPLOAD_MIN_ATTEMPT_MS,
+  WORKER_UPLOAD_OUT_OF_TIME,
   blobWorkerModule,
   r2WorkerModule,
   uploadWatchdog,
   withKnownLength,
   workerUploadBody,
+  workerUploadDeadline,
   WorkerModuleIntegrityError,
   type UploadProgress,
   type WorkerModule,
@@ -589,5 +593,30 @@ describe('uploadWatchdog', () => {
     expect(vi.getTimerCount()).toBe(1);
     watchdog.dispose();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe('workerUploadDeadline', () => {
+  it('gives the full budget outside a deployment run', () => {
+    vi.useFakeTimers({ now: 1_000 });
+    expect(workerUploadDeadline(undefined)).toBe(1_000 + WORKER_UPLOAD_BUDGET_MS);
+  });
+
+  it('ends at the run deadline when that comes first', () => {
+    vi.useFakeTimers({ now: 1_000 });
+    expect(workerUploadDeadline(1_000 + 90_000)).toBe(1_000 + 90_000);
+    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_BUDGET_MS + 1)).toBe(
+      1_000 + WORKER_UPLOAD_BUDGET_MS,
+    );
+  });
+
+  it('refuses to start with less than one attempt left in the run', () => {
+    vi.useFakeTimers({ now: 1_000 });
+    expect(() => workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS - 1)).toThrow(
+      WORKER_UPLOAD_OUT_OF_TIME,
+    );
+    expect(workerUploadDeadline(1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS)).toBe(
+      1_000 + WORKER_UPLOAD_MIN_ATTEMPT_MS,
+    );
   });
 });

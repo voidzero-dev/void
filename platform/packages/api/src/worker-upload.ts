@@ -43,6 +43,29 @@ export const WORKER_UPLOAD_RESPONSE_MS = 120_000;
 /** All attempts of one application upload together get this long. */
 export const WORKER_UPLOAD_BUDGET_MS = 480_000;
 
+/** An upload attempt starts only when at least this long is left before its deadline. */
+export const WORKER_UPLOAD_MIN_ATTEMPT_MS = 60_000;
+
+export const WORKER_UPLOAD_OUT_OF_TIME =
+  'The deployment ran out of time before the Worker upload could start. Deploy again.';
+
+/**
+ * When an upload must end (epoch ms): `WORKER_UPLOAD_BUDGET_MS` from now, or
+ * `runDeadline`, the end of the deployment run, if that comes first. Throws
+ * when the run leaves less than one attempt, rather than start an upload that
+ * cannot finish.
+ */
+export function workerUploadDeadline(runDeadline: number | undefined): number {
+  const now = Date.now();
+  if (runDeadline === undefined) {
+    return now + WORKER_UPLOAD_BUDGET_MS;
+  }
+  if (runDeadline - now < WORKER_UPLOAD_MIN_ATTEMPT_MS) {
+    throw new Error(WORKER_UPLOAD_OUT_OF_TIME);
+  }
+  return Math.min(now + WORKER_UPLOAD_BUDGET_MS, runDeadline);
+}
+
 /** How far a tracked stream has got. Counts and times only. */
 export type UploadProgress = Readonly<{
   /** Bytes enqueued so far, and the total the stream will produce. */

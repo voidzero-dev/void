@@ -487,6 +487,7 @@ export async function executeQueuedDeployment(
   env: ApiEnv['Bindings'],
   db: Db,
   operation: DeploymentOperation,
+  deadline: number,
 ): Promise<void> {
   const actor = await getUser(db, operation.actor_id);
   if (!actor) {
@@ -566,7 +567,7 @@ export async function executeQueuedDeployment(
       if (operation.build_id) {
         context.set('deployBuild', operation.build_id);
       }
-      context.set('deploymentExecution', { operation, workerFiles });
+      context.set('deploymentExecution', { operation, workerFiles, deadline });
       await next();
     })
     .post('/:id/deploy', handleManifestOnlyDeploy);

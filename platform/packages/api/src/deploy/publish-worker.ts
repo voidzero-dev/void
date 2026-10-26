@@ -112,6 +112,8 @@ export async function publishWorkerDeployment(input: {
   readonly workerFiles: ReadonlyArray<WorkerModule>;
   readonly migrationsApplied: number;
   readonly finishOrphanSweep: () => Promise<void>;
+  /** When the uploads of a queued deployment run must end (epoch ms); undefined outside one. */
+  readonly deadline: number | undefined;
 }) {
   const {
     projectId,
@@ -388,7 +390,15 @@ export async function publishWorkerDeployment(input: {
       zeroTrust,
     });
     const cutoverDomains = await getDomainsByProjectId(txDb, projectId);
-    await reconcileManagedDurableObjects(context.env, txDb, projectId, deployment.id, manifest);
+    await reconcileManagedDurableObjects(
+      context.env,
+      txDb,
+      projectId,
+      deployment.id,
+      manifest,
+      undefined,
+      input.deadline,
+    );
     await putTrackedRouting(projectRouteKey(project), routingJson);
     input.routingSwitched = true;
     input.logger = input.logger.with({ routingSwitched: true });

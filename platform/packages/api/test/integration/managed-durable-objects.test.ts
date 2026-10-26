@@ -14,11 +14,13 @@ import {
   vi,
 } from 'vite-plus/test';
 import { getDeployment, getProjectResources } from '../../src/db.ts';
+import { getDeploymentOperation, processDeploymentBatch } from '../../src/deployment-execution.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import {
   durableObjectWorkerName,
   deleteManagedDurableObject,
+  reconcileManagedDurableObjects,
 } from '../../src/provisioning/durable-objects.ts';
 import {
   advanceProxyTokenRotation,
@@ -26,6 +28,7 @@ import {
 } from '../../src/proxy-token-rotation.ts';
 import { projects } from '../../src/schema.ts';
 import type { DeployManifest } from '../../src/types.ts';
+import { WORKER_UPLOAD_BUDGET_MS, WORKER_UPLOAD_OUT_OF_TIME } from '../../src/worker-upload.ts';
 import {
   cfSuccess,
   clearTables,
@@ -45,6 +48,9 @@ let user: Awaited<ReturnType<typeof createTestUser>>;
 let project: Awaited<ReturnType<typeof createTestProject>>;
 let provider: MockCfApiHandle;
 let failPublication = false;
+// Take the body of a custom Durable Object upload, then never answer it.
+let stallPublication = false;
+let stalled = false;
 const runtimeFetch = globalThis.fetch;
 const writes: Array<{
   name: string;
@@ -68,6 +74,8 @@ beforeEach(async () => {
   user = await createTestUser(env.db, 'durable-owner', 'github', undefined, 'solo');
   project = await createTestProject(env.db, user.id);
   failPublication = false;
+  stallPublication = false;
+  stalled = false;
   writes.length = 0;
   provider = mockCfApi();
   const original = globalThis.fetch;
@@ -92,6 +100,14 @@ beforeEach(async () => {
     }
     if (name?.startsWith('void-do-') && url.endsWith('/settings') && !init?.method) {
       return cfSuccess({ bindings: provider.state.hostScripts.get(name)!.bindings });
+    }
+    if (stallPublication && init?.method === 'PUT' && name?.startsWith('void-do-')) {
+      await new Response(init.body).arrayBuffer();
+      stalled = true;
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init.signal!;
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
     }
     const response = await original(input, init);
     if (init?.method === 'PUT' && init.body instanceof FormData && response.ok && name) {
@@ -129,7 +145,7 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function deploy(
+function deployBody(
   code = 'one',
   customBindings = [binding],
   extra: Partial<DeployManifest> = {},
@@ -154,15 +170,15 @@ async function deploy(
       )
       .join('\n')}
     export default {async fetch(request,env){ return Response.json({code: ${JSON.stringify(code)}, value: await env.WORKSPACE.getByName('workspace').increment()}); }};`;
+  return { manifest, assetManifest, workerFiles: { 'index.js': btoa(source) } };
+}
+
+async function deploy(...args: Parameters<typeof deployBody>) {
   const response = await app.fetch(
     new Request(`http://localhost/projects/${project.id}/deploy`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${user.jwt}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        manifest,
-        assetManifest,
-        workerFiles: { 'index.js': btoa(source) },
-      }),
+      body: JSON.stringify(deployBody(...args)),
     }),
     env,
     { waitUntil() {}, passThroughOnException() {} } as unknown as ExecutionContext,
@@ -383,6 +399,131 @@ describe('managed native Durable Objects', () => {
       (await env.db.select().from(projects).where(eq(projects.id, project.id)))[0]!
         .active_deployment_id,
     ).toBe(first.id);
+  });
+
+  it('ends each release upload at the deployment run deadline', async () => {
+    const first = await deploy();
+    const second = await deploy('two');
+    const worker = await durableObjectWorkerName(project.id, binding.className);
+    expect(currentRelease(worker)).toBe(second.id);
+    const manifest = await stored(first.id!);
+    const replay = (deadline: number) =>
+      reconcileManagedDurableObjects(
+        env as unknown as ApiEnv['Bindings'],
+        env.db,
+        project.id,
+        first.id!,
+        manifest,
+        undefined,
+        deadline,
+      );
+
+    // Too little of the run is left: nothing is sent.
+    const sent = writes.length;
+    await expect(replay(Date.now() + 30_000)).rejects.toThrow(WORKER_UPLOAD_OUT_OF_TIME);
+    expect(writes).toHaveLength(sent);
+    expect(currentRelease(worker)).toBe(second.id);
+
+    // Cloudflare takes the body and never answers. The upload may use half of
+    // what is left of the run, keeping the rest to undo it, so it is cut at
+    // 100 seconds, before the response limit would.
+    stallPublication = true;
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+    try {
+      let outcome: unknown = 'pending';
+      const settled = replay(Date.now() + 200_000).then(
+        () => (outcome = 'published'),
+        (error: unknown) => (outcome = error),
+      );
+      await vi.waitFor(() => expect(stalled).toBe(true));
+      await vi.advanceTimersByTimeAsync(100_000);
+      await vi.waitFor(() => expect(outcome).not.toBe('pending'));
+      expect(outcome).toMatchObject({
+        message: 'The deployment reached its time limit during the custom Durable Object upload.',
+      });
+      await settled;
+    } finally {
+      // Let any upload still waiting reach its own limits.
+      await vi.advanceTimersByTimeAsync(WORKER_UPLOAD_BUDGET_MS);
+      vi.useRealTimers();
+    }
+    expect(currentRelease(worker)).toBe(second.id);
+  });
+
+  it('keeps time to move back every host it has moved', async () => {
+    const counter = { ...binding, bindingName: 'COUNTER', className: 'CounterDurableObject' };
+    const first = await deploy('one', [binding, counter]);
+    const second = await deploy('two', [binding, counter]);
+    const workers = await Promise.all(
+      [binding, counter].map((value) => durableObjectWorkerName(project.id, value.className)),
+    );
+    const deadline = Date.now() + 300_000;
+    // The first host takes 100 seconds to move. Moving the second may then use
+    // only half of what is left once 100 seconds to move the first back are
+    // kept: 50 seconds, less than one attempt.
+    const now = Date.now.bind(Date);
+    vi.spyOn(Date, 'now').mockImplementation(
+      () => now() + (workers.some((worker) => currentRelease(worker) === first.id) ? 100_000 : 0),
+    );
+
+    await expect(
+      reconcileManagedDurableObjects(
+        env as unknown as ApiEnv['Bindings'],
+        env.db,
+        project.id,
+        first.id!,
+        await stored(first.id!),
+        undefined,
+        deadline,
+      ),
+    ).rejects.toThrow(WORKER_UPLOAD_OUT_OF_TIME);
+    expect(workers.map(currentRelease).sort()).toEqual([first.id, second.id].sort());
+  });
+
+  it('ends the release uploads of a queued deployment at the run deadline', async () => {
+    const first = await deploy();
+    const worker = await durableObjectWorkerName(project.id, binding.className);
+    const queuedEnv = {
+      ...env,
+      DEPLOYMENTS_QUEUE: { send: vi.fn(async () => {}) },
+    } as unknown as ApiEnv['Bindings'];
+    const response = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}/deploy`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user.jwt}`,
+          'Content-Type': 'application/json',
+          'x-void-deploy-idempotency-key': crypto.randomUUID(),
+        },
+        body: JSON.stringify(deployBody('two')),
+      }),
+      queuedEnv,
+    );
+    await response.body?.cancel();
+    const id = response.headers.get('x-void-deployment-id')!;
+    // The application upload ends 9.5 minutes into the run. Too little is left
+    // to move the host and still move it back, so the host is not touched.
+    const now = Date.now.bind(Date);
+    vi.spyOn(Date, 'now').mockImplementation(
+      () => now() + (provider.state.hostScripts.has(`user-${project.slug}-${id}`) ? 570_000 : 0),
+    );
+    const sent = writes.filter((write) => write.name === worker).length;
+
+    await processDeploymentBatch(
+      {
+        queue: 'void-deployments',
+        messages: [{ body: { deploymentId: id }, ack: vi.fn(), retry: vi.fn() }],
+      } as unknown as MessageBatch<unknown>,
+      queuedEnv,
+    );
+
+    expect((await getDeployment(env.db, id))?.status).toBe('failed');
+    expect((await getDeploymentOperation(env.db, id))?.events.at(-1)?.event).toMatchObject({
+      event: 'error',
+      message: WORKER_UPLOAD_OUT_OF_TIME,
+    });
+    expect(writes.filter((write) => write.name === worker)).toHaveLength(sent);
+    expect(currentRelease(worker)).toBe(first.id);
   });
 
   it('adds another class without migrating or replacing the existing namespace', async () => {

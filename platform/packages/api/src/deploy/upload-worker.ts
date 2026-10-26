@@ -37,11 +37,13 @@ import { type DeployManifest, type DeployEvent, type Deployment, type Project } 
 import {
   WORKER_UPLOAD_BUDGET_MS,
   WORKER_UPLOAD_IDLE_MS,
+  WORKER_UPLOAD_MIN_ATTEMPT_MS,
   WORKER_UPLOAD_RESPONSE_MS,
   WorkerModuleIntegrityError,
   uploadWatchdog,
   withKnownLength,
   workerUploadBody,
+  workerUploadDeadline,
   type TrackedStream,
   type UploadTimeout,
   type UploadWatchdog,
@@ -64,15 +66,13 @@ import {
 } from './shared.ts';
 import { platformAppUploadUserAgent } from './user-agent.ts';
 
-// Cloudflare sets no subrequest time limit. An attempt is cut when it stops
-// moving (WORKER_UPLOAD_IDLE_MS, WORKER_UPLOAD_RESPONSE_MS) and retried like a
-// network error; all attempts together share WORKER_UPLOAD_BUDGET_MS.
-// Another attempt starts only when at least this much budget is left after its backoff.
-export const WORKER_UPLOAD_MIN_ATTEMPT_MS = 60_000;
-
 const UNEXPECTED_UPLOAD_RESPONSE = 'worker upload returned an unexpected Cloudflare response';
 
-function uploadTimeoutMessage(kind: UploadTimeout | undefined, watchdog: UploadWatchdog): string {
+function uploadTimeoutMessage(
+  kind: UploadTimeout | undefined,
+  watchdog: UploadWatchdog,
+  runLimited: boolean,
+): string {
   switch (kind) {
     case 'idle':
       return watchdog.stalledOn() === 'storage'
@@ -81,7 +81,9 @@ function uploadTimeoutMessage(kind: UploadTimeout | undefined, watchdog: UploadW
     case 'response':
       return `Cloudflare did not answer the Worker upload within ${WORKER_UPLOAD_RESPONSE_MS / 1000} seconds after receiving it. Deploy again.`;
     case 'deadline':
-      return `The Worker upload did not finish within ${WORKER_UPLOAD_BUDGET_MS / 60_000} minutes. Deploy again.`;
+      return runLimited
+        ? 'The deployment reached its time limit during the Worker upload. Deploy again.'
+        : `The Worker upload did not finish within ${WORKER_UPLOAD_BUDGET_MS / 60_000} minutes. Deploy again.`;
     default:
       return 'The Worker upload timed out. Deploy again.';
   }
@@ -177,6 +179,8 @@ export async function uploadDeploymentWorker(input: {
   readonly owner: ApiEnv['Variables']['user'];
   workerUploadUrl: string | undefined;
   workerUploaded: boolean;
+  /** When the uploads of a queued deployment run must end (epoch ms); undefined outside one. */
+  readonly deadline: number | undefined;
 }) {
   const {
     markPhase,
@@ -541,7 +545,13 @@ export async function uploadDeploymentWorker(input: {
     }
     return saved;
   };
-  const budgetEndsAt = Date.now() + WORKER_UPLOAD_BUDGET_MS;
+  // Cloudflare sets no subrequest time limit. An attempt is cut when it stops
+  // moving (WORKER_UPLOAD_IDLE_MS, WORKER_UPLOAD_RESPONSE_MS) and retried like
+  // a network error; all attempts together share WORKER_UPLOAD_BUDGET_MS, cut
+  // short by the end of a queued deployment run. Another attempt starts only
+  // when at least WORKER_UPLOAD_MIN_ATTEMPT_MS is left after its backoff.
+  const budgetEndsAt = workerUploadDeadline(input.deadline);
+  const runLimited = budgetEndsAt === input.deadline;
   await retryWithBackoff(
     async (attempt) => {
       const attemptStart = Date.now();
@@ -607,7 +617,7 @@ export async function uploadDeploymentWorker(input: {
           throw (
             failure ??
             (timedOut
-              ? new Error(uploadTimeoutMessage(timeout, watchdog), { cause: error })
+              ? new Error(uploadTimeoutMessage(timeout, watchdog, runLimited), { cause: error })
               : error)
           );
         }

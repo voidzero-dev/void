@@ -232,6 +232,8 @@ export type ApiEnv = Env & {
     deploymentExecution?: {
       operation: import('./deployment-operation-types.ts').DeploymentOperation;
       workerFiles: Array<import('./worker-upload.ts').WorkerModule>;
+      /** When this run's Worker uploads must end (epoch ms), leaving time to compensate. */
+      deadline: number;
     };
   };
 };

@@ -15,7 +15,6 @@ import { encryptPlatformCredential, decryptPlatformCredential } from '../project
 import { projects, resources, deployments } from '../schema.ts';
 import type { DeployManifest, Resource } from '../types.ts';
 import {
-  WORKER_UPLOAD_BUDGET_MS,
   WORKER_UPLOAD_IDLE_MS,
   WORKER_UPLOAD_RESPONSE_MS,
   blobWorkerModule,
@@ -25,6 +24,7 @@ import {
   uploadWatchdog,
   withKnownLength,
   workerUploadBody,
+  workerUploadDeadline,
   type WorkerModule,
 } from '../worker-upload.ts';
 import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
@@ -146,24 +146,33 @@ async function upload(
   metadata: Record<string, unknown>,
   modules: ReadonlyArray<WorkerModule>,
   create = false,
+  runDeadline?: number,
 ): Promise<void> {
+  // A release sends the application's modules again in one attempt, so it
+  // gets as long as the application upload had, but never past the end of a
+  // queued deployment run's uploads. A stalled one is still cut by the idle
+  // and response limits.
+  const deadline = workerUploadDeadline(runDeadline);
+  const runLimited = deadline === runDeadline;
   // A release replays the application's modules; stream them like the
   // application upload so the whole bundle is never held in memory.
   const body = workerUploadBody(metadata, modules);
   const watchdog = uploadWatchdog(body.progress, {
     idleMs: WORKER_UPLOAD_IDLE_MS,
     responseMs: WORKER_UPLOAD_RESPONSE_MS,
-    // A release sends the application's modules again in one attempt, so it
-    // gets as long as the application upload had. A stalled one is still cut
-    // by the idle and response limits.
-    deadline: Date.now() + WORKER_UPLOAD_BUDGET_MS,
+    deadline,
   });
   const failed = (error: unknown) => {
     const timeout = watchdog.fired();
     return (
       body.failure() ??
       (timeout
-        ? new Error(`Custom Durable Object upload timed out (${timeout}).`, { cause: error })
+        ? new Error(
+            timeout === 'deadline' && runLimited
+              ? 'The deployment reached its time limit during the custom Durable Object upload.'
+              : `Custom Durable Object upload timed out (${timeout}).`,
+            { cause: error },
+          )
         : error)
     );
   };
@@ -470,6 +479,7 @@ async function restoreObject(
   projectId: string,
   resource: Resource,
   deploymentId: string | null,
+  deadline?: number,
 ): Promise<void> {
   const current = await readBindings(env, resource.cf_id);
   if (!current) {
@@ -481,7 +491,7 @@ async function restoreObject(
   }
   if (deploymentId === null) {
     const inactive = idle(env, projectId, resource.binding_name);
-    await upload(env, resource.cf_id, inactive.metadata, inactive.modules);
+    await upload(env, resource.cf_id, inactive.metadata, inactive.modules, false, deadline);
   } else {
     const { snapshot, modules } = await loadSnapshot(env, projectId, deploymentId);
     const main = snapshot.metadata.main_module as string;
@@ -599,6 +609,8 @@ async function restoreObject(
           ),
         ),
       ],
+      false,
+      deadline,
     );
   }
   const after = await readBindings(env, resource.cf_id);
@@ -611,7 +623,12 @@ async function restoreObject(
   }
 }
 
-/** Called only under the project cutover/rollback lock. Captures undo before each provider write. */
+/**
+ * Called only under the project cutover/rollback lock. Captures undo before each provider write.
+ * `deadline` (epoch ms) is when a queued deployment run's uploads must end,
+ * the uploads that undo this pass included. The recorded undo gets no
+ * deadline: compensation runs it in the time this pass leaves.
+ */
 export async function reconcileManagedDurableObjects(
   env: Env,
   db: Db,
@@ -619,10 +636,15 @@ export async function reconcileManagedDurableObjects(
   deploymentId: string | null,
   manifest: DeployManifest | null,
   recordUndo?: (undo: () => Promise<void>) => void,
+  deadline?: number,
 ): Promise<void> {
   const desired = new Set(
     manifest?.durableObjects?.bindings.map((binding) => binding.className) ?? [],
   );
+  // Undoing a move replays a release onto the host again, which takes about as
+  // long as the move did. So each upload may use half of what is left before
+  // `deadline` once the hosts this pass already moved are paid for.
+  let movedMs = 0;
   for (const resource of await getProjectResources(db, projectId)) {
     if (resource.type !== 'durable-object') {
       continue;
@@ -648,7 +670,15 @@ export async function reconcileManagedDurableObjects(
       continue;
     }
     recordUndo?.(() => restoreObject(env, projectId, resource, previous));
-    await restoreObject(env, projectId, resource, next);
+    const started = Date.now();
+    await restoreObject(
+      env,
+      projectId,
+      resource,
+      next,
+      deadline === undefined ? undefined : started + (deadline - started - movedMs) / 2,
+    );
+    movedMs += Date.now() - started;
     const [deployment] = next
       ? await db.select().from(deployments).where(eq(deployments.id, next))
       : [];
