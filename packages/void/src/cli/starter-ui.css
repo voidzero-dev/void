@@ -7,6 +7,8 @@
   --accent: #6c3bff;
   --error: #b42318;
   --social-bg: #f2f1f4;
+  --radius-inner: 4px;
+  --radius-element: 6px;
   --shadow: rgba(0, 0, 0, 0.1) 0 10px 15px -3px, rgba(0, 0, 0, 0.05) 0 4px 6px -2px;
 
   --sans: system-ui, 'Segoe UI', Roboto, sans-serif;
@@ -25,6 +27,20 @@
 
   @media (max-width: 1024px) {
     font-size: 16px;
+  }
+}
+
+@supports (corner-shape: squircle) {
+  :root {
+    /* Squircle curves need about twice the radius to read as rounded. */
+    --radius-inner: 8px;
+    --radius-element: 12px;
+  }
+
+  :where(.starter, .starter *),
+  .starter *::before,
+  .starter *::after {
+    corner-shape: squircle;
   }
 }
 
@@ -90,7 +106,7 @@ p {
 code {
   font-family: var(--mono);
   display: inline-flex;
-  border-radius: 4px;
+  border-radius: var(--radius-inner);
   color: var(--text-h);
   font-size: 15px;
   line-height: 135%;
@@ -204,7 +220,7 @@ code {
   li {
     padding: 12px 16px;
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-element);
     overflow-wrap: anywhere;
   }
 
@@ -233,7 +249,7 @@ code {
     color: var(--text-h);
     background: var(--social-bg);
     border: 1px solid var(--border);
-    border-radius: 6px;
+    border-radius: var(--radius-element);
     padding: 10px 12px;
 
     &:focus-visible {
@@ -317,15 +333,10 @@ code {
   gap: 8px;
   margin: 32px 0 0;
 
-  .logo {
-    width: 36px;
-    height: auto;
-  }
-
   a {
     color: var(--text-h);
     font-size: 16px;
-    border-radius: 6px;
+    border-radius: var(--radius-element);
     background: var(--social-bg);
     display: flex;
     padding: 6px 12px;
