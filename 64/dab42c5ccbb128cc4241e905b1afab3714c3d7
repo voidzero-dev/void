@@ -1,0 +1,57 @@
+packages/react/src/runtime/use-form.ts
+  s_a6366f8c8935ed::t_fd1abfba30af2b 12,80-83,90,109,113,182-183,185-187
+packages/solid/src/runtime/use-form.ts
+  s_a6366f8c8935ed::t_2d31b3c6bcbe7b 5,81-84,106,122,125,184-185,187
+packages/svelte/src/runtime/use-form.svelte.ts
+  s_a6366f8c8935ed::t_6cb2df04c1faa5 4,71-72,79,90,93,144-145,147
+packages/void/src/codegen/route-types.ts
+  s_a6366f8c8935ed::t_6933575db648cf 128-130
+packages/void/src/pages/client.ts
+  s_a6366f8c8935ed::t_72aefc668a2b68 32
+packages/void/src/pages/form-reset.ts
+  s_a6366f8c8935ed::t_effdc484540b72 4,7-41
+packages/void/src/routes-stub.ts
+  s_a6366f8c8935ed::t_7e7defc2a20a55 54-58,64
+packages/void/test/unit/form-reset.test.ts
+  s_a6366f8c8935ed::t_1e00a0e14f0aa5 2-44,65-69,75
+packages/vue/src/runtime/use-form.ts
+  s_a6366f8c8935ed::t_261e1a0ae18b1c 3,15,68,70,77,80-81,86,88,91,148-149,151
+packages/vue/test/unit/use-form.test.ts
+  s_a6366f8c8935ed::t_829eab49b9b583 92-116
+packages/vue/test/unit/use-form.typecheck.ts
+  s_a6366f8c8935ed::t_515c9145bb8883 1-21
+playground/react-pages/pages/form-reset.server.ts
+  s_a6366f8c8935ed::t_30e8dbe198128e 1-8
+playground/react-pages/pages/form-reset.tsx
+  s_a6366f8c8935ed::t_a42ca34c7b79cc 1-50
+playground/solid-pages/pages/form-reset.server.ts
+  s_a6366f8c8935ed::t_be0e7e8c7ea29f 1-8
+playground/solid-pages/pages/form-reset.tsx
+  s_a6366f8c8935ed::t_1199bb7ce2e9e3 1-50
+playground/svelte-pages/pages/form-reset.server.ts
+  s_a6366f8c8935ed::t_2454382ae747b5 1-8
+playground/svelte-pages/pages/form-reset.svelte
+  s_a6366f8c8935ed::t_c20cbd496ebca8 1-30
+playground/vue-pages/pages/form-reset.server.ts
+  s_a6366f8c8935ed::t_8e9285b3802b98 1-8
+playground/vue-pages/pages/form-reset.vue
+  s_a6366f8c8935ed::t_2bd17d07ef100e 1-34
+test/pages-client-contract.ts
+  s_a6366f8c8935ed::t_ecfcd2dbb1ab64 409-465
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "64dab42c5ccbb128cc4241e905b1afab3714c3d7",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
