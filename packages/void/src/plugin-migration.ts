@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'pathslash';
 import type { Plugin } from 'vite';
+import { devAuthConfigImporter } from './auth/config.ts';
 import type { DatabaseDialect } from './config.ts';
 import { voidLog, voidError } from './log.ts';
 import { afterServerReady } from './plugin-dev-config.ts';
@@ -52,6 +53,7 @@ export function migrationPlugin(
           databaseId,
           auth?.configPath,
           databaseUrl,
+          devAuthConfigImporter(server),
         );
       };
       // MySQL runs Better Auth's migrations under the migration lock of the database they change.

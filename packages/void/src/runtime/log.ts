@@ -16,6 +16,30 @@
 
 type Fields = Record<string, unknown>;
 
+// `name`, `message`, `stack` and `cause` are non-enumerable on `Error`, so plain
+// `JSON.stringify` turns an error into `{}`. Copy them next to the error's own
+// enumerable fields. An error seen again (for example a `cause` cycle) keeps only
+// its name and message so serialization always terminates.
+function errorReplacer(): (key: string, value: unknown) => unknown {
+  const seen = new WeakSet<Error>();
+  return (_key, value) => {
+    if (!(value instanceof Error)) {
+      return value;
+    }
+    if (seen.has(value)) {
+      return { name: value.name, message: value.message };
+    }
+    seen.add(value);
+    return {
+      ...value,
+      name: value.name,
+      message: value.message,
+      stack: value.stack,
+      cause: value.cause,
+    };
+  };
+}
+
 function format(message: string, fields?: Fields): string {
   // `message` always wins over `fields.msg`. The loop sits inside the try because
   // getters and proxy traps on `fields` may throw; logging must never throw.
@@ -33,7 +57,7 @@ function format(message: string, fields?: Fields): string {
         payload[key] = value;
       }
     }
-    return JSON.stringify(payload);
+    return JSON.stringify(payload, errorReplacer());
   } catch {
     return JSON.stringify({ msg: message, error: 'log: fields not serializable' });
   }

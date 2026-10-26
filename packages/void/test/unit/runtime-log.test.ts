@@ -146,4 +146,46 @@ describe('runtime log', () => {
     const parsed = JSON.parse(arg as string);
     expect(parsed.msg).toBe('circular failure');
   });
+
+  it('Error fields keep name, message, stack and cause', () => {
+    const inner = new Error('inner');
+    const error = new Error('wrapped', { cause: inner });
+
+    logger.error('save failed', { error });
+
+    const arg = (console.error as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const parsed = JSON.parse(arg);
+    expect(parsed.error).toEqual({
+      name: 'Error',
+      message: 'wrapped',
+      stack: error.stack,
+      cause: { name: 'Error', message: 'inner', stack: inner.stack },
+    });
+  });
+
+  it('Error subclasses keep their own enumerable fields', () => {
+    class AppError extends Error {
+      status = 500;
+    }
+
+    logger.error('save failed', { error: new AppError('boom') });
+
+    const arg = (console.error as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const parsed = JSON.parse(arg);
+    expect(parsed.error).toMatchObject({ status: 500, name: 'Error', message: 'boom' });
+    expect(typeof parsed.error.stack).toBe('string');
+  });
+
+  it('a cyclic Error cause does not drop the other fields', () => {
+    const error = new Error('loop');
+    error.cause = error;
+
+    logger.error('cycle', { error, jobId: 'j1' });
+
+    const arg = (console.error as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+    const parsed = JSON.parse(arg);
+    expect(parsed.jobId).toBe('j1');
+    expect(parsed.error.message).toBe('loop');
+    expect(parsed.error.cause).toEqual({ name: 'Error', message: 'loop' });
+  });
 });
