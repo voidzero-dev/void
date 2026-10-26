@@ -134,6 +134,8 @@ export const actions = { save: defineHandler.withValidator({ body })(() => ({ ok
       'check.ts': [
         ...useForm,
         "useForm('/contact', { email: 'a@b.c' });",
+        '// @ts-expect-error the single action body is still typed',
+        "useForm('/contact', { email: 1 });",
         "useForm('/contact?save', { title: 'x' });",
         '// @ts-expect-error the named action body is still typed',
         "useForm('/contact?save', { title: 1 });",

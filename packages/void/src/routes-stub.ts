@@ -28,8 +28,11 @@ export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer 
 
 /** Resolve body type for a useForm URL (single action or named action) */
 // A .dev + .prod page pair is a union of two page shapes. A type parameter
-// makes these read each shape on its own.
-type PageActionBody<P> = P extends { body: infer B } ? B : Record<string, unknown>;
+// makes these read each shape on its own. A shape with named actions has no
+// bare-URL body, so it must not add the untyped fallback to the other's.
+type PageActionBody<P> = [Extract<P, { body: unknown }>] extends [never]
+  ? Record<string, unknown>
+  : Extract<P, { body: unknown }>['body'];
 
 type PageNamedActionBody<P, K> = P extends { actions: infer A }
   ? K extends keyof A

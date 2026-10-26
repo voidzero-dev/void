@@ -104,9 +104,9 @@ export function generateRouteTypes(
   lines.push('');
   // A .dev + .prod page pair is a union of two page shapes. A type parameter
   // makes these helpers read each shape on its own, as in void/routes.
-  lines.push(
-    '  type PageActionBody<P> = P extends { body: infer B } ? B : Record<string, unknown>;',
-  );
+  lines.push('  type PageActionBody<P> = [Extract<P, { body: unknown }>] extends [never]');
+  lines.push('    ? Record<string, unknown>');
+  lines.push('    : Extract<P, { body: unknown }>["body"];');
   lines.push('');
   lines.push('  type PageNamedActionBody<P, K> = P extends { actions: infer A }');
   lines.push('    ? K extends keyof A');

@@ -424,6 +424,10 @@ describe('generateRouteTypes', () => {
     expect(dts).toContain('[K in keyof');
     expect(dts).toContain('["actions"]');
     expect(dts).toContain('ParseActionUrl<U>["action"]');
+    // A named-actions shape must not add the untyped fallback to a bare-URL body.
+    expect(dts).toContain(
+      'type PageActionBody<P> = [Extract<P, { body: unknown }>] extends [never]',
+    );
   });
 
   it('errors when both action and actions are present', () => {
