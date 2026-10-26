@@ -174,4 +174,34 @@ describe('pagesPlugin environment suffixes', () => {
       expect(code).toContain('home.prod.tsx');
     }
   });
+
+  it('keeps .dev pages and leaves out .prod pages in serve', async () => {
+    writePage('index.tsx', 'export default function Page() { return <h1>Home</h1>; }\n');
+    writePage('debug.dev.tsx', 'export default function Page() { return <h1>Debug</h1>; }\n');
+    writePage('home.dev.tsx', 'export default function Page() { return <h1>Dev</h1>; }\n');
+    writePage('home.prod.tsx', 'export default function Page() { return <h1>Prod</h1>; }\n');
+
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    getHookHandler(plugin.config)({}, { command: 'serve' });
+    await getHookHandler(plugin.buildStart).call({});
+    const load = getHookHandler(plugin.load);
+
+    for (const id of ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client']) {
+      const code = await load(id);
+      expect(code).toContain('debug.dev.tsx');
+      expect(code).toContain('home.dev.tsx');
+      expect(code).not.toContain('home.prod');
+    }
+  });
+
+  it('scans for dev when pages/ is created after the serve config', async () => {
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    expect(getHookHandler(plugin.config)({}, { command: 'serve' })).toBeUndefined();
+
+    writePage('debug.dev.tsx', 'export default function Page() { return <h1>Debug</h1>; }\n');
+    await getHookHandler(plugin.buildStart).call({});
+    const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+
+    expect(renderer).toContain('debug.dev.tsx');
+  });
 });

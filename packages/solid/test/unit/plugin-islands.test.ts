@@ -12,19 +12,20 @@ function writeFile(relativePath: string, content: string): void {
   writeFileSync(full, content);
 }
 
-function setupPlugin() {
+function setupPlugin(options?: { dev?: boolean }) {
   const plugins = islandsPlugin(PAGES_DIR);
   const plugin = plugins[0] as unknown as {
     configResolved(config: {
       root: string;
-      command: 'build';
+      command: 'serve' | 'build';
       plugins: ReadonlyArray<unknown>;
     }): void;
     buildStart: { call(thisArg: unknown): Promise<void> | void };
     load: { handler(id: string): string | undefined };
   };
 
-  const config = { root: TMP, command: 'build' as const, plugins: [] };
+  const command = options?.dev ? 'serve' : 'build';
+  const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
   plugin.configResolved(config);
 
   return {
@@ -172,5 +173,30 @@ export default function X() { return <Counter />; }`,
 
     expect(clientEntry).toContain('pages/Counter');
     expect(clientEntry).not.toContain('pages/Toggle');
+  });
+
+  it('registers the .dev island page of a .dev + .prod pair in dev', async () => {
+    writeFile(
+      'x.dev.island.tsx',
+      `import Toggle from "./Toggle" with { island: "load" }
+export default function X() { return <Toggle />; }`,
+    );
+    writeFile(
+      'x.prod.island.tsx',
+      `import Counter from "./Counter" with { island: "load" }
+export default function X() { return <Counter />; }`,
+    );
+    writeFile('Toggle.tsx', `export default function Toggle() { return <button>Toggle</button>; }`);
+    writeFile(
+      'Counter.tsx',
+      `export default function Counter() { return <button>Counter</button>; }`,
+    );
+
+    const { buildStart, loadClientEntry } = setupPlugin({ dev: true });
+    await buildStart();
+    const clientEntry = loadClientEntry();
+
+    expect(clientEntry).toContain('pages/Toggle');
+    expect(clientEntry).not.toContain('pages/Counter');
   });
 });

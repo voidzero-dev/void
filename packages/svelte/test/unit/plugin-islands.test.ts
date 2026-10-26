@@ -12,7 +12,7 @@ type HookWithHandler<T> = { handler: T };
 type IslandsPluginHooks = {
   configResolved?: (config: {
     root: string;
-    command: 'build';
+    command: 'serve' | 'build';
     plugins: ReadonlyArray<unknown>;
   }) => void;
   buildStart?: (() => Promise<void>) | HookWithHandler<() => Promise<void>>;
@@ -25,11 +25,12 @@ function writeFile(relativePath: string, content: string): void {
   writeFileSync(full, content);
 }
 
-function setupPlugin() {
+function setupPlugin(options?: { dev?: boolean }) {
   const plugins = islandsPlugin(PAGES_DIR);
   const plugin = plugins[0] as IslandsPluginHooks;
 
-  const config = { root: TMP, command: 'build' as const, plugins: [] };
+  const command = options?.dev ? 'serve' : 'build';
+  const config = { root: TMP, command: command as 'serve' | 'build', plugins: [] };
   plugin.configResolved?.(config);
 
   return {
@@ -332,5 +333,31 @@ import Counter from "./Counter.svelte" with { island: "load" }
 
     expect(clientEntry).toContain('pages/Counter');
     expect(clientEntry).not.toContain('pages/Toggle');
+  });
+
+  it('registers the .dev island page of a .dev + .prod pair in dev', async () => {
+    writeFile(
+      'x.dev.island.svelte',
+      `<script>
+import Toggle from "./Toggle.svelte" with { island: "load" }
+</script>
+<Toggle />`,
+    );
+    writeFile(
+      'x.prod.island.svelte',
+      `<script>
+import Counter from "./Counter.svelte" with { island: "load" }
+</script>
+<Counter />`,
+    );
+    writeFile('Toggle.svelte', `<button>Toggle</button>`);
+    writeFile('Counter.svelte', `<button>Counter</button>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin({ dev: true });
+    await buildStart();
+    const clientEntry = loadClientEntry();
+
+    expect(clientEntry).toContain('pages/Toggle');
+    expect(clientEntry).not.toContain('pages/Counter');
   });
 });
