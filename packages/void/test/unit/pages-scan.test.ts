@@ -1020,6 +1020,19 @@ const example = 'export const layout = "home"';
       expect(await ids('prod')).toEqual(['home']);
     });
 
+    it('rejects a plain page and a .prod page on one route where both run', async () => {
+      writeFile('home.tsx', page);
+      writeFile('home.prod.tsx', page);
+      const message = [
+        'pages: Multiple page files resolve to the same route:',
+        '  "/home": "home.prod.tsx", "home.tsx"',
+      ].join('\n');
+
+      await expect(scanPages(TMP, { environment: 'prod' })).rejects.toThrow(message);
+      await expect(scanPages(TMP)).rejects.toThrow(message);
+      expect(await ids('dev')).toEqual(['home']);
+    });
+
     it('rejects two .dev pages on one route', async () => {
       writeFile('home.dev.tsx', page);
       writeFile('home/index.dev.tsx', page);

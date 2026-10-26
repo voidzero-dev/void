@@ -282,6 +282,24 @@ describe('inferProjectBindings', () => {
     expect(analyze('prod')).toBe(false);
   });
 
+  it('keeps the bindings of .dev page files in a framework app', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { nuxt: '1.0.0' } }));
+    writeFileSync(join(root, 'pages/debug.dev.vue'), '<template><div /></template>');
+    writeFileSync(
+      join(root, 'pages/debug.dev.server.ts'),
+      "import { db } from 'void/db'; export const loader = () => db.select();",
+    );
+
+    expect(detectFramework(root)?.name).toBe('nuxt');
+    // Nuxt owns pages/, so a .dev file there is not a Void page and is not filtered.
+    expect(
+      analyzeApplicationSync(root, { config: readConfig(root), environment: 'prod' }).bindings
+        .needsD1,
+    ).toBe(true);
+  });
+
   it('detects auth from void/client import with auth specifier in src/', () => {
     const root = createTempRoot();
     writeFileSync(
