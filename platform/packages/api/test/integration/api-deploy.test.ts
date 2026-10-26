@@ -2493,6 +2493,27 @@ describe('POST /projects/:id/deploy', () => {
         });
     };
 
+    // Collects the worker upload attempt records, at any level.
+    const captureUploadAttemptLogs = () => {
+      const spies = [
+        vi.spyOn(console, 'log').mockImplementation(() => {}),
+        vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      ];
+      return () =>
+        spies.flatMap((spy) =>
+          spy.mock.calls.flatMap(([line]) => {
+            try {
+              const record = JSON.parse(String(line)) as Record<string, unknown>;
+              return record.phase === 'worker_upload' && String(record.msg).startsWith('attempt_')
+                ? [record]
+                : [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+    };
+
     it('marks deployment failed when worker upload fails', async () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id, 'fail-app');
@@ -2722,7 +2743,7 @@ describe('POST /projects/:id/deploy', () => {
       const events = parseDeployStream(await res.text());
       const error = requireEvent<ErrorEvent>(events, 'error');
       expect(error.step).toBe('worker_upload');
-      expect(error.message).toContain('did not finish within 120 seconds');
+      expect(error.message).toContain('The Worker upload timed out');
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
     });
@@ -2932,6 +2953,178 @@ describe('POST /projects/:id/deploy', () => {
           latencyMs: expect.any(Number),
           code: 'timeout',
           err: expect.stringContaining('timeout'),
+          uploadPhase: 'response',
+          bodyBytes: expect.any(Number),
+          modules: expect.any(Number),
+        }),
+      ]);
+    });
+
+    it('logs upload progress on a failed attempt and on success', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-progress-log');
+      const logs = captureUploadAttemptLogs();
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            throw new TypeError('fetch failed');
+          }
+          return cfSuccess({});
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+      const records = logs();
+      expect(records).toHaveLength(2);
+      const failed = records.find((record) => record.msg === 'attempt_failed');
+      const done = records.find((record) => record.msg === 'attempt_done');
+      expect(failed).toMatchObject({
+        lvl: 'warn',
+        msg: 'attempt_failed',
+        attempt: 0,
+        code: 'transport',
+        timeout: null,
+        uploadPhase: 'response',
+        bytesSent: expect.any(Number),
+        bodyBytes: failed!.bytesSent,
+        modulesStarted: failed!.modules,
+        sourceWaitMs: expect.any(Number),
+        sendMs: expect.any(Number),
+        budgetRemainingMs: expect.any(Number),
+      });
+      expect(failed!.modules).toBeGreaterThan(0);
+      expect(done).toMatchObject({
+        lvl: 'info',
+        msg: 'attempt_done',
+        attempt: 1,
+        bodyBytes: expect.any(Number),
+        modules: failed!.modules,
+        sendMs: expect.any(Number),
+        sourceWaitMs: expect.any(Number),
+        responseMs: expect.any(Number),
+      });
+    });
+
+    it('stops retrying once the budget cannot fit another attempt', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-budget');
+      const now = Date.now.bind(Date);
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          // The first attempt took most of the budget.
+          vi.spyOn(Date, 'now').mockImplementation(() => now() + 450_000);
+          throw timeoutError();
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(uploadCalls).toBe(1);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('stops retrying a plain-text reply once the budget cannot fit another attempt', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-text-budget');
+      const now = Date.now.bind(Date);
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          vi.spyOn(Date, 'now').mockImplementation(() => now() + 450_000);
+          return new Response('Assets have already been uploaded.');
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({
+        event: 'error',
+        step: 'worker_upload',
+        message: 'worker upload returned an unexpected Cloudflare response',
+      });
+      expect(uploadCalls).toBe(1);
+      expect(dispatchScriptReads(cf)).toBe(0);
+    });
+
+    it('cuts attempts that Cloudflare never answers, then stops at the budget', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-watchdog');
+      const logs = captureUploadAttemptLogs();
+      let stalls = 0;
+      const cf = mockCfApi({
+        // The body has been read in full; no answer comes until the signal aborts.
+        uploadWorker: (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init!.signal!;
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            stalls++;
+          }),
+      });
+      const request = await buildDeployRequest(env, project.id, user.jwt);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      try {
+        const body = Promise.resolve(app.fetch(request, env)).then((res) => res.text());
+        // Each step passes one response limit and the backoff after it. The
+        // fourth attempt would get its answer past the budget, so the
+        // deadline cuts it.
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          await vi.waitFor(() => expect(stalls).toBe(attempt));
+          await vi.advanceTimersByTimeAsync(128_000);
+        }
+        const events = parseDeployStream(await body);
+        const error = requireEvent<ErrorEvent>(events, 'error');
+        expect(error.step).toBe('worker_upload');
+        expect(error.message).toBe(
+          'The Worker upload did not finish within 8 minutes. Deploy again.',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(stalls).toBe(4);
+      expect(dispatchScriptReads(cf)).toBe(1);
+      expect(logs()).toEqual([
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 0,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
+        }),
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 1,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
+        }),
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 2,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
         }),
       ]);
     });
@@ -2959,7 +3152,7 @@ describe('POST /projects/:id/deploy', () => {
       const events = parseDeployStream(await res.text());
       const error = requireEvent<ErrorEvent>(events, 'error');
       expect(error.step).toBe('worker_upload');
-      expect(error.message).toContain('did not finish within 120 seconds');
+      expect(error.message).toContain('The Worker upload timed out');
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
     });

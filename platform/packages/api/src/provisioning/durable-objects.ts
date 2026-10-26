@@ -15,10 +15,14 @@ import { encryptPlatformCredential, decryptPlatformCredential } from '../project
 import { projects, resources, deployments } from '../schema.ts';
 import type { DeployManifest, Resource } from '../types.ts';
 import {
+  WORKER_UPLOAD_BUDGET_MS,
+  WORKER_UPLOAD_IDLE_MS,
+  WORKER_UPLOAD_RESPONSE_MS,
   blobWorkerModule,
   listR2Objects,
   r2WorkerModule,
   streamSha256,
+  uploadWatchdog,
   withKnownLength,
   workerUploadBody,
   type WorkerModule,
@@ -146,31 +150,58 @@ async function upload(
   // A release replays the application's modules; stream them like the
   // application upload so the whole bundle is never held in memory.
   const body = workerUploadBody(metadata, modules);
-  let response: Response;
+  const watchdog = uploadWatchdog(body.progress, {
+    idleMs: WORKER_UPLOAD_IDLE_MS,
+    responseMs: WORKER_UPLOAD_RESPONSE_MS,
+    // A release sends the application's modules again in one attempt, so it
+    // gets as long as the application upload had. A stalled one is still cut
+    // by the idle and response limits.
+    deadline: Date.now() + WORKER_UPLOAD_BUDGET_MS,
+  });
+  const failed = (error: unknown) => {
+    const timeout = watchdog.fired();
+    return (
+      body.failure() ??
+      (timeout
+        ? new Error(`Custom Durable Object upload timed out (${timeout}).`, { cause: error })
+        : error)
+    );
+  };
   try {
-    response = await fetch(url(env, worker), {
-      method: 'PUT',
-      headers: {
-        Authorization: `Bearer ${env.CF_API_TOKEN}`,
-        'Content-Type': body.contentType,
-        ...(create ? { 'If-None-Match': '*' } : {}),
-      },
-      body: withKnownLength(body.stream, body.length),
-      signal: AbortSignal.timeout(60_000),
-    });
-  } catch (error) {
-    throw body.failure() ?? error;
-  }
-  if (create && (response.status === 409 || response.status === 412)) {
-    await response.body?.cancel();
-    return;
-  }
-  if (!response.ok) {
-    throw new Error(`Custom Durable Object upload failed (HTTP ${response.status}).`);
-  }
-  const result = (await response.json()) as { success: boolean };
-  if (!result.success) {
-    throw new Error('Custom Durable Object upload failed.');
+    let response: Response;
+    try {
+      response = await fetch(url(env, worker), {
+        method: 'PUT',
+        headers: {
+          Authorization: `Bearer ${env.CF_API_TOKEN}`,
+          'Content-Type': body.contentType,
+          ...(create ? { 'If-None-Match': '*' } : {}),
+        },
+        body: withKnownLength(body.stream, body.length),
+        signal: watchdog.signal,
+      });
+    } catch (error) {
+      throw failed(error);
+    }
+    if (create && (response.status === 409 || response.status === 412)) {
+      await response.body?.cancel();
+      return;
+    }
+    if (!response.ok) {
+      throw new Error(`Custom Durable Object upload failed (HTTP ${response.status}).`);
+    }
+    let result: { success: boolean };
+    try {
+      result = (await response.json()) as { success: boolean };
+    } catch (error) {
+      throw failed(error);
+    }
+    if (!result.success) {
+      throw new Error('Custom Durable Object upload failed.');
+    }
+  } finally {
+    watchdog.dispose();
+    body.release();
   }
 }
 

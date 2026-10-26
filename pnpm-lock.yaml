@@ -538,6 +538,9 @@ importers:
       markdown-exit:
         specifier: ^1.3.0
         version: 1.3.0
+      markdown-it:
+        specifier: ^15.0.3
+        version: 15.0.3
       markdown-it-anchor:
         specifier: ^10.0.0
         version: 10.0.0(@types/markdown-it@14.2.0)(markdown-it@15.0.3)
