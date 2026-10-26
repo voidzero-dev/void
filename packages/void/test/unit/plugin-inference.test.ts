@@ -2,7 +2,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
+import { readConfig } from '../../src/config.ts';
 import { voidPlugin } from '../../src/index.ts';
 import { inferProjectBindings, detectFramework } from '../../src/plugin-inference.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -253,6 +255,31 @@ describe('inferProjectBindings', () => {
     const result = inferProjectBindings(root, { environment: 'prod' });
     expect(result.needsR2).toBe(true);
     expect(result.needsKV).toBe(true);
+  });
+
+  it('filters Void page files and companions by environment with filterPages', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages/_lib'), { recursive: true });
+    writeFileSync(join(root, 'pages/debug.dev.tsx'), 'export default () => null;');
+    writeFileSync(
+      join(root, 'pages/debug.dev.server.ts'),
+      "import { db } from 'void/db'; export const loader = () => db.select();",
+    );
+    writeFileSync(join(root, 'pages/_lib/x.dev.ts'), "import { kv } from 'void/kv';");
+    const infer = (environment?: 'dev' | 'prod', filterPages = true) =>
+      inferProjectBindings(root, { environment, filterPages }, ['pages']);
+
+    expect(infer('dev').needsD1).toBe(true);
+    expect(infer(undefined).needsD1).toBe(true);
+    // No binding for a feature only a .dev page uses.
+    expect(infer('prod')).toMatchObject({ needsD1: false, needsKV: true });
+    // Framework apps own pages/, so their files are not filtered.
+    expect(infer('prod', false).needsD1).toBe(true);
+
+    const analyze = (environment: 'dev' | 'prod') =>
+      analyzeApplicationSync(root, { config: readConfig(root), environment }).bindings.needsD1;
+    expect(analyze('dev')).toBe(true);
+    expect(analyze('prod')).toBe(false);
   });
 
   it('detects auth from void/client import with auth specifier in src/', () => {

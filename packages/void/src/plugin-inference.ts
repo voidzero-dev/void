@@ -3,6 +3,7 @@ import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
 import { applyBindingOverrides } from './application-features.ts';
 import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
+import { pageFileEnvironment } from './pages/scan.ts';
 import { readProjectPaths, type ProjectPaths } from './project-paths.ts';
 import {
   isRouteEnabledForEnvironment,
@@ -113,6 +114,8 @@ export type InferenceOptions = {
   paths?: ProjectPaths;
   /** Filter route files for a Vite serve/build environment. Other source files are always scanned. */
   environment?: RouteEnvironment;
+  /** Also filter Void page files and their `.server` companions by environment. Off for framework apps. */
+  filterPages?: boolean;
 };
 
 function extractAstroFrontmatter(code: string): string {
@@ -151,6 +154,8 @@ export function inferProjectBindings(
   const allBindings: Array<InferredBindings> = [];
   const scannedFiles = new Set<string>();
   const routesPrefix = `${toSlash(paths.routesDir).replace(/\/$/, '')}/`;
+  const pagesDir = toSlash(paths.pagesDir);
+  const pagesPrefix = pagesDir.endsWith('/') ? pagesDir : `${pagesDir}/`;
   const scanSourceFiles = (dirPath: string): Array<string> =>
     globSync(conventionFileGlobs(dirPath, SOURCE_GLOB, paths.routesDir), {
       cwd: dirPath,
@@ -170,6 +175,12 @@ export function inferProjectBindings(
         ? parseWebSocketFilename(routePath)
         : parseRouteFilename(routePath);
       if (!isRouteEnabledForEnvironment(route, options.environment)) {
+        return;
+      }
+    }
+    if (options?.environment && options.filterPages && normalizedFile.startsWith(pagesPrefix)) {
+      const env = pageFileEnvironment(normalizedFile.slice(pagesPrefix.length));
+      if (!isRouteEnabledForEnvironment({ env }, options.environment)) {
         return;
       }
     }
