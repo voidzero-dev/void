@@ -1,0 +1,21 @@
+docs/guide/pages-routing/actions-and-forms.md
+  47dd77cd670c535a 162,166-167
+packages/vue/src/runtime/use-form.ts
+  47dd77cd670c535a 15,34,60,82-95,110,125-128,196
+packages/svelte/src/runtime/use-form.svelte.ts
+  47dd77cd670c535a 34,61,83-92,108,121-124,202
+packages/solid/src/runtime/use-form.ts
+  47dd77cd670c535a 36,67,104,118-125,154-157,159,190,240
+packages/react/src/runtime/use-form.ts
+  47dd77cd670c535a 40,71,87,105-112,144-147,149,167,190,247
+packages/vue/test/unit/use-form.test.ts
+  47dd77cd670c535a 3,8-9,121-163
+docs/reference/api/pages.md
+  47dd77cd670c535a 52,104,161,211
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "b018a22a53e00a09bfb2d4c0cfcfeb2da67b4223",
+  "prompts": {}
+}
