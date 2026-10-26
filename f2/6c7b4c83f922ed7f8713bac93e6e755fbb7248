@@ -1,0 +1,19 @@
+packages/void/test/unit/pages-client.test.ts
+  s_a6366f8c8935ed::t_54b02079e896bd 544-550,555-558,564-565
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "f26c7b4c83f922ed7f8713bac93e6e755fbb7248",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
