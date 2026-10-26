@@ -102,6 +102,50 @@ describe('scanRoutes', () => {
     },
   );
 
+  it.each([undefined, 'dev', 'prod'] as const)(
+    'keeps pages for environment=%s and writes one action key for a .dev + .prod pair',
+    async (environment) => {
+      createFile('pages/debug.dev.tsx', 'export default () => null;');
+      createFile('pages/home.dev.tsx', 'export default () => null;');
+      createFile('pages/home.dev.server.ts', 'export const action = () => ({});');
+      createFile('pages/home.prod.tsx', 'export default () => null;');
+      createFile('pages/home.prod.server.ts', 'export const actions = { save: () => ({}) };');
+
+      const result = await scanRoutes(TMP, { environment });
+      const expected = [
+        ...(environment !== 'prod' ? ['debug.dev.tsx', 'home.dev.tsx'] : []),
+        ...(environment !== 'dev' ? ['home.prod.tsx'] : []),
+      ];
+      expect(result.pages.pages.map((page) => page.componentPath).sort()).toEqual(expected);
+
+      const { dts } = generateRouteTypes(
+        result,
+        join(TMP, 'routes'),
+        join(TMP, '.void'),
+        join(TMP, 'pages'),
+      );
+      const actionMap = dts.split('  interface PageActionMap {')[1]!;
+      expect(actionMap.split('"/home": {')).toHaveLength(2);
+      for (const env of ['dev', 'prod'] as const) {
+        const companion = `typeof import("../pages/home.${env}.server.ts")`;
+        if (environment === undefined || environment === env) {
+          expect(actionMap).toContain(companion);
+        } else {
+          expect(dts).not.toContain(`home.${env}`);
+        }
+      }
+      expect(actionMap.includes('} & {')).toBe(environment === undefined);
+    },
+  );
+
+  it('does not filter the pages of a framework app', async () => {
+    createFile('package.json', JSON.stringify({ dependencies: { nuxt: '1.0.0' } }));
+    createFile('pages/debug.dev.vue', '<template><div /></template>');
+
+    const result = await scanRoutes(TMP, { environment: 'prod' });
+    expect(result.pages.pages.map((page) => page.componentPath)).toEqual(['debug.dev.vue']);
+  });
+
   it.each(['tsx', 'jsx'])('keeps .%s out of cron and queue discovery', async (ext) => {
     createFile(`routes/hello.${ext}`, 'export const GET = () => <p>Hello</p>;');
     createFile(`crons/sync.${ext}`, 'export const cron = "0 * * * *"; export default () => {};');

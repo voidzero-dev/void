@@ -224,6 +224,8 @@ export function generateRouteTypes(
   if (actionPages.length > 0 && pagesDir) {
     lines.push('  interface PageActionMap {');
 
+    // A .dev + .prod page pair shares one pattern: write one key and join the shapes with &.
+    const bodiesByPattern = new Map<string, Array<Array<string>>>();
     for (const page of actionPages) {
       const hasAction = page.methods.includes('action');
       const hasActions = page.methods.includes('actions');
@@ -234,29 +236,45 @@ export function generateRouteTypes(
         );
       }
 
-      lines.push(`    ${JSON.stringify(page.pattern)}: {`);
+      const body: Array<string> = [];
 
       // Page actions are only detected in a companion .server file.
       const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
       if (hasActions) {
         const actionsImport = `(typeof import(${JSON.stringify(importPath)}))["actions"]`;
-        lines.push(`      actions: { [K in keyof ${actionsImport}]: {`);
-        lines.push(
+        body.push(`      actions: { [K in keyof ${actionsImport}]: {`);
+        body.push(
           `        body: ExtractInput<${actionsImport}[K]["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         );
-        lines.push('      } };');
+        body.push('      } };');
       } else {
         const importExpr = `(typeof import(${JSON.stringify(importPath)}))["action"]`;
-        lines.push(
+        body.push(
           `      body: ExtractInput<${importExpr}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         );
       }
 
       if (page.params.length > 0) {
         const paramsType = page.params.map((p) => `${p}: string`).join('; ');
-        lines.push(`      params: { ${paramsType} };`);
+        body.push(`      params: { ${paramsType} };`);
       }
 
+      const bodies = bodiesByPattern.get(page.pattern);
+      if (bodies) {
+        bodies.push(body);
+      } else {
+        bodiesByPattern.set(page.pattern, [body]);
+      }
+    }
+
+    for (const [pattern, bodies] of bodiesByPattern) {
+      lines.push(`    ${JSON.stringify(pattern)}: {`);
+      bodies.forEach((body, index) => {
+        if (index > 0) {
+          lines.push('    } & {');
+        }
+        lines.push(...body);
+      });
       lines.push('    };');
     }
 

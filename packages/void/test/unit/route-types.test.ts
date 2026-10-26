@@ -269,6 +269,52 @@ describe('generateRouteTypes', () => {
     expect(dts).toContain('params: { id: string }');
   });
 
+  it('joins a .dev + .prod page pair into one PageActionMap key', () => {
+    const page = {
+      ...pageRenderingDefaults,
+      pattern: '/users/:id',
+      params: ['id'],
+      catchAll: false,
+    };
+    const scan = makeScan({
+      pages: [
+        {
+          ...page,
+          componentPath: 'users/[id].dev.vue',
+          serverPath: 'users/[id].dev.server.ts',
+          methods: ['action'],
+          componentId: 'users/[id].dev',
+          env: 'dev',
+        },
+        {
+          ...page,
+          componentPath: 'users/[id].prod.vue',
+          serverPath: 'users/[id].prod.server.ts',
+          methods: ['actions'],
+          componentId: 'users/[id].prod',
+          env: 'prod',
+        },
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const actionMap = dts.split('  interface PageActionMap {')[1]!;
+    const dev = '(typeof import("../pages/users/[id].dev.server.ts"))["action"]';
+    const prod = '(typeof import("../pages/users/[id].prod.server.ts"))["actions"]';
+
+    expect(actionMap.split('"/users/:id"')).toHaveLength(2);
+    expect(actionMap).toContain(
+      [
+        '    "/users/:id": {',
+        `      body: ExtractInput<${dev}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
+        '      params: { id: string };',
+        '    } & {',
+        `      actions: { [K in keyof ${prod}]: {`,
+      ].join('\n'),
+    );
+    expect(actionMap).toContain(['      params: { id: string };', '    };', '  }'].join('\n'));
+  });
+
   it('generates WebSocketRouteMap entries', () => {
     const scan = makeScan({
       websockets: [
