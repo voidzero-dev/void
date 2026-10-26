@@ -126,12 +126,12 @@ pages/
 
 `.dev` pages run only on the dev server; `.prod` pages run in builds, deployments, and production previews.
 
-- A `.dev` page and a `.prod` page can share a URL. A plain page and a suffixed page for the same URL, such as `home.tsx` and `home.dev.tsx`, is an error.
+- A `.dev` page and a `.prod` page can share a URL. A plain page and a suffixed page for the same URL is an error wherever both run: `home.tsx` with `home.dev.tsx` fails on the dev server, and `home.tsx` with `home.prod.tsx` fails the build.
 - The suffix goes **before** `.island`: `chart.dev.island.tsx` is a development-only island page. `chart.island.dev.tsx` is not an island page.
 - A companion repeats the suffix: `home.dev.server.ts` belongs to `home.dev.tsx`.
 - Suffixes apply to page files only. Layouts take no suffix.
 - A resource used only by `.dev` pages and their companions is not provisioned for production.
-- `void prepare` generates types for both environments.
+- The dev server and builds generate types for their own environment. `void prepare` generates types for both.
 
 ## How Navigation Works
 
