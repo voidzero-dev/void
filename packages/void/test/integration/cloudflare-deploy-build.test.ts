@@ -1,4 +1,4 @@
-import { readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, normalize } from 'node:path';
 import { parseRootWranglerConfig } from '@void/deploy-cloudflare';
 import spawn from 'cross-spawn';
@@ -24,7 +24,10 @@ import {
   sandboxContainerConfig,
   SANDBOX_MIGRATION_TAG,
 } from '../../src/sandbox/config.ts';
-import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../../src/shared/env.ts';
+import {
+  CLOUDFLARE_DEPLOY_BUILD_ENV,
+  CLOUDFLARE_QUEUE_NAMES_BUILD_ENV,
+} from '../../src/shared/env.ts';
 
 // A real build of kitchen-sink must pass the deploy guard unmodified. Unit tests use hand-written
 // configs, so only this catches a plugin upgrade that emits a field the guard rejects.
@@ -109,7 +112,12 @@ describe('playground/kitchen-sink --platform cloudflare real-build deploy guard'
       cwd: pg,
       encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024,
-      env: { ...process.env, [CLOUDFLARE_DEPLOY_BUILD_ENV]: '1' },
+      env: {
+        ...process.env,
+        [CLOUDFLARE_DEPLOY_BUILD_ENV]: '1',
+        // Preflight passes the names it chose; a new account gets the Worker-scoped ones.
+        [CLOUDFLARE_QUEUE_NAMES_BUILD_ENV]: JSON.stringify(desired.queueNames),
+      },
     });
     expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
 
@@ -158,8 +166,23 @@ describe('playground/kitchen-sink --platform cloudflare real-build deploy guard'
       producers: Array<{ queue: string }>;
       consumers: Array<{ queue: string }>;
     };
-    expect(queues.producers).toContainEqual(expect.objectContaining({ queue: 'demo-queue' }));
-    expect(queues.consumers).toContainEqual(expect.objectContaining({ queue: 'demo-queue' }));
+    expect(queues.producers).toContainEqual({
+      binding: 'QUEUE_DEMO_QUEUE',
+      queue: `${WORKER_NAME}-demo-queue`,
+    });
+    expect(queues.consumers).toContainEqual(
+      expect.objectContaining({ queue: `${WORKER_NAME}-demo-queue` }),
+    );
+  });
+
+  it('routes the Worker-scoped queue name to its handler by exact match', () => {
+    const worker = readdirSync(join(pg, 'dist', 'ssr'), { recursive: true, encoding: 'utf8' })
+      .filter((file) => file.endsWith('.js'))
+      .map((file) => readFileSync(join(pg, 'dist', 'ssr', file), 'utf8'))
+      .join('\n');
+    expect(worker).toContain('__queueIndexByName');
+    expect(worker).toContain(`"${WORKER_NAME}-demo-queue": 0`);
+    expect(worker).not.toContain('queueName.endsWith("-" + name)');
   });
 
   it('the real emitted config passes verifyGeneratedDeployConfig unmodified', () => {

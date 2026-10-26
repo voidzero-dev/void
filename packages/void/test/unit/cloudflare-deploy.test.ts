@@ -486,6 +486,10 @@ function harness(overrides: Partial<CloudflareDeployDeps> = {}): {
     if (args[0] === 'd1' && args[1] === 'migrations' && args[2] === 'list') {
       return { ...cleanExit, stdout: '✅ No migrations to apply!\n' };
     }
+    // Every queue exists and has no consumer yet.
+    if (args[0] === 'queues' && args[1] === 'info') {
+      return { ...cleanExit, stdout: `Queue Name: ${args[2]}\n` };
+    }
     return cleanExit;
   });
   const deps: CloudflareDeployDeps = {
@@ -1694,7 +1698,8 @@ describe('computeDesiredCloudflareResources — desired set from source', () => 
     });
     expect(desired.kvNamespaces).toEqual([{ binding: 'KV', title: 'myapp-kv' }]);
     expect(desired.r2).toEqual({ binding: 'STORAGE', bucketName: 'myapp-storage' });
-    expect(desired.queues).toEqual(['jobs']);
+    expect(desired.queues).toEqual(['myapp-jobs']);
+    expect(desired.queueNames).toEqual({ jobs: 'myapp-jobs' });
     expect(desired.hyperdrive).toBeUndefined();
   });
 
@@ -3851,122 +3856,249 @@ describe('runCloudflareDeploy — full Void app queues', () => {
   });
 });
 
-describe('runCloudflareDeploy — pre-build queue existence probe', () => {
-  /** A worker-bearing app desiring exactly one queue (`jobs`), fully config-provisioned. */
-  function queueProject(): string {
+describe('runCloudflareDeploy — Cloudflare queue names', () => {
+  /** A worker-bearing app with one queue (`jobs`), deployed as Worker `name`. */
+  function queueProject(name = 'qapp', files: Record<string, string> = {}): string {
     return makeProject({
       'package.json': JSON.stringify({ name: 'qapp' }),
       'void.json': JSON.stringify({}),
       'routes/index.ts': `export const GET = () => new Response('ok');`,
       'queues/jobs.ts': `export default {};`,
-      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'qapp' }, null, 2),
+      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name }, null, 2),
+      ...files,
     });
   }
 
+  /** `queues info` output for a queue that exists, with its consumer Workers. */
+  const queueExists = (name: string, ...consumers: Array<string>): DeployWranglerRunResult => ({
+    ...cleanExit,
+    stdout: `Queue Name: ${name}\nConsumers: ${consumers.join(', ')}\n`,
+  });
+  const queueAbsent = (name: string): DeployWranglerRunResult => ({
+    ...cleanExit,
+    status: 1,
+    stderr: `✘ [ERROR] Queue "${name}" does not exist.\n`,
+  });
+
   /**
    * The default harness plus a scripted `queues info` reply, so a test drives the
-   * REAL classifier with the exact output wrangler would print. Every other wrangler
-   * call keeps the harness behaviour (and its arg/trace recording).
+   * REAL classifier with the exact output wrangler would print. The build records the
+   * queue names it was given.
    */
   function queueHarness(
     probe: (name: string) => DeployWranglerRunResult,
     overrides: Partial<CloudflareDeployDeps> = {},
-  ): ReturnType<typeof harness> {
+  ): ReturnType<typeof harness> & { builtQueueNames: Array<unknown> } {
+    const builtQueueNames: Array<unknown> = [];
     const h = harness(overrides);
     const base = h.deps.runWrangler as DeployWranglerRun;
     h.deps.runWrangler = operationFixture((args, opts) => {
       const passthrough = base(operationFixtureRequest(args), opts);
       return args[0] === 'queues' && args[1] === 'info' ? probe(args[2] as string) : passthrough;
     });
-    return h;
+    const build = h.deps.runBuild!;
+    h.deps.runBuild = (env) => {
+      const names = env.VOID_CLOUDFLARE_QUEUE_NAMES;
+      builtQueueNames.push(names === undefined ? undefined : JSON.parse(names));
+      return build(env);
+    };
+    return { ...h, builtQueueNames };
   }
 
-  it('probes each desired queue by name before the build', async () => {
+  /** Run the deploy capturing `log.error` and `log.info`, restoring the real logger after. */
+  async function runCapturing(
+    root: string,
+    deps: CloudflareDeployDeps,
+    options: { provision?: boolean; fails?: boolean } = {},
+  ): Promise<{ errors: Array<string>; infos: Array<string> }> {
+    const errors: Array<string> = [];
+    const infos: Array<string> = [];
+    const restore = { error: log.error, info: log.info };
+    log.error = (message: string) => errors.push(message);
+    log.info = (message: string) => infos.push(message);
+    try {
+      const run = runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', ...(options.provision ? { provision: true } : {}) },
+        silentCliLog,
+        deps,
+      );
+      if (options.fails) {
+        await expect(run).rejects.toBeInstanceOf(ExitError);
+      } else {
+        await run;
+      }
+    } finally {
+      log.error = restore.error;
+      log.info = restore.info;
+    }
+    return { errors, infos };
+  }
+
+  const queueInfoArgs = (wranglerArgs: Array<Array<string>>) =>
+    wranglerArgs.filter((a) => a[0] === 'queues' && a[1] === 'info').map((a) => a[2]);
+
+  it('names a new queue after the Worker and reads the account before the build', async () => {
     const root = queueProject();
-    const { deps, wranglerArgs, trace } = queueHarness((name) => ({
-      ...cleanExit,
-      stdout: `Queue Name: ${name}\n`,
-    }));
-    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
-    const probeArgs = wranglerArgs.find((a) => a[0] === 'queues');
-    expect(probeArgs).toEqual([
-      'queues',
-      'info',
-      'jobs',
-      '-c',
-      toSlash(join(root, 'wrangler.jsonc')),
-      '--env=',
-    ]);
-    // The probe runs before the build and everything after it.
+    const { deps, wranglerArgs, trace, builtQueueNames } = queueHarness(queueAbsent);
+    await runCapturing(root, deps);
+    // The scoped name, then the plain name an older deploy would have used.
+    expect(queueInfoArgs(wranglerArgs)).toEqual(['qapp-jobs', 'jobs']);
     expect(trace.indexOf('wrangler:queues')).toBeLessThan(trace.indexOf('build'));
-    expect(trace).toContain('wrangler:deploy');
-  });
-
-  it('automatically provisions a queue when the probe confirms it does not exist', async () => {
-    const root = queueProject();
-    const { deps, trace, exitCalls } = queueHarness((name) => ({
-      ...cleanExit,
-      status: 1,
-      stderr: `✘ [ERROR] Queue "${name}" does not exist.\n`,
-    }));
-    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
-    expect(exitCalls).toEqual([]);
-    expect(trace).toContain('wrangler:queues');
+    // A confirmed not-found provisions the scoped queue.
     expect(trace).toContain('provision');
-    expect(trace).toContain('build');
+    expect(builtQueueNames).toEqual([{ jobs: 'qapp-jobs' }]);
     expect(trace).toContain('wrangler:deploy');
   });
 
-  it('proceeds when the probe fails for a reason other than the queue being absent', async () => {
+  it('keeps using a scoped queue this Worker already consumes', async () => {
     const root = queueProject();
-    // An auth failure is NOT absence — blocking here would be a false positive, and
-    // `wrangler deploy` still rejects a genuinely missing queue before uploading.
-    const { deps, trace } = queueHarness(() => ({
+    const { deps, wranglerArgs, trace, builtQueueNames } = queueHarness((name) =>
+      name === 'qapp-jobs' ? queueExists(name, 'qapp') : queueExists(name, 'qapp'),
+    );
+    await runCapturing(root, deps);
+    // The plain queue is not read once the Worker is known to consume the scoped one.
+    expect(queueInfoArgs(wranglerArgs)).toEqual(['qapp-jobs']);
+    expect(trace).not.toContain('provision');
+    expect(builtQueueNames).toEqual([{ jobs: 'qapp-jobs' }]);
+  });
+
+  it('keeps the plain queue a Worker deployed before queues were named after it', async () => {
+    const root = queueProject();
+    const { deps, trace, builtQueueNames } = queueHarness((name) =>
+      name === 'jobs' ? queueExists(name, 'qapp') : queueAbsent(name),
+    );
+    const { infos } = await runCapturing(root, deps);
+    expect(trace).not.toContain('provision');
+    expect(builtQueueNames).toEqual([{ jobs: 'jobs' }]);
+    expect(infos.join('\n')).toContain(
+      'Queue jobs keeps its Cloudflare name jobs, because this Worker already consumes it.',
+    );
+  });
+
+  it('gives staging and production separate queues in one account (#547)', async () => {
+    // Production deployed before queues were named after the Worker and consumes `jobs`.
+    const account = (name: string) =>
+      name === 'jobs' ? queueExists(name, 'app-production') : queueAbsent(name);
+
+    const staging = queueHarness(account);
+    await runCapturing(queueProject('app-staging'), staging.deps);
+    expect(staging.builtQueueNames).toEqual([{ jobs: 'app-staging-jobs' }]);
+    expect(staging.trace).toContain('provision');
+
+    const production = queueHarness(account);
+    await runCapturing(queueProject('app-production'), production.deps);
+    expect(production.builtQueueNames).toEqual([{ jobs: 'jobs' }]);
+    expect(production.trace).not.toContain('provision');
+  });
+
+  it('gives staging and production separate queues in a new account', async () => {
+    const staging = queueHarness(queueAbsent);
+    await runCapturing(queueProject('app-staging'), staging.deps);
+    const production = queueHarness(queueAbsent);
+    await runCapturing(queueProject('app-production'), production.deps);
+    expect([...staging.builtQueueNames, ...production.builtQueueNames]).toEqual([
+      { jobs: 'app-staging-jobs' },
+      { jobs: 'app-production-jobs' },
+    ]);
+  });
+
+  it('refuses a queue that another Worker consumes, before the build', async () => {
+    // Worker `app` with queues/staging-jobs.ts and Worker `app-staging` with queues/jobs.ts
+    // both name a queue `app-staging-jobs`.
+    const root = queueProject('app-staging');
+    const { deps, trace, exitCalls } = queueHarness((name) =>
+      name === 'app-staging-jobs' ? queueExists(name, 'app') : queueAbsent(name),
+    );
+    const { errors } = await runCapturing(root, deps, { fails: true });
+    expect(exitCalls).toEqual([1]);
+    expect(errors.join('\n')).toContain('app-staging-jobs is consumed by Worker app');
+    expect(trace).not.toContain('provision');
+    expect(trace).not.toContain('build');
+  });
+
+  it('refuses a queue that has a non-Worker consumer', async () => {
+    const root = queueProject();
+    const { deps, trace } = queueHarness((name) =>
+      name === 'qapp-jobs' ? queueExists(name, '-') : queueAbsent(name),
+    );
+    const { errors } = await runCapturing(root, deps, { fails: true });
+    expect(errors.join('\n')).toContain('qapp-jobs is consumed by a non-Worker (HTTP pull)');
+    expect(trace).not.toContain('build');
+  });
+
+  it('refuses a Cloudflare queue name longer than 63 characters without shortening it', async () => {
+    const worker = 'w'.repeat(59);
+    const root = queueProject(worker);
+    const { deps, wranglerArgs, trace } = queueHarness(queueAbsent);
+    const { errors } = await runCapturing(root, deps, { fails: true });
+    expect(errors.join('\n')).toContain(`  • ${worker}-jobs (64 characters)`);
+    // The scoped name is never read; the plain name is, in case an older deploy used it.
+    expect(queueInfoArgs(wranglerArgs)).toEqual(['jobs']);
+    expect(trace).not.toContain('provision');
+    expect(trace).not.toContain('build');
+  });
+
+  it('stops before the build when a queue cannot be read', async () => {
+    const root = queueProject();
+    // An auth failure is not absence. Without the consumer list the name cannot be chosen.
+    const { deps, trace, exitCalls } = queueHarness(() => ({
       ...cleanExit,
       status: 1,
       stderr: '✘ [ERROR] A request to the Cloudflare API failed [code: 10000]\n',
     }));
-    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
-    expect(trace).toContain('build');
-    expect(trace).toContain('wrangler:deploy');
+    const { errors } = await runCapturing(root, deps, { fails: true });
+    expect(exitCalls).toEqual([1]);
+    expect(errors.join('\n')).toContain('could not read Cloudflare queue qapp-jobs');
+    expect(trace).not.toContain('provision');
+    expect(trace).not.toContain('build');
   });
 
-  it('proceeds when a killed probe merely buffered a not-found line', async () => {
+  it('stops when a killed probe merely buffered a not-found line', async () => {
     const root = queueProject();
     // A signal-killed child never ran to completion, so its buffered text is not proof.
     const { deps, trace } = queueHarness((name) => ({
-      ...cleanExit,
-      status: 1,
+      ...queueAbsent(name),
       signal: 'SIGKILL',
-      stderr: `✘ [ERROR] Queue "${name}" does not exist.\n`,
     }));
-    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
-    expect(trace).toContain('build');
-    expect(trace).toContain('wrangler:deploy');
+    await runCapturing(root, deps, { fails: true });
+    expect(trace).not.toContain('provision');
+    expect(trace).not.toContain('build');
   });
 
-  it('never probes when the app desires no queues', async () => {
+  it('never reads queues when the app desires none', async () => {
     const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
     const { deps, wranglerArgs } = harness();
+    let builtQueueNames: string | undefined = 'UNSET';
+    deps.runBuild = (env) => {
+      builtQueueNames = env.VOID_CLOUDFLARE_QUEUE_NAMES;
+    };
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
     expect(wranglerArgs.some((a) => a[0] === 'queues')).toBe(false);
+    expect(builtQueueNames).toBeUndefined();
   });
 
-  it('never probes under --provision (the provisioner creates the queue itself)', async () => {
+  it('drops an ambient queue name map from the build', async () => {
+    vi.stubEnv('VOID_CLOUDFLARE_QUEUE_NAMES', '{"jobs":"elsewhere"}');
+    const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+    const { deps } = harness();
+    let builtQueueNames: string | undefined = 'UNSET';
+    deps.runBuild = (env) => {
+      builtQueueNames = env.VOID_CLOUDFLARE_QUEUE_NAMES;
+    };
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(builtQueueNames).toBeUndefined();
+  });
+
+  it('reads queues under --provision too, so it creates the chosen name', async () => {
     const root = queueProject();
-    const { deps, wranglerArgs, trace } = queueHarness(() => ({
-      ...cleanExit,
-      status: 1,
-      stderr: '✘ [ERROR] Queue "jobs" does not exist.\n',
-    }));
-    await runCloudflareDeploy(
-      root,
-      { platform: 'cloudflare', provision: true },
-      silentCliLog,
-      deps,
+    const { deps, wranglerArgs, trace, builtQueueNames } = queueHarness((name) =>
+      name === 'jobs' ? queueExists(name, 'qapp') : queueAbsent(name),
     );
+    await runCapturing(root, deps, { provision: true });
+    expect(queueInfoArgs(wranglerArgs)).toEqual(['qapp-jobs', 'jobs']);
     expect(trace).toContain('provision');
-    expect(wranglerArgs.some((a) => a[0] === 'queues')).toBe(false);
+    expect(builtQueueNames).toEqual([{ jobs: 'jobs' }]);
     expect(trace).toContain('wrangler:deploy');
   });
 });
@@ -4068,7 +4200,7 @@ describe('runCloudflareDeploy — pre-build queue name validation', () => {
     expect(wranglerArgs.find((a) => a[0] === 'queues')).toEqual([
       'queues',
       'info',
-      'jobs',
+      'qapp-jobs',
       '-c',
       toSlash(join(root, 'wrangler.jsonc')),
       '--env=',
@@ -4085,7 +4217,7 @@ describe('runCloudflareDeploy — pre-build queue name validation', () => {
     expect(wranglerArgs.find((args) => args[0] === 'queues')).toEqual([
       'queues',
       'info',
-      'order-notifications',
+      'qapp-order-notifications',
       '-c',
       toSlash(join(root, 'wrangler.jsonc')),
       '--env=',
@@ -6051,7 +6183,8 @@ describe('runCloudflareDeploy — id-bearing binding identity pin', () => {
 
   it('passes a normal deploy whose artifact carries supported non-id bindings', async () => {
     // The pinned DB id is unchanged and the artifact carries the non-id bindings this source emits.
-    // `queues/jobs.ts` makes `jobs` a derived queue, and `routes/ai.ts` authorizes the AI binding.
+    // `queues/jobs.ts` makes `myapp-jobs` a derived queue, and `routes/ai.ts` authorizes the AI
+    // binding.
     const root = d1Project(PROVISIONED_D1, {
       ...INIT_MIGRATION,
       'queues/jobs.ts': 'export default {};',
@@ -6063,6 +6196,10 @@ describe('runCloudflareDeploy — id-bearing binding identity pin', () => {
         // No sandbox, Durable Objects or crons in this source, so drop those fixture fields.
         writeEmittedDeployArtifact(root, {
           ...KITCHEN_SINK_NON_ID_BINDINGS,
+          queues: {
+            producers: [{ binding: 'QUEUE_JOBS', queue: 'myapp-jobs' }],
+            consumers: [{ queue: 'myapp-jobs', max_batch_size: 10 }],
+          },
           durable_objects: undefined,
           migrations: undefined,
           containers: undefined,
@@ -6559,10 +6696,10 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
 
     expect(parseRootWranglerConfig(join(root, 'wrangler.jsonc'))).toMatchObject({
       queues: {
-        producers: [{ binding: 'QUEUE_EMAIL', queue: 'email' }],
+        producers: [{ binding: 'QUEUE_EMAIL', queue: 'skapp-email' }],
         consumers: [
           {
-            queue: 'email',
+            queue: 'skapp-email',
             max_batch_size: 25,
             max_batch_timeout: 10,
             max_retries: 4,
@@ -6571,6 +6708,26 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
         ],
       },
     });
+  });
+
+  it('gives the framework wrapper the queue names it binds', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({
+        name: 'skapp',
+        dependencies: { '@sveltejs/kit': '2.0.0' },
+      }),
+      'void.json': JSON.stringify({}),
+      'queues/email.ts': 'export default async function email() {}',
+      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'skapp' }, null, 2),
+    });
+    const wrapperQueueNames: Array<unknown> = [];
+    const { deps } = harness({
+      prepareFrameworkArtifact: async (options) => {
+        wrapperQueueNames.push(options.cloudflareQueueNames);
+      },
+    });
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(wrapperQueueNames).toEqual([{ email: 'skapp-email' }]);
   });
 
   it('carries removed framework consumers through activation and acknowledges cleanup', async () => {
@@ -6610,11 +6767,11 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
     ).rejects.toBeInstanceOf(ExitError);
     expect(readWranglerManagedQueueCleanupCandidates(join(root, 'wrangler.jsonc'))).toEqual([
-      'email',
+      'skapp-email',
     ]);
     await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
 
-    expect(cleanupSnapshots).toEqual([['email'], ['email'], ['email']]);
+    expect(cleanupSnapshots).toEqual([['skapp-email'], ['skapp-email'], ['skapp-email']]);
     expect(readWranglerManagedQueueCleanupCandidates(join(root, 'wrangler.jsonc'))).toEqual([]);
   });
 

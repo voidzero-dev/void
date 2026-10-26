@@ -14,6 +14,7 @@ import { analyzeApplicationSync, type ApplicationAnalysis } from '../application
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
 import { resolveBindingNames, type VoidConfig } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
+import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
 import { assertSandboxNamespaceConfig, resolveSandboxConfig } from '../sandbox/config.ts';
 import { classifyCloudflareDeployApp } from './cloudflare-deploy/classify.ts';
 import { approvedCloudflareIsrBinding, chooseCloudflareIsr } from './cloudflare-isr.ts';
@@ -37,6 +38,7 @@ import {
   connectCloudflareDeployAccount,
   discoverRootWranglerConfig,
 } from './deploy-cloudflare-helpers.ts';
+import { chooseCloudflareQueueNames } from './deploy-cloudflare-queues.ts';
 import { log } from './deploy-helpers.ts';
 import {
   resolveWranglerMigrationPattern,
@@ -61,9 +63,7 @@ import { selfHostSchemaFailureMessage, type SelfHostSchemaFacts } from './env-va
 import { type CliLogger } from './log-file.ts';
 import { getErrorMessage } from './output.ts';
 import {
-  assertValidResourceName,
   checkCloudflareProvisionDrift,
-  isQueueConfirmedAbsent,
   provisionCloudflareResources,
   type ProvisionDriftEntry,
 } from './provision.ts';
@@ -580,51 +580,38 @@ export async function preflightCloudflareWorker(input: {
     }
   };
 
+  // Queues have no id in the config, so the drift check cannot see a missing one. Naming reads
+  // each queue by name; only a confirmed not-found triggers provisioning.
+  let queueNames: Awaited<ReturnType<typeof chooseCloudflareQueueNames>>;
+  try {
+    queueNames = await chooseCloudflareQueueNames({
+      desired,
+      workerName,
+      configPath,
+      runWrangler,
+      info: (message) => log.info(message),
+    });
+  } catch (error) {
+    log.error(getErrorMessage(error));
+    return exit(1);
+  }
+  if (!queueNames.ok) {
+    log.error(queueNames.message);
+    return exit(1);
+  }
+  const absentQueues = queueNames.absent;
+
   const { missing: initiallyMissing } = checkCloudflareProvisionDrift(configPath, desired);
   // A handoff applies no migrations, so preserve the existing local migration settings.
   // Reconciling migrations_dir must not send an already-bound database to the provisioner.
   const d1NeedsConfigReconciliation = !existingWorker && d1MigrationsDirMissing();
-  if (options.provision || initiallyMissing.length > 0 || d1NeedsConfigReconciliation) {
+  if (
+    options.provision ||
+    initiallyMissing.length > 0 ||
+    d1NeedsConfigReconciliation ||
+    absentQueues.length > 0
+  ) {
     await provisionAndVerify();
-  } else {
-    // Queue names come from unsanitized file paths. Report every invalid one before probing.
-    const invalidQueues = desired.queues.filter((name) => {
-      try {
-        assertValidResourceName('queue', name);
-        return false;
-      } catch {
-        return true;
-      }
-    });
-    if (invalidQueues.length > 0) {
-      log.error(
-        [
-          'Deploy blocked — these queue names are not valid Cloudflare queue names:',
-          ...invalidQueues.map((name) => `  • ${name} (queue)`),
-          '',
-          'A queue takes its name from its path in queues/; nested segments are joined with "-".',
-          'A queue name must be 1–63 characters, contain only letters, digits and "-", and',
-          'begin and end with a letter or digit.',
-          '',
-          'Rename the offending file(s) in queues/ and retry.',
-        ].join('\n'),
-      );
-      return exit(1);
-    }
-    // Queues have no id in the config, so the drift check cannot see a missing one. Probe each
-    // by name; only a confirmed not-found triggers provisioning, never an inconclusive probe.
-    const absentQueues: Array<string> = [];
-    for (const name of desired.queues) {
-      const info = await Promise.resolve(
-        runWrangler({ type: 'queues.info', name, configPath }, { capture: true }),
-      );
-      if (isQueueConfirmedAbsent(info)) {
-        absentQueues.push(name);
-      }
-    }
-    if (absentQueues.length > 0) {
-      await provisionAndVerify();
-    }
   }
 
   // Persist the Worker name and account before the build. The CF Vite plugin copies
@@ -640,11 +627,11 @@ export async function preflightCloudflareWorker(input: {
         ? {
             queues: {
               producers: frameworkQueues.map((queue) => ({
-                queue: queue.name,
+                queue: cloudflareQueueName(queue.name, desired.queueNames),
                 binding: queue.bindingName,
               })),
               consumers: frameworkQueues.map((queue) => ({
-                queue: queue.name,
+                queue: cloudflareQueueName(queue.name, desired.queueNames),
                 ...(queue.maxBatchSize != null && { max_batch_size: queue.maxBatchSize }),
                 ...(queue.maxBatchTimeout != null && {
                   max_batch_timeout: queue.maxBatchTimeout,

@@ -557,6 +557,64 @@ it('finds existing Queues beyond the first cf API page', async () => {
 
 it.each([
   {
+    label: 'Worker and HTTP pull consumers',
+    queue: {
+      consumers: [
+        { type: 'worker', script_name: 'app-production', consumer_id: 'one' },
+        { type: 'http_pull', consumer_id: 'two' },
+      ],
+      consumers_total_count: 2,
+    },
+    consumers: ['app-production', null],
+  },
+  { label: 'no consumer', queue: { consumers: [], consumers_total_count: 0 }, consumers: [] },
+  {
+    label: 'an incomplete consumer list',
+    queue: { consumers: [], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+  { label: 'no consumer list', queue: {}, consumers: undefined },
+  {
+    label: 'a Worker consumer without a name',
+    queue: { consumers: [{ type: 'worker', script_name: '' }], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+])(
+  'reports a queue with $label',
+  async ({ queue, consumers }) => {
+    const directory = temporaryDirectory('void-cf-queue-consumers-');
+    const api = await listen(
+      createServer((_request, response) => {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(
+          JSON.stringify({
+            success: true,
+            result: [{ queue_id: 'queue-id', queue_name: 'jobs', ...queue }],
+            result_info: { page: 1, per_page: 1, total_pages: 1, total_count: 1 },
+          }),
+        );
+      }),
+    );
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ account_id: 'test-account' }));
+    const output = await runOperation(
+      directory,
+      { type: 'queues.info', name: 'jobs', configPath },
+      tokenEnv(api, 'CF_API_TOKEN'),
+    );
+    expect(output.status, output.stderr).toBe(0);
+    // Without a complete list the field is left out; only queue naming needs it.
+    expect(JSON.parse(output.stdout).data).toEqual({
+      id: 'queue-id',
+      name: 'jobs',
+      ...(consumers ? { consumers } : {}),
+    });
+  },
+  30_000,
+);
+
+it.each([
+  {
     label: 'Cloudflare script_name',
     consumers: [{ script_name: 'test-worker', consumer_id: 'owned-consumer', type: 'worker' }],
     deleted: ['owned-consumer'],

@@ -10,7 +10,7 @@ import { type VoidConfig } from '../config.ts';
 import { collectMigrations } from '../migrations/collect.ts';
 import { SqliteMigrationError } from '../migrations/sqlite-validation.ts';
 import { detectFramework } from '../plugin-inference.ts';
-import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../shared/env.ts';
+import { CLOUDFLARE_DEPLOY_BUILD_ENV, CLOUDFLARE_QUEUE_NAMES_BUILD_ENV } from '../shared/env.ts';
 import { CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV } from '../shared/version-metadata.ts';
 import { prepareCfBuildOutput, prepareCfFrameworkBuildOutput } from './cf-build-output.ts';
 import {
@@ -81,6 +81,10 @@ export async function buildCloudflareWorker(input: {
   // but local files cannot be serialized into the artifact this command uploads.
   deleteEnvVarCaseAware(buildChildEnv, CLOUDFLARE_DEPLOY_BUILD_ENV);
   buildChildEnv[CLOUDFLARE_DEPLOY_BUILD_ENV] = '1';
+  deleteEnvVarCaseAware(buildChildEnv, CLOUDFLARE_QUEUE_NAMES_BUILD_ENV);
+  if (desired.queueNames) {
+    buildChildEnv[CLOUDFLARE_QUEUE_NAMES_BUILD_ENV] = JSON.stringify(desired.queueNames);
+  }
   deleteEnvVarCaseAware(buildChildEnv, CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV);
   if (existingWorker) {
     buildChildEnv[CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV] = '1';
@@ -119,6 +123,7 @@ export async function buildCloudflareWorker(input: {
         requiredSecretNames: schemaFacts.requiredKeys,
         ai: needsAI ? { binding: aiBindingName } : undefined,
         preserveBindings: existingWorker !== null,
+        cloudflareQueueNames: desired.queueNames,
       });
     } catch (error) {
       log.error(

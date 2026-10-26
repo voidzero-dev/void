@@ -10,6 +10,7 @@ import { analyzeApplication, completeApplicationAnalysis } from '../application-
 import { MATERIALIZED_CLOUDFLARE_FILE } from '../cloudflare-config.ts';
 import { type DatabaseDialect, type VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
+import { scopedCloudflareQueueName } from '../queues/cloudflare-names.ts';
 import { hasEmailHandlers, type EmailHandlersScan } from '../router/email.ts';
 import { DEFAULT_VOID_AI_BINDING } from './deploy-binding-snapshot.ts';
 import { type CloudflareAuthSecretFailureReason } from './deploy-types.ts';
@@ -270,8 +271,14 @@ export async function computeDesiredCloudflareResources(
     reasons.set(binding, analysis.reasons.r2[0]!);
   }
 
-  // Queues (resource names — account-unique; the build binds them for native apps).
-  desired.queues = analysis.queues.map((q) => q.name);
+  // Queue names are account-unique, so each is named after the Worker. Preflight keeps a
+  // queue this Worker already consumes under its old name.
+  if (analysis.queues.length > 0) {
+    desired.queueNames = Object.fromEntries(
+      analysis.queues.map((q) => [q.name, scopedCloudflareQueueName(workerName, q.name)]),
+    );
+    desired.queues = Object.values(desired.queueNames);
+  }
 
   // The connection string is used only on create; later runs read the stored id.
   if (needsDatabase && dialect !== 'sqlite') {

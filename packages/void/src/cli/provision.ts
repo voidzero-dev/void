@@ -22,6 +22,7 @@ import { parse, type ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import lockfile from 'proper-lockfile';
 import { voidLog, voidWarn } from '../log.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { scanWranglerDotenvKeys } from '../shared/dotenv.ts';
 import {
   encodeCloudflareOperation,
@@ -46,6 +47,8 @@ export interface DesiredResourceSet {
   r2?: { binding: string; bucketName: string };
   /** Queue resource NAMES to ensure exist (account-unique). */
   queues: Array<string>;
+  /** Each `queues/` name to its entry in `queues`; set by `void deploy`. */
+  queueNames?: CloudflareQueueNames;
   /** Hyperdrive config — a connection string is required only to CREATE one. */
   hyperdrive?: { binding: string; name: string; connectionString: string };
 }

@@ -3,8 +3,33 @@
  * wrappers. Hosted relays send the exact logical name. Native Queue events may
  * expose a project-prefixed physical name, so fallback matching selects the
  * unique longest known `-name` suffix. Unknown or ambiguous inputs fail closed.
+ *
+ * `cloudflareNames` (aligned with `queueNames`) comes from
+ * `void deploy --platform cloudflare`, which knows each queue's exact name.
+ * Its events then match exactly: a suffix could pick the wrong queue, as
+ * `app-jobs` would for queues `jobs` and `app-jobs` in Worker `app`. Logical
+ * names still match, for the trigger endpoint.
  */
-export function generateQueueResolverSource(queueNames: ReadonlyArray<string>): string {
+export function generateQueueResolverSource(
+  queueNames: ReadonlyArray<string>,
+  cloudflareNames?: ReadonlyArray<string>,
+): string {
+  if (cloudflareNames) {
+    const indexByName: Record<string, number> = {};
+    cloudflareNames.forEach((name, index) => {
+      indexByName[name] = index;
+    });
+    queueNames.forEach((name, index) => {
+      if (!Object.hasOwn(indexByName, name)) {
+        indexByName[name] = index;
+      }
+    });
+    return `const __queueIndexByName = ${JSON.stringify(indexByName)};
+function __resolveQueueIndex(queueName) {
+  if (typeof queueName !== "string" || !Object.hasOwn(__queueIndexByName, queueName)) return -1;
+  return __queueIndexByName[queueName];
+}`;
+  }
   return `const __queueNames = ${JSON.stringify(queueNames)};
 function __resolveQueueIndex(queueName) {
   if (typeof queueName !== "string") return -1;

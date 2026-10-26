@@ -10,7 +10,7 @@ Use queues to process work asynchronously, such as sending emails or handling up
 
 Create a consumer in `queues/`. TypeScript and JavaScript files are supported (`.ts`, `.mts`, `.js`, `.mjs`). Its path determines the queue name: `queues/emails.ts` creates `emails`, and `queues/order/notifications.ts` creates `order-notifications`. Each queue must have a unique name.
 
-The resulting name must follow Cloudflare's queue naming rules: 1–63 characters, only letters, digits, and `-`, beginning and ending with a letter or digit.
+The resulting name must follow Cloudflare's queue naming rules: 1–63 characters, only letters, digits, and `-`, beginning and ending with a letter or digit. On `void deploy --platform cloudflare`, the Cloudflare queue also carries the Worker name, so the limit applies to that full name; see [Cloudflare queue names](#cloudflare-queue-names).
 
 Export a default handler wrapped with [`defineQueue<T>`](../reference/api/handlers.md#definequeue-t-handler). `T` defines the message body for both the consumer and calls to `send()`:
 
@@ -115,6 +115,16 @@ deletes messages that exhaust their retries without one; see
 [Cloudflare's dead-letter queue guide](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/).
 
 Void provisions queues and connects their producers and consumers when you deploy.
+
+### Cloudflare queue names
+
+Queue names are unique per Cloudflare account. So `void deploy --platform cloudflare` names each queue after the Worker: in a Worker named `app-staging`, `queues/jobs.ts` uses the Cloudflare queue `app-staging-jobs`. Two Workers in one account, such as `app-staging` and `app-production`, get separate queues. Your code keeps using the name from `queues/` (`queues.jobs.send()`), and `vp dev` uses that name too.
+
+If the full name is longer than 63 characters, the deploy stops before creating anything. Shorten the Worker name or the queue's file name.
+
+A queue that the Worker already consumes keeps its name, so an app deployed before Worker-named queues keeps its queue (for example `jobs`) and the messages in it. The deploy prints a note when it keeps a name. To move to the Worker-named queue, wait until the queue is empty, remove the Worker's consumer from it in the Cloudflare dashboard, and deploy again. You can then delete the old queue.
+
+If another Worker already consumes the Cloudflare queue a deploy would use, the deploy stops: a Cloudflare queue has one consumer.
 
 ## Local development
 

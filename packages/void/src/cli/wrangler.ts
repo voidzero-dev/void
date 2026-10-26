@@ -1371,9 +1371,13 @@ export function writeProvisionedWranglerConfig(
               `this config. Remove the duplicate producers and retry.`,
           );
         }
+        // A producer Void wrote earlier may move to the queue's new name; the update below
+        // rewrites its `queue` in place.
+        const voidOwned =
+          reconcileManagedQueues && managedProducerBindings.has(String(entry.binding));
         if (matches.length === 1) {
           const existing = currentList[matches[0]];
-          if (existing.queue !== entry.queue) {
+          if (existing.queue !== entry.queue && !voidOwned) {
             throw new Error(
               `deploy: cannot update "${configPath}" — queue producer binding ` +
                 `${JSON.stringify(entry.binding)} is already bound to queue ` +

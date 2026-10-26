@@ -34,6 +34,7 @@ import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { readConfig, getDatabaseDialect } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
 import { readProjectPaths } from './project-paths.ts';
+import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
 import {
   compileRouteTable,
   compileBrowserClient,
@@ -621,6 +622,8 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
       // so it never compiles the route table as dev.
       compileOptions.dev = config.command === 'serve' && !previewing;
       compileOptions.assetsDir = config.build.assetsDir;
+      compileOptions.cloudflareQueueNames =
+        config.command === 'build' ? readDeployBuildQueueNames() : undefined;
       compileOptions.reactRefresh = config.plugins.some(
         (plugin) =>
           plugin.name === 'vite:react-babel' ||

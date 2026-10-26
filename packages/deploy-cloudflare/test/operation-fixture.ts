@@ -99,7 +99,20 @@ export function operationFixtureResult(result: CloudflareCommandResult): Cloudfl
     }
     const queueName = result.stdout.match(/^Queue Name:\s*(\S+)/m)?.[1];
     if (queueName) {
-      data = { name: queueName };
+      // `Consumers: a, b` lists the consumer Workers; `-` is a non-Worker consumer.
+      const consumers =
+        result.stdout
+          .split('\n')
+          .find((line) => line.startsWith('Consumers:'))
+          ?.slice('Consumers:'.length) ?? '';
+      data = {
+        name: queueName,
+        consumers: consumers
+          .split(',')
+          .map((name) => name.trim())
+          .filter(Boolean)
+          .map((name) => (name === '-' ? null : name)),
+      };
     }
     if (result.stdout.includes('No migrations to apply!')) {
       data = { pending: [] };

@@ -1077,6 +1077,54 @@ describe('writeProvisionedWranglerConfig', () => {
     ]);
   });
 
+  it('moves a framework queue Void wrote earlier to its new Cloudflare name', () => {
+    setup('wrangler.jsonc', '{}');
+    writeProvisionedWranglerConfig(tmpDir, {
+      queues: {
+        producers: [{ binding: 'QUEUE_JOBS', queue: 'jobs' }],
+        consumers: [{ queue: 'jobs' }],
+        reconcileVoidOwned: true,
+      },
+    });
+
+    writeProvisionedWranglerConfig(tmpDir, {
+      queues: {
+        producers: [{ binding: 'QUEUE_JOBS', queue: 'app-jobs' }],
+        consumers: [{ queue: 'app-jobs' }],
+        reconcileVoidOwned: true,
+      },
+    });
+
+    expect(parseRaw('wrangler.jsonc').queues).toEqual({
+      producers: [{ binding: 'QUEUE_JOBS', queue: 'app-jobs' }],
+      consumers: [{ queue: 'app-jobs' }],
+    });
+    // The old consumer is detached on the next activation.
+    expect(readWranglerManagedQueueCleanupCandidates(join(tmpDir, 'wrangler.jsonc'))).toEqual([
+      'app-jobs',
+      'jobs',
+    ]);
+  });
+
+  it('still refuses to move a producer binding the user wrote', () => {
+    setup(
+      'wrangler.jsonc',
+      JSON.stringify({ queues: { producers: [{ binding: 'QUEUE_JOBS', queue: 'jobs' }] } }),
+    );
+    expect(() =>
+      writeProvisionedWranglerConfig(tmpDir, {
+        queues: {
+          producers: [{ binding: 'QUEUE_JOBS', queue: 'app-jobs' }],
+          consumers: [{ queue: 'app-jobs' }],
+          reconcileVoidOwned: true,
+        },
+      }),
+    ).toThrow('is already bound to queue "jobs"');
+    expect(parseRaw('wrangler.jsonc').queues).toEqual({
+      producers: [{ binding: 'QUEUE_JOBS', queue: 'jobs' }],
+    });
+  });
+
   it('cancels a pending consumer removal when the queue is reintroduced before deploy', () => {
     setup('wrangler.jsonc', '{}');
     const queues = {

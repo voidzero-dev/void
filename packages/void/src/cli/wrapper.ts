@@ -17,6 +17,7 @@ import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { voidDbBundlerPlugin } from '../plugin-drizzle.ts';
 import { readProjectPaths } from '../project-paths.ts';
+import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { WORKER_CONDITIONS } from './worker-conditions.ts';
 import { transformWorkerRequireBundle } from './worker-require-transform.ts';
@@ -26,6 +27,8 @@ export type WrapperFeatures = {
   crons: Array<{ name: string; filePath: string; crons: Array<string> }>;
   /** Queue consumer definitions (from scanQueuesSync). */
   queues: Array<{ name: string; filePath: string; bindingName: string }>;
+  /** Cloudflare queue names chosen by `void deploy --platform cloudflare`. */
+  cloudflareQueueNames?: CloudflareQueueNames;
   /** Whether migrations are present (framework deploys need a /__void/migrate endpoint). */
   hasMigrations?: boolean;
   /** Expose the readiness endpoint used by direct version activation. */
@@ -838,7 +841,14 @@ function generateHandlersSource(
     }
 
     lines.push('');
-    lines.push(generateQueueResolverSource(features.queues.map((queue) => queue.name)));
+    const queueNames = features.queues.map((queue) => queue.name);
+    const cloudflareNames = features.cloudflareQueueNames;
+    lines.push(
+      generateQueueResolverSource(
+        queueNames,
+        cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
+      ),
+    );
     lines.push('');
     lines.push(
       scoped

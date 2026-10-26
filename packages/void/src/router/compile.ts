@@ -5,6 +5,7 @@ import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
+import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
 import { ASSET_EXTENSIONS } from '../runtime/routing-assets.ts';
@@ -96,6 +97,8 @@ export type CompileOptions = {
   hasLive?: boolean;
   /** Removed WebSocket classes retained to preserve Durable Object storage. */
   webSocketTombstones?: Array<string>;
+  /** Cloudflare queue names chosen by `void deploy --platform cloudflare`. */
+  cloudflareQueueNames?: CloudflareQueueNames;
 };
 
 export type SsrCompileOptions = {
@@ -507,7 +510,14 @@ export function compileRouteTable(
   }
 
   if (scan.queues.length > 0) {
-    lines.push(generateQueueResolverSource(scan.queues.map((queue) => queue.name)));
+    const queueNames = scan.queues.map((queue) => queue.name);
+    const cloudflareNames = options.cloudflareQueueNames;
+    lines.push(
+      generateQueueResolverSource(
+        queueNames,
+        cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
+      ),
+    );
     lines.push('');
     // Queue dispatch as a standalone function — called directly by native queue handler
     // and via the authenticated HTTP route. No global mutable state needed.

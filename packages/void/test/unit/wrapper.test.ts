@@ -536,6 +536,58 @@ describe('generated wrapper queue dispatch', () => {
     expect(env.calls).toEqual([]);
   });
 
+  it('matches the Cloudflare queue names a deploy chose exactly', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-queue-names-'));
+    const workerDir = join(root, 'server');
+    roots.push(root);
+    mkdirSync(workerDir, { recursive: true });
+    mkdirSync(join(root, 'queues'), { recursive: true });
+    writeFileSync(
+      join(workerDir, 'index.mjs'),
+      'export default { fetch() { return new Response("ok"); } };',
+    );
+    for (const name of ['jobs', 'staging-jobs']) {
+      writeFileSync(
+        join(root, `queues/${name}.ts`),
+        `export default async function(_batch, env) { env.calls.push("${name}"); }`,
+      );
+    }
+
+    // Worker `app-staging`: a suffix match would send `app-staging-jobs` to `staging-jobs`.
+    await generateWrapper(workerDir, 'index.mjs', root, {
+      ...base,
+      queues: [
+        { name: 'jobs', filePath: 'jobs.ts', bindingName: 'QUEUE_JOBS' },
+        { name: 'staging-jobs', filePath: 'staging-jobs.ts', bindingName: 'QUEUE_STAGING_JOBS' },
+      ],
+      cloudflareQueueNames: {
+        jobs: 'app-staging-jobs',
+        'staging-jobs': 'app-staging-staging-jobs',
+      },
+    });
+
+    const wrapper = (await import(
+      `${pathToFileURL(join(workerDir, 'index.mjs')).href}?test=${crypto.randomUUID()}`
+    )) as {
+      default: {
+        queue(
+          batch: MessageBatch,
+          env: { calls: Array<string> },
+          ctx: ExecutionContext,
+        ): Promise<void>;
+      };
+    };
+    for (const [queue, expected] of [
+      ['app-staging-jobs', 'jobs'],
+      ['app-staging-staging-jobs', 'staging-jobs'],
+    ]) {
+      const env = { calls: [] as Array<string> };
+      const batch = { queue, messages: [], ackAll: vi.fn(), retryAll: vi.fn() };
+      await wrapper.default.queue(batch as unknown as MessageBatch, env, {} as ExecutionContext);
+      expect(env.calls).toEqual([expected]);
+    }
+  });
+
   it('passes native queue messages, dates, and acknowledgment methods through unchanged', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-native-queue-'));
     roots.push(root);

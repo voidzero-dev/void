@@ -618,6 +618,33 @@ function listAllResourcePages(command: Array<string>, extraFlags: Array<string> 
   throw new Error(`Cloudflare ${command.join(' ')} exceeded the supported page limit.`);
 }
 
+/**
+ * Each consumer's Worker script name, or null for one that is not a Worker (HTTP pull).
+ * Undefined when the list is incomplete or unreadable; only queue naming needs it.
+ */
+function queueConsumerWorkers(queue: Json): Array<string | null> | undefined {
+  const consumers = queue.consumers;
+  if (
+    !Array.isArray(consumers) ||
+    (queue.consumers_total_count !== undefined && queue.consumers_total_count !== consumers.length)
+  ) {
+    return undefined;
+  }
+  const workers: Array<string | null> = [];
+  for (const entry of consumers) {
+    const consumer = object(entry);
+    const name = consumer.script_name ?? consumer.script;
+    if (consumer.type !== 'worker' && name === undefined) {
+      workers.push(null);
+    } else if (typeof name === 'string' && name) {
+      workers.push(name);
+    } else {
+      return undefined;
+    }
+  }
+  return workers;
+}
+
 async function readAllQueues(): Promise<Array<Json>> {
   // cf queues list has no page option, so read the API's paginated response directly.
   const queues: Array<Json> = [];
@@ -813,8 +840,13 @@ async function resources(): Promise<Result> {
       return runCf(['queues', 'create', '--queue-name', operation.name]);
     case 'queues.info': {
       const queue = (await readAllQueues()).find((item) => item.queue_name === operation.name);
+      const consumers = queue && queueConsumerWorkers(queue);
       return queue
-        ? result(0, '', '', { id: queue.queue_id, name: queue.queue_name })
+        ? result(0, '', '', {
+            id: queue.queue_id,
+            name: queue.queue_name,
+            ...(consumers ? { consumers } : {}),
+          })
         : { ...result(1, '', 'Cloudflare Queue does not exist.'), failure: 'not-found' };
     }
     default:

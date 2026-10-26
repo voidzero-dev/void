@@ -18,6 +18,7 @@ import { analyzeApplication } from '../application-routing.ts';
 import { type VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
 import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
+import { type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { hasEmailHandlers } from '../router/email.ts';
 import { selectNativeVersionMetadataBinding } from '../shared/version-metadata.ts';
 import { validateSsrEntry } from '../ssr/entry.ts';
@@ -79,6 +80,7 @@ export async function prepareCloudflareFrameworkArtifact(options: {
   requiredSecretNames?: ReadonlyArray<string>;
   ai?: { binding: string };
   preserveBindings?: boolean;
+  cloudflareQueueNames?: CloudflareQueueNames;
 }): Promise<void> {
   const { root, configPath, accountId, workerName, voidConfig, framework, preset, ai } = options;
   const { requiredSecretNames = [], preserveBindings = false } = options;
@@ -106,6 +108,7 @@ export async function prepareCloudflareFrameworkArtifact(options: {
   await generateDeployWrapperIfNeeded(root, join(root, preset.workerDir), preset.workerMain, {
     crons,
     queues,
+    cloudflareQueueNames: options.cloudflareQueueNames,
     // Direct deployment applies migrations before upload; it does not need the
     // hosted platform's internal migration endpoint in its framework wrapper.
     hasMigrations: false,
