@@ -2,7 +2,7 @@ import { execSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
-import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
+import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -594,6 +594,58 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.context().close();
     }
   });
+  // The next pushState or replaceState call throws, like a browser that rate-limits history.
+  async function failNextHistoryWrite(page: Page, method: 'pushState' | 'replaceState') {
+    await page.evaluate((name) => {
+      const original = History.prototype[name];
+      History.prototype[name] = function () {
+        History.prototype[name] = original;
+        throw new DOMException('History blocked by test', 'SecurityError');
+      };
+    }, method);
+  }
+
+  async function waitForIdle(page: Page) {
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="navigation-state"]')?.textContent === 'idle',
+    );
+  }
+
+  for (const [link, method] of [
+    ['onclick-link', 'pushState'],
+    ['replace-link', 'replaceState'],
+  ] as const) {
+    it(`${link} keeps the current page when ${method} fails`, async () => {
+      const page = await newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => {
+        errors.push(error.message);
+      });
+
+      try {
+        await page.goto(BASE + '/link-behavior');
+        await waitForHydration(page);
+        const heading = await page.textContent('h1');
+        await failNextHistoryWrite(page, method);
+
+        await page.click(`[data-testid="${link}"]`);
+        await vi.waitFor(() => expect(errors).toContain('History blocked by test'), {
+          timeout: 10_000,
+        });
+        await waitForIdle(page);
+        expect(await page.textContent('h1')).toBe(heading);
+        expect(page.url()).toBe(BASE + '/link-behavior');
+
+        await page.click(`[data-testid="${link}"]`);
+        await page.waitForURL(BASE + '/users');
+        await page.waitForFunction(() =>
+          document.querySelector('h1')?.textContent?.includes('Users'),
+        );
+      } finally {
+        await page.context().close();
+      }
+    });
+  }
 }
 
 describe('react-pages client (dev)', () => {

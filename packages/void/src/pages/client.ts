@@ -12,6 +12,7 @@ import {
   createPageNavigationEngine,
   type PageData,
   type PageNavigationEngineConfig,
+  type PageNavigationResult,
   type VisitOptions,
   type VoidRouterAdapter as PageNavigationAdapter,
   type PrefetchOptions,
@@ -335,6 +336,18 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
   let routeUrl = currentUrl();
   let routeParams = engine.initialPageData.params ?? {};
   let activeNavigationId: number | null = null;
+  // The page in the address bar, and the page on screen. They differ while a visit has
+  // rendered but not committed, and after its commit fails.
+  type RenderedPage = Pick<PageNavigationResult, 'pageData' | 'component' | 'layouts'>;
+  let committedPage: RenderedPage = {
+    pageData: engine.initialPageData,
+    component: engine.initialComponent,
+    layouts: engine.initialLayouts,
+  };
+  let renderedPage = committedPage;
+  // Set when the page on screen is one whose commit failed; the last visit to settle puts
+  // the committed page back.
+  let failedRender: { preserveState: boolean } | null = null;
   const setRouteState = (url: string, params: Record<string, string> = routeParams) => {
     routeUrl = url;
     routeParams = params;
@@ -358,10 +371,14 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
         result.pageData.params ?? {},
       );
 
-      const applyUpdate = () =>
-        config.adapter.applyUpdate(result.pageData, result.component, result.layouts, {
-          preserveState: resource.options.preserveState ?? resource.method !== 'GET',
+      const preserveState = resource.options.preserveState ?? resource.method !== 'GET';
+      const applyUpdate = () => {
+        renderedPage = result;
+        failedRender = null;
+        return config.adapter.applyUpdate(result.pageData, result.component, result.layouts, {
+          preserveState,
         });
+      };
 
       let applied = true;
       const useTransition = resource.options.viewTransition ?? config.viewTransitions;
@@ -380,8 +397,23 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
       }
 
       // A newer visit can commit while this page is being applied; its URL stays.
-      if (!applied || !(await resource.commit())) {
+      let committed = false;
+      if (applied) {
+        try {
+          committed = await resource.commit();
+        } catch (error) {
+          if (renderedPage === result) {
+            failedRender = { preserveState };
+          }
+          throw error;
+        }
+      }
+      if (!committed) {
         throw new DOMException('Navigation aborted', 'AbortError');
+      }
+      committedPage = result;
+      if (renderedPage === result) {
+        failedRender = null;
       }
       if (activeNavigationId === resource.id) {
         setRouteState(currentUrl(), result.pageData.params ?? {});
@@ -397,10 +429,33 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
       }
       throw error;
     } finally {
-      if (activeNavigationId === resource.id) {
-        activeNavigationId = null;
-        setRouteState(currentUrl());
-        setNavigation(idleNavigationState());
+      // A same-page hash visit can settle before this one, so no visit may be active.
+      const ownsNavigation = activeNavigationId === resource.id;
+      if (ownsNavigation || activeNavigationId === null) {
+        let restored = false;
+        if (failedRender && renderedPage !== committedPage) {
+          const { preserveState } = failedRender;
+          failedRender = null;
+          renderedPage = committedPage;
+          restored = true;
+          const page = committedPage;
+          try {
+            await config.adapter.applyUpdate(page.pageData, page.component, page.layouts, {
+              preserveState,
+            });
+          } catch (error) {
+            // The visit already rejects with the history error; keep that one.
+            reportError(error);
+          }
+        }
+        // A newer visit may have started while the committed page was applied.
+        if (ownsNavigation && activeNavigationId === resource.id) {
+          activeNavigationId = null;
+          setRouteState(currentUrl(), restored ? (committedPage.pageData.params ?? {}) : undefined);
+          setNavigation(idleNavigationState());
+        } else if (restored && activeNavigationId === null) {
+          setRouteState(currentUrl(), committedPage.pageData.params ?? {});
+        }
       }
     }
   }

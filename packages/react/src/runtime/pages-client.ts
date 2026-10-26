@@ -487,11 +487,25 @@ function App({
           dispatch({ type: 'finish', resource, location: currentUrl() });
         })
         .catch((error) => {
+          // The history write failed, so the address bar still shows the committed page.
+          // End this visit and show that page again; a newer visit keeps its own state.
+          const resolveViewTransition = viewTransitionWaiters.get(resource.id);
+          if (resolveViewTransition) {
+            viewTransitionWaiters.delete(resource.id);
+            resolveViewTransition();
+          }
           const visitSettler = pendingVisitSettlers.get(resource.id);
           if (visitSettler) {
             pendingVisitSettlers.delete(resource.id);
             visitSettler.reject(error);
+          } else {
+            // A form visit has already settled with its action result.
+            reportError(error);
           }
+          if (activePendingNavigationId === resource.id) {
+            activePendingNavigationId = null;
+          }
+          dispatch({ type: 'fail', resource, location: currentUrl() });
         });
     },
     [],

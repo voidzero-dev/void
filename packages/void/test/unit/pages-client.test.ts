@@ -1726,4 +1726,230 @@ describe('superseded navigation commits (#507)', () => {
     expect(page.documentStub).toMatchObject({ title: 'B' });
     expect(page.rejectDeferred).not.toHaveBeenCalled();
   });
+
+  describe('failed history writes (#562)', () => {
+    function failNext(method: 'pushState' | 'replaceState') {
+      const error = new DOMException('History blocked', 'SecurityError');
+      vi.mocked(history[method]).mockImplementationOnce(() => {
+        throw error;
+      });
+      return error;
+    }
+
+    function states(onNavigationChange: ReturnType<typeof vi.fn>) {
+      return onNavigationChange.mock.calls.map((call) => (call[0] as { state: string }).state);
+    }
+
+    it('keeps the committed page, URL and head when pushState fails', async () => {
+      const page = setup();
+      const onNavigationChange = vi.fn();
+      const r = await router(page, { onNavigationChange });
+      const error = failNext('pushState');
+
+      await expect(r.visit('/b')).rejects.toBe(error);
+
+      expect(states(onNavigationChange)).toEqual(['loading', 'idle']);
+      expect(window.location.pathname).toBe('/');
+      expect(r.url.pathname).toBe('/');
+      expect(page.documentStub).toMatchObject({ title: 'Home' });
+      expect(page.rendered).toEqual(['/b', '']);
+      expect(page.applyUpdate).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({ component: 'home' }),
+        expect.anything(),
+        expect.anything(),
+        { preserveState: false },
+      );
+      // Only B's own pending Deferred value is rejected.
+      expect(page.rejectDeferred).toHaveBeenCalledTimes(1);
+    });
+
+    it('navigates normally after a failed write', async () => {
+      const page = setup();
+      const r = await router(page);
+      failNext('pushState');
+      await r.visit('/b').catch(() => {});
+
+      await expect(r.visit('/a')).resolves.toMatchObject({ url: '/a' });
+      expect(vi.mocked(history.pushState).mock.calls.map((call) => call[2])).toEqual(['/b', '/a']);
+      expect(window.location.pathname).toBe('/a');
+      expect(page.documentStub).toMatchObject({ title: 'A' });
+    });
+
+    it('keeps the committed page when replaceState fails for replace: true', async () => {
+      const page = setup();
+      const r = await router(page);
+      const error = failNext('replaceState');
+
+      await expect(r.visit('/a', { replace: true })).rejects.toBe(error);
+
+      expect(window.location.pathname).toBe('/');
+      expect(page.rendered).toEqual(['/a', '']);
+      expect(page.documentStub).toMatchObject({ title: 'Home' });
+    });
+
+    it('keeps form state when a same-URL submission cannot replace its entry', async () => {
+      const page = setup();
+      const r = await router(page);
+      await r.visit('/a');
+      const committedA = page.applyUpdate.mock.calls[0][0];
+      const error = failNext('replaceState');
+
+      await expect(r.visit('/a', { method: 'post', data: { name: 'x' } })).rejects.toBe(error);
+
+      expect(history.pushState).toHaveBeenCalledTimes(1);
+      expect(page.applyUpdate).toHaveBeenLastCalledWith(
+        committedA,
+        expect.anything(),
+        expect.anything(),
+        { preserveState: true },
+      );
+      expect(window.location.pathname).toBe('/a');
+    });
+
+    it('leaves the page to a newer visit when an older commit fails', async () => {
+      const page = setup();
+      const b = gate();
+      const a = gate();
+      page.updateGates.set('/b', b.promise);
+      page.fetchGates.set('/a', a.promise);
+      const onNavigationChange = vi.fn();
+      const r = await router(page, { onNavigationChange });
+
+      const visitB = r.visit('/b');
+      await entered(page, '/b');
+      const visitA = r.visit('/a');
+      const error = failNext('pushState');
+      b.release();
+      await expect(visitB).rejects.toBe(error);
+
+      // A is still loading, so B stays on screen until A settles.
+      expect(page.rendered).toEqual(['/b']);
+      expect(states(onNavigationChange).at(-1)).toBe('loading');
+
+      a.release();
+      await expect(visitA).resolves.toMatchObject({ url: '/a' });
+      expect(page.rendered).toEqual(['/b', '/a']);
+      expect(window.location.pathname).toBe('/a');
+      expect(page.documentStub).toMatchObject({ title: 'A' });
+      expect(states(onNavigationChange).at(-1)).toBe('idle');
+    });
+
+    it('restores the committed page once a newer visit fails too', async () => {
+      const page = setup();
+      const b = gate();
+      const a = gate();
+      page.updateGates.set('/b', b.promise);
+      const fetchPage = fetch;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async (url: string, init?: RequestInit) => {
+          if (init?.method?.toUpperCase() === 'POST') {
+            await a.promise;
+            return new Response('down', { status: 500 });
+          }
+          return fetchPage(url, init);
+        }),
+      );
+      const onNavigationChange = vi.fn();
+      const r = await router(page, { onNavigationChange });
+
+      const visitB = r.visit('/b');
+      await entered(page, '/b');
+      const submitA = r.visit('/a', { method: 'post', data: { name: 'x' } });
+      const error = failNext('pushState');
+      b.release();
+      await expect(visitB).rejects.toBe(error);
+      a.release();
+      await expect(submitA).rejects.toThrow();
+
+      expect(page.rendered).toEqual(['/b', '']);
+      expect(window.location.pathname).toBe('/');
+      expect(page.documentStub).toMatchObject({ title: 'Home' });
+      expect(states(onNavigationChange).at(-1)).toBe('idle');
+    });
+
+    it('restores the committed page when a hash visit settled first', async () => {
+      const page = setup();
+      const b = gate();
+      page.updateGates.set('/b', b.promise);
+      const onNavigationChange = vi.fn();
+      const r = await router(page, { onNavigationChange });
+
+      const visitB = r.visit('/b');
+      await entered(page, '/b');
+      await r.visit('#x');
+      const error = failNext('pushState');
+      b.release();
+
+      await expect(visitB).rejects.toBe(error);
+      expect(page.rendered).toEqual(['/b', '']);
+      expect(window.location.pathname + window.location.hash).toBe('/#x');
+      expect(page.documentStub).toMatchObject({ title: 'Home' });
+      expect(states(onNavigationChange).at(-1)).toBe('idle');
+    });
+
+    it('ends a hash visit whose history write fails like any failed visit', async () => {
+      const page = setup();
+      const onNavigationChange = vi.fn();
+      const r = await router(page, { onNavigationChange });
+      const error = failNext('pushState');
+
+      const visit = r.visit('#x');
+      await expect(visit).rejects.toBe(error);
+      expect(states(onNavigationChange)).toEqual(['loading', 'idle']);
+      expect(window.location.hash).toBe('');
+
+      await r.visit('/#y');
+      expect(fetch).not.toHaveBeenCalled();
+      expect(window.location.hash).toBe('#y');
+    });
+
+    it('leaves the engine ready for the next visit, as the React adapter calls it', async () => {
+      const page = setup();
+      const initialPage = {
+        component: 'home',
+        props: { stats: null },
+        deferredKeys: { stats: 'stats' },
+      };
+      const getElementById = page.documentStub.getElementById.getMockImplementation()!;
+      page.documentStub.getElementById.mockImplementation((id: string) =>
+        id === '__VOID_PAGE_DATA__'
+          ? { textContent: JSON.stringify(initialPage) }
+          : getElementById(id),
+      );
+      const onDeferredUpdate = vi.fn();
+      const engine = await createPageNavigationEngine({
+        adapter: {
+          createDeferred: () => ({ loading: true }),
+          isLoading: () => true,
+          resolveDeferred: (_ref, value) => value,
+          rejectDeferred: page.rejectDeferred,
+          onDeferredUpdate,
+        },
+        components: { a: loadComponent, b: loadComponent, home: loadComponent },
+        layoutTree: {},
+        routeMeta: {},
+        matchRoute: (url) => (url.startsWith('/a') ? 'a' : 'b'),
+        viewTransitions: false,
+        prefetchHoverDelay: 75,
+        prefetchDefaultCacheFor: parseCacheFor('30s'),
+      });
+      const error = failNext('pushState');
+
+      const b = engine.prepareVisit('/b');
+      await b.shell;
+      await expect(b.commit()).rejects.toBe(error);
+      await expect(b.commit()).resolves.toBe(false);
+
+      // The home page still owns the Deferred values streamed into its HTML.
+      (window as unknown as DeferredTestWindow).__resolveDeferred('stats', 1);
+      expect(onDeferredUpdate).toHaveBeenLastCalledWith(expect.objectContaining({ stats: 1 }));
+
+      const a = engine.prepareVisit('/a');
+      await a.shell;
+      await expect(a.commit()).resolves.toBe(true);
+      expect(window.location.pathname).toBe('/a');
+    });
+  });
 });

@@ -241,4 +241,28 @@ describe('Pages scroll restoration', () => {
     page.window.dispatchEvent(Object.assign(new Event('popstate'), { state }));
     expect(page.window.scrollY).toBe(3500);
   });
+
+  it('saves positions under the current entry when a history write fails', async () => {
+    const page = await setup();
+    page.engine.start();
+    page.engine.commitInitialRender();
+    const key = page.history.state?.__voidScrollKey;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ component: 'home', props: {} }, { headers: { 'X-VoidPages': 'true' } }),
+      ),
+    );
+    const error = new DOMException('History blocked', 'SecurityError');
+    page.history.pushState.mockImplementationOnce(() => {
+      throw error;
+    });
+    const visit = page.engine.prepareVisit('/next');
+    await visit.shell;
+    await expect(visit.commit()).rejects.toBe(error);
+
+    page.window.scrollY = 640;
+    page.window.dispatchEvent(new Event('pagehide'));
+    expect([...page.storage]).toEqual([[`void:scroll:${key}`, '{"x":0,"y":640}']]);
+  });
 });

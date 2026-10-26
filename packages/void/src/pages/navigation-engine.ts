@@ -598,10 +598,10 @@ export async function createPageNavigationEngine(
     options: VisitOptions,
     writeHistory: boolean,
   ): void {
-    _currentFetchUrl = effectiveFetchUrl;
     if (writeHistory) {
       scrollRestoration.writeHistory(effectiveFetchUrl + hash, !!options.replace);
     }
+    _currentFetchUrl = effectiveFetchUrl;
     scrollRestoration.commit();
     restoreScroll(options._scrollPosition, hash);
   }
@@ -864,6 +864,26 @@ export async function createPageNavigationEngine(
       if (resourceId < _urlNavigationId) {
         return false;
       }
+      // Write history before anything else changes. Disposing the previous page and handing
+      // over its Deferred values cannot be undone, so a failed write must find them untouched.
+      // preserveState only controls component state; back/forward traversal already moved history.
+      if (!options._popstate) {
+        const historyUrl = commitTarget.fetchUrl + commitTarget.hash;
+        const resource = getResource();
+        const currentDocumentUrl = window.location.pathname + window.location.search;
+        const replaceHistory =
+          !!options.replace ||
+          (resource.method !== 'GET' && historyUrl === currentDocumentUrl + commitTarget.hash);
+        try {
+          scrollRestoration.writeHistory(historyUrl, replaceHistory);
+        } catch (error) {
+          if (_pendingResource?.id === resourceId) {
+            _pendingResource = null;
+          }
+          resource.dispose();
+          throw error;
+        }
+      }
       _urlNavigationId = resourceId;
       if (_pendingResource?.id === resourceId) {
         _pendingResource = null;
@@ -910,17 +930,6 @@ export async function createPageNavigationEngine(
       }
       applyClientHead(result.pageData.head as HeadDescriptor | undefined);
       _currentFetchUrl = commitTarget.fetchUrl;
-
-      // preserveState only controls component state; back/forward traversal already moved history.
-      if (!options._popstate) {
-        const historyUrl = commitTarget.fetchUrl + commitTarget.hash;
-        const resource = getResource();
-        const currentDocumentUrl = window.location.pathname + window.location.search;
-        const replaceHistory =
-          !!options.replace ||
-          (resource.method !== 'GET' && historyUrl === currentDocumentUrl + commitTarget.hash);
-        scrollRestoration.writeHistory(historyUrl, replaceHistory);
-      }
       scrollRestoration.commit();
 
       requestAnimationFrame(() => {
@@ -989,7 +998,13 @@ export async function createPageNavigationEngine(
         Boolean(hash || options._popstate);
 
       if (isSamePageHashNavigation) {
-        commitHashNavigation(effectiveFetchUrl, hash, options, !options._popstate);
+        // A failed history write ends this visit like any other failed visit: through its shell.
+        let shell: Promise<undefined> = Promise.resolve(undefined);
+        try {
+          commitHashNavigation(effectiveFetchUrl, hash, options, !options._popstate);
+        } catch (error) {
+          shell = Promise.reject(error);
+        }
         return {
           id,
           url,
@@ -998,7 +1013,7 @@ export async function createPageNavigationEngine(
           method,
           options,
           immediate: true,
-          shell: Promise.resolve(undefined),
+          shell,
           abort() {},
           // Same-page hash visits commit right away. They do not stop an older visit
           // whose page is already on screen from committing its URL.
