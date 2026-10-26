@@ -523,6 +523,9 @@ export async function bundleEntry(root: string, entry: string): Promise<WrapperR
   await build({
     root: tmpDir,
     logLevel: 'silent',
+    // Like prepareBundledBuildOutput: Worker conditions plus the build mode. A deploy
+    // bundle is always a production build, whatever NODE_ENV says.
+    resolve: { conditions: [...WORKER_CONDITIONS, 'production'] },
     build: {
       outDir,
       emptyOutDir: true,

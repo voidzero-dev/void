@@ -22,6 +22,7 @@ import { createServer as createPgServer } from 'pglite-server';
 import { parseSync } from 'vite';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import {
+  bundleEntry,
   cleanupWrapper,
   needsWrapper,
   generateWrapper,
@@ -291,6 +292,58 @@ describe('selectBundledEntryFilename', () => {
     expect(() => selectBundledEntryFilename(['index-server-Bo4VDtw5.js'])).toThrow(
       'deploy: Bundled worker entry not found',
     );
+  });
+});
+
+describe('bundleEntry', () => {
+  const roots: Array<string> = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves dependencies with Worker conditions in a production build', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-bundle-entry-conditions-'));
+    roots.push(root);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    const packages = {
+      dual: {
+        exports: { workerd: './worker.js', browser: './browser.js', default: './node.js' },
+        files: {
+          'worker.js': 'dual-workerd',
+          'browser.js': 'dual-browser',
+          'node.js': 'dual-node',
+        },
+      },
+      modes: {
+        exports: { development: './dev.js', production: './prod.js', default: './dev.js' },
+        files: { 'dev.js': 'modes-development', 'prod.js': 'modes-production' },
+      },
+    };
+    for (const [name, { exports, files }] of Object.entries(packages)) {
+      const dir = join(root, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, type: 'module', exports }));
+      for (const [file, value] of Object.entries(files)) {
+        writeFileSync(join(dir, file), `export const value = '${value}';\n`);
+      }
+    }
+    const entry = join(root, 'build', '_worker.js');
+    mkdirSync(dirname(entry));
+    writeFileSync(
+      entry,
+      "import { value as target } from 'dual'; import { value as mode } from 'modes';\n" +
+        'export default { fetch() { return new Response(target + mode) } };\n',
+    );
+
+    const { outputDir, entryFilename } = await bundleEntry(root, entry);
+
+    const bundle = readFileSync(join(outputDir, entryFilename), 'utf8');
+    expect(bundle).toContain('dual-workerd');
+    expect(bundle).not.toContain('dual-browser');
+    expect(bundle).toContain('modes-production');
+    expect(bundle).not.toContain('modes-development');
   });
 });
 
