@@ -667,9 +667,6 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
         // needing to be hoisted into the user's node_modules (pnpm
         // strict mode). Without this, Vite discovers them lazily on
         // first auth page load, triggering a disruptive program reload.
-        // A string `find` would also match `better-auth/client/plugins`
-        // and append `/plugins` to the file path; a RegExp is Vite's only
-        // exact match.
         const betterAuthSubpaths = ['client', 'react', 'vue', 'svelte', 'solid'];
         const resolvedAliases = betterAuthSubpaths.flatMap((sub) => {
           try {
