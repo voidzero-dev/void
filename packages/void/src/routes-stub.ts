@@ -67,13 +67,13 @@ type ActionFormBaseOptions = { resetOnSuccess?: boolean };
 export type ActionFormOptions<U extends string> = ActionFormBaseOptions &
   (HasActionParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
+type PageActionUrl<K extends string, P> = P extends { body: unknown }
+  ? K
+  : P extends { actions: infer A }
+    ? `${K}?${keyof A & string}`
+    : never;
+
 /** Valid useForm URLs — single-action pages + "page?name" combos + default actions */
-export type ActionUrl =
-  | {
-      [K in keyof PageActionMap]: PageActionMap[K] extends { body: unknown } ? K : never;
-    }[keyof PageActionMap]
-  | {
-      [K in keyof PageActionMap]: PageActionMap[K] extends { actions: infer A }
-        ? `${K & string}?${keyof A & string}`
-        : never;
-    }[keyof PageActionMap];
+export type ActionUrl = {
+  [K in keyof PageActionMap]: PageActionUrl<K & string, PageActionMap[K]>;
+}[keyof PageActionMap];

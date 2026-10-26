@@ -99,6 +99,12 @@ function typecheck(pages: Array<PageDefinition>, files: Record<string, string>) 
   });
 }
 
+// The same constraint every adapter's useForm puts on its URL.
+const useForm = [
+  "import type { ActionUrl, ResolveActionBody } from 'void/routes';",
+  'declare function useForm<U extends ActionUrl & string>(url: U, body: ResolveActionBody<U>): void;',
+];
+
 describe('page action types for a .dev + .prod page pair', () => {
   it('accepts the body of each page when the two bodies differ', () => {
     const companion = (age: string) =>
@@ -108,31 +114,48 @@ export const action = defineHandler.withValidator({ body })(() => ({ ok: true })
       'pages/contact.dev.server.ts': companion('string'),
       'pages/contact.prod.server.ts': companion('number'),
       'check.ts': [
-        "import type { ResolveActionBody } from 'void/routes';",
-        "const dev: ResolveActionBody<'/contact'> = { email: 'a@b.c', age: '1' };",
-        "const prod: ResolveActionBody<'/contact'> = { email: 'a@b.c', age: 1 };",
+        ...useForm,
+        "useForm('/contact', { email: 'a@b.c', age: '1' });",
+        "useForm('/contact', { email: 'a@b.c', age: 1 });",
         '// @ts-expect-error the body is still typed',
-        "const wrong: ResolveActionBody<'/contact'> = { email: 1, age: 1 };",
-        'export { dev, prod, wrong };',
+        "useForm('/contact', { email: 1, age: 1 });",
       ].join('\n'),
     });
     expect(result.stdout + result.stderr).toBe('');
     expect(result.status).toBe(0);
   });
 
-  it('types a named action when only one page of the pair has named actions', () => {
+  it('accepts both URLs when only one page of the pair has named actions', () => {
     const result = typecheck([page('dev', ['action']), page('prod', ['actions'])], {
       'pages/contact.dev.server.ts': `${schema('{ email: string }')}
 export const action = defineHandler.withValidator({ body })(() => ({ ok: true }));`,
       'pages/contact.prod.server.ts': `${schema('{ title: string }')}
 export const actions = { save: defineHandler.withValidator({ body })(() => ({ ok: true })) };`,
       'check.ts': [
-        "import type { ResolveActionBody } from 'void/routes';",
-        "const save: ResolveActionBody<'/contact?save'> = { title: 'x' };",
+        ...useForm,
+        "useForm('/contact', { email: 'a@b.c' });",
+        "useForm('/contact?save', { title: 'x' });",
         '// @ts-expect-error the named action body is still typed',
-        "const wrong: ResolveActionBody<'/contact?save'> = { title: 1 };",
-        "const plain: ResolveActionBody<'/contact'> = { email: 'a@b.c' };",
-        'export { save, wrong, plain };',
+        "useForm('/contact?save', { title: 1 });",
+      ].join('\n'),
+    });
+    expect(result.stdout + result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
+  it('accepts the named actions of each page when the two sets differ', () => {
+    const companion = (name: string) =>
+      `${schema('{ title: string }')}
+export const actions = { ${name}: defineHandler.withValidator({ body })(() => ({ ok: true })) };`;
+    const result = typecheck([page('dev', ['actions']), page('prod', ['actions'])], {
+      'pages/contact.dev.server.ts': companion('save'),
+      'pages/contact.prod.server.ts': companion('publish'),
+      'check.ts': [
+        ...useForm,
+        "useForm('/contact?save', { title: 'x' });",
+        "useForm('/contact?publish', { title: 'x' });",
+        '// @ts-expect-error neither page has this action',
+        "useForm('/contact?remove', { title: 'x' });",
       ].join('\n'),
     });
     expect(result.stdout + result.stderr).toBe('');

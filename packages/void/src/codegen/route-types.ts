@@ -102,19 +102,33 @@ export function generateRouteTypes(
   lines.push('    action: never;');
   lines.push('  };');
   lines.push('');
+  // A .dev + .prod page pair is a union of two page shapes. A type parameter
+  // makes these helpers read each shape on its own, as in void/routes.
+  lines.push(
+    '  type PageActionBody<P> = P extends { body: infer B } ? B : Record<string, unknown>;',
+  );
+  lines.push('');
+  lines.push('  type PageNamedActionBody<P, K> = P extends { actions: infer A }');
+  lines.push('    ? K extends keyof A');
+  lines.push('      ? A[K] extends { body: infer B }');
+  lines.push('        ? B');
+  lines.push('        : Record<string, unknown>');
+  lines.push('      : never');
+  lines.push('    : never;');
+  lines.push('');
+  lines.push('  type PageActionUrl<K extends string, P> = P extends { body: any }');
+  lines.push('    ? K');
+  lines.push('    : P extends { actions: infer A }');
+  lines.push('      ? `${K}?${keyof A & string}`');
+  lines.push('      : never;');
+  lines.push('');
   lines.push('  export type ResolveActionBody<U extends string> =');
   lines.push('    ParseActionUrl<U>["base"] extends keyof PageActionMap');
   lines.push('      ? ParseActionUrl<U>["action"] extends never');
-  lines.push('        ? PageActionMap[ParseActionUrl<U>["base"]] extends { body: infer B }');
-  lines.push('          ? B');
-  lines.push('          : Record<string, unknown>');
-  lines.push('        : PageActionMap[ParseActionUrl<U>["base"]] extends { actions: infer A }');
-  lines.push('          ? ParseActionUrl<U>["action"] extends keyof A');
-  lines.push('            ? A[ParseActionUrl<U>["action"]] extends { body: infer B }');
-  lines.push('              ? B');
-  lines.push('              : Record<string, unknown>');
-  lines.push('            : never');
-  lines.push('          : never');
+  lines.push('        ? PageActionBody<PageActionMap[ParseActionUrl<U>["base"]]>');
+  lines.push(
+    '        : PageNamedActionBody<PageActionMap[ParseActionUrl<U>["base"]], ParseActionUrl<U>["action"]>',
+  );
   lines.push('      : Record<string, unknown>;');
   lines.push('');
   lines.push('  export type ResolveActionParams<U extends string> =');
@@ -136,17 +150,9 @@ export function generateRouteTypes(
   lines.push('      ? { params: ResolveActionParams<U> }');
   lines.push('      : { params?: never });');
   lines.push('');
-  lines.push('  export type ActionUrl =');
-  lines.push('    | {');
-  lines.push(
-    '        [K in keyof PageActionMap]: PageActionMap[K] extends { body: any } ? K : never;',
-  );
-  lines.push('      }[keyof PageActionMap]');
-  lines.push('    | {');
-  lines.push('        [K in keyof PageActionMap]: PageActionMap[K] extends { actions: infer A }');
-  lines.push('          ? `${K & string}?${keyof A & string}`');
-  lines.push('          : never;');
-  lines.push('      }[keyof PageActionMap]');
+  lines.push('  export type ActionUrl = {');
+  lines.push('    [K in keyof PageActionMap]: PageActionUrl<K & string, PageActionMap[K]>;');
+  lines.push('  }[keyof PageActionMap]');
   lines.push('');
   lines.push('  interface RouteMap {');
 
