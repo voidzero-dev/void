@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import {
   createServer,
   type ConfigEnv,
@@ -722,6 +723,35 @@ describe('routingPlugin', () => {
     }) => unknown;
     expect(hotUpdate.call({ environment: { name: 'void_auth_config' } })).toEqual([]);
     expect(hotUpdate.call({ environment: { name: 'void_worker' } })).toBeUndefined();
+  });
+
+  it('resolves deeper better-auth subpaths past the dev client aliases', async () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'routes', 'health.ts'), 'export const GET = () => new Response();');
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [createRoutingPlugin(root, { isAuthEnabled: () => true })],
+      optimizeDeps: { noDiscovery: true },
+      server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
+    });
+    try {
+      const resolve = async (specifier: string, importer: string) =>
+        (await server.environments.client.pluginContainer.resolveId(specifier, importer))?.id;
+      const fileOf = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
+      // The app has no better-auth of its own, so these resolve only through the aliases.
+      const appFile = join(root, 'routes', 'health.ts');
+      for (const specifier of ['better-auth/client', 'better-auth/react']) {
+        expect(await resolve(specifier, appFile)).toBe(fileOf(specifier));
+      }
+      // A deeper subpath passes the aliases and resolves where better-auth is installed.
+      expect(await resolve('better-auth/client/plugins', fileURLToPath(import.meta.url))).toBe(
+        fileOf('better-auth/client/plugins'),
+      );
+    } finally {
+      await server.close();
+    }
   });
 
   it('regenerates auth files when the auth config or a file it imports changes', async () => {
