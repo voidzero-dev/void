@@ -1,0 +1,55 @@
+docs/guide/pages-routing/actions-and-forms.md
+  s_a6366f8c8935ed::t_ad1804d737708e 166
+packages/react/test/unit/form-errors.typecheck.ts
+  s_a6366f8c8935ed::t_065594a951d797 1-16
+packages/solid/src/runtime/use-form.ts
+  s_a6366f8c8935ed::t_f9ea98568d1add 87,98-111,127,144,146-150,155,169,188
+packages/solid/test/unit/form-errors.test.ts
+  s_a6366f8c8935ed::t_241bbb3731c4ca 1-80
+packages/solid/test/unit/form-errors.typecheck.ts
+  s_a6366f8c8935ed::t_58f4741638eda9 1-16
+packages/svelte/src/runtime/use-form.svelte.ts
+  s_a6366f8c8935ed::t_aecee5980eb329 1,83,86-92,94-95,112,126-127,157-159
+packages/svelte/test/unit/form-errors.typecheck.ts
+  s_a6366f8c8935ed::t_39dae723cfd237 1-16
+packages/vue/src/runtime/use-form.ts
+  s_a6366f8c8935ed::t_fdb322023bd9e2 82,84,86,91,93,110
+packages/vue/test/unit/form-errors.typecheck.ts
+  s_a6366f8c8935ed::t_397febbd9c11c5 1-16
+packages/vue/test/unit/use-form.test.ts
+  s_a6366f8c8935ed::t_579e1b511d20d0 122-143
+playground/react-pages/pages/form-errors.server.ts
+  s_a6366f8c8935ed::t_56c3d9af58c6f2 1-12
+playground/react-pages/pages/form-errors.tsx
+  s_a6366f8c8935ed::t_24a156e8de39f6 1-66
+playground/solid-pages/pages/form-errors.server.ts
+  s_a6366f8c8935ed::t_ca29f020bc2920 1-12
+playground/solid-pages/pages/form-errors.tsx
+  s_a6366f8c8935ed::t_e1ce28d87ea19a 1-66
+playground/svelte-pages/pages/form-errors.server.ts
+  s_a6366f8c8935ed::t_3edd17afbad4b7 1-12
+playground/svelte-pages/pages/form-errors.svelte
+  s_a6366f8c8935ed::t_d2570c82c681f0 1-35
+playground/vue-pages/pages/form-errors.server.ts
+  s_a6366f8c8935ed::t_25536e4da3b55e 1-12
+playground/vue-pages/pages/form-errors.vue
+  s_a6366f8c8935ed::t_cd543fb8d3bda9 1-37
+test/pages-client-contract.ts
+  s_a6366f8c8935ed::t_458592744e3b75 2,466-552
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "e01919653bca2a42ee754c97be354aaada7bb960",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
