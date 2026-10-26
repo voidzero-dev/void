@@ -74,7 +74,9 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   const pagesOptimizeEntries = `${relative(root, pagesDir)}/**/*.{js,jsx,ts,tsx}`;
   let pendingRescan: Promise<void> | null = null;
   const rescanPages = async () => {
-    pageScan = existsSync(pagesDir) ? await scanPages(root, { pagesDir }) : null;
+    pageScan = existsSync(pagesDir)
+      ? await scanPages(root, { pagesDir, environment: isDev ? 'dev' : 'prod' })
+      : null;
   };
   const runRescan = () => {
     pendingRescan ??= rescanPages().finally(() => {
@@ -174,6 +176,8 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
     },
 
     config(_, env) {
+      // Set before the early return: pages/ may be created after the server starts.
+      isDev = env.command === 'serve';
       if (!existsSync(pagesDir)) {
         return;
       }
@@ -182,8 +186,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
       // virtual module and user components share the same React context objects.
       // Without this, Vite pre-bundles @void/react, creating separate
       // context instances that break useContext (React contexts use object identity).
-      if (env.command === 'serve') {
-        isDev = true;
+      if (isDev) {
         return {
           resolve: {
             dedupe: REACT_DEDUPE,

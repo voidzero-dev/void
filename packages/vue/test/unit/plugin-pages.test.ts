@@ -300,3 +300,33 @@ describe('pagesPlugin dev HMR', () => {
     expect(recovered).toContain('"about"');
   });
 });
+
+describe('pagesPlugin environment suffixes', () => {
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('leaves .dev pages out of the build renderer and client entry', async () => {
+    writePage('index.vue', '<template><h1>Home</h1></template>\n');
+    writePage('debug.dev.vue', '<template><h1>Debug</h1></template>\n');
+    writePage('home.dev.vue', '<template><h1>Dev</h1></template>\n');
+    writePage('home.prod.vue', '<template><h1>Prod</h1></template>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR).find((p) => p.name === 'void-vue:pages') as
+      | PagesPluginHooks
+      | undefined;
+    if (!plugin) {
+      throw new Error('Expected void-vue:pages plugin.');
+    }
+    getHookHandler(plugin.config)({}, { command: 'build' });
+    await getHookHandler(plugin.buildStart).call({});
+    const load = getHookHandler(plugin.load);
+
+    for (const id of ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client']) {
+      const code = await load(id);
+      expect(code).not.toContain('debug.dev');
+      expect(code).not.toContain('home.dev');
+      expect(code).toContain('home.prod.vue');
+    }
+  });
+});

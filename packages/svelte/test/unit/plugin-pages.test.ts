@@ -136,3 +136,28 @@ describe('pagesPlugin dev HMR', () => {
     });
   });
 });
+
+describe('pagesPlugin environment suffixes', () => {
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('leaves .dev pages out of the build renderer and client entry', async () => {
+    writePage('index.svelte', '<h1>Home</h1>\n');
+    writePage('debug.dev.svelte', '<h1>Debug</h1>\n');
+    writePage('home.dev.svelte', '<h1>Dev</h1>\n');
+    writePage('home.prod.svelte', '<h1>Prod</h1>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    getHookHandler(plugin.config)({}, { command: 'build' });
+    await getHookHandler(plugin.buildStart).call({});
+    const load = getHookHandler(plugin.load);
+
+    for (const id of ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client']) {
+      const code = await load(id);
+      expect(code).not.toContain('debug.dev');
+      expect(code).not.toContain('home.dev');
+      expect(code).toContain('home.prod.svelte');
+    }
+  });
+});

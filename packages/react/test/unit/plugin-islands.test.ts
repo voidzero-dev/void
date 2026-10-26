@@ -178,3 +178,49 @@ export default function Layout({ children }) { return <div>{children}</div>; }`,
     expect(clientEntry).not.toContain('Sidebar');
   });
 });
+
+describe('islandsPlugin — environment suffixes', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('registers no .dev island page in a build', async () => {
+    writeFile(
+      'x.dev.island.tsx',
+      `import Toggle from "./Toggle" with { island: "load" }
+export default function X() { return <Toggle />; }`,
+    );
+    writeFile('Toggle.tsx', `export default function Toggle() { return <button>off</button>; }`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+
+    expect(loadClientEntry()).not.toContain('pages/Toggle');
+  });
+
+  it('registers the .prod island page of a .dev + .prod pair in a build', async () => {
+    writeFile(
+      'x.dev.island.tsx',
+      `import Toggle from "./Toggle" with { island: "load" }
+export default function X() { return <Toggle />; }`,
+    );
+    writeFile(
+      'x.prod.island.tsx',
+      `import Counter from "./Counter" with { island: "load" }
+export default function X() { return <Counter />; }`,
+    );
+    writeFile('Toggle.tsx', `export default function Toggle() { return <button>off</button>; }`);
+    writeFile('Counter.tsx', `export default function Counter() { return <button>0</button>; }`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+    const clientEntry = loadClientEntry();
+
+    expect(clientEntry).toContain('pages/Counter');
+    expect(clientEntry).not.toContain('pages/Toggle');
+  });
+});

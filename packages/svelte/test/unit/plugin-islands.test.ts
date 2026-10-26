@@ -282,3 +282,55 @@ describe('islandsPlugin — island style loader', () => {
     expect(watched).toContain(normalizePath(partial));
   });
 });
+
+describe('islandsPlugin — environment suffixes', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('registers no .dev island page in a build', async () => {
+    writeFile(
+      'x.dev.island.svelte',
+      `<script>
+import Toggle from "./Toggle.svelte" with { island: "load" }
+</script>
+<Toggle />`,
+    );
+    writeFile('Toggle.svelte', `<button>Toggle</button>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+
+    expect(loadClientEntry()).not.toContain('pages/Toggle');
+  });
+
+  it('registers the .prod island page of a .dev + .prod pair in a build', async () => {
+    writeFile(
+      'x.dev.island.svelte',
+      `<script>
+import Toggle from "./Toggle.svelte" with { island: "load" }
+</script>
+<Toggle />`,
+    );
+    writeFile(
+      'x.prod.island.svelte',
+      `<script>
+import Counter from "./Counter.svelte" with { island: "load" }
+</script>
+<Counter />`,
+    );
+    writeFile('Toggle.svelte', `<button>Toggle</button>`);
+    writeFile('Counter.svelte', `<button>Counter</button>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+    const clientEntry = loadClientEntry();
+
+    expect(clientEntry).toContain('pages/Counter');
+    expect(clientEntry).not.toContain('pages/Toggle');
+  });
+});

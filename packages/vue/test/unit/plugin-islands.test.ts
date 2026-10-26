@@ -271,3 +271,55 @@ import Sidebar from "./Sidebar.vue" with { island: "load" }
     expect(clientEntry).not.toContain('Sidebar');
   });
 });
+
+describe('islandsPlugin — environment suffixes', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('registers no .dev island page in a build', async () => {
+    writeFile(
+      'x.dev.island.vue',
+      `<script setup>
+import Toggle from "./Toggle.vue" with { island: "load" }
+</script>
+<template><Toggle /></template>`,
+    );
+    writeFile('Toggle.vue', `<template><button>Toggle</button></template>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+
+    expect(loadClientEntry()).not.toContain('pages/Toggle');
+  });
+
+  it('registers the .prod island page of a .dev + .prod pair in a build', async () => {
+    writeFile(
+      'x.dev.island.vue',
+      `<script setup>
+import Toggle from "./Toggle.vue" with { island: "load" }
+</script>
+<template><Toggle /></template>`,
+    );
+    writeFile(
+      'x.prod.island.vue',
+      `<script setup>
+import Counter from "./Counter.vue" with { island: "load" }
+</script>
+<template><Counter /></template>`,
+    );
+    writeFile('Toggle.vue', `<template><button>Toggle</button></template>`);
+    writeFile('Counter.vue', `<template><button>Counter</button></template>`);
+
+    const { buildStart, loadClientEntry } = setupPlugin();
+    await buildStart();
+    const clientEntry = loadClientEntry();
+
+    expect(clientEntry).toContain('pages/Counter');
+    expect(clientEntry).not.toContain('pages/Toggle');
+  });
+});

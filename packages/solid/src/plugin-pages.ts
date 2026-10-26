@@ -57,7 +57,9 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
   const normalizedPagesDir = normalizePath(pagesDir);
   let pendingRescan: Promise<void> | null = null;
   const rescanPages = async () => {
-    pageScan = existsSync(pagesDir) ? await scanPages(root, { pagesDir }) : null;
+    pageScan = existsSync(pagesDir)
+      ? await scanPages(root, { pagesDir, environment: isDev ? 'dev' : 'prod' })
+      : null;
   };
   const runRescan = () => {
     pendingRescan ??= rescanPages().finally(() => {
@@ -157,12 +159,13 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
     },
 
     config(_, env) {
+      // Set before the early return: pages/ may be created after the server starts.
+      isDev = env.command === 'serve';
       if (!existsSync(pagesDir)) {
         return;
       }
 
-      if (env.command === 'serve') {
-        isDev = true;
+      if (isDev) {
         return {
           optimizeDeps: {
             // Pre-include Solid entries discovered late via dynamic imports

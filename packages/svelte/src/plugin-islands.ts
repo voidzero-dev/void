@@ -92,7 +92,10 @@ export function islandsPlugin(
 
       async buildStart() {
         if (existsSync(pagesDir)) {
-          pageScan = await scanPages(root, { pagesDir });
+          pageScan = await scanPages(root, {
+            pagesDir,
+            environment: isDev ? 'dev' : 'prod',
+          });
           // Pre-scan island pages to populate the manifest eagerly.
           // This is needed because the client build may load the virtual
           // islands-client entry before island page transforms run.
