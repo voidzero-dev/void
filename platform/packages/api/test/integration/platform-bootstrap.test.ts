@@ -654,133 +654,140 @@ describe('provider-independent first administrator setup', () => {
     expect(await env.db.select().from(users)).toHaveLength(0);
   });
 
-  it('accepts native browser submissions for setup and administrator confirmation without exposing callback details', async () => {
-    expect((await initialize()).status).toBe(200);
-    const browser = await chromium.launch();
-    const submissions: Array<{
-      path: string;
-      origin: string | undefined;
-      referrer: string | undefined;
-      status: number;
-    }> = [];
-    let suppressSetupOrigin = false;
-    try {
-      const page = await browser.newPage();
-      // Fulfill every browser request locally, retaining real browser form,
-      // cookie, referrer-policy, and Origin behavior without external traffic.
-      await page.route('**/*', async (route) => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (url.origin === issuer && url.pathname === '/authorize') {
-          authorization = url;
-          await route.fulfill({
-            contentType: 'text/html',
-            body: '<h1>Local identity provider</h1>',
-          });
-          return;
-        }
-        if (url.origin !== origin) {
-          await route.abort();
-          return;
-        }
-        const headers = await request.allHeaders();
-        const response = await app.fetch(
-          new Request(request.url(), {
-            method: request.method(),
-            headers,
-            ...(request.method() === 'POST' ? { body: request.postData() ?? '' } : {}),
-          }),
-          bindings(),
-        );
-        if (request.method() === 'POST') {
-          submissions.push({
-            path: url.pathname,
-            origin: headers.origin,
-            referrer: headers.referer,
-            status: response.status,
-          });
-        }
-        // Playwright does not route subsequent requests in a redirect chain.
-        // Keep the real API response evidence, then serve a local handoff page
-        // so the browser never resolves an external provider or fixture origin.
-        if (request.method() === 'POST' && response.status === 302) {
-          if (url.pathname === '/auth/bootstrap') {
-            authorization = new URL(response.headers.get('Location')!);
-          } else {
-            expect(response.headers.get('Location')).toBe('/admin/');
+  it(
+    'accepts native browser submissions for setup and administrator confirmation without exposing callback details',
+    async () => {
+      expect((await initialize()).status).toBe(200);
+      const browser = await chromium.launch();
+      const submissions: Array<{
+        path: string;
+        origin: string | undefined;
+        referrer: string | undefined;
+        status: number;
+      }> = [];
+      let suppressSetupOrigin = false;
+      try {
+        const page = await browser.newPage();
+        // Fulfill every browser request locally, retaining real browser form,
+        // cookie, referrer-policy, and Origin behavior without external traffic.
+        await page.route('**/*', async (route) => {
+          const request = route.request();
+          const url = new URL(request.url());
+          if (url.origin === issuer && url.pathname === '/authorize') {
+            authorization = url;
+            await route.fulfill({
+              contentType: 'text/html',
+              body: '<h1>Local identity provider</h1>',
+            });
+            return;
+          }
+          if (url.origin !== origin) {
+            await route.abort();
+            return;
+          }
+          const headers = await request.allHeaders();
+          const response = await app.fetch(
+            new Request(request.url(), {
+              method: request.method(),
+              headers,
+              ...(request.method() === 'POST' ? { body: request.postData() ?? '' } : {}),
+            }),
+            bindings(),
+          );
+          if (request.method() === 'POST') {
+            submissions.push({
+              path: url.pathname,
+              origin: headers.origin,
+              referrer: headers.referer,
+              status: response.status,
+            });
+          }
+          // Playwright does not route subsequent requests in a redirect chain.
+          // Keep the real API response evidence, then serve a local handoff page
+          // so the browser never resolves an external provider or fixture origin.
+          if (request.method() === 'POST' && response.status === 302) {
+            if (url.pathname === '/auth/bootstrap') {
+              authorization = new URL(response.headers.get('Location')!);
+            } else {
+              expect(response.headers.get('Location')).toBe('/admin/');
+            }
+            const responseHeaders = Object.fromEntries(response.headers);
+            delete responseHeaders.location;
+            await route.fulfill({
+              status: 200,
+              headers: responseHeaders,
+              body:
+                url.pathname === '/auth/bootstrap'
+                  ? '<h1>Local provider handoff</h1>'
+                  : '<h1>Administrator ready</h1>',
+            });
+            return;
           }
           const responseHeaders = Object.fromEntries(response.headers);
-          delete responseHeaders.location;
+          if (suppressSetupOrigin && url.pathname === '/setup') {
+            responseHeaders['referrer-policy'] = 'no-referrer';
+          }
           await route.fulfill({
-            status: 200,
+            status: response.status,
             headers: responseHeaders,
-            body:
-              url.pathname === '/auth/bootstrap'
-                ? '<h1>Local provider handoff</h1>'
-                : '<h1>Administrator ready</h1>',
+            body: Buffer.from(await response.arrayBuffer()),
           });
-          return;
-        }
-        const responseHeaders = Object.fromEntries(response.headers);
-        if (suppressSetupOrigin && url.pathname === '/setup') {
-          responseHeaders['referrer-policy'] = 'no-referrer';
-        }
-        await route.fulfill({
-          status: response.status,
-          headers: responseHeaders,
-          body: Buffer.from(await response.arrayBuffer()),
         });
-      });
-      // A no-referrer setup page makes the browser send `Origin: null`, which the
-      // real Origin guard rejects.
-      suppressSetupOrigin = true;
-      await page.goto(`${origin}/setup`);
-      await page.getByLabel('Setup code').fill(code);
-      await Promise.all([
-        page.waitForURL(`${origin}/auth/bootstrap`),
-        page.getByRole('button', { name: 'Continue with Company SSO' }).click(),
-      ]);
-      expect(submissions).toEqual([
-        { path: '/auth/bootstrap', origin: 'null', referrer: undefined, status: 403 },
-      ]);
-      expect(await env.db.select().from(platformAuthAttempts)).toHaveLength(0);
-      submissions.length = 0;
-      suppressSetupOrigin = false;
-      await page.goto(`${origin}/setup`);
-      await page.getByRole('button', { name: 'Continue with Company SSO' }).click();
-      expect(submissions).toEqual([]);
-      expect(await page.locator('input[name="code"]:invalid').count()).toBe(1);
-      await page.getByLabel('Setup code').fill(code);
-      await Promise.all([
-        page.waitForURL(`${origin}/auth/bootstrap`),
-        page.getByRole('button', { name: 'Continue with Company SSO' }).click(),
-      ]);
-      expect(submissions).toEqual([
-        { path: '/auth/bootstrap', origin, referrer: `${origin}/`, status: 302 },
-      ]);
-      await page.getByRole('heading', { name: 'Local provider handoff' }).waitFor();
-      await page.goto(authorization.href);
-      await page.goto(
-        `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
-      );
-      await page.getByRole('heading', { name: 'Confirm the first administrator' }).waitFor();
-      expect(await env.db.select().from(users)).toHaveLength(0);
-      await Promise.all([
-        page.waitForURL(`${origin}/auth/bootstrap/confirm`),
-        page.getByRole('button', { name: 'Make this account the platform administrator' }).click(),
-      ]);
-      expect(submissions).toEqual([
-        { path: '/auth/bootstrap', origin, referrer: `${origin}/`, status: 302 },
-        { path: '/auth/bootstrap/confirm', origin, referrer: `${origin}/`, status: 302 },
-      ]);
-      await page.getByRole('heading', { name: 'Administrator ready' }).waitFor();
-      const accounts = await env.db.select().from(users);
-      expect(accounts).toHaveLength(1);
-      expect(accounts[0]).toMatchObject({ role: 'admin', provider_id: 'administrator-subject' });
-    } finally {
-      await browser.close();
-    }
-  });
+        // A no-referrer setup page makes the browser send `Origin: null`, which the
+        // real Origin guard rejects.
+        suppressSetupOrigin = true;
+        await page.goto(`${origin}/setup`);
+        await page.getByLabel('Setup code').fill(code);
+        await Promise.all([
+          page.waitForURL(`${origin}/auth/bootstrap`),
+          page.getByRole('button', { name: 'Continue with Company SSO' }).click(),
+        ]);
+        expect(submissions).toEqual([
+          { path: '/auth/bootstrap', origin: 'null', referrer: undefined, status: 403 },
+        ]);
+        expect(await env.db.select().from(platformAuthAttempts)).toHaveLength(0);
+        submissions.length = 0;
+        suppressSetupOrigin = false;
+        await page.goto(`${origin}/setup`);
+        await page.getByRole('button', { name: 'Continue with Company SSO' }).click();
+        expect(submissions).toEqual([]);
+        expect(await page.locator('input[name="code"]:invalid').count()).toBe(1);
+        await page.getByLabel('Setup code').fill(code);
+        await Promise.all([
+          page.waitForURL(`${origin}/auth/bootstrap`),
+          page.getByRole('button', { name: 'Continue with Company SSO' }).click(),
+        ]);
+        expect(submissions).toEqual([
+          { path: '/auth/bootstrap', origin, referrer: `${origin}/`, status: 302 },
+        ]);
+        await page.getByRole('heading', { name: 'Local provider handoff' }).waitFor();
+        await page.goto(authorization.href);
+        await page.goto(
+          `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
+        );
+        await page.getByRole('heading', { name: 'Confirm the first administrator' }).waitFor();
+        expect(await env.db.select().from(users)).toHaveLength(0);
+        await Promise.all([
+          page.waitForURL(`${origin}/auth/bootstrap/confirm`),
+          page
+            .getByRole('button', { name: 'Make this account the platform administrator' })
+            .click(),
+        ]);
+        expect(submissions).toEqual([
+          { path: '/auth/bootstrap', origin, referrer: `${origin}/`, status: 302 },
+          { path: '/auth/bootstrap/confirm', origin, referrer: `${origin}/`, status: 302 },
+        ]);
+        await page.getByRole('heading', { name: 'Administrator ready' }).waitFor();
+        const accounts = await env.db.select().from(users);
+        expect(accounts).toHaveLength(1);
+        expect(accounts[0]).toMatchObject({ role: 'admin', provider_id: 'administrator-subject' });
+      } finally {
+        await browser.close();
+      }
+    },
+    // Launching Chromium alone can take longer than the default under a full parallel run.
+    30_000,
+  );
 
   it('bootstraps an OIDC-only installation only after the owner reviews and confirms the identity', async () => {
     expect((await initialize()).status).toBe(200);
