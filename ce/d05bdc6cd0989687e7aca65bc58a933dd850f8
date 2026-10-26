@@ -1,0 +1,21 @@
+packages/void/src/prerender-render.ts
+  s_a6366f8c8935ed::t_5ab5d930a5835d 163-169
+packages/void/test/unit/prerender-render.test.ts
+  s_a6366f8c8935ed::t_23e0d094af1a54 6,24-60,246-248
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ced05bdc6cd0989687e7aca65bc58a933dd850f8",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
