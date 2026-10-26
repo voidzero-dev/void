@@ -65,7 +65,7 @@ See [Database](./database.md) for queries with D1, PostgreSQL, or MySQL.
 
 ### JSX handlers
 
-Use `.tsx` or `.jsx` when a server handler contains JSX. Void uses your app's configured JSX runtime. Render JSX with that runtime's server renderer and return HTML. For example, in a React app:
+Use `.tsx` or `.jsx` when a server handler contains JSX. Void doesn't choose a JSX runtime: route files compile with the same JSX settings as the rest of your Vite app. In a React or Solid app, that is the framework's JSX, so render it with the framework's server renderer and return HTML. For example, in a React app:
 
 ```tsx
 // routes/hello.tsx → GET /hello
@@ -73,6 +73,28 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { defineHandler } from 'void';
 
 export const GET = defineHandler((c) => c.html(renderToStaticMarkup(<h1>Hello!</h1>)));
+```
+
+In an app without a JSX framework (API only, Vue, or Svelte), use [Hono's JSX](https://hono.dev/docs/guides/jsx). Your app needs `hono` in its own dependencies (new Void apps have it). Set the runtime in `vite.config.ts`, so it applies to `.tsx` and `.jsx` files alike:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite-plus';
+import { voidPlugin } from 'void';
+
+export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic', importSource: 'hono/jsx' } },
+  plugins: [voidPlugin()],
+});
+```
+
+`c.html()` then takes the JSX directly:
+
+```tsx
+// routes/hello.tsx → GET /hello
+import { defineHandler } from 'void';
+
+export const GET = defineHandler((c) => c.html(<h1>Hello!</h1>));
 ```
 
 ## `defineHandler`

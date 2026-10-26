@@ -22,7 +22,7 @@ routes/
   notifications.ws.ts
 ```
 
-Use `.ws.tsx` or `.ws.jsx` when a handler contains JSX, such as rendering HTML fragments to send to connected clients. JSX uses your app's configured runtime.
+Use `.ws.tsx` or `.ws.jsx` when a handler contains JSX, such as rendering HTML fragments to send to connected clients. See [JSX handlers](./server-routing.md#jsx-handlers) for the JSX runtime.
 
 Filename rules match regular server routes:
 
@@ -32,7 +32,7 @@ Filename rules match regular server routes:
 - route groups like `(marketing)/chat.ws.ts` are ignored in the URL
 - `chat.dev.ws.ts` / `chat.prod.ws.ts` restrict the route to one environment
 
-The environment suffix goes **before** `.ws`. `chat.ws.dev.ts` is not recognised.
+The environment suffix goes **before** `.ws`. `chat.ws.dev.ts` is not a WebSocket route.
 
 ## `defineRoom()`
 

@@ -96,15 +96,12 @@ Pages can be flat files such as `about.vue` or directory-based routes such as `a
 
 Keep one file per route. Void reports an error when two page files resolve to the same path, such as `about.vue` and `about/index.vue`, or the same page in two route groups.
 
-Each page can have a companion `.server.ts`, `.server.tsx`, `.server.js`, `.server.jsx`, `.server.mts`, or `.server.mjs` file that runs exclusively on the server. Use `.server.tsx` or `.server.jsx` when the companion contains JSX; it uses your app's configured JSX runtime. A companion belongs to its matching page and does not create a separate route:
+Each page can have a companion `.server.ts`, `.server.tsx`, `.server.js`, `.server.jsx`, `.server.mts`, or `.server.mjs` file that runs exclusively on the server. Use `.server.tsx` or `.server.jsx` when the companion contains JSX (see [JSX handlers](../server-routing.md#jsx-handlers) for the JSX runtime). A companion belongs to its matching page and does not create a separate route:
 
 | File                   | Role                           |
 | ---------------------- | ------------------------------ |
-| `routes/api.tsx`       | Server HTTP handler at `/api`  |
 | `pages/foo.tsx`        | Page component at `/foo`       |
 | `pages/foo.server.tsx` | Server companion for that page |
-| `pages/bar.jsx`        | Page component at `/bar`       |
-| `pages/bar.server.jsx` | Server companion for that page |
 
 A companion can export:
 

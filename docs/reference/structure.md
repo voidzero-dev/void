@@ -82,7 +82,7 @@ Full-stack server-rendered pages with co-located data loading. Available with Vu
 
 <PagesFileTree />
 
-- **`.server.ts` files** export `loader` for `GET` data and `action` for mutations, paired with the page component of the same name
+- **`.server.ts` (or `.tsx`, `.js`, `.jsx`, `.mts`, `.mjs`) files** export `loader` for `GET` data and `action` for mutations, paired with the page component of the same name
 - **Layouts** nest automatically and persist across navigations
 - **Markdown** pages are supported with frontmatter
 
