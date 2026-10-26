@@ -46,7 +46,13 @@ function hasNonIslandPages(dir: string): boolean {
         continue;
       }
       const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.') || name.includes('.server.')) {
+      // Server companions such as `index.server.tsx` are not pages.
+      if (
+        name.startsWith('_') ||
+        name.startsWith('layout.') ||
+        name.endsWith('.server.tsx') ||
+        name.endsWith('.server.jsx')
+      ) {
         continue;
       }
       if (/\.(tsx|jsx)$/.test(name) && !name.includes('.island.')) {

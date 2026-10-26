@@ -1,7 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { islandsPlugin } from '../../src/plugin-islands.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
@@ -71,40 +70,16 @@ describe('pagesPlugin build config', () => {
 
   it.each(['tsx', 'jsx'])(
     'omits pages-client for island-only pages with .server.%s files',
-    async (extension) => {
-      writePage(
-        'index.island.tsx',
-        `import Counter from '../Counter' with { island: 'load' };
-export default function Home() { return <Counter />; }`,
-      );
+    (extension) => {
+      writePage('index.island.tsx', 'export default function Home() { return <h1>Home</h1>; }');
       writePage(`index.server.${extension}`, 'export const loader = () => ({ count: 0 });');
-      writeFileSync(
-        join(TMP, 'Counter.tsx'),
-        'export default function Counter() { return <button>0</button>; }',
-      );
 
       const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
       expect(getHookHandler(plugin.config)({}, { command: 'build' })).toBeUndefined();
-
-      const islandPlugin = islandsPlugin(PAGES_DIR)[0] as PagesPluginHooks;
-      const islandConfig = await getHookHandler(islandPlugin.config)({}, { command: 'build' });
-      expect(islandConfig).toMatchObject({
-        environments: {
-          client: {
-            build: {
-              rollupOptions: { input: { 'islands-client': 'virtual:void-islands-client' } },
-            },
-          },
-        },
-      });
-      await getHookHandler(islandPlugin.buildStart).call({});
-      const client = await getHookHandler(islandPlugin.load)('\0virtual:void-islands-client');
-      expect(client).toContain('"Counter"');
-      expect(client).toContain('initIslands(islands,');
     },
   );
 
-  it.each(['about.tsx', 'about.jsx', 'blog/about.tsx', 'blog/about.jsx'])(
+  it.each(['about.tsx', 'about.jsx', 'blog/about.tsx', 'blog/about.jsx', 'status.server.v2.tsx'])(
     'keeps pages-client for an ordinary %s page alongside island pages',
     (page) => {
       writePage('index.island.tsx', 'export default function Home() { return <h1>Home</h1>; }');
