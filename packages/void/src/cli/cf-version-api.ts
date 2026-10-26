@@ -417,11 +417,25 @@ function assetConfigFromOutput(value: unknown): Json | undefined {
   };
 }
 
-/**
- * The version API placement. Smart placement is normalized the same way as cf's own version
- * uploads. Targeted placement is rejected: the Workers beta version endpoint can drop its
- * target, and an atomic upload is live before a read-back could catch that.
- */
+type PlacementTarget = { kind: 'region' | 'host' | 'hostname'; value: string };
+
+/** The region, host or hostname of a targeted placement. */
+function placementTarget(
+  placement: ParsedOutputWorkerConfig['placement'],
+): PlacementTarget | undefined {
+  if (!placement) {
+    return undefined;
+  }
+  for (const kind of ['region', 'host', 'hostname'] as const) {
+    const value = (placement as Record<string, unknown>)[kind];
+    if (typeof value === 'string' && value) {
+      return { kind, value };
+    }
+  }
+  return undefined;
+}
+
+/** The version API placement, in the shape cf's own version uploads send. */
 function placementFromOutput(placement: ParsedOutputWorkerConfig['placement']): Json | undefined {
   if (!placement) {
     return undefined;
@@ -430,16 +444,26 @@ function placementFromOutput(placement: ParsedOutputWorkerConfig['placement']): 
   if (hint || placement.mode === 'smart') {
     return { mode: 'smart', ...(hint ? { hint } : {}) };
   }
-  const target =
-    ('region' in placement && placement.region && 'region') ||
-    ('host' in placement && placement.host && 'host') ||
-    ('hostname' in placement && placement.hostname && 'hostname');
-  if (target) {
-    throw new Error(
-      `Cloudflare placement.${target} cannot be deployed while the Worker has secrets. Remove cloudflare.placement from void.config.ts, or set it to { mode: 'smart' }.`,
-    );
+  const target = placementTarget(placement);
+  return target ? { mode: 'targeted', [target.kind]: target.value } : undefined;
+}
+
+/**
+ * Whether the upload reply still names the requested target. The Workers beta version
+ * endpoint has replied `placement: {}` after dropping one (terraform-provider-cloudflare#7273).
+ * It now replies with the target alone, e.g. `{ region }`.
+ */
+function keepsPlacementTarget(placement: unknown, target: PlacementTarget): boolean {
+  const reply = object(placement);
+  if (!reply) {
+    return false;
   }
-  return undefined;
+  const targets = reply.target === undefined ? [reply] : reply.target;
+  return (
+    Array.isArray(targets) &&
+    targets.length === 1 &&
+    object(targets[0])?.[target.kind] === target.value
+  );
 }
 
 async function apiResult(
@@ -1275,6 +1299,12 @@ export async function uploadPinnedCloudflareVersion(options: {
   } catch {
     throw new Error(
       `Cloudflare Worker version ${versionId} was uploaded${options.atomic ? ' and may already be published' : ''}, but its Container applications could not be verified. Read back the Worker deployment and Container identities before retrying.`,
+    );
+  }
+  const target = placementTarget(config.placement);
+  if (target && !keepsPlacementTarget(uploaded.placement, target)) {
+    throw new Error(
+      `Cloudflare did not keep placement.${target.kind} "${target.value}" on Worker version ${versionId}${options.atomic ? ', which is already live' : ', so it was not deployed'}. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
     );
   }
   return {

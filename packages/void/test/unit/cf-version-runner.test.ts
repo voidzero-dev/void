@@ -1360,11 +1360,12 @@ it('uploads Worker limits, placement and cache with pinned secrets', async () =>
   }
 });
 
-it.each([
-  { region: 'aws:us-east-1' },
-  { host: 'db.example.test:5432' },
-  { hostname: 'api.example.test' },
-])('rejects targeted placement with pinned secrets before any upload: %j', async (placement) => {
+/** Upload with pinned secrets to a fake API whose upload reply carries `replyPlacement`. */
+async function uploadTargeted(
+  placement: Record<string, string>,
+  replyPlacement: unknown,
+  atomic = false,
+) {
   const prepared = await output({ secrets: { required: ['AUTH_SECRET'] }, placement });
   try {
     await pinActiveWorkerSecrets({
@@ -1373,9 +1374,18 @@ it.each([
       bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
       requiredNames: ['AUTH_SECRET'],
     });
-    const requests: Array<string> = [];
-    const server = createServer((request, response) => {
-      requests.push(`${request.method} ${request.url}`);
+    const uploads: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Array<Buffer> = [];
+      for await (const chunk of request) {
+        chunks.push(Buffer.from(chunk));
+      }
+      if (request.method === 'POST') {
+        uploads.push({
+          url: request.url ?? '',
+          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+        });
+      }
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(
         JSON.stringify({
@@ -1387,27 +1397,88 @@ it.each([
                   id: '11111111-1111-4111-8111-111111111111',
                   bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
                 }
-              : { id: '22222222-2222-4222-8222-222222222222', urls: [] },
+              : {
+                  id: '22222222-2222-4222-8222-222222222222',
+                  urls: [],
+                  ...(replyPlacement === undefined ? {} : { placement: replyPlacement }),
+                },
         }),
       );
     });
-    await expect(
-      uploadPinnedCloudflareVersion({
-        output: prepared,
-        accountId: 'account-id',
-        apiBaseUrl: await listen(server),
-        workerName: 'void-test',
-        token: 'synthetic-token',
-        atomic: true,
-        verifyUploader: () => true,
-      }),
-    ).rejects.toThrow(
-      `Cloudflare placement.${Object.keys(placement)[0]} cannot be deployed while the Worker has secrets. Remove cloudflare.placement from void.config.ts, or set it to { mode: 'smart' }.`,
-    );
-    expect(requests).toEqual([]);
+    const upload = uploadPinnedCloudflareVersion({
+      output: prepared,
+      accountId: 'account-id',
+      apiBaseUrl: await listen(server),
+      workerName: 'void-test',
+      token: 'synthetic-token',
+      atomic,
+      verifyUploader: () => true,
+    });
+    return {
+      result: await upload.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      ),
+      uploads,
+    };
   } finally {
     prepared.dispose();
   }
+}
+
+it.each([
+  [{ region: 'aws:us-east-1' }, false],
+  [{ region: 'aws:us-east-1' }, true],
+  [{ host: 'db.example.test:5432' }, false],
+  [{ hostname: 'api.example.test' }, true],
+])('uploads targeted placement %j with pinned secrets (atomic=%s)', async (placement, atomic) => {
+  // Cloudflare replies with the target alone, as observed on the live API.
+  const { result, uploads } = await uploadTargeted(placement, placement, atomic);
+
+  expect(result).toEqual({ value: { id: '22222222-2222-4222-8222-222222222222', urls: [] } });
+  expect(uploads).toHaveLength(1);
+  expect(uploads[0]!.url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
+  expectSameJson(uploads[0]!.body.placement, { mode: 'targeted', ...placement });
+});
+
+it('accepts an upload reply that lists the target', async () => {
+  const { result } = await uploadTargeted(
+    { region: 'aws:us-east-1' },
+    { mode: 'targeted', target: [{ id: 1, region: 'aws:us-east-1', type: 'region' }] },
+  );
+
+  expect(result).toHaveProperty('value.id', '22222222-2222-4222-8222-222222222222');
+});
+
+it.each([
+  ['no placement', undefined],
+  ['an empty placement', {}],
+  ['a targeted mode without a target', { mode: 'targeted' }],
+  ['smart placement', { mode: 'smart' }],
+  ['another region', { region: 'aws:eu-west-1' }],
+  ['the target under another kind', { hostname: 'aws:us-east-1' }],
+  [
+    'two targets',
+    { mode: 'targeted', target: [{ region: 'aws:us-east-1' }, { region: 'aws:eu-west-1' }] },
+  ],
+])('stops before deploying when the upload reply has %s', async (_case, replyPlacement) => {
+  const { result } = await uploadTargeted({ region: 'aws:us-east-1' }, replyPlacement);
+
+  expect(result).toEqual({
+    error: new Error(
+      `Cloudflare did not keep placement.region "aws:us-east-1" on Worker version 22222222-2222-4222-8222-222222222222, so it was not deployed. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
+    ),
+  });
+});
+
+it('reports a live version whose atomic upload lost its target', async () => {
+  const { result } = await uploadTargeted({ hostname: 'api.example.test' }, {}, true);
+
+  expect(result).toEqual({
+    error: new Error(
+      `Cloudflare did not keep placement.hostname "api.example.test" on Worker version 22222222-2222-4222-8222-222222222222, which is already live. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
+    ),
+  });
 });
 
 it.each(['missing name', 'duplicate name', 'external collision', 'class collision'] as const)(
