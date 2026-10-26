@@ -575,8 +575,26 @@ it.each([
   },
   { label: 'no consumer list', queue: {}, consumers: undefined },
   {
+    label: 'a legacy script field',
+    queue: { consumers: [{ type: 'worker', script: 'app' }], consumers_total_count: 1 },
+    consumers: ['app'],
+  },
+  {
     label: 'a Worker consumer without a name',
     queue: { consumers: [{ type: 'worker', script_name: '' }], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+  {
+    label: 'two different Worker names on one consumer',
+    queue: {
+      consumers: [{ type: 'worker', script_name: 'app', script: 'other' }],
+      consumers_total_count: 1,
+    },
+    consumers: undefined,
+  },
+  {
+    label: 'a consumer of an unknown type',
+    queue: { consumers: [{ type: 'other' }], consumers_total_count: 1 },
     consumers: undefined,
   },
 ])(

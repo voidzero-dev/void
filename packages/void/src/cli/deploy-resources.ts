@@ -275,7 +275,10 @@ export async function computeDesiredCloudflareResources(
   // queue this Worker already consumes under its old name.
   if (analysis.queues.length > 0) {
     desired.queueNames = Object.fromEntries(
-      analysis.queues.map((q) => [q.name, scopedCloudflareQueueName(workerName, q.name)]),
+      analysis.queues.map((q) => [
+        q.name,
+        scopedCloudflareQueueName(toValidWorkerName(workerName), q.name),
+      ]),
     );
     desired.queues = Object.values(desired.queueNames);
   }

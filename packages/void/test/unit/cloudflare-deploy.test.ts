@@ -4003,6 +4003,32 @@ describe('runCloudflareDeploy — Cloudflare queue names', () => {
     ]);
   });
 
+  it('names queues after a Worker name with "_" in resource-name form', async () => {
+    // Wrangler accepts `my_app`; queue names allow only letters, digits and "-".
+    const fresh = queueHarness(queueAbsent);
+    await runCapturing(queueProject('my_app'), fresh.deps);
+    expect(fresh.builtQueueNames).toEqual([{ jobs: 'my-app-jobs' }]);
+
+    // Consumers are listed by the Worker's real script name.
+    const deployed = queueHarness((name) =>
+      name === 'jobs' ? queueExists(name, 'my_app') : queueAbsent(name),
+    );
+    await runCapturing(queueProject('my_app'), deployed.deps);
+    expect(deployed.builtQueueNames).toEqual([{ jobs: 'jobs' }]);
+  });
+
+  it('refuses two queues that would share a Cloudflare queue, before any lookup', async () => {
+    const root = queueProject('app', { 'queues/app-jobs.ts': 'export default {};' });
+    const { deps, wranglerArgs, trace, exitCalls } = queueHarness(queueAbsent);
+    const { errors } = await runCapturing(root, deps, { fails: true });
+    expect(exitCalls).toEqual([1]);
+    expect(errors.join('\n')).toContain(
+      '  • jobs uses the Cloudflare queue app-jobs, which is also a queue in queues/',
+    );
+    expect(queueInfoArgs(wranglerArgs)).toEqual([]);
+    expect(trace).not.toContain('build');
+  });
+
   it('refuses a queue that another Worker consumes, before the build', async () => {
     // Worker `app` with queues/staging-jobs.ts and Worker `app-staging` with queues/jobs.ts
     // both name a queue `app-staging-jobs`.

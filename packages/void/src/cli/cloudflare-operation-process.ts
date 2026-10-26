@@ -633,11 +633,20 @@ function queueConsumerWorkers(queue: Json): Array<string | null> | undefined {
   const workers: Array<string | null> = [];
   for (const entry of consumers) {
     const consumer = object(entry);
-    const name = consumer.script_name ?? consumer.script;
-    if (consumer.type !== 'worker' && name === undefined) {
-      workers.push(null);
-    } else if (typeof name === 'string' && name) {
+    const { script_name: scriptName, script } = consumer;
+    // The same identity rules as consumer removal: any doubt leaves the list unread.
+    if (
+      (scriptName !== undefined && (typeof scriptName !== 'string' || !scriptName)) ||
+      (script !== undefined && (typeof script !== 'string' || !script)) ||
+      (scriptName !== undefined && script !== undefined && scriptName !== script)
+    ) {
+      return undefined;
+    }
+    const name = scriptName ?? script;
+    if (typeof name === 'string' && (consumer.type === undefined || consumer.type === 'worker')) {
       workers.push(name);
+    } else if (name === undefined && consumer.type === 'http_pull') {
+      workers.push(null);
     } else {
       return undefined;
     }

@@ -78,6 +78,28 @@ export async function chooseCloudflareQueueNames(input: {
     };
   }
 
+  // `queues/jobs.ts` and `queues/app-jobs.ts` in Worker `app` would both claim the Cloudflare
+  // queue `app-jobs`, and nothing says which one an existing `app-jobs` belongs to.
+  const queueNames = desired.queueNames;
+  const clashes = Object.keys(queueNames)
+    .filter((queueName) => Object.hasOwn(queueNames, queueNames[queueName]!))
+    .map(
+      (queueName) =>
+        `  • ${queueName} uses the Cloudflare queue ${queueNames[queueName]}, which is also a queue in queues/`,
+    );
+  if (clashes.length > 0) {
+    return {
+      ok: false,
+      message: [
+        'Deploy blocked — these queues would share a Cloudflare queue:',
+        ...clashes,
+        '',
+        `A queue's Cloudflare name is the Worker name, "-", then its name from queues/.`,
+        'Rename one of the files in queues/, then retry.',
+      ].join('\n'),
+    };
+  }
+
   const names: Record<string, string> = {};
   const absent: Array<string> = [];
   const tooLong: Array<string> = [];
@@ -87,7 +109,7 @@ export async function chooseCloudflareQueueNames(input: {
     const scoped = isValidQueueName(scopedName) ? await lookup(scopedName) : null;
     // A queue this Worker consumed before queues were named after the Worker keeps its name.
     const plain = scoped?.consumers.includes(workerName) ? undefined : await lookup(queueName);
-    const choice = chooseCloudflareQueueName({ workerName, queueName, scoped, plain });
+    const choice = chooseCloudflareQueueName({ workerName, queueName, scopedName, scoped, plain });
     names[queueName] = choice.name;
     if (!isValidQueueName(choice.name)) {
       tooLong.push(`  • ${choice.name} (${choice.name.length} characters)`);

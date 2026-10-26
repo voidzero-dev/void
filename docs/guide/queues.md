@@ -118,13 +118,15 @@ Void provisions queues and connects their producers and consumers when you deplo
 
 ### Cloudflare queue names
 
-Queue names are unique per Cloudflare account. So `void deploy --platform cloudflare` names each queue after the Worker: in a Worker named `app-staging`, `queues/jobs.ts` uses the Cloudflare queue `app-staging-jobs`. Two Workers in one account, such as `app-staging` and `app-production`, get separate queues. Your code keeps using the name from `queues/` (`queues.jobs.send()`), and `vp dev` uses that name too.
+Queue names are unique per Cloudflare account. So `void deploy --platform cloudflare` names each queue after the Worker: in a Worker named `app-staging`, `queues/jobs.ts` uses the Cloudflare queue `app-staging-jobs` (a `_` in the Worker name becomes `-`). Two Workers in one account, such as `app-staging` and `app-production`, get separate queues. Your code keeps using the name from `queues/` (`queues.jobs.send()`), and `vp dev` uses that name too.
 
-If the full name is longer than 63 characters, the deploy stops before creating anything. Shorten the Worker name or the queue's file name.
+The deploy stops before creating anything when:
 
-A queue that the Worker already consumes keeps its name, so an app deployed before Worker-named queues keeps its queue (for example `jobs`) and the messages in it. The deploy prints a note when it keeps a name. To move to the Worker-named queue, wait until the queue is empty, remove the Worker's consumer from it in the Cloudflare dashboard, and deploy again. You can then delete the old queue.
+- a new queue's full name is longer than 63 characters. Shorten the Worker name or the file name.
+- one queue's full name is the name of another file in `queues/`, such as `queues/jobs.ts` and `queues/app-jobs.ts` in Worker `app`. Rename one of the files.
+- another Worker already consumes the Cloudflare queue the deploy would use. A Cloudflare queue has one consumer.
 
-If another Worker already consumes the Cloudflare queue a deploy would use, the deploy stops: a Cloudflare queue has one consumer.
+A queue that the Worker already consumes keeps its name, so an app deployed before Worker-named queues keeps its queue (for example `jobs`) and the messages in it. The deploy prints a note when it keeps a name. To move to the Worker-named queue, remove the Worker's consumer from the old queue in the Cloudflare dashboard, then deploy again. Messages that reach the old queue before that deploy finishes stay there, so do this when the app is not sending messages, and check that the old queue is empty before you delete it.
 
 ## Local development
 

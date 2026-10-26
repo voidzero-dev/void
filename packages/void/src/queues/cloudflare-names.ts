@@ -20,32 +20,34 @@ export type CloudflareQueueNames = Readonly<Record<string, string>>;
  */
 export type CloudflareQueueState = { consumers: ReadonlyArray<string | null> } | null;
 
-export function scopedCloudflareQueueName(workerName: string, queueName: string): string {
-  return `${workerName}-${queueName}`;
+/** `workerPrefix` is the Worker name in resource-name form (lowercase, `_` as `-`). */
+export function scopedCloudflareQueueName(workerPrefix: string, queueName: string): string {
+  return `${workerPrefix}-${queueName}`;
 }
 
 const consumedBy = (state: CloudflareQueueState, workerName: string): boolean =>
   state?.consumers.includes(workerName) ?? false;
 
 /**
- * Pick the Cloudflare name for one queue. `plain` may be `undefined` when it
- * was not looked up, which is only needed when the Worker does not already
- * consume the scoped queue.
+ * Pick the Cloudflare name for one queue: its scoped name, or its plain name
+ * when this Worker already consumes that queue. `plain` may be `undefined`
+ * when it was not looked up, which is only needed when the Worker does not
+ * already consume the scoped queue.
  */
 export function chooseCloudflareQueueName(input: {
   workerName: string;
   queueName: string;
+  scopedName: string;
   scoped: CloudflareQueueState;
   plain: CloudflareQueueState | undefined;
 }): { name: string; kept: boolean } {
-  const scoped = scopedCloudflareQueueName(input.workerName, input.queueName);
   if (
     !consumedBy(input.scoped, input.workerName) &&
     consumedBy(input.plain ?? null, input.workerName)
   ) {
     return { name: input.queueName, kept: true };
   }
-  return { name: scoped, kept: false };
+  return { name: input.scopedName, kept: false };
 }
 
 /** Consumers of a queue other than this Worker. A queue has one consumer. */

@@ -37,7 +37,13 @@ describe('Cloudflare queue names', () => {
     ['an unread plain queue', { consumers: [] }, undefined, 'app-jobs', false],
   ])('picks the name for %s', (_case, scoped, plain, name, kept) => {
     expect(
-      chooseCloudflareQueueName({ workerName: 'app', queueName: 'jobs', scoped, plain }),
+      chooseCloudflareQueueName({
+        workerName: 'app',
+        queueName: 'jobs',
+        scopedName: 'app-jobs',
+        scoped,
+        plain,
+      }),
     ).toEqual({ name, kept });
   });
 
@@ -46,6 +52,7 @@ describe('Cloudflare queue names', () => {
       chooseCloudflareQueueName({
         workerName: 'app',
         queueName: 'jobs',
+        scopedName: 'app-jobs',
         scoped: { consumers: ['app'] },
         plain: { consumers: ['app'] },
       }),
