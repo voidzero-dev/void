@@ -1,0 +1,21 @@
+packages/void/src/pages/navigation-engine.ts
+  s_a6366f8c8935ed::t_4dd90e8709dfb5 16,839
+packages/void/test/unit/pages-client.test.ts
+  s_a6366f8c8935ed::t_d814613d13bff3 1,6-10,540,544-548,551-556,566-612
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "13555d5a204234d73891a19c8e643a663c204b61",
+  "prompts": {},
+  "sessions": {
+    "s_a6366f8c8935ed": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "01a14707-5c8d-7571-aeec-7e6f0efff9d2",
+        "model": "unknown"
+      },
+      "human_author": "Christoph Nakazawa <cnakazawa@cloudflare.com>"
+    }
+  }
+}
