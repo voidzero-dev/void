@@ -88,10 +88,16 @@ export async function scanRoutes(
     environment: options.environment,
   });
   const routes = inventory.routes
-    .map((route) => ({
-      ...route,
-      methods: detectHttpExports(join(paths.routesDir, route.filePath)),
-    }))
+    .map((route) => {
+      const methods = detectHttpExports(join(paths.routesDir, route.filePath));
+      // Hono runs the GET handler for HEAD requests and has no way to register a HEAD one.
+      if (methods.includes('HEAD')) {
+        throw new Error(
+          `routes: '${route.filePath}' exports HEAD. HEAD requests are answered by the GET handler; remove the HEAD export.`,
+        );
+      }
+      return { ...route, methods };
+    })
     .sort(compareRouteSpecificity);
   return { ...inventory, routes, pages };
 }
