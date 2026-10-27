@@ -98,10 +98,14 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
 ];
 
 // What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
-// by rendering each code point with takumi-js 2.16: some accented letters,
-// spaces and format characters, quotes, dashes, € ™ − ↑ ↓.
+// by rendering each code point with takumi-js 2.16: some accented letters and
+// combining marks, spaces, format characters and variation selectors, quotes,
+// dashes, € ™ − ↑ ↓. Number forms such as ⅓ stay missing: no served subset
+// has them.
+/* eslint-disable no-misleading-character-class -- the marks and selectors are listed on their own */
 const BUILT_IN =
-  /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FEFF}]/u;
+  /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{304}\u{308}\u{34F}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FE00}-\u{FE0F}\u{FEFF}]/u;
+/* eslint-enable no-misleading-character-class */
 
 // Emoji come from jsDelivr by code point, so keep them for the life of the
 // isolate, as @vercel/og does (`// src/og.ts`: assetCache); other images are
@@ -168,11 +172,13 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
   const node =
     options.emoji === 'from-font' ? tree : extractEmojis(tree, options.emoji ?? 'twemoji');
   const images = Array.isArray(options.images) ? { sources: options.images } : options.images;
+  // One cache for both attempts below, so a retry fetches no image again.
+  const fetchCache = imageCache();
   const renderNode = (fonts: Array<FontLoader>) =>
     render(node, {
       ...options,
       css: [...toList(options.css), ...css],
-      images: { fetchCache: imageCache(), ...images },
+      images: { fetchCache, ...images },
       // Takumi uses every font registered in the process when it gets no list,
       // which includes earlier images' fallback fonts:
       // https://github.com/kane50613/takumi/blob/takumi@2.16.2/takumi-helpers/src/renderer.ts#L271-L282
@@ -249,6 +255,8 @@ function hasBytes(font: Font): font is FontDetails & { lang?: string } {
   );
 }
 
+const fontHashes = new WeakMap<ArrayBuffer | Uint8Array, Promise<string>>();
+
 // Takumi keeps every registered font for the life of the process and tells
 // them apart by buffer identity, so a font read anew for each request, as in
 // next/og's examples, would be registered again every time. Key it by content.
@@ -257,16 +265,20 @@ async function keyedFont(font: Font): Promise<FontLoader> {
     return font;
   }
   const { lang: _lang, data, ...details } = font;
-  const digest = await crypto.subtle.digest(
-    'SHA-256',
-    data instanceof ArrayBuffer ? data : new Uint8Array(data),
-  );
-  const hash = Array.from(new Uint8Array(digest, 0, 8), (byte) =>
-    byte.toString(16).padStart(2, '0'),
-  ).join('');
+  let hash = fontHashes.get(data);
+  if (!hash) {
+    hash = crypto.subtle
+      .digest('SHA-256', data instanceof ArrayBuffer ? data : new Uint8Array(data))
+      .then((digest) =>
+        Array.from(new Uint8Array(digest, 0, 8), (byte) => byte.toString(16).padStart(2, '0')).join(
+          '',
+        ),
+      );
+    fontHashes.set(data, hash);
+  }
   return {
     ...details,
-    key: `void/og ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${hash}`,
+    key: `void/og ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${await hash}`,
     data: () => data,
   };
 }
