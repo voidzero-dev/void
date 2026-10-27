@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { toSlash } from 'pathslash';
@@ -9,7 +9,6 @@ import {
   collectPrerenderPaths,
   collectPrerenderPathsNode,
   collectPrerenderWorkerModules,
-  writeDefaultNotFoundPage,
 } from '../../src/prerender.ts';
 import { INTERNAL_ENV_KEYS, stripInternalEnvKeys } from '../../src/shared/env.ts';
 
@@ -20,31 +19,6 @@ function createTempWorkerDir(): string {
   tempDirs.push(dir);
   return dir;
 }
-
-describe('static 404 page', () => {
-  afterEach(() => {
-    for (const dir of tempDirs.splice(0)) {
-      rmSync(dir, { recursive: true, force: true });
-    }
-  });
-
-  it('emits a self-contained default page', () => {
-    const clientDir = join(createTempWorkerDir(), 'client');
-    writeDefaultNotFoundPage(clientDir);
-    const html = readFileSync(join(clientDir, '404.html'), 'utf8');
-    expect(html).toContain('<!doctype html>');
-    expect(html).toContain('404');
-    expect(html).not.toMatch(/<link[^>]+rel="stylesheet"|<script[^>]+src=/);
-  });
-
-  it('preserves a custom page', () => {
-    const clientDir = createTempWorkerDir();
-    const html = '<h1>Custom not found page</h1>';
-    writeFileSync(join(clientDir, '404.html'), html);
-    writeDefaultNotFoundPage(clientDir);
-    expect(readFileSync(join(clientDir, '404.html'), 'utf8')).toBe(html);
-  });
-});
 
 describe('stripInternalEnvKeys', () => {
   it.each([undefined, {}])('returns empty sanitized + empty stripped for %j', (input) => {

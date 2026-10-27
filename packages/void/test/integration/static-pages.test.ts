@@ -30,12 +30,6 @@ describe('playground/static-pages build (output: static)', () => {
     expect(existsSync(clientManifest)).toBe(true);
   });
 
-  it('emits a self-contained 404 page for static hosting', () => {
-    const html = readFileSync(join(DIST, 'client/404.html'), 'utf8');
-    expect(html).toContain('404');
-    expect(html).not.toMatch(/<link[^>]+rel="stylesheet"|<script[^>]+src=/);
-  });
-
   it('prerenders index.html with production asset URLs', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);

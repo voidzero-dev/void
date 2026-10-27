@@ -19,8 +19,6 @@ When `output` is `"static"`:
 - Dynamic pages without `getPrerenderPaths()` are implicitly not prerendered (the paths aren't known at build time).
 - The build output is self-contained and works for direct Cloudflare deployment, self-hosting, or `void deploy`.
 
-Static output includes a default `404.html` for missing pages. Add `public/404.html` to use your own error page instead. When using another static host, configure it to serve this file with a 404 status for missing URLs.
-
 ## Per-page overrides
 
 Individual pages can opt out of prerendering:
