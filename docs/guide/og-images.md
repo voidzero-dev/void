@@ -129,7 +129,7 @@ return new ImageResponse(postCard(post), {
 });
 ```
 
-Fonts can be TTF, OTF, or WOFF2 files.
+Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too.
 
 ## Add the image to a page
 
