@@ -109,7 +109,7 @@ describe('ImageResponse', () => {
     expect(Title).toHaveBeenCalledOnce();
   });
 
-  // Builds cache images for a year: test/integration/og-image.test.ts.
+  // Builds send `public, max-age=0, must-revalidate`: test/integration/og-image.test.ts.
   it('does not cache images during development', () => {
     expect(new ImageResponse(card).headers.get('cache-control')).toBe('no-cache, no-store');
   });
