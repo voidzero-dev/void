@@ -53,13 +53,23 @@ describe('loadVoidAuthConfig', () => {
   });
 
   // Vitest resolves the native `import()` itself; plain Node is what `void prepare` runs in.
-  it('resolves extensionless and Vite alias imports in void prepare', () => {
+  // `@schema` comes from a plugin's `config()` hook, as Void's drizzle plugin adds it.
+  it('resolves extensionless, config alias and plugin alias imports in void prepare', () => {
     const root = createTempDir();
     mkdirSync(join(root, 'lib'));
     mkdirSync(join(root, 'fields'));
+    mkdirSync(join(root, 'db'));
     writeFileSync(
       join(root, 'vite.config.ts'),
-      `export default { resolve: { alias: { '@fields': ${JSON.stringify(join(root, 'fields'))} } } };\n`,
+      [
+        'export default {',
+        `  resolve: { alias: { '@fields': ${JSON.stringify(join(root, 'fields'))} } },`,
+        '  plugins: [{',
+        "    name: 'schema-alias',",
+        `    config: () => ({ resolve: { alias: { '@schema': ${JSON.stringify(join(root, 'db', 'schema.ts'))} } } }),`,
+        '  }],',
+        '};',
+      ].join('\n'),
     );
     writeFileSync(
       join(root, 'auth.ts'),
@@ -67,7 +77,8 @@ describe('loadVoidAuthConfig', () => {
         "import type { VoidAuthConfig } from 'void/auth';",
         "import { nickname } from './lib/nickname';",
         "import { pronouns } from '@fields/pronouns';",
-        'export default { user: { additionalFields: { nickname, pronouns } } } satisfies VoidAuthConfig;',
+        "import { website } from '@schema';",
+        'export default { user: { additionalFields: { nickname, pronouns, website } } } satisfies VoidAuthConfig;',
       ].join('\n'),
     );
     writeFileSync(
@@ -77,6 +88,10 @@ describe('loadVoidAuthConfig', () => {
     writeFileSync(
       join(root, 'fields', 'pronouns.ts'),
       "export const pronouns = { type: 'string', required: false } as const;",
+    );
+    writeFileSync(
+      join(root, 'db', 'schema.ts'),
+      "export const website = { type: 'string', required: false } as const;",
     );
 
     execFileSync(
@@ -94,6 +109,7 @@ describe('loadVoidAuthConfig', () => {
     const schema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
     expect(schema).toContain('nickname');
     expect(schema).toContain('pronouns');
+    expect(schema).toContain('website');
   }, 30_000);
 
   it('evaluates the config through the module importer it is given', async () => {
@@ -102,7 +118,7 @@ describe('loadVoidAuthConfig', () => {
     expect(importModule).toHaveBeenCalledWith('/app/auth.ts');
   });
 
-  it("imports through the dev server's auth config environment when it has one", async () => {
+  it("imports through the dev server's auth config environment, or with its aliases", async () => {
     const dir = createTempDir();
     const path = join(dir, 'auth.ts');
     writeFileSync(path, "export default { marker: 'first' };");
@@ -120,19 +136,25 @@ describe('loadVoidAuthConfig', () => {
       },
     });
     try {
-      const importModule = devAuthConfigImporter(server)!;
+      const importModule = devAuthConfigImporter(server);
       expect(await loadVoidAuthConfig(path, importModule)).toEqual({ marker: 'first' });
     } finally {
       await server.close();
     }
+    mkdirSync(join(dir, 'fields'));
+    writeFileSync(join(dir, 'fields', 'marker.ts'), "export const marker = 'alias';");
+    writeFileSync(path, "import { marker } from '@fields/marker';\nexport default { marker };");
     const plain = await createServer({
       root: dir,
       configFile: false,
       logLevel: 'silent',
+      resolve: { alias: { '@fields': join(dir, 'fields') } },
       server: { middlewareMode: true, ws: false, watch: null },
     });
     try {
-      expect(devAuthConfigImporter(plain)).toBeUndefined();
+      expect(await loadVoidAuthConfig(path, devAuthConfigImporter(plain))).toEqual({
+        marker: 'alias',
+      });
     } finally {
       await plain.close();
     }

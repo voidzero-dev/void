@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import {
   type AliasOptions,
   isRunnableDevEnvironment,
-  loadConfigFromFile,
   parseSync,
+  resolveConfig,
   runnerImport,
   type ViteDevServer,
 } from 'vite';
@@ -59,12 +59,18 @@ export const AUTH_CONFIG_ENVIRONMENT = 'void_auth_config';
 
 export type ModuleImporter = (path: string) => Promise<Record<string, unknown>>;
 
-/** The dev server's importer for the auth config, when it has the environment. */
-export function devAuthConfigImporter(server: ViteDevServer): ModuleImporter | undefined {
+/**
+ * The dev server's importer for the auth config: its auth config environment, or
+ * a one-off runner with the server's aliases when it has no such environment.
+ */
+export function devAuthConfigImporter(server: ViteDevServer): ModuleImporter {
   const environment = server.environments[AUTH_CONFIG_ENVIRONMENT];
   return environment && isRunnableDevEnvironment(environment)
     ? (path) => environment.runner.import(path)
-    : undefined;
+    : (path) => {
+        const { root, mode, resolve } = server.config;
+        return viteAuthConfigImporter(root, mode, resolve)(path);
+      };
 }
 
 /**
@@ -88,16 +94,15 @@ export function viteAuthConfigImporter(
   };
 }
 
-/** The importer for commands outside Vite, with the aliases of the app's Vite config. */
+/**
+ * The importer for commands outside Vite. It resolves the app's Vite config with
+ * its plugins, because plugins add aliases in their `config()` hook, such as
+ * Void's `@schema`.
+ */
 export function projectAuthConfigImporter(root: string): ModuleImporter {
   return async (path) => {
-    const loaded = await loadConfigFromFile(
-      { command: 'serve', mode: 'development' },
-      undefined,
-      root,
-      'silent',
-    );
-    return viteAuthConfigImporter(root, 'development', loaded?.config.resolve)(path);
+    const config = await resolveConfig({ root, mode: 'development', logLevel: 'silent' }, 'serve');
+    return viteAuthConfigImporter(root, config.mode, config.resolve)(path);
   };
 }
 
