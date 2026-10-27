@@ -697,6 +697,16 @@ const dispatcher = {
       return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
     }
     if (
+      url.protocol === 'http:' &&
+      url.hostname !== 'localhost' &&
+      !url.hostname.endsWith('.localhost') &&
+      url.hostname !== '127.0.0.1' &&
+      url.hostname !== '[::1]'
+    ) {
+      url.protocol = 'https:';
+      return Response.redirect(url.href, 308);
+    }
+    if (
       env.PLATFORM_TRAFFIC_STATE === 'staging' ||
       env.PLATFORM_TRAFFIC_STATE === 'sandbox-drain' ||
       (env.PLATFORM_INSTALLATION_ID &&

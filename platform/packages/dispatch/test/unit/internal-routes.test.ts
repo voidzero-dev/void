@@ -49,6 +49,76 @@ function createEnv(
   } as unknown as Env;
 }
 
+describe('HTTPS redirects', () => {
+  it.each([
+    ['oxc.rs', 'GET'],
+    ['rolldown.rs', 'HEAD'],
+    ['my-app.void.app', 'POST'],
+  ])('redirects HTTP %s requests with method %s before routing', async (hostname, method) => {
+    const env = createEnv();
+    const request = new Request(`http://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`, {
+      method,
+      ...(method === 'POST' ? { body: 'payload' } : {}),
+    });
+    const response = await app.fetch(request, env, createCtx());
+
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe(
+      `https://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`,
+    );
+    expect(request.bodyUsed).toBe(false);
+    expect(env.ROUTING.get).not.toHaveBeenCalled();
+    expect(env.DISPATCH.get).not.toHaveBeenCalled();
+  });
+
+  it('serves HTTPS without a redirect even with an HTTP forwarding header', async () => {
+    const response = await app.fetch(
+      new Request('https://oxc.rs/', { headers: { 'X-Forwarded-Proto': 'http' } }),
+      createEnv(),
+      createCtx(),
+    );
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Location')).toBeNull();
+  });
+
+  it.each(['localhost', 'my-app.localhost', '127.0.0.1', '[::1]'])(
+    'serves local HTTP on %s without a redirect',
+    async (hostname) => {
+      const response = await app.fetch(
+        new Request(`http://${hostname}:8787/`),
+        createEnv(),
+        createCtx(),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('Location')).toBeNull();
+    },
+  );
+
+  it('preserves HTTP installer health probes while public traffic is disabled', async () => {
+    const response = await app.fetch(
+      new Request('http://test.void.app/health', {
+        headers: { 'X-Void-Platform-Probe': 'probe-token' },
+      }),
+      createEnv(true, true, 'probe-token'),
+      createCtx(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+
+  it('preserves the legacy HTTP admin health probe', async () => {
+    const response = await app.fetch(
+      new Request('http://test.void.app/health', {
+        headers: { 'X-Health-Check': 'void-admin' },
+      }),
+      createEnv(),
+      createCtx(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+  });
+});
+
 describe('internal route blocking', () => {
   it('rejects every request while the platform is disabled', async () => {
     const response = await app.fetch(

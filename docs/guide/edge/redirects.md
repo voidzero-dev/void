@@ -4,6 +4,8 @@ outline: deep
 
 # Redirects
 
+Apps hosted on a Void platform automatically redirect HTTP requests to HTTPS with a permanent `308` redirect, preserving the path, query string, and request method. Local development continues to support HTTP.
+
 Define URL redirects in [`void.config.ts`](../../reference/config) using the `routing.redirects` field. Keys are source URL patterns, values are destination strings or objects with an explicit status.
 
 ```json
