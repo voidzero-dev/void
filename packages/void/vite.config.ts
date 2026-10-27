@@ -147,9 +147,9 @@ export default defineConfig({
     clean: true,
     plugins: [
       {
-        name: 'void:raw-css',
+        name: 'void:raw-assets',
         load: {
-          filter: { id: /\.css\?raw$/ },
+          filter: { id: /\.(?:css|html)\?raw$/ },
           handler(id) {
             const file = id.slice(0, -'?raw'.length);
             this.addWatchFile(file);

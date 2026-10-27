@@ -1,4 +1,10 @@
 import type { Context } from 'hono';
+import notFoundPage from './error-pages/404.html?raw';
+import serverErrorPage from './error-pages/500.html?raw';
+import errorPageCss from './error-pages/style.css?raw';
+
+type ErrorPageStatus = 404 | 500;
+const errorPages = { 404: notFoundPage, 500: serverErrorPage };
 
 type StackFrame = {
   functionName: string;
@@ -12,10 +18,15 @@ type StackFrame = {
 type ErrorDetails = { name: string; message: string; stack: string; frames: Array<StackFrame> };
 export type ErrorRendererOptions = { dev?: boolean; projectRoot: string; homeDir: string };
 export type ErrorRenderer = {
-  createResponse: (request: Request, status: number, title: string, error?: unknown) => Response;
+  createResponse: (
+    request: Request,
+    status: ErrorPageStatus,
+    title: string,
+    error?: unknown,
+  ) => Response;
   serveCustomPage: (
     context: Context,
-    status: number,
+    status: ErrorPageStatus,
     title: string,
     error?: unknown,
   ) => Promise<Response>;
@@ -567,80 +578,21 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
     return /<\/head\s*>/i.test(html) ? html.replace(/<\/head\s*>/i, css + '</head>') : css + html;
   }
 
-  function renderErrorPage(status: number, title: string, error?: unknown): string {
-    const heading = status + ': ' + title;
-    const prefix = status + ': ';
-    const overlay =
-      dev && status === 500 && error ? renderDevErrorOverlay(status, title, error) : '';
-    return `<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>${escapeHtml(heading)}</title>
-    ${getErrorAssetCss(error)}
-    <style>
-      :root {
-        color-scheme: light dark;
-        font-family: ${ERROR_PAGE_FONT_STACK};
-        background: #f5f5f5;
-        color: #171717;
-      }
-      * { box-sizing: border-box; }
-      body {
-        margin: 0;
-        min-block-size: 100dvh;
-        display: grid;
-        place-items: center;
-        padding: 24px;
-        background: radial-gradient(circle at top, rgba(255, 255, 255, 0.96), rgba(245, 245, 245, 0.96) 52%), linear-gradient(180deg, #fafafa 0%, #f1f1f1 100%);
-        font: 500 16px/1.5 ${ERROR_PAGE_FONT_STACK};
-      }
-      main {
-        inline-size: min(100%, 560px);
-        padding: 32px 36px;
-        border: 1px solid #d4d4d8;
-        border-radius: 32px;
-        corner-shape: squircle;
-        background: rgba(255, 255, 255, 0.88);
-        text-align: center;
-        backdrop-filter: blur(12px);
-      }
-      h1 {
-        margin: 0;
-        font: 400 clamp(1.5rem, 1.2rem + 1vw, 2rem) / 1.1 ${ERROR_PAGE_FONT_STACK};
-        letter-spacing: -0.03em;
-      }
-      strong {
-        font-weight: 600;
-      }
-      @media (prefers-color-scheme: dark) {
-        :root {
-          background: #0a0a0a;
-          color: #f5f5f5;
-        }
-        body {
-          background: radial-gradient(circle at top, rgba(38, 38, 38, 0.96), rgba(10, 10, 10, 0.96) 52%), linear-gradient(180deg, #171717 0%, #0a0a0a 100%);
-        }
-        main {
-          border-color: #27272a;
-          background: rgba(23, 23, 23, 0.88);
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <h1><strong>${escapeHtml(prefix)}</strong>${escapeHtml(title)}</h1>
-    </main>
-    ${overlay}
-  </body>
-</html>`;
+  function renderErrorPage(status: ErrorPageStatus, title: string, error?: unknown): string {
+    // Inline the shared stylesheet so fallback pages do not depend on asset serving.
+    const page = errorPages[status].replace(
+      '<link rel="stylesheet" href="./style.css" />',
+      `<style>\n${errorPageCss}</style>`,
+    );
+    const html = injectErrorAssetCss(page, getErrorAssetCss(error));
+    return dev && status === 500 && error
+      ? injectDevErrorOverlay(html, renderDevErrorOverlay(status, title, error))
+      : html;
   }
 
   function createErrorResponse(
     request: Request,
-    status: number,
+    status: ErrorPageStatus,
     title: string,
     error?: unknown,
   ): Response {
@@ -655,7 +607,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
 
   async function serveCustomPage(
     c: Context,
-    status: number,
+    status: ErrorPageStatus,
     fallbackText: string,
     error?: unknown,
   ): Promise<Response> {

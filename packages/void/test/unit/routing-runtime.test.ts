@@ -690,6 +690,40 @@ describe('typed Pages and SSR execution', () => {
 });
 
 describe('typed error rendering', () => {
+  it.each([
+    [404, 'Not Found'],
+    [500, 'Internal Server Error'],
+  ] as const)(
+    'serves an HTML %s page when custom assets are unavailable',
+    async (status, title) => {
+      const app = new Hono();
+      const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+      app.get('/page', (c) => errors.serveCustomPage(c, status, title));
+      const response = await app.fetch(new Request('https://app.test/page'), {
+        ASSETS: {
+          fetch: async () => {
+            throw new Error('assets unavailable');
+          },
+        },
+      });
+      expect(response.status).toBe(status);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(await response.text()).toContain(String(status));
+    },
+  );
+  it.each([404, 500] as const)('serves a custom %s page unchanged', async (status) => {
+    const app = new Hono();
+    const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+    app.get('/page', (c) => errors.serveCustomPage(c, status, 'Custom error'));
+    const body = '<html><body>Custom error page</body></html>';
+    const fetch = async (request: Request) =>
+      new URL(request.url).pathname === `/${status}.html`
+        ? new Response(body)
+        : new Response('Not Found', { status: 404 });
+    const response = await app.fetch(new Request('https://app.test/page'), { ASSETS: { fetch } });
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe(body);
+  });
   it('escapes exceptions, renders causes and editor links in development and suppresses details in production', async () => {
     const error = new Error('<script>private</script>', { cause: new Error('nested failure') });
     error.stack = 'Error: private\n    at render (/project/pages/index.ts:12:3)';
