@@ -7,7 +7,9 @@ import {
   type CloudContext,
   type TypedHandler,
 } from '../../src/runtime/handler.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
 import { convertReturnValue } from '../../src/runtime/response.ts';
+import { etag } from 'hono/etag';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -148,6 +150,54 @@ describe('defineHandler', () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(res.headers.get('X-Raw')).toBe('yes');
     expect(order).toEqual(['raw-before', 'handler', 'raw-after']);
+  });
+
+  it('createHttpRouteHandler runs composed handlers with post-next header mutation', async () => {
+    const addHeader = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-Route-Mw', 'yes');
+    });
+
+    const handler = defineHandler(addHeader, () => ({ ok: true }));
+    const app = new Hono();
+    app.get(
+      '/test',
+      createHttpRouteHandler(async () => ({ GET: handler }), 'GET'),
+    );
+
+    const res = await app.request(req());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Route-Mw')).toBe('yes');
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
+  it('createHttpRouteHandler etag hashes the final response body', async () => {
+    const addHeader = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-Seen', '1');
+    });
+
+    const handler = defineHandler(etag(), addHeader, () => ({ value: 'stable' }));
+    const app = new Hono();
+    app.get(
+      '/test',
+      createHttpRouteHandler(async () => ({ GET: handler }), 'GET'),
+    );
+
+    const first = await app.request(req());
+    const etagValue = first.headers.get('etag');
+    expect(etagValue).toBeTruthy();
+    expect(first.headers.get('X-Seen')).toBe('1');
+    const firstBody = await first.text();
+
+    const second = await app.request(
+      new Request('http://localhost/test', {
+        headers: { 'if-none-match': etagValue! },
+      }),
+    );
+    expect(second.status).toBe(304);
+    expect(await second.text()).toBe('');
+    expect(firstBody).toContain('stable');
   });
 
   it('middleware error propagates', async () => {

@@ -16,7 +16,7 @@ import {
   markActionKey,
   searchWithoutActionKey,
 } from '../pages/action-key.ts';
-import { VoidAssetRewriteError } from './handler.ts';
+import { isComposedHandler, VoidAssetRewriteError, type CloudContext } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
@@ -356,9 +356,14 @@ export function createHttpRouteHandler(
   load: () => Promise<Record<string, (c: Context) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
-  return markRouteHandler(async (c: Context) =>
-    convertReturnValue(await (await load())[method](c)),
-  );
+  return markRouteHandler(async (c: Context) => {
+    const handler = (await load())[method] as (c: CloudContext) => unknown;
+    const result = await handler(c as CloudContext);
+    if (isComposedHandler(handler)) {
+      return result as Response;
+    }
+    return convertReturnValue(result);
+  });
 }
 
 export {
