@@ -186,6 +186,7 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
   private readonly buffer: Array<ClientEventOf<P>> = [];
   private reconnectAttempts = 0;
   private closedByUser = false;
+  private reconnectTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly url: string,
@@ -252,7 +253,7 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
 
         this.reconnectAttempts += 1;
         const delay = this.options.reconnectDelayMs ?? 1_000;
-        setTimeout(() => this.connect(), delay);
+        this.reconnectTimer = setTimeout(() => this.connect(), delay);
       },
     );
   }
@@ -267,6 +268,7 @@ export class VoidSocket<P extends keyof WebSocketRouteMap & string> {
 
   close(code?: number, reason?: string): void {
     this.closedByUser = true;
+    clearTimeout(this.reconnectTimer);
     this.socket?.close(code, reason);
   }
 
@@ -306,6 +308,6 @@ export function connect(
   const base = resolveBaseUrl(options.baseURL);
   const resolvedPath = interpolateRouteParams(path, options.params);
   const url = new URL(resolvedPath, base);
-  url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:';
+  url.protocol = url.protocol === 'https:' || url.protocol === 'wss:' ? 'wss:' : 'ws:';
   return new VoidSocket(url.toString(), options);
 }
