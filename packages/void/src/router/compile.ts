@@ -124,6 +124,38 @@ export type PagesCompileOptions = {
 };
 
 /**
+ * Returns a lookup that gives each key its own identifier suffix. The suffix
+ * keeps the key's ASCII letters and digits; keys that clean up to the same
+ * text (user-list.ts and user_list.ts, or two CJK names of one length) get a
+ * counter so the generated consts never clash.
+ */
+function createIdentifierNames(): (key: string) => string {
+  const byKey = new Map<string, string>();
+  const used = new Set<string>();
+  return (key) => {
+    const known = byKey.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    let base = '';
+    for (const char of key.split('')) {
+      const alphanumeric =
+        (char >= '0' && char <= '9') ||
+        (char >= 'a' && char <= 'z') ||
+        (char >= 'A' && char <= 'Z');
+      base += alphanumeric ? char : '_';
+    }
+    let name = base;
+    for (let n = 2; used.has(name); n++) {
+      name = `${base}_${n}`;
+    }
+    used.add(name);
+    byKey.set(key, name);
+    return name;
+  };
+}
+
+/**
  * Generate the code for the virtual route table module (virtual:void-routes).
  * This module creates a Hono app with:
  * - Middleware registered via app.use()
@@ -322,9 +354,10 @@ export function compileRouteTable(
 
   // Register routes with lazy-loaded handlers (shared loader per file)
   const seenFiles = new Set<string>();
+  const routeNames = createIdentifierNames();
   for (const route of scan.routes) {
     const filePath = `${routesDir}/${route.filePath}`;
-    const loaderName = `_load_${route.filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const loaderName = `_load_${routeNames(route.filePath)}`;
 
     if (!seenFiles.has(route.filePath)) {
       seenFiles.add(route.filePath);
@@ -396,8 +429,9 @@ export function compileRouteTable(
   }
 
   // Pages mode — generate page route handlers
+  const pageNames = createIdentifierNames();
   if (pages && scan.pages.pages.length > 0) {
-    compilePageRoutes(lines, scan, pages, options);
+    compilePageRoutes(lines, scan, pages, options, pageNames);
   }
 
   // Ordinary HTTP hooks are fallbacks for WebSocket paths. Explicit API and
@@ -417,7 +451,7 @@ export function compileRouteTable(
     );
   }
 
-  compilePrerenderCollector(lines, scan, ssr, options);
+  compilePrerenderCollector(lines, scan, ssr, options, pageNames);
 
   if (ssr) {
     lines.push(
@@ -804,6 +838,7 @@ function compilePrerenderCollector(
   scan: ScanResult,
   ssr: SsrCompileOptions | null,
   options: CompileOptions,
+  pageNames: (componentId: string) => string,
 ): void {
   const staticPaths = scan.pages.pages
     .filter((page) => page.shouldPrerender && page.params.length === 0 && !page.catchAll)
@@ -840,7 +875,7 @@ function compilePrerenderCollector(
   }
 
   for (const page of dynamicPages) {
-    const loaderName = `_pload_${page.componentId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const loaderName = `_pload_${pageNames(page.componentId)}`;
     lines.push(`      {`);
     lines.push(`        const mod = await ${loaderName}();`);
     lines.push(`        if (typeof mod.getPrerenderPaths === "function") {`);
@@ -886,6 +921,7 @@ function compilePageRoutes(
   scan: ScanResult,
   pages: PagesCompileOptions,
   options: CompileOptions,
+  pageNames: (componentId: string) => string,
 ): void {
   // Import protocol helpers and renderer
   lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
@@ -971,7 +1007,7 @@ function compilePageRoutes(
   // Generate lazy loaders and route registrations for each page
   const seenServerFiles = new Set<string>();
   for (const page of scan.pages.pages) {
-    const safeId = page.componentId.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeId = pageNames(page.componentId);
 
     // Determine server module path
     let serverImportPath: string | null = null;

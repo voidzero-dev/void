@@ -85,6 +85,16 @@ describe('typed websocket client', () => {
     expect(MockWebSocket.instances[0]!.url).toBe('wss://void.test/files/docs/start%20here');
   });
 
+  it('keeps a secure wss baseURL secure', () => {
+    connect('/notifications', { baseURL: 'wss://api.example.com' });
+    expect(MockWebSocket.instances[0]!.url).toBe('wss://api.example.com/notifications');
+  });
+
+  it('uses ws for an http baseURL', () => {
+    connect('/notifications', { baseURL: 'http://localhost:5173' });
+    expect(MockWebSocket.instances[0]!.url).toBe('ws://localhost:5173/notifications');
+  });
+
   it('buffers messages until the socket opens', () => {
     const socket = connect('/chat/:room', { params: { room: 'general' } });
     const ws = MockWebSocket.instances[0]!;
@@ -107,5 +117,33 @@ describe('typed websocket client', () => {
     ws.emit('message', { data: JSON.stringify({ type: 'notifications.item', title: 'done' }) });
 
     expect(handler).toHaveBeenCalledWith({ type: 'notifications.item', title: 'done' });
+  });
+  describe('reconnect', () => {
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('reconnects after the server drops the socket', () => {
+      connect('/notifications', { reconnectDelayMs: 50 });
+      MockWebSocket.instances[0]!.emit('close', { code: 1006, wasClean: false });
+
+      vi.advanceTimersByTime(50);
+
+      expect(MockWebSocket.instances).toHaveLength(2);
+    });
+
+    it('does not reconnect when closed during the reconnect delay', () => {
+      const socket = connect('/notifications', { reconnectDelayMs: 50 });
+      MockWebSocket.instances[0]!.emit('close', { code: 1006, wasClean: false });
+
+      socket.close(1000, 'unmount');
+      vi.advanceTimersByTime(1_000);
+
+      expect(MockWebSocket.instances).toHaveLength(1);
+    });
   });
 });

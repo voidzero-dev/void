@@ -539,6 +539,8 @@ export function toManifestSchedulesAndQueues(
       bindingName: q.bindingName,
       ...(q.maxBatchSize != null && { maxBatchSize: q.maxBatchSize }),
       ...(q.maxBatchTimeout != null && { maxBatchTimeout: q.maxBatchTimeout }),
+      ...(q.maxRetries != null && { maxRetries: q.maxRetries }),
+      ...(q.retryDelay != null && { retryDelay: q.retryDelay }),
     })),
   };
 }

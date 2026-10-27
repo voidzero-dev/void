@@ -30,12 +30,13 @@
   let navigation = $state(init.navigation || idleNavigationState());
   const router = createRouterFacade(init.router, () => routeUrl, () => params);
 
-  // Layouts can keep the object returned by useShared() across navigations.
-  function replaceShared(next) {
-    for (const key of Object.keys(shared)) {
-      delete shared[key];
+  // Pages and layouts keep the objects returned by useShared() and useParams()
+  // across navigations, so update them in place.
+  function replaceInPlace(target, next) {
+    for (const key of Object.keys(target)) {
+      delete target[key];
     }
-    Object.assign(shared, next || {});
+    Object.assign(target, next || {});
   }
 
   // Capitalized alias for dynamic component rendering
@@ -65,8 +66,8 @@
       init.stores.page.subscribe((v) => { currentPage = v; }),
       init.stores.props.subscribe((v) => { currentPageProps = v; }),
       init.stores.layouts.subscribe((v) => { currentLayouts = v; }),
-      init.stores.shared.subscribe(replaceShared),
-      init.stores.params.subscribe((v) => { params = v; }),
+      init.stores.shared.subscribe((v) => replaceInPlace(shared, v)),
+      init.stores.params.subscribe((v) => replaceInPlace(params, v)),
       init.stores.route.subscribe((v) => { routeUrl = v; }),
       init.stores.navigation.subscribe((v) => { navigation = v; }),
     ];

@@ -526,6 +526,45 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
+  it('Link keeps the current page when the target downloads a file', async () => {
+    const page = await newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => {
+      errors.push(error.message);
+    });
+
+    try {
+      // A non-Void response makes the client fall back to a full page load, which only
+      // downloads the file, so the current page must stay on screen.
+      await page.route(BASE + '/users', (route) =>
+        route.fulfill({
+          status: 200,
+          headers: {
+            'content-type': 'text/csv',
+            'content-disposition': 'attachment; filename="users.csv"',
+          },
+          body: 'id,name\n1,Ada\n',
+        }),
+      );
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+
+      const download = page.waitForEvent('download');
+      await page.click('[data-testid="onclick-link"]');
+      await download;
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-testid="navigation-state"]')?.textContent === 'idle' &&
+          document.querySelector('h1')?.textContent === 'Link Behavior',
+      );
+
+      expect(errors).toEqual([]);
+      expect(page.url()).toBe(BASE + '/link-behavior');
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('Link hash navigation runs the navigation lifecycle', async () => {
     const page = await newPage();
     try {

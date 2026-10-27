@@ -66,6 +66,14 @@ describe('scanRoutes', () => {
     expect(result.jobs).toEqual([]);
   });
 
+  it('rejects a HEAD export because GET answers HEAD requests', async () => {
+    createFile('routes/api/ping.ts', 'export const GET = () => {}\nexport const HEAD = () => {}');
+
+    await expect(scanRoutes(TMP)).rejects.toThrow(
+      "routes: 'api/ping.ts' exports HEAD. HEAD requests are answered by the GET handler; remove the HEAD export.",
+    );
+  });
+
   it.each(
     ['tsx', 'jsx'].flatMap((ext) =>
       ([undefined, 'dev', 'prod'] as const).map((environment) => ({ ext, environment })),

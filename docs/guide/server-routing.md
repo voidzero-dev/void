@@ -61,6 +61,8 @@ export const POST = defineHandler(async (c) => {
 });
 ```
 
+`GET` also answers `HEAD` requests, so route files can't export `HEAD`.
+
 See [Database](./database.md) for queries with D1, PostgreSQL, or MySQL.
 
 ### JSX handlers

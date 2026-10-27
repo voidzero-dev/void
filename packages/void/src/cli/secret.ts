@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { parseEnv } from 'node:util';
 import { outro, log, cancel, isCancel, password, confirm } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient } from './client.ts';
@@ -155,32 +156,21 @@ async function resolveCloudflareSecretBackend(
 }
 
 const SECRET_KEY_RE = /^[A-Z][A-Z0-9_]*$/;
+const UTF8_BOM = '\uFEFF';
 
+// Reads the file with Node's dotenv grammar, the same one `.env` loading uses,
+// but calls `parseEnv` directly: shared/dotenv.ts would expand `$VAR`, and a
+// `$` inside a secret value must stay literal.
 export function parseDotenvFile(filePath: string): Array<{ name: string; value: string }> {
-  const content = readFileSync(filePath, 'utf-8');
   const secrets: Array<{ name: string; value: string }> = [];
 
-  for (const line of content.split('\n')) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
+  const raw = readFileSync(filePath, 'utf-8');
+  // parseEnv keeps a leading BOM as part of the first key name.
+  const text = raw.startsWith(UTF8_BOM) ? raw.slice(UTF8_BOM.length) : raw;
+  for (const [key, value] of Object.entries(parseEnv(text))) {
+    if (value === undefined) {
       continue;
     }
-
-    const eqIndex = trimmed.indexOf('=');
-    if (eqIndex === -1) {
-      throw new Error(`secret: Invalid dotenv line '${trimmed}'. Add KEY=value.`);
-    }
-
-    const key = trimmed.slice(0, eqIndex).trim();
-    let value = trimmed.slice(eqIndex + 1).trim();
-
-    if (
-      (value.startsWith('"') && value.endsWith('"')) ||
-      (value.startsWith("'") && value.endsWith("'"))
-    ) {
-      value = value.slice(1, -1);
-    }
-
     if (!SECRET_KEY_RE.test(key)) {
       throw new Error(
         `secret: Invalid secret name '${key}'. Use uppercase letters, digits, and underscores.`,

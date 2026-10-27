@@ -14,6 +14,7 @@ import {
   resolveFullDeployBuildCommand,
   resolveStaticDeployPreset,
   resolveStaticBuildCommand,
+  toManifestSchedulesAndQueues,
 } from '../../src/cli/deploy-helpers.ts';
 import {
   formatProjectCommand,
@@ -555,5 +556,37 @@ describe('generateDeployWrapperIfNeeded', () => {
     expect(wrapper).toContain('/__void/migrate');
     const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
     expect(handler).toContain('VALUES ($1, $2)');
+  });
+});
+
+describe('toManifestSchedulesAndQueues', () => {
+  it('keeps queue retry options, including zero', () => {
+    const { queues } = toManifestSchedulesAndQueues(
+      [],
+      [
+        {
+          filePath: 'emails.ts',
+          name: 'emails',
+          bindingName: 'QUEUE_EMAILS',
+          maxBatchSize: 50,
+          maxBatchTimeout: 10,
+          maxRetries: 0,
+          retryDelay: 30,
+        },
+        { filePath: 'jobs.ts', name: 'jobs', bindingName: 'QUEUE_JOBS' },
+      ],
+    );
+    expect(queues).toEqual([
+      {
+        name: 'emails',
+        bindingName: 'QUEUE_EMAILS',
+        maxBatchSize: 50,
+        maxBatchTimeout: 10,
+        maxRetries: 0,
+        retryDelay: 30,
+      },
+      { name: 'jobs', bindingName: 'QUEUE_JOBS' },
+    ]);
+    expect(Object.keys(queues[1]!)).toEqual(['name', 'bindingName']);
   });
 });

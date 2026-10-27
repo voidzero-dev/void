@@ -1,6 +1,7 @@
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
+import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   compileRouteTable,
@@ -1382,6 +1383,37 @@ describe('typed runtime metadata wiring', () => {
     expect(dev).toContain('app.post("/hello", __createHttpRouteHandler(_load_hello_ts, "POST"))');
     expect(dev).not.toContain('function __voidAnnotateRouting');
     expect(dev).not.toContain('c.rewrite =');
+  });
+  it('gives route files that differ only in punctuation their own loaders', () => {
+    const route = (filePath: string, pattern: string) => ({
+      pattern,
+      filePath,
+      params: [],
+      catchAll: false,
+      env: null,
+      methods: ['GET'],
+    });
+    const code = compile(
+      { dev: true },
+      {
+        ...emptyScan,
+        routes: [
+          route('api/user-list.ts', '/api/user-list'),
+          route('api/user_list.ts', '/api/user_list'),
+        ],
+      },
+    );
+    const parsed = parseSync('routes.js', code, { sourceType: 'module', showSemanticErrors: true });
+    expect(parsed.errors.map((error) => error.message)).toEqual([]);
+    expect(code).toContain(
+      'const _load_api_user_list_ts = __createModuleLoader(() => import("/routes/api/user-list.ts"), false)',
+    );
+    expect(code).toContain(
+      'const _load_api_user_list_ts_2 = __createModuleLoader(() => import("/routes/api/user_list.ts"), false)',
+    );
+    expect(code).toContain(
+      'app.get("/api/user_list", __createHttpRouteHandler(_load_api_user_list_ts_2, "GET"))',
+    );
   });
   it('keeps authored rule origins in dev and omits them in production and managed dispatch', () => {
     const rules = [{ source: '/old', destination: '/new', status: 301, origin: 'config' }];

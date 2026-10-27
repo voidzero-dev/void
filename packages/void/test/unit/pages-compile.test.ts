@@ -1,3 +1,4 @@
+import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import type { PageDefinition, PageScanResult } from '../../src/pages/types.ts';
 import { compileRouteTable, type PagesCompileOptions } from '../../src/router/compile.ts';
@@ -141,5 +142,54 @@ describe('Pages metadata wiring', () => {
     expect(code).toContain('"pageCssKeys":{"index":["pages/layout.vue","pages/index.vue"]}');
     expect(code).toContain('"extraEntryId":"virtual:md"');
     expect(code).toContain('assets: getIslandsAssetTags');
+  });
+  it('gives non-ASCII page names of the same length their own loaders and head functions', () => {
+    const mdPage = (name: string): PageDefinition => ({
+      ...page,
+      pattern: `/blog/${name}`,
+      componentPath: `blog/${name}.md`,
+      componentId: `blog/${name}`,
+      serverPath: null,
+      methods: [],
+      metadata: { title: name },
+    });
+    const serverPage = (name: string, prerender: boolean): PageDefinition => ({
+      ...page,
+      pattern: `/shop/:id/${name}`,
+      params: ['id'],
+      componentPath: `shop/[id]/${name}.vue`,
+      componentId: `shop/[id]/${name}`,
+      serverPath: `shop/[id]/${name}.server.ts`,
+      methods: ['loader'],
+      shouldPrerender: prerender,
+      hasGetPrerenderPaths: prerender,
+    });
+    const code = compileRouteTable(
+      makeScan({
+        pages: [mdPage('你好'), mdPage('世界'), serverPage('书', false), serverPage('画', true)],
+        layouts: [],
+        namedLayouts: [],
+      }),
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      testOptions,
+      pagesOptions,
+    );
+    const parsed = parseSync('routes.js', code, { sourceType: 'module', showSemanticErrors: true });
+    expect(parsed.errors.map((error) => error.message)).toEqual([]);
+    expect(code).toContain('const __mdHead_blog___ = () => ({"title":"你好"});');
+    expect(code).toContain('const __mdHead_blog____2 = () => ({"title":"世界"});');
+    expect(code).toContain(
+      'const _pload_shop__id____2 = __createModuleLoader(() => import("/project/pages/shop/[id]/画.server.ts"));',
+    );
+    expect(code).toContain(
+      'app.get("/shop/:id/画", __createPageGetHandler({ load: _pload_shop__id____2, ',
+    );
+    // Only the second page is prerendered; the collector must still use its loader's name.
+    expect(code).toContain('const mod = await _pload_shop__id____2();');
+    expect(code).not.toContain('await _pload_shop__id___()');
   });
 });
