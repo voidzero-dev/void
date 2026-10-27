@@ -327,15 +327,11 @@ function RouteResource({
     }
   }, [onCommit, resource, result]);
 
-  if (!result) {
-    return null;
-  }
-
-  const pageData = result.pageData as ReactPageData;
-  const PageComponent = result.component as ReactPageComponent;
-  const routeParams = pageData.params ?? EMPTY_PARAMS;
+  const pageData = result?.pageData as ReactPageData | undefined;
+  const pageDataUrl = pageData?.url ?? '';
+  const routeParams = pageData?.params ?? EMPTY_PARAMS;
   const routeRouter = useMemo(() => {
-    const pageUrl = encodedPageUrl(pageData.url);
+    const pageUrl = encodedPageUrl(pageDataUrl);
     return createRouterFacade(
       outerRouter!,
       () => {
@@ -356,7 +352,14 @@ function RouteResource({
       },
       () => routeParams,
     );
-  }, [outerRouter, pageData.url, resource.fetchUrl, resource.hash, routeParams]);
+  }, [outerRouter, pageDataUrl, resource.fetchUrl, resource.hash, routeParams]);
+
+  // Hooks above run on every render, so a resource with no result keeps the hook count.
+  if (!result || !pageData) {
+    return null;
+  }
+
+  const PageComponent = result.component as ReactPageComponent;
   let element = React.createElement(PageComponent, pageData.props);
   for (let i = result.layouts.length - 1; i >= 0; i--) {
     const Layout = result.layouts[i] as ReactLayoutComponent;
@@ -559,11 +562,8 @@ function App({
               if (activePendingNavigationId === prepared.id) {
                 activePendingNavigationId = null;
               }
-              dispatch({
-                type: NavigationFallback ? 'abandon' : 'finish',
-                resource: prepared,
-                location: currentUrl(),
-              });
+              // The browser is leaving or downloading a file: keep the current page.
+              dispatch({ type: 'abandon', resource: prepared, location: currentUrl() });
               resolveVisit(undefined);
             } else if (prepared.options._resolveOnShell) {
               pendingVisitSettlers.delete(prepared.id);
