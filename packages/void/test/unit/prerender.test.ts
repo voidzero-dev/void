@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { toSlash } from 'pathslash';
@@ -206,14 +206,20 @@ export default {
     };
   }
 
-  it('emits the default 404 even when there are no pages to prerender', async () => {
+  it('does not emit a 404 when there are no pages to prerender', async () => {
     const { clientDir, render } = fixture();
     expect(await render()).toEqual({ paths: [], rendered: [], failed: [] });
+    expect(existsSync(join(clientDir, '404.html'))).toBe(false);
+  });
+
+  it('emits the default 404 when there are pages to prerender', async () => {
+    const { clientDir, render } = fixture(['/']);
+    await render();
     expect(readFileSync(join(clientDir, '404.html'), 'utf8')).toBe(renderDefaultErrorPage(404));
   });
 
   it('preserves an existing custom 404', async () => {
-    const { clientDir, customPage, render } = fixture();
+    const { clientDir, customPage, render } = fixture(['/']);
     mkdirSync(clientDir, { recursive: true });
     writeFileSync(join(clientDir, '404.html'), customPage);
     await render();

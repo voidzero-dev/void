@@ -349,6 +349,10 @@ export async function prerenderPages(options: {
   const runner = await createCloudflarePrerenderRunner(options);
   try {
     const paths = await runner.collectPaths();
+    if (paths.length === 0) {
+      return { paths, rendered: [], failed: [] };
+    }
+
     const result = await renderPrerenderPaths(
       paths,
       options.clientDir,
@@ -487,6 +491,9 @@ export async function prerenderPagesNode(options: {
     ssrDir: options.ssrDir,
     clientDir: options.clientDir,
   });
+  if (result.paths.length === 0) {
+    return result;
+  }
   ensureStatic404(options.clientDir);
 
   for (const path of result.rendered) {

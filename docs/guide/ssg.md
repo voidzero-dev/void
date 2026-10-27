@@ -39,7 +39,7 @@ export async function getPrerenderPaths() {
 
 ## 404 pages
 
-Static builds include a default `404.html` in `dist/client/`. To provide your own, add `public/404.html` or prerender a page at `/404`.
+Static builds that prerender at least one page include a default `404.html` in `dist/client/`. To provide your own, add `public/404.html` or prerender a page at `/404`.
 
 Fully static Void deployments serve this page for missing URLs with an HTTP 404 status by default. You can override this with [`routing.notFound`](../reference/config.md#routing-notfound). Hybrid deployments handle missing URLs in the Worker.
 
