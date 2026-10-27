@@ -1,10 +1,7 @@
 import type { Context } from 'hono';
-import notFoundPage from './error-pages/404.html?raw';
-import serverErrorPage from './error-pages/500.html?raw';
-import errorPageCss from './error-pages/style.css?raw';
+import { renderDefaultErrorPage } from './error-pages/index.ts';
 
 type ErrorPageStatus = 404 | 500;
-const errorPages = { 404: notFoundPage, 500: serverErrorPage };
 
 type StackFrame = {
   functionName: string;
@@ -579,11 +576,7 @@ export function createErrorRenderer(options: ErrorRendererOptions): ErrorRendere
   }
 
   function renderErrorPage(status: ErrorPageStatus, title: string, error?: unknown): string {
-    // Inline the shared stylesheet so fallback pages do not depend on asset serving.
-    const page = errorPages[status].replace(
-      '<link rel="stylesheet" href="./style.css" />',
-      `<style>\n${errorPageCss}</style>`,
-    );
+    const page = renderDefaultErrorPage(status);
     const html = injectErrorAssetCss(page, getErrorAssetCss(error));
     return dev && status === 500 && error
       ? injectDevErrorOverlay(html, renderDevErrorOverlay(status, title, error))

@@ -5,39 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>404: Not Found</title>
     <link rel="stylesheet" href="./style.css" />
+    <script src="./script.js"></script>
   </head>
-  <body class="void-error-page">
-    <main class="void-error-content">
-      <p class="void-error-status">404 · Not found</p>
-      <h1>Page not found</h1>
-      <p class="void-error-description">
-        The page may have moved, or the address may be incorrect.
-      </p>
-      <button class="void-error-action" type="button" id="void-error-back" hidden>
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
-        >
-          <path d="m12 19-7-7 7-7M5 12h14" />
-        </svg>
-        Go back
-      </button>
-    </main>
-    <script>
-      const back = document.getElementById('void-error-back');
-      const canGoBack = window.navigation ? window.navigation.canGoBack : window.history.length > 1;
-      if (canGoBack) {
-        back.hidden = false;
-        back.addEventListener('click', () => window.history.back());
-      }
-    </script>
+  <body>
+    <div class="error-page">
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <main class="error-content">
+        <span class="grid-tick top left" aria-hidden="true"></span>
+        <span class="grid-tick top right" aria-hidden="true"></span>
+        <span class="grid-tick bottom left" aria-hidden="true"></span>
+        <span class="grid-tick bottom right" aria-hidden="true"></span>
+        <h1>
+          <span class="error-code">404</span><span class="error-title">Lost in the void</span>
+        </h1>
+        <p class="error-description">This page doesn't exist</p>
+        <button class="error-action" type="button" id="void-error-back" hidden>
+          <span class="error-arrow" aria-hidden="true">←</span>Go back
+        </button>
+      </main>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <canvas class="error-texture" aria-hidden="true"></canvas>
+    </div>
   </body>
 </html>

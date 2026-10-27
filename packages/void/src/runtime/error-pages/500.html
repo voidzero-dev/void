@@ -5,30 +5,32 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>500: Internal Server Error</title>
     <link rel="stylesheet" href="./style.css" />
+    <script src="./script.js"></script>
   </head>
-  <body class="void-error-page">
-    <main class="void-error-content">
-      <p class="void-error-status">500 · Internal server error</p>
-      <h1>Something went wrong</h1>
-      <p class="void-error-description">This page couldn’t load. Please try again in a moment.</p>
-      <a class="void-error-action" href="">
-        <svg
-          xmlns="http://www.w3.org/2000/svg"
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          stroke-width="1.7"
-          stroke-linecap="round"
-          stroke-linejoin="round"
-          aria-hidden="true"
+  <body>
+    <div class="error-page">
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <main class="error-content">
+        <span class="grid-tick top left" aria-hidden="true"></span>
+        <span class="grid-tick top right" aria-hidden="true"></span>
+        <span class="grid-tick bottom left" aria-hidden="true"></span>
+        <span class="grid-tick bottom right" aria-hidden="true"></span>
+        <h1>
+          <span class="error-code">500</span><span class="error-title">Something went wrong</span>
+        </h1>
+        <p class="error-description">Please try again in a moment</p>
+        <a class="error-action" href=""
+          ><span class="error-arrow" aria-hidden="true">↻</span>Reload page</a
         >
-          <path d="M21 12a9 9 0 1 1-2.636-6.364" />
-          <path d="M21 3v6h-6" />
-        </svg>
-        Reload page
-      </a>
-    </main>
+      </main>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <div class="grid-cell" aria-hidden="true"></div>
+      <canvas class="error-texture" aria-hidden="true"></canvas>
+    </div>
   </body>
 </html>

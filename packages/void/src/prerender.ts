@@ -15,6 +15,7 @@ import {
   type PrerenderResult,
 } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
+import { renderDefaultErrorPage } from './runtime/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
 import { collectFiles } from './shared/collect-files.ts';
 import { stripInternalEnvKeys } from './shared/env.ts';
@@ -37,6 +38,15 @@ export type PrerenderWorkerModule = {
 export type PrerenderRunResult = PrerenderResult & {
   paths: Array<string>;
 };
+
+export function writeDefaultNotFoundPage(clientDir: string): void {
+  // Preserve a public/404.html or a page explicitly prerendered at /404.
+  const path = join(clientDir, '404.html');
+  if (!existsSync(path)) {
+    mkdirSync(clientDir, { recursive: true });
+    writeFileSync(path, renderDefaultErrorPage(404));
+  }
+}
 
 function normalizeWorkerModulePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/^\.\//, '');
@@ -339,10 +349,6 @@ export async function prerenderPages(options: {
   const runner = await createCloudflarePrerenderRunner(options);
   try {
     const paths = await runner.collectPaths();
-    if (paths.length === 0) {
-      return { paths, rendered: [], failed: [] };
-    }
-
     const result = await renderPrerenderPaths(
       paths,
       options.clientDir,
@@ -356,6 +362,7 @@ export async function prerenderPages(options: {
         }
       },
     );
+    writeDefaultNotFoundPage(options.clientDir);
     return { paths, ...result };
   } finally {
     await runner.close();
@@ -480,6 +487,8 @@ export async function prerenderPagesNode(options: {
     ssrDir: options.ssrDir,
     clientDir: options.clientDir,
   });
+
+  writeDefaultNotFoundPage(options.clientDir);
 
   for (const path of result.rendered) {
     voidLog(`prerender ${pc.blue(outputFileForPath(path))}`);

@@ -18,6 +18,44 @@ afterAll(async () => {
 });
 
 describe('default error page actions', () => {
+  it.each([
+    ['signal', 0],
+    ['grid', 0.4],
+    ['fold', 0.8],
+  ] as const)(
+    'renders the %s layout for both statuses without fetching assets',
+    async (design, random) => {
+      const page = await browser.newPage();
+      const failures: Array<string> = [];
+      const requests: Array<string> = [];
+      page.on('pageerror', (error) => failures.push(error.message));
+      page.on('request', (request) => requests.push(request.url()));
+      await page.addInitScript((value) => {
+        Math.random = () => value;
+      }, random);
+      await page.route('https://app.test/**', async (route) => {
+        const status = new URL(route.request().url()).pathname === '/404' ? 404 : 500;
+        const response = errors.createResponse(new Request(route.request().url()), status, 'Error');
+        return route.fulfill({ status, contentType: 'text/html', body: await response.text() });
+      });
+      try {
+        for (const status of [404, 500]) {
+          await page.goto(`https://app.test/${status}`);
+          expect(await page.locator('html').getAttribute('data-design')).toBe(design);
+          expect(await page.getByRole('heading', { level: 1 }).count()).toBe(1);
+          expect(await page.getByRole('heading', { level: 1 }).innerText()).toContain(
+            String(status),
+          );
+          expect(await page.evaluate(() => document.fonts.size)).toBe(0);
+        }
+        expect(requests).toEqual(['https://app.test/404', 'https://app.test/500']);
+        expect(failures).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    },
+  );
+
   it('shows Go back only when a previous entry exists and returns to that entry', async () => {
     const page = await browser.newPage();
     page.setDefaultTimeout(10_000);

@@ -149,7 +149,7 @@ export default defineConfig({
       {
         name: 'void:raw-assets',
         load: {
-          filter: { id: /\.(?:css|html)\?raw$/ },
+          filter: { id: /\.(?:css|html|js)\?raw$/ },
           handler(id) {
             const file = id.slice(0, -'?raw'.length);
             this.addWatchFile(file);
