@@ -283,6 +283,10 @@ body {
     padding: 24px;
   }
 
+  :root[data-design='fold'] .error-code {
+    display: none;
+  }
+
   :root[data-design='fold'] .error-action {
     margin-block-start: 20px;
   }
