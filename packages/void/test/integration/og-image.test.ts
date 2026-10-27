@@ -17,7 +17,7 @@ import { collectPrerenderWorkerModules } from '../../src/prerender.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
 const DEV_HEADER = 'no-cache, no-store';
-const BUILD_HEADER = 'public, immutable, no-transform, max-age=31536000';
+const BUILD_HEADER = 'public, max-age=0, must-revalidate';
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
