@@ -2,7 +2,7 @@ import { existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'pathslash';
 import { analyzeApplication } from '../application-routing.ts';
-import { loadVoidAuthConfig } from '../auth/config.ts';
+import { loadVoidAuthConfig, projectAuthConfigImporter } from '../auth/config.ts';
 import { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } from '../auth/drizzle.ts';
 import { getDatabaseCasing, readConfig } from '../config.ts';
 import { discoverSchema } from '../drizzle/discover.ts';
@@ -88,7 +88,7 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
     const authRuntime = {
       dialect,
       providers: config.auth?.providers ?? null,
-      userConfig: await loadVoidAuthConfig(authConfigPath),
+      userConfig: await loadVoidAuthConfig(authConfigPath, projectAuthConfigImporter(root)),
     };
     const env = { ...loadLocalEnv(root), ...process.env } as Record<string, unknown>;
     const schemaPath = join(outDir, 'better-auth-schema.ts');

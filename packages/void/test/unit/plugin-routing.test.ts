@@ -174,6 +174,44 @@ describe('routingPlugin', () => {
     );
   });
 
+  it('resolves extensionless and Vite alias imports in auth.ts during a build', async () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'lib'));
+    mkdirSync(join(root, 'fields'));
+    writeFileSync(
+      join(root, 'auth.ts'),
+      [
+        "import type { VoidAuthConfig } from 'void/auth';",
+        "import { nickname } from './lib/nickname';",
+        "import { pronouns } from '@fields/pronouns';",
+        'export default { user: { additionalFields: { nickname, pronouns } } } satisfies VoidAuthConfig;',
+      ].join('\n'),
+    );
+    writeFileSync(
+      join(root, 'lib', 'nickname.ts'),
+      "export const nickname = { type: 'string', required: false } as const;",
+    );
+    writeFileSync(
+      join(root, 'fields', 'pronouns.ts'),
+      "export const pronouns = { type: 'string', required: false } as const;",
+    );
+
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
+    (getHookHandler(plugin.configResolved) as (config: ResolvedConfig) => void)({
+      build: { assetsDir: 'assets' },
+      command: 'build',
+      mode: 'production',
+      plugins: [],
+      root,
+      resolve: { alias: [{ find: '@fields', replacement: join(root, 'fields') }] },
+    } as unknown as ResolvedConfig);
+    await runBuildStart(plugin);
+
+    const schema = readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8');
+    expect(schema).toContain('nickname');
+    expect(schema).toContain('pronouns');
+  });
+
   it('bakes explicit page opt-outs into the native ISR policy', async () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'pages'), { recursive: true });

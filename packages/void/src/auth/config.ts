@@ -1,6 +1,12 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { pathToFileURL } from 'node:url';
-import { isRunnableDevEnvironment, parseSync, type ViteDevServer } from 'vite';
+import {
+  type AliasOptions,
+  isRunnableDevEnvironment,
+  loadConfigFromFile,
+  parseSync,
+  runnerImport,
+  type ViteDevServer,
+} from 'vite';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import type { VoidAuthConfig } from '../runtime/auth.ts';
 import type { AstNode, AstProgram } from '../shared/ast.ts';
@@ -62,17 +68,53 @@ export function devAuthConfigImporter(server: ViteDevServer): ModuleImporter | u
 }
 
 /**
- * Evaluate the auth config. A native `import()` keeps its first evaluation for
- * the life of the process, which suits one-off commands; the dev server passes
- * its module runner.
+ * Builds and CLI commands evaluate the auth config once in a throwaway module
+ * runner, so its imports resolve as in dev: without file extensions and through
+ * the app's aliases. A native `import()` resolves neither.
  */
+export function viteAuthConfigImporter(
+  root: string,
+  mode: string | undefined,
+  resolve: { alias?: AliasOptions; tsconfigPaths?: boolean } | undefined,
+): ModuleImporter {
+  return async (path) => {
+    const { module } = await runnerImport<Record<string, unknown>>(path, {
+      root,
+      mode,
+      logLevel: 'silent',
+      resolve: { alias: resolve?.alias, tsconfigPaths: resolve?.tsconfigPaths },
+    });
+    return module;
+  };
+}
+
+/** The importer for commands outside Vite, with the aliases of the app's Vite config. */
+export function projectAuthConfigImporter(root: string): ModuleImporter {
+  return async (path) => {
+    const loaded = await loadConfigFromFile(
+      { command: 'serve', mode: 'development' },
+      undefined,
+      root,
+      'silent',
+    );
+    return viteAuthConfigImporter(root, 'development', loaded?.config.resolve)(path);
+  };
+}
+
+/** Evaluate the auth config through the importer of the current command. */
 export async function loadVoidAuthConfig(
   configPath: string | null,
-  importModule: ModuleImporter = (path) => import(pathToFileURL(path).href),
+  importModule: ModuleImporter,
 ): Promise<VoidAuthConfig | undefined> {
   if (!configPath) {
     return undefined;
   }
   const mod = await importModule(configPath);
-  return (mod.default ?? mod.auth ?? mod.config) as VoidAuthConfig | undefined;
+  // The Worker imports only the default export.
+  if (!Object.hasOwn(mod, 'default')) {
+    throw new Error(
+      `${configPath} has no default export. Export the auth config with \`export default defineAuth(...)\`.`,
+    );
+  }
+  return mod.default as VoidAuthConfig | undefined;
 }

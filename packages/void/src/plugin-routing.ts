@@ -23,7 +23,11 @@ import {
   isGeneratedAssetHeaders,
   resolveAssetWorkerBypass,
 } from './asset-worker-bypass.ts';
-import { AUTH_CONFIG_ENVIRONMENT, loadVoidAuthConfig } from './auth/config.ts';
+import {
+  AUTH_CONFIG_ENVIRONMENT,
+  loadVoidAuthConfig,
+  viteAuthConfigImporter,
+} from './auth/config.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
 import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
@@ -342,7 +346,9 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     try {
       return await loadVoidAuthConfig(
         configPath,
-        environment && ((path) => environment.runner.import(path)),
+        environment
+          ? (path) => environment.runner.import(path)
+          : viteAuthConfigImporter(root, resolvedConfig?.mode, resolvedConfig?.resolve),
       );
     } catch (error) {
       authConfigStale = true;
