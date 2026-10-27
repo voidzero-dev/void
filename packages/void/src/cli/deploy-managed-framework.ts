@@ -198,6 +198,7 @@ export async function runFrameworkDeploy(
 
   const manifest = buildFrameworkManifest({
     frameworkName: detected.name,
+    alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
     workerMain: actualWorkerMain,
     bindings,
     migrations: validatedMigrations,

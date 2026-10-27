@@ -4,7 +4,21 @@ outline: deep
 
 # Redirects
 
-Apps hosted on a Void platform automatically redirect HTTP requests to HTTPS with a permanent `308` redirect, preserving the path, query string, and request method. Local development continues to support HTTP.
+Enable HTTP-to-HTTPS redirects with `routing.alwaysUseHttps` in `void.config.ts`:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  routing: {
+    alwaysUseHttps: true,
+  },
+});
+```
+
+This sends a permanent `308` redirect to the same hostname over HTTPS, preserving the path, query string, and request method. Local development continues to support HTTP, and certificate validation paths remain available over HTTP.
+
+Set `false` to explicitly keep HTTP. Omit the setting to inherit your hosting platform's default, which is currently off. The option works on Void platforms and direct Cloudflare deployments of Void apps and static sites. Frameworks that own their Worker handler require their own HTTPS redirect configuration for direct Cloudflare deployments.
 
 Define URL redirects in [`void.config.ts`](../../reference/config) using the `routing.redirects` field. Keys are source URL patterns, values are destination strings or objects with an explicit status.
 

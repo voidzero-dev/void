@@ -50,31 +50,103 @@ function createEnv(
 }
 
 describe('HTTPS redirects', () => {
+  function createHttpsEnv(alwaysUseHttps?: boolean): Env {
+    const env = createEnv();
+    Object.assign(env.ROUTING, {
+      get: vi.fn(async () =>
+        JSON.stringify({
+          workerName: 'user-app',
+          projectId: 'proj_1',
+          ...(alwaysUseHttps !== undefined ? { alwaysUseHttps } : {}),
+        }),
+      ),
+    });
+    return env;
+  }
+
+  it.each([false, undefined])('serves HTTP with alwaysUseHttps %s', async (value) => {
+    const env = createHttpsEnv(value);
+    const response = await app.fetch(new Request('http://oxc.rs/'), env, createCtx());
+    expect(response.status).toBe(200);
+    expect(response.headers.get('Location')).toBeNull();
+    expect(env.DISPATCH.get).toHaveBeenCalled();
+  });
+
+  it('does not redirect an unknown host', async () => {
+    const env = createHttpsEnv(true);
+    Object.assign(env.ROUTING, { get: vi.fn(async () => null) });
+    const response = await app.fetch(new Request('http://unknown.example/'), env, createCtx());
+    expect(response.status).toBe(404);
+    expect(response.headers.get('Location')).toBeNull();
+  });
+
+  it('preserves the platform staging traffic gate for opted-in apps', async () => {
+    const env: Env = { ...createHttpsEnv(true), PLATFORM_TRAFFIC_STATE: 'staging' };
+    const response = await app.fetch(new Request('http://oxc.rs/'), env, createCtx());
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Location')).toBeNull();
+  });
+
+  it('redirects opted-in static deployments before loading assets', async () => {
+    const env = createEnv();
+    Object.assign(env.ROUTING, {
+      get: vi.fn(async () =>
+        JSON.stringify({ projectId: 'proj_1', staticDeploymentId: 'dep_1', alwaysUseHttps: true }),
+      ),
+    });
+    const response = await app.fetch(new Request('http://oxc.rs/'), env, createCtx());
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://oxc.rs/');
+    expect(env.DISPATCH.get).not.toHaveBeenCalled();
+  });
+
+  it.each(['/.well-known/acme-challenge/token', '/.well-known/pki-validation/token.txt'])(
+    'passes certificate validation path %s to the app',
+    async (path) => {
+      const env = createHttpsEnv(true);
+      const response = await app.fetch(new Request('http://oxc.rs' + path), env, createCtx());
+      expect(response.status).toBe(200);
+      expect(env.DISPATCH.get).toHaveBeenCalled();
+    },
+  );
+
+  it('drops an HTTP-only port when upgrading', async () => {
+    const response = await app.fetch(
+      new Request('http://oxc.rs:8080/docs?q=1'),
+      createHttpsEnv(true),
+      createCtx(),
+    );
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://oxc.rs/docs?q=1');
+  });
   it.each([
     ['oxc.rs', 'GET'],
     ['rolldown.rs', 'HEAD'],
     ['my-app.void.app', 'POST'],
-  ])('redirects HTTP %s requests with method %s before routing', async (hostname, method) => {
-    const env = createEnv();
-    const request = new Request(`http://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`, {
-      method,
-      ...(method === 'POST' ? { body: 'payload' } : {}),
-    });
-    const response = await app.fetch(request, env, createCtx());
+  ])(
+    'redirects HTTP %s requests with method %s before worker dispatch',
+    async (hostname, method) => {
+      const env = createHttpsEnv(true);
+      const request = new Request(`http://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`, {
+        method,
+        ...(method === 'POST' ? { body: 'payload' } : {}),
+      });
+      const response = await app.fetch(request, env, createCtx());
 
-    expect(response.status).toBe(308);
-    expect(response.headers.get('Location')).toBe(
-      `https://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`,
-    );
-    expect(request.bodyUsed).toBe(false);
-    expect(env.ROUTING.get).not.toHaveBeenCalled();
-    expect(env.DISPATCH.get).not.toHaveBeenCalled();
-  });
+      expect(response.status).toBe(308);
+      expect(response.headers.get('Location')).toBe(
+        `https://${hostname}/docs/a%2Fb?search=a%2Fb&tag=1&tag=2`,
+      );
+      expect(request.bodyUsed).toBe(false);
+      expect(env.ROUTING.get).toHaveBeenCalled();
+      expect(env.DISPATCH.get).not.toHaveBeenCalled();
+    },
+  );
 
   it('serves HTTPS without a redirect even with an HTTP forwarding header', async () => {
     const response = await app.fetch(
       new Request('https://oxc.rs/', { headers: { 'X-Forwarded-Proto': 'http' } }),
-      createEnv(),
+      createHttpsEnv(true),
       createCtx(),
     );
     expect(response.status).toBe(200);
@@ -86,7 +158,7 @@ describe('HTTPS redirects', () => {
     async (hostname) => {
       const response = await app.fetch(
         new Request(`http://${hostname}:8787/`),
-        createEnv(),
+        createHttpsEnv(true),
         createCtx(),
       );
       expect(response.status).toBe(200);
@@ -111,7 +183,7 @@ describe('HTTPS redirects', () => {
       new Request('http://test.void.app/health', {
         headers: { 'X-Health-Check': 'void-admin' },
       }),
-      createEnv(),
+      createHttpsEnv(true),
       createCtx(),
     );
     expect(response.status).toBe(200);

@@ -1159,6 +1159,7 @@ describe('routingPlugin native asset Worker bypass', () => {
         writeFileSync(join(root, 'pages', 'assets', '[id].tsx'), 'export default () => null;\n');
       },
     ],
+    ['HTTPS enforcement', () => {}, { routing: { alwaysUseHttps: true } }],
     ['a redirect rule', () => {}, { routing: { redirects: { '/old': '/new' } } }],
     ['a fallback rule', () => {}, { routing: { fallbacks: { '/*': '/index.html' } } }],
     [

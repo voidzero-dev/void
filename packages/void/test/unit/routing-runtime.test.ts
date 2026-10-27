@@ -1016,3 +1016,28 @@ describe('static asset marker', () => {
     expect(seen.pop()).toBeUndefined();
   });
 });
+
+describe('native HTTPS policy', () => {
+  it.each([
+    { alwaysUseHttps: true, status: 308 },
+    { alwaysUseHttps: false, status: 200 },
+    { alwaysUseHttps: undefined, status: 200 },
+    { alwaysUseHttps: true, dev: true, status: 200 },
+    { alwaysUseHttps: true, managedDispatch: true, status: 200 },
+  ])(
+    'handles $alwaysUseHttps with dev=$dev and managed=$managedDispatch',
+    async ({ status, ...options }) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true, ...options });
+      app.use(runtime.requestMiddleware);
+      const handler = vi.fn((c: Context) => c.text('app'));
+      app.get('*', handler);
+      const response = await app.request('http://oxc.rs/docs?q=1');
+      expect(response.status).toBe(status);
+      expect(response.headers.get('Location')).toBe(
+        status === 308 ? 'https://oxc.rs/docs?q=1' : null,
+      );
+      expect(handler).toHaveBeenCalledTimes(status === 308 ? 0 : 1);
+    },
+  );
+});

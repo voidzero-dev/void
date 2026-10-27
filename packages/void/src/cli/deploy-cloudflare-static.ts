@@ -340,6 +340,7 @@ export async function runCloudflareStaticDeploy(
   const merged = mergeAndLintRoutingRules(preset.outputDir, voidConfig.routing);
   const manifest = buildStaticManifest({
     appType: preset.appType,
+    alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
     hashedAssetsPrefix: 'assets',
     headerRules: merged.headerRules,
     redirectRules: merged.redirectRules,
@@ -383,6 +384,7 @@ export async function runCloudflareStaticDeploy(
     entryPath,
     renderCloudflareStaticEntry({
       runtimeImport: 'void/edge',
+      alwaysUseHttps: manifest.alwaysUseHttps,
       headerRules: manifest.headerRules,
       redirectRules: manifest.redirectRules,
       fallbackRules: manifest.fallbackRules,

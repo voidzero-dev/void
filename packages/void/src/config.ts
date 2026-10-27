@@ -45,6 +45,8 @@ export type NotFoundHandling = 'single-page-application' | '404-page' | 'none';
 
 /** Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering. */
 export type RoutingConfig = {
+  /** Redirect HTTP to HTTPS. Omit to inherit the hosting platform's default (currently off). */
+  alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
   isr?: boolean;
   revalidate?: number | Record<string, number>;
@@ -320,8 +322,8 @@ type ParsedRuleSource = {
 /**
  * Split an optional `https://host` prefix from a rule source. The host is
  * lowercased (dispatch compares `url.hostname`), and a bare `https://host` gets
- * path `/`. Returns `{ error }` for `//` and `http://` sources (only HTTPS
- * requests reach the runtime) and for non-literal hosts.
+ * path `/`. Sources scope rules by hostname and path, without matching the
+ * request scheme. Returns `{ error }` for unsupported schemes and non-literal hosts.
  */
 export function parseHostPrefixedSource(raw: string): ParsedRuleSource | { error: string } {
   if (raw.startsWith('//')) {
@@ -331,7 +333,7 @@ export function parseHostPrefixedSource(raw: string): ParsedRuleSource | { error
   }
   if (raw.startsWith('http://')) {
     return {
-      error: `must not start with "http://" (TLS terminates upstream of the worker; only "https://" requests reach the runtime — use "https://host/path" instead)`,
+      error: `must not start with "http://" (use "https://host/path" to scope a rule by hostname, or "routing.alwaysUseHttps" to redirect HTTP to HTTPS)`,
     };
   }
   if (!raw.startsWith('https://')) {
@@ -558,6 +560,10 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing" in ${CONFIG_FILE} must be an object.`);
     }
     const routing = obj.routing;
+
+    if (routing.alwaysUseHttps !== undefined && typeof routing.alwaysUseHttps !== 'boolean') {
+      throw new Error(`config: "routing.alwaysUseHttps" in ${CONFIG_FILE} must be a boolean.`);
+    }
 
     // Validate routing.notFound
     if (routing.notFound !== undefined) {

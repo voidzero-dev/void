@@ -269,6 +269,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     auth: null,
     nodeTarget: !!options.target,
     managedDispatch: false,
+    alwaysUseHttps: options.routing?.alwaysUseHttps,
     explicitPrerenderPaths: options.prerenderPaths,
     bindingHandlerPath: options.target ? undefined : resolveFile('#self/remote/binding-handler'),
     bindingNames: options.bindingNames,
@@ -487,7 +488,12 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     assetsDir: string,
     userHeaders: boolean,
   ): { headers: string | null; wranglerPath: string; wranglerText: string | null } | null {
-    if (!scan || !resolvedConfig || compileOptions.managedDispatch) {
+    if (
+      !scan ||
+      !resolvedConfig ||
+      compileOptions.managedDispatch ||
+      options.routing?.alwaysUseHttps
+    ) {
       return null;
     }
     let wranglerPath: string;

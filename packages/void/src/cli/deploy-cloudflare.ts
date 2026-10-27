@@ -66,7 +66,7 @@ export async function runCloudflareDeploy(
   if (detectedFramework?.class === 'a' && hasConfiguredVoidWorkerRoutingRules(voidConfig.routing)) {
     log.error(
       [
-        `deploy: native Cloudflare deployment cannot apply Void routing redirects, rewrites, fallbacks, or headers to ${detectedFramework.name}.`,
+        `deploy: native Cloudflare deployment cannot apply Void routing.alwaysUseHttps, redirects, rewrites, fallbacks, or headers to ${detectedFramework.name}.`,
         'This framework owns its Worker request handler, so these rules would otherwise be ignored.',
         'Move the rules into the framework or its Cloudflare Worker, then retry.',
       ].join('\n'),

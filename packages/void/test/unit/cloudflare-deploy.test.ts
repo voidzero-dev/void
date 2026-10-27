@@ -3793,31 +3793,34 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
 });
 
 describe('runCloudflareDeploy — full Void app queues', () => {
-  it('rejects configured Void routing rules for a Class-A framework before account mutation', async () => {
-    const root = makeProject({
-      'package.json': JSON.stringify({
-        name: 'fwapp',
-        dependencies: { '@tanstack/react-start': '1.0.0' },
-      }),
-      'void.json': JSON.stringify({ routing: { rewrites: { '/old': '/new' } } }),
-      'queues/jobs.ts': `export default {};`,
-      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'fwapp' }, null, 2),
-    });
-    const messages: Array<string> = [];
-    const restore = log.error;
-    log.error = (message: string) => messages.push(message);
-    try {
-      const { deps, trace, wranglerArgs } = harness();
-      await expect(
-        runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
-      ).rejects.toBeInstanceOf(ExitError);
-      expect(trace).toEqual([]);
-      expect(wranglerArgs).toEqual([]);
-    } finally {
-      log.error = restore;
-    }
-    expect(messages.join('\n')).toMatch(/cannot apply Void routing[\s\S]*framework owns/);
-  });
+  it.each([{ rewrites: { '/old': '/new' } }, { alwaysUseHttps: true }])(
+    'rejects configured Void routing %j for a Class-A framework before account mutation',
+    async (routing) => {
+      const root = makeProject({
+        'package.json': JSON.stringify({
+          name: 'fwapp',
+          dependencies: { '@tanstack/react-start': '1.0.0' },
+        }),
+        'void.json': JSON.stringify({ routing }),
+        'queues/jobs.ts': `export default {};`,
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'fwapp' }, null, 2),
+      });
+      const messages: Array<string> = [];
+      const restore = log.error;
+      log.error = (message: string) => messages.push(message);
+      try {
+        const { deps, trace, wranglerArgs } = harness();
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        expect(trace).toEqual([]);
+        expect(wranglerArgs).toEqual([]);
+      } finally {
+        log.error = restore;
+      }
+      expect(messages.join('\n')).toMatch(/cannot apply Void routing[\s\S]*framework owns/);
+    },
+  );
 
   it('deploys a Class-A framework queue through the verified artifact', async () => {
     const root = makeProject({

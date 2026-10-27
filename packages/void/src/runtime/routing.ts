@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 import {
+  redirectToHttps,
   compilePattern,
   matchPattern,
   matchPatternCaptures,
@@ -52,6 +53,7 @@ export function createRoutingRuntime(
     dev?: boolean;
     nodeTarget?: boolean;
     managedDispatch?: boolean;
+    alwaysUseHttps?: boolean;
     blockedAssetExtensions?: Array<string>;
   } = {},
 ): RoutingRuntime {
@@ -196,6 +198,12 @@ export function createRoutingRuntime(
     requestContext,
     contextMiddleware,
     requestMiddleware: async (c, next) => {
+      if (options.alwaysUseHttps && !options.dev && !options.managedDispatch) {
+        const redirect = redirectToHttps(c.req.raw);
+        if (redirect) {
+          return redirect;
+        }
+      }
       await requestContext.run(
         options.nodeTarget
           ? { request: c.req.raw }

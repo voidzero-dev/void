@@ -1,4 +1,4 @@
-import type { ProjectZeroTrustRouting } from '@void/edge';
+import { redirectToHttps, type ProjectZeroTrustRouting } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -81,6 +81,7 @@ type RoutingEntry = Readonly<{
   // `redirectRules` fires pre-asset, `fallbackRules` fires post-asset.
   // List identity encodes the pre-vs-post-asset semantic.
   redirectRules?: ReadonlyArray<RedirectRule>;
+  alwaysUseHttps?: boolean;
   fallbackRules?: ReadonlyArray<RedirectRule>;
   // Per-pathname allowlist of query params that are part of the ISR variant
   // key on a rewrite. Default (no entry / no allowlist) drops every param,
@@ -697,16 +698,6 @@ const dispatcher = {
       return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
     }
     if (
-      url.protocol === 'http:' &&
-      url.hostname !== 'localhost' &&
-      !url.hostname.endsWith('.localhost') &&
-      url.hostname !== '127.0.0.1' &&
-      url.hostname !== '[::1]'
-    ) {
-      url.protocol = 'https:';
-      return Response.redirect(url.href, 308);
-    }
-    if (
       env.PLATFORM_TRAFFIC_STATE === 'staging' ||
       env.PLATFORM_TRAFFIC_STATE === 'sandbox-drain' ||
       (env.PLATFORM_INSTALLATION_ID &&
@@ -757,6 +748,17 @@ const dispatcher = {
     }
 
     const routing: RoutingEntry = JSON.parse(routingRaw);
+    if (selected.projectId && selected.projectId !== routing.projectId) {
+      return createErrorResponse(request, 404, 'Not Found');
+    }
+    // Keep omission distinct from false so a future platform default can change
+    // without overriding an application's explicit opt-out.
+    if (routing.alwaysUseHttps ?? false) {
+      const redirect = redirectToHttps(request);
+      if (redirect) {
+        return redirect;
+      }
+    }
     if (!privatePreview && (routing.privatePreview || previewRoute)) {
       if (!routing.privatePreview || !env.PREVIEW_API) {
         return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
@@ -775,9 +777,6 @@ const dispatcher = {
     }
     if (Boolean(routing.privatePreview) !== privatePreview) {
       return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
-    }
-    if (selected.projectId && selected.projectId !== routing.projectId) {
-      return createErrorResponse(request, 404, 'Not Found');
     }
 
     // Access normally rejects unauthenticated traffic before dispatch. This

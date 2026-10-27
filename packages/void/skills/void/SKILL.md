@@ -49,7 +49,7 @@ the app's existing saved destination, including when the target project is new.
 | Email                                      | `docs/guide/email.md`, then the matching guide under `docs/guide/email/`                  |
 | KV / storage / queues / cron jobs          | `docs/guide/kv.md`, `docs/guide/storage.md`, `docs/guide/queues.md`, `docs/guide/jobs.md` |
 | SSR and caching                            | `docs/guide/ssr.md`, `docs/guide/edge/*.md`                                               |
-| Rewrites, redirects, fallbacks             | `docs/guide/edge/rewrites.md`, `docs/guide/edge/redirects.md`, `docs/reference/config.md` |
+| HTTPS, rewrites, redirects, fallbacks      | `docs/guide/edge/rewrites.md`, `docs/guide/edge/redirects.md`, `docs/reference/config.md` |
 | Static site generation                     | `docs/guide/ssg.md`                                                                       |
 | Connected apps and artifact preparation    | `docs/guide/platform/administration/connected-apps.md`, `docs/reference/api/deploy.md`    |
 | Deployment and CI                          | `docs/guide/deployment.md`, `docs/reference/cli/deploy.md`                                |

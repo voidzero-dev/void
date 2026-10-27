@@ -366,6 +366,16 @@ This choice applies to subsequent `void deploy` runs. Atomic deployment sends tr
 
 Routing and edge configuration for headers, redirects, rewrites, and caching.
 
+#### `routing.alwaysUseHttps`
+
+Redirect HTTP requests to HTTPS with a permanent `308` redirect. Set `true` to enable, `false` to explicitly keep HTTP, or omit to inherit the hosting platform default (currently off). Local development continues to use HTTP. See [HTTPS redirects](../guide/edge/redirects) for deployment support and details.
+
+```ts
+routing: {
+  alwaysUseHttps: true,
+}
+```
+
 #### `routing.headers`
 
 Custom response headers. Keys are URL patterns, values are arrays of `"Name: value"` strings. See [Custom Headers](../guide/edge/headers) for details.

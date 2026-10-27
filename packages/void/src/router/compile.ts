@@ -64,6 +64,7 @@ export type CompileOptions = {
   nodeTarget?: boolean;
   /** Managed Cloudflare build whose dispatch worker owns edge routing. */
   managedDispatch?: boolean;
+  alwaysUseHttps?: boolean;
   /** Absolute path to the binding handler module (for /__void/* native binding access) */
   bindingHandlerPath?: string;
   /** Absolute path to the migration handler module */
@@ -273,7 +274,7 @@ export function compileRouteTable(
   }
   const blockedExts = ASSET_EXTENSIONS.filter((e) => !usedExts.has(e));
   lines.push(
-    `const __routingRuntime = __createRoutingRuntime(app, ${JSON.stringify({ dev: options.dev === true, nodeTarget: options.nodeTarget === true, managedDispatch, blockedAssetExtensions: blockedExts })});`,
+    `const __routingRuntime = __createRoutingRuntime(app, ${JSON.stringify({ dev: options.dev === true, nodeTarget: options.nodeTarget === true, managedDispatch, alwaysUseHttps: options.alwaysUseHttps, blockedAssetExtensions: blockedExts })});`,
   );
   lines.push('export const requestContext = __routingRuntime.requestContext;');
   lines.push('app.use(__routingRuntime.contextMiddleware);');
