@@ -92,6 +92,7 @@ The second argument sets the image and the response:
 | `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                   |
 | `debug`                           | `false`       | Draws a border around every box.                                                                                             |
 | `format`                          | `'png'`       | Image format: `png`, `jpeg`, `webp`, or `ico`.                                                                               |
+| `images`                          |               | Limits for remote `<img>` sources: `allowUrl`, `maxBytes`, and `timeout`. Set them when the markup includes request values.  |
 | `status`, `statusText`, `headers` |               | The response status and headers.                                                                                             |
 
 Takumi's other render options, such as `devicePixelRatio`, are passed through. See [Takumi's reference](https://takumi.kane.tw/docs/reference).
@@ -100,16 +101,16 @@ Responses have these headers unless you set them in `headers`:
 
 ```http
 Content-Type: image/png
-Cache-Control: public, immutable, no-transform, max-age=31536000
+Cache-Control: public, max-age=0, must-revalidate
 ```
 
-During `vp dev`, `Cache-Control` is `no-cache, no-store`. Images served from the [revalidation cache](#cache-generated-images) carry Void's cache headers instead.
+During `vp dev`, `Cache-Control` is `no-cache, no-store`. Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
 
 Emoji and remote `<img>` sources are downloaded while the image renders. An emoji that the chosen style does not have fails the image; `noto` has no flags.
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching Noto Sans font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
+Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
 Chinese characters are drawn in the Japanese style, as in `next/og`, unless the text has Korean around them, or the `lang` option or the root element's `lang` attribute names the language:
 
@@ -183,7 +184,6 @@ Then:
 - Move the JSX from `route.tsx` into a `.tsx` module and return the response from a route file, as shown above.
 - Read the request from Hono's context: `c.req.url`, `c.req.param()`, and `c.req.query()`.
 - Void draws images with Takumi rather than Satori, so layout can differ slightly. See [Takumi vs. Satori](https://takumi.kane.tw/docs/comparison-to-satori).
-- Next.js 16 sends `Cache-Control: public, max-age=0, must-revalidate`; Void lets clients cache the image for a year, like `@vercel/og`. Pass `headers` to change that.
 - A font's `lang` is accepted but does not choose the font for a language. Use the `lang` option or attribute for Chinese characters instead.
 
 ## Node.js, Bun, and Deno

@@ -4,8 +4,8 @@
  *
  * Takumi does the rendering (Wasm on workerd, its native addon on Node). This
  * module adds what `@vercel/og` does around its renderer: a 1200×630 default
- * size, the response headers, `debug`, and Noto fallback fonts for text that
- * Takumi's built-in Geist cannot draw. Comments cite the upstream code:
+ * size, the response headers, `debug`, and Google Fonts fallbacks for text
+ * that Takumi's built-in Geist cannot draw. Comments cite the upstream code:
  * - @vercel/og 1.0.3, published only as a bundle whose `// src/…` sections
  *   name its source files:
  *   https://cdn.jsdelivr.net/npm/@vercel/og@1.0.3/dist/index.edge.js
@@ -20,15 +20,21 @@ import {
   type RenderInput,
   type RenderOptions,
 } from 'takumi-js';
-import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
+import {
+  collectCodepoints,
+  googleFonts,
+  subsetFonts,
+  type FontSubset,
+  type ImageFetchCache,
+} from 'takumi-js/helpers';
 import { extractEmojis } from 'takumi-js/helpers/emoji';
 import { fromHtml } from 'takumi-js/helpers/html';
 import { fromJsx } from 'takumi-js/helpers/jsx';
 
 /** Takumi's options without `fonts`; a plain `Omit` would merge its format variants. */
-type RenderOptionsWithoutFonts = RenderOptions extends infer T
+type TakumiOptions = RenderOptions extends infer T
   ? T extends object
-    ? Omit<T, 'fonts'>
+    ? Omit<T, 'fonts' | 'stylesheets'>
     : never
   : never;
 
@@ -38,7 +44,7 @@ type RenderOptionsWithoutFonts = RenderOptions extends infer T
  */
 type Font = FontLoader | (FontDetails & { lang?: string });
 
-export type ImageResponseOptions = RenderOptionsWithoutFonts &
+export type ImageResponseOptions = TakumiOptions &
   ResponseInit & {
     /**
      * Draws a border around every box, as `debug` does in Satori, though the lines
@@ -70,7 +76,8 @@ const CONTENT_TYPES = {
 // - https://github.com/vercel/satori/blob/0.33.5/src/language.ts#L24-L45
 // - @vercel/og `// src/language/index.ts`: languageFontMap
 // Takumi has no such hook, so these families are matched by script before the
-// render. `cjkFamily` settles the first one.
+// render. `cjkFamily` settles the first one; `Noto Sans` takes the rest, as
+// @vercel/og's `unknown` does.
 const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}　-〿＀-￯]/u, 'Noto Sans JP'],
   [/\p{sc=Hangul}/u, 'Noto Sans KR'],
@@ -83,22 +90,37 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/\p{sc=Telugu}/u, 'Noto Sans Telugu'],
   [/\p{sc=Kannada}/u, 'Noto Sans Kannada'],
   [/\p{sc=Malayalam}/u, 'Noto Sans Malayalam'],
-  [/[\p{sc=Cyrillic}\p{sc=Greek}Ā-ɏḀ-ỿ]/u, 'Noto Sans'],
+  // The default font's own subsets, so a word stays in one typeface.
+  [/[\p{sc=Cyrillic}µĀ-ɏḀ-ỿ]/u, 'Geist'],
   [/\p{Sm}/u, 'Noto Sans Math'],
-  [/\p{So}/u, 'Noto Sans Symbols 2'],
+  [/[\p{So}\p{No}\p{Nl}]/u, 'Noto Sans Symbols'],
+  [/[\p{So}\p{No}\p{Nl}]/u, 'Noto Sans Symbols 2'],
 ];
+
+// What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
+// by rendering each code point with takumi-js 2.16: some accented letters,
+// spaces and format characters, quotes, dashes, € ™ − ↑ ↓.
+const BUILT_IN =
+  /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FEFF}]/u;
+
+// Emoji come from jsDelivr by code point, so keep them for the life of the
+// isolate, as @vercel/og does (`// src/og.ts`: assetCache); other images are
+// fetched for each render.
+const EMOJI_ORIGIN = 'https://cdn.jsdelivr.net/';
+const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, an
- * HTML string, or a Takumi node tree. Like `@vercel/og`, it renders a 1200×630
- * PNG by default and lets it be cached for a year outside development.
+ * HTML string, or a Takumi node tree. Like `next/og`, it renders a 1200×630 PNG
+ * by default, which clients revalidate outside development.
  */
 export class ImageResponse extends Response {
   constructor(element: RenderInput, options: ImageResponseOptions = {}) {
     const { status, statusText, headers, debug, ...renderOptions } = options;
     // next/og sets these two headers unless the caller's `headers` has them
-    // (@vercel/og itself spreads the caller's object over its defaults). Next.js
-    // 16 sends `public, max-age=0, must-revalidate` outside development instead:
+    // (@vercel/og itself spreads the caller's object over its defaults). A
+    // failed render still ends as a complete response, so the image is not
+    // cached for the year @vercel/og allows:
     // https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L76-L86
     const responseHeaders = new Headers(headers);
     if (!responseHeaders.has('content-type')) {
@@ -107,14 +129,11 @@ export class ImageResponse extends Response {
     if (!responseHeaders.has('cache-control')) {
       responseHeaders.set(
         'cache-control',
-        isDevelopment()
-          ? 'no-cache, no-store'
-          : 'public, immutable, no-transform, max-age=31536000',
+        isDevelopment() ? 'no-cache, no-store' : 'public, max-age=0, must-revalidate',
       );
     }
     // Render while the body streams, as @vercel/og does, so a failure errors the
-    // body, which the runtime reports:
-    // https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L49-L72
+    // body: https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L49-L72
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -128,6 +147,7 @@ export class ImageResponse extends Response {
           controller.enqueue(image);
           controller.close();
         } catch (error) {
+          console.error('void/og: failed to render the image.', error);
           controller.error(error);
         }
       },
@@ -136,7 +156,7 @@ export class ImageResponse extends Response {
   }
 }
 
-type RenderImageOptions = RenderOptionsWithoutFonts & { fonts?: ImageResponseOptions['fonts'] };
+type RenderImageOptions = TakumiOptions & { fonts?: ImageResponseOptions['fonts'] };
 
 class FallbackFontError extends Error {}
 
@@ -147,24 +167,21 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
   const { node: tree, css } = await toNode(element, options.jsx);
   const node =
     options.emoji === 'from-font' ? tree : extractEmojis(tree, options.emoji ?? 'twemoji');
-  // Remote images and emoji are fetched once, even when the render runs twice.
-  const fetchCache = new Map<string, Promise<ArrayBuffer>>();
+  const images = Array.isArray(options.images) ? { sources: options.images } : options.images;
   const renderNode = (fonts: Array<FontLoader>) =>
     render(node, {
       ...options,
-      // takumi rejects `css` beside its deprecated `stylesheets`, so fold them.
-      css: [...toList(options.css), ...toList(options.stylesheets), ...css],
-      stylesheets: undefined,
-      images: Array.isArray(options.images)
-        ? { sources: options.images, fetchCache }
-        : { fetchCache, ...options.images },
+      css: [...toList(options.css), ...css],
+      images: { fetchCache: imageCache(), ...images },
       // Takumi uses every font registered in the process when it gets no list,
       // which includes earlier images' fallback fonts:
       // https://github.com/kane50613/takumi/blob/takumi@2.16.2/takumi-helpers/src/renderer.ts#L271-L282
       fonts,
     });
-  const fallback = await fallbackFonts(node, options);
-  const fonts = ((await options.fonts) ?? []).map(withoutLang);
+  const [fonts, fallback] = await Promise.all([
+    Promise.all(((await options.fonts) ?? []).map(keyedFont)),
+    fallbackFonts(node, options, images),
+  ]);
   if (fallback.length === 0) {
     return renderNode(fonts);
   }
@@ -203,12 +220,55 @@ function toList<T>(value: T | ReadonlyArray<T> | undefined): Array<T> {
   return Array.isArray(value) ? [...value] : [value as T];
 }
 
-function withoutLang(font: Font): FontLoader {
-  if (typeof font === 'object' && 'lang' in font) {
-    const { lang: _lang, ...rest } = font;
-    return rest;
+/** Images fetched once per render, and emoji once per isolate. */
+function imageCache(): ImageFetchCache {
+  const cache = new Map<string, Promise<ArrayBuffer>>();
+  return {
+    get: (url) => cache.get(url) ?? emojiCache.get(url),
+    set(url, data) {
+      cache.set(url, data);
+      if (url.startsWith(EMOJI_ORIGIN)) {
+        if (emojiCache.size >= 256) {
+          emojiCache.delete(emojiCache.keys().next().value!);
+        }
+        emojiCache.set(url, data);
+      }
+    },
+    delete(url) {
+      cache.delete(url);
+      emojiCache.delete(url);
+    },
+  };
+}
+
+function hasBytes(font: Font): font is FontDetails & { lang?: string } {
+  return (
+    typeof font === 'object' &&
+    'data' in font &&
+    (font.data instanceof ArrayBuffer || font.data instanceof Uint8Array)
+  );
+}
+
+// Takumi keeps every registered font for the life of the process and tells
+// them apart by buffer identity, so a font read anew for each request, as in
+// next/og's examples, would be registered again every time. Key it by content.
+async function keyedFont(font: Font): Promise<FontLoader> {
+  if (!hasBytes(font)) {
+    return font;
   }
-  return font;
+  const { lang: _lang, data, ...details } = font;
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    data instanceof ArrayBuffer ? data : new Uint8Array(data),
+  );
+  const hash = Array.from(new Uint8Array(digest, 0, 8), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
+  return {
+    ...details,
+    key: `void/og ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${hash}`,
+    data: () => data,
+  };
 }
 
 // Satori's ja-JP code takes Han and comes first, so Han text is Japanese there
@@ -228,41 +288,57 @@ function cjkFamily(text: string, lang = ''): string {
   return 'Noto Sans JP';
 }
 
-async function fallbackFonts(node: Node, options: RenderImageOptions): Promise<Array<FontSubset>> {
-  const text = Array.from(collectCodepoints(node), (codepoint) =>
-    String.fromCodePoint(codepoint),
-  ).join('');
+async function fallbackFonts(
+  node: Node,
+  options: RenderImageOptions,
+  images: Exclude<RenderOptions['images'], Array<unknown>>,
+): Promise<Array<FontSubset>> {
+  const missing = Array.from(collectCodepoints(node))
+    .filter((codepoint) => codepoint === 0xb5 || codepoint > 0xff)
+    .map((codepoint) => String.fromCodePoint(codepoint))
+    .filter((character) => !BUILT_IN.test(character));
   const families = new Set(
-    FALLBACK_FONTS.filter(([script]) => script.test(text)).map(([, family]) =>
-      family === 'Noto Sans JP' ? cjkFamily(text, options.lang ?? node.lang) : family,
+    FALLBACK_FONTS.filter(([script]) => missing.some((character) => script.test(character))).map(
+      ([, family]) =>
+        family === 'Noto Sans JP' ? cjkFamily(missing.join(''), options.lang ?? node.lang) : family,
     ),
   );
+  if (missing.some((character) => !FALLBACK_FONTS.some(([script]) => script.test(character)))) {
+    families.add('Noto Sans');
+  }
   if (families.size === 0) {
     return [];
   }
   options.signal?.throwIfAborted();
-  let subsets: Array<FontSubset>;
-  try {
-    subsets = await googleFonts([...families]);
-  } catch (error) {
-    console.warn(`void/og: could not load ${[...families].join(', ')} from Google Fonts.`, error);
-    return [];
-  }
+  // One request per family: takumi caches the CSS by URL, and a family's
+  // subsets are keyed alike whichever image asked for them.
+  const subsets = await Promise.all(
+    [...families].map(async (family) => {
+      try {
+        return await googleFonts({
+          families: [family],
+          fetch: images?.fetch,
+          timeout: images?.timeout,
+        });
+      } catch (error) {
+        console.warn(`void/og: could not load ${family} from Google Fonts.`, error);
+        return [];
+      }
+    }),
+  );
   // Satori draws each character with the first loaded font that has it, and
   // fallback fonts come after the default one, so Latin text keeps the default
   // font: https://github.com/vercel/satori/blob/0.33.5/src/font.ts#L601-L679
-  // Takumi puts registered fonts before its built-in Geist, which covers ASCII
-  // and Latin-1 but µ, so skip each family's Latin subset and take Latin-1 out
-  // of the others, which can mix ASCII with common CJK characters.
-  const stripped = subsets.flatMap((subset) => {
-    if (subset.unicodeRange.some(([start, end]) => start <= 0x20 && 0x7e <= end)) {
-      return [];
-    }
-    const unicodeRange = subset.unicodeRange
-      .filter(([, end]) => end > 0xff)
-      .map(([start, end]): [number, number] => [Math.max(start, 0x100), end]);
-    // An empty range covers everything, so only drop a subset that had ranges.
-    if (unicodeRange.length === 0 && subset.unicodeRange.length > 0) {
+  // Takumi puts registered fonts before its built-in Geist, so take ASCII and
+  // Latin-1 but µ out of every subset. A subset without ranges is a whole font.
+  const stripped = subsets.flat().flatMap((subset) => {
+    const unicodeRange = (
+      subset.unicodeRange.length > 0 ? subset.unicodeRange : [[0x100, 0x10ffff] as const]
+    ).flatMap(([start, end]): Array<[number, number]> => [
+      ...(start <= 0xb5 && 0xb5 <= end ? [[0xb5, 0xb5] as [number, number]] : []),
+      ...(end > 0xff ? [[Math.max(start, 0x100), end] as [number, number]] : []),
+    ]);
+    if (unicodeRange.length === 0) {
       return [];
     }
     return {

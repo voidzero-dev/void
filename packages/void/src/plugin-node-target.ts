@@ -1,9 +1,13 @@
-import { existsSync, readFileSync, realpathSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join, relative, toSlash } from 'pathslash';
 import type { Plugin } from 'vite';
-import { findInstalledPackage, findVoidDependentPackages } from './installed-packages.ts';
+import {
+  findInstalledPackage,
+  findVoidDependentPackages,
+  readManifest,
+} from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 
 /** Imports that require CF bindings and are not available in Node.js mode. */
@@ -278,7 +282,7 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
         }
         const range = readTakumiRange();
         const installed = findInstalledPackage('takumi-js', this.environment.config.root);
-        const version = installed && readPackageVersion(installed);
+        const version = installed && readManifest(installed)?.version;
         if (version && satisfiesCaret(version, range)) {
           return;
         }
@@ -308,8 +312,7 @@ const RUNTIME_NAMES: Record<NodeTarget, string> = {
 };
 
 // This module is one directory below the package root in src/ and in dist/.
-const VOID_MANIFEST = fileURLToPath(new URL('../package.json', import.meta.url));
-const VOID_PACKAGE_DIR = dirname(VOID_MANIFEST);
+const VOID_PACKAGE_DIR = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
 
 /** Vite resolves symlinks in importer paths unless `resolve.preserveSymlinks` is set. */
 function realPath(path: string): string {
@@ -322,18 +325,13 @@ function realPath(path: string): string {
 
 /** The takumi-js range void/og is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
-  return readPackageManifest(VOID_MANIFEST).dependencies!['takumi-js']!;
-}
-
-function readPackageVersion(dir: string): string | undefined {
-  return readPackageManifest(join(dir, 'package.json')).version;
-}
-
-function readPackageManifest(path: string): {
-  version?: string;
-  dependencies?: Record<string, string>;
-} {
-  return JSON.parse(readFileSync(path, 'utf8'));
+  const range = readManifest(VOID_PACKAGE_DIR)?.dependencies?.['takumi-js'];
+  if (!range || !/^\^\d+\.\d+\.\d+$/.test(range)) {
+    throw new Error(
+      `void/og: expected a caret takumi-js range in void's package.json, got ${range}.`,
+    );
+  }
+  return range;
 }
 
 /** Whether `version` is in the caret `range` (a major version above 0, as takumi-js uses). */
