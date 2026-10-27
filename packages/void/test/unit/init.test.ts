@@ -3574,6 +3574,52 @@ export default config;
     },
   );
 
+  it.each([
+    ['db/schema.ts', 'Project already has a database schema, skipping demo'],
+    ['src/demo.ts', 'Project already has src/demo.ts, skipping demo'],
+  ])('keeps an existing %s and skips the whole demo', async (existingFile, message) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+      const authored = 'export const authored = "keep me";\n';
+      mkdirSync(join(root, existingFile, '..'), { recursive: true });
+      writeFileSync(join(root, existingFile), authored);
+      mockConfirm.mockImplementation((options: { message?: string }) =>
+        String(options.message).startsWith('Scaffold demo code?'),
+      );
+
+      await runInitCommand(root);
+
+      expect(readFileSync(join(root, existingFile), 'utf-8')).toBe(authored);
+      expect(mockLogInfo).toHaveBeenCalledWith(message);
+      const prompts = mockConfirm.mock.calls.map(([options]) => String(options?.message));
+      expect(prompts.some((prompt) => prompt.startsWith('Scaffold demo code?'))).toBe(false);
+      for (const demoFile of ['db/schema.ts', 'routes/api/posts.ts', 'src/demo.ts']) {
+        if (demoFile !== existingFile) {
+          expect(existsSync(join(root, demoFile))).toBe(false);
+        }
+      }
+      expect(drizzleGenerateCalls()).toHaveLength(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scaffolds every demo file in a project without a schema', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+
+      await runInitWithDemo(root);
+
+      for (const demoFile of ['db/schema.ts', 'routes/api/posts.ts', 'src/demo.ts']) {
+        expect(existsSync(join(root, demoFile))).toBe(true);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('runs starter migration with injected PnP NODE_OPTIONS in a Yarn Berry PnP project', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {

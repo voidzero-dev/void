@@ -2613,22 +2613,33 @@ export const posts = sqliteTable("posts", {
 `;
 }
 
+function demoFiles(root: string): { schema: string; route: string; client: string } {
+  const paths = readProjectPaths(root);
+  return {
+    schema: paths.schemaFile,
+    route: join(paths.routesDir, 'api', 'posts.ts'),
+    client: join(paths.ssrDir, 'demo.ts'),
+  };
+}
+
 /**
  * Scaffolds the "SQL → types → handler → fetch" demo into an existing project.
  * `setupExistingProject` has already declared `void` in `package.json`.
+ * The caller skips the demo when any of its files exists, so these writes never replace user code.
  */
 function scaffoldDemo(root: string, dialect: DatabaseDialect): void {
   const devCommand = getDevCommand(root);
   const paths = readProjectPaths(root);
+  const files = demoFiles(root);
 
   mkdirSync(paths.dbDir, { recursive: true });
-  writeFileSync(paths.schemaFile, demoSchemaSource(dialect));
+  writeFileSync(files.schema, demoSchemaSource(dialect));
   log.step('Created db/schema.ts');
 
   // API route
   mkdirSync(join(paths.routesDir, 'api'), { recursive: true });
   writeFileSync(
-    join(paths.routesDir, 'api', 'posts.ts'),
+    files.route,
     `import { defineHandler } from "void";
 import { db } from "void/db";
 import { posts } from "@schema";
@@ -2645,7 +2656,7 @@ export const GET = defineHandler(async () => {
   // Frontend demo
   mkdirSync(paths.ssrDir, { recursive: true });
   writeFileSync(
-    join(paths.ssrDir, 'demo.ts'),
+    files.client,
     `import { fetch } from "void/client";
 
 // Fully typed: response type is inferred from the GET handler's return type,
@@ -2895,8 +2906,14 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 
   // Demo code only in the full flow, and not for meta-frameworks.
   if (!targeted && !framework) {
+    const existingDemoFiles = Object.values(demoFiles(root)).filter((file) => existsSync(file));
     if (didScaffoldStarter || state.hasRoutes || state.hasMigrations || state.hasPages) {
       log.info('Project already has pages, routes, or migrations, skipping demo');
+    } else if (hasDrizzleSchema(root)) {
+      log.info('Project already has a database schema, skipping demo');
+    } else if (existingDemoFiles.length > 0) {
+      const names = existingDemoFiles.map((file) => relative(root, file)).join(', ');
+      log.info(`Project already has ${names}, skipping demo`);
     } else {
       const scaffold = await confirm({
         message: 'Scaffold demo code? (migration + API route + frontend fetch)',
