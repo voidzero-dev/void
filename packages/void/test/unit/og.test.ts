@@ -145,12 +145,27 @@ describe('ImageResponse', () => {
     expect(debug).not.toEqual(plain);
   });
 
-  it('accepts css and the deprecated stylesheets option beside a style element', async () => {
+  it('accepts css beside a style element', async () => {
     const response = new ImageResponse(
       '<style>.card { background: #000 }</style><div class="card" style="display:flex">Hi</div>',
-      { css: '.card { padding: 8px }', stylesheets: ['.card { color: #fff }'] },
+      { css: '.card { padding: 8px }' },
     );
     expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+  });
+
+  it('keys a font by its bytes, so a font read for each request registers once', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const fontKey = async (data: Uint8Array) => {
+      await new ImageResponse(card, { fonts: [{ name: 'Broken', data }] })
+        .arrayBuffer()
+        .catch(() => {});
+      const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<{ key: string }>;
+      return fonts[0]!.key;
+    };
+    const key = await fontKey(new Uint8Array([1, 2, 3]));
+    expect(key).toMatch(/^void\/og Broken:::[0-9a-f]{16}$/);
+    expect(await fontKey(new Uint8Array([1, 2, 3]))).toBe(key);
+    expect(await fontKey(new Uint8Array([1, 2, 4]))).not.toBe(key);
   });
 
   it('errors the body when the image cannot render', async () => {
@@ -160,16 +175,18 @@ describe('ImageResponse', () => {
       fonts: [{ name: 'Broken', data, weight: 400, lang: 'ja-JP' }],
     });
     await expect(response.arrayBuffer()).rejects.toThrow();
-    expect(vi.mocked(render).mock.lastCall?.[1]?.fonts).toEqual([
-      { name: 'Broken', data, weight: 400 },
-    ]);
+    const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<object>;
+    expect(fonts[0]).not.toHaveProperty('lang');
   });
 });
 
 describe('ImageResponse fallback fonts', () => {
-  it('requests no font for Latin text', async () => {
+  it('requests no font for text the built-in font draws', async () => {
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse(card).arrayBuffer();
+    await new ImageResponse(
+      '<div style="display:flex">C++ © 2026 “quotes” — … • ™ €</div>',
+    ).arrayBuffer();
     expect(requests).toEqual([]);
   });
 
@@ -206,11 +223,29 @@ describe('ImageResponse fallback fonts', () => {
     );
   });
 
-  it('uses Noto Sans for accented Latin letters that Geist lacks', async () => {
+  it("uses Geist's own subsets for letters the built-in Geist lacks", async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">Łódź</div>').arrayBuffer();
-    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Noto Sans:wght@400']);
+    await new ImageResponse('<div style="display:flex">Łódź 5µs</div>').arrayBuffer();
+    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@400']);
+  });
+
+  it('takes a whole font for a subset without ranges, beyond Latin-1', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch((url) =>
+      url.startsWith('https://fonts.googleapis.com/')
+        ? new Response(
+            `@font-face { font-family: 'Noto Sans Math'; src: url(https://fonts.gstatic.com/math.woff2) format('woff2'); }`,
+            { headers: { 'content-type': 'text/css' } },
+          )
+        : new Response(null, { status: 404 }),
+    );
+    await new ImageResponse('<div style="display:flex">A → B</div>').arrayBuffer();
+    expect(requests.slice(1)).toEqual(['https://fonts.gstatic.com/math.woff2']);
+    const [, options] = vi.mocked(render).mock.calls.at(-2)!;
+    expect(options?.fonts).toMatchObject([
+      { name: 'void/og Noto Sans Math', unicodeRange: [[0x100, 0x10ffff]] },
+    ]);
   });
 
   it('draws Han text as Japanese unless lang says otherwise, like next/og', async () => {
@@ -235,14 +270,14 @@ describe('ImageResponse fallback fonts', () => {
     ]);
   });
 
-  it('draws emoji as images, without a font', async () => {
+  it('draws emoji as images, fetched once per isolate, without a font', async () => {
     const requests = stubFetch(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"/>'));
-    expect(await pngSize(new ImageResponse('<div style="display:flex">🎉</div>'))).toEqual({
-      width: 1200,
-      height: 630,
-    });
+    const emoji = '<div style="display:flex">🪩</div>';
+    expect(await pngSize(new ImageResponse(emoji))).toEqual({ width: 1200, height: 630 });
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/.*\.svg$/);
+    await new ImageResponse(emoji).arrayBuffer();
+    expect(requests).toHaveLength(1);
   });
 
   it('uses the symbol and math families for characters Geist lacks', async () => {
@@ -254,12 +289,17 @@ describe('ImageResponse fallback fonts', () => {
           })
         : new Response(null, { status: 404 }),
     );
-    await new ImageResponse('<div style="display:flex">A → B ★ 🎉</div>').arrayBuffer();
-    // The emoji is an image, so it asks for no font.
-    const fonts = requests.filter((url) => url.startsWith('https://fonts.googleapis.com/'));
-    expect(new URL(fonts[0]!).searchParams.getAll('family')).toEqual([
+    await new ImageResponse('<div style="display:flex">A → B ★ ₹ 🎉</div>').arrayBuffer();
+    // The emoji is an image, so it asks for no font. ₹ has no row and goes to Noto Sans.
+    const families = requests
+      .filter((url) => url.startsWith('https://fonts.googleapis.com/'))
+      .flatMap((url) => new URL(url).searchParams.getAll('family'))
+      .sort();
+    expect(families).toEqual([
       'Noto Sans Math:wght@400',
       'Noto Sans Symbols 2:wght@400',
+      'Noto Sans Symbols:wght@400',
+      'Noto Sans:wght@400',
     ]);
   });
 

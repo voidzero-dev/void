@@ -5,6 +5,7 @@ import { parseSync } from 'vite';
 import { staticModuleReferences } from './shared/module-references.ts';
 
 type PackageManifest = {
+  readonly version?: string;
   readonly type?: string;
   readonly module?: unknown;
   readonly main?: unknown;
@@ -15,7 +16,7 @@ type PackageManifest = {
   readonly peerDependencies?: Record<string, string>;
 };
 
-function readManifest(dir: string): PackageManifest | undefined {
+export function readManifest(dir: string): PackageManifest | undefined {
   try {
     return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as PackageManifest;
   } catch {
