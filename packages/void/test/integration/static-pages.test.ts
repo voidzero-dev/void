@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
@@ -28,6 +29,35 @@ describe('playground/static-pages build (output: static)', () => {
 
     expect(existsSync(workerEntry)).toBe(true);
     expect(existsSync(clientManifest)).toBe(true);
+  });
+
+  it('serves the generated 404 for missing static URLs with HTTP 404', async () => {
+    const html = readFileSync(join(DIST, 'client/404.html'), 'utf8');
+    expect(html).toContain('<title>404: Not Found</title>');
+    const runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: 'export default { fetch(request, env) { return env.ASSETS.fetch(request); } };',
+        assets: {
+          directory: join(DIST, 'client'),
+          binding: 'ASSETS',
+          run_worker_first: true,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { not_found_handling: '404-page' },
+        },
+      }),
+    );
+    try {
+      for (const path of ['/missing', '/nested/missing']) {
+        const response = await runtime.dispatchFetch(`http://localhost${path}`);
+        expect(response.status).toBe(404);
+        expect(response.headers.get('content-type')).toContain('text/html');
+        expect(await response.text()).toBe(html);
+      }
+    } finally {
+      await runtime.dispose();
+    }
   });
 
   it('prerenders index.html with production asset URLs', () => {

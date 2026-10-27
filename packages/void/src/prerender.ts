@@ -15,6 +15,7 @@ import {
   type PrerenderResult,
 } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
+import { renderDefaultErrorPage } from './runtime/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
 import { collectFiles } from './shared/collect-files.ts';
 import { stripInternalEnvKeys } from './shared/env.ts';
@@ -322,6 +323,15 @@ export async function collectPrerenderPaths(options: {
   }
 }
 
+function ensureStatic404(clientDir: string): void {
+  const file = join(clientDir, '404.html');
+  if (existsSync(file)) {
+    return;
+  }
+  mkdirSync(clientDir, { recursive: true });
+  writeFileSync(file, renderDefaultErrorPage(404));
+}
+
 /**
  * Prerender pages by spinning up Miniflare with the built worker.
  * Collects paths through the built worker's internal endpoint and then
@@ -339,10 +349,6 @@ export async function prerenderPages(options: {
   const runner = await createCloudflarePrerenderRunner(options);
   try {
     const paths = await runner.collectPaths();
-    if (paths.length === 0) {
-      return { paths, rendered: [], failed: [] };
-    }
-
     const result = await renderPrerenderPaths(
       paths,
       options.clientDir,
@@ -356,6 +362,7 @@ export async function prerenderPages(options: {
         }
       },
     );
+    ensureStatic404(options.clientDir);
     return { paths, ...result };
   } finally {
     await runner.close();
@@ -480,6 +487,7 @@ export async function prerenderPagesNode(options: {
     ssrDir: options.ssrDir,
     clientDir: options.clientDir,
   });
+  ensureStatic404(options.clientDir);
 
   for (const path of result.rendered) {
     voidLog(`prerender ${pc.blue(outputFileForPath(path))}`);
