@@ -3,10 +3,10 @@ import {
   type AliasOptions,
   isRunnableDevEnvironment,
   parseSync,
-  resolveConfig,
   runnerImport,
   type ViteDevServer,
 } from 'vite';
+import { discoverSchema } from '../drizzle/discover.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import type { VoidAuthConfig } from '../runtime/auth.ts';
 import type { AstNode, AstProgram } from '../shared/ast.ts';
@@ -95,14 +95,19 @@ export function viteAuthConfigImporter(
 }
 
 /**
- * The importer for commands outside Vite. It resolves the app's Vite config with
- * its plugins, because plugins add aliases in their `config()` hook, such as
- * Void's `@schema`.
+ * The importer for commands outside Vite, such as `void prepare`. It does not load
+ * the app's Vite config: evaluating it constructs the app's plugins, and Void's
+ * write generated files and Cloudflare config when constructed. Imports resolve
+ * without extensions, through tsconfig `paths`, and through Void's `@schema`
+ * alias; an alias set only in vite.config resolves in dev and builds.
  */
 export function projectAuthConfigImporter(root: string): ModuleImporter {
-  return async (path) => {
-    const config = await resolveConfig({ root, mode: 'development', logLevel: 'silent' }, 'serve');
-    return viteAuthConfigImporter(root, config.mode, config.resolve)(path);
+  return (path) => {
+    const schema = discoverSchema(root);
+    return viteAuthConfigImporter(root, 'development', {
+      alias: schema ? { '@schema': schema.path } : undefined,
+      tsconfigPaths: true,
+    })(path);
   };
 }
 

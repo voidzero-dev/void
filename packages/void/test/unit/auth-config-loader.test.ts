@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,23 +53,25 @@ describe('loadVoidAuthConfig', () => {
   });
 
   // Vitest resolves the native `import()` itself; plain Node is what `void prepare` runs in.
-  // `@schema` comes from a plugin's `config()` hook, as Void's drizzle plugin adds it.
-  it('resolves extensionless, config alias and plugin alias imports in void prepare', () => {
+  // `void prepare` boots no Vite: it never evaluates vite.config, whose plugins write files
+  // when constructed. `@fields` comes from tsconfig `paths`, `@schema` from Void's own alias.
+  it('resolves extensionless, tsconfig paths and @schema imports in void prepare without vite.config', () => {
     const root = createTempDir();
     mkdirSync(join(root, 'lib'));
     mkdirSync(join(root, 'fields'));
     mkdirSync(join(root, 'db'));
+    const marker = join(root, 'vite-config-loaded');
     writeFileSync(
       join(root, 'vite.config.ts'),
       [
-        'export default {',
-        `  resolve: { alias: { '@fields': ${JSON.stringify(join(root, 'fields'))} } },`,
-        '  plugins: [{',
-        "    name: 'schema-alias',",
-        `    config: () => ({ resolve: { alias: { '@schema': ${JSON.stringify(join(root, 'db', 'schema.ts'))} } } }),`,
-        '  }],',
-        '};',
+        "import { writeFileSync } from 'node:fs';",
+        `writeFileSync(${JSON.stringify(marker)}, '');`,
+        'export default {};',
       ].join('\n'),
+    );
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@fields/*': ['./fields/*'] } } }),
     );
     writeFileSync(
       join(root, 'auth.ts'),
@@ -110,6 +112,7 @@ describe('loadVoidAuthConfig', () => {
     expect(schema).toContain('nickname');
     expect(schema).toContain('pronouns');
     expect(schema).toContain('website');
+    expect(existsSync(marker)).toBe(false);
   }, 30_000);
 
   it('evaluates the config through the module importer it is given', async () => {
