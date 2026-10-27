@@ -14,9 +14,11 @@ export function inlineErrorPageAssets(html: string, stylesheet: string, script: 
   if (html.split(closing).length !== 3) {
     throw new Error('Expected two endinject markers in the default error page.');
   }
-  return replaceAssetBlock(
-    replaceAssetBlock(html, 'css', `<style>\n${stylesheet}</style>`),
-    'js',
-    `<script>\n${script}</script>`,
-  );
+  for (const [name, content] of [
+    ['css', `<style>\n${stylesheet}</style>`],
+    ['js', `<script>\n${script}</script>`],
+  ] as const) {
+    html = replaceAssetBlock(html, name, content);
+  }
+  return html;
 }
