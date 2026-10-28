@@ -109,6 +109,8 @@ Imported from `"@void/react"`.
 
 React `Link` GET `data` is merged into the rendered `href` query string. Primitive values are serialized with `String(value)`, arrays become repeated keys, `null` and `undefined` are omitted, and nested objects throw. `prefetch` and `reloadDocument` are GET-only and throw for mutation links.
 
+React `useForm()` options accept `onSuccess?: () => void | Promise<void>` and `onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>`. Each submission captures its callbacks, runs them before the updated UI commits, and awaits any returned promise. See [submission callbacks](../../guide/pages-routing/actions-and-forms.md#react-submission-callbacks).
+
 React deferred props returned from `defer()` are Suspense resources. Read them
 with React's `use()` inside a `<Suspense>` boundary. React Pages requires React
 19 and uses streaming SSR for the initial deferred shell. Rejections throw from

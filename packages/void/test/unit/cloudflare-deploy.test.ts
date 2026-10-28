@@ -8716,7 +8716,7 @@ describe('checkWranglerMigrationApplySet', () => {
   });
 });
 
-describe('compareWranglerMigrationPaths (wrangler 4.131 numeric-prefix comparator)', () => {
+describe('compareWranglerMigrationPaths (wrangler numeric-prefix comparator)', () => {
   it('sorts by leading numeric prefix (2 before 10), matching wrangler', () => {
     const sorted = ['10_b.sql', '2_a.sql', '1_z.sql'].sort(compareWranglerMigrationPaths);
     expect(sorted).toEqual(['1_z.sql', '2_a.sql', '10_b.sql']);

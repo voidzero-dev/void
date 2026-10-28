@@ -99,6 +99,13 @@ describe('playground/node-static build (target: node, output: static)', () => {
     expect(existsSync(join(DIST, 'ssr/app.js'))).toBe(true);
   });
 
+  it('emits the default 404 page', () => {
+    const html = readFileSync(join(DIST, 'client/404.html'), 'utf8');
+    expect(html).toContain('<title>404: Not Found</title>');
+    expect(html).toContain('<style>');
+    expect(html).toContain('<script>');
+  });
+
   it('prerenders index.html with production asset URLs', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);

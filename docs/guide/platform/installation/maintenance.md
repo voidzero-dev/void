@@ -100,7 +100,9 @@ Repair recreates missing infrastructure that the installer owns. It does not res
 
 ### Upgrade the platform
 
-Keep the platform runtime current when updating the Void CLI.
+Keep the platform runtime current when updating the Void CLI. Upgrade the platform before your team updates its CLI: a newer CLI refuses to work with an older platform and asks for `void platform upgrade`. Install the new CLI on the administrator's machine, run the upgrade below, then have the team update.
+
+If the platform will deploy apps that use `void/sandbox`, its runtime token needs **Account → Containers → Edit** and **Account → Cloudchamber → Edit**. A token made from an older setup link may lack them, and an upgrade does not add them. Edit the token in the Cloudflare dashboard, or set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a new token when you upgrade. See [Cloudflare API Tokens](/guide/platform/installation/credentials#runtime-token-permissions).
 
 Use the installed CLI's packaged runtime to upgrade:
 

@@ -13,6 +13,7 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import { parseTree, type Node } from 'jsonc-parser';
 import { join } from 'pathslash';
 import {
+  ignoreMaterializedCloudflareConfig,
   seedCloudflareConfig,
   stashCloudflareDeployPointer,
   VOID_LOCK_FILE,
@@ -94,18 +95,6 @@ function isOrphanedCompatibilityConfig(
   } catch {
     return false;
   }
-}
-
-function ignoreGeneratedCloudflareConfig(root: string): void {
-  const path = join(root, '.gitignore');
-  const source = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  if (source.split(/\r?\n/).some((line) => /^\/?\.void-wrangler\.jsonc$/.test(line.trim()))) {
-    return;
-  }
-  writeFileSync(
-    path,
-    `${source}${source && !source.endsWith('\n') ? '\n' : ''}.void-wrangler.jsonc\n`,
-  );
 }
 
 /** Move Void and Cloudflare JSON/JSONC settings into a typed, checked-in project config. */
@@ -226,7 +215,7 @@ export function migrateLegacyVoidConfig(root: string): boolean {
     if (wranglerName) {
       unlinkSync(join(root, wranglerName));
     }
-    ignoreGeneratedCloudflareConfig(root);
+    ignoreMaterializedCloudflareConfig(root);
     stashCloudflareDeployPointer(root);
     return true;
   } finally {

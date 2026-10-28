@@ -578,6 +578,7 @@ describe('detectFramework', () => {
     try {
       voidPlugin();
       expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
     } finally {
       cwd.mockRestore();
     }
@@ -601,16 +602,24 @@ describe('detectFramework', () => {
       ) => void;
 
       expect(compatPlugin).toBeTruthy();
-      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
 
       config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
 
-      expect(JSON.parse(readFileSync(join(root, 'void.json'), 'utf-8'))).toEqual({
-        worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE },
-      });
+      // The adapter reads the root Wrangler file by default, so the date and the dev
+      // flags land there, not in a new void.config.ts.
+      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
+      expect(existsSync(join(root, '.void-wrangler.jsonc'))).toBe(false);
       expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'))).toMatchObject({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        compatibility_flags: ['nodejs_als'],
       });
+
+      // A second run reads the pinned date and leaves the root file alone.
+      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
+      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(written);
     } finally {
       cwd.mockRestore();
     }
@@ -650,7 +659,7 @@ describe('detectFramework', () => {
     }
   });
 
-  it('persists default void.json compatibility during build startup', () => {
+  it('persists default compatibility in void.config.ts during build startup', () => {
     const root = createTempRoot();
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
@@ -664,7 +673,9 @@ describe('detectFramework', () => {
 
       expect(persistPlugin).toBeTruthy();
       buildStart.call({});
-      expect(JSON.parse(readFileSync(join(root, 'void.json'), 'utf-8'))).toEqual({
+      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
+      expect(readConfig(root)).toEqual({
         worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE },
       });
     } finally {

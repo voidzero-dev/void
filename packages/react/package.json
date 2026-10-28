@@ -49,6 +49,7 @@
     "@types/node": "catalog:",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "happy-dom": "catalog:",
     "pathslash": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:",

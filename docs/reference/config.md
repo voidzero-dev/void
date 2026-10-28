@@ -297,7 +297,7 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 
 ### `worker`
 
-Curated Cloudflare Workers configuration. `void init` pins `compatibility_date` here. Binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` go in [`cloudflare`](#cloudflare), where Void preserves custom settings and resolved IDs during deployment.
+Curated Cloudflare Workers configuration. `void init` pins `compatibility_date` here. If a project has no config file and no date, the first dev server or build creates `void.config.ts` with only this date and adds `.void-wrangler.jsonc` to `.gitignore`. Astro, SvelteKit, Nuxt, and Analog apps get the date in a root `wrangler.jsonc` instead, which their adapter reads by default. A project with a `wrangler.toml` gets it in `void.json`. Binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` go in [`cloudflare`](#cloudflare), where Void preserves custom settings and resolved IDs during deployment.
 
 | Field                 | Type       | Description                            |
 | --------------------- | ---------- | -------------------------------------- |

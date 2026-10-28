@@ -89,6 +89,7 @@ catalog:
   vitepress-plugin-group-icons: ^1.8.1
   '@cloudflare/sandbox': ^1.0.2
   '@napi-rs/keyring': ^2.1.2
+  happy-dom: ^21.0.4
 
 catalogs:
   angular:

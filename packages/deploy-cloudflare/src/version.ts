@@ -50,7 +50,7 @@ export type CloudflareTriggerConfig = Readonly<{
   queueConsumers: ReadonlyArray<unknown>;
   workflows: ReadonlyArray<unknown>;
   /**
-   * Email Routing addresses (`addresses` in Wrangler config). Wrangler 4.131 applies its
+   * Email Routing addresses (`addresses` in Wrangler config). The Cloudflare CLI applies its
    * Email Routing plan inside `triggers deploy` — `undefined` skips the plan entirely, while
    * `[]` is a destructive plan that deletes every rule this Worker owns — so the two must stay
    * distinct through the snapshot. Absent from annotations written before this field existed.

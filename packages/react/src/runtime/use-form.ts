@@ -42,11 +42,18 @@ type UntypedForm = {
   clearError(): void;
 };
 
+type FormOptions = {
+  params?: Record<string, string>;
+  resetOnSuccess?: boolean;
+  onSuccess?: () => void | Promise<void>;
+  onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>;
+};
+
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
-  options?: ActionFormOptions<U>,
+  options?: ActionFormOptions<U> & Pick<FormOptions, 'onSuccess' | 'onError'>,
 ): {
   data: ResolveActionBody<U>;
   setData: <K extends keyof ResolveActionBody<U> & string>(
@@ -76,7 +83,7 @@ export function useForm<U extends ActionUrl & string>(
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
+  options?: FormOptions,
 ): UntypedForm {
   const router = useContext(RouterContext);
   const [data, setDataState] = useState<Record<string, unknown>>(() => cloneFormValue(defaults));
@@ -186,8 +193,10 @@ export function useForm(
         const validationErrors = getValidationErrors(result.error.body);
         if (validationErrors) {
           setErrors(validationErrors);
+          await options?.onError?.(validationErrors);
         } else {
           setActionError(result.error);
+          await options?.onError?.(result.error);
         }
         return previousSuccessVersion;
       }
@@ -205,6 +214,7 @@ export function useForm(
         setRecentlySuccessful(false);
         successTimeoutRef.current = null;
       }, 2000);
+      await options?.onSuccess?.();
       return previousSuccessVersion + 1;
     },
     0,

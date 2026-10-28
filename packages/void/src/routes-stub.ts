@@ -64,7 +64,9 @@ export type HasActionParams<U extends string> = [ResolveActionParams<U>] extends
     ? true
     : false;
 
-type ActionFormBaseOptions = { resetOnSuccess?: boolean };
+type ActionFormBaseOptions = {
+  resetOnSuccess?: boolean;
+};
 
 /** Form options type (requires params for dynamic routes) */
 export type ActionFormOptions<U extends string> = ActionFormBaseOptions &

@@ -177,6 +177,30 @@ const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
 
 Create forms often need empty fields again after a successful save. Either pass `resetOnSuccess: true` in the third argument, or call `form.reset({ initial: true })` when `form.wasSuccessful` becomes `true`.
 
+### React submission callbacks
+
+In React, pass `onSuccess` and `onError` to `useForm()` to respond to a submission:
+
+```tsx
+const form = useForm(
+  '/users',
+  { name: '', email: '' },
+  {
+    onSuccess: () => setDialogOpen(false),
+    onError: (error) => {
+      // A field-error map or VoidActionError for a handled action failure.
+      console.error(error);
+    },
+  },
+);
+```
+
+Each submission uses the callbacks from when it was dispatched. Callbacks run inside the React Action, before the updated UI commits. Use an effect or ref callback to focus an element that appears after submission.
+
+Callbacks can return `Promise<void>`. The Action awaits them, and `form.pending` stays true until they complete. Errors thrown or rejected by callbacks reach the nearest React error boundary. Aborted submissions invoke neither callback.
+
+Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
+
 ## Named Actions
 
 When a page needs multiple mutations, such as updating and deleting a user on the same page, export `actions` (plural) instead of `action`:

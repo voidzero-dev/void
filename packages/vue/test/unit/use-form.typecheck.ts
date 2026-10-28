@@ -18,4 +18,8 @@ export function checkFormOptions(): void {
   useForm('/__form-test/notes/:id', { title: '' }, { resetOnSuccess: true });
   // @ts-expect-error Reset field names retain the action body type.
   form.reset({ initial: true }, 'missing');
+  // @ts-expect-error Submission callbacks are specific to the React adapter.
+  useForm('/__form-test/notes?create', { title: '' }, { onSuccess: () => {} });
+  // @ts-expect-error Submission callbacks are specific to the React adapter.
+  useForm('/__form-test/notes?create', { title: '' }, { onError: () => {} });
 }

@@ -46,10 +46,9 @@ export function scrubManagedDeployBuildMarkers(env: NodeJS.ProcessEnv): NodeJS.P
  * top-level config this flow provisions + preflights. Scrubbed from every child env
  * and fenced in the project dotenv (see below), on top of the provisioner's transport
  * scrub/fence which owns the endpoint-redirect + `CLOUDFLARE_ENV` vars:
- *   - `WRANGLER_CI_OVERRIDE_NAME` — wrangler 4.131 applies it AFTER config load
- *     (`mergeSharedConfigArgs` → `getCIOverrideName()`), REPLACING the upload name, so a
- *     bare `wrangler deploy` uploads a worker whose name the generated-config check never
- *     validated.
+ *   - `WRANGLER_CI_OVERRIDE_NAME` — the Cloudflare tooling (wrangler and the `cf` CLI)
+ *     applies it AFTER config load (`getCIOverrideName()`), REPLACING the upload name, so a
+ *     bare deploy uploads a worker whose name the generated-config check never validated.
  *   - `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH` — the CF Vite plugin points the build at an
  *     ALTERNATE wrangler config, flattening a different binding set into
  *     `dist/ssr/wrangler.json`.
@@ -60,10 +59,12 @@ const DEPLOY_CONFIG_OVERRIDE_ENV_VARS = [
 ] as const;
 
 /**
- * The dotenv files wrangler 4.131 reloads into `process.env` (`override: true`) for
- * the orchestrator's `--env=` calls (`getDefaultEnvFiles("")`), so a repo dotenv here
- * would resurrect `WRANGLER_CI_OVERRIDE_NAME` at the DEPLOY step after the child-env
- * scrub removed it.
+ * The dotenv files wrangler loads into `process.env` (`override: true`) when no
+ * `--env` is named (`getDefaultEnvFiles("")`). Void runs its deploy steps through the
+ * `cf` CLI, not wrangler, but this set is kept for a user who runs `wrangler deploy` on
+ * the same config. It also covers the `.env` / `.env.local` files `cf` reads. A repo
+ * dotenv here would bring back `WRANGLER_CI_OVERRIDE_NAME` after the child-env scrub
+ * removed it.
  */
 const DEPLOY_WRANGLER_DOTENV_FILES = ['.env', '.env.local', '.env.', '.env..local'];
 
@@ -71,7 +72,7 @@ const DEPLOY_WRANGLER_DOTENV_FILES = ['.env', '.env.local', '.env.', '.env..loca
  * The dotenv files Vite's `loadEnv(mode, …)` reads for a production `vite build`
  * (`.env`, `.env.local`, `.env.production`, `.env.production.local`), where the CF Vite
  * plugin picks up `CLOUDFLARE_ENV` / `CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH` — a set
- * DISJOINT from wrangler's `--env=` files, so it is fenced separately for the build.
+ * that differs from the wrangler dotenv files above, so it is fenced separately for the build.
  */
 const DEPLOY_VITE_DOTENV_FILES = ['.env', '.env.local', '.env.production', '.env.production.local'];
 
@@ -133,7 +134,7 @@ export function findWranglerCiOverrideDotenvFile(
  * FAIL CLOSED when the project's dotenv files declare a deploy-time config-override
  * selector. wrangler / Vite reload dotenv on every command, so a repo dotenv would
  * reintroduce a scrubbed var AFTER the child-env scrub — reselecting the upload worker
- * name (wrangler `--env=` files) or the build's wrangler config (Vite production files).
+ * name (the wrangler dotenv files) or the build's wrangler config (Vite production files).
  * The provisioner's transport fence ({@link assertNoTransportRedirectInProjectDotenv})
  * owns `CLOUDFLARE_ENV` + the endpoint-redirect vars; this closes the deploy-specific
  * name/config-path selectors it does not cover, across BOTH consumers' file sets.
@@ -143,7 +144,7 @@ export function assertNoConfigOverrideInProjectDotenv(
   root: string,
   platform: NodeJS.Platform = process.platform,
 ): void {
-  // WRANGLER_CI_OVERRIDE_NAME reaches the DEPLOY step via wrangler's `--env=` dotenv reload.
+  // WRANGLER_CI_OVERRIDE_NAME reaches a deploy through the wrangler dotenv reload.
   const ciOverrideFile = findWranglerCiOverrideDotenvFile(root, platform);
   if (ciOverrideFile) {
     throw new Error(
@@ -154,7 +155,7 @@ export function assertNoConfigOverrideInProjectDotenv(
     );
   }
   // CLOUDFLARE_ENV / CLOUDFLARE_VITE_WRANGLER_CONFIG_PATH reach the BUILD via Vite's
-  // production `loadEnv`, whose file set is disjoint from wrangler's `--env=` files.
+  // production `loadEnv`, whose file set differs from the wrangler dotenv files.
   for (const file of DEPLOY_VITE_DOTENV_FILES) {
     const offender = findDotenvDeclaration(
       root,
