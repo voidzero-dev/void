@@ -14,4 +14,4 @@ into a client application.
 A script block may also supply page-specific client code. The build splits
 that code per page, so a markdown page without client behavior does not
 carry another page's script. The source of truth for the public syntax is the
-[markdown guide](../../../docs/guide/pages-routing/markdown.md).
+[markdown guide](../../../docs/en/guide/pages-routing/markdown.md).

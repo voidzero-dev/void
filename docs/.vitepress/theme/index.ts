@@ -1,7 +1,7 @@
 import monoIcon from '@assets/icons/vite-mono.svg';
 import footerBg from '@assets/viteplus/footer-background.jpg';
 import BaseTheme, { themeContextKey } from '@voidzero-dev/vitepress-theme';
-import type { Theme } from 'vitepress';
+import { type Theme, useData } from 'vitepress';
 import { h } from 'vue';
 import CodeGroupSync from './CodeGroupSync.vue';
 import 'virtual:group-icons.css';
@@ -17,6 +17,7 @@ import voidzeroLogoDark from './voidzero-logo-dark.svg';
 import voidzeroLogoLight from './voidzero-logo-light.svg';
 
 function AsideCredit() {
+  const { lang } = useData();
   return h(
     'a',
     {
@@ -37,7 +38,11 @@ function AsideCredit() {
       },
     },
     [
-      h('span', { style: { fontSize: '11px' } }, 'brought to you by'),
+      h(
+        'span',
+        { style: { fontSize: '11px' } },
+        lang.value === 'zh-CN' ? '由以下团队打造' : 'brought to you by',
+      ),
       h('img', {
         src: voidzeroLogoDark,
         alt: 'VoidZero',
@@ -57,7 +62,9 @@ function AsideCredit() {
 export default {
   extends: BaseTheme,
   Layout() {
-    return h(BaseTheme.Layout, null, {
+    const { localeIndex } = useData();
+    // The shared theme captures mobile navigation when the layout mounts.
+    return h(BaseTheme.Layout, { key: localeIndex.value }, {
       'aside-ads-before': () => h(AsideCredit),
       'layout-bottom': () => [h(DocFooter), h(CodeGroupSync)],
     });

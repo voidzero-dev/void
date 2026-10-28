@@ -65,7 +65,7 @@
 ## Framework and schema
 
 - Config changes update `packages/void/schema.json`,
-  `docs/reference/config.md`, types, validation and affected examples together.
+  `docs/en/reference/config.md`, types, validation and affected examples together.
 - Preserve CLI namespaces and prefer conventions over configuration. Runtime
   APIs belong at package roots; Vite plugin factories use `/plugin` subpaths.
 - Switching an existing database from schema push to migrations requires

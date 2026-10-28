@@ -6,9 +6,9 @@ for Platforms namespace. Each installation owns its resources and its
 PostgreSQL database.
 
 For installation steps and the supported feature set, read
-[Self-host a Void platform](../../docs/guide/self-hosted-platform.md). For
+[Self-host a Void platform](../../docs/en/guide/self-hosted-platform.md). For
 administration commands, read
-[Platform Administration](../../docs/guide/platform-administration.md).
+[Platform Administration](../../docs/en/guide/platform-administration.md).
 
 ## Source and packaged runtime
 

@@ -13,7 +13,7 @@ choosing its policy.
 
 This refines the original [ISR](./0008-isr.md) and
 [prerendering](./0020-prerender.md) designs. Current behavior is described in
-the [revalidation guide](../../../docs/guide/edge/revalidation.md).
+the [revalidation guide](../../../docs/en/guide/edge/revalidation.md).
 
 ## Ordered page table
 

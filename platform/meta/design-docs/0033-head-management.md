@@ -13,5 +13,5 @@ sources before producing HTML and updates the head during client navigation.
 Markdown frontmatter feeds the same head model. This keeps one merge and
 rendering contract across regular Pages, islands, markdown, and static
 output rather than leaving each mode to build its own head tags. See the
-[head guide](../../../docs/guide/pages-routing/head.md) for precedence and
+[head guide](../../../docs/en/guide/pages-routing/head.md) for precedence and
 supported descriptors.

@@ -15,5 +15,5 @@ feature remains, the result can deploy as assets without a Worker. This
 build-time output is separate from deploy-time ISR prerendering and remains
 available when ISR caching is disabled.
 
-See the [static output guide](../../../docs/guide/ssg.md) for page overrides
+See the [static output guide](../../../docs/en/guide/ssg.md) for page overrides
 and deployment behavior.

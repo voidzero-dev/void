@@ -17,5 +17,5 @@ Cloudflare resource lifecycle. The installation is provider-neutral; it does
 not create or require a PlanetScale account. This replaced the original D1
 platform metadata store while leaving application D1 provisioning independent.
 
-See the [self-hosted installation guide](../../../docs/guide/self-hosted-platform.md)
+See the [self-hosted installation guide](../../../docs/en/guide/self-hosted-platform.md)
 for the maintained database requirements and recovery boundary.

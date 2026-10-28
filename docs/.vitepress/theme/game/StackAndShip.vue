@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
+import { useData } from 'vitepress';
 import { computed, nextTick, onMounted, onUnmounted, ref, shallowRef } from 'vue';
 import { frameworks } from './frameworks';
 import {
@@ -10,6 +11,9 @@ import {
   type Tile,
 } from './stack-and-ship';
 import StackTile from './StackTile.vue';
+
+const { frontmatter } = useData();
+const i18n = computed(() => frontmatter.value.homeI18n?.game ?? {});
 
 type Phase = 'idle' | 'playing' | 'paused' | 'over';
 const phase = ref<Phase>('idle');
@@ -119,7 +123,7 @@ function drop(event?: KeyboardEvent | MouseEvent) {
   nextTileAt = now + 220;
   landingOffset.value = -36;
   feedback.value = result.perfect
-    ? `Perfect${game.value.combo > 1 ? ` · ${Math.min(game.value.combo, 5)}×` : '!'}`
+    ? `${i18n.value.perfect ?? 'Perfect'}${game.value.combo > 1 ? ` · ${Math.min(game.value.combo, 5)}×` : '!'}`
     : '';
   saveBest();
   if (!game.value.moving) {
@@ -195,18 +199,29 @@ onUnmounted(() => {
     </Transition>
     <button v-if="phase === 'idle'" class="game-button game-play" type="button" @click="start">
       <Icon icon="lucide:play" class="size-3.5" aria-hidden="true" />
-      Play Stack &amp; Ship
+      {{ i18n.play ?? 'Play Stack & Ship' }}
     </button>
     <Transition name="artwork-fade">
       <div v-if="phase !== 'idle'" class="game-live">
         <div class="game-header">
           <span class="game-layers"
             >{{ layers }}
-            <span class="game-muted">{{ layers === 1 ? 'layer' : 'layers' }}</span></span
+            <span class="game-muted">{{
+              layers === 1 ? (i18n.layer ?? 'layer') : (i18n.layers ?? 'layers')
+            }}</span></span
           >
-          <span class="game-score"><span class="game-muted">Score</span> {{ game.score }}</span>
-          <span class="game-best"><span class="game-muted">Best</span> {{ best }}</span>
-          <button class="game-close" type="button" aria-label="Close game" @click="close">
+          <span class="game-score"
+            ><span class="game-muted">{{ i18n.score ?? 'Score' }}</span> {{ game.score }}</span
+          >
+          <span class="game-best"
+            ><span class="game-muted">{{ i18n.best ?? 'Best' }}</span> {{ best }}</span
+          >
+          <button
+            class="game-close"
+            type="button"
+            :aria-label="i18n.close_aria ?? 'Close game'"
+            @click="close"
+          >
             <Icon icon="lucide:x" class="size-4" aria-hidden="true" />
           </button>
         </div>
@@ -214,7 +229,11 @@ onUnmounted(() => {
           ref="board"
           class="game-board"
           type="button"
-          :aria-label="`Drop the ${framework} tile. Tap, press Space, or press Enter.`"
+          :aria-label="
+            (
+              i18n.drop_aria ?? 'Drop the {framework} tile. Tap, press Space, or press Enter.'
+            ).replace('{framework}', String(framework))
+          "
           :disabled="phase !== 'playing'"
           @click="drop"
           @keydown.space.prevent="drop"
@@ -252,8 +271,16 @@ onUnmounted(() => {
           </svg>
         </button>
         <div v-if="phase === 'playing'" class="game-footer">
-          <span class="game-hint">Tap or press <kbd>Space</kbd> to drop</span>
-          <button class="game-pause" type="button" aria-label="Pause game" @click="pause">
+          <span class="game-hint"
+            >{{ i18n.hint_before_key ?? 'Tap or press' }} <kbd>{{ i18n.hint_key ?? 'Space' }}</kbd>
+            {{ i18n.hint_after_key ?? 'to drop' }}</span
+          >
+          <button
+            class="game-pause"
+            type="button"
+            :aria-label="i18n.pause_aria ?? 'Pause game'"
+            @click="pause"
+          >
             <Icon icon="lucide:pause" class="size-3.5" aria-hidden="true" />
           </button>
         </div>
@@ -263,12 +290,19 @@ onUnmounted(() => {
         <div v-if="phase === 'paused' || phase === 'over'" class="game-receipt" role="status">
           <template v-if="phase === 'over'">
             <span class="game-receipt-label"
-              >{{ game.score > previousBest ? 'New personal best · ' : '' }}Shipped {{ layers }}
-              {{ layers === 1 ? 'layer' : 'layers' }}.</span
+              >{{ game.score > previousBest ? (i18n.new_best ?? 'New personal best · ') : ''
+              }}{{
+                (i18n.shipped ?? 'Shipped {layers} {unit}.')
+                  .replace('{layers}', String(layers))
+                  .replace(
+                    '{unit}',
+                    layers === 1 ? (i18n.layer ?? 'layer') : (i18n.layers ?? 'layers'),
+                  )
+              }}</span
             >
             <div class="game-receipt-actions">
               <button class="game-button" type="button" @click="start">
-                Ship another stack
+                {{ i18n.restart ?? 'Ship another stack' }}
                 <Icon icon="lucide:rotate-ccw" class="size-3.5" aria-hidden="true" />
               </button>
               <a
@@ -276,17 +310,20 @@ onUnmounted(() => {
                 :href="shareUrl"
                 target="_blank"
                 rel="noopener noreferrer"
-                aria-label="Share your stack on X (opens in a new tab)"
+                :aria-label="i18n.share_aria ?? 'Share your stack on X (opens in a new tab)'"
               >
-                Share
+                {{ i18n.share ?? 'Share' }}
                 <Icon icon="lucide:share-2" class="size-3.5" aria-hidden="true" />
               </a>
             </div>
           </template>
           <template v-else>
-            <span class="game-receipt-label">Paused · Your stack is safe</span>
+            <span class="game-receipt-label">{{
+              i18n.paused ?? 'Paused · Your stack is safe'
+            }}</span>
             <button class="game-button" type="button" @click="resume">
-              Keep stacking <Icon icon="lucide:play" class="size-3.5" aria-hidden="true" />
+              {{ i18n.resume ?? 'Keep stacking' }}
+              <Icon icon="lucide:play" class="size-3.5" aria-hidden="true" />
             </button>
           </template>
         </div>

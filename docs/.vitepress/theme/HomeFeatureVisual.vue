@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import RiveAnimation from '@components/shared/RiveAnimation.vue';
+import { useData } from 'vitepress';
+import { computed } from 'vue';
 import frameworksAnimation from './assets/animations/640_x_320_vite_frameworks_diamond.riv';
 import connectorsAnimation from './assets/animations/640_x_320_void_connectors.riv';
 import StackAndShip from './game/StackAndShip.vue';
@@ -8,10 +10,18 @@ defineProps<{
   kind: 'stack' | 'frameworks';
 }>();
 
-const descriptions = {
-  stack: 'Animated illustration of Void connectors.',
-  frameworks: 'Animated illustration of Void framework integrations.',
-};
+const { frontmatter } = useData();
+const descriptions = computed(() => ({
+  stack:
+    frontmatter.value.homeI18n?.visuals?.stack_description ??
+    'Animated illustration of Void connectors.',
+  frameworks:
+    frontmatter.value.homeI18n?.visuals?.frameworks_description ??
+    'Animated illustration of Void framework integrations.',
+  frameworksGame:
+    frontmatter.value.homeI18n?.visuals?.frameworks_game_label ??
+    'Framework integrations and Stack & Ship game',
+}));
 </script>
 
 <template>
@@ -19,9 +29,7 @@ const descriptions = {
     class="feature-visual"
     :class="`feature-visual--${kind}`"
     :role="kind === 'stack' ? 'img' : 'group'"
-    :aria-label="
-      kind === 'stack' ? descriptions[kind] : 'Framework integrations and Stack & Ship game'
-    "
+    :aria-label="kind === 'stack' ? descriptions[kind] : descriptions.frameworksGame"
   >
     <div v-if="kind === 'stack'" class="feature-animation">
       <RiveAnimation

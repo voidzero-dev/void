@@ -1,5 +1,8 @@
 <script setup lang="ts">
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
+import { useData } from 'vitepress';
+
+const { frontmatter } = useData();
 
 // These fixed examples share their source text with the rendered, selectable code.
 const files = [
@@ -79,7 +82,10 @@ function highlight(source: string) {
 <template>
   <div class="resource-code-stage">
     <TabsRoot default-value="blog.server.ts" class="resource-code-window">
-      <TabsList aria-label="Resource example files" class="resource-code-tabs">
+      <TabsList
+        :aria-label="frontmatter.homeI18n?.resource_files_label ?? 'Resource example files'"
+        class="resource-code-tabs"
+      >
         <TabsTrigger v-for="file in files" :key="file.name" :value="file.name">
           {{ file.name }}
         </TabsTrigger>

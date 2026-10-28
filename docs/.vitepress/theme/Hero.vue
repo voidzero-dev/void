@@ -23,7 +23,9 @@ const { frontmatter } = useData();
     <div class="flex flex-col p-15 sm:p-20 justify-between gap-20 items-center md:items-start">
       <div class="flex flex-col gap-5 items-center md:items-start text-center md:text-left">
         <a class="flex items-center gap-2" href="https://voidzero.dev" target="_blank">
-          <span class="text-grey text-xs font-mono uppercase tracking-wide">By</span>
+          <span class="text-grey text-xs font-mono uppercase tracking-wide">{{
+            frontmatter.homeI18n?.hero_by ?? 'By'
+          }}</span>
           <img src="@assets/logos/voidzero-light.svg" alt="VoidZero" class="h-2.5" />
         </a>
         <h1 v-if="frontmatter.hero.text" class="text-white text-pretty max-w-[30rem]">
@@ -53,7 +55,10 @@ const { frontmatter } = useData();
       <div
         class="relative px-10 pb-10 md:pt-10 h-full flex flex-col justify-center overflow-clip"
         role="img"
-        aria-label="Animation showing a Vite app becoming a Void app"
+        :aria-label="
+          frontmatter.homeI18n?.hero_animation_label ??
+          'Animation showing a Vite app becoming a Void app'
+        "
       >
         <RiveAnimation
           :desktop-src="heroAnimation"

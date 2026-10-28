@@ -10,8 +10,8 @@ A Void platform can use GitHub, Google, generic OpenID Connect (OIDC), or
 Cloudflare Access for human login. The installer accepts more than one method.
 The API-hosted administrator UI and `void platform config auth` manage methods
 after installation without redeploying. The current setup and command syntax
-are in the [self-hosting guide](../../../docs/guide/self-hosted-platform.md)
-and [administration guide](../../../docs/guide/platform-administration.md).
+are in the [self-hosting guide](../../../docs/en/guide/self-hosted-platform.md)
+and [administration guide](../../../docs/en/guide/platform-administration.md).
 
 ## Installation and authority
 

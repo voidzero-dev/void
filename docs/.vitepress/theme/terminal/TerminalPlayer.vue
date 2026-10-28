@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import { useData } from 'vitepress';
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { PlaybackClock, terminalFrame, type TerminalDemo } from './timeline.ts';
 
+const { frontmatter } = useData();
 const props = withDefaults(
   defineProps<{
     demo: TerminalDemo;
@@ -240,8 +242,11 @@ onBeforeUnmount(() => {
       </div>
     </div>
     <p class="terminal-sr-only">
-      Animated example: {{ demo.command }}. {{ demo.description }} A complete transcript follows the
-      player.
+      {{ frontmatter.homeI18n?.terminal_example ?? 'Animated example:' }} {{ demo.command }}.
+      {{ demo.description }}
+      {{
+        frontmatter.homeI18n?.terminal_transcript ?? 'A complete transcript follows the player.'
+      }}
     </p>
   </div>
 </template>

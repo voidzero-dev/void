@@ -1,4 +1,7 @@
 <script setup lang="ts">
+import { useData } from 'vitepress';
+
+const { frontmatter } = useData();
 const commandColumns = [
   [
     'auth',
@@ -32,7 +35,11 @@ const commandColumns = [
 
 <template>
   <div class="platform-command-stage">
-    <div class="platform-command-window" role="group" aria-label="Void platform commands">
+    <div
+      class="platform-command-window"
+      role="group"
+      :aria-label="frontmatter.homeI18n?.platform_commands_label ?? 'Void platform commands'"
+    >
       <div class="platform-command-header">
         <span class="platform-command-heading">void platform</span>
       </div>

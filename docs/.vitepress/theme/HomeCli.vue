@@ -1,18 +1,24 @@
 <script setup lang="ts">
 import { Icon } from '@iconify/vue';
 import { TabsContent, TabsList, TabsRoot, TabsTrigger } from 'reka-ui';
+import { useData } from 'vitepress';
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { terminalDemos } from './terminal/demos.ts';
 import TerminalPlayer from './terminal/TerminalPlayer.vue';
 import { terminalFrame } from './terminal/timeline.ts';
 
+const { frontmatter } = useData();
+const i18n = computed(() => frontmatter.value.homeI18n ?? {});
 const selected = ref('deploy');
 const reducedMotion = ref(false);
 const autoAdvance = ref(true);
 const stage = ref<HTMLElement | null>(null);
 const player = ref<InstanceType<typeof TerminalPlayer> | null>(null);
 const state = ref({ time: 0, playing: false });
-const demo = computed(() => terminalDemos.find((item) => item.id === selected.value)!);
+const demo = computed(() => ({
+  ...terminalDemos.find((item) => item.id === selected.value)!,
+  ...i18n.value.cli_demos?.[selected.value],
+}));
 const tabs = [
   { id: 'deploy', label: 'deploy' },
   { id: 'install', label: 'platform' },
@@ -25,10 +31,10 @@ const transcript = computed(() =>
 );
 const playbackLabel = computed(() =>
   state.value.playing || autoAdvance.value
-    ? 'Pause demo'
+    ? (i18n.value.pause_demo ?? 'Pause demo')
     : state.value.time >= demo.value.duration
-      ? 'Replay demo'
-      : 'Play demo',
+      ? (i18n.value.replay_demo ?? 'Replay demo')
+      : (i18n.value.play_demo ?? 'Play demo'),
 );
 let advanceTimer: ReturnType<typeof setTimeout> | undefined;
 let motionQuery: MediaQueryList | undefined;
@@ -112,12 +118,21 @@ onBeforeUnmount(() => {
 <template>
   <section id="cli" class="cli-section" data-theme="dark" aria-labelledby="cli-heading">
     <div class="wrapper border-t border-nickel cli-heading">
-      <a href="/reference/cli" class="cli-wordmark" aria-label="Void CLI reference">
+      <a
+        :href="i18n.cli_link ?? '/reference/cli'"
+        class="cli-wordmark"
+        :aria-label="i18n.cli_label ?? 'Void CLI reference'"
+      >
         <img src="/void-cli.svg" alt="" width="536" height="113" />
       </a>
-      <h2 id="cli-heading" class="text-white">Deploy with One Command</h2>
+      <h2 id="cli-heading" class="text-white">
+        {{ i18n.cli_heading ?? 'Deploy with One Command' }}
+      </h2>
       <p>
-        Handle the full lifecycle of your project: building, deploying and managing your resources.
+        {{
+          i18n.cli_description ??
+          'Handle the full lifecycle of your project: building, deploying and managing your resources.'
+        }}
       </p>
     </div>
 
@@ -139,7 +154,7 @@ onBeforeUnmount(() => {
         </TabsContent>
 
         <div class="cli-controls">
-          <TabsList aria-label="Void CLI commands" class="cli-tabs">
+          <TabsList :aria-label="i18n.cli_commands_label ?? 'Void CLI commands'" class="cli-tabs">
             <TabsTrigger v-for="tab in tabs" :key="tab.id" :value="tab.id">
               {{ tab.label }}
             </TabsTrigger>

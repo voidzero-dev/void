@@ -15,5 +15,5 @@ same header name.
 Redirects and status-200 rewrites use distinct routing phases around asset
 resolution. The source representation is shared across development,
 packaging, and dispatch so a deployed rule does not silently change
-meaning. See the [headers guide](../../../docs/guide/edge/headers.md) and
-[redirects guide](../../../docs/guide/edge/redirects.md).
+meaning. See the [headers guide](../../../docs/en/guide/edge/headers.md) and
+[redirects guide](../../../docs/en/guide/edge/redirects.md).

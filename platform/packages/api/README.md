@@ -132,7 +132,7 @@ the standalone `src/github-webhook-ingress.ts` Worker with
 `wrangler.github-webhook-ingress.jsonc`. It validates the raw GitHub HMAC and
 forwards only `POST /internal/github-webhook` over its `API` service binding with
 a short-lived, body-bound proof. The API revalidates that proof and the GitHub
-HMAC. See [Platform Development](../../../docs/guide/platform/development/runtime.md#optional-github-webhook-ingress-for-access-protected-apis).
+HMAC. See [Platform Development](../../../docs/en/guide/platform/development/runtime.md#optional-github-webhook-ingress-for-access-protected-apis).
 
 ### Service-to-service API
 
@@ -439,7 +439,7 @@ vp run --filter @voidcloud/api dev --local --enable-containers=false --host loca
 Open `http://localhost:8787/admin/`. Setup creates the local database, applies
 migrations, and seeds the administrator. It writes development-only configuration
 to the ignored API `.dev.vars` and dashboard `.env` files. See
-[Platform Development](../../../docs/guide/platform-development.md) for local
+[Platform Development](../../../docs/en/guide/platform-development.md) for local
 frontend setup and installing a runtime built from a fork.
 
 Use the platform installer for deployed configuration. The values below depend
@@ -490,7 +490,7 @@ of `AUTH_REDIRECT_URI` for links and comes from
 Cloud senders or dashboard links. Do not set these values or `EMAIL_FROM` on
 installed Workers in the Cloudflare dashboard. The next lifecycle command stops
 until the operator lets Void replace that change; see
-[Platform Workers changed outside Void](../../../docs/guide/platform/installation/maintenance.md#workers-changed-outside-void).
+[Platform Workers changed outside Void](../../../docs/en/guide/platform/installation/maintenance.md#workers-changed-outside-void).
 
 Administrators manage access with `void platform signup` and `void platform invitation`. Signup eligibility comes from the installation's own allowlist and bootstrap administrator configuration.
 
@@ -518,4 +518,4 @@ Release modules and encrypted binding metadata are stored under the deployment's
 
 ## Connected apps
 
-Registered confidential OAuth clients use code + S256 PKCE with identity-only grants. Each publish requires Void consent for an exact artifact and project, then uses an audience-separated, revocable credential and a durable deployment receipt. Admin registration/disablement lives at `/admin/connected-apps`; user disconnection lives at `/oauth/connections`. See [the design record](../../meta/design-docs/0091-connected-apps.md) and [operator guide](../../../docs/guide/platform/administration/connected-apps.md).
+Registered confidential OAuth clients use code + S256 PKCE with identity-only grants. Each publish requires Void consent for an exact artifact and project, then uses an audience-separated, revocable credential and a durable deployment receipt. Admin registration/disablement lives at `/admin/connected-apps`; user disconnection lives at `/oauth/connections`. See [the design record](../../meta/design-docs/0091-connected-apps.md) and [operator guide](../../../docs/en/guide/platform/administration/connected-apps.md).

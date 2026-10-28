@@ -5,6 +5,7 @@ Full-stack framework for Cloudflare Workers, powered by Vite.
 ## Context Overview
 
 - Documentation source lives in `docs/`.
+  - English and Simplified Chinese pages live in parallel `docs/en/` and `docs/zh/` trees. Follow `docs/README.md` for translation maintenance. The site rewrites English source paths to keep public URLs unchanged; bundled English docs keep their existing package paths.
   - Docs is a Vitepress project using our custom theme. When asked to "link the theme", temporarily edit `docs/package.json` so that `@voidzero-dev/vitepress-theme` point to `link:../../../theme`. Rerun `vp install` to link it. Revert these when asked to "unlink the theme".
 - Packages publish to npm as `void` and `@void/*`. Consumer-facing code, docs examples, playground source, and package manifests should use only those public package names.
 - Published external runtime dependencies use compatible semver ranges. Preserve `workspace:*` for dependencies and peers between Void packages. The lockfile fixes the versions tested in this repository. Keep Miniflare's dated alpha coordinated with the Cloudflare toolchain: a caret does not accept the next date's alpha. Keep the Sandbox SDK version aligned with its packaged Docker helper and verified platform helper layer.
@@ -37,7 +38,7 @@ Deploy hosted production before publishing the npm packages: the CLI checks the 
 - When adding new CLI commands, always remember to update the following:
   - CLI help message
   - The hint message for command groups in the interactive list when running `void` with no args
-  - `docs/reference/cli.md`
+  - `docs/en/reference/cli.md`
 
 ## Quick Reference
 
@@ -77,7 +78,7 @@ pnpm workspaces managed through Vite+. Shared dependency versions use the **pnpm
 | [`platform`](./platform/README.md)                           | (private)                 | Self-hosted platform source, routing, proxy, logs, and dashboard  |
 | `playground/*`                                               | (private)                 | local apps for testing                                            |
 
-The platform source is part of this repository. Its workspace-only packages keep `private: true` to prevent accidental npm publication; this does not mean the platform source is private. Use `docs/guide/platform-development.md` for contributor/fork setup and `docs/guide/self-hosted-platform.md` for installation.
+The platform source is part of this repository. Its workspace-only packages keep `private: true` to prevent accidental npm publication; this does not mean the platform source is private. Use `docs/en/guide/platform-development.md` for contributor/fork setup and `docs/en/guide/self-hosted-platform.md` for installation.
 
 Platform packages live under `platform/packages/*` and may depend on public/shared root packages. Public SDK packages under `packages/*` must not import from `platform/`.
 
@@ -86,8 +87,8 @@ Platform packages live under `platform/packages/*` and may depend on public/shar
 Read [the core package instructions](./packages/void/AGENTS.md) for plugin,
 runtime, code-generation and CLI invariants. Each framework adapter has its
 own README under `packages/{react,vue,svelte,solid}`.
-The [API reference](./docs/reference/api.md) and
-[CLI reference](./docs/reference/cli.md) describe the supported public surface.
+The [API reference](./docs/en/reference/api.md) and
+[CLI reference](./docs/en/reference/cli.md) describe the supported public surface.
 
 `packages/void/docs` is ignored by Git and copied from `docs/`
 during the build. Edit the source documentation instead.

@@ -49,7 +49,7 @@ The checked-in Wrangler environments describe the existing Void Cloud deployment
 Its dispatch configuration references this Worker through `tail_consumers`, so
 maintainers deploy tail before dispatch. See the
 [Void Cloud operations note](../../meta/operations.md) for that deployment and
-[Platform Development](../../../docs/guide/platform-development.md) to build your
+[Platform Development](../../../docs/en/guide/platform-development.md) to build your
 own runtime.
 
 This Worker has no public HTTP surface. It stores events in Analytics Engine;

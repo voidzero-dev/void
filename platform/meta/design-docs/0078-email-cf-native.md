@@ -11,7 +11,7 @@ The repository implements two email hosting paths. Native Cloudflare deployments
 
 The app's email.from setting selects the sender domain. Native deployment and void email setup/status share a credentialed Cloudflare preflight. Setup inspects routing, rules, Sending state, and configuration before changing account resources. It manages only the derived address rules and reports permission, DNS, or plan limits instead of assuming a Worker upload makes email ready. Apps without email use no email binding or entitlement probe. The [native setup implementation](../../../packages/void/src/cli/email-cloudflare.ts) owns this flow.
 
-Native inbound handlers run on the Worker's email event. Native sending uses the configured binding. The local development inbox and test harness do not imply live delivery. See the [email guide](../../../docs/guide/email.md).
+Native inbound handlers run on the Worker's email event. Native sending uses the configured binding. The local development inbox and test harness do not imply live delivery. See the [email guide](../../../docs/en/guide/email.md).
 
 ## Platform routing and trust
 
@@ -29,4 +29,4 @@ The [connection service](../../../platform/packages/api/src/email/connection-ser
 
 For platform email, PostgreSQL is authoritative for project policy, suspension, verified recipients, quota reservations, and idempotency. Direct sends and inbound handler actions pass through that admission path. Provider acceptance and delivery are distinct outcomes. Failed and unknown attempts remain queryable; an unknown provider result is not silently retried with a new key. Metadata logs exclude message bodies and attachments.
 
-The [admission service](../../../platform/packages/api/src/email/admission.ts), [proxy](../../../platform/packages/proxy/src/email.ts), and [email guide](../../../docs/guide/email.md) describe the implemented limits and public behavior.
+The [admission service](../../../platform/packages/api/src/email/admission.ts), [proxy](../../../platform/packages/proxy/src/email.ts), and [email guide](../../../docs/en/guide/email.md) describe the implemented limits and public behavior.

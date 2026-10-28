@@ -8,8 +8,8 @@ created: 2026-09-15
 
 The terminal and browser administrator interfaces share server operations.
 Current commands and setup live in
-[Platform Administration](../../../docs/guide/platform-administration.md) and
-the [CLI reference](../../../docs/reference/cli.md#operator-commands).
+[Platform Administration](../../../docs/en/guide/platform-administration.md) and
+the [CLI reference](../../../docs/en/reference/cli.md#operator-commands).
 
 ## Authentication and origin
 

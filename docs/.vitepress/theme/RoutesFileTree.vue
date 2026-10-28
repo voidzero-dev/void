@@ -1,7 +1,10 @@
 <script setup lang="ts">
+import { useData } from 'vitepress';
+import { computed } from 'vue';
 import type { FileTreeItem } from './FileTree.vue';
 
-const items: Array<FileTreeItem> = [
+const { lang } = useData();
+const items = computed<Array<FileTreeItem>>(() => [
   {
     name: 'routes/',
     children: [
@@ -24,7 +27,10 @@ const items: Array<FileTreeItem> = [
             children: [
               {
                 name: '[...query].ts',
-                description: '→ GET /api/search/* (catch-all)',
+                description:
+                  lang.value === 'zh-CN'
+                    ? '→ GET /api/search/*（兜底匹配）'
+                    : '→ GET /api/search/* (catch-all)',
               },
             ],
           },
@@ -32,7 +38,7 @@ const items: Array<FileTreeItem> = [
       },
     ],
   },
-];
+]);
 </script>
 
 <template>

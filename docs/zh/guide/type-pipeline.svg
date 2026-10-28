@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 220" fill="none">
+  <style>
+    text { font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace; }
+    .label { font-size: 12px; font-weight: 600; }
+    .sublabel { font-size: 11px; opacity: 0.7; }
+    .box { stroke-width: 1.5; rx: 6; ry: 6; }
+    .arrow { stroke-width: 1.5; fill: none; marker-end: url(#head); }
+  </style>
+  <defs>
+    <marker id="head" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#9ca3af"/>
+    </marker>
+  </defs>
+
+  <!-- Column 1: Drizzle schema -->
+  <rect x="12" y="80" width="120" height="52" class="box" stroke="#7c3aed" fill="#7c3aed" fill-opacity="0.08"/>
+  <text x="72" y="102" text-anchor="middle" class="label" fill="#7c3aed">Drizzle schema</text>
+  <text x="72" y="118" text-anchor="middle" class="sublabel" fill="#6b7280">db/schema.ts</text>
+
+  <!-- Column 2: DB types -->
+  <rect x="172" y="80" width="100" height="52" class="box" stroke="#7c3aed" fill="#7c3aed" fill-opacity="0.08"/>
+  <text x="222" y="102" text-anchor="middle" class="label" fill="#7c3aed">DB types</text>
+  <text x="222" y="118" text-anchor="middle" class="sublabel" fill="#6b7280">.void/db.d.ts</text>
+
+  <!-- Arrow: schema -> DB types -->
+  <line x1="132" y1="106" x2="170" y2="106" class="arrow" stroke="#9ca3af"/>
+
+  <!-- Branch arrows from DB types -->
+  <path d="M 272 96 L 300 96 L 300 36 L 328 36" class="arrow" stroke="#9ca3af"/>
+  <path d="M 272 106 L 328 106" class="arrow" stroke="#9ca3af"/>
+  <path d="M 272 116 L 300 116 L 300 176 L 328 176" class="arrow" stroke="#9ca3af"/>
+
+  <!-- Row 1: Route handlers -->
+  <rect x="330" y="12" width="130" height="48" class="box" stroke="#2563eb" fill="#2563eb" fill-opacity="0.08"/>
+  <text x="395" y="33" text-anchor="middle" class="label" fill="#2563eb">Route handlers</text>
+  <text x="395" y="49" text-anchor="middle" class="sublabel" fill="#6b7280">routes/**/*.ts</text>
+
+  <rect x="500" y="12" width="100" height="48" class="box" stroke="#2563eb" fill="#2563eb" fill-opacity="0.08"/>
+  <text x="550" y="33" text-anchor="middle" class="label" fill="#2563eb">Route types</text>
+  <text x="550" y="49" text-anchor="middle" class="sublabel" fill="#6b7280">RouteMap</text>
+
+  <rect x="640" y="12" width="68" height="48" class="box" stroke="#2563eb" fill="#2563eb" fill-opacity="0.08"/>
+  <text x="674" y="33" text-anchor="middle" class="label" fill="#2563eb">fetch()</text>
+  <text x="674" y="49" text-anchor="middle" class="sublabel" fill="#6b7280">client</text>
+
+  <line x1="460" y1="36" x2="498" y2="36" class="arrow" stroke="#9ca3af"/>
+  <line x1="600" y1="36" x2="638" y2="36" class="arrow" stroke="#9ca3af"/>
+
+  <!-- Row 2: Page loaders -->
+  <rect x="330" y="82" width="130" height="48" class="box" stroke="#059669" fill="#059669" fill-opacity="0.08"/>
+  <text x="395" y="103" text-anchor="middle" class="label" fill="#059669">Page loaders</text>
+  <text x="395" y="119" text-anchor="middle" class="sublabel" fill="#6b7280">*.server.ts</text>
+
+  <rect x="500" y="82" width="100" height="48" class="box" stroke="#059669" fill="#059669" fill-opacity="0.08"/>
+  <text x="550" y="103" text-anchor="middle" class="label" fill="#059669">Props</text>
+  <text x="550" y="119" text-anchor="middle" class="sublabel" fill="#6b7280">InferProps</text>
+
+  <rect x="640" y="82" width="68" height="48" class="box" stroke="#059669" fill="#059669" fill-opacity="0.08"/>
+  <text x="674" y="103" text-anchor="middle" class="label" fill="#059669">Page</text>
+  <text x="674" y="119" text-anchor="middle" class="sublabel" fill="#6b7280">component</text>
+
+  <line x1="460" y1="106" x2="498" y2="106" class="arrow" stroke="#9ca3af"/>
+  <line x1="600" y1="106" x2="638" y2="106" class="arrow" stroke="#9ca3af"/>
+
+  <!-- Row 3: Page actions -->
+  <rect x="330" y="152" width="130" height="48" class="box" stroke="#d97706" fill="#d97706" fill-opacity="0.08"/>
+  <text x="395" y="173" text-anchor="middle" class="label" fill="#d97706">Page actions</text>
+  <text x="395" y="189" text-anchor="middle" class="sublabel" fill="#6b7280">*.server.ts</text>
+
+  <rect x="500" y="152" width="100" height="48" class="box" stroke="#d97706" fill="#d97706" fill-opacity="0.08"/>
+  <text x="550" y="173" text-anchor="middle" class="label" fill="#d97706">Action types</text>
+  <text x="550" y="189" text-anchor="middle" class="sublabel" fill="#6b7280">ActionMap</text>
+
+  <rect x="640" y="152" width="68" height="48" class="box" stroke="#d97706" fill="#d97706" fill-opacity="0.08"/>
+  <text x="674" y="168" text-anchor="middle" class="label" fill="#d97706">useForm</text>
+  <text x="674" y="184" text-anchor="middle" class="sublabel" fill="#d97706">action()</text>
+
+  <line x1="460" y1="176" x2="498" y2="176" class="arrow" stroke="#9ca3af"/>
+  <line x1="600" y1="176" x2="638" y2="176" class="arrow" stroke="#9ca3af"/>
+</svg>

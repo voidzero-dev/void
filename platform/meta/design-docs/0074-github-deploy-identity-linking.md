@@ -15,8 +15,8 @@ equality and does not create another Void user.
 The GitHub App installation and repository connection are separate proofs.
 Linking an identity proves control of a GitHub account; it does not grant access
 to an App installation or its repositories. See the
-[deployment guide](../../../docs/guide/deployment.md) and
-[CLI reference](../../../docs/reference/cli.md) for the user workflow.
+[deployment guide](../../../docs/en/guide/deployment.md) and
+[CLI reference](../../../docs/en/reference/cli.md) for the user workflow.
 
 ## Identity-linking boundary
 

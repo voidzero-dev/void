@@ -3,8 +3,8 @@ outline: deep
 ---
 
 <script setup>
-import LegacyDocRedirect from "../.vitepress/theme/LegacyDocRedirect.vue";
-import links from "../.vitepress/redirects/reference-api.json";
+import LegacyDocRedirect from "../../.vitepress/theme/LegacyDocRedirect.vue";
+import links from "../../.vitepress/redirects/reference-api.json";
 </script>
 
 <LegacyDocRedirect page="reference/api.md" :links="links" />

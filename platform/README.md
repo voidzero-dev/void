@@ -10,9 +10,9 @@ runtime can be installed and upgraded with `void platform`. The installer tracks
 resource ownership, applies compatible migrations, and preserves credentials
 across upgrades.
 
-Start with [Self-host a Void Platform](../docs/guide/self-hosted-platform.md) to
-install it, [Platform Administration](../docs/guide/platform-administration.md) to
-operate it, or [Platform Development](../docs/guide/platform-development.md) to
+Start with [Self-host a Void Platform](../docs/en/guide/self-hosted-platform.md) to
+install it, [Platform Administration](../docs/en/guide/platform-administration.md) to
+operate it, or [Platform Development](../docs/en/guide/platform-development.md) to
 work on a fork. The dashboard and managed builds are optional source components;
 they are not provisioned by the core installer.
 
@@ -56,7 +56,7 @@ in that file serve the existing Void Cloud deployment; see [operations](#operati
 
 ## Operator CLI
 
-Use [Platform Administration](../docs/guide/platform-administration.md) for users, projects, plans, logs, and health checks. The [CLI reference](../docs/reference/cli/platform.md#operator-commands) lists administrator commands and options.
+Use [Platform Administration](../docs/en/guide/platform-administration.md) for users, projects, plans, logs, and health checks. The [CLI reference](../docs/en/reference/cli/platform.md#operator-commands) lists administrator commands and options.
 
 ## Local Development
 
@@ -74,7 +74,7 @@ Open `http://localhost:8787/admin/`. To work on the dashboard, start it separate
 vp run --filter @voidcloud/dashboard dev
 ```
 
-The [development guide](../docs/guide/platform-development.md) explains the local
+The [development guide](../docs/en/guide/platform-development.md) explains the local
 configuration, fork CI, schema changes, and how to deploy a source-built runtime
 into your own installation.
 

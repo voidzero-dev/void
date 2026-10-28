@@ -14,5 +14,5 @@ The CLI supports schema-driven local prototyping and migration workflows;
 deployment applies committed migrations against the configured application
 database. D1 remains the default Cloudflare database, while supported
 PostgreSQL and MySQL paths use their own bindings and drivers. See the
-[database guide](../../../docs/guide/database.md) for the current commands
+[database guide](../../../docs/en/guide/database.md) for the current commands
 and dialect-specific requirements.

@@ -7,7 +7,7 @@ created: 2026-07-02
 # Build log delivery and presentation
 
 Container build logs have three consumers: the owner-facing
-[`void build logs` command](../../../docs/reference/cli.md#build),
+[`void build logs` command](../../../docs/en/reference/cli.md#build),
 administrator views, and the completed `Void Build` GitHub check. They share
 the BuildManager's retained SQLite log store. GitHub Actions builds instead
 return their external run URL.

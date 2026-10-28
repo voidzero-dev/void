@@ -3,8 +3,8 @@ outline: deep
 ---
 
 <script setup>
-import LegacyDocRedirect from '../.vitepress/theme/LegacyDocRedirect.vue';
-import links from '../.vitepress/redirects/guide-email.json';
+import LegacyDocRedirect from '../../.vitepress/theme/LegacyDocRedirect.vue';
+import links from '../../.vitepress/redirects/guide-email.json';
 </script>
 
 <LegacyDocRedirect page="guide/email.md" :links="links" />

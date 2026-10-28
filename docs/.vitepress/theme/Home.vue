@@ -25,17 +25,20 @@ const { frontmatter } = useData();
       aria-labelledby="full-stack-heading"
     >
       <a
-        href="/guide/self-hosted-platform"
+        :href="frontmatter.homeI18n?.platform_link ?? '/guide/self-hosted-platform'"
         class="section-label-link"
-        aria-label="Self-host Void Platform guide"
+        :aria-label="frontmatter.homeI18n?.platform_label ?? 'Self-host Void Platform guide'"
       >
         <img src="/void-platform-dark.svg" alt="" class="section-label" />
       </a>
       <h2 id="full-stack-heading" class="text-primary text-2xl md:text-[2.5rem]">
-        Deploy with your Security Built-In
+        {{ frontmatter.homeI18n?.platform_heading ?? 'Deploy with your Security Built-In' }}
       </h2>
       <p class="max-w-md text-pretty text-primary/70">
-        Self-host your team's Void Platform & customize it to fit your security needs.
+        {{
+          frontmatter.homeI18n?.platform_description ??
+          "Self-host your team's Void Platform & customize it to fit your security needs."
+        }}
       </p>
     </section>
 
@@ -47,13 +50,21 @@ const { frontmatter } = useData();
     class="wrapper border-t border-nickel px-5 sm:px-10 h-70 sm:h-[22rem] flex flex-col justify-center gap-6 text-center items-center"
     aria-labelledby="features-heading"
   >
-    <a href="/guide/" class="section-label-link" aria-label="Void SDK guide">
+    <a
+      :href="frontmatter.homeI18n?.sdk_link ?? '/guide/'"
+      class="section-label-link"
+      :aria-label="frontmatter.homeI18n?.sdk_label ?? 'Void SDK guide'"
+    >
       <img src="/void-sdk.svg" alt="" class="section-label section-label--sdk" />
     </a>
-    <h2 id="features-heading" class="text-white">Turn Vite Apps Full-Stack</h2>
+    <h2 id="features-heading" class="text-white">
+      {{ frontmatter.homeI18n?.sdk_heading ?? 'Turn Vite Apps Full-Stack' }}
+    </h2>
     <p class="max-w-md text-white/70 text-balance sm:text-pretty">
-      Use your favorite Vite framework, add the backend features you need, and let Void infer your
-      resources.
+      {{
+        frontmatter.homeI18n?.sdk_description ??
+        'Use your favorite Vite framework, add the backend features you need, and let Void infer your resources.'
+      }}
     </p>
   </section>
 
@@ -62,8 +73,8 @@ const { frontmatter } = useData();
   <Footer
     :heading="frontmatter.footer_heading"
     :subheading="frontmatter.footer_subheading"
-    button-text="Get Started"
-    button-link="/guide/"
+    :button-text="frontmatter.homeI18n?.get_started ?? 'Get Started'"
+    :button-link="frontmatter.homeI18n?.sdk_link ?? '/guide/'"
   />
 </template>
 

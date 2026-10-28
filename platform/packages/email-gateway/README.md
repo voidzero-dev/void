@@ -3,7 +3,7 @@
 The platform's dedicated inbound email Worker. Its source is packaged with the
 core Workers in `@void/platform`; the installer deploys it and enables platform
 email when the shared sender domain and mail zone are configured. See the
-[installation credentials](../../../docs/guide/platform/installation/credentials.md)
+[installation credentials](../../../docs/en/guide/platform/installation/credentials.md)
 for those inputs.
 
 The gateway accepts mail on the shared domain and authenticated relays from

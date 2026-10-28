@@ -15,4 +15,4 @@ This preserves markdown as a content-first format while allowing local
 interaction without a shared bundle for every markdown route. The compiler
 lives in [the markdown plugin](../../../packages/md/src/plugin.ts); the
 public syntax is in the
-[markdown guide](../../../docs/guide/pages-routing/markdown.md).
+[markdown guide](../../../docs/en/guide/pages-routing/markdown.md).

@@ -13,7 +13,7 @@ test 14, which requires a fresh message round trip within 30 seconds. The
 WebSocket handshake carries the secret as a header. These fixtures require a
 configured nonempty secret and remain separate from the default hosted CI app.
 
-Prepare the hosted fixture with `oxnode platform/scripts/kitchen-sink-platform-fixture.ts`, then deploy the isolated app directory it prints to the platform you want to test. The basic fixture omits Sandbox so it works on platforms without Containers access. For Sandbox acceptance, pass `--sandbox` when preparing the fixture and set `SMOKE_SANDBOX=1` when running the tests. The platform must enable Sandbox and have Workers Paid, Containers access, and the required runtime-token permissions described in the [Sandbox guide](../../docs/guide/sandboxes.md). Pass the deployed URL explicitly from the repository root:
+Prepare the hosted fixture with `oxnode platform/scripts/kitchen-sink-platform-fixture.ts`, then deploy the isolated app directory it prints to the platform you want to test. The basic fixture omits Sandbox so it works on platforms without Containers access. For Sandbox acceptance, pass `--sandbox` when preparing the fixture and set `SMOKE_SANDBOX=1` when running the tests. The platform must enable Sandbox and have Workers Paid, Containers access, and the required runtime-token permissions described in the [Sandbox guide](../../docs/en/guide/sandboxes.md). Pass the deployed URL explicitly from the repository root:
 
 ```sh
 vp exec playwright install chromium

@@ -18,4 +18,4 @@ the API.
 
 The implementation is in [the Tail Worker](../../packages/tail/src/index.ts)
 and the public command behavior is in the
-[CLI reference](../../../docs/reference/cli.md).
+[CLI reference](../../../docs/en/reference/cli.md).

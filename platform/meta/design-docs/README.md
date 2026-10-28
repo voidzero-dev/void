@@ -4,8 +4,8 @@ These records explain implemented Void framework and platform decisions. Keep un
 
 Start with maintained guides for current usage and operations:
 
-- [Self-host a Void platform](../../../docs/guide/self-hosted-platform.md)
-- [Platform Administration](../../../docs/guide/platform-administration.md)
+- [Self-host a Void platform](../../../docs/en/guide/self-hosted-platform.md)
+- [Platform Administration](../../../docs/en/guide/platform-administration.md)
 - [Platform architecture](../architecture.md)
 - [Platform development](../../README.md)
 - [Release acceptance](../release-acceptance.md)

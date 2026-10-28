@@ -1,8 +1,8 @@
 # Platform maintainer documentation
 
-Start with the [self-hosted platform guide](../../docs/guide/self-hosted-platform.md)
+Start with the [self-hosted platform guide](../../docs/en/guide/self-hosted-platform.md)
 to install a platform, then use
-[Platform Administration](../../docs/guide/platform-administration.md) to operate
+[Platform Administration](../../docs/en/guide/platform-administration.md) to operate
 it from the terminal.
 
 For work on the implementation:
@@ -11,7 +11,7 @@ For work on the implementation:
 - [Architecture](./architecture.md) maps the current packages, runtime and data stores.
 - [Operations](./operations.md) covers maintenance and recovery.
 - [Release acceptance](./release-acceptance.md) separates local verification from live provider signoff.
-- [Runtime and Source Builds](../../docs/guide/platform/development/runtime.md) explains how to build and deploy a fork.
+- [Runtime and Source Builds](../../docs/en/guide/platform/development/runtime.md) explains how to build and deploy a fork.
 - [Design archive](./design-docs/README.md) preserves feature rationale and implementation history.
 
 Archived technical plans and their checkboxes do not define a release promise

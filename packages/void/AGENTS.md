@@ -142,7 +142,7 @@ Two features need extra wiring on a self-hosted `vite build && wrangler deploy` 
 
 [package.json](./package.json) is the authoritative export map and declares
 the CLI binary at `dist/cli/cli.mjs`. The
-[API reference](../../docs/reference/api.md#user-facing-imports) documents
+[API reference](../../docs/en/reference/api.md#user-facing-imports) documents
 supported imports. Keep Worker-safe runtime subpaths separate from the
 Vite/CLI dependency graph.
 
@@ -172,7 +172,7 @@ Void pages use the same suffix. `scanPages()` takes `environment` and drops page
 
 ## Code Generation (`void gen`)
 
-The [CLI reference](../../docs/reference/cli/generate.md#code-generation) lists
+The [CLI reference](../../docs/en/reference/cli/generate.md#code-generation) lists
 scaffolding commands and flags. Keep generation in `src/cli/gen.ts` aligned
 with `src/cli/gen-args.ts`, CLI help and the interactive command-group hint.
 

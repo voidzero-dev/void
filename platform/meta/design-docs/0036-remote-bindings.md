@@ -15,4 +15,4 @@ Operations whose semantics cannot be preserved by the proxy fail explicitly.
 For example, D1 batch is sent to the deployed native handler rather than
 split into independent REST statements. Native Cloudflare development uses
 Cloudflare's remote binding support for its own destination. See the
-[remote development guide](../../../docs/guide/remote-dev.md).
+[remote development guide](../../../docs/en/guide/remote-dev.md).

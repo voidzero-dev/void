@@ -6,7 +6,7 @@ Void brings together three open-source tools for you and your coding agents:
 
 - **Void SDK:** Build your server and client together with file-based API routes, server-rendered pages, and typed APIs for databases, storage, and AI. Carry types from database queries to the UI.
 - **Void CLI:** Build your app, provision the Cloudflare resources it uses, apply migrations, and deploy with one command. Manage resources, inspect logs, and roll back through the same CLI.
-- **Void Platform:** Install a shared deployment environment in your Cloudflare account for your team or customers, with access controls, resource limits, usage reporting, and [connected applications](./docs/guide/platform/administration/connected-apps.md) that request user-approved deployments.
+- **Void Platform:** Install a shared deployment environment in your Cloudflare account for your team or customers, with access controls, resource limits, usage reporting, and [connected applications](./docs/en/guide/platform/administration/connected-apps.md) that request user-approved deployments.
 
 The SDK's features are optional and composable. Use React, Vue, Svelte, or Solid for Void pages, or keep a [supported application framework](https://void.cloud/integrations/frameworks/overview) for routing and rendering while Void handles resource APIs, migrations, and deployment.
 
@@ -33,6 +33,10 @@ To deploy to a team platform, run `npx void connect <url>` first, then use the s
 ## Documentation
 
 Read the [Void documentation](https://void.cloud) online or use the Markdown guides and references in `node_modules/void/docs/`, included with the `void` package.
+
+The [Simplified Chinese guides](./docs/zh/guide/index.md) cover the introduction, quickstart, and supported app types.
+
+See [Multilingual Documentation Maintenance](./docs/README.md) for source layout and translation reviews.
 
 `void init` adds a minimal `AGENTS.md` in new projects and asks before changing instructions in existing projects. It also links bundled skills for detected coding agents.
 

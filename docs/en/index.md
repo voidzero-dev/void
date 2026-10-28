@@ -95,7 +95,7 @@ footer_subheading: Server code, resources, and deployment in one workflow.
 ---
 
 <script setup>
-import Home from './.vitepress/theme/Home.vue'
+import Home from '../.vitepress/theme/Home.vue'
 </script>
 
 <Home />

@@ -14,4 +14,4 @@ The scheduler separates timing from deployment and request serving. It also
 allows the platform to manage many project schedules without creating a
 Cloudflare Cron Trigger for every tenant job. The implementation is in
 [CronScheduler](../../packages/api/src/cron-scheduler.ts); application
-syntax is in the [jobs guide](../../../docs/guide/jobs.md).
+syntax is in the [jobs guide](../../../docs/en/guide/jobs.md).

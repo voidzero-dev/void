@@ -26,5 +26,5 @@ expression language.
 
 Rules from `void.json` precede rules in a file-based `_redirects` list in the
 same routing phase, and the first matching rule wins. See the
-[redirects guide](../../../docs/guide/edge/redirects.md) for syntax and
+[redirects guide](../../../docs/en/guide/edge/redirects.md) for syntax and
 validation details.

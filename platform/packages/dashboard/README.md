@@ -57,7 +57,7 @@ set `CF_ACCESS_APP_URL` to that same HTTPS origin. The local token helper uses
 `cloudflared` to refresh its Access session before Vite starts; automation can
 supply `CF_ACCESS_CLIENT_ID` and `CF_ACCESS_CLIENT_SECRET` instead.
 
-See [Platform Development](../../../docs/guide/platform-development.md) for the
+See [Platform Development](../../../docs/en/guide/platform-development.md) for the
 full setup and source-runtime workflow. The core platform installer does not
 install the dashboard; running this app locally does not add it to an installation.
 
@@ -89,7 +89,7 @@ Replace the copied `cloudflare` configuration with your deployment settings:
 
 From the repository root, run `vp install` and `vp run build:core`. Configure the
 API’s accepted dashboard origin using the
-[optional dashboard instructions](../../../docs/guide/platform/installation/domains.md#optional-dashboard).
+[optional dashboard instructions](../../../docs/en/guide/platform/installation/domains.md#optional-dashboard).
 Then deploy from the copied app directory with the public Void CLI:
 
 ```sh

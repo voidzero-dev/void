@@ -16,5 +16,5 @@ hydration runtime. This keeps the server contract shared while allowing React,
 Vue, Svelte, and Solid to retain their rendering semantics. Layouts still
 wrap the server render; hydration is attached to selected components.
 
-See the [islands guide](../../../docs/guide/pages-routing/islands.md) for
+See the [islands guide](../../../docs/en/guide/pages-routing/islands.md) for
 supported file conventions, directives, and framework behavior.

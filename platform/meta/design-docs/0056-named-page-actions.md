@@ -14,4 +14,4 @@ Named actions share the page loader, validation, rendering, and client
 navigation protocol with the original single-action route. Generated
 route types and form helpers preserve the selected action's input and
 result types. The public syntax and behavior are in the
-[actions guide](../../../docs/guide/pages-routing/actions-and-forms.md).
+[actions guide](../../../docs/en/guide/pages-routing/actions-and-forms.md).

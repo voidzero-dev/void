@@ -14,5 +14,5 @@ Cloudflare deployment.
 Cron handlers can compile into the Node output, but an external scheduler
 must invoke them. This keeps the target portable and avoids hiding a process
 scheduler inside the framework. See the
-[Node.js, Bun, and Deno guide](../../../docs/integrations/nodejs-bun-deno.md)
+[Node.js, Bun, and Deno guide](../../../docs/en/integrations/nodejs-bun-deno.md)
 for current target support and limitations.
