@@ -16,7 +16,7 @@ Local development permits exact HTTP callbacks on localhost when the platform's 
 
 The app sends users to Void's authorization page, where Void displays its registered name, operator, callback origin, and requested permission. Sign-in permits reading the user's ID and username. It does not provide an account token or project management access.
 
-Users can disconnect applications at `<platform API URL>/oauth/connections`. Grants also expire after an hour and become invalid when their platform login session is revoked or their account is suspended. Applications must request a new sign-in when access expires.
+Users can disconnect applications at `<platform API URL>/oauth/connections`. Identity access tokens expire after an hour; apps that received a refresh token can renew silently instead of asking the user to sign in again. Access also becomes invalid when the platform login session is revoked, the account is suspended, or the refresh token's own absolute lifetime (90 days) elapses. Applications must request a new sign-in when access expires and no valid refresh token remains.
 
 ## Private previews
 
@@ -48,6 +48,8 @@ Disabling the app or disconnecting its grant stops authorization for subsequent 
 
 Discover endpoints at `/.well-known/oauth-authorization-server` on the platform API origin. Use authorization code flow with `scope=profile`, a random `state`, and S256 PKCE. Authenticate token exchanges using HTTP Basic client authentication. Send access tokens as Bearer credentials to `/oauth/userinfo`; its response contains `sub`, `preferred_username`, and the consented `scope`.
 
+The authorization code exchange also returns a `refresh_token`. POST `grant_type=refresh_token` with the refresh token and client Basic auth to `/oauth/token` to mint a new access token without user interaction; the response includes a new `refresh_token` and the previous one stops working. A refresh token can only be redeemed once — rotate to the new one on every renewal, and store it as securely as the access token. Presenting an already-rotated refresh token is treated as a compromised credential and revokes the application's entire access to that account; reconnect through the authorization flow to recover. An optional space-separated `scope` parameter requests a narrower set of permissions than the original grant; once narrowed, a later refresh cannot widen it back. `deploy:approve` publish credentials never receive a refresh token: each publish still requires its own interactive approval.
+
 For publishing, package the built app with [`prepareDeployArtifact`](/reference/api/deploy). POST to `/oauth/deployment-requests` using the profile token:
 
 ```ts
@@ -66,6 +68,6 @@ Redirect the browser to the returned `authorization_url`. Exchange its code with
 
 Use the token to request URLs from `POST /projects/:id/deploy/upload-urls`, upload the declared assets, and send the artifact to `POST /projects/:id/deploy`. Set `x-void-deploy-idempotency-key` to `approval_id`. Deployment uses Void's managed deployment protocol and requires the platform deployment Queue. The credential cannot read secrets, mint project tokens, delete projects, or deploy different bytes.
 
-Revoke identity grants with `POST /oauth/revoke`, authenticated as the client. No refresh token or OpenID Connect ID token is issued.
+Revoke identity grants with `POST /oauth/revoke`, authenticated as the client; this also works with a refresh token and revokes the whole grant, including any other refresh token issued from it. Void does not issue an OpenID Connect ID token.
 
 If the API is protected by Cloudflare Access, the application operator must also configure a service identity permitted by that Access application's policy. Server OAuth endpoints and approved deployment requests still validate their own client, grant, and project authority; browser consent requires the user's company identity.

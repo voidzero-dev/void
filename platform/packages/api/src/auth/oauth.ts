@@ -5,6 +5,7 @@ import type { ApiEnv } from '../env.ts';
 import {
   oauthClients,
   oauthGrants,
+  oauthRefreshTokens,
   oauthRequests,
   previewTickets,
   users,
@@ -151,6 +152,10 @@ export async function purgeExpiredOAuthRequests(db: Db) {
     SELECT id FROM oauth_grants WHERE expires_at < now() - interval '1 day'
     ORDER BY expires_at LIMIT 1000
   )`);
+  await db.execute(sql`DELETE FROM oauth_refresh_tokens WHERE id IN (
+    SELECT id FROM oauth_refresh_tokens WHERE expires_at < now() - interval '1 day'
+    ORDER BY expires_at LIMIT 1000
+  )`);
 }
 export async function activeOAuthClient(db: DbOrTx, id: string, lock = false) {
   const query = db
@@ -190,6 +195,10 @@ export async function activeOAuthGrant(
   id: string,
   companyIdentity?: ApiEnv['Variables']['companyIdentity'],
   lock = false,
+  // The refresh grant redeems a grant whose access token has already
+  // expired, so it skips the access-token freshness check and relies on the
+  // refresh token's own expiry instead.
+  requireFreshAccessToken = true,
 ) {
   if (!lock) {
     return readActiveOAuthGrant(db, eq(oauthGrants.id, id), companyIdentity);
@@ -214,7 +223,7 @@ export async function activeOAuthGrant(
       and(
         eq(oauthGrants.id, id),
         isNull(oauthGrants.revoked_at),
-        gt(oauthGrants.expires_at, new Date().toISOString()),
+        ...(requireFreshAccessToken ? [gt(oauthGrants.expires_at, new Date().toISOString())] : []),
       ),
     );
   const [grant] = await (lock ? query.for('share') : query);

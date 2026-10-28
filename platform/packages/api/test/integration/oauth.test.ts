@@ -27,6 +27,7 @@ import app from '../../src/index.ts';
 import {
   oauthClients,
   oauthGrants,
+  oauthRefreshTokens,
   oauthRequests,
   operatorEvents,
   users,
@@ -117,6 +118,21 @@ async function exchange(
     }),
   });
 }
+async function refresh(
+  refreshToken: string,
+  overrides: Record<string, string> = {},
+  authorization = basic(),
+) {
+  return request('/oauth/token', {
+    method: 'POST',
+    headers: { Authorization: authorization, 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      grant_type: 'refresh_token',
+      refresh_token: refreshToken,
+      ...overrides,
+    }),
+  });
+}
 async function connect(extra: Record<string, string> = {}) {
   const flow = await authorize(extra);
   expect(flow.response.status).toBe(200);
@@ -130,7 +146,12 @@ async function connect(extra: Record<string, string> = {}) {
   expect(token.status).toBe(200);
   return {
     code,
-    token: (await token.json()) as { access_token: string; scope: string; expires_in: number },
+    token: (await token.json()) as {
+      access_token: string;
+      refresh_token: string;
+      scope: string;
+      expires_in: number;
+    },
   };
 }
 async function publishApproval(profile: string, slug: string, prepared = artifact) {
@@ -910,6 +931,165 @@ describe('registered OAuth applications', () => {
       ).status,
     ).toBe(401);
     expect((await approve(pending.id!, pending.cookie)).status).not.toBe(302);
+  });
+  it('mints a refresh token on connect, rotates it on use, and invalidates the prior access token', async () => {
+    const { token } = await connect();
+    expect(token.refresh_token).toBeTruthy();
+    const refreshed = await refresh(token.refresh_token);
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as {
+      access_token: string;
+      refresh_token: string;
+      scope: string;
+      expires_in: number;
+    };
+    expect(next.access_token).not.toBe(token.access_token);
+    expect(next.refresh_token).not.toBe(token.refresh_token);
+    expect(next.scope).toBe('profile');
+    expect(
+      (
+        await request('/oauth/userinfo', {
+          headers: { Authorization: 'Bearer ' + token.access_token },
+        })
+      ).status,
+    ).toBe(401);
+    expect(
+      (
+        await request('/oauth/userinfo', {
+          headers: { Authorization: 'Bearer ' + next.access_token },
+        })
+      ).status,
+    ).toBe(200);
+  });
+  it('detects refresh token reuse and revokes the whole grant', async () => {
+    const { token } = await connect();
+    const first = await refresh(token.refresh_token);
+    expect(first.status).toBe(200);
+    const firstBody = (await first.json()) as { access_token: string; refresh_token: string };
+    // Replaying the already-rotated refresh token is treated as theft.
+    const replay = await refresh(token.refresh_token);
+    expect(replay.status).toBe(400);
+    expect((await replay.json()) as { error: string }).toMatchObject({ error: 'invalid_grant' });
+    // The entire grant family is now revoked, including the token issued by the first refresh.
+    const second = await refresh(firstBody.refresh_token);
+    expect(second.status).toBe(401);
+    expect(
+      (
+        await request('/oauth/userinfo', {
+          headers: { Authorization: 'Bearer ' + firstBody.access_token },
+        })
+      ).status,
+    ).toBe(401);
+  });
+  it('rejects an unknown or garbage refresh token', async () => {
+    expect((await refresh('not-a-real-refresh-token')).status).toBe(400);
+  });
+  it('enforces an absolute refresh lifetime that rotation cannot extend', async () => {
+    const { token } = await connect();
+    const [row] = await env.db.select().from(oauthRefreshTokens);
+    expect(row).toBeTruthy();
+    await env.db
+      .update(oauthRefreshTokens)
+      .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
+      .where(eq(oauthRefreshTokens.id, row!.id));
+    expect((await refresh(token.refresh_token)).status).toBe(400);
+  });
+  it('narrows scope on refresh and does not let a later refresh widen it back', async () => {
+    await setOAuthPreviewPermission(env.db, registration.client.id, true);
+    const { token } = await connect({ scope: 'profile preview:deploy' });
+    expect(token.scope).toBe('profile preview:deploy');
+    const narrowed = await refresh(token.refresh_token, { scope: 'profile' });
+    expect(narrowed.status).toBe(200);
+    const narrowedBody = (await narrowed.json()) as { refresh_token: string; scope: string };
+    expect(narrowedBody.scope).toBe('profile');
+    const widenAttempt = await refresh(narrowedBody.refresh_token, {
+      scope: 'profile preview:deploy',
+    });
+    expect(widenAttempt.status).toBe(400);
+    const [grant] = await env.db.select().from(oauthGrants);
+    expect(grant!.scopes).toEqual(['profile']);
+  });
+  it('rejects a refresh token presented to a different client', async () => {
+    const { token } = await connect();
+    const other = await registerOAuthClient(env.db, {
+      name: 'Other app',
+      operator: 'Other operator',
+      redirectUris: [redirect],
+      scopes: ['profile'],
+    });
+    const otherBasic = 'Basic ' + btoa(other.client.id + ':' + other.clientSecret);
+    expect((await refresh(token.refresh_token, {}, otherBasic)).status).toBe(400);
+  });
+  it('blocks refresh once the grant is revoked, client disabled, account suspended, or the session is invalidated', async () => {
+    const disconnected = await connect();
+    await request('/oauth/revoke', {
+      method: 'POST',
+      headers: { Authorization: basic(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: disconnected.token.access_token }),
+    });
+    expect((await refresh(disconnected.token.refresh_token)).status).toBe(401);
+
+    const suspended = await connect();
+    await env.db.update(users).set({ suspended_reason: 'admin' }).where(eq(users.id, user.id));
+    expect((await refresh(suspended.token.refresh_token)).status).toBe(401);
+    await env.db.update(users).set({ suspended_reason: null }).where(eq(users.id, user.id));
+
+    const disabled = await connect();
+    await disableOAuthClient(env.db, registration.client.id);
+    expect((await refresh(disabled.token.refresh_token)).status).toBe(401);
+    registration = await registerOAuthClient(env.db, {
+      name: 'Vibevoid',
+      operator: 'App operator',
+      redirectUris: [redirect],
+      scopes: ['profile', 'deploy:approve'],
+    });
+
+    await importLegacyAuthentication(env.db, env);
+    const human = await createHumanSession(env.db, env.JWT_SECRET, {
+      userId: user.id,
+      connectionId: 'github',
+      revision: 1,
+      generation: 1,
+      audience: 'api',
+    });
+    user.jwt = human.token;
+    const bySession = await connect();
+    await revokeConnectionSessions(env.db, 'github');
+    expect((await refresh(bySession.token.refresh_token)).status).toBe(401);
+  });
+  it('revokes a refresh token (and its grant) through the revocation endpoint', async () => {
+    const { token } = await connect();
+    const revoked = await request('/oauth/revoke', {
+      method: 'POST',
+      headers: { Authorization: basic(), 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ token: token.refresh_token }),
+    });
+    expect(revoked.status).toBe(200);
+    expect((await refresh(token.refresh_token)).status).toBe(401);
+    expect(
+      (
+        await request('/oauth/userinfo', {
+          headers: { Authorization: 'Bearer ' + token.access_token },
+        })
+      ).status,
+    ).toBe(401);
+  });
+  it('never issues a refresh token for a publish (deploy:approve) credential', async () => {
+    const { token } = await connect();
+    const project = await createTestProject(env.db, user.id, 'no-refresh-app');
+    const flow = await publishApproval(token.access_token, project.slug);
+    const consent = await approve(flow.id, flow.cookie);
+    const code = new URL(consent.headers.get('Location')!).searchParams.get('code')!;
+    const exchanged = await exchange(code, {}, basic());
+    expect(exchanged.status).toBe(200);
+    const body = (await exchanged.json()) as { scope: string; refresh_token?: string };
+    expect(body.scope).toBe('deploy:approve');
+    expect(body.refresh_token).toBeUndefined();
+  });
+  it('advertises the refresh_token grant in authorization server metadata', async () => {
+    const metadata = await request('/.well-known/oauth-authorization-server');
+    const body = (await metadata.json()) as { grant_types_supported: Array<string> };
+    expect(body.grant_types_supported).toContain('refresh_token');
   });
   it('requires approval by the grant owner and limits a publish to the chosen artifact and project', async () => {
     const { token } = await connect();
