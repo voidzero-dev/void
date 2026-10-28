@@ -188,4 +188,100 @@ describe('runtime log', () => {
     expect(parsed.error.message).toBe('loop');
     expect(parsed.error.cause).toEqual({ name: 'Error', message: 'loop' });
   });
+
+  it('child binds fields to every log level', () => {
+    const child = logger.child({ component: 'worker' });
+
+    child.error('failed');
+    child.warn('retrying');
+    child.info('started');
+
+    expect(
+      JSON.parse((console.error as ReturnType<typeof vi.fn>).mock.calls[0][0] as string),
+    ).toEqual({ msg: 'failed', component: 'worker' });
+    expect(
+      JSON.parse((console.warn as ReturnType<typeof vi.fn>).mock.calls[0][0] as string),
+    ).toEqual({ msg: 'retrying', component: 'worker' });
+    expect(
+      JSON.parse((console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string),
+    ).toEqual({ msg: 'started', component: 'worker' });
+  });
+
+  it('call fields override bound fields', () => {
+    logger.child({ component: 'worker', attempt: 1 }).info('retry', {
+      attempt: 2,
+      taskId: 't1',
+    });
+
+    const arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+
+    expect(JSON.parse(arg)).toEqual({
+      msg: 'retry',
+      component: 'worker',
+      attempt: 2,
+      taskId: 't1',
+    });
+  });
+
+  it('nested children inherit and extend bound fields', () => {
+    logger.child({ component: 'queue' }).child({ taskId: 't1' }).info('started');
+
+    const arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+
+    expect(JSON.parse(arg)).toEqual({
+      msg: 'started',
+      component: 'queue',
+      taskId: 't1',
+    });
+  });
+
+  it('reserved keys and functions in bound fields are skipped', () => {
+    logger
+      .child({
+        component: 'worker',
+        msg: 'ignored',
+        toJSON: () => ({ hacked: true }),
+        constructor: 'ignored',
+        fn: () => {},
+      })
+      .info('safe');
+
+    const arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+
+    expect(JSON.parse(arg)).toEqual({
+      msg: 'safe',
+      component: 'worker',
+    });
+  });
+
+  it('throwing getters in bound and call fields do not crash logging', () => {
+    const throwingFields = Object.defineProperty({}, 'bomb', {
+      enumerable: true,
+      get() {
+        throw new Error('getter');
+      },
+    }) as Record<string, unknown>;
+
+    const child = logger.child(throwingFields);
+
+    expect(() => child.info('bound getter')).not.toThrow();
+
+    let arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
+
+    expect(JSON.parse(arg)).toEqual({
+      msg: 'bound getter',
+      error: 'log: fields not serializable',
+    });
+
+    expect(() =>
+      logger.child({ component: 'worker' }).info('call getter', throwingFields),
+    ).not.toThrow();
+
+    arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[1][0] as string;
+
+    expect(JSON.parse(arg)).toEqual({
+      msg: 'call getter',
+      error: 'log: fields not serializable',
+    });
+  });
 });

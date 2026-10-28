@@ -16,6 +16,13 @@
 
 type Fields = Record<string, unknown>;
 
+type Logger = {
+  error(message: string, fields?: Fields): void;
+  warn(message: string, fields?: Fields): void;
+  info(message: string, fields?: Fields): void;
+  child(fields: Fields): Logger;
+};
+
 // `name`, `message`, `stack` and `cause` are non-enumerable on `Error`, so plain
 // `JSON.stringify` turns an error into `{}`. Copy them next to the error's own
 // enumerable fields. An error seen again (for example a `cause` cycle) keeps only
@@ -40,37 +47,56 @@ function errorReplacer(): (key: string, value: unknown) => unknown {
   };
 }
 
-function format(message: string, fields?: Fields): string {
-  // `message` always wins over `fields.msg`. The loop sits inside the try because
-  // getters and proxy traps on `fields` may throw; logging must never throw.
+function format(message: string, boundFields: ReadonlyArray<Fields> = [], fields?: Fields): string {
   try {
     const payload: Record<string, unknown> = Object.create(null);
     payload.msg = message;
-    if (fields) {
-      for (const [key, value] of Object.entries(fields)) {
+
+    for (const source of [...boundFields, fields]) {
+      if (!source) {
+        continue;
+      }
+
+      for (const [key, value] of Object.entries(source)) {
         if (key === 'msg' || key === 'toJSON' || key === '__proto__' || key === 'constructor') {
           continue;
         }
+
         if (typeof value === 'function') {
           continue;
         }
+
         payload[key] = value;
       }
     }
+
     return JSON.stringify(payload, errorReplacer());
   } catch {
-    return JSON.stringify({ msg: message, error: 'log: fields not serializable' });
+    return JSON.stringify({
+      msg: message,
+      error: 'log: fields not serializable',
+    });
   }
 }
 
-export const logger = {
-  error(message: string, fields?: Fields): void {
-    console.error(format(message, fields));
-  },
-  warn(message: string, fields?: Fields): void {
-    console.warn(format(message, fields));
-  },
-  info(message: string, fields?: Fields): void {
-    console.info(format(message, fields));
-  },
-};
+function createLogger(boundFields: ReadonlyArray<Fields> = []): Logger {
+  return {
+    error(message, fields) {
+      console.error(format(message, boundFields, fields));
+    },
+
+    warn(message, fields) {
+      console.warn(format(message, boundFields, fields));
+    },
+
+    info(message, fields) {
+      console.info(format(message, boundFields, fields));
+    },
+
+    child(fields) {
+      return createLogger([...boundFields, fields]);
+    },
+  };
+}
+
+export const logger: Logger = createLogger();

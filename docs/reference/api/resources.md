@@ -128,6 +128,9 @@ import { logger } from 'void/log';
 
 logger.info('checkout completed', { orderId, userId });
 logger.error('webhook failed', { provider: 'stripe', attempt: 3 });
+
+const log = logger.child({ component: 'queue', queue: 'tasks' });
+log.info('task.started', { taskId });
 ```
 
-**Methods:** `logger.error(message, fields?)`, `logger.warn(message, fields?)`, `logger.info(message, fields?)`.
+**Methods:** `logger.error(message, fields?)`, `logger.warn(message, fields?)`, `logger.info(message, fields?)`, `logger.child(fields)`.
