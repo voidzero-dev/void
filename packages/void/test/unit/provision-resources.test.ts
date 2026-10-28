@@ -3096,7 +3096,7 @@ describe('provisionCloudflareResources — config compliance_region pins the tra
 
   it('rejects an invalid config compliance_region value', () => {
     expect(() => resolvePinnedApiBaseUrl({}, 'somewhere')).toThrow(
-      /one of "public" or "fedramp_high"/,
+      'the Cloudflare config "compliance_region" must be one of "public" or "fedramp_high"',
     );
   });
 

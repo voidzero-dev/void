@@ -1713,7 +1713,7 @@ describe('Cloudflare version activation', () => {
     ).not.toHaveProperty('contentHash');
   });
 
-  // Wrangler 4.131 applies its Email Routing plan inside `triggers deploy`, reading the
+  // The Cloudflare CLI applies its Email Routing plan inside `triggers deploy`, reading the
   // config's `addresses`. The trigger-only config Void hands it must therefore carry the
   // snapshot's addresses verbatim — and carry NOTHING when the snapshot has none, because an
   // absent key skips the plan while `[]` deletes every rule the Worker owns.
