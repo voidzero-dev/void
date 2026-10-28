@@ -86,13 +86,18 @@ export function createFrameworkPlugins(input: {
     }
   };
 
+  // Adapters read the root Wrangler file by default, so a project with no config gets
+  // the date there instead of in a new void.config.ts.
+  const ensureFrameworkCompat = () =>
+    ensureWranglerCompat(root, config, undefined, { rootWrangler: true });
+
   // Ensure required compat flags are written before framework adapters
   // initialize Cloudflare dev runtime / Miniflare.
   const wranglerCompatPlugin: Plugin = {
     name: 'void:wrangler-compat',
     enforce: 'pre',
     config(_, env) {
-      syncFrameworkCompat(ensureWranglerCompat(root, config));
+      syncFrameworkCompat(ensureFrameworkCompat());
       if (env.command !== 'serve') {
         return;
       }
@@ -102,10 +107,10 @@ export function createFrameworkPlugins(input: {
       }
     },
     buildStart() {
-      syncFrameworkCompat(ensureWranglerCompat(root, config));
+      syncFrameworkCompat(ensureFrameworkCompat());
     },
     configureServer() {
-      syncFrameworkCompat(ensureWranglerCompat(root, config));
+      syncFrameworkCompat(ensureFrameworkCompat());
     },
   };
 

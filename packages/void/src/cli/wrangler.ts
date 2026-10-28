@@ -20,11 +20,13 @@ import {
 } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import {
+  ignoreMaterializedCloudflareConfig,
   materializeCloudflareConfig,
   MATERIALIZED_CLOUDFLARE_FILE,
   persistCloudflareConfig,
 } from '../cloudflare-config.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
+import { writeVoidProjectConfig } from '../config-write.ts';
 import { readConfig, type VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
@@ -209,7 +211,6 @@ export type WranglerCompat = {
 };
 
 type WranglerCompatFields = {
-  voidConfig: VoidConfig | undefined;
   voidDate: string | undefined;
   voidFlags: Array<string> | undefined;
   wranglerDate: string | undefined;
@@ -372,17 +373,23 @@ export function readWranglerCompat(
   return resolveWranglerCompat(readWranglerCompatFields(root, config, buildOutputDir));
 }
 
-/** Like `readWranglerCompat()`, but pins the default date when no source sets one. */
+/**
+ * Like `readWranglerCompat()`, but pins the default date when no source sets one.
+ * With `rootWrangler`, a project with no config gets the date in a root wrangler.jsonc
+ * instead of a new void.config.ts, so a framework adapter that reads the root file by
+ * default still finds it.
+ */
 export function ensureWranglerCompat(
   root: string,
   config?: VoidConfig,
   buildOutputDir?: string,
+  options?: { rootWrangler?: boolean },
 ): WranglerCompat {
   const fields = readWranglerCompatFields(root, config, buildOutputDir);
   const hasExplicitDate = fields.voidDate ?? fields.wranglerDate ?? fields.buildDate;
   const defaultDate = hasExplicitDate
     ? undefined
-    : ensureVoidCompatibilityDate(root, fields.voidConfig);
+    : ensureVoidCompatibilityDate(root, options?.rootWrangler === true);
   return resolveWranglerCompat(fields, defaultDate ? { defaultDate } : undefined);
 }
 
@@ -442,7 +449,6 @@ function readWranglerCompatFields(
   }
 
   return {
-    voidConfig,
     voidDate: voidConfig?.worker?.compatibility_date,
     voidFlags: voidConfig?.worker?.compatibility_flags,
     wranglerDate,
@@ -489,29 +495,41 @@ function readVoidConfigIfExists(root: string): VoidConfig | undefined {
     : undefined;
 }
 
-function ensureVoidCompatibilityDate(root: string, config?: VoidConfig): string {
+function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): string {
   if (existsSync(join(root, TYPED_CONFIG_FILE))) {
     writeProvisionedWranglerConfig(root, { compatibilityDate: LATEST_KNOWN_COMPAT_DATE });
     return LATEST_KNOWN_COMPAT_DATE;
   }
   const filePath = join(root, VOID_CONFIG_FILE);
-  let nextConfig: VoidConfig = {};
-
-  if (existsSync(filePath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
-      }
-      nextConfig = parsed as VoidConfig;
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
-      }
-      throw error;
+  if (!existsSync(filePath)) {
+    if (existsSync(join(root, 'wrangler.toml'))) {
+      // void.config.ts would point the Cloudflare plugin away from wrangler.toml and drop
+      // its bindings, so keep the date in void.json.
+      const pinned: VoidConfig = { worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE } };
+      writeFileSync(filePath, `${JSON.stringify(pinned, null, 2)}\n`);
+    } else if (rootWrangler || projectWranglerPaths(root).some((path) => existsSync(path))) {
+      // A root Wrangler config cannot sit next to void.config.ts, so pin the date in it.
+      writeProvisionedWranglerConfig(root, { compatibilityDate: LATEST_KNOWN_COMPAT_DATE });
+    } else {
+      // New projects get the date in void.config.ts, as `void init` writes it.
+      writeVoidProjectConfig(root, { worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE } });
+      ignoreMaterializedCloudflareConfig(root);
     }
-  } else if (config) {
-    nextConfig = { ...config };
+    return LATEST_KNOWN_COMPAT_DATE;
+  }
+
+  let nextConfig: VoidConfig;
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
+    }
+    nextConfig = parsed as VoidConfig;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
+    }
+    throw error;
   }
 
   nextConfig.worker = {
