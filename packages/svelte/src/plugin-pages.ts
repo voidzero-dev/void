@@ -14,8 +14,15 @@ const SVELTE_OPTIMIZE_DEPS = {
   // Exclude @void/svelte so the virtual module and user components share
   // the same Svelte context (identity).
   exclude: ['@void/svelte'],
-  // Pre-include Svelte so it's not discovered late via dynamic imports.
-  include: ['svelte', 'svelte/store', 'svelte/internal', 'svelte/internal/client'],
+  // Include imports from the virtual client entry before the first request.
+  include: [
+    'svelte',
+    'svelte/store',
+    'svelte/internal',
+    'svelte/internal/client',
+    'void/pages-client',
+    'void/pages-prefetch',
+  ],
 };
 
 export type PrefetchConfig = {

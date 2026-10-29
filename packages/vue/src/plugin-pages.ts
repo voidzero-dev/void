@@ -272,10 +272,8 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
         if (isDev) {
           return {
             optimizeDeps: {
-              // Pre-include Vue so it's not discovered late via dynamic
-              // imports during SPA navigation, avoiding a full-page reload
-              // from Vite's dep optimizer.
-              include: ['vue'],
+              // Include imports from the virtual client entry before the first request.
+              include: ['vue', 'void/pages-client', 'void/pages-prefetch'],
             },
           };
         }

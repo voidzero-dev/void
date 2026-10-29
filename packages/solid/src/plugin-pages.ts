@@ -141,8 +141,14 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
       if (isDev) {
         return {
           optimizeDeps: {
-            // Pre-include Solid entries discovered late via dynamic imports
-            include: ['solid-js', 'solid-js/web', 'solid-js/store'],
+            // Include imports from the virtual client entry before the first request.
+            include: [
+              'solid-js',
+              'solid-js/web',
+              'solid-js/store',
+              'void/pages-client',
+              'void/pages-prefetch',
+            ],
           },
         };
       }

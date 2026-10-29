@@ -124,7 +124,14 @@ describe('pagesPlugin dev HMR', () => {
     expect(config).toMatchObject({
       optimizeDeps: {
         exclude: ['@void/svelte'],
-        include: ['svelte', 'svelte/store', 'svelte/internal', 'svelte/internal/client'],
+        include: [
+          'svelte',
+          'svelte/store',
+          'svelte/internal',
+          'svelte/internal/client',
+          'void/pages-client',
+          'void/pages-prefetch',
+        ],
       },
       environments: {
         void_worker: {

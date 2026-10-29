@@ -166,10 +166,9 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
           },
           optimizeDeps: {
             exclude: ['@void/react'],
-            // Pre-include React entries that are discovered late via dynamic
-            // imports during SPA navigation, avoiding a full-page reload
-            // from Vite's dep optimizer.
-            include: CLIENT_OPTIMIZE_DEPS,
+            // The virtual client entry is absent from the initial dependency crawl.
+            // Include its runtime imports up front to avoid optimizer reloads.
+            include: [...CLIENT_OPTIMIZE_DEPS, 'void/pages-client', 'void/pages-prefetch'],
           },
           ssr: {
             optimizeDeps: {
