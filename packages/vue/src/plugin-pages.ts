@@ -1,14 +1,8 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { dirname } from 'pathslash';
-import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
-import {
-  generateComponentManifest,
-  resolveStaticPageDataBuildOptions,
-  scanPages,
-} from 'void/pages';
+import { readdirSync } from 'node:fs';
+import { normalizePath, type Plugin } from 'vite';
+import { createPagesPlugin, generateComponentManifest } from 'void/pages';
 import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
 
-const RENDERER_ID = 'virtual:void-pages-renderer';
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 
 /** Runtime helper injected into generated SSR and client page bundles. */
@@ -119,35 +113,7 @@ function hasNonIslandPages(dir: string): boolean {
 }
 
 export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): ReadonlyArray<Plugin> {
-  let pageScan: PageScanResult | null = null;
-  let isDev = false;
-  let viteConfig: ResolvedConfig | undefined;
-  const root = options?.root ?? dirname(pagesDir);
   const normalizedPagesDir = normalizePath(pagesDir);
-  let pendingRescan: Promise<void> | null = null;
-  const rescanPages = async () => {
-    pageScan = existsSync(pagesDir)
-      ? await scanPages(root, { pagesDir, environment: isDev ? 'dev' : 'prod' })
-      : null;
-  };
-  const runRescan = () => {
-    pendingRescan ??= rescanPages().finally(() => {
-      pendingRescan = null;
-    });
-    return pendingRescan;
-  };
-
-  const invalidatePageModules = (server: ViteDevServer) => {
-    for (const env of Object.values(server.environments)) {
-      for (const id of ['\0' + RENDERER_ID, '\0' + CLIENT_ENTRY_ID]) {
-        const mod = env.moduleGraph.getModuleById(id);
-        if (mod) {
-          env.moduleGraph.invalidateModule(mod);
-        }
-      }
-    }
-  };
-
   return [
     {
       name: 'void-vue:pages-transform',
@@ -183,92 +149,22 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
         },
       },
     },
-    {
+    createPagesPlugin(pagesDir, {
       name: 'void-vue:pages',
-
-      async buildStart() {
-        await runRescan();
+      root: options?.root,
+      generateRenderer(scan) {
+        return generateRendererModule(scan, pagesDir);
       },
-
-      resolveId: {
-        filter: { id: /^virtual:void-pages-(renderer|client)$/ },
-        handler(id) {
-          return '\0' + id;
-        },
+      generateClient(scan, staticPageData) {
+        return generateClientEntry(
+          scan,
+          pagesDir,
+          options?.viewTransitions,
+          options?.prefetch,
+          staticPageData,
+        );
       },
-
-      load: {
-        // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
-        filter: { id: /^\0virtual:void-pages-(renderer|client)$/ },
-        async handler(id) {
-          if (isDev && pendingRescan) {
-            await pendingRescan;
-          }
-          if (!pageScan && existsSync(pagesDir)) {
-            await runRescan();
-          }
-          if (id === '\0' + RENDERER_ID) {
-            if (!pageScan) {
-              return "export function renderPage() { throw new Error('No pages found'); }";
-            }
-            return generateRendererModule(pageScan, pagesDir);
-          }
-          if (id === '\0' + CLIENT_ENTRY_ID) {
-            if (!pageScan) {
-              return '';
-            }
-            return generateClientEntry(
-              pageScan,
-              pagesDir,
-              options?.viewTransitions,
-              options?.prefetch,
-              resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir }),
-            );
-          }
-        },
-      },
-
-      configureServer(server) {
-        const handlePagesChange = async (path: string, event: 'add' | 'change' | 'unlink') => {
-          const normalizedPath = normalizePath(path);
-          if (
-            normalizedPath !== normalizedPagesDir &&
-            !normalizedPath.startsWith(normalizedPagesDir + '/')
-          ) {
-            return;
-          }
-          if (event === 'change' && !normalizedPath.endsWith('.md')) {
-            return;
-          }
-          try {
-            await runRescan();
-          } catch (error) {
-            // Keep the last good scan; the next change rescans.
-            server.config.logger.error(error instanceof Error ? error.message : String(error), {
-              error: error instanceof Error ? error : undefined,
-              timestamp: true,
-            });
-            return;
-          }
-          invalidatePageModules(server);
-        };
-
-        server.watcher.on('add', (path) => handlePagesChange(path, 'add'));
-        server.watcher.on('change', (path) => handlePagesChange(path, 'change'));
-        server.watcher.on('unlink', (path) => handlePagesChange(path, 'unlink'));
-      },
-
-      configResolved(config) {
-        viteConfig = config;
-      },
-
-      config(_, env) {
-        // Set before the early return: pages/ may be created after the server starts.
-        isDev = env.command === 'serve';
-        if (!existsSync(pagesDir)) {
-          return;
-        }
-
+      config({ isDev }) {
         if (isDev) {
           return {
             optimizeDeps: {
@@ -298,7 +194,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
           },
         };
       },
-    },
+    }),
   ];
 }
 
