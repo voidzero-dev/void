@@ -109,6 +109,7 @@ export async function prepareDeployArtifact(
       artifact: createDeployArtifact({
         manifest: buildStaticManifest({
           appType: preset.appType,
+          alwaysUseHttps: config.routing?.alwaysUseHttps,
           hashedAssetsPrefix: 'assets',
           notFound: config.routing?.notFound,
           ...rules,
@@ -157,6 +158,7 @@ export async function prepareDeployArtifact(
     false,
     {
       bindings,
+      alwaysUseHttps: config.routing?.alwaysUseHttps,
       vars: config.worker?.vars,
       hasEmailHandlers: scan.email !== undefined && hasEmailHandlers(scan.email),
       migrations,

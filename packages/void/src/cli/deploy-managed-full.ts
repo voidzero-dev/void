@@ -287,10 +287,11 @@ export async function runFullDeploy(
         headerRules,
         redirectRules,
         fallbackRules,
-        // Rules were already merged above — pass only the notFound override.
+        // Rules were already merged above.
         undefined,
         cliLog,
         voidConfig.routing?.notFound,
+        voidConfig.routing?.alwaysUseHttps,
       );
     }
   }
@@ -418,6 +419,7 @@ export async function runFullDeploy(
     isFrameworkMode,
     {
       bindings: liveConfig ? { ...bindings, needsLive: true } : bindings,
+      alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
       hasEmailHandlers:
         !isFrameworkMode && routeScan.email !== undefined && hasEmailHandlers(routeScan.email),
       migrations: validatedMigrations,

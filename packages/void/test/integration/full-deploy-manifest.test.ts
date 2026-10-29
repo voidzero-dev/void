@@ -100,6 +100,7 @@ type Captured = {
   finalizeBody: {
     manifest?: {
       pages?: unknown;
+      alwaysUseHttps?: boolean;
       bindings?: Record<string, unknown>;
       vars?: Record<string, string>;
     };
@@ -337,17 +338,20 @@ describe('managed deployment manifests (built Worker)', () => {
     ['Class A', { name: 'vinext-pages', class: 'a' }],
     ['Class C', { name: 'astro', class: 'c' }],
   ] as const)(
-    'includes configured worker.vars in the %s deployment request',
+    'includes configured worker.vars and HTTPS policy in the %s deployment request',
     async (_, detected) => {
       mockDetectFramework.mockReturnValue(detected);
       const configPath = join(fixture, 'void.config.ts');
       const original = readFileSync(configPath, 'utf8');
       const dotenvPath = join(fixture, '.env');
       const originalDotenv = existsSync(dotenvPath) ? readFileSync(dotenvPath) : undefined;
+      const alwaysUseHttps = detected?.class !== 'a';
       const vars = { API_URL: 'https://api.example.test', EMPTY_SETTING: '' };
       writeFileSync(
         configPath,
-        original.replace('worker: {', `worker: { vars: ${JSON.stringify(vars)},`),
+        original
+          .replace('worker: {', `worker: { vars: ${JSON.stringify(vars)},`)
+          .replace('routing: {', `routing: { alwaysUseHttps: ${alwaysUseHttps},`),
       );
       writeFileSync(dotenvPath, 'API_URL=https://local.example.test\nADMIN_TOKEN=local-secret\n');
       if (detected?.name === 'astro') {
@@ -359,6 +363,7 @@ describe('managed deployment manifests (built Worker)', () => {
         const captured = installPlatformMocks();
         await runDeploy(fixture, { skipBuild: true });
         expect(captured.finalizeBody?.manifest?.vars).toEqual(vars);
+        expect(captured.finalizeBody?.manifest?.alwaysUseHttps).toBe(alwaysUseHttps);
       } finally {
         writeFileSync(configPath, original);
         if (originalDotenv === undefined) {

@@ -144,6 +144,10 @@
       "type": "object",
       "description": "Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering.",
       "properties": {
+        "alwaysUseHttps": {
+          "type": "boolean",
+          "description": "Redirect HTTP requests to HTTPS with a permanent 308 redirect. Omitted or false means off. Requires the Cloudflare target; localhost stays on HTTP."
+        },
         "isr": {
           "type": "boolean",
           "description": "Enable inferred ISR caching. Set false to disable ISR and edge prerendering, including per-page prerender and revalidate policies. Does not disable output: static build-time prerendering."

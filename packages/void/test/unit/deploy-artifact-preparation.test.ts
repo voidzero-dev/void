@@ -133,27 +133,34 @@ it('packages a detected Vite SPA as assets without a Worker or provider calls', 
   expect(fetch).not.toHaveBeenCalled();
 });
 
-it('honors static output directories and routing rules without packaging stale Worker output', async () => {
-  writeFileSync(
-    join(root, 'void.config.ts'),
-    `export default { inference: { appType: 'static', outputDir: 'site' }, routing: { notFound: '404-page' }, worker: { vars: { API_URL: 'https://api.example.test' } } };`,
-  );
-  mkdirSync(join(root, 'site'));
-  writeFileSync(join(root, 'site/index.html'), '<h1>Static</h1>');
-  writeFileSync(join(root, 'site/_headers'), '/*\n  X-Content-Type-Options: nosniff\n');
-  writeFileSync(join(root, 'site/_redirects'), '/old /new 301\n');
-  const result = await prepareDeployArtifact(root);
-  expect(result.artifact.manifest).toMatchObject({
-    type: 'static',
-    assetConfig: { not_found_handling: '404-page' },
-    headerRules: [{ pattern: '/*', headers: [['X-Content-Type-Options', 'nosniff']] }],
-    redirectRules: [{ source: '/old', destination: '/new', status: 301 }],
-  });
-  expect(result.artifact.workerFiles).toBeUndefined();
-  expect(result.artifact.manifest).not.toHaveProperty('vars');
-  expect(Object.keys(result.assets)).toEqual(['/index.html']);
-  expect(fetch).not.toHaveBeenCalled();
-});
+it.each([true, false, undefined])(
+  'honors static output directories and HTTPS policy %s without packaging stale Worker output',
+  async (alwaysUseHttps) => {
+    writeFileSync(
+      join(root, 'void.config.ts'),
+      `export default { inference: { appType: 'static', outputDir: 'site' }, routing: { alwaysUseHttps: ${alwaysUseHttps}, notFound: '404-page' }, worker: { vars: { API_URL: 'https://api.example.test' } } };`,
+    );
+    mkdirSync(join(root, 'site'));
+    writeFileSync(join(root, 'site/index.html'), '<h1>Static</h1>');
+    writeFileSync(join(root, 'site/_headers'), '/*\n  X-Content-Type-Options: nosniff\n');
+    writeFileSync(join(root, 'site/_redirects'), '/old /new 301\n');
+    const result = await prepareDeployArtifact(root);
+    expect(result.artifact.manifest).toMatchObject({
+      type: 'static',
+      assetConfig: { not_found_handling: '404-page' },
+      headerRules: [{ pattern: '/*', headers: [['X-Content-Type-Options', 'nosniff']] }],
+      redirectRules: [{ source: '/old', destination: '/new', status: 301 }],
+    });
+    expect(result.artifact.workerFiles).toBeUndefined();
+    expect(result.artifact.manifest.alwaysUseHttps).toBe(alwaysUseHttps);
+    expect(Object.hasOwn(result.artifact.manifest, 'alwaysUseHttps')).toBe(
+      alwaysUseHttps !== undefined,
+    );
+    expect(result.artifact.manifest).not.toHaveProperty('vars');
+    expect(Object.keys(result.assets)).toEqual(['/index.html']);
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 
 it('keeps SPA plus API apps on the Worker deployment path', async () => {
   writeFileSync(join(root, 'package.json'), JSON.stringify({ devDependencies: { vite: '*' } }));
@@ -181,3 +188,18 @@ it('rejects missing or empty static build output', async () => {
   await expect(prepareDeployArtifact(root)).rejects.toThrow('Static build output is empty');
   expect(fetch).not.toHaveBeenCalled();
 });
+
+it.each([true, false, undefined])(
+  'preserves HTTPS policy %s in a prepared Worker artifact',
+  async (alwaysUseHttps) => {
+    writeFileSync(
+      join(root, 'void.config.ts'),
+      `export default { routing: { alwaysUseHttps: ${alwaysUseHttps} } };`,
+    );
+    const result = await prepareDeployArtifact(root);
+    expect(result.artifact.manifest.alwaysUseHttps).toBe(alwaysUseHttps);
+    expect(Object.hasOwn(result.artifact.manifest, 'alwaysUseHttps')).toBe(
+      alwaysUseHttps !== undefined,
+    );
+  },
+);

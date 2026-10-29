@@ -901,7 +901,8 @@ export function voidPlugin(options?: {
     const rules = mergeRoutingRules({ dir: assetRoutingPublicDir, routing: config.routing });
     const nativeOwnsEdgeRouting =
       !managedCloudflareBuild &&
-      (rules.headerRules.length > 0 ||
+      (config.routing?.alwaysUseHttps === true ||
+        rules.headerRules.length > 0 ||
         rules.redirectRules.length > 0 ||
         (rules.fallbackRules?.length ?? 0) > 0);
     if (nativeOwnsEdgeRouting) {

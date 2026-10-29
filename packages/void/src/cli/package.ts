@@ -449,6 +449,7 @@ export function buildVoidManifest(opts: {
   options?: PackageOptions;
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -479,6 +480,9 @@ export function buildVoidManifest(opts: {
   const resolvedDialect = dialect ?? 'sqlite';
 
   const manifest: DeployManifest = { version: 3, assetManifestVersion: 2, bindings: {} };
+  if (opts.alwaysUseHttps !== undefined) {
+    manifest.alwaysUseHttps = opts.alwaysUseHttps;
+  }
   if (opts.durableObjects?.length) {
     manifest.version = 4;
     manifest.durableObjects = {
@@ -669,6 +673,7 @@ export function buildStaticManifest(opts: {
   appType: 'spa' | 'static';
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   /** Explicit `routing.notFound` — overrides the appType-inferred handling. */
@@ -698,6 +703,7 @@ export function buildStaticManifest(opts: {
     assetManifestVersion: 2,
     bindings: {},
     type: appType,
+    ...(opts.alwaysUseHttps !== undefined ? { alwaysUseHttps: opts.alwaysUseHttps } : {}),
     assetConfig: resolvedAssetConfig,
   };
 
@@ -738,6 +744,7 @@ export function buildFrameworkManifest(opts: {
   packageOptions?: Omit<PackageOptions, 'workerMain'>;
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -746,6 +753,9 @@ export function buildFrameworkManifest(opts: {
   const dialect = opts.dialect ?? 'sqlite';
 
   const manifest: DeployManifest = { version: 3, assetManifestVersion: 2, bindings: {} };
+  if (opts.alwaysUseHttps !== undefined) {
+    manifest.alwaysUseHttps = opts.alwaysUseHttps;
+  }
   applyResourceBindings(
     manifest,
     opts.bindings,

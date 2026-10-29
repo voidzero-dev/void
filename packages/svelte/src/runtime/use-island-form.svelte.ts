@@ -1,9 +1,4 @@
-import {
-  VoidActionError,
-  categorizeActionError,
-  getValidationErrors,
-  isEqualFormValue,
-} from 'void/pages-client';
+import { isEqualFormValue, submitIslandAction, type VoidActionError } from 'void/pages-client';
 
 type UntypedIslandForm = {
   readonly data: Record<string, unknown>;
@@ -22,19 +17,6 @@ type UntypedIslandForm = {
   clearErrors(...fields: ReadonlyArray<string>): void;
   clearError(): void;
 };
-
-async function readActionErrorBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') || '';
-  try {
-    if (contentType.includes('application/json')) {
-      return await response.json();
-    }
-    const text = await response.text();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
@@ -90,18 +72,14 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
     clearError();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const result = await submitIslandAction(url, method, data);
 
-      if (response.redirected) {
-        window.location.href = response.url;
+      if (result.kind === 'redirect') {
+        window.location.href = result.url;
         return;
       }
 
-      if (response.ok) {
+      if (result.kind === 'success') {
         wasSuccessful = true;
         recentlySuccessful = true;
         defaults_ = { ...data };
@@ -109,23 +87,10 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
           recentlySuccessful = false;
         }, 2000);
         window.location.reload();
+      } else if (result.kind === 'validation') {
+        Object.assign(errors, result.errors);
       } else {
-        const body = await readActionErrorBody(response);
-        const actionError = new VoidActionError({
-          body,
-          status: response.status,
-          statusText: response.statusText,
-          url,
-        });
-        const validationErrors = response.status === 422 ? getValidationErrors(body) : null;
-        if (validationErrors) {
-          Object.assign(errors, validationErrors);
-          return;
-        }
-        if (categorizeActionError(response.status) === 'boundary') {
-          throw actionError;
-        }
-        error = actionError;
+        error = result.error;
       }
     } finally {
       pending = false;

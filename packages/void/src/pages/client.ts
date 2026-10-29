@@ -28,6 +28,7 @@ export {
   isCallSiteActionError,
 } from './action-result.ts';
 export type { ActionErrorHandlingScope, ActionResult } from './action-result.ts';
+export { submitIslandAction, type IslandActionResult } from './island-action.ts';
 export { isEqualFormValue } from './form-value-equality.ts';
 export {
   cloneFormValue,
