@@ -90,7 +90,9 @@
       "require": "./dist/runtime/validator.mjs"
     },
     "./routes": {
-      "types": "./dist/routes-stub.d.mts"
+      "types": "./dist/routes-stub.d.mts",
+      "import": "./dist/routes-stub.mjs",
+      "require": "./dist/routes-stub.mjs"
     },
     "./nitro": {
       "types": "./dist/nitro.d.mts",

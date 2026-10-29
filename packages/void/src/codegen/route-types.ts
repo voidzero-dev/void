@@ -78,6 +78,48 @@ export function generateRouteTypes(
   lines.push('  export interface WebSocketRouteMap {}');
   lines.push('  export interface PageActionMap {}');
   lines.push('');
+  // Projects resolve void/routes to this generated declaration through their
+  // tsconfig paths, so keep the standalone helper's declarations here as well.
+  lines.push('  export type RoutePath = keyof RoutePathMap & string;');
+  lines.push('  export type RouteQueryValue = string | number | boolean | null | undefined;');
+  lines.push(
+    '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
+  );
+  lines.push('  export type RouteOptions<P extends RoutePath> = {');
+  lines.push('    query?: RouteQuery;');
+  lines.push('    hash?: string;');
+  lines.push('  } & ([RoutePathMap[P]] extends [never]');
+  lines.push('    ? { params?: never }');
+  lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
+  lines.push('  export function routeUrl<P extends RoutePath>(');
+  lines.push('    path: P,');
+  lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
+  lines.push('      ? [options?: RouteOptions<P>]');
+  lines.push('      : [options: RouteOptions<P>]');
+  lines.push('  ): string;');
+  lines.push('');
+  lines.push('  export interface RoutePathMap {');
+  const paths = new Map<string, Set<string>>();
+  for (const route of [
+    ...scan.routes.filter((route) => route.methods.length > 0),
+    ...scan.pages.pages,
+    ...(scan.websockets ?? []),
+  ]) {
+    const params = paths.get(route.pattern) ?? new Set<string>();
+    for (const name of route.params) {
+      params.add(name);
+    }
+    if (route.pattern.split('/').includes('*')) {
+      params.add('*');
+    }
+    paths.set(route.pattern, params);
+  }
+  for (const [pattern, params] of paths) {
+    const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
+    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+  }
+  lines.push('  }');
+  lines.push('');
   lines.push('  /** Union of known route patterns (keys of the generated RouteMap). */');
   lines.push('  export type RouteName = keyof RouteMap;');
   lines.push('');

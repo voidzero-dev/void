@@ -398,7 +398,8 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
 
     expect(dts).toContain('export interface PageActionMap {}');
-    expect(dts).not.toContain('"/about"');
+    expect(dts).toContain('"/about": never;');
+    expect(dts.split('  interface PageActionMap {')[1] ?? '').not.toContain('"/about"');
   });
 
   it('generates PageActionMap with named actions', () => {
@@ -470,6 +471,107 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
 
     expect(dts).toContain('export interface PageActionMap {}');
-    expect(dts).not.toContain('"/users"');
+    expect(dts).toContain('"/users": never;');
+    expect(dts).not.toContain('  interface PageActionMap {');
+  });
+
+  it('generates URL patterns for pages, API and WebSocket routes without importing page components', () => {
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/users/:id',
+          methods: ['POST'],
+          params: ['id'],
+          catchAll: false,
+          env: null,
+          filePath: 'api/users/[id].ts',
+        },
+      ],
+      pages: [
+        {
+          ...pageRenderingDefaults,
+          pattern: '/about',
+          params: [],
+          catchAll: false,
+          componentPath: 'about.vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'about',
+        },
+        {
+          ...pageRenderingDefaults,
+          pattern: '/files/:path{.+}',
+          params: ['path'],
+          catchAll: true,
+          componentPath: 'files/[...path].vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'files/[...path]',
+        },
+        {
+          ...pageRenderingDefaults,
+          pattern: '/files/*',
+          params: [],
+          catchAll: true,
+          componentPath: 'files/[...].vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'files/[...]',
+        },
+      ],
+      websockets: [
+        {
+          pattern: '/chat/:room',
+          params: ['room'],
+          methods: [],
+          catchAll: false,
+          env: null,
+          filePath: 'chat/[room].ws.ts',
+          bindingName: 'CHAT_ROOM',
+          className: 'ChatRoom',
+          mode: 'room',
+          hasAuthGate: false,
+        },
+      ],
+    });
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    expect(pathMap).toContain('"/api/users/:id": "id";');
+    expect(pathMap).toContain('"/about": never;');
+    expect(pathMap).toContain('"/files/:path{.+}": "path";');
+    expect(pathMap).toContain('"/files/*": "*";');
+    expect(pathMap).toContain('"/chat/:room": "room";');
+    expect(dts).not.toContain('import("../pages/');
+  });
+
+  it('deduplicates URL patterns shared by environments and page/API routes', () => {
+    const source: PageDefinition = {
+      ...pageRenderingDefaults,
+      pattern: '/users/:id',
+      params: ['id'],
+      catchAll: false,
+      componentPath: 'users/[id].dev.vue',
+      serverPath: null,
+      methods: [],
+      componentId: 'users/[id].dev',
+      env: 'dev',
+    };
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: source.pattern,
+          params: ['id'],
+          catchAll: false,
+          methods: ['POST'],
+          env: null,
+          filePath: 'users/[id].ts',
+        },
+      ],
+      pages: [source, { ...source, env: 'prod', componentPath: 'users/[id].prod.vue' }],
+    });
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    expect(pathMap.match(/"\/users\/:id":/g)).toHaveLength(1);
+    expect(pathMap).toContain('"/users/:id": "id";');
   });
 });
