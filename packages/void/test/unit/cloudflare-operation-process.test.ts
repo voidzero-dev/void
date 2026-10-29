@@ -105,19 +105,24 @@ function runOperation(
   });
 }
 
-it.each([true, false])(
-  'publishes observability from the trigger operation (enabled=%s)',
-  async (enabled) => {
+it.each([
+  { observability: { enabled: true } },
+  { observability: { enabled: false } },
+  { logpush: true },
+  { logpush: false },
+  { observability: { enabled: false }, logpush: false },
+])(
+  'publishes explicit Worker settings from the trigger operation: %j',
+  async (settings) => {
     const directory = temporaryDirectory('void-cf-observability-');
     const configPath = join(directory, 'wrangler.json');
-    const observability = { enabled, logs: { enabled }, traces: { enabled } };
     writeFileSync(
       configPath,
       JSON.stringify({
         name: 'test-worker',
         workers_dev: false,
         preview_urls: false,
-        observability,
+        ...settings,
       }),
     );
     const patches: Array<{ path: string; body: unknown; authorization?: string }> = [];
@@ -140,7 +145,7 @@ it.each([true, false])(
             success: true,
             result: request.url?.endsWith('/workers/subdomain')
               ? { subdomain: 'fixture' }
-              : { subdomain: { enabled: false, previews_enabled: false }, observability },
+              : { subdomain: { enabled: false, previews_enabled: false }, ...settings },
           }),
         );
       }),
@@ -158,7 +163,7 @@ it.each([true, false])(
     expect(patches).toEqual([
       {
         path: '/client/v4/accounts/test-account/workers/scripts/test-worker/script-settings',
-        body: { observability },
+        body: settings,
         authorization: 'Bearer synthetic-token',
       },
     ]);

@@ -1774,6 +1774,55 @@ describe('Cloudflare version activation', () => {
     }
   });
 
+  it.each([false, true])(
+    'carries explicit Logpush through the version snapshot and trigger config: %s',
+    async (logpush) => {
+      const directory = mkdtempSync(join(tmpdir(), 'void-version-logpush-'));
+      const configPath = join(directory, 'wrangler.json');
+      const sourcePath = join(directory, 'source.json');
+      try {
+        writeFileSync(configPath, JSON.stringify({ name: 'app', logpush }));
+        const snapshot = readCloudflareTriggerConfig(configPath);
+        expect(snapshot.logpush).toBe(logpush);
+        expect(
+          parseCloudflareVersionMessage(encodeCloudflareVersionMessage([], snapshot)),
+        ).toMatchObject({
+          triggerConfig: { logpush },
+        });
+        let applied: Record<string, unknown> | undefined;
+        const publish = (triggerConfig: CloudflareTriggerConfig) =>
+          deployCloudflareVersionTriggers({
+            runWrangler: operationFixture(async (args) => {
+              applied = readConfigArg(args);
+              return ok();
+            }),
+            workerName: 'app',
+            configPath,
+            triggerConfig,
+          });
+        await publish(snapshot);
+        expect(applied?.logpush).toBe(logpush);
+        writeFileSync(sourcePath, JSON.stringify({ name: 'app' }));
+        const omitted = readCloudflareTriggerConfig(configPath, sourcePath);
+        expect(omitted).not.toHaveProperty('logpush');
+        await publish(omitted);
+        expect(applied).not.toHaveProperty('logpush');
+        writeFileSync(sourcePath, JSON.stringify({ name: 'app', logpush: !logpush }));
+        expect(readCloudflareTriggerConfig(configPath, sourcePath).logpush).toBe(!logpush);
+        applied = undefined;
+        await publish({ ...snapshot, preserve: true });
+        expect(applied).toBeUndefined();
+        expect(
+          parseCloudflareVersionMessage(
+            `void:${JSON.stringify({ schema: 2, migrations: [], triggerConfig: { ...snapshot, logpush: 'false' } })}`,
+          ),
+        ).toBeNull();
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('carries Email Routing addresses through the trigger snapshot and the trigger config', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-version-addresses-'));
     const configPath = join(directory, 'wrangler.json');
@@ -2919,6 +2968,7 @@ describe('Cloudflare version activation', () => {
       routes: [{ pattern: 'old.example.com', custom_domain: true }],
       crons: ['0 * * * *'],
       observability: { enabled: false },
+      logpush: true,
     });
     const liveTraffic = {
       workers_dev: false,
@@ -2959,6 +3009,7 @@ describe('Cloudflare version activation', () => {
         preservePreviewUrls: true,
         crons: ['*/10 * * * *'],
         observability: { enabled: true, traces: { enabled: true } },
+        logpush: false,
       }),
       fetch: async () => Response.json({ ready: true }),
     });
@@ -2968,11 +3019,13 @@ describe('Cloudflare version activation', () => {
       ...liveTraffic,
       triggers: { crons: ['*/10 * * * *'] },
       observability: { enabled: true, traces: { enabled: true } },
+      logpush: false,
     });
     expect(publications[1]).toMatchObject({
       ...liveTraffic,
       triggers: { crons: ['0 * * * *'] },
       observability: { enabled: false },
+      logpush: true,
     });
     expect(publications[1].queues).toEqual({ consumers: [] });
   });

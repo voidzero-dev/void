@@ -22,7 +22,7 @@ import {
 } from './cf-command-values.ts';
 import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
-import { publishCloudflareObservability } from './cf-worker-settings.ts';
+import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import {
   cloudflareDeviceCode,
   cloudflareVerificationUrl,
@@ -1136,12 +1136,13 @@ async function workerChanges(): Promise<Result> {
     const deployed = await withBuildOutput(raw, null, (directory) =>
       runCf(['workers', 'triggers', 'deploy', '--prebuilt'], directory),
     );
-    if (deployed.status === 0 && raw.observability !== undefined) {
-      await publishCloudflareObservability({
+    if (deployed.status === 0 && (raw.observability !== undefined || raw.logpush !== undefined)) {
+      await publishCloudflareWorkerSettings({
         apiBaseUrl: apiBaseUrl(),
         accountId: accountId(),
         workerName: name,
         observability: raw.observability,
+        logpush: raw.logpush,
         headers: await apiHeaders(),
       });
     }

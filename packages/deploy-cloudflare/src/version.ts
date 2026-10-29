@@ -43,6 +43,8 @@ export type CloudflareTriggerConfig = Readonly<{
   settingsHash?: string;
   /** Explicit Worker-wide observability settings, published after version activation. */
   observability?: Readonly<Record<string, unknown>>;
+  /** Explicit Worker-wide Logpush setting, published after version activation. */
+  logpush?: boolean;
   workers_dev: boolean;
   preview_urls: boolean;
   routes: ReadonlyArray<unknown>;
@@ -208,7 +210,11 @@ export function readCloudflareTriggerConfig(
   const config = parseRootWranglerConfig(configPath);
   // Build tooling can supply defaults; only authored settings may change the live Worker.
   const source = sourceConfigPath ? parseRootWranglerConfig(sourceConfigPath) : config;
-  const result = triggerConfigFromWrangler({ ...config, observability: source.observability });
+  const result = triggerConfigFromWrangler({
+    ...config,
+    observability: source.observability,
+    logpush: source.logpush,
+  });
   if (!sourceConfigPath) {
     return result;
   }
@@ -597,6 +603,7 @@ function triggerConfigFromWrangler(config: Record<string, unknown>): CloudflareT
     ...(config.preview_urls === undefined ? { preservePreviewUrls: true } : {}),
     settingsHash: nonVersionedSettingsHash(config),
     ...(isRecord(config.observability) ? { observability: config.observability } : {}),
+    ...(typeof config.logpush === 'boolean' ? { logpush: config.logpush } : {}),
     workers_dev: workersDev,
     preview_urls: typeof config.preview_urls === 'boolean' ? config.preview_urls : workersDev,
     routes,
@@ -639,7 +646,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     return null;
   }
   if (
-    ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls'].some(
+    ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls', 'logpush'].some(
       (key) => value[key] !== undefined && typeof value[key] !== 'boolean',
     ) ||
     (value.settingsHash !== undefined && typeof value.settingsHash !== 'string') ||
@@ -661,6 +668,7 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     ...(value.preservePreviewUrls === true ? { preservePreviewUrls: true } : {}),
     ...(typeof value.settingsHash === 'string' ? { settingsHash: value.settingsHash } : {}),
     ...(isRecord(value.observability) ? { observability: value.observability } : {}),
+    ...(typeof value.logpush === 'boolean' ? { logpush: value.logpush } : {}),
     workers_dev: value.workers_dev,
     preview_urls: value.preview_urls,
     routes: value.routes,
@@ -685,6 +693,7 @@ function triggerWranglerConfig(
     ...(triggerConfig.observability === undefined
       ? {}
       : { observability: triggerConfig.observability }),
+    ...(triggerConfig.logpush === undefined ? {} : { logpush: triggerConfig.logpush }),
     triggers,
     queues,
     workflows: [...triggerConfig.workflows],
@@ -722,6 +731,7 @@ function resolvePreservedTraffic(
     ...(desired.preserve ? { preserve: true } : {}),
     ...(desired.settingsHash ? { settingsHash: desired.settingsHash } : {}),
     ...(desired.observability === undefined ? {} : { observability: desired.observability }),
+    ...(desired.logpush === undefined ? {} : { logpush: desired.logpush }),
     workers_dev: desired.preserveWorkersDev
       ? (previous?.workers_dev ?? desired.workers_dev)
       : desired.workers_dev,

@@ -24,7 +24,7 @@ import {
   uploadPinnedCloudflareVersion,
   type CfCommand,
 } from './cf-version-api.ts';
-import { publishCloudflareObservability } from './cf-worker-settings.ts';
+import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 
 function failed(message: string): CloudflareCommandResult {
@@ -780,7 +780,10 @@ export function createCfVersionRunner(options: {
           command.capture,
           directory,
         );
-        if (isCleanCloudflareExit(deployed) && raw.observability !== undefined) {
+        if (
+          isCleanCloudflareExit(deployed) &&
+          (raw.observability !== undefined || raw.logpush !== undefined)
+        ) {
           const credentials = options.pinnedUpload;
           if (!credentials || !credentials.verifyUploader()) {
             return failed('The Cloudflare settings publisher is unavailable.');
@@ -790,11 +793,12 @@ export function createCfVersionRunner(options: {
             if (!token || !credentials.verifyUploader()) {
               return failed('Cloudflare session is unavailable for publishing Worker settings.');
             }
-            await publishCloudflareObservability({
+            await publishCloudflareWorkerSettings({
               apiBaseUrl: credentials.apiBaseUrl,
               accountId: credentials.accountId,
               workerName,
               observability: raw.observability,
+              logpush: raw.logpush,
               headers: { Authorization: `Bearer ${token}` },
             });
           } catch (cause) {

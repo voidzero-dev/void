@@ -341,12 +341,15 @@ it(
 // This exercises multiple fresh cf subprocesses. Windows CI has exceeded 30s
 // across those startups; bound each child and give the complete protocol a
 // separate Windows budget, including assertion and cleanup overhead.
-it(
-  'uploads an ordinary API-origin revision with genuine cf reads and UUID-pinned inheritance',
-  async () => {
+it.each([
+  { observability: { enabled: true, logs: { enabled: true }, traces: { enabled: true } } },
+  { logpush: false },
+  { logpush: true },
+])(
+  'uploads an API-origin revision and publishes its explicit Worker settings: %j',
+  async (settings) => {
     const current = '11111111-1111-4111-8111-111111111111';
     const next = '22222222-2222-4222-8222-222222222222';
-    const observability = { enabled: true, logs: { enabled: true }, traces: { enabled: true } };
     const triggerConfig = {
       workers_dev: true,
       preview_urls: true,
@@ -354,11 +357,11 @@ it(
       crons: [],
       queueConsumers: [],
       workflows: [],
-      observability,
+      ...settings,
     };
     const message = encodeCloudflareVersionMessage([], triggerConfig);
     const prepared = await output({
-      observability,
+      ...settings,
       secrets: { required: ['AUTH_SECRET'] },
       version_metadata: { binding: 'APP_VERSION' },
       send_email: [
@@ -531,7 +534,7 @@ it(
         {
           method: 'PATCH',
           path: '/client/v4/accounts/account-id/workers/scripts/void-test/script-settings',
-          body: { observability },
+          body: settings,
         },
       ]);
       expect(events.indexOf('activate')).toBeLessThan(events.indexOf('settings'));
