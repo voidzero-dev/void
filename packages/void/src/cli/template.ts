@@ -48,7 +48,7 @@ export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
 ] as const;
 
 const REACT_SCAFFOLD_COMPILER_DEV_DEPENDENCIES = {
-  'oxc-transform-react': '^0.149.0',
+  'oxc-transform-react': '^0.152.0',
 } as const;
 
 export const SCAFFOLD_FRAMEWORK_OPTIONS = [

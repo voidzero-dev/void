@@ -2821,7 +2821,7 @@ export default config;
       expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.3.0');
       expect(pkg.devDependencies.void).toBe('^0.2.3');
       expect(pkg.devDependencies['@void/react']).toBe('^0.2.3');
-      expect(pkg.devDependencies['oxc-transform-react']).toBe('^0.149.0');
+      expect(pkg.devDependencies['oxc-transform-react']).toBe('^0.152.0');
       expectPnpmAllowBuilds(root);
 
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
