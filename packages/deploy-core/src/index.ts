@@ -278,6 +278,8 @@ export type DeployManifest = {
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
   redirectRules?: Array<RedirectRule>;
+  /** Omitted values inherit the platform default; preserve explicit false. */
+  alwaysUseHttps?: boolean;
   fallbackRules?: Array<RedirectRule>;
   websocket?: WebSocketManifestMeta;
   sandbox?: SandboxManifestMeta;

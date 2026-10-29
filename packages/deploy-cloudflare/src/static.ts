@@ -24,12 +24,14 @@ export type CloudflareStaticDeployConfig = Readonly<{
 /** Generate the deterministic thin Worker entry bundled by Wrangler. */
 export function renderCloudflareStaticEntry(options: {
   runtimeImport?: string;
+  alwaysUseHttps?: boolean;
   headerRules?: ReadonlyArray<HeaderRule>;
   redirectRules?: ReadonlyArray<RedirectRule>;
   fallbackRules?: ReadonlyArray<RedirectRule>;
   versionMetadataBinding?: string;
 }): string {
   const config = JSON.stringify({
+    ...(options.alwaysUseHttps !== undefined ? { alwaysUseHttps: options.alwaysUseHttps } : {}),
     ...(options.headerRules?.length ? { headerRules: options.headerRules } : {}),
     ...(options.redirectRules?.length ? { redirectRules: options.redirectRules } : {}),
     ...(options.fallbackRules?.length ? { fallbackRules: options.fallbackRules } : {}),

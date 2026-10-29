@@ -8,6 +8,8 @@
  * request matching a negative rule never reaches the Worker, even when the
  * file is missing. Misses and other paths in the folder keep the Worker's
  * not-found, SPA and page handling.
+ * `routing.alwaysUseHttps` alone does not count as an edge rule: hashed files
+ * are only linked from pages the Worker has already moved to HTTPS.
  *
  * The asset layer does not know which files are fingerprinted, so a generated
  * `_headers` file gives every bypassed chunk the immutable policy the Worker

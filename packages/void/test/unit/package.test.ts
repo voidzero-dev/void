@@ -38,6 +38,26 @@ afterEach(() => {
 });
 
 describe('worker packaging', () => {
+  it.each([true, false, undefined])(
+    'preserves alwaysUseHttps %s in every app manifest',
+    (value) => {
+      const manifests = [
+        buildVoidManifest({ bindings: makeBindings(), alwaysUseHttps: value }),
+        buildStaticManifest({ appType: 'static', alwaysUseHttps: value }),
+        buildFrameworkManifest({
+          frameworkName: 'nuxt',
+          workerMain: 'index.mjs',
+          bindings: makeBindings(),
+          alwaysUseHttps: value,
+        }),
+      ];
+      for (const manifest of manifests) {
+        const published = JSON.parse(JSON.stringify(manifest));
+        expect(published.alwaysUseHttps).toBe(value);
+        expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(value !== undefined);
+      }
+    },
+  );
   it('marks Sandbox bundles as controller-capable and omits metadata for apps without Sandbox', () => {
     const manifest = buildVoidManifest({
       bindings: makeBindings({ needsSandbox: true }),

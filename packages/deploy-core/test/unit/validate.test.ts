@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
 
+describe('alwaysUseHttps', () => {
+  it.each([true, false, undefined])('accepts %s', (alwaysUseHttps) => {
+    expect(validateManifestShape({ version: 3, bindings: {}, alwaysUseHttps })).toBeNull();
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (alwaysUseHttps) => {
+    expect(validateManifestShape({ version: 3, bindings: {}, alwaysUseHttps })).toContain(
+      'alwaysUseHttps must be a boolean',
+    );
+  });
+});
+
 describe('custom Durable Object declarations', () => {
   const binding = {
     bindingName: 'WORKSPACE',

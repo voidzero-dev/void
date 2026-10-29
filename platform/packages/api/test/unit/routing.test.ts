@@ -13,6 +13,34 @@ import { PLAN_LIMITS, type PlanLimits } from '../../src/tiers.ts';
 import type { DeployManifest } from '../../src/types.ts';
 import * as zeroTrust from '../../src/zero-trust/routing.ts';
 
+describe.each([
+  ['worker', buildRoutingJson],
+  ['static', buildStaticRoutingJson],
+] as const)('%s HTTPS routing policy', (_kind, build) => {
+  it.each([true, false, undefined])(
+    'preserves alwaysUseHttps %s in published routing',
+    (alwaysUseHttps) => {
+      const published = JSON.parse(
+        build({
+          workerName: 'worker',
+          projectId: 'proj_1',
+          userId: 'user_1',
+          deploymentId: 'dep_1',
+          dispatchLimits: null,
+          assetConfig: { not_found_handling: 'none' },
+          manifest: {
+            version: 3,
+            bindings: {},
+            ...(alwaysUseHttps !== undefined ? { alwaysUseHttps } : {}),
+          },
+        }),
+      );
+      expect(published.alwaysUseHttps).toBe(alwaysUseHttps);
+      expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(alwaysUseHttps !== undefined);
+    },
+  );
+});
+
 function createKvStore(initial: Record<string, string> = {}): {
   store: Map<string, string>;
   puts: Array<string>;

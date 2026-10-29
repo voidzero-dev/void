@@ -1,5 +1,6 @@
 import type { AssetConfig, HeaderRule, RedirectRule } from '@void/deploy-core';
 import { applyHeaderRules } from './headers.ts';
+import { redirectToHttps } from './https.ts';
 import { applyRoutingRules, mergeQueryIntoLocation } from './routing-rules.ts';
 
 export type EdgeAssetFetcher = Readonly<{
@@ -11,6 +12,7 @@ export type StaticEdgeEnv = Readonly<{
 }>;
 
 export type StaticEdgeConfig = Readonly<{
+  alwaysUseHttps?: boolean;
   /** Optional native Worker self-metadata used to identify the served version. */
   versionMetadataBinding?: string;
   /**
@@ -49,6 +51,12 @@ export function createStaticEdgeHandler(config: StaticEdgeConfig): StaticEdgeHan
           { ready: true, versionId: metadata?.id },
           { headers: { 'cache-control': 'no-store' } },
         );
+      }
+      if (config.alwaysUseHttps) {
+        const redirect = redirectToHttps(request);
+        if (redirect) {
+          return redirect;
+        }
       }
       let effectiveUrl = new URL(originalUrl);
       let effectiveRequest = request;

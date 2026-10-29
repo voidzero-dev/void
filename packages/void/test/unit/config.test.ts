@@ -41,6 +41,46 @@ function cleanup() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
+describe('routing.alwaysUseHttps', () => {
+  it.each([true, false, undefined])('preserves %s without applying a default', (alwaysUseHttps) => {
+    setup(JSON.stringify({ routing: { alwaysUseHttps } }));
+    try {
+      expect(readConfig(tmpDir).routing?.alwaysUseHttps).toBe(alwaysUseHttps);
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (alwaysUseHttps) => {
+    setup(JSON.stringify({ routing: { alwaysUseHttps } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('routing.alwaysUseHttps');
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['node', 'bun', 'deno'])('rejects true with target %s', (target) => {
+    setup(JSON.stringify({ target, routing: { alwaysUseHttps: true } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow(
+        `"routing.alwaysUseHttps" in void.json requires target: "cloudflare". It is not available with target: "${target}".`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+  it.each([
+    { target: 'node', routing: { alwaysUseHttps: false } },
+    { target: 'cloudflare', routing: { alwaysUseHttps: true } },
+  ])('accepts %j', (config) => {
+    setup(JSON.stringify(config));
+    try {
+      expect(readConfig(tmpDir).routing?.alwaysUseHttps).toBe(config.routing.alwaysUseHttps);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('readConfig', () => {
   it('loads and re-reads a typed Void config', () => {
     setup();

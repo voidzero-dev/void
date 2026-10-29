@@ -376,6 +376,10 @@ export function validateManifestShape(manifest: unknown): string | null {
     }
   }
 
+  if (manifest.alwaysUseHttps !== undefined && typeof manifest.alwaysUseHttps !== 'boolean') {
+    return 'invalid manifest shape: alwaysUseHttps must be a boolean';
+  }
+
   const redirectRulesError = validateRoutingRules(manifest.redirectRules, 'redirectRules');
   if (redirectRulesError) {
     return redirectRulesError;

@@ -10,6 +10,17 @@ import {
 } from '../../src/index.ts';
 
 describe('Cloudflare static deployment', () => {
+  it.each([true, false, undefined])(
+    'preserves alwaysUseHttps %s in the generated entry',
+    (alwaysUseHttps) => {
+      const entry = renderCloudflareStaticEntry({ alwaysUseHttps });
+      if (alwaysUseHttps === undefined) {
+        expect(entry).not.toContain('alwaysUseHttps');
+      } else {
+        expect(entry).toContain(`"alwaysUseHttps":${alwaysUseHttps}`);
+      }
+    },
+  );
   it('renders one deterministic shared-runtime entry', () => {
     expect(
       renderCloudflareStaticEntry({

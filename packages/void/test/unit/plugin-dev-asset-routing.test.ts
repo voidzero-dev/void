@@ -429,6 +429,29 @@ describe('voidPlugin dev asset routing', () => {
     expect(assets?.run_worker_first).toEqual(['/**']);
   });
 
+  it.each([
+    { name: 'sends every path to the Worker in native builds', managed: false, expected: ['/**'] },
+    {
+      name: 'keeps the inferred policy in managed builds',
+      managed: true,
+      expected: ['/api', '/api/*', '/__void', '/__void/*'],
+    },
+  ])('routing.alwaysUseHttps alone $name', async ({ managed, expected }) => {
+    if (managed) {
+      vi.stubEnv('VOID_DEPLOY_PROJECT_ID', 'managed-project');
+    }
+    const root = createApiOnlyProjectRoot();
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ routing: { alwaysUseHttps: true } }));
+    const assets = await resolveVoidPluginAssets(
+      root,
+      {},
+      { command: 'build', mode: 'production' },
+    );
+
+    expect(assets?.run_worker_first).toEqual(expected);
+    expect(assets?.not_found_handling).toBe('single-page-application');
+  });
+
   it('runs merged public routing files before existing assets in native production builds', async () => {
     const root = createApiOnlyProjectRoot();
     mkdirSync(join(root, 'public'), { recursive: true });

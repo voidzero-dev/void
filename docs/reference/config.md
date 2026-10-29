@@ -366,6 +366,16 @@ This choice applies to subsequent `void deploy` runs. Atomic deployment sends tr
 
 Routing and edge configuration for headers, redirects, rewrites, and caching.
 
+#### `routing.alwaysUseHttps`
+
+Redirect HTTP requests to HTTPS with a permanent `308` redirect. Omitted or `false` means off. Requires the Cloudflare target. `localhost` stays on HTTP. See [HTTP to HTTPS](../guide/edge/redirects#http-to-https) for where it works.
+
+```ts
+routing: {
+  alwaysUseHttps: true,
+}
+```
+
 #### `routing.headers`
 
 Custom response headers. Keys are URL patterns, values are arrays of `"Name: value"` strings. See [Custom Headers](../guide/edge/headers) for details.
