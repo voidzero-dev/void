@@ -79,6 +79,16 @@ export default function LinkBehaviorPage({ title }: Props) {
   return (
     <div>
       <h1>{title}</h1>
+      <p>
+        <button
+          data-testid="typed-visit"
+          onClick={() =>
+            router.visit({ pathname: '/users/:id', params: { id: '2' }, query: { tab: 'visit' } })
+          }
+        >
+          Typed visit
+        </button>
+      </p>
 
       <p>
         <Link

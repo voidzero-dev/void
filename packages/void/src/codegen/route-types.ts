@@ -91,6 +91,12 @@ export function generateRouteTypes(
   lines.push('  } & ([RoutePathMap[P]] extends [never]');
   lines.push('    ? { params?: never }');
   lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
+  lines.push(
+    '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
+  );
+  lines.push('    ? { pathname: P } & RouteOptions<P>');
+  lines.push('    : never;');
+  lines.push('  export type RouteUrlInput = string | URL | RouteDestination;');
   lines.push('  export function routeUrl<P extends RoutePath>(');
   lines.push('    path: P,');
   lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');

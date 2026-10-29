@@ -54,6 +54,19 @@ describe('typed routing in generated Workers', () => {
         join(routes, 'move.ts'),
         `export function GET(c) { return c.rewrite('/hello'); }\n`,
       );
+      mkdirSync(join(routes, 'typed'));
+      writeFileSync(
+        join(routes, 'typed/[id].ts'),
+        `export function GET(c) { return { id: c.req.param('id'), tab: c.req.query('tab'), original: c.originalUrl()?.pathname }; }\n`,
+      );
+      writeFileSync(
+        join(routes, 'typed-redirect.ts'),
+        `export function GET(c) { return c.redirect({ pathname: '/typed/:id', params: { id: 'a/b' }, query: { tab: 'activity' }, hash: 'details' }, 307); }\n`,
+      );
+      writeFileSync(
+        join(routes, 'typed-rewrite.ts'),
+        `export function GET(c) { return c.rewrite({ pathname: '/typed/:id', params: { id: 'a/b' }, query: { tab: 'activity' } }); }\n`,
+      );
       writeFileSync(
         join(routes, 'destructured.ts'),
         `const handlers = {
@@ -215,6 +228,17 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       expect(await hello.json()).toEqual({ path: '/hello', rewritten: false, public: 'public' });
       expect(hello.headers.get('x-user-middleware')).toBe('ran');
       expect(hello.headers.get('x-edge-rule')).toBe('ran');
+      const redirected = await runtime.dispatchFetch('https://app.test/typed-redirect', {
+        redirect: 'manual',
+      });
+      expect(redirected.status).toBe(307);
+      expect(redirected.headers.get('Location')).toBe('/typed/a%2Fb?tab=activity#details');
+      const rewritten = await runtime.dispatchFetch('https://app.test/typed-rewrite');
+      expect(await rewritten.json()).toEqual({
+        id: 'a/b',
+        tab: 'activity',
+        original: '/typed-rewrite',
+      });
       const destructuredGet = await runtime.dispatchFetch('https://app.test/destructured');
       expect(destructuredGet.status).toBe(200);
       expect(await destructuredGet.json()).toEqual({ method: 'GET', path: '/destructured' });
