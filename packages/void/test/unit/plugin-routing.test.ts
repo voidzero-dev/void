@@ -1009,6 +1009,36 @@ describe('routingPlugin', () => {
       }
     },
   );
+
+  it.each([
+    { name: 'a native build', command: 'build' as const, enabled: true, emitted: true },
+    { name: 'the dev server', command: 'serve' as const, enabled: true, emitted: false },
+    { name: 'a managed build', command: 'build' as const, enabled: true, managed: true },
+    { name: 'an unset option', command: 'build' as const, enabled: false, emitted: false },
+  ])('writes the HTTPS redirect into the Worker entry for $name', async (testCase) => {
+    const { command, enabled, managed, emitted = false } = testCase;
+    if (managed) {
+      vi.stubEnv('VOID_DEPLOY_PROJECT_ID', 'project-id');
+    }
+    try {
+      const root = createTempRoot();
+      const plugin = createRoutingPlugin(root, {
+        isAuthEnabled: () => false,
+        routing: enabled ? { alwaysUseHttps: true } : undefined,
+      });
+      runConfig(plugin, { command, mode: 'production' });
+      resolveConfig(plugin, command);
+      await runBuildStart(plugin);
+
+      const entry = readFileSync(join(root, '.void', 'entry.ts'), 'utf-8');
+      expect(entry.includes('alwaysUseHttps: true')).toBe(emitted);
+      // The app itself never redirects, so in-process `fetch` stays on HTTP.
+      const load = getHookHandler(plugin.load) as (id: string) => Promise<string | undefined>;
+      expect(await load('virtual:void-routes')).not.toContain('alwaysUseHttps');
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
 });
 
 describe('routingPlugin native asset Worker bypass', () => {
@@ -1107,6 +1137,22 @@ describe('routingPlugin native asset Worker bypass', () => {
     expect(headers).toContain(`/${CHUNK}\n  Cache-Control: public, max-age=31536000, immutable\n`);
   });
 
+  it('keeps the bypass when HTTPS enforcement is the only rule', async () => {
+    const root = createBuildRoot();
+    await runClientBuild(root, { routing: { alwaysUseHttps: true } });
+    expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(['/**', `!/${CHUNK}`]);
+    expect(readFileSync(headersPath(root), 'utf8')).toContain(`/${CHUNK}\n`);
+  });
+
+  it('keeps the Worker in front when HTTPS enforcement comes with a header rule', async () => {
+    const root = createBuildRoot();
+    await runClientBuild(root, {
+      routing: { alwaysUseHttps: true, headers: { '/*': ['X-Frame-Options: DENY'] } },
+    });
+    expect(wranglerText(root)).toBe(WRANGLER);
+    expect(existsSync(headersPath(root))).toBe(false);
+  });
+
   it('rewrites its own _headers on the next build', async () => {
     const root = createBuildRoot();
     writeFileSync(
@@ -1159,7 +1205,6 @@ describe('routingPlugin native asset Worker bypass', () => {
         writeFileSync(join(root, 'pages', 'assets', '[id].tsx'), 'export default () => null;\n');
       },
     ],
-    ['HTTPS enforcement', () => {}, { routing: { alwaysUseHttps: true } }],
     ['a redirect rule', () => {}, { routing: { redirects: { '/old': '/new' } } }],
     ['a fallback rule', () => {}, { routing: { fallbacks: { '/*': '/index.html' } } }],
     [

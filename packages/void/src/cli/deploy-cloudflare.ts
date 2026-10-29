@@ -66,7 +66,7 @@ export async function runCloudflareDeploy(
   if (detectedFramework?.class === 'a' && hasConfiguredVoidWorkerRoutingRules(voidConfig.routing)) {
     log.error(
       [
-        `deploy: native Cloudflare deployment cannot apply Void routing.alwaysUseHttps, redirects, rewrites, fallbacks, or headers to ${detectedFramework.name}.`,
+        `deploy: native Cloudflare deployment cannot apply Void routing redirects, rewrites, fallbacks, or headers to ${detectedFramework.name}.`,
         'This framework owns its Worker request handler, so these rules would otherwise be ignored.',
         'Move the rules into the framework or its Cloudflare Worker, then retry.',
       ].join('\n'),
@@ -92,6 +92,19 @@ export async function runCloudflareDeploy(
       initialCloudflareLink,
       initialCloudflareCandidate,
     );
+  }
+
+  // After the static branch: a static framework build is served by the thin
+  // edge Worker, which applies the redirect itself.
+  if (detectedFramework && voidConfig.routing?.alwaysUseHttps === true) {
+    log.error(
+      [
+        `deploy: native Cloudflare deployment cannot apply Void routing.alwaysUseHttps to ${detectedFramework.name}.`,
+        'This framework owns its Worker request handler, so the HTTPS redirect would otherwise be ignored.',
+        "Redirect HTTP to HTTPS in the framework, or turn on Cloudflare's Always Use HTTPS setting for your zone, then remove routing.alwaysUseHttps and retry.",
+      ].join('\n'),
+    );
+    return exit(1);
   }
 
   const source = await prepareCloudflareDeploySource(root, options, voidConfig);

@@ -146,7 +146,7 @@
       "properties": {
         "alwaysUseHttps": {
           "type": "boolean",
-          "description": "Redirect HTTP requests to HTTPS with a permanent 308 redirect. Omit to inherit the hosting platform default (currently off). Local development continues to support HTTP."
+          "description": "Redirect HTTP requests to HTTPS with a permanent 308 redirect. Omitted or false means off. Requires the Cloudflare target; localhost stays on HTTP."
         },
         "isr": {
           "type": "boolean",

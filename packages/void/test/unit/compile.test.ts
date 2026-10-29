@@ -833,6 +833,11 @@ describe('default-target dev parity', () => {
 });
 
 describe('compileWorkerEntry', () => {
+  it('passes the HTTPS redirect to the worker fetch only when enabled', () => {
+    expect(compileWorkerEntry({ alwaysUseHttps: true })).toContain('alwaysUseHttps: true');
+    expect(compileWorkerEntry()).not.toContain('alwaysUseHttps');
+  });
+
   it('passes the version metadata binding name to the worker fetch', () => {
     expect(compileWorkerEntry({ versionMetadataBinding: 'AUTHORED_VERSION' })).toContain(
       'versionMetadataBinding: "AUTHORED_VERSION"',

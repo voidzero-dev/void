@@ -45,7 +45,7 @@ export type NotFoundHandling = 'single-page-application' | '404-page' | 'none';
 
 /** Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering. */
 export type RoutingConfig = {
-  /** Redirect HTTP to HTTPS. Omit to inherit the hosting platform's default (currently off). */
+  /** Redirect HTTP to HTTPS with a 308. Requires the Cloudflare target. Omitted means off. */
   alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
   isr?: boolean;
@@ -563,6 +563,11 @@ function validateConfigObject(obj: unknown): VoidConfig {
 
     if (routing.alwaysUseHttps !== undefined && typeof routing.alwaysUseHttps !== 'boolean') {
       throw new Error(`config: "routing.alwaysUseHttps" in ${CONFIG_FILE} must be a boolean.`);
+    }
+    if (routing.alwaysUseHttps === true && isNodeTarget(obj.target as VoidConfig['target'])) {
+      throw new Error(
+        `config: "routing.alwaysUseHttps" in ${CONFIG_FILE} requires target: "cloudflare". It is not available with target: "${obj.target}".`,
+      );
     }
 
     // Validate routing.notFound

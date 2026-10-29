@@ -1018,26 +1018,70 @@ describe('static asset marker', () => {
 });
 
 describe('native HTTPS policy', () => {
+  it('redirects HTTP before ISR and the app, keeping path, query and method', async () => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const app = { fetch: vi.fn(async () => new Response('app')) };
+    const fetch = worker({ alwaysUseHttps: true, app, isr: { deploymentId: 'd', handle } });
+    const response = await fetch(
+      new Request('http://oxc.rs/docs?q=1', { method: 'POST' }),
+      { ISR_CACHE: {} },
+      context,
+    );
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://oxc.rs/docs?q=1');
+    expect(handle).not.toHaveBeenCalled();
+    expect(app.fetch).not.toHaveBeenCalled();
+    const upgrade = await fetch(
+      new Request('http://oxc.rs/chat', { headers: { upgrade: 'websocket' } }),
+      {},
+      context,
+    );
+    expect(upgrade.status).toBe(308);
+  });
+
   it.each([
-    { alwaysUseHttps: true, status: 308 },
-    { alwaysUseHttps: false, status: 200 },
-    { alwaysUseHttps: undefined, status: 200 },
-    { alwaysUseHttps: true, dev: true, status: 200 },
-    { alwaysUseHttps: true, managedDispatch: true, status: 200 },
-  ])(
-    'handles $alwaysUseHttps with dev=$dev and managed=$managedDispatch',
-    async ({ status, ...options }) => {
-      const app = new Hono();
-      const runtime = createRoutingRuntime(app, { nodeTarget: true, ...options });
-      app.use(runtime.requestMiddleware);
-      const handler = vi.fn((c: Context) => c.text('app'));
-      app.get('*', handler);
-      const response = await app.request('http://oxc.rs/docs?q=1');
-      expect(response.status).toBe(status);
-      expect(response.headers.get('Location')).toBe(
-        status === 308 ? 'https://oxc.rs/docs?q=1' : null,
-      );
-      expect(handler).toHaveBeenCalledTimes(status === 308 ? 0 : 1);
+    { name: 'HTTPS', url: 'https://oxc.rs/docs', alwaysUseHttps: true },
+    { name: 'the option off', url: 'http://oxc.rs/docs', alwaysUseHttps: false },
+    { name: 'the option unset', url: 'http://oxc.rs/docs', alwaysUseHttps: undefined },
+    {
+      name: 'the prerender runner on localhost',
+      url: 'http://localhost/docs',
+      alwaysUseHttps: true,
     },
-  );
+  ])('serves the cached page for $name', async ({ url, alwaysUseHttps }) => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const fetch = worker({ alwaysUseHttps, isr: { deploymentId: 'd', handle } });
+    const response = await fetch(new Request(url), { ISR_CACHE: {} }, context);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('cache');
+  });
+
+  it('answers Void endpoints for tools and the platform over HTTP', async () => {
+    const fetch = worker({
+      alwaysUseHttps: true,
+      emailReceipt: async () => new Response('receipt', { status: 202 }),
+      internalRoute: async (request) =>
+        new URL(request.url).pathname === '/__void/migrate' ? new Response('migrated') : null,
+    });
+    const ready = await fetch(new Request('http://oxc.rs/__void/ready'), {}, context);
+    expect(await ready.json()).toEqual({ ready: true });
+    const receipt = await fetch(
+      new Request('http://oxc.rs/__void/email/receipt/v1', { method: 'POST' }),
+      {},
+      context,
+    );
+    expect(receipt.status).toBe(202);
+    const migrate = await fetch(
+      new Request('http://oxc.rs/__void/migrate', { method: 'POST' }),
+      {},
+      context,
+    );
+    expect(await migrate.text()).toBe('migrated');
+    const discovery = await fetch(
+      new Request('http://oxc.rs/__void/prerender-paths', { method: 'POST' }),
+      { __VOID_PRERENDER: '1' },
+      context,
+    );
+    expect(await discovery.json()).toEqual({ paths: ['/page'] });
+  });
 });

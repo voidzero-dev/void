@@ -120,10 +120,9 @@ export function deduplicateGeneratedCompatibilityFlags(
 export function hasConfiguredVoidWorkerRoutingRules(routing: RoutingConfig | undefined): boolean {
   return (
     routing !== undefined &&
-    (routing.alwaysUseHttps === true ||
-      [routing.redirects, routing.rewrites, routing.fallbacks, routing.headers].some(
-        (rules) => rules !== undefined && Object.keys(rules).length > 0,
-      ))
+    [routing.redirects, routing.rewrites, routing.fallbacks, routing.headers].some(
+      (rules) => rules !== undefined && Object.keys(rules).length > 0,
+    )
   );
 }
 

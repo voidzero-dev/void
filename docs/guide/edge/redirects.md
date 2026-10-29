@@ -4,22 +4,6 @@ outline: deep
 
 # Redirects
 
-Enable HTTP-to-HTTPS redirects with `routing.alwaysUseHttps` in `void.config.ts`:
-
-```ts
-import { defineConfig } from 'void/config';
-
-export default defineConfig({
-  routing: {
-    alwaysUseHttps: true,
-  },
-});
-```
-
-This sends a permanent `308` redirect to the same hostname over HTTPS, preserving the path, query string, and request method. Local development continues to support HTTP, and certificate validation paths remain available over HTTP.
-
-Set `false` to explicitly keep HTTP. Omit the setting to inherit your hosting platform's default, which is currently off. The option works on Void platforms and direct Cloudflare deployments of Void apps and static sites. Frameworks that own their Worker handler require their own HTTPS redirect configuration for direct Cloudflare deployments.
-
 Define URL redirects in [`void.config.ts`](../../reference/config) using the `routing.redirects` field. Keys are source URL patterns, values are destination strings or objects with an explicit status.
 
 ```json
@@ -66,6 +50,28 @@ https://www.example.com/*  https://example.com/:splat  301
 Path-only sources apply to every domain on the project. Host-prefixed sources apply only to the named domain.
 
 The source must use `https://` and a literal hostname without wildcards or a port. Add the domain to your project with `void domain add` before deploying the rule. A domain awaiting certificate verification starts redirecting once it becomes active.
+
+## HTTP to HTTPS
+
+Set `routing.alwaysUseHttps` to redirect HTTP requests to HTTPS:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  routing: {
+    alwaysUseHttps: true,
+  },
+});
+```
+
+Void answers with a permanent `308` redirect to the same URL over HTTPS. The path, query string, and request method stay the same. Omitted or `false` means off. `localhost` and loopback addresses such as `127.0.0.1` stay on HTTP, so local development and `vite preview` are unchanged.
+
+It works on the Void platform and for Void apps on `void deploy --platform cloudflare`. It needs the Cloudflare target: setting it with `target: 'node'`, `'bun'`, or `'deno'` is a config error.
+
+On `void deploy --platform cloudflare`, built files with a content hash in their name, such as `/assets/index-abc123.js`, can be served by Cloudflare before Void runs, so they may still answer over HTTP. Pages always redirect, so browsers load these files over HTTPS. To redirect every request, also turn on [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) for your Cloudflare zone.
+
+SvelteKit, Nuxt, Astro, Analog, TanStack Start, React Router, and vinext apps run their own Worker, so `void deploy --platform cloudflare` stops with an error when the option is on. Static builds of these frameworks, deployed with `--dir` or `inference.appType`, redirect as usual. For the others, redirect to HTTPS in the framework, or turn on [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) for your Cloudflare zone.
 
 ## Framework `_redirects` files
 

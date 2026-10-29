@@ -64,7 +64,6 @@ export type CompileOptions = {
   nodeTarget?: boolean;
   /** Managed Cloudflare build whose dispatch worker owns edge routing. */
   managedDispatch?: boolean;
-  alwaysUseHttps?: boolean;
   /** Absolute path to the binding handler module (for /__void/* native binding access) */
   bindingHandlerPath?: string;
   /** Absolute path to the migration handler module */
@@ -274,7 +273,7 @@ export function compileRouteTable(
   }
   const blockedExts = ASSET_EXTENSIONS.filter((e) => !usedExts.has(e));
   lines.push(
-    `const __routingRuntime = __createRoutingRuntime(app, ${JSON.stringify({ dev: options.dev === true, nodeTarget: options.nodeTarget === true, managedDispatch, alwaysUseHttps: options.alwaysUseHttps, blockedAssetExtensions: blockedExts })});`,
+    `const __routingRuntime = __createRoutingRuntime(app, ${JSON.stringify({ dev: options.dev === true, nodeTarget: options.nodeTarget === true, managedDispatch, blockedAssetExtensions: blockedExts })});`,
   );
   lines.push('export const requestContext = __routingRuntime.requestContext;');
   lines.push('app.use(__routingRuntime.contextMiddleware);');
@@ -1073,6 +1072,11 @@ const serveWithAssets = __createAssetFallback(${JSON.stringify({ assetsDir, serv
 export interface WorkerEntryOptions {
   /** Native readiness proves the actual served Worker version through this binding. */
   versionMetadataBinding?: string;
+  /**
+   * Redirect public HTTP requests to HTTPS before ISR and the app. Native
+   * Cloudflare production builds only: managed dispatch enforces it there.
+   */
+  alwaysUseHttps?: boolean;
   hasQueues?: boolean;
   remote?: {
     remotePath: string;
@@ -1147,6 +1151,7 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
   const {
     hasQueues = false,
     versionMetadataBinding,
+    alwaysUseHttps = false,
     remote,
     assetsDir = 'assets',
     webSocketClasses = [],
@@ -1245,7 +1250,7 @@ const __filterInternalBindings = (env) => __filterBindings(env, ${JSON.stringify
     app, assets: serveWithAssets, withRawEnv: __withRawEnv, withRuntimeEnv,
     filterBindings: __filterInternalBindings,
     internalRoute: __voidHandleInternalRoute,
-    collectPrerenderPaths: __voidCollectPrerenderPaths${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
+    collectPrerenderPaths: __voidCollectPrerenderPaths${alwaysUseHttps ? ', alwaysUseHttps: true' : ''}${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
   })`;
   const remoteEnvSwap = remotePath
     ? `  if (env.__VOID_REMOTE === "1") env = ${createRemoteEnvCall};\n`

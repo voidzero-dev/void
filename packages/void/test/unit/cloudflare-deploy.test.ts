@@ -2382,10 +2382,36 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
         not_found_handling: 'single-page-application',
       },
     });
-    expect(readFileSync(join(root, '.void/deploy/cloudflare/static-edge.mjs'), 'utf-8')).toContain(
-      'void/edge',
-    );
+    const entry = readFileSync(join(root, '.void/deploy/cloudflare/static-edge.mjs'), 'utf-8');
+    expect(entry).toContain('void/edge');
+    expect(entry).not.toContain('alwaysUseHttps');
     expect(wranglerArgs.at(-1)).toContain(toSlash(join(root, '.void/deploy/cloudflare/assets')));
+  });
+
+  it.each([
+    { name: 'a SPA', dependencies: {} },
+    { name: 'a static Astro build', dependencies: { astro: '5.0.0' } },
+  ])('writes routing.alwaysUseHttps into the thin edge Worker for $name', async (testCase) => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'spaapp', dependencies: testCase.dependencies }),
+      'void.json': JSON.stringify({
+        inference: { appType: 'spa', outputDir: 'dist' },
+        routing: { alwaysUseHttps: true },
+      }),
+      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+      'dist/index.html': '<!doctype html><div id="app"></div>',
+    });
+    const { deps, wranglerArgs, exitCalls } = harness();
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+
+    expect(exitCalls).toEqual([]);
+    expect(wranglerArgs.map((args) => args[0])).toEqual(['whoami', 'deploy']);
+    expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
+      assets: { run_worker_first: true },
+    });
+    expect(readFileSync(join(root, '.void/deploy/cloudflare/static-edge.mjs'), 'utf-8')).toContain(
+      '"alwaysUseHttps":true',
+    );
   });
 
   it('preserves canonical Worker configuration when deploying static assets', async () => {
@@ -3793,16 +3819,43 @@ describe('runCloudflareDeploy — D1 migrations_dir gate', () => {
 });
 
 describe('runCloudflareDeploy — full Void app queues', () => {
-  it.each([{ rewrites: { '/old': '/new' } }, { alwaysUseHttps: true }])(
-    'rejects configured Void routing %j for a Class-A framework before account mutation',
-    async (routing) => {
+  it('rejects configured Void routing rules for a Class-A framework before account mutation', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({
+        name: 'fwapp',
+        dependencies: { '@tanstack/react-start': '1.0.0' },
+      }),
+      'void.json': JSON.stringify({ routing: { rewrites: { '/old': '/new' } } }),
+      'queues/jobs.ts': `export default {};`,
+      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'fwapp' }, null, 2),
+    });
+    const messages: Array<string> = [];
+    const restore = log.error;
+    log.error = (message: string) => messages.push(message);
+    try {
+      const { deps, trace, wranglerArgs } = harness();
+      await expect(
+        runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+      ).rejects.toBeInstanceOf(ExitError);
+      expect(trace).toEqual([]);
+      expect(wranglerArgs).toEqual([]);
+    } finally {
+      log.error = restore;
+    }
+    expect(messages.join('\n')).toMatch(/cannot apply Void routing[\s\S]*framework owns/);
+  });
+
+  it.each([
+    ['@tanstack/react-start', 'tanstack-start'],
+    ['@sveltejs/kit', 'sveltekit'],
+    ['nuxt', 'nuxt'],
+    ['astro', 'astro'],
+  ])(
+    'rejects routing.alwaysUseHttps for a %s app before account mutation',
+    async (dependency, framework) => {
       const root = makeProject({
-        'package.json': JSON.stringify({
-          name: 'fwapp',
-          dependencies: { '@tanstack/react-start': '1.0.0' },
-        }),
-        'void.json': JSON.stringify({ routing }),
-        'queues/jobs.ts': `export default {};`,
+        'package.json': JSON.stringify({ name: 'fwapp', dependencies: { [dependency]: '1.0.0' } }),
+        'void.json': JSON.stringify({ routing: { alwaysUseHttps: true } }),
         'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', name: 'fwapp' }, null, 2),
       });
       const messages: Array<string> = [];
@@ -3818,7 +3871,9 @@ describe('runCloudflareDeploy — full Void app queues', () => {
       } finally {
         log.error = restore;
       }
-      expect(messages.join('\n')).toMatch(/cannot apply Void routing[\s\S]*framework owns/);
+      const message = messages.join('\n');
+      expect(message).toContain(`cannot apply Void routing.alwaysUseHttps to ${framework}.`);
+      expect(message).toContain("Cloudflare's Always Use HTTPS setting");
     },
   );
 

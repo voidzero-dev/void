@@ -58,6 +58,27 @@ describe('routing.alwaysUseHttps', () => {
       cleanup();
     }
   });
+  it.each(['node', 'bun', 'deno'])('rejects true with target %s', (target) => {
+    setup(JSON.stringify({ target, routing: { alwaysUseHttps: true } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow(
+        `"routing.alwaysUseHttps" in void.json requires target: "cloudflare". It is not available with target: "${target}".`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+  it.each([
+    { target: 'node', routing: { alwaysUseHttps: false } },
+    { target: 'cloudflare', routing: { alwaysUseHttps: true } },
+  ])('accepts %j', (config) => {
+    setup(JSON.stringify(config));
+    try {
+      expect(readConfig(tmpDir).routing?.alwaysUseHttps).toBe(config.routing.alwaysUseHttps);
+    } finally {
+      cleanup();
+    }
+  });
 });
 
 describe('readConfig', () => {
