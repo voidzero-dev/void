@@ -1122,7 +1122,8 @@ export async function createPageNavigationEngine(
     },
 
     flush(url, method = 'GET') {
-      _prefetchCache.flush(url, method);
+      const hashIdx = url.indexOf('#');
+      _prefetchCache.flush(hashIdx !== -1 ? url.slice(0, hashIdx) : url, method);
     },
 
     flushAll() {

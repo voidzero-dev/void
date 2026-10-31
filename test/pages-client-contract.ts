@@ -98,6 +98,23 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
+  it('visits typed destinations', async ({ expect }) => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.getByTestId('typed-visit').click();
+      await page.waitForURL(BASE + '/users/2?tab=visit');
+      expect(await page.textContent('body')).toContain('Bob');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('restores scroll after browser Back from an ordinary document link', async ({ expect }) => {
     const page = await newPage();
     const errors: Array<string> = [];

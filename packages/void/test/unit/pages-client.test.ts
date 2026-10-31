@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { RouteDestination } from 'void/routes';
 import { createVoidRouter, ssrProxy, type VoidRouterConfig } from '../../src/pages/client.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
@@ -12,6 +13,12 @@ import {
 type DeferredTestWindow = Window & {
   __resolveDeferred(group: string, data: unknown): void;
 };
+
+declare module 'void/routes' {
+  interface RoutePathMap {
+    '/typed-router/:id': 'id';
+  }
+}
 
 type TestRouterConfig = Partial<Omit<VoidRouterConfig, 'adapter'>> & {
   adapter?: Partial<VoidRouterConfig['adapter']>;
@@ -102,6 +109,36 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  it('uses the same typed destination for visits, prefetching and cache invalidation', async () => {
+    stubClientGlobals();
+    const pageData = { component: 'home', props: { title: 'Typed destination' } };
+    const fetchMock = vi.fn(() => Promise.resolve(pageJson(pageData)));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter();
+    const destination: RouteDestination = {
+      pathname: '/typed-router/:id',
+      params: { id: 'a/b' },
+      query: { tag: ['one', 'two'] },
+      hash: 'details',
+    };
+    await router.prefetch(destination);
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      '/typed-router/a%2Fb?tag=one&tag=two',
+      expect.anything(),
+    );
+    await router.prefetch(destination);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    router.flush(destination);
+    await router.prefetch(destination);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    await router.visit(destination);
+    expect(history.pushState).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      '/typed-router/a%2Fb?tag=one&tag=two#details',
+    );
+  });
+
   it('requires the page-data script even when a legacy data-page attribute is present', async () => {
     const documentStub = stubClientGlobals();
     documentStub.getElementById.mockImplementation((id: string) =>
