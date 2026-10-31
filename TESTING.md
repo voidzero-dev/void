@@ -339,7 +339,7 @@ Use the intended test account rather than an account name embedded in a script. 
 - setting `CLOUDFLARE_ACCOUNT_ID` in the current shell.
 
 When a version has no preview URL, also set `CLOUDFLARE_WORKERS_SUBDOMAIN` to the account's
-workers.dev subdomain. For [`https://my-worker.my-team.workers.dev`](https://my-worker.my-team.workers.dev), the value is `my-team`. The
+workers.dev subdomain. For `https://my-worker.my-team.workers.dev`, the value is `my-team`. The
 account name shown in the dashboard is not necessarily the workers.dev subdomain.
 
 Never commit account IDs, resource IDs, API tokens, or Access credentials. CI should receive them

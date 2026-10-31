@@ -41,7 +41,7 @@ The installed platform needs a separate runtime token to provision resources for
 
 To enable email during install or upgrade, set both `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID`. Void records the pair for later upgrades; supplying only one is an error.
 
-Use `--dashboard-url `[`https://dash.example.com`](https://dash.example.com) when deploying the optional user
+Use `--dashboard-url https://dash.example.com` when deploying the optional user
 dashboard separately. The URL must be an HTTPS origin without credentials, a
 path, query, or fragment. Void permits that origin's login callbacks and saves
 it for later maintenance; it does not deploy a dashboard Worker. Omission keeps
