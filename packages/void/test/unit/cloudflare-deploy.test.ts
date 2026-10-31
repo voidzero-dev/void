@@ -3185,11 +3185,11 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
   describe('static edge Worker routing', () => {
     const generatedHeaders = `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/app-abcdefgh.js\n  Cache-Control: public, max-age=31536000, immutable\n`;
 
-    function prerenderedSite(voidConfig: Record<string, unknown>) {
+    function prerenderedSite(voidConfig: Record<string, unknown>, wrangler = {}) {
       const root = makeProject({
         'package.json': JSON.stringify({ name: 'ssgapp' }),
         'void.json': JSON.stringify({ output: 'static', ...voidConfig }),
-        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123', ...wrangler }),
         'pages/index.vue': `<template><div>hi</div></template>`,
       });
       const { deps, exitCalls } = harness({
@@ -3249,6 +3249,34 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
         assets: { not_found_handling: 'none', run_worker_first: true },
       });
     });
+
+    it('honors an authored assets.run_worker_first and still stages the generated _headers', async () => {
+      const { root, deps, exitCalls } = prerenderedSite({}, { assets: { run_worker_first: true } });
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+
+      expect(exitCalls).toEqual([]);
+      expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
+        assets: { run_worker_first: true },
+      });
+      expect(readFileSync(stagedHeaders(root), 'utf-8')).toBe(generatedHeaders);
+      expect(staticEntry(root)).toContain('public, max-age=31536000, immutable');
+    });
+
+    it.each([false, ['/api/*'], ['/__void/*', '!/__void/ready']])(
+      'rejects an authored assets.run_worker_first of %j before building',
+      async (runWorkerFirst) => {
+        const { root, deps, exitCalls } = prerenderedSite(
+          {},
+          { assets: { run_worker_first: runWorkerFirst } },
+        );
+        await expect(
+          runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+
+        expect(exitCalls).toEqual([1]);
+        expect(existsSync(join(root, 'dist/client/index.html'))).toBe(false);
+      },
+    );
   });
 
   it.each(['first deployment', 'update'] as const)(
