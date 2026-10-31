@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'pathslash';
+import { isGeneratedAssetHeaders } from '../asset-worker-bypass.ts';
 import {
   convertFallbacksConfig,
   convertHeadersConfig,
@@ -100,6 +101,16 @@ export function parseHeadersFile(dir: string): Array<HeaderRule> | undefined {
   rules.sort((a, b) => a.pattern.length - b.pattern.length);
 
   return rules;
+}
+
+/** The `_headers` text in `dir` when Void generated it, otherwise undefined. */
+export function readGeneratedAssetHeadersFile(dir: string): string | undefined {
+  const filePath = join(dir, '_headers');
+  if (!existsSync(filePath)) {
+    return undefined;
+  }
+  const content = readFileSync(filePath, 'utf-8');
+  return isGeneratedAssetHeaders(content) ? content : undefined;
 }
 
 /**

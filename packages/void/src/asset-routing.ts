@@ -55,6 +55,25 @@ export function workerOwnsHtmlRouting(inputs: AssetRoutingInputs): boolean {
   );
 }
 
+/**
+ * Returns true when native edge rules must run in the worker before Cloudflare
+ * Static Assets can answer: native builds compile HTTPS redirects and header,
+ * redirect, rewrite and fallback rules into the worker.
+ */
+export function edgeRulesNeedWorker(rules: {
+  alwaysUseHttps?: boolean;
+  headerRules?: ReadonlyArray<unknown>;
+  redirectRules?: ReadonlyArray<unknown>;
+  fallbackRules?: ReadonlyArray<unknown>;
+}): boolean {
+  return (
+    rules.alwaysUseHttps === true ||
+    (rules.headerRules?.length ?? 0) > 0 ||
+    (rules.redirectRules?.length ?? 0) > 0 ||
+    (rules.fallbackRules?.length ?? 0) > 0
+  );
+}
+
 export function resolveAssetConfig(inputs: AssetRoutingInputs): AssetConfig {
   return resolveAssetRoutingPolicy(inputs).assetConfig;
 }
