@@ -17,16 +17,16 @@ Once `hono` is installed in your app, you can use built-in middleware, helpers, 
 Use Hono's built-in middleware in your global middleware files or per-route:
 
 ```ts
-import { cors } from 'hono/cors';
 // middleware/01.cors.ts
+import { cors } from 'hono/cors';
 import { defineMiddleware } from 'void';
 
 export default defineMiddleware(cors({ origin: 'https://example.com' }));
 ```
 
 ```ts
-import { cache } from 'hono/cache';
 // routes/api/products.ts (per-route cache)
+import { cache } from 'hono/cache';
 import { defineHandler } from 'void';
 import { listProducts } from '../../lib/products';
 
@@ -41,8 +41,8 @@ export const GET = defineHandler(
 :::
 
 ```ts
-import { bearerAuth } from 'hono/bearer-auth';
 // routes/api/webhooks/stripe.ts (per-route usage)
+import { bearerAuth } from 'hono/bearer-auth';
 import { defineHandler } from 'void';
 
 export const POST = defineHandler(bearerAuth({ token: 'webhook-secret' }), async (c) => {
@@ -56,8 +56,8 @@ export const POST = defineHandler(bearerAuth({ token: 'webhook-secret' }), async
 Hono's context helpers are available on `c` in every handler:
 
 ```ts
-import { stream } from 'hono/streaming';
 // routes/api/download.ts
+import { stream } from 'hono/streaming';
 import { defineHandler } from 'void';
 
 export const GET = defineHandler((c) => {
@@ -84,8 +84,8 @@ export const GET = defineHandler((c) => {
 Any `hono/*` or `@hono/*` package works. Install the package in your app, then use it directly:
 
 ```ts
-import { rateLimiter } from 'hono-rate-limiter';
 // middleware/01.rate-limit.ts
+import { rateLimiter } from 'hono-rate-limiter';
 import { defineMiddleware } from 'void';
 
 export default defineMiddleware(rateLimiter({ windowMs: 60_000, limit: 100 }));

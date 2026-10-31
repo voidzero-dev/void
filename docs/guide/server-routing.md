@@ -45,8 +45,8 @@ export const GET = defineHandler((c) => {
 A file can export multiple methods:
 
 ```ts
-import { users } from '@schema';
 // routes/api/users/index.ts  →  GET + POST /api/users
+import { users } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -115,8 +115,8 @@ Return values are automatically converted:
 `defineHandler.withValidator()` adds input validation for `body`, `query`, and `params`. The recommended approach is to derive validators from your [Drizzle schema](./database.md#schema-derived-validators), which keeps validation in sync with the database.
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // routes/api/users/index.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -254,8 +254,8 @@ defineHandler(middleware1, middleware2, handler);
 Middleware runs in order. Each can short-circuit (return a response without calling `next()`) or post-process (modify the response after `await next()`). Both `defineMiddleware`-wrapped functions and raw Hono `MiddlewareHandler` functions are accepted.
 
 ```ts
-import { cors } from 'hono/cors';
 // routes/api/stats.ts
+import { cors } from 'hono/cors';
 import { defineHandler } from 'void';
 
 export const GET = defineHandler(cors({ origin: 'https://app.example.com' }), (c) => ({

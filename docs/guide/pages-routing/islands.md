@@ -135,8 +135,8 @@ let { posts } = $props();
 ```
 
 ```tsx [Solid]
-import { For } from 'solid-js';
 // pages/blog/index.island.tsx
+import { For } from 'solid-js';
 import Counter from './_Counter' with { island: 'load' };
 import PostForm from './_PostForm' with { island: 'visible' };
 

@@ -56,8 +56,8 @@ Define your tables in `db/schema.ts` using column helpers from `void/schema-d1`,
 ::: code-group
 
 ```ts [SQLite (D1)]
-import { sql } from 'void/db';
 // db/schema.ts
+import { sql } from 'void/db';
 import { sqliteTable, text, integer } from 'void/schema-d1';
 
 export const users = sqliteTable('users', {
@@ -314,8 +314,8 @@ export const insertUserSchema = createInsertSchema(users, {
 ```
 
 ```ts [Valibot]
-import { pipe, minLength, email } from 'valibot';
 // db/schema.ts
+import { pipe, minLength, email } from 'valibot';
 import { createInsertSchema } from 'void/drizzle-valibot';
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -325,8 +325,8 @@ export const insertUserSchema = createInsertSchema(users, {
 ```
 
 ```ts [ArkType]
-import { type } from 'arktype';
 // db/schema.ts
+import { type } from 'arktype';
 import { createInsertSchema } from 'void/drizzle-arktype';
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -342,8 +342,8 @@ export const insertUserSchema = createInsertSchema(users, {
 Use the derived schema in your route handlers with [`withValidator()`](./server-routing.md#validation):
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // routes/api/users/index.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
