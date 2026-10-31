@@ -23,7 +23,7 @@ import {
 import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
-import { scriptBlocks } from './island-imports.ts';
+import { MARKDOWN_SCRIPT_RE, scriptBlocks } from './island-imports.ts';
 import { resolveNamedLayout } from './layout-resolution.ts';
 import { patternToRegex } from './manifest.ts';
 import type {
@@ -551,13 +551,9 @@ function warnShadowedPages(pagesDir: string, pages: Array<PageDefinition>): void
   }
 }
 
-// Same leading-script rule as @void/md's extractScript: a markdown page may open
-// with a <script> block, and its frontmatter starts right after that block.
-const LEADING_SCRIPT_RE = /^<script\b[^>]*>[\s\S]*?<\/script>\s*\n?/;
-
 /** Return the raw YAML frontmatter of markdown source, after any leading <script> block. */
 function markdownFrontmatter(source: string): string | undefined {
-  const body = source.replace(LEADING_SCRIPT_RE, '');
+  const body = source.replace(MARKDOWN_SCRIPT_RE, '');
   return body.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
 }
 

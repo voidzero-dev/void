@@ -28,4 +28,31 @@ import Actual from './Actual' with { island: 'visible' };`;
       { importName: 'Counter', specifier: './Counter', hydrate: 'load' },
     ]);
   });
+
+  it('finds imports only in the leading script block of a Markdown page', () => {
+    const code = `<script>
+import Badge from '../components/Badge' with { island: 'load' };
+</script>
+
+\`\`\`ts
+import Fenced from './Fenced' with { island: 'load' };
+\`\`\`
+
+<script>import Later from './Later' with { island: 'load' };</script>
+
+<Badge />
+`;
+    const imports = findIslandImports(code, 'page.md');
+    expect(imports).toMatchObject([
+      { importName: 'Badge', specifier: '../components/Badge', hydrate: 'load' },
+    ]);
+    expect(code.slice(imports[0]!.start, imports[0]!.end)).toBe(
+      "import Badge from '../components/Badge' with { island: 'load' };",
+    );
+  });
+
+  it('treats a Markdown page without a leading script block as text', () => {
+    const code = "import Counter from './Counter' with { island: 'load' };\n";
+    expect(findIslandImports(code, 'page.md')).toEqual([]);
+  });
 });

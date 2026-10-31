@@ -17,8 +17,25 @@ export type StaticCssImport = { statement: string; specifier: string };
 
 type ScriptBlock = { source: string; offset: number; filename: string };
 
-/** The whole JS/TS module, or each `<script>` block of a Vue/Svelte SFC with its offset in the file. */
+// Same leading-script rule as @void/md's extractScript: a markdown page may open
+// with a <script> block, and its frontmatter starts right after that block.
+export const MARKDOWN_SCRIPT_RE: RegExp = /^<script\b[^>]*>([\s\S]*?)<\/script>\s*\n?/;
+
+/**
+ * The whole JS/TS module, each `<script>` block of a Vue/Svelte SFC, or the
+ * leading `<script>` block of a Markdown page, with its offset in the file.
+ */
 export function scriptBlocks(code: string, filename: string): Array<ScriptBlock> {
+  if (filename.endsWith('.md')) {
+    const match = MARKDOWN_SCRIPT_RE.exec(code);
+    if (!match) {
+      return [];
+    }
+    const source = match[1]!;
+    return [
+      { source, offset: match[0].indexOf(source), filename: filename.replace(/\.md$/, '.ts') },
+    ];
+  }
   if (!/\.(?:vue|svelte)$/.test(filename)) {
     return [{ source: code, offset: 0, filename }];
   }
@@ -86,7 +103,7 @@ export function editIslandSource(
   return { code: ms.toString(), map: ms.generateMap({ hires: true }) };
 }
 
-/** Read island import attributes from JS/TS, or script blocks inside an SFC. */
+/** Read island import attributes from JS/TS, or the script blocks of an SFC or a Markdown page. */
 export function findIslandImports(code: string, filename: string): Array<IslandImportSource> {
   if (!code.includes('import') || !code.includes('island')) {
     return [];
