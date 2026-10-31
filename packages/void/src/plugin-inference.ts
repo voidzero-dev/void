@@ -73,6 +73,7 @@ const FRAMEWORK_PACKAGES: Record<string, DetectedFramework> = {
   nuxt: { name: 'nuxt', class: 'c' },
   '@analogjs/platform': { name: 'analog', class: 'c' },
   astro: { name: 'astro', class: 'c' },
+  '@pracht/adapter-cloudflare': { name: 'pracht', class: 'c' },
 };
 
 /**
