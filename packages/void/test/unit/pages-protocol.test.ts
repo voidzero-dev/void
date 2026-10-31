@@ -8,6 +8,8 @@ import {
   flattenValidationErrors,
   ValidationError,
 } from '../../src/pages/protocol.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
+import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type TestContext = Context & { set(key: string, value: unknown): void };
 type RenderPage = { component: string };
@@ -32,6 +34,7 @@ function createTestContext(
   path: string,
   options: {
     headers?: Record<string, string>;
+    body?: string;
     routePattern?: string;
     shared?: Record<string, unknown>;
   } = {},
@@ -55,8 +58,12 @@ function createTestContext(
   });
 
   const url = `http://localhost${path}`;
-  const req = new Request(url, { method, headers: options.headers });
-  app.fetch(req);
+  const init: RequestInit = { method, headers: options.headers };
+  if (options.body !== undefined) {
+    init.body = options.body;
+  }
+  const req = new Request(url, init);
+  void app.fetch(req);
 
   return contextPromise;
 }
@@ -1270,6 +1277,147 @@ describe('handlePageGet with deferred props', () => {
     expect(deferredLine.__deferred).toBe('analytics');
     expect(deferredLine.data).toHaveProperty('metrics');
     expect(deferredLine.data).toHaveProperty('chart');
+  });
+});
+
+function passSchema(): StandardSchemaV1 {
+  return {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate(value: unknown) {
+        return { value };
+      },
+    },
+  };
+}
+
+function failSchema(message: string): StandardSchemaV1 {
+  return {
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate() {
+        return { issues: [{ message }] };
+      },
+    },
+  };
+}
+
+describe('defineHandler middleware composition (pages)', () => {
+  const passThrough = defineMiddleware(async (_c, next) => {
+    await next();
+  });
+
+  it('loader with pass-through middleware returns page props', async () => {
+    const c = await createTestContext('GET', '/db', { headers: { 'x-voidpages': 'true' } });
+    const loader = defineHandler(passThrough, async () => ({ notes: ['a'] }));
+
+    const response = await handlePageGet(
+      loader,
+      undefined,
+      c,
+      'db',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(response.status).toBe(200);
+    expect(body.props).toEqual({ notes: ['a'] });
+  });
+
+  it('loader middleware after-next can mutate the final page response', async () => {
+    const addHeader = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-Loader-Mw', 'yes');
+    });
+    const c = await createTestContext('GET', '/db', { headers: { 'x-voidpages': 'true' } });
+    const loader = defineHandler(addHeader, async () => ({ ok: true }));
+
+    const response = await handlePageGet(
+      loader,
+      undefined,
+      c,
+      'db',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect(response.headers.get('X-Loader-Mw')).toBe('yes');
+    expect((await json<PageResponse>(response)).props).toEqual({ ok: true });
+  });
+
+  it('action with middleware re-renders the page after a successful mutation', async () => {
+    const c = await createTestContext('POST', '/db?create', {
+      headers: {
+        'x-voidpages': 'true',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ title: 'a' }),
+    });
+
+    const getHandler = defineHandler(async () => ({ notes: ['fresh'] }));
+    const mutationHandler = defineHandler(
+      passThrough,
+      defineHandler.withValidator({
+        body: passSchema(),
+      })(async (_c, { body }) => {
+        void body;
+      }),
+    );
+
+    const response = await handlePageMutation(
+      mutationHandler,
+      getHandler,
+      undefined,
+      c,
+      'db',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(response.status).toBe(200);
+    expect(body.props).toEqual({ notes: ['fresh'] });
+    expect(body.errors).toBeNull();
+  });
+
+  it('action with middleware maps validation failures to page field errors', async () => {
+    const c = await createTestContext('POST', '/db?create', {
+      headers: {
+        'x-voidpages': 'true',
+        origin: 'http://localhost',
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({ title: '' }),
+    });
+
+    const getHandler = defineHandler(async () => ({ notes: [] }));
+    const mutationHandler = defineHandler(
+      passThrough,
+      defineHandler.withValidator({
+        body: failSchema('title is required'),
+      })(async (_c, { body }) => {
+        void body;
+      }),
+    );
+
+    const response = await handlePageMutation(
+      mutationHandler,
+      getHandler,
+      undefined,
+      c,
+      'db',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(response.status).toBe(200);
+    expect(body.errors).toEqual({ body: 'title is required' });
+    expect(body.props).toEqual({ notes: [] });
   });
 });
 

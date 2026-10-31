@@ -1,4 +1,10 @@
-import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
+import {
+  executeComposedHandler,
+  getHandlerComposition,
+  isComposedHandler,
+  type CloudBindings,
+  type CloudContext,
+} from '../runtime/handler.ts';
 import { isConvertedResponse } from '../runtime/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
 import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
@@ -283,11 +289,9 @@ async function extractProps(result: unknown): Promise<Record<string, unknown>> {
  * 200s (file downloads, streams). JSON 200s are still extracted as props for
  * backward compat with loaders using c.json().
  */
-async function runLoader(
-  handler: NonNullable<PageHandler>,
-  c: CloudContext,
+async function loaderRawToLoaded(
+  result: unknown,
 ): Promise<Response | Record<string, unknown>> {
-  const result = await handler(c);
   if (result instanceof Response && !isConvertedResponse(result)) {
     const contentType = result.headers.get('content-type') || '';
     if (result.status >= 300 || !contentType.includes('application/json')) {
@@ -295,6 +299,161 @@ async function runLoader(
     }
   }
   return extractProps(result);
+}
+
+async function runLoader(
+  handler: NonNullable<PageHandler>,
+  c: CloudContext,
+): Promise<Response | Record<string, unknown>> {
+  const composition = getHandlerComposition(handler);
+  const result = composition ? await composition.leaf(c) : await handler(c);
+  return loaderRawToLoaded(result);
+}
+
+type PageGetRenderArgs = {
+  headFn: PageHeadHandler;
+  c: CloudContext;
+  componentId: string;
+  renderFn: RenderPage;
+  getAssetTags: GetAssetTags;
+  configHead?: HeadConfig;
+  options?: PageRenderOptions;
+  renderMode: PageRenderMode;
+  shared: Record<string, unknown>;
+};
+
+async function renderPageGetFromProps(
+  props: Record<string, unknown>,
+  errors: Record<string, string> | null,
+  args: PageGetRenderArgs,
+): Promise<Response> {
+  const { headFn, c, componentId, renderFn, getAssetTags, configHead, options, renderMode, shared } =
+    args;
+
+  const pageHead = headFn ? headFn(c, props) : undefined;
+  const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
+  const head = resolveHead(configHead, middlewareHead, pageHead);
+
+  const { immediateProps, deferredMap } = separateDeferred(props);
+  const hasDeferred = Object.keys(deferredMap).length > 0;
+
+  const deferredKeys: Record<string, string> = {};
+  for (const [group, { keys }] of Object.entries(deferredMap)) {
+    for (const key of keys) {
+      deferredKeys[key] = group;
+    }
+  }
+
+  const pageObj: PageObject = {
+    component: componentId,
+    props: immediateProps,
+    params: requestParams(c),
+    shared,
+    url: requestPathWithSearch(c),
+    errors,
+    ...(head && { head }),
+    ...(hasDeferred && {
+      deferred: Object.keys(deferredMap),
+      deferredKeys,
+    }),
+  };
+
+  if (renderMode !== 'island' && isPagesRequest(c)) {
+    const isPrefetch = c.req.header('purpose') === 'prefetch';
+    if (isPrefetch && hasDeferred) {
+      const resolvedProps: Record<string, unknown> = { ...immediateProps };
+      let deferredErrors: Record<string, string> | undefined;
+      await Promise.all(
+        Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
+          try {
+            const data = await resolver(c);
+            if (keys.length === 1) {
+              resolvedProps[keys[0]] = data ?? null;
+            } else {
+              const obj =
+                typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+              for (const key of keys) {
+                resolvedProps[key] = obj[key];
+              }
+            }
+          } catch (err) {
+            (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
+            for (const key of keys) {
+              delete resolvedProps[key];
+            }
+          }
+        }),
+      );
+      return pageJsonResponse(c, {
+        ...pageObj,
+        props: resolvedProps,
+        deferred: undefined,
+        ...(deferredErrors && { deferredErrors }),
+      });
+    }
+
+    if (!hasDeferred) {
+      return pageJsonResponse(c, pageObj);
+    }
+    c.header('X-VoidPages', 'true');
+    const headers = new Headers(c.res.headers);
+    appendVary(headers, 'X-VoidPages');
+    c.header('Vary', headers.get('Vary')!);
+    return streamDeferredResponse(
+      JSON.stringify(pageObj) + '\n',
+      deferredMap,
+      c,
+      'application/x-ndjson',
+      options?.dev === true,
+      (group, data) => JSON.stringify({ __deferred: group, data: data ?? null }) + '\n',
+      (group, error) => JSON.stringify({ __deferred: group, error }) + '\n',
+    );
+  }
+
+  const { html, assetTags } = await renderPageHtml(
+    c,
+    pageObj,
+    componentId,
+    renderMode,
+    renderFn,
+    getAssetTags,
+  );
+
+  if (!hasDeferred) {
+    return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
+  }
+
+  return streamDeferredResponse(
+    html,
+    deferredMap,
+    c,
+    'text/html; charset=utf-8',
+    options?.dev === true,
+    (group, data) => {
+      const g = safeJsonStringify(group);
+      return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d):(window.__deferredQueue??=[]).push([${g},d])})(${safeJsonStringify(data)})</script>`;
+    },
+    (group, error) => {
+      const g = safeJsonStringify(group);
+      return `\n<script>(function(e){window.__rejectDeferred?window.__rejectDeferred(${g},e):(window.__deferredQueue??=[]).push([${g},0,e])})(${safeJsonStringify(error)})</script>`;
+    },
+    assetTags,
+  );
+}
+
+async function runComposedPageLoader(
+  handler: NonNullable<PageHandler>,
+  c: CloudContext,
+  render: (props: Record<string, unknown>) => Promise<Response>,
+): Promise<Response> {
+  const composition = getHandlerComposition(handler)!;
+  return executeComposedHandler(c, composition.middlewares, async () => {
+    const loaded = await loaderRawToLoaded(await composition.leaf(c));
+    if (loaded instanceof Response) {
+      return loaded;
+    }
+    return render(loaded);
+  });
 }
 
 /** Flatten withValidator's { issues: [{ slot, issues: [{ message, path }] }] } into { field: message } */
@@ -433,131 +592,31 @@ export async function handlePageGet(
 ): Promise<Response> {
   const renderMode = options?.renderMode ?? 'server';
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-
-  // Run loader and check for redirect/error responses before extracting props
-  let props: Record<string, unknown> = {};
-  if (handler) {
-    const loaded = await runLoader(handler, c);
-    if (loaded instanceof Response) {
-      return loaded;
-    }
-    props = loaded;
-  }
-
-  const pageHead = headFn ? headFn(c, props) : undefined;
-  const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
-  const head = resolveHead(configHead, middlewareHead, pageHead);
-
-  const { immediateProps, deferredMap } = separateDeferred(props);
-  const hasDeferred = Object.keys(deferredMap).length > 0;
-
-  // Build key-to-group mapping for the client
-  const deferredKeys: Record<string, string> = {};
-  for (const [group, { keys }] of Object.entries(deferredMap)) {
-    for (const key of keys) {
-      deferredKeys[key] = group;
-    }
-  }
-
-  const pageObj: PageObject = {
-    component: componentId,
-    props: immediateProps,
-    params: requestParams(c),
-    shared,
-    url: requestPathWithSearch(c),
-    errors: null,
-    ...(head && { head }),
-    ...(hasDeferred && {
-      deferred: Object.keys(deferredMap),
-      deferredKeys,
-    }),
-  };
-
-  // Island pages always render HTML — no Inertia JSON navigation
-  if (renderMode !== 'island' && isPagesRequest(c)) {
-    // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
-    const isPrefetch = c.req.header('purpose') === 'prefetch';
-    if (isPrefetch && hasDeferred) {
-      const resolvedProps: Record<string, unknown> = { ...immediateProps };
-      let deferredErrors: Record<string, string> | undefined;
-      await Promise.all(
-        Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
-          try {
-            const data = await resolver(c);
-            if (keys.length === 1) {
-              resolvedProps[keys[0]] = data ?? null;
-            } else {
-              const obj =
-                typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
-              for (const key of keys) {
-                resolvedProps[key] = obj[key];
-              }
-            }
-          } catch (err) {
-            (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
-            for (const key of keys) {
-              delete resolvedProps[key];
-            }
-          }
-        }),
-      );
-      return pageJsonResponse(c, {
-        ...pageObj,
-        props: resolvedProps,
-        deferred: undefined,
-        ...(deferredErrors && { deferredErrors }),
-      });
-    }
-
-    if (!hasDeferred) {
-      return pageJsonResponse(c, pageObj);
-    }
-    // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
-    c.header('X-VoidPages', 'true');
-    const headers = new Headers(c.res.headers);
-    appendVary(headers, 'X-VoidPages');
-    c.header('Vary', headers.get('Vary')!);
-    return streamDeferredResponse(
-      JSON.stringify(pageObj) + '\n',
-      deferredMap,
-      c,
-      'application/x-ndjson',
-      options?.dev === true,
-      (group, data) => JSON.stringify({ __deferred: group, data: data ?? null }) + '\n',
-      (group, error) => JSON.stringify({ __deferred: group, error }) + '\n',
-    );
-  }
-
-  const { html, assetTags } = await renderPageHtml(
+  const renderArgs: PageGetRenderArgs = {
+    headFn,
     c,
-    pageObj,
     componentId,
-    renderMode,
     renderFn,
     getAssetTags,
-  );
+    configHead,
+    options,
+    renderMode,
+    shared,
+  };
 
-  if (!hasDeferred) {
-    return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
+  if (!handler) {
+    return renderPageGetFromProps({}, null, renderArgs);
   }
 
-  // Stream HTML followed by deferred <script> tags
-  return streamDeferredResponse(
-    html,
-    deferredMap,
-    c,
-    'text/html; charset=utf-8',
-    options?.dev === true,
-    (group, data) => {
-      const g = safeJsonStringify(group);
-      return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d):(window.__deferredQueue??=[]).push([${g},d])})(${safeJsonStringify(data)})</script>`;
-    },
-    (group, error) => {
-      const g = safeJsonStringify(group);
-      return `\n<script>(function(e){window.__rejectDeferred?window.__rejectDeferred(${g},e):(window.__deferredQueue??=[]).push([${g},0,e])})(${safeJsonStringify(error)})</script>`;
-    },
-    assetTags,
-  );
+  if (isComposedHandler(handler)) {
+    return runComposedPageLoader(handler, c, (props) => renderPageGetFromProps(props, null, renderArgs));
+  }
+
+  const loaded = await runLoader(handler, c);
+  if (loaded instanceof Response) {
+    return loaded;
+  }
+  return renderPageGetFromProps(loaded, null, renderArgs);
 }
 
 function isSameOriginAction(request: Request): boolean {
@@ -620,13 +679,11 @@ export async function handlePageMutation(
     };
   }
 
-  /** Re-run the GET loader and respond with the page, optionally carrying validation errors. */
-  async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
-    const loaded = getHandler ? await runLoader(getHandler, c) : {};
-    if (loaded instanceof Response) {
-      return loaded;
-    }
-    const pageObj = buildMutationPageObj(stripDeferred(loaded), errors);
+  async function renderMutationPage(
+    props: Record<string, unknown>,
+    errors: Record<string, string> | null,
+  ): Promise<Response> {
+    const pageObj = buildMutationPageObj(stripDeferred(props), errors);
     if (isPagesRequest(c)) {
       return pageJsonResponse(c, pageObj);
     }
@@ -641,6 +698,21 @@ export async function handlePageMutation(
     return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
   }
 
+  /** Re-run the GET loader and respond with the page, optionally carrying validation errors. */
+  async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
+    if (!getHandler) {
+      return renderMutationPage({}, errors);
+    }
+    if (isComposedHandler(getHandler)) {
+      return runComposedPageLoader(getHandler, c, (props) => renderMutationPage(props, errors));
+    }
+    const loaded = await runLoader(getHandler, c);
+    if (loaded instanceof Response) {
+      return loaded;
+    }
+    return renderMutationPage(loaded, errors);
+  }
+
   function respondWithErrors(errors: Record<string, string>): Promise<Response> {
     if (renderMode === 'island') {
       return Promise.resolve(Response.json({ errors }, { status: 422 }));
@@ -648,43 +720,59 @@ export async function handlePageMutation(
     return respondWithPage(errors);
   }
 
-  let result: unknown;
+  async function finishMutation(result: unknown): Promise<Response> {
+    if (result instanceof Response) {
+      const status = result.status;
+      if (status >= 300 && status < 400) {
+        return result;
+      }
+      if (status === 400) {
+        const body: unknown = await result
+          .clone()
+          .json()
+          .catch(() => null);
+        if (Array.isArray((body as ValidationErrorBody | null)?.issues)) {
+          return respondWithErrors(flattenValidationErrors(body));
+        }
+        return result;
+      }
+      if (status !== 204) {
+        return result;
+      }
+    }
+
+    if (renderMode === 'island') {
+      return Response.json({ success: true });
+    }
+    return respondWithPage(null);
+  }
+
+  async function runMutationLeaf(leaf: (c: CloudContext) => unknown | Promise<unknown>) {
+    try {
+      return await finishMutation(await leaf(c));
+    } catch (e) {
+      if (e instanceof ValidationError) {
+        return respondWithErrors(e.errors);
+      }
+      throw e;
+    }
+  }
+
+  if (mutationHandler && isComposedHandler(mutationHandler)) {
+    const composition = getHandlerComposition(mutationHandler)!;
+    return executeComposedHandler(c, composition.middlewares, () => runMutationLeaf(composition.leaf));
+  }
+
+  if (!mutationHandler) {
+    return finishMutation(undefined);
+  }
+
   try {
-    result = mutationHandler ? await mutationHandler(c) : undefined;
+    return await finishMutation(await mutationHandler(c));
   } catch (e) {
     if (e instanceof ValidationError) {
       return respondWithErrors(e.errors);
     }
     throw e;
   }
-
-  // Handle Response results (from withValidator or explicit redirect)
-  if (result instanceof Response) {
-    const status = result.status;
-    // Redirect
-    if (status >= 300 && status < 400) {
-      return result;
-    }
-    // Only a withValidator issues body becomes field errors; other 400s pass through
-    if (status === 400) {
-      const body: unknown = await result
-        .clone()
-        .json()
-        .catch(() => null);
-      if (Array.isArray((body as ValidationErrorBody | null)?.issues)) {
-        return respondWithErrors(flattenValidationErrors(body));
-      }
-      return result;
-    }
-    // 204 (void from withValidator) — fall through to re-run GET
-    if (status !== 204) {
-      return result;
-    }
-  }
-
-  // void — re-run GET with fresh props
-  if (renderMode === 'island') {
-    return Response.json({ success: true });
-  }
-  return respondWithPage(null);
 }

@@ -136,6 +136,96 @@ type LoaderOutput<F extends HandlerFn> = Exclude<Awaited<ReturnType<F>>, Respons
 type MiddlewareFn = MiddlewareHandler<CloudEnv>;
 type BasicAuthOptionValue = string | (() => string);
 
+/** Attached to handlers created by `defineHandler(middleware..., leaf)`. */
+export type HandlerComposition = {
+  middlewares: MiddlewareFn[];
+  leaf: HandlerFn;
+};
+
+const handlerCompositionKey = '__voidHandlerComposition' as const;
+
+type HandlerWithComposition = HandlerFn & {
+  [handlerCompositionKey]?: HandlerComposition;
+};
+
+export function getHandlerComposition(handler: HandlerFn): HandlerComposition | undefined {
+  return (handler as HandlerWithComposition)[handlerCompositionKey];
+}
+
+export function isComposedHandler(handler: HandlerFn | undefined): handler is HandlerWithComposition {
+  return handler !== undefined && getHandlerComposition(handler) !== undefined;
+}
+
+/**
+ * Run per-route middleware on the current Hono context, then build the endpoint
+ * response. Middleware after `next()` sees and may mutate `c.res`.
+ */
+export async function executeComposedHandler(
+  c: CloudContext,
+  middlewares: MiddlewareFn[],
+  endpoint: () => Promise<Response>,
+): Promise<Response> {
+  let index = 0;
+  let shortCircuit: Response | undefined;
+
+  const dispatch = async (): Promise<void> => {
+    if (shortCircuit) {
+      return;
+    }
+    if (index < middlewares.length) {
+      const middleware = middlewares[index++];
+      const middlewareResponse = await middleware(c, dispatch);
+      if (middlewareResponse instanceof Response) {
+        shortCircuit = middlewareResponse;
+        c.res = middlewareResponse;
+      }
+      return;
+    }
+    c.res = await endpoint();
+  };
+
+  await dispatch();
+
+  if (shortCircuit) {
+    return shortCircuit;
+  }
+  return c.res;
+}
+
+function flattenHandlerComposition(
+  args: Array<MiddlewareFn | HandlerFn>,
+): { middlewares: MiddlewareFn[]; leaf: HandlerFn } {
+  const middlewares: MiddlewareFn[] = [];
+  for (let i = 0; i < args.length - 1; i++) {
+    middlewares.push(args[i] as MiddlewareFn);
+  }
+  let leaf = args[args.length - 1] as HandlerFn;
+  while (isComposedHandler(leaf)) {
+    const nested = getHandlerComposition(leaf)!;
+    middlewares.push(...nested.middlewares);
+    leaf = nested.leaf;
+  }
+  return { middlewares, leaf };
+}
+
+function attachHandlerComposition(
+  fn: HandlerFn,
+  composition: HandlerComposition,
+  meta: Pick<TypedHandler, '__validators' | '__output'>,
+): TypedHandler {
+  const composed = fn as TypedHandler & HandlerWithComposition;
+  composed[handlerCompositionKey] = composition;
+  Object.defineProperty(composed, '__validators', {
+    value: meta.__validators,
+    enumerable: true,
+  });
+  Object.defineProperty(composed, '__output', {
+    value: meta.__output,
+    enumerable: true,
+  });
+  return composed;
+}
+
 export interface BasicAuthOptions {
   /** Username required by the Basic auth challenge. */
   username: BasicAuthOptionValue;
@@ -218,6 +308,10 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
 export function defineHandler<R>(
   handler: LoaderFn<R>,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<V extends ValidatorSlots, R>(
+  firstMiddleware: MiddlewareFn,
+  handler: TypedHandler<V, R>,
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
@@ -226,6 +320,11 @@ export function defineHandler<F extends HandlerFn>(
   firstMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
+export function defineHandler<V extends ValidatorSlots, R>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  handler: TypedHandler<V, R>,
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
@@ -236,6 +335,12 @@ export function defineHandler<F extends HandlerFn>(
   secondMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
+export function defineHandler<V extends ValidatorSlots, R>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  handler: TypedHandler<V, R>,
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
@@ -248,6 +353,13 @@ export function defineHandler<F extends HandlerFn>(
   thirdMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
+export function defineHandler<V extends ValidatorSlots, R>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  handler: TypedHandler<V, R>,
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
@@ -262,6 +374,14 @@ export function defineHandler<F extends HandlerFn>(
   fourthMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
+export function defineHandler<V extends ValidatorSlots, R>(
+  firstMiddleware: MiddlewareFn,
+  secondMiddleware: MiddlewareFn,
+  thirdMiddleware: MiddlewareFn,
+  fourthMiddleware: MiddlewareFn,
+  fifthMiddleware: MiddlewareFn,
+  handler: TypedHandler<V, R>,
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   secondMiddleware: MiddlewareFn,
@@ -282,25 +402,20 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
   if (args.length === 1) {
     return args[0] as TypedHandler;
   }
-  const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
-  const handler = args[args.length - 1] as HandlerFn;
+  const { middlewares, leaf } = flattenHandlerComposition(args);
+  const leafMeta = leaf as TypedHandler;
+  const composition: HandlerComposition = { middlewares, leaf };
 
-  return (async (c: CloudContext) => {
-    let index = 0;
-    const dispatch = async (): Promise<void> => {
-      if (index < middlewares.length) {
-        const middleware = middlewares[index++];
-        const middlewareResponse = await middleware(c, dispatch);
-        if (middlewareResponse instanceof Response) {
-          c.res = middlewareResponse;
-        }
-      } else {
-        c.res = convertReturnValue(await handler(c));
-      }
-    };
-    await dispatch();
-    return c.res;
-  }) as TypedHandler;
+  const fn = async (c: CloudContext) => {
+    return executeComposedHandler(c, middlewares, async () => {
+      return convertReturnValue(await leaf(c));
+    });
+  };
+
+  return attachHandlerComposition(fn, composition, {
+    __validators: leafMeta.__validators ?? {},
+    __output: leafMeta.__output,
+  });
 }
 
 /**

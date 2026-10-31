@@ -107,6 +107,23 @@ describe('ExtractInput<handler.__validators>', () => {
     }>();
   });
 
+  it('preserves validators when middleware wraps withValidator handler', () => {
+    const middleware = async (_c: unknown, next: () => Promise<void>) => {
+      await next();
+    };
+    const handler = defineHandler(
+      middleware as never,
+      defineHandler.withValidator({
+        body: z.object({ title: z.string() }),
+      })((_c, { body }) => {
+        void body;
+      }),
+    );
+
+    type Input = ExtractInput<(typeof handler)['__validators']>;
+    expectTypeOf<Input>().toEqualTypeOf<{ body: { title: string } }>();
+  });
+
   it('extracts all three slots combined', () => {
     const handler = defineHandler.withValidator({
       params: z.object({ id: z.string() }),
