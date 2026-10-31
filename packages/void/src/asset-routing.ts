@@ -86,7 +86,7 @@ export function resolveAssetConfig(inputs: AssetRoutingInputs): AssetConfig {
 // covers it; both SPA-fallback branches must list it explicitly, since a SPA
 // can advertise migrations without API/auth routes (e.g. a cron/queue-only app
 // with D1 migrations still emits manifest.migrations).
-const VOID_INTERNAL_WORKER_FIRST = ['/__void', '/__void/*'];
+export const VOID_INTERNAL_WORKER_FIRST: ReadonlyArray<string> = ['/__void', '/__void/*'];
 
 export function resolveAssetRoutingPolicy(inputs: AssetRoutingInputs): AssetRoutingPolicy {
   const workerFirst = workerOwnsHtmlRouting(inputs);
