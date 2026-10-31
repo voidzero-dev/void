@@ -66,10 +66,9 @@ export async function runValidation<V extends ValidatorSlots>(
   }
 
   if (validators.query) {
-    const url = new URL(c.req.url);
-    const raw: Record<string, string> = {};
-    for (const [key, value] of url.searchParams) {
-      raw[key] = value;
+    const raw: Record<string, string | Array<string>> = {};
+    for (const [key, values] of Object.entries(c.req.queries())) {
+      raw[key] = values.length === 1 ? values[0] : values;
     }
     const result = await validateSlot(validators.query, raw);
     if (result.ok) {

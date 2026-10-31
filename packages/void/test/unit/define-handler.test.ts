@@ -257,6 +257,26 @@ describe('defineHandler.withValidator', () => {
     expect(await res.json()).toEqual({ query: { page: '2', limit: '10' } });
   });
 
+  it('preserves repeated query params as arrays', async () => {
+    const handler = defineHandler.withValidator({
+      query: passSchema(),
+    })((_c, { query }) => {
+      return { query };
+    });
+
+    const app = createValidatedApp('get', '/test', handler);
+
+    const res = await app.request(new Request('http://localhost/test?page=2&tag=work&tag=urgent'));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      query: {
+        page: '2',
+        tag: ['work', 'urgent'],
+      },
+    });
+  });
+
   it('validates route params', async () => {
     const handler = defineHandler.withValidator({
       params: passSchema(),
