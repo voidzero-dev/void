@@ -16,6 +16,7 @@ import {
   privateCachePolicy,
   type VoidAuthRuntimeOptions,
 } from '../../src/runtime/better-auth-shared.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing.ts';
 import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
 
 const authRuntimeOptions: VoidAuthRuntimeOptions = {
@@ -443,6 +444,74 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
     );
   }
 
+  it.each([
+    {
+      name: 'anonymous override',
+      cookie: false,
+      policy: 'public, max-age=60',
+      refresh: false,
+      expected: 'public, max-age=60',
+    },
+    {
+      name: 'credentialed override',
+      cookie: true,
+      policy: 'public, max-age=60',
+      refresh: false,
+      expected: 'no-store',
+    },
+    {
+      name: 'unchanged credentialed policy',
+      cookie: true,
+      policy: immutable,
+      refresh: false,
+      expected: 'private, max-age=31536000, immutable',
+    },
+    {
+      name: 'session refresh',
+      cookie: true,
+      policy: immutable,
+      refresh: true,
+      expected: 'private, no-store',
+    },
+  ])(
+    'finalizes authored asset headers safely for $name',
+    async ({ cookie, policy, refresh, expected }) => {
+      const headers = sessionLookup();
+      if (refresh) {
+        headers.append('set-cookie', 'session=rotated; Path=/; HttpOnly');
+      }
+      const app = createApp({ response: null, headers });
+      const routing = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(
+        routing.headerMiddleware([
+          {
+            pattern: '/assets/*',
+            headers: [
+              ['Cache-Control', policy],
+              ['X-Frame-Options', 'DENY'],
+            ],
+          },
+        ]),
+      );
+      app.get('/assets/client-abcdefgh.js', (c) =>
+        markStaticAsset(c, new Response('export {}', { headers: { 'cache-control': immutable } })),
+      );
+      const response = await app.request(
+        'http://localhost/assets/client-abcdefgh.js',
+        {
+          headers: cookie ? { cookie: 'session=current' } : {},
+        },
+        env,
+      );
+      expect(response.headers.get('cache-control')).toBe(expected);
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      expect(response.headers.getSetCookie()).toEqual(
+        refresh ? ['session=rotated; Path=/; HttpOnly'] : [],
+      );
+      await expect(response.text()).resolves.toBe('export {}');
+    },
+  );
+
   it('makes the file policy private for a credentialed request', async () => {
     const response = await withCookie(assetApp(sessionLookup()));
     expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
@@ -500,10 +569,11 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
 
   it('keeps the file policy when later middleware only adds a header', async () => {
     const app = createApp({ response: null, headers: sessionLookup() });
-    app.use(async (c, next) => {
-      await next();
-      c.header('x-frame-options', 'DENY');
-    });
+    app.use(
+      createRoutingRuntime(app, { nodeTarget: true }).headerMiddleware([
+        { pattern: '/assets/*', headers: [['X-Frame-Options', 'DENY']] },
+      ]),
+    );
     app.get('/assets/client-abcdefgh.js', (c) =>
       markStaticAsset(c, new Response('export {}', { headers: { 'cache-control': immutable } })),
     );

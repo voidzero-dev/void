@@ -120,6 +120,77 @@ describe('typed HTTP execution', () => {
       dev ? 'c.rewrite -> /new (middleware)' : null,
     );
   });
+  it.each([200, 404])(
+    'overrides an existing response header with the last matching rule on %s',
+    async (status) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(
+        runtime.headerMiddleware([
+          { pattern: '/assets/*', headers: [['Cache-Control', 'no-cache']] },
+          {
+            pattern: '/assets/*',
+            headers: [['Cache-Control', 'public, max-age=31536000, immutable']],
+          },
+        ]),
+      );
+      app.get(
+        '/assets/app.css',
+        () =>
+          new Response('body{}', {
+            status,
+            headers: {
+              'Content-Type': 'text/css',
+              'Cache-Control': 'public, max-age=0, must-revalidate',
+            },
+          }),
+      );
+      const response = await app.request('https://app.test/assets/app.css');
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(response.status).toBe(status);
+      expect(response.headers.get('content-type')).toBe('text/css');
+      expect(await response.text()).toBe('body{}');
+    },
+  );
+  it('updates immutable response headers and preserves unrelated cookies and metadata', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(
+      runtime.headerMiddleware([
+        {
+          pattern: '/assets/*',
+          headers: [
+            ['Location', '/new'],
+            ['X-Robots-Tag', 'noindex'],
+          ],
+        },
+      ]),
+    );
+    app.get('/assets/redirect', () => Response.redirect('https://old.test/', 302));
+    app.get('/assets/cookies', () => {
+      const headers = new Headers({ 'Content-Type': 'text/css' });
+      headers.append('Set-Cookie', 'one=1; Path=/');
+      headers.append('Set-Cookie', 'two=2; Path=/');
+      return new Response('body{}', { status: 202, statusText: 'Queued', headers });
+    });
+    app.get(
+      '/other',
+      () => new Response('other', { headers: { 'Cache-Control': 'private, no-store' } }),
+    );
+    const redirect = await app.request('https://app.test/assets/redirect');
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get('location')).toBe('/new');
+    const response = await app.request('https://app.test/assets/cookies');
+    expect(response.status).toBe(202);
+    expect(response.statusText).toBe('Queued');
+    expect(response.headers.get('content-type')).toBe('text/css');
+    expect(response.headers.get('x-robots-tag')).toBe('noindex');
+    expect(response.headers.getSetCookie()).toEqual(['one=1; Path=/', 'two=2; Path=/']);
+    expect(await response.text()).toBe('body{}');
+    const other = await app.request('https://app.test/other');
+    expect(other.headers.get('cache-control')).toBe('private, no-store');
+    expect(other.headers.has('x-robots-tag')).toBe(false);
+  });
   it('merges header rules in order after recursive fallback and stops fallback cycles', async () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
@@ -139,7 +210,7 @@ describe('typed HTTP execution', () => {
     );
     const response = await app.fetch(new Request('https://app.test/a'));
     expect(response.status).toBe(404);
-    expect(response.headers.get('x-rule')).toBe('one');
+    expect(response.headers.get('x-rule')).toBe('two');
     expect(response.headers.get('X-Void-Routing')).toBe('fallback[/a] -> /b (unknown)');
     expect(response.headers.get('X-Void-No-Match')).toBe('1');
   });

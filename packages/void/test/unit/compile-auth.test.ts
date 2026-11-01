@@ -50,6 +50,28 @@ describe('compileRouteTable auth integration', () => {
     expect(code).not.toContain('"/auth/login"');
   });
 
+  it('finalizes auth caching after header rules and user middleware', () => {
+    const code = compileRouteTable(
+      { ...emptyScan, middleware: [{ order: 1, filePath: '01.auth.ts' }] },
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      {
+        ...baseOptions,
+        auth: sqliteAuth,
+        headerRules: [{ pattern: '/*', headers: [['Cache-Control', 'public, max-age=60']] }],
+      },
+    );
+    const auth = code.indexOf('return runVoidAuthMiddleware(c, next,');
+    const headers = code.indexOf('app.use("*", __routingRuntime.headerMiddleware(');
+    const user = code.indexOf('app.use(middleware0)');
+    expect(auth).toBeGreaterThan(-1);
+    expect(headers).toBeGreaterThan(auth);
+    expect(user).toBeGreaterThan(headers);
+  });
+
   it('mounts Better Auth middleware and routes when auth is enabled', () => {
     const code = compileRouteTable(emptyScan, '/routes', '/middleware', '/crons', '/queues', null, {
       ...baseOptions,

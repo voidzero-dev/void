@@ -238,15 +238,9 @@ export function createRoutingRuntime(
       if (!matched.length) {
         return;
       }
-      const headers = new Headers(c.res.headers);
       for (const [name, value] of matched) {
-        headers.set(name, value);
+        c.header(name, value);
       }
-      c.res = new Response(c.res.body, {
-        headers,
-        status: c.res.status,
-        statusText: c.res.statusText,
-      });
     },
     applyFallback: (c, rules) =>
       fallbackHandled.has(c.req.raw) ? Promise.resolve(undefined) : applyRules(c, rules, true),

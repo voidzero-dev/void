@@ -294,9 +294,6 @@ export function compileRouteTable(
   if (emitEdgeRules && options.redirectRules?.length) {
     compileRoutingRulesMiddleware(lines, options.redirectRules, options.dev === true);
   }
-  if (emitEdgeRules && options.headerRules?.length) {
-    compileHeaderMiddleware(lines, options.headerRules);
-  }
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
@@ -312,6 +309,10 @@ export function compileRouteTable(
     lines.push('  return runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase);');
     lines.push('});');
     lines.push('');
+  }
+
+  if (emitEdgeRules && options.headerRules?.length) {
+    compileHeaderMiddleware(lines, options.headerRules);
   }
 
   // Register user middleware

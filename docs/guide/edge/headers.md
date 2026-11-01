@@ -23,7 +23,8 @@ Define custom response headers in [`void.config.ts`](../../reference/config) usi
 - **Pattern keys** start with `/`. `*` matches any characters including `/`.
 - **Header values** use `Name: value` format. The value may contain colons.
 - All matching rules are merged. When multiple rules set the same header name, the **last match wins**.
-- User-defined `Cache-Control` overrides the built-in default. The default still applies when no rule matches.
+- User-defined `Cache-Control` overrides the built-in default. The default still applies when no rule matches. Authentication can still require private or no-store caching for credentialed responses, auth endpoints, and responses that set cookies.
+- Rules apply to matching error responses too, including 404 responses. An immutable cache rule can therefore cache a missing file. Use immutable caching only for URLs that change when their content changes.
 
 ## Scope
 

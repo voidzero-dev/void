@@ -10,7 +10,7 @@ import {
   createPagesFallback,
   createSsrFallback,
 } from '../../src/runtime/routing-pages.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
+import { createRoutingRuntime, type RoutingContext } from '../../src/runtime/routing.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };
@@ -97,6 +97,106 @@ describe('real anonymous Better Auth lookup cache policy', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('pragma')).toBe('no-cache');
     await expect(response.json()).resolves.toBeNull();
+  });
+});
+
+describe('auth cache policy with authored headers', () => {
+  function headerFixture() {
+    const database = memoryAdapter({ user: [], session: [], account: [], verification: [] });
+    const runtime = createVoidAuthRuntime('sqlite', async () => {});
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(routing.contextMiddleware);
+    app.use(async (c, next) => runtime.runVoidAuthMiddleware(c, next, options, database));
+    app.use(
+      routing.headerMiddleware([
+        {
+          pattern: '/*',
+          headers: [
+            ['Cache-Control', 'public, max-age=31536000, immutable'],
+            ['X-Frame-Options', 'DENY'],
+          ],
+        },
+      ]),
+    );
+    app.on(['GET', 'POST'], '/api/auth/*', (c) =>
+      runtime.handleVoidAuthRequest(c, options, database),
+    );
+    return { app, routing };
+  }
+
+  it('retains anonymous auth endpoint cache protection under a public rule', async () => {
+    const { app } = headerFixture();
+    const response = await app.request('https://app.test/api/auth/get-session', undefined, env);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('pragma')).toBe('no-cache');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+    await expect(response.json()).resolves.toBeNull();
+  });
+
+  it.each(['/api/auth/sign-in/email', '/login', '/fallback-login'])(
+    'keeps an anonymous body-credential sign-in private through %s',
+    async (path) => {
+      const { app, routing } = headerFixture();
+      const email = 'auth-headers@example.test';
+      const password = 'correct-horse-battery-staple';
+      app.post('/login', (c) => (c as RoutingContext).rewrite('/api/auth/sign-in/email'));
+      app.notFound(
+        async (c) =>
+          (await routing.applyFallback(c, [
+            { source: '/fallback-login', destination: '/api/auth/sign-in/email', status: 200 },
+          ])) ?? c.text('not found', 404),
+      );
+      const signUp = await app.request(
+        'https://app.test/api/auth/sign-up/email',
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ name: 'Auth headers', email, password }),
+        },
+        env,
+      );
+      expect(signUp.status).toBe(200);
+      await signUp.arrayBuffer();
+      const response = await app.request(
+        'https://app.test' + path,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ email, password }),
+        },
+        env,
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('pragma')).toBe('no-cache');
+      expect(response.headers.get('x-frame-options')).toBe('DENY');
+      const cookie = response.headers
+        .getSetCookie()
+        .map((value) => value.split(';')[0])
+        .join('; ');
+      expect(cookie).toContain('better-auth.session_token=');
+      await expect(response.json()).resolves.toMatchObject({ user: { email } });
+      const session = await app.request(
+        'https://app.test/api/auth/get-session',
+        {
+          headers: { cookie },
+        },
+        env,
+      );
+      await expect(session.json()).resolves.toMatchObject({ user: { email } });
+    },
+  );
+
+  it('keeps authored headers on a user middleware redirect', async () => {
+    const { app } = headerFixture();
+    app.use('/private', async (c) => c.redirect('/login'));
+    const response = await app.request('https://app.test/private', undefined, env);
+    expect(response.status).toBe(302);
+    expect(response.headers.get('location')).toBe('/login');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+    await response.arrayBuffer();
   });
 });
 

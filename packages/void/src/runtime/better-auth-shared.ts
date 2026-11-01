@@ -629,7 +629,12 @@ export function createVoidAuthRuntime(
     appendAuthHeaders(
       c,
       result.headers,
-      state !== null || credentialed || result.headers?.has('set-cookie') === true,
+      state !== null ||
+        credentialed ||
+        result.headers?.has('set-cookie') === true ||
+        c.res.headers.has('set-cookie') ||
+        c.req.path === '/api/auth' ||
+        c.req.path.startsWith('/api/auth/'),
       isUnchangedStaticAsset(c),
     );
   }
