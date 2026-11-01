@@ -210,7 +210,18 @@ describe('playground/static-pages build (output: static)', () => {
       };
     };
     expect(wranglerConfig.assets?.directory).toBe('../client');
-    expect(wranglerConfig.assets?.run_worker_first).toBeDefined();
+    // Every page here has a server module, so only files skip the Worker.
+    expect(wranglerConfig.assets?.run_worker_first).toEqual([
+      '/__void',
+      '/__void/*',
+      '/',
+      '/about',
+      '/client-only',
+      '/docs/*',
+      '/items/*',
+      '/posts/*',
+      '/tags/*',
+    ]);
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
   });
 });

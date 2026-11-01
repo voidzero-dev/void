@@ -13,6 +13,7 @@ import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import {
   GENERATED_ASSET_HEADERS_MARKER,
   resolveAssetWorkerBypass,
+  type AssetWorkerBypassFacts,
 } from '../../src/asset-worker-bypass.ts';
 import {
   planStaticEdgeRouting,
@@ -22,6 +23,27 @@ import type { RoutingConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 
 const runtimeSource = (file: string) => join(import.meta.dirname, '../../src/runtime', file);
+
+/** Facts of a build that qualifies for the asset Worker bypass. */
+function bypassFacts(overrides: Partial<AssetWorkerBypassFacts>): AssetWorkerBypassFacts {
+  return {
+    runWorkerFirst: ['/**'],
+    notFoundHandling: 'none',
+    base: '/',
+    hasMiddleware: false,
+    authEnabled: false,
+    liveEnabled: false,
+    alwaysUseHttps: false,
+    headerRuleCount: 0,
+    redirectRuleCount: 0,
+    fallbackRuleCount: 0,
+    publicEdgeFiles: false,
+    patterns: ['/'],
+    assetsDir: 'assets',
+    immutableFiles: [],
+    ...overrides,
+  };
+}
 let directory: string;
 let runtime: Miniflare | undefined;
 let clientAsset: string;
@@ -307,21 +329,13 @@ describe('native asset Worker bypass in real Workers', () => {
     for (const file of ['client-abcdefgh.js', 'client.js', 'nested/chunk-abcdefgh.js']) {
       writeFileSync(join(assets, 'static', file), 'export const value = 1;');
     }
-    const plan = resolveAssetWorkerBypass({
-      runWorkerFirst: ['/**'],
-      notFoundHandling: 'none',
-      base: '/',
-      hasMiddleware: false,
-      authEnabled: false,
-      headerRuleCount: 0,
-      redirectRuleCount: 0,
-      fallbackRuleCount: 0,
-      publicEdgeFiles: false,
-      patterns: ['/'],
-      assetsDir: 'static',
-      immutableFiles: ['static/client-abcdefgh.js', 'static/nested/chunk-abcdefgh.js'],
-    })!;
-    writeFileSync(join(assets, '_headers'), plan.headers);
+    const plan = resolveAssetWorkerBypass(
+      bypassFacts({
+        assetsDir: 'static',
+        immutableFiles: ['static/client-abcdefgh.js', 'static/nested/chunk-abcdefgh.js'],
+      }),
+    )!;
+    writeFileSync(join(assets, '_headers'), plan.headers!);
     const runWorkerFirst = plan.runWorkerFirst;
     expect(runWorkerFirst).toEqual([
       '/**',
@@ -570,5 +584,113 @@ describe('native static edge Worker routing in real Workers', () => {
     expect(chunk.headers.get('x-void-worker')).toBe('1');
     await chunk.arrayBuffer();
     await expectReadiness(https!);
+  });
+});
+
+describe('native output: "static" pages in real Workers', () => {
+  let hybridDirectory: string;
+  let hybrid: Miniflare | undefined;
+
+  beforeAll(async () => {
+    hybridDirectory = mkdtempSync(join(tmpdir(), 'void-native-static-pages-'));
+    const assets = join(hybridDirectory, 'client');
+    mkdirSync(join(assets, 'assets'), { recursive: true });
+    mkdirSync(join(assets, '_void', 'pages'), { recursive: true });
+    // `output: "static"` prerenders every page, including the ones with a loader.
+    for (const page of ['index', 'about', 'products', 'contact']) {
+      writeFileSync(join(assets, `${page}.html`), `<h1>${page} file</h1>`);
+    }
+    writeFileSync(join(assets, '_void/pages/about.json'), '{"component":"about"}');
+    writeFileSync(join(assets, 'vue.svg'), '<svg></svg>');
+    // The `/proxy/*` route also answers `/proxy`, so this file must not.
+    writeFileSync(join(assets, 'proxy.html'), '<h1>proxy file</h1>');
+    writeFileSync(join(assets, 'assets/app-abcdefgh.js'), 'export const value = 1;');
+    const plan = resolveAssetWorkerBypass(
+      bypassFacts({
+        patterns: ['/', '/about', '/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+        immutableFiles: ['assets/app-abcdefgh.js'],
+        serverPatterns: ['/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+      }),
+    )!;
+    writeFileSync(join(assets, '_headers'), plan.headers!);
+    hybrid = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: `export default { async fetch(request, env) {
+          const url = new URL(request.url);
+          const response = url.pathname === '/__void/ready'
+            ? Response.json({ ready: true })
+            : request.method !== 'GET'
+              ? new Response('action ran')
+              : url.pathname === '/products'
+                ? new Response('<h1>products live</h1>')
+                : await env.ASSETS.fetch(request);
+          const marked = new Response(response.body, response);
+          marked.headers.set('x-void-worker', '1');
+          return marked;
+        } };`,
+        assets: {
+          directory: assets,
+          binding: 'ASSETS',
+          run_worker_first: plan.runWorkerFirst,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' },
+        },
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await hybrid?.dispose();
+    if (hybridDirectory) {
+      rmSync(hybridDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves pages without server code, public files, page data and chunks without the Worker', async () => {
+    for (const [path, body] of [
+      ['/', '<h1>index file</h1>'],
+      ['/about', '<h1>about file</h1>'],
+      ['/vue.svg', '<svg></svg>'],
+      ['/_void/pages/about.json', '{"component":"about"}'],
+    ]) {
+      const response = await hybrid!.dispatchFetch(`https://app.test${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.has('x-void-worker'), path).toBe(false);
+      expect(await response.text(), path).toBe(body);
+    }
+    const chunk = await hybrid!.dispatchFetch('https://app.test/assets/app-abcdefgh.js');
+    expect(chunk.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(chunk.headers.has('x-void-worker')).toBe(false);
+    await chunk.arrayBuffer();
+  });
+
+  it('sends pages with server code, routes, misses and /__void to the Worker', async () => {
+    const products = await hybrid!.dispatchFetch('https://app.test/products');
+    expect(products.headers.get('x-void-worker')).toBe('1');
+    expect(await products.text()).toBe('<h1>products live</h1>');
+    const action = await hybrid!.dispatchFetch('https://app.test/contact', { method: 'POST' });
+    expect(action.headers.get('x-void-worker')).toBe('1');
+    expect(await action.text()).toBe('action ran');
+    for (const path of [
+      '/items/42',
+      '/api/hello',
+      '/proxy',
+      '/proxy/a/b',
+      '/missing',
+      '/__void/ready',
+    ]) {
+      const response = await hybrid!.dispatchFetch(`https://app.test${path}`);
+      expect(response.headers.get('x-void-worker'), path).toBe('1');
+      await response.arrayBuffer();
+    }
+  });
+
+  it('answers a POST to a page without server code from the asset layer', async () => {
+    const response = await hybrid!.dispatchFetch('https://app.test/about', { method: 'POST' });
+    expect(response.status).toBe(405);
+    expect(response.headers.has('x-void-worker')).toBe(false);
+    await response.arrayBuffer();
   });
 });

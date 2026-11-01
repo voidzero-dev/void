@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
 import { dirname, join, relative, resolve } from 'pathslash';
 import {
   createRunnableDevEnvironment,
@@ -37,7 +38,7 @@ import { syncAuthTypesInProjectTsconfig } from './codegen/project-tsconfig.ts';
 import { generateQueueTypes } from './codegen/queue-types.ts';
 import { generateRouteTypes } from './codegen/route-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
-import { readConfig, getDatabaseDialect } from './config.ts';
+import { readConfig, getDatabaseDialect, type VoidConfig } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
@@ -134,6 +135,7 @@ export function routingPlugin(
   let previewing = false;
   let ssr: SsrCompileOptions | null = null;
   let authConfigPath: string | null = null;
+  let output: VoidConfig['output'];
 
   // Inputs to the last successful route table and generated entries, including
   // authored auth settings that can change without changing the source scan.
@@ -211,6 +213,7 @@ export function routingPlugin(
     const entries = validateSsrEntries(root, paths);
     scan = nextScan;
     authConfigPath = analysis.authConfigPath;
+    output = analysis.config.output;
     ssr = entries
       ? {
           serverEntryPath: entries.server.absolutePath,
@@ -529,13 +532,29 @@ export function routingPlugin(
     ) {
       return null;
     }
+    const { pages } = scan.pages;
+    // A client-only watch rebuild finds what an earlier bypass wrote instead of
+    // the Worker build's rule, which is always `['/**']` for a Pages app.
+    const workerBuildRule =
+      pages.length > 0 || isAssetBypassRule(assets.run_worker_first, assetsDir)
+        ? ['/**']
+        : assets.run_worker_first;
+    const routePatterns = [...scan.routes, ...(scan.websockets ?? [])].map(
+      (route) => route.pattern,
+    );
+    // A page without a server module prerenders the HTML the Worker would
+    // render, so its file can answer.
+    const needsWorker = (page: (typeof pages)[number]) =>
+      page.serverPath !== null || !page.shouldPrerender || page.params.length > 0 || page.catchAll;
     const revalidate = options.routing?.revalidate;
     const facts = {
-      runWorkerFirst: assets.run_worker_first,
+      runWorkerFirst: workerBuildRule,
       notFoundHandling: assets.not_found_handling,
       base: resolvedConfig.base,
       hasMiddleware: scan.middleware.length > 0,
       authEnabled: compileOptions.auth !== null,
+      liveEnabled: options.live !== undefined,
+      alwaysUseHttps: options.routing?.alwaysUseHttps === true,
       headerRuleCount: compileOptions.headerRules?.length ?? 0,
       redirectRuleCount: compileOptions.redirectRules?.length ?? 0,
       fallbackRuleCount: compileOptions.fallbackRules?.length ?? 0,
@@ -543,26 +562,26 @@ export function routingPlugin(
         publicDir !== null &&
         (existsSync(join(publicDir, '_headers')) || existsSync(join(publicDir, '_redirects'))),
       patterns: [
-        ...scan.routes.map((route) => route.pattern),
-        ...scan.pages.pages.map((page) => page.pattern),
-        ...(scan.websockets ?? []).map((route) => route.pattern),
+        ...routePatterns,
+        ...pages.map((page) => page.pattern),
         ...(options.prerenderPaths ?? []).filter((path) => typeof path === 'string'),
         ...(revalidate && typeof revalidate === 'object' ? Object.keys(revalidate) : []),
       ],
       assetsDir,
       immutableFiles: clientImmutableFiles,
+      serverPatterns:
+        output === 'static' && pages.length > 0 && !ssr
+          ? [...routePatterns, ...pages.filter(needsWorker).map((page) => page.pattern)]
+          : undefined,
     };
     const bypass = userHeaders ? null : resolveAssetWorkerBypass(facts);
-    // A client-only watch rebuild finds the rule an earlier bypass wrote.
-    const runWorkerFirst =
-      bypass?.runWorkerFirst ??
-      (isAssetBypassRule(assets.run_worker_first, assetsDir) ? ['/**'] : null);
+    const runWorkerFirst = bypass?.runWorkerFirst ?? workerBuildRule;
     return {
       headers: bypass?.headers ?? null,
       wranglerPath,
-      wranglerText:
-        runWorkerFirst &&
-        JSON.stringify({ ...wrangler, assets: { ...assets, run_worker_first: runWorkerFirst } }),
+      wranglerText: isDeepStrictEqual(runWorkerFirst, assets.run_worker_first)
+        ? null
+        : JSON.stringify({ ...wrangler, assets: { ...assets, run_worker_first: runWorkerFirst } }),
     };
   }
 
