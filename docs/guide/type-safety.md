@@ -143,7 +143,7 @@ routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
 
 ### Checked URL strings
 
-Plain URL strings aren't checked by default. Turn on [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) to check them in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts

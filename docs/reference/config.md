@@ -378,7 +378,7 @@ routing: {
 
 #### `routing.typedRoutes`
 
-Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. See [Checked URL strings](../guide/type-safety#checked-url-strings).
 
 ```ts
 routing: {
