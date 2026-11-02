@@ -1,7 +1,12 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
-import { createVoidRouter, ssrProxy, type VoidRouterConfig } from '../../src/pages/client.ts';
+import {
+  createVoidRouter,
+  mergeDataIntoHref,
+  ssrProxy,
+  type VoidRouterConfig,
+} from '../../src/pages/client.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
 import {
@@ -875,6 +880,33 @@ describe('createVoidRouter', () => {
     expect(applyUpdate).not.toHaveBeenCalled();
     expect(matchRoute).not.toHaveBeenCalled();
     expect(documentStub.head.appendChild).not.toHaveBeenCalled();
+  });
+
+  it('resolves query-only visits against the current page', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/products';
+    window.location.search = '?sort=price';
+    const fetchMock = vi.fn(() => Promise.resolve(pageJson({ component: 'home', props: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter();
+
+    await router.visit('?page=2');
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/products?page=2', expect.anything());
+    expect(history.pushState).toHaveBeenLastCalledWith(expect.anything(), '', '/products?page=2');
+  });
+
+  it('keeps the current path when Link data is merged into a hash-only href', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/products';
+    const fetchMock = vi.fn(() => Promise.resolve(pageJson({ component: 'home', props: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter();
+
+    await router.visit(mergeDataIntoHref('#c', { x: 1 }));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/products?x=1', expect.anything());
+    expect(history.pushState).toHaveBeenLastCalledWith(expect.anything(), '', '/products?x=1#c');
   });
 
   it('keeps pending navigation state when an older visit aborts', async () => {

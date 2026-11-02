@@ -161,7 +161,8 @@ function normalizeUrl(value: RouteUrlInput): string {
   if (urlString.startsWith('#')) {
     return urlString;
   }
-  const url = new URL(urlString, window.location.origin);
+  // Relative URLs such as `?page=2` resolve against the current page, as in an anchor.
+  const url = new URL(urlString, window.location.href);
   return url.origin === window.location.origin ? url.pathname + url.search + url.hash : url.href;
 }
 

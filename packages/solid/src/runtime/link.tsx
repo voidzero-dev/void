@@ -132,7 +132,7 @@ export function Link(props: LinkProps): JSX.Element {
       return false;
     }
 
-    const url = new URL(hrefWithData(), window.location.origin);
+    const url = new URL(hrefWithData(), window.location.href);
     if (url.origin !== window.location.origin) {
       return false;
     }

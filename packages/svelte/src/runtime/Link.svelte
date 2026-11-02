@@ -77,7 +77,7 @@
     if ((e.currentTarget as HTMLElement).hasAttribute("download")) {
       return;
     }
-    const url = new URL(hrefWithData, window.location.origin);
+    const url = new URL(hrefWithData, window.location.href);
     if (url.origin !== window.location.origin) {
       return;
     }

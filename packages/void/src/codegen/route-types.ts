@@ -101,10 +101,15 @@ export function generateRouteTypes(
     '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
   );
   lines.push(
-    '  type RoutePatternUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
+    '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
   );
-  lines.push('    ? `${RouteUrlSegment<Segment>}/${RoutePatternUrl<Rest>}`');
+  lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
   lines.push('    : RouteUrlSegment<P>;');
+  lines.push('  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`');
+  lines.push(
+    '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
+  );
+  lines.push('    : RouteSegmentsUrl<P>;');
   lines.push('  type RoutePathUrl = RoutePatternUrl<RoutePath>;');
   lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
   lines.push('  export type RouteUrl = TypedRoutes extends true');
@@ -131,11 +136,8 @@ export function generateRouteTypes(
   lines.push('');
   lines.push('  export interface RoutePathMap {');
   const paths = new Map<string, Set<string>>();
-  for (const route of [
-    ...scan.routes.filter((route) => route.methods.length > 0),
-    ...scan.pages.pages,
-    ...(scan.websockets ?? []),
-  ]) {
+  // A route file without HTTP method exports serves every method through its default export.
+  for (const route of [...scan.routes, ...scan.pages.pages, ...(scan.websockets ?? [])]) {
     const params = paths.get(route.pattern) ?? new Set<string>();
     for (const name of route.params) {
       params.add(name);

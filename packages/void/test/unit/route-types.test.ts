@@ -142,7 +142,7 @@ describe('generateRouteTypes', () => {
     expect(routeMap).toMatch(/output: .*health\.dev\.ts.* \| .*health\.prod\.ts/);
   });
 
-  it('skips routes with no methods', () => {
+  it('keeps default-export routes out of RouteMap but in RoutePathMap', () => {
     const scan = makeScan({
       routes: [
         {
@@ -157,8 +157,11 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const routeMap = dts.split('  interface RouteMap {')[1]!.split('\n  }')[0]!;
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
 
-    expect(dts).not.toContain('/api/legacy');
+    expect(routeMap).not.toContain('/api/legacy');
+    expect(pathMap).toContain('"/api/legacy": never;');
   });
 
   it('handles dynamic params in patterns', () => {

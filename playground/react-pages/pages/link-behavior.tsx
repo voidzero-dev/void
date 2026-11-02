@@ -91,6 +91,12 @@ export default function LinkBehaviorPage({ title }: Props) {
       </p>
 
       <p>
+        <Link href="?view=compact" data-testid="query-only-link">
+          Query-only link
+        </Link>
+      </p>
+
+      <p>
         <Link
           href="/users"
           data-testid="onclick-link"

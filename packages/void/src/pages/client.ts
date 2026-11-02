@@ -100,8 +100,13 @@ function getUrlOrigin(): string {
   return typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
 }
 
+/** Relative URLs such as `?page=2` resolve against the current page, as in an anchor. */
+function getUrlBase(): string {
+  return typeof window === 'undefined' ? 'http://localhost/' : getUrlOrigin() + currentUrl();
+}
+
 function toUrl(value: string | URL): URL {
-  return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlOrigin());
+  return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlBase());
 }
 
 function normalizeUrl(value: RouteUrlInput): string {

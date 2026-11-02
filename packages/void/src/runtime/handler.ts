@@ -1,10 +1,11 @@
 import type { Context, Env, MiddlewareHandler, Next } from 'hono';
-import type { RewriteDestination, RouteDestination, RouteTypesConfig, RouteUrl } from 'void/routes';
+import type { RewriteDestination, RouteDestination, RouteUrl } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
 import { executeComposedHandler, setHandlerComposition } from './handler-composition.ts';
 import { convertReturnValue } from './response.ts';
+import type { TypedRoutes } from './route-url.ts';
 import type { AssetBinding } from './routing-worker.ts';
 import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
 
@@ -28,7 +29,7 @@ export class VoidAssetRewriteError extends Error {
 
 // `routing.rewrites` and `routing.fallbacks` keep RewriteDestination, whose
 // destinations may contain placeholders or static files.
-type RewritePath = RouteTypesConfig extends { typedRoutes: true } ? RouteUrl : RewriteDestination;
+type RewritePath = TypedRoutes extends true ? RouteUrl : RewriteDestination;
 
 /** Hono `Variables` for Void workers, including auth values populated by Better Auth middleware. */
 export interface CloudContextVariables {
@@ -81,6 +82,7 @@ declare module 'hono' {
      * ```ts
      * export default defineMiddleware(async (c, next) => {
      *   if (!hasLocalePrefix(c.req.path)) {
+     *     // With `routing.typedRoutes`, add `as RouteUrl` to a path built at runtime.
      *     return c.rewrite(`/en${c.req.path}`);
      *   }
      *   return next();
@@ -94,8 +96,8 @@ declare module 'hono' {
      *
      * Accepts a typed `{ pathname, params, query, hash }` destination or a string.
      * String destinations retain route autocomplete and support dynamic paths
-     * (e.g. `` `/users/${id}` ``). With `routing.typedRoutes`, strings must be
-     * route URLs.
+     * (e.g. `` `/users/${id}` ``). With `routing.typedRoutes`, a string must be a
+     * `RouteUrl`: cast a path built at runtime with `as RouteUrl`.
      */
     rewrite: (path: RewritePath | RouteDestination) => Promise<Response>;
 

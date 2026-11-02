@@ -40,7 +40,9 @@ const hrefs: Array<Href> = [
   '/users/42',
   \`/users/\${id}\`,
   '/files/docs/start',
+  '/wild',
   '/wild/a/b',
+  '/api/legacy',
   '/café menu',
   '/api/users/42',
   '?page=2',
@@ -59,7 +61,7 @@ const unknown: Href = '/unknown';
 const unchecked: Href = dynamic;
 // @ts-expect-error relative paths are rejected
 const relative: Href = '../about';
-// @ts-expect-error protocol-relative URLs are rejected
+// @ts-expect-error protocol-relative URLs are rejected when no root dynamic route matches them
 const protocolRelative: Href = '//example.com/about';
 // @ts-expect-error empty strings are rejected
 const empty: Href = '';
@@ -80,6 +82,7 @@ declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
 const context: CloudContext = honoContext;
 void context.rewrite('/users/42');
 void context.rewrite(user);
+void context.rewrite('/api/legacy');
 // @ts-expect-error rewrites only reach the app's routes
 void context.rewrite('https://example.com');
 // @ts-expect-error rewrites do not take same-page hashes
@@ -130,7 +133,10 @@ const unknown: LinkProps['href'] = '/unknown';
 void [same, known, unknown];
 `;
 
-async function createFixture({ typedRoutes = false }: { typedRoutes?: boolean } = {}) {
+async function createFixture({
+  typedRoutes = false,
+  extraFiles = {},
+}: { typedRoutes?: boolean; extraFiles?: Record<string, string> } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'void-route-util-'));
   roots.push(root);
   const files: Record<string, string> = {
@@ -140,6 +146,8 @@ async function createFixture({ typedRoutes = false }: { typedRoutes?: boolean } 
     'package.json': '{"type":"module"}',
     'routes/api/users/[id].ts':
       "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
+    'routes/api/legacy.ts':
+      "import { defineHandler } from 'void/handler'; export default defineHandler(() => ({ ok: true }));",
     'pages/index.tsx': 'export default function Page() { return null; }',
     'pages/about.tsx': 'export default function Page() { return null; }',
     'pages/café menu.tsx': 'export default function Page() { return null; }',
@@ -197,6 +205,7 @@ void context.rewrite({ pathname: '/unknown' });
 defineHandler(c => c.redirect(url));
 defineMiddleware(async c => c.redirect(url));
 `,
+    ...extraFiles,
   };
   for (const [path, content] of Object.entries(files)) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -275,6 +284,24 @@ describe('standalone routeUrl utility', () => {
       expect(typecheck(root, declarations, ['check-typed.ts'])).toEqual({ output: '', status: 0 });
     },
   );
+
+  it('lets a root dynamic page match any single-segment URL with routing.typedRoutes', async () => {
+    const root = await createFixture({
+      typedRoutes: true,
+      extraFiles: {
+        'pages/[slug].tsx': 'export default function Page() { return null; }',
+        // Template literal types cannot exclude empty or slash-leading segments.
+        'check-root-dynamic.ts': `import type { RouteUrl } from 'void/routes';
+const loose: Array<RouteUrl> = ['/anything', '/users/', '//example.com'];
+void loose;
+`,
+      },
+    });
+    expect(typecheck(root, 'generated', ['check-root-dynamic.ts'])).toEqual({
+      output: '',
+      status: 0,
+    });
+  });
 
   it('checks Link href in every adapter with routing.typedRoutes', async () => {
     const root = await createFixture({ typedRoutes: true });

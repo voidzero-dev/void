@@ -13,7 +13,10 @@ import {
   onMounted,
   onUnmounted,
   ref,
+  type AnchorHTMLAttributes,
+  type ButtonHTMLAttributes,
   type DefineSetupFnComponent,
+  type ExtractPublicPropTypes,
   type PropType,
 } from 'vue';
 
@@ -21,7 +24,7 @@ type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
 type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type NavigateEvent = { preventDefault(): void };
 
-type LinkProps = {
+type VoidLinkProps = {
   href: Href;
   method?: LinkMethod | Lowercase<LinkMethod>;
   data?: Record<string, unknown>;
@@ -34,6 +37,42 @@ type LinkProps = {
   prefetch?: boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>;
   cacheFor?: number | string | [string, string];
 };
+
+// Attributes and listeners fall through to the rendered <a> or <button>.
+type LinkProps = VoidLinkProps &
+  Omit<AnchorHTMLAttributes, keyof VoidLinkProps> &
+  Omit<ButtonHTMLAttributes, keyof VoidLinkProps>;
+
+const linkPropOptions = {
+  href: { type: String as PropType<Href>, required: true },
+  method: { type: String as PropType<LinkMethod | Lowercase<LinkMethod>>, default: 'GET' },
+  data: { type: Object as PropType<Record<string, unknown>>, default: undefined },
+  preserveScroll: { type: Boolean, default: false },
+  preserveState: { type: Boolean, default: false },
+  replace: { type: Boolean, default: false },
+  reloadDocument: { type: Boolean, default: false },
+  viewTransition: { type: Boolean, default: undefined },
+  onNavigate: { type: Function as PropType<(event: NavigateEvent) => void>, default: undefined },
+  prefetch: {
+    type: [Boolean, String, Array] as PropType<
+      boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>
+    >,
+    default: false,
+  },
+  cacheFor: {
+    type: [Number, String, Array] as PropType<number | string | [string, string]>,
+    default: undefined,
+  },
+} as const;
+
+// isolatedDeclarations needs VoidLinkProps written out. This fails to compile if
+// it drifts from the runtime props above.
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const voidLinkPropsMatchRuntime: Same<
+  ExtractPublicPropTypes<typeof linkPropOptions>,
+  VoidLinkProps
+> = true;
+void voidLinkPropsMatchRuntime;
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
@@ -49,27 +88,7 @@ function callHandler(handler: unknown, event: Event): void {
 
 const LinkComponent = defineComponent({
   name: 'Link',
-  props: {
-    href: { type: String as PropType<Href>, required: true },
-    method: { type: String as PropType<LinkMethod | Lowercase<LinkMethod>>, default: 'GET' },
-    data: { type: Object as PropType<Record<string, unknown>>, default: undefined },
-    preserveScroll: { type: Boolean, default: false },
-    preserveState: { type: Boolean, default: false },
-    replace: { type: Boolean, default: false },
-    reloadDocument: { type: Boolean, default: false },
-    viewTransition: { type: Boolean, default: undefined },
-    onNavigate: { type: Function as PropType<(event: NavigateEvent) => void>, default: undefined },
-    prefetch: {
-      type: [Boolean, String, Array] as PropType<
-        boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>
-      >,
-      default: false,
-    },
-    cacheFor: {
-      type: [Number, String, Array] as PropType<number | string | [string, string]>,
-      default: undefined,
-    },
-  },
+  props: linkPropOptions,
   setup(props, { slots, attrs }) {
     const router = inject<VoidRouter | null>('__void_router', null);
     const elRef = ref<HTMLElement | null>(null);
@@ -114,7 +133,7 @@ const LinkComponent = defineComponent({
       if ((e.currentTarget as HTMLElement).hasAttribute('download')) {
         return;
       }
-      const url = new URL(hrefWithData.value, window.location.origin);
+      const url = new URL(hrefWithData.value, window.location.href);
       if (url.origin !== window.location.origin) {
         return;
       }
@@ -253,5 +272,7 @@ const LinkComponent = defineComponent({
 
 // isolatedDeclarations needs an explicit type. `DefineComponent<LinkProps>` would
 // treat LinkProps as runtime prop options and widen `href` to an optional `any`.
+// The options component is not assignable to it, so cast; the check above keeps
+// VoidLinkProps in step with the runtime props.
 export const Link: DefineSetupFnComponent<LinkProps> =
   LinkComponent as DefineSetupFnComponent<LinkProps>;
