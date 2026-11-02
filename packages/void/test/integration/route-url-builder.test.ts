@@ -44,6 +44,10 @@ const hrefs: Array<Href> = [
   '/wild/a/b',
   '/api/legacy',
   '/café menu',
+  '/caf%C3%A9%20menu',
+  '/caf%C3%A9%20menu?q=caf%C3%A9+menu',
+  '/café/42',
+  '/caf%C3%A9/42',
   '/api/users/42',
   '?page=2',
   '#details',
@@ -151,6 +155,7 @@ async function createFixture({
     'pages/index.tsx': 'export default function Page() { return null; }',
     'pages/about.tsx': 'export default function Page() { return null; }',
     'pages/café menu.tsx': 'export default function Page() { return null; }',
+    'pages/café/[id].tsx': 'export default function Page() { return null; }',
     'pages/users/[id].tsx': 'export default function Page() { return null; }',
     'pages/files/[...path].tsx': 'export default function Page() { return null; }',
     'pages/wild/[...].tsx': 'export default function Page() { return null; }',
@@ -316,6 +321,65 @@ void loose;
         jsxImportSource: 'solid-js',
       }),
     ).toEqual({ output: '', status: 0 });
+  });
+
+  it('checks URL strings through the package types alone with routing.typedRoutes', () => {
+    // The generated declarations repeat the route URL types, so check the
+    // package's own copy without a generated .void/routes.d.ts.
+    const root = mkdtempSync(join(tmpdir(), 'void-route-stub-'));
+    roots.push(root);
+    mkdirSync(join(root, 'node_modules'));
+    symlinkSync(packageRoot, join(root, 'node_modules/void'), 'junction');
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    writeFileSync(
+      join(root, 'routes.d.ts'),
+      `export {};
+declare module 'void/routes' {
+  interface RoutePathMap { '/': never; '/docs/*': '*'; '/users/:id': 'id'; '/café menu': never }
+  interface EncodedRoutePathMap { '/café menu': '/caf%C3%A9%20menu' }
+  interface RouteTypesConfig { typedRoutes: true }
+}
+`,
+    );
+    writeFileSync(
+      join(root, 'check.ts'),
+      `import type { Href, RouteUrl } from 'void/routes';
+const hrefs: Array<Href> = ['/', '/docs', '/docs/a/b', '/users/42', '/café menu', '/caf%C3%A9%20menu?q=1', '#top', 'https://vite.dev'];
+const route: RouteUrl = '/caf%C3%A9%20menu';
+// @ts-expect-error unknown routes are rejected
+const unknown: Href = '/unknown';
+// @ts-expect-error route URLs exclude external links
+const external: RouteUrl = 'https://vite.dev';
+void [hrefs, route, unknown, external];
+`,
+    );
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          lib: ['ES2022', 'DOM'],
+          types: [],
+          strict: true,
+          skipLibCheck: true,
+          noEmit: true,
+        },
+        include: ['routes.d.ts', 'check.ts'],
+      }),
+    );
+    const tsc = join(
+      dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
+      'bin/tsc',
+    );
+    const result = spawnSync(process.execPath, [tsc, '-p', join(root, 'tsconfig.json')], {
+      encoding: 'utf8',
+    });
+    expect({ output: result.stdout + result.stderr, status: result.status }).toEqual({
+      output: '',
+      status: 0,
+    });
   });
 
   it('preserves URLs created in another realm', async () => {

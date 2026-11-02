@@ -13,6 +13,9 @@ export type {
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
 
+/** Percent-encoded spellings of patterns with encoded fixed segments, augmented by .void/routes.d.ts. */
+export interface EncodedRoutePathMap {}
+
 /** Route type options, augmented by .void/routes.d.ts when `routing.typedRoutes` is on. */
 export interface RouteTypesConfig {}
 

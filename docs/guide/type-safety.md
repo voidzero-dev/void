@@ -163,7 +163,7 @@ A string must then match one of your routes, optionally followed by a query stri
 <Link href="/abuot">About</Link> // Type error: no route matches
 ```
 
-Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, a protocol-relative URL like `//example.com` passes too.
+Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, a protocol-relative URL like `//example.com` passes too.
 
 `void/routes` exports two types for these strings:
 

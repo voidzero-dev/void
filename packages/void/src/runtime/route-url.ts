@@ -1,4 +1,4 @@
-import type { RoutePathMap, RouteTypesConfig } from 'void/routes';
+import type { EncodedRoutePathMap, RoutePathMap, RouteTypesConfig } from 'void/routes';
 
 /**
  * Encode one path segment of a route param. `encodeURIComponent` keeps dots, and
@@ -88,7 +88,9 @@ type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Re
 type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`
   ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
   : RouteSegmentsUrl<P>;
-type RoutePathUrl = RoutePatternUrl<RoutePath>;
+// Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
+type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
+type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;
 
 /** Whether `routing.typedRoutes` is on in the generated route types. */
 export type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;

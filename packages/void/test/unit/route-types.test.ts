@@ -226,6 +226,35 @@ describe('generateRouteTypes', () => {
     expect(moduleBlock).toContain('export type RewriteDestination = RouteName | (string & {});');
   });
 
+  it('emits percent-encoded spellings only for fixed segments that need encoding', () => {
+    const route = (pattern: string, params: Array<string> = []) => ({
+      pattern,
+      methods: ['GET'],
+      params,
+      catchAll: false,
+      env: null,
+      filePath: `${pattern}.ts`,
+    });
+    const scan = makeScan({
+      routes: [
+        route('/café menu'),
+        route('/café/:id', ['id']),
+        route('/files/:path{.+}', ['path']),
+        route('/docs/*'),
+        route('/api/users/:id', ['id']),
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const encoded = dts.split('  export interface EncodedRoutePathMap {')[1]!.split('  }')[0]!;
+
+    expect(encoded.trim().split('\n')).toEqual([
+      '"/café menu": "/caf%C3%A9%20menu";',
+      '    "/café/:id": "/caf%C3%A9/:id";',
+    ]);
+    expect(dts).toContain('type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  });
+
   it('turns on typed route URLs only when routing.typedRoutes is set', () => {
     const scan = makeScan({
       routes: [
