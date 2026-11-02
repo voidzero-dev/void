@@ -51,6 +51,10 @@ export function checkTypedNavigation(router: VoidRouter): void {
   };
   const url: RouteUrlInput = target;
   void router.visit(url);
+  void router.visit(url, { resolveOn: 'data' });
+  void router.refresh({ resolveOn: 'commit' });
+  // @ts-expect-error completion is data or commit
+  void router.refresh({ resolveOn: 'render' });
   void router.prefetch(target);
   router.flush(target);
   void router.visit('../relative');

@@ -50,6 +50,8 @@ export type VisitOptions = {
   preserveState?: boolean;
   replace?: boolean;
   viewTransition?: boolean;
+  /** React navigation completion: page data readiness or UI commit (default). */
+  resolveOn?: 'data' | 'commit';
   /** @internal Used by React Actions to avoid waiting for a commit blocked by the action itself. */
   _resolveOnShell?: boolean;
   /** @internal Used by popstate handler to pass saved scroll position */

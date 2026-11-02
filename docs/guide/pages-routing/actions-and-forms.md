@@ -196,6 +196,8 @@ const form = useForm(
 
 `onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
 
+If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
+
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
 ## Named Actions

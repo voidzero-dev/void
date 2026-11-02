@@ -49,7 +49,9 @@ export default function LinkBehaviorPage({ title }: Props) {
     window.addEventListener('unhandledrejection', onUnhandledRejection);
     setAbortTestStatus('Running...');
 
-    void router.visit('/link-behavior?abort-slow=1');
+    void router.visit('/link-behavior?abort-slow=1', {
+      resolveOn: router.query.get('resolveOn') === 'data' ? 'data' : undefined,
+    });
     window.setTimeout(() => {
       void router.visit('#abort-test-complete');
     }, 50);

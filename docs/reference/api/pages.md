@@ -128,6 +128,23 @@ When explicitly annotating props, import `Deferred` from the framework adapter
 package (`@void/react`, `@void/vue`, `@void/svelte`, or `@void/solid`) so the
 type matches that adapter's client runtime shape.
 
+### React navigation completion {#react-navigation-completion}
+
+By default, `await router.visit()` and `await router.refresh()` wait for React to commit the updated page and URL. You can also request this explicitly with `{ resolveOn: 'commit' }`.
+
+When awaiting navigation inside `startTransition`, a `<form action>`, `useActionState`, or an async `useForm()` callback, pass `{ resolveOn: 'data' }`:
+
+```tsx
+startTransition(async () => {
+  await saveUser();
+  await router.refresh({ resolveOn: 'data' });
+});
+
+await router.visit('/account', { resolveOn: 'data' });
+```
+
+With `'data'`, the promise resolves when the destination's page data is ready, allowing the Action to finish while React renders the update. The transition can remain pending through Suspense. The DOM and URL may still show the previous page after `await`; use an effect or ref callback for work that requires the updated DOM.
+
 ## `@void/svelte` {#void-svelte}
 
 ### `voidSvelte(options?)` {#voidsvelte-options}

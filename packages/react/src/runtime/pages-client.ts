@@ -505,7 +505,7 @@ function App({
             pendingVisitSettlers.delete(resource.id);
             visitSettler.reject(error);
           } else {
-            // A form visit has already settled with its action result.
+            // A data-ready visit has already settled with its result.
             reportError(error);
           }
           if (activePendingNavigationId === resource.id) {
@@ -520,6 +520,8 @@ function App({
   const schedule = useCallback(
     (url: string, options: VisitOptions = {}) => {
       const prepared = engine.prepareVisit(url, options) as ReactPageResource;
+      const resolveOnData =
+        prepared.options.resolveOn === 'data' || prepared.options._resolveOnShell;
       if (prepared.immediate) {
         const navigation = navigationForResource(prepared);
 
@@ -568,7 +570,7 @@ function App({
               // The browser is leaving or downloading a file: keep the current page.
               dispatch({ type: 'abandon', resource: prepared, location: currentUrl() });
               resolveVisit(undefined);
-            } else if (prepared.options._resolveOnShell) {
+            } else if (resolveOnData) {
               pendingVisitSettlers.delete(prepared.id);
               resolveVisit(result.pageData);
             }
@@ -581,6 +583,7 @@ function App({
               resolveViewTransition();
             }
             pendingVisitSettlers.delete(prepared.id);
+            // Public data completion keeps the usual cancellation behavior for GETs.
             const abortingGetVisit =
               prepared.method.toUpperCase() === 'GET' &&
               !prepared.options._resolveOnShell &&
@@ -595,7 +598,7 @@ function App({
             }
             if (
               NavigationFallback ||
-              prepared.options._resolveOnShell ||
+              resolveOnData ||
               isAbortError(error) ||
               isCallSiteActionError(error)
             ) {
