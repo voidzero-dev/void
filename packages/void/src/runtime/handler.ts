@@ -1,5 +1,5 @@
 import type { Context, Env, MiddlewareHandler, Next } from 'hono';
-import type { RewriteDestination, RouteDestination } from 'void/routes';
+import type { RewriteDestination, RouteDestination, RouteTypesConfig, RouteUrl } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
@@ -25,6 +25,10 @@ export class VoidAssetRewriteError extends Error {
     );
   }
 }
+
+// `routing.rewrites` and `routing.fallbacks` keep RewriteDestination, whose
+// destinations may contain placeholders or static files.
+type RewritePath = RouteTypesConfig extends { typedRoutes: true } ? RouteUrl : RewriteDestination;
 
 /** Hono `Variables` for Void workers, including auth values populated by Better Auth middleware. */
 export interface CloudContextVariables {
@@ -90,9 +94,10 @@ declare module 'hono' {
      *
      * Accepts a typed `{ pathname, params, query, hash }` destination or a string.
      * String destinations retain route autocomplete and support dynamic paths
-     * (e.g. `` `/users/${id}` ``).
+     * (e.g. `` `/users/${id}` ``). With `routing.typedRoutes`, strings must be
+     * route URLs.
      */
-    rewrite: (path: RewriteDestination | RouteDestination) => Promise<Response>;
+    rewrite: (path: RewritePath | RouteDestination) => Promise<Response>;
 
     /**
      * Returns the URL the client actually requested — the pre-rewrite URL as

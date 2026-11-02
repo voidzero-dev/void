@@ -4,6 +4,7 @@ import {
   type PrefetchOptions,
   type VoidRouter,
 } from 'void/pages-client';
+import type { Href } from 'void/routes';
 import {
   computed,
   defineComponent,
@@ -12,13 +13,27 @@ import {
   onMounted,
   onUnmounted,
   ref,
-  type Component,
+  type DefineSetupFnComponent,
   type PropType,
 } from 'vue';
 
 type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
 type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type NavigateEvent = { preventDefault(): void };
+
+type LinkProps = {
+  href: Href;
+  method?: LinkMethod | Lowercase<LinkMethod>;
+  data?: Record<string, unknown>;
+  preserveScroll?: boolean;
+  preserveState?: boolean;
+  replace?: boolean;
+  reloadDocument?: boolean;
+  viewTransition?: boolean;
+  onNavigate?: (event: NavigateEvent) => void;
+  prefetch?: boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>;
+  cacheFor?: number | string | [string, string];
+};
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
@@ -32,12 +47,12 @@ function callHandler(handler: unknown, event: Event): void {
   }
 }
 
-export const Link: Component = defineComponent({
+const LinkComponent = defineComponent({
   name: 'Link',
   props: {
-    href: { type: String, required: true },
-    method: { type: String, default: 'GET' },
-    data: { type: Object, default: undefined },
+    href: { type: String as PropType<Href>, required: true },
+    method: { type: String as PropType<LinkMethod | Lowercase<LinkMethod>>, default: 'GET' },
+    data: { type: Object as PropType<Record<string, unknown>>, default: undefined },
     preserveScroll: { type: Boolean, default: false },
     preserveState: { type: Boolean, default: false },
     replace: { type: Boolean, default: false },
@@ -235,3 +250,8 @@ export const Link: Component = defineComponent({
     };
   },
 });
+
+// isolatedDeclarations needs an explicit type. `DefineComponent<LinkProps>` would
+// treat LinkProps as runtime prop options and widen `href` to an optional `any`.
+export const Link: DefineSetupFnComponent<LinkProps> =
+  LinkComponent as DefineSetupFnComponent<LinkProps>;

@@ -141,6 +141,46 @@ routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
 // /files/docs/get%20started
 ```
 
+### Checked URL strings
+
+Plain URL strings aren't checked by default. Turn on [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) to check them in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`:
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  routing: { typedRoutes: true },
+});
+```
+
+A string must then match one of your routes, optionally followed by a query string or hash:
+
+```tsx
+<Link href="/about">About</Link>
+<Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href="/abuot">About</Link> // Type error: no route matches
+```
+
+Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A dynamic segment matches any text, so `/users/:id` also accepts `/users/42/edit`.
+
+`void/routes` exports two types for these strings:
+
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it.
+- `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
+
+Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
+
+```tsx
+import type { Href, RouteUrl } from 'void/routes';
+
+<Link href={post.path as RouteUrl}>{post.title}</Link>
+<Link href={user.website as Href}>Website</Link>
+```
+
+Restart the dev server or run `void prepare` after changing `routing.typedRoutes`.
+
 Route types update with the dev server. For CI or standalone typechecking, run `void prepare` and follow [Setup](#setup). The [API reference](../reference/api/types.md#void-routes) lists the URL helper and route types.
 
 ## What Gets Checked
@@ -151,6 +191,7 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | Handlers     | `c.env` bindings, validator input, return type                                                                        |
 | Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
 | Navigation   | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
+| Links        | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
 | `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
 | `action()`   | Action URLs, `data` payload, `params`                                                                                 |
 

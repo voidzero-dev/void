@@ -223,6 +223,34 @@ describe('generateRouteTypes', () => {
     expect(moduleBlock).toContain('export type RewriteDestination = RouteName | (string & {});');
   });
 
+  it('turns on typed route URLs only when routing.typedRoutes is set', () => {
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/hello',
+          methods: ['GET'],
+          params: [],
+          catchAll: false,
+          env: null,
+          filePath: 'api/hello.ts',
+        },
+      ],
+    });
+    const typesConfig = (dts: string) =>
+      dts.split('  export interface RouteTypesConfig {')[1]!.split('  }')[0]!;
+
+    const off = generateRouteTypes(scan, '/project/routes', '/project/.void').dts;
+    const on = generateRouteTypes(scan, '/project/routes', '/project/.void', undefined, {
+      typedRoutes: true,
+    }).dts;
+
+    expect(typesConfig(off).trim()).toBe('');
+    expect(typesConfig(on).trim()).toBe('typedRoutes: true;');
+    expect(on.replace('    typedRoutes: true;\n', '')).toBe(off);
+    expect(off).toContain('export type RouteUrlInput = Href | URL | RouteDestination;');
+    expect(off).toContain('  ): RouteUrl;');
+  });
+
   it('generates PageActionMap for pages with actions', () => {
     const scan = makeScan({
       pages: [

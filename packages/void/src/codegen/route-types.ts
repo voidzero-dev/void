@@ -18,6 +18,7 @@ export function generateRouteTypes(
   routesDir: string,
   outDir: string,
   pagesDir?: string,
+  options: { typedRoutes?: boolean } = {},
 ): RouteTypesResult {
   const lines: Array<string> = [];
 
@@ -96,13 +97,37 @@ export function generateRouteTypes(
   );
   lines.push('    ? { pathname: P } & RouteOptions<P>');
   lines.push('    : never;');
-  lines.push('  export type RouteUrlInput = string | URL | RouteDestination;');
+  lines.push(
+    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
+  );
+  lines.push(
+    '  type RoutePatternUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
+  );
+  lines.push('    ? `${RouteUrlSegment<Segment>}/${RoutePatternUrl<Rest>}`');
+  lines.push('    : RouteUrlSegment<P>;');
+  lines.push('  type RoutePathUrl = RoutePatternUrl<RoutePath>;');
+  lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
+  lines.push('  export type RouteUrl = TypedRoutes extends true');
+  lines.push('    ? RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
+  lines.push('    : string;');
+  lines.push('  export type Href = TypedRoutes extends true');
+  lines.push(
+    '    ? RouteUrl | `${"?" | "#"}${string}` | `${"http://" | "https://" | "mailto:" | "tel:"}${string}`',
+  );
+  lines.push('    : string;');
+  lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
   lines.push('  export function routeUrl<P extends RoutePath>(');
   lines.push('    path: P,');
   lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
   lines.push('      ? [options?: RouteOptions<P>]');
   lines.push('      : [options: RouteOptions<P>]');
-  lines.push('  ): string;');
+  lines.push('  ): RouteUrl;');
+  lines.push('');
+  lines.push('  export interface RouteTypesConfig {');
+  if (options.typedRoutes) {
+    lines.push('    typedRoutes: true;');
+  }
+  lines.push('  }');
   lines.push('');
   lines.push('  export interface RoutePathMap {');
   const paths = new Map<string, Set<string>>();

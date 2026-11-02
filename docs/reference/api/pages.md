@@ -8,9 +8,11 @@ Framework adaptors for [Pages Routing](../../guide/pages-routing/overview). Each
 
 ## Navigation destinations {#navigation-destinations}
 
-All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`.
+All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`, which has the type [`Href`](./types.md#route-types).
 
 The router's `visit(destination, options?)`, `prefetch(destination, options?)`, and `flush(destination, method?)` accept [`RouteUrlInput`](./types.md#route-types): a string, `URL`, or typed destination object.
+
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), `href` and router strings must match one of your routes, or be a same-page or external URL. Without it, both accept any string.
 
 See [Typed navigation](../../guide/pages-routing/overview.md#typed-navigation) for framework examples.
 

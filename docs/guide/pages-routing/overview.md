@@ -199,6 +199,8 @@ import { routeUrl } from 'void/routes';
 
 :::
 
+Plain strings such as `"/users"` aren't checked unless you turn on [`routing.typedRoutes`](../type-safety.md#checked-url-strings). Then `href` and the router methods below reject URLs that don't match a route.
+
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
 ```tsx

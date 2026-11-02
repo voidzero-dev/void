@@ -20,6 +20,8 @@ return c.rewrite({
 });
 ```
 
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
+
 For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options):
 
 ```ts
@@ -43,6 +45,7 @@ export const GET = defineHandler((c) => {
 
 ```ts
 interface CloudContext {
+  // RouteUrl instead of RewriteDestination with routing.typedRoutes
   rewrite(destination: RewriteDestination | RouteDestination): Promise<Response>;
 }
 ```
@@ -88,7 +91,7 @@ import type { RewriteDestination } from 'void/routes';
 
 Suggests known route patterns in your editor while also accepting dynamic strings. Used as:
 
-- The parameter type of [`c.rewrite()`](#c-rewrite-destination).
+- The parameter type of [`c.rewrite()`](#c-rewrite-destination), unless `routing.typedRoutes` is on.
 - The type of `destination` entries in `routing.rewrites` and `routing.fallbacks` in [`void.config.ts`](../config.md#routing).
 
 Like [`RouteMap`](./types.md#routemap), `RewriteDestination` lives in the virtual `void/routes` module and is refreshed whenever routes change.
