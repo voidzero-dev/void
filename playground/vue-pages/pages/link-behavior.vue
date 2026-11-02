@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { Link } from '@void/vue';
+import { Link, useRouter } from '@void/vue';
 import type { Props } from './link-behavior.server.ts';
 
 defineProps<Props>();
+const router = useRouter();
 
 type LinkBehaviorWindow = Window & {
   __linkOnClick?: boolean;
@@ -28,6 +29,16 @@ function preventNavigate(event: { preventDefault(): void }) {
 <template>
   <div>
     <h1>{{ title }}</h1>
+    <p>
+      <button
+        data-testid="typed-visit"
+        @click="
+          router.visit({ pathname: '/users/:id', params: { id: '2' }, query: { tab: 'visit' } })
+        "
+      >
+        Typed visit
+      </button>
+    </p>
 
     <p>
       <Link href="/users" data-testid="onclick-link" @click="setClicked">

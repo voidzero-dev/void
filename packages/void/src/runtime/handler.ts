@@ -1,5 +1,5 @@
-import type { Context, Env, MiddlewareHandler } from 'hono';
-import type { RewriteDestination } from 'void/routes';
+import type { Context, Env, MiddlewareHandler, Next } from 'hono';
+import type { RewriteDestination, RouteDestination } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
@@ -87,12 +87,11 @@ declare module 'hono' {
      * do not re-evaluate on it. Your middleware is responsible for its own loop
      * prevention (e.g., checking if the path already has a prefix).
      *
-     * The `path` type is `RewriteDestination`, which is `keyof RouteMap | (string & {})`.
-     * Known routes autocomplete, but any string is still accepted so dynamic paths
-     * (e.g. `` `/users/${id}` ``) continue to work. When `.void/routes.d.ts` has not
-     * been generated yet, `RouteMap` is empty and this is equivalent to `string`.
+     * Accepts a typed `{ pathname, params, query, hash }` destination or a string.
+     * String destinations retain route autocomplete and support dynamic paths
+     * (e.g. `` `/users/${id}` ``).
      */
-    rewrite: (path: RewriteDestination) => Promise<Response>;
+    rewrite: (path: RewriteDestination | RouteDestination) => Promise<Response>;
 
     /**
      * Returns the URL the client actually requested — the pre-rewrite URL as
@@ -133,7 +132,7 @@ type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;
 type LoaderFn<R> = (c: CloudContext) => R | Response | Promise<R | Response>;
 // For loaders that LoaderFn cannot infer, such as `cond ? loadA() : loadB()`.
 type LoaderOutput<F extends HandlerFn> = Exclude<Awaited<ReturnType<F>>, Response>;
-type MiddlewareFn = MiddlewareHandler<CloudEnv>;
+type MiddlewareFn = (c: CloudContext, next: Next) => ReturnType<MiddlewareHandler<CloudEnv>>;
 type BasicAuthOptionValue = string | (() => string);
 
 export interface BasicAuthOptions {
@@ -338,9 +337,7 @@ export namespace defineHandler {
  * Identity function that provides type inference for middleware.
  * At runtime it simply returns the function passed to it.
  */
-export function defineMiddleware(
-  handler: MiddlewareHandler<CloudEnv>,
-): MiddlewareHandler<CloudEnv> {
+export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
   return handler;
 }
 

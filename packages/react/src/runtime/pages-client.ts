@@ -20,6 +20,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   refreshPage,
+  toUrlString,
   type PageNavigationResource,
   type PageNavigationResult,
   type NavigationState,
@@ -28,6 +29,7 @@ import {
 } from 'void/pages-client';
 import type { CacheForResult } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
+import type { RouteUrlInput } from 'void/routes';
 import { setActionRouter } from './action.ts';
 import {
   ErrorsContext,
@@ -154,11 +156,12 @@ function currentUrl(): string {
   return window.location.pathname + window.location.search + window.location.hash;
 }
 
-function normalizeUrl(value: string | URL): string {
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return value;
+function normalizeUrl(value: RouteUrlInput): string {
+  const urlString = toUrlString(value);
+  if (urlString.startsWith('#')) {
+    return urlString;
   }
-  const url = value instanceof URL ? value : new URL(value, window.location.origin);
+  const url = new URL(urlString, window.location.origin);
   return url.origin === window.location.origin ? url.pathname + url.search + url.hash : url.href;
 }
 

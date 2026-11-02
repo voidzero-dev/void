@@ -87,6 +87,18 @@ export type RouteOptions<P extends RoutePath> = {
   ? { params?: never }
   : { params: { [K in RoutePathMap[P] & string]: string | number } });
 
+export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath
+  ? { pathname: P } & RouteOptions<P>
+  : never;
+
+export type RouteUrlInput = string | URL | RouteDestination;
+
+type UrlOptions = {
+  params?: Record<string, string | number>;
+  query?: RouteQuery;
+  hash?: string;
+};
+
 /** Build a relative URL from a known route pattern. */
 export function routeUrl<P extends RoutePath>(
   path: P,
@@ -94,7 +106,24 @@ export function routeUrl<P extends RoutePath>(
     ? [options?: RouteOptions<P>]
     : [options: RouteOptions<P>]
 ): string {
-  const options = args[0];
+  return buildRouteUrl(path, args[0]);
+}
+
+/** @internal Convert navigation inputs to URL strings without requiring an origin. */
+export function toUrlString(value: RouteUrlInput): string;
+// With an empty route map, RouteDestination is never. Keep the implementation's
+// object input available for serialization while callers use the typed signature above.
+export function toUrlString(value: string | URL | ({ pathname: string } & UrlOptions)): string {
+  if (typeof value === 'string') {
+    return value;
+  }
+  if ('href' in value && typeof value.href === 'string') {
+    return value.href;
+  }
+  return buildRouteUrl(value.pathname, value);
+}
+
+function buildRouteUrl(path: string, options?: UrlOptions): string {
   const params = Object.fromEntries(
     Object.entries(options?.params ?? {}).map(([name, value]) => {
       if (typeof value !== 'string' && typeof value !== 'number') {

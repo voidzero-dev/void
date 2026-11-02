@@ -2,6 +2,8 @@ import { Hono, type Context } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { routeUrl } from 'void/routes';
+import { defineHandler } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import {
@@ -31,7 +33,61 @@ import {
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
 const wrap = <T>(_env: RuntimeEnvironment, callback: () => T): T => callback();
 
+declare module 'void/routes' {
+  interface RoutePathMap {
+    '/typed-rewrite/:id': 'id';
+  }
+}
+
 describe('typed HTTP execution', () => {
+  it.each([undefined, 301, 303, 307, 308] as const)(
+    'redirects typed destinations with status %s',
+    async (status) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      const destination = routeUrl('/typed-rewrite/:id', {
+        params: { id: 'a/b' },
+        query: { tab: 'activity' },
+        hash: 'details',
+      });
+      app.get(
+        '/redirect',
+        createHttpRouteHandler(
+          async () => ({
+            GET: defineHandler((c) => c.redirect(destination, status)),
+          }),
+          'GET',
+        ),
+      );
+      const response = await app.fetch(new Request('https://app.test/redirect'));
+      expect(response.status).toBe(status ?? 302);
+      expect(response.headers.get('Location')).toBe('/typed-rewrite/a%2Fb?tab=activity#details');
+    },
+  );
+
+  it('rewrites typed destinations with encoded params and a query string', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.get('/old', (c) =>
+      c.rewrite({
+        pathname: '/typed-rewrite/:id',
+        params: { id: 'a/b' },
+        query: { tab: 'activity' },
+      }),
+    );
+    app.get('/typed-rewrite/:id', (c) =>
+      c.json({
+        id: c.req.param('id'),
+        tab: c.req.query('tab'),
+        original: c.originalUrl()?.pathname,
+      }),
+    );
+    const response = await app.fetch(new Request('https://app.test/old'));
+    expect(await response.json()).toEqual({ id: 'a/b', tab: 'activity', original: '/old' });
+  });
+
   it('caches successful production loads, retries rejected loads and refreshes dev loads', async () => {
     let count = 0;
     const load = createModuleLoader(async () => {

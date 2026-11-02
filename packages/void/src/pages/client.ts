@@ -1,6 +1,7 @@
 /// <reference lib="dom" />
 
-import type { ActionUrl, ResolveActionBody, ResolveActionParams } from 'void/routes';
+import type { ActionUrl, ResolveActionBody, ResolveActionParams, RouteUrlInput } from 'void/routes';
+import { toUrlString } from '../runtime/route-url.ts';
 import { interpolateRouteParams } from '../runtime/route-url.ts';
 import {
   VoidActionError,
@@ -37,6 +38,7 @@ export {
   type FormResetOptions,
 } from './form-reset.ts';
 export { interpolateRouteParams };
+export { toUrlString };
 export {
   createPageNavigationEngine,
   hasFiles,
@@ -68,10 +70,10 @@ export type VoidRouter = {
   readonly path: string;
   readonly query: URLSearchParams;
   readonly params: Record<string, string>;
-  visit(url: string | URL, options?: VisitOptions): Promise<unknown>;
+  visit(url: RouteUrlInput, options?: VisitOptions): Promise<unknown>;
   refresh(options?: VisitOptions): Promise<unknown>;
-  prefetch(url: string | URL, options?: PrefetchOptions): Promise<unknown>;
-  flush(url: string | URL, method?: string): void;
+  prefetch(url: RouteUrlInput, options?: PrefetchOptions): Promise<unknown>;
+  flush(url: RouteUrlInput, method?: string): void;
   flushAll(): void;
 };
 
@@ -102,11 +104,12 @@ function toUrl(value: string | URL): URL {
   return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlOrigin());
 }
 
-function normalizeUrl(value: string | URL): string {
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return value;
+function normalizeUrl(value: RouteUrlInput): string {
+  const urlString = toUrlString(value);
+  if (urlString.startsWith('#')) {
+    return urlString;
   }
-  const url = toUrl(value);
+  const url = toUrl(urlString);
   return isSameOrigin(url, getUrlOrigin()) ? url.pathname + url.search + url.hash : url.href;
 }
 

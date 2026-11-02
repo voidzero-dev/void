@@ -1,5 +1,12 @@
 export { routeUrl } from './runtime/route-url.ts';
-export type { RoutePath, RouteOptions, RouteQuery, RouteQueryValue } from './runtime/route-url.ts';
+export type {
+  RoutePath,
+  RouteOptions,
+  RouteQuery,
+  RouteQueryValue,
+  RouteDestination,
+  RouteUrlInput,
+} from './runtime/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}

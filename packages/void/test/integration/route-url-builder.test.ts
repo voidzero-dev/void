@@ -34,7 +34,14 @@ async function createFixture() {
     'pages/users/[id].tsx': 'export default function Page() { return null; }',
     'pages/files/[...path].tsx': 'export default function Page() { return null; }',
     'pages/wild/[...].tsx': 'export default function Page() { return null; }',
-    'check.ts': `import { routeUrl, type RouteOptions, type RoutePath } from 'void/routes';
+    'check.ts': `import {
+  routeUrl,
+  type RouteDestination,
+  type RouteOptions,
+  type RoutePath,
+} from 'void/routes';
+import type { VoidRouter } from 'void/pages-client';
+import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
 const path: RoutePath = '/users/:id';
 const options: RouteOptions<typeof path> = { params: { id: 123 }, query: { tab: 'activity' }, hash: 'details' };
 const url: string = routeUrl(path, options);
@@ -59,6 +66,24 @@ routeUrl('/files/:path{.+}');
 // @ts-expect-error anonymous catch-all routes require a wildcard param
 routeUrl('/wild/*');
 void url;
+const destination: RouteDestination = { pathname: '/users/:id', params: { id: 123 }, query: { tab: 'activity' } };
+declare const router: VoidRouter;
+void router.visit(destination);
+void router.prefetch(destination);
+router.flush(destination);
+// @ts-expect-error destinations require path params
+void router.visit({ pathname: '/users/:id' });
+declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
+const context: CloudContext = honoContext;
+const response: Response & { _status: 307 } = context.redirect(url, 307);
+void response;
+void context.rewrite(destination);
+// @ts-expect-error Hono redirects require a string or URL
+context.redirect(destination);
+// @ts-expect-error typed server rewrites reject unknown patterns
+void context.rewrite({ pathname: '/unknown' });
+defineHandler(c => c.redirect(url));
+defineMiddleware(async c => c.redirect(url));
 `,
   };
   for (const [path, content] of Object.entries(files)) {
@@ -119,6 +144,38 @@ describe('standalone routeUrl utility', () => {
       expect(result.status).toBe(0);
     },
   );
+
+  it('preserves URLs created in another realm', async () => {
+    const root = await createFixture();
+    writeFileSync(join(root, 'entry.ts'), "export { toUrlString } from 'void/pages-client';\n");
+    await build({
+      configFile: false,
+      root,
+      logLevel: 'silent',
+      build: {
+        minify: false,
+        lib: { entry: join(root, 'entry.ts'), formats: ['es'], fileName: () => 'route.mjs' },
+      },
+    });
+    const code = readFileSync(join(root, 'dist/route.mjs'), 'utf8');
+    const original = 'https://other.example/users?tab=activity#details';
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent('<iframe></iframe>');
+      const dataUrl = `data:text/javascript;base64,${Buffer.from(code).toString('base64')}`;
+      // Keep the import in browser code so Vitest does not rewrite it for SSR.
+      expect(
+        await page.evaluate(`import(${JSON.stringify(dataUrl)}).then(({ toUrlString }) => {
+          const iframe = document.querySelector('iframe');
+          const value = new iframe.contentWindow.URL(${JSON.stringify(original)});
+          return { isLocalURL: value instanceof URL, serialized: toUrlString(value) };
+        })`),
+      ).toEqual({ isLocalURL: false, serialized: original });
+    } finally {
+      await browser.close();
+    }
+  });
 
   it('bundles the public export for browsers and runs on Workers without Node compatibility', async () => {
     const root = await createFixture();
