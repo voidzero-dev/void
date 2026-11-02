@@ -15,5 +15,17 @@ export function checkFieldErrors(): void {
   form.setError('email', 123);
   form.data.email = '';
   // @ts-expect-error Form state is read-only; edit fields through `data`.
+  form.data = { email: '' };
+  // @ts-expect-error Form state is read-only.
+  form.errors = {};
+  // @ts-expect-error Form state is read-only.
+  form.error = null;
+  // @ts-expect-error Form state is read-only.
   form.pending = true;
+  // @ts-expect-error Form state is read-only.
+  form.hasChanges = true;
+  // @ts-expect-error Form state is read-only.
+  form.wasSuccessful = true;
+  // @ts-expect-error Form state is read-only.
+  form.recentlySuccessful = true;
 }
