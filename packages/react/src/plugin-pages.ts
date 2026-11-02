@@ -5,9 +5,17 @@ import {
   createPagesPlugin,
   generateComponentManifest,
   resolveEffectiveLayoutChain,
+  resolvePrefetchConfig,
 } from 'void/pages';
-import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
+import type {
+  PageScanResult,
+  PagesPluginOptions,
+  PrefetchConfig,
+  StaticPageDataBuildOptions,
+} from 'void/pages';
 import { findIslandImports, resolveSpecifier } from 'void/pages-islands-plugin';
+
+export type { PrefetchConfig } from 'void/pages';
 
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 const WORKER_ENVIRONMENT_NAME = 'void_worker';
@@ -26,17 +34,6 @@ export const REACT_REFRESH_PREAMBLE = `
   window.$RefreshSig$ = () => (type) => type
   window.__vite_plugin_react_preamble_installed__ = true
 </script>`;
-
-export type PrefetchConfig = {
-  hoverDelay?: number;
-  cacheFor?: number | string | [string, string];
-};
-
-type PagesPluginOptions = {
-  root?: string;
-  viewTransitions?: boolean;
-  prefetch?: PrefetchConfig;
-};
 
 export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plugin {
   const root = options?.root ?? dirname(pagesDir);
@@ -193,6 +190,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
+  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 	import { startReactPages } from "@void/react/pages-client";
 	import { parseCacheFor } from "void/pages-prefetch";
@@ -207,8 +205,8 @@ function generateClientEntry(
 	  staticPageData: ${!!staticPageData?.enabled},
 	  staticPageDataFastPath: ${!!staticPageData?.fastPath},
 	  viewTransitions: ${!!viewTransitions},
-	  prefetchHoverDelay: ${prefetch?.hoverDelay ?? 75},
-	  prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(prefetch?.cacheFor ?? '30s')}),
+	  prefetchHoverDelay: ${hoverDelay},
+	  prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
 	});
 	export { router };
 	`;

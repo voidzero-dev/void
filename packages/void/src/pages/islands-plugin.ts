@@ -1,10 +1,11 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve } from 'pathslash';
+import { dirname, relative, resolve } from 'pathslash';
 import {
   isCSSRequest,
   normalizePath,
   type Plugin,
   type ResolvedConfig,
+  type UserConfig,
   type ViteDevServer,
 } from 'vite';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
@@ -40,11 +41,19 @@ function hasIslandImports(code: string, filename: string): boolean {
   return findIslandImports(code, filename).length > 0;
 }
 
+/** The pages whose Markdown script `@void/md` serves to the browser. */
+export function mdClientScriptIds(resolvedConfig: ResolvedConfig | null): Set<string> {
+  const mdPlugin = resolvedConfig?.plugins?.find(
+    (plugin): plugin is VoidMdPlugin => plugin.name === 'void-md',
+  );
+  return new Set(mdPlugin?.api?.getClientScripts?.()?.keys() ?? []);
+}
+
 /** Resolve a relative import specifier to an absolute path by checking extensions. */
 export function resolveSpecifier(
   specifier: string,
   importerDir: string,
-  extensions: Array<string>,
+  extensions: ReadonlyArray<string>,
 ): string | null {
   const base = normalizePath(resolve(importerDir, specifier));
   for (const ext of extensions) {
@@ -56,6 +65,98 @@ export function resolveSpecifier(
     return base;
   }
   return null;
+}
+
+/** The islands that island pages and layouts import, for the islands client entry. */
+export type IslandManifest = {
+  readonly entries: Map<string, IslandEntry>;
+  /**
+   * Resolve an island import and record it. An import that does not resolve
+   * keeps its specifier as its id and is not recorded.
+   */
+  register(
+    specifier: string,
+    importerDir: string,
+    hydrate: string,
+  ): { absPath: string | null; islandId: string };
+  /**
+   * Record the island imports of every island page and layout. The client
+   * build may load the islands client entry before their transforms run.
+   */
+  registerPages(pageScan: PageScanResult, pagesDir: string): void;
+};
+
+/** `extensions` are tried, in order, for an island import without one. */
+export function createIslandManifest(
+  root: string,
+  extensions: ReadonlyArray<string>,
+): IslandManifest {
+  const entries = new Map<string, IslandEntry>();
+
+  function register(
+    specifier: string,
+    importerDir: string,
+    hydrate: string,
+  ): { absPath: string | null; islandId: string } {
+    const absPath = resolveSpecifier(specifier, importerDir, extensions);
+    if (!absPath) {
+      return { absPath, islandId: specifier };
+    }
+    const islandId = normalizePath(relative(root, absPath)).replace(/\.[^.]+$/, '');
+    entries.set(islandId, { componentPath: absPath, islandId, hydrate });
+    return { absPath, islandId };
+  }
+
+  return {
+    entries,
+    register,
+    registerPages(pageScan, pagesDir) {
+      const files = [
+        ...pageScan.pages.map((page) => ({ filePath: page.componentPath, island: page.island })),
+        ...pageScan.layouts,
+        ...pageScan.namedLayouts,
+      ];
+      for (const entry of files) {
+        if (!entry.island) {
+          continue;
+        }
+        const filePath = resolve(pagesDir, entry.filePath);
+        const code = readFileSync(filePath, 'utf-8');
+        for (const islandImport of findIslandImports(code, filePath)) {
+          register(islandImport.specifier, dirname(filePath), islandImport.hydrate);
+        }
+      }
+    },
+  };
+}
+
+/**
+ * The island pages that match `componentPattern` and the layouts of every
+ * island page. Without a server build, the islands client entry imports their
+ * own styles and stylesheet imports.
+ */
+export function islandCssFiles(
+  pageScan: PageScanResult,
+  pagesDir: string,
+  componentPattern: RegExp,
+): Set<string> {
+  const files = new Set<string>();
+  for (const page of pageScan.pages) {
+    if (!page.island) {
+      continue;
+    }
+    if (componentPattern.test(page.componentPath)) {
+      files.add(normalizePath(resolve(pagesDir, page.componentPath)));
+    }
+    for (const layout of resolveEffectiveLayoutChain(
+      page,
+      pageScan.layouts,
+      pageScan.namedLayouts,
+    )) {
+      files.add(normalizePath(resolve(pagesDir, layout.filePath)));
+    }
+  }
+  return files;
 }
 
 /**
@@ -76,6 +177,28 @@ export async function hasIslandPages(root: string, pagesDir: string): Promise<bo
     // buildStart scans the pages again and reports the error.
     return false;
   }
+}
+
+/** Build config that adds the islands client entry to the client build of an app with island pages. */
+export async function islandsBuildConfig(
+  root: string,
+  pagesDir: string,
+): Promise<UserConfig | undefined> {
+  if (!(await hasIslandPages(root, pagesDir))) {
+    return;
+  }
+  return {
+    environments: {
+      client: {
+        build: {
+          manifest: true,
+          rollupOptions: {
+            input: { 'islands-client': ISLANDS_CLIENT_ENTRY_ID },
+          },
+        },
+      },
+    },
+  };
 }
 
 /**
@@ -238,6 +361,68 @@ export function rewriteCssImportForVirtualModule(
   return statement.endsWith(';') ? statement : statement + ';';
 }
 
+export type IslandClientEntryOptions = {
+  manifest: IslandManifest;
+  /** From `islandCssFiles`. */
+  cssFiles: ReadonlySet<string>;
+  /** From `recordedIslandStyles`. */
+  styles: ReadonlyArray<string> | null;
+  /** Whether a built page loads the entry for its islands. */
+  needsRuntime: boolean;
+  isDev: boolean;
+  /** Imports for the style blocks of a Vue or Svelte component. */
+  styleBlockImports?: (file: string, content: string) => Array<string>;
+  /** Source that defines `async function hydrateIsland(el, mod, props, frontmatter)`. */
+  hydrateIsland: string;
+};
+
+export function generateIslandClientEntry(options: IslandClientEntryOptions): string {
+  const uniqueIslands = new Map<string, string>();
+  for (const entry of options.manifest.entries.values()) {
+    uniqueIslands.set(entry.islandId, entry.componentPath);
+  }
+
+  const lines: Array<string> = [];
+
+  // In dev, first-paint CSS is provided by Void's shared dev CSS collector.
+  // Skip style imports here to avoid duplicate client injection.
+  // In production, the imports below bundle the CSS that island pages link.
+  // `styles` comes from the server build; without one, only the direct
+  // imports and style blocks of the pages and layouts are known.
+  if (!options.isDev && options.styles) {
+    for (const id of options.styles) {
+      lines.push(`import ${JSON.stringify(id)};`);
+    }
+  } else if (!options.isDev) {
+    for (const file of options.cssFiles) {
+      const content = readFileSync(file, 'utf-8');
+      lines.push(...(options.styleBlockImports?.(file, content) ?? []));
+      for (const item of findStaticCssImports(content, file)) {
+        lines.push(rewriteCssImportForVirtualModule(item.statement, item.specifier, file));
+      }
+    }
+  }
+
+  // Without islands, no built page gets this script (see
+  // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
+  // link. Dev keeps the runtime: it does not reload this module when a page
+  // gains an island.
+  if (!options.needsRuntime && !options.isDev) {
+    return lines.join('\n');
+  }
+
+  lines.push('import { initIslands } from "void/pages-client";');
+  lines.push('const islands = {');
+  for (const [id, path] of uniqueIslands) {
+    lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);
+  }
+  lines.push('};');
+  lines.push(options.hydrateIsland);
+  lines.push('initIslands(islands, hydrateIsland);');
+
+  return lines.join('\n');
+}
+
 /** Extract CSS import statements from a file and return them as @import rules. */
 export function extractCssImports(filePath: string): string {
   const code = readFileSync(filePath, 'utf-8');
@@ -252,10 +437,7 @@ export function computePagesNeedingClientJS(
   pagesDir: string,
   resolvedConfig: ResolvedConfig | null,
 ): Set<string> {
-  const mdPlugin = resolvedConfig?.plugins?.find(
-    (plugin): plugin is VoidMdPlugin => plugin.name === 'void-md',
-  );
-  const mdScriptIds: Set<string> = new Set(mdPlugin?.api?.getClientScripts?.()?.keys() ?? []);
+  const mdScriptIds = mdClientScriptIds(resolvedConfig);
 
   const layoutDirsWithIslands = new Set<string>();
   for (const layout of pageScan.layouts) {

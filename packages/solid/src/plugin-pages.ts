@@ -1,19 +1,15 @@
 import type { Plugin } from 'vite';
-import { createPagesPlugin, generateComponentManifest } from 'void/pages';
-import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
+import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
+import type {
+  PageScanResult,
+  PagesPluginOptions,
+  PrefetchConfig,
+  StaticPageDataBuildOptions,
+} from 'void/pages';
+
+export type { PrefetchConfig } from 'void/pages';
 
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
-
-export type PrefetchConfig = {
-  hoverDelay?: number;
-  cacheFor?: number | string | [string, string];
-};
-
-type PagesPluginOptions = {
-  root?: string;
-  viewTransitions?: boolean;
-  prefetch?: PrefetchConfig;
-};
 
 export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plugin {
   return createPagesPlugin(pagesDir, {
@@ -141,6 +137,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
+  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { createSignal, createComponent, createMemo, mergeProps, untrack, batch } from "solid-js";
 import { createMutable } from "solid-js/store";
@@ -202,8 +199,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
-    prefetchHoverDelay: ${prefetch?.hoverDelay ?? 75},
-    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(prefetch?.cacheFor ?? '30s')}),
+    prefetchHoverDelay: ${hoverDelay},
+    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
     onRouteChange(url) {
       setRouteUrl(url);
     },
