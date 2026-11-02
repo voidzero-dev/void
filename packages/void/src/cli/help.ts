@@ -825,10 +825,17 @@ const HELP_TREE: HelpTree = {
       list: withProjectOption('List project secrets.', 'void secret list [options]'),
       put: withProjectOption('Set a project secret.', 'void secret put <name> [options]'),
       delete: withProjectOption('Delete a project secret.', 'void secret delete <name> [options]'),
-      sync: withProjectOption(
-        'Sync secrets from a dotenv file.',
-        'void secret sync <file> [options]',
-      ),
+      sync: {
+        summary: 'Sync secrets from a dotenv file.',
+        usage: ['void secret sync <file> [options]'],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          {
+            command: '--yes',
+            description: 'Skip confirmation (required in CI and non-interactive shells)',
+          },
+        ],
+      },
     },
   },
   domain: {

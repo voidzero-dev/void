@@ -12,13 +12,14 @@ export type SecretArgs =
   | { action: 'list'; projectName?: string }
   | { action: 'put'; name: string; value?: string; projectName?: string }
   | { action: 'delete'; name: string; projectName?: string }
-  | { action: 'sync'; file: string; projectName?: string };
+  | { action: 'sync'; file: string; projectName?: string; yes?: boolean };
 
 export function parseSecretArgs(args: Array<string>): SecretArgs {
   const parsed = parseArgs({
     args,
     options: {
       project: { type: 'string' },
+      yes: { type: 'boolean' },
     },
     allowPositionals: true,
     strict: true,
@@ -30,6 +31,10 @@ export function parseSecretArgs(args: Array<string>): SecretArgs {
   if (projectTokens.length > 1) {
     throw new Error('secret: --project can only be specified once.');
   }
+  const yesTokens = tokens.filter((t) => t.kind === 'option' && t.name === 'yes');
+  if (yesTokens.length > 1) {
+    throw new Error('secret: --yes can only be specified once.');
+  }
 
   const projectValue = parsed.values.project;
   const projectName = typeof projectValue === 'string' ? projectValue : undefined;
@@ -38,6 +43,9 @@ export function parseSecretArgs(args: Array<string>): SecretArgs {
   }
 
   const [action, name, value, extra] = parsed.positionals;
+  if (parsed.values.yes && action !== 'sync') {
+    throw new Error(`secret: \`void secret ${action}\` does not support --yes.`);
+  }
   if (extra) {
     throw new Error(`secret: Unexpected argument '${extra}'.`);
   }
@@ -81,12 +89,12 @@ export function parseSecretArgs(args: Array<string>): SecretArgs {
 
   if (action === 'sync') {
     if (!name) {
-      throw new Error('secret: Usage: void secret sync <file> [--project <name>].');
+      throw new Error('secret: Usage: void secret sync <file> [--project <name>] [--yes].');
     }
     if (value) {
-      throw new Error('secret: Usage: void secret sync <file> [--project <name>].');
+      throw new Error('secret: Usage: void secret sync <file> [--project <name>] [--yes].');
     }
-    return { action, file: name, projectName };
+    return { action, file: name, projectName, yes: parsed.values.yes };
   }
 
   throw new Error('secret: Usage: void secret <list|put|delete|sync> ...');
