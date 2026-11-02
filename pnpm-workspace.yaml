@@ -24,7 +24,7 @@ allowBuilds:
 
 catalog:
   '@cloudflare/workers-types': ^5.20261019.1
-  '@cloudflare/workers-utils': ^0.47.3
+  '@cloudflare/workers-utils': ^0.50.0
   '@types/node': ^26.6.5
   '@voidzero-dev/vite-plus-prompts': 1.3.0
   typescript: 7.0.2
@@ -36,7 +36,7 @@ catalog:
   wrangler: ^4.151.3
   # beta.19 adds a second workerd release beside the stable Vite plugin's runtime.
   # Recheck packed install size before widening this range.
-  cf: '>=1.0.0-beta.18 <1.0.0-beta.19'
+  cf: '>=1.0.0-beta.18 <1.0.0'
   oauth4webapi: ^3.8.8
   '@astryxdesign/core': 0.7.1
   '@astryxdesign/theme-neutral': 0.7.1
@@ -44,10 +44,10 @@ catalog:
   '@angular/build': ^22.2.3
   '@astrojs/cloudflare': ^14.4.0
   '@cloudflare/build-output-utils': ^0.9.3
-  '@cloudflare/codemods': ^0.5.1
-  '@cloudflare/config': ^0.27.0
+  '@cloudflare/codemods': ^0.7.0
+  '@cloudflare/config': ^0.29.0
   '@cloudflare/vite-plugin': ^1.64.0
-  '@cloudflare/workers-auth': ^0.14.1
+  '@cloudflare/workers-auth': ^0.15.0
   '@nkzw/fate': 1.9.0
   '@vitejs/plugin-react': ^6.1.2
   '@vitejs/plugin-rsc': ^0.5.38
