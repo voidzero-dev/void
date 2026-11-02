@@ -1,5 +1,5 @@
 import { createDeployArtifact } from '@void/deploy-core';
-import { eq } from 'drizzle-orm';
+import { eq, isNull } from 'drizzle-orm';
 import {
   beforeAll,
   beforeEach,
@@ -18,6 +18,7 @@ import {
   verifyOAuthDeployment,
   activeOAuthApproval,
   setOAuthPreviewPermission,
+  purgeExpiredOAuthRequests,
 } from '../../src/auth/oauth.ts';
 import { createCodeChallenge } from '../../src/auth/pkce.ts';
 import { createHumanSession, revokeConnectionSessions } from '../../src/auth/sessions.ts';
@@ -972,7 +973,7 @@ describe('registered OAuth applications', () => {
     expect((await replay.json()) as { error: string }).toMatchObject({ error: 'invalid_grant' });
     // The entire grant family is now revoked, including the token issued by the first refresh.
     const second = await refresh(firstBody.refresh_token);
-    expect(second.status).toBe(401);
+    expect(second.status).toBe(400);
     expect(
       (
         await request('/oauth/userinfo', {
@@ -981,18 +982,105 @@ describe('registered OAuth applications', () => {
       ).status,
     ).toBe(401);
   });
+  it('serializes concurrent redemptions of one refresh token', async () => {
+    const { token } = await connect();
+    const responses = await Promise.all([
+      refresh(token.refresh_token),
+      refresh(token.refresh_token),
+    ]);
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 400]);
+    // The second redemption is reuse, so the grant it raced is revoked.
+    const [grant] = await env.db.select().from(oauthGrants);
+    expect(grant!.revoked_at).not.toBeNull();
+  });
+  it.runIf(Boolean(process.env.VOID_TEST_DATABASE_URL))(
+    'lets exactly one of many concurrent PostgreSQL redemptions rotate the token',
+    async () => {
+      const { token } = await connect();
+      const responses = await Promise.all(
+        Array.from({ length: 6 }, () => refresh(token.refresh_token)),
+      );
+      const statuses = responses.map((response) => response.status).sort();
+      expect(statuses).toEqual([200, 400, 400, 400, 400, 400]);
+      expect(
+        await env.db.select().from(oauthRefreshTokens).where(isNull(oauthRefreshTokens.used_at)),
+      ).toHaveLength(1);
+    },
+  );
   it('rejects an unknown or garbage refresh token', async () => {
     expect((await refresh('not-a-real-refresh-token')).status).toBe(400);
   });
   it('enforces an absolute refresh lifetime that rotation cannot extend', async () => {
     const { token } = await connect();
-    const [row] = await env.db.select().from(oauthRefreshTokens);
-    expect(row).toBeTruthy();
+    const [first] = await env.db.select().from(oauthRefreshTokens);
+    const [grant] = await env.db.select().from(oauthGrants);
+    expect(Date.parse(first!.expires_at)).toBeLessThanOrEqual(grant!.session.exp * 1000);
+    const rotated = (await (await refresh(token.refresh_token)).json()) as {
+      refresh_token: string;
+    };
+    const [next] = await env.db
+      .select()
+      .from(oauthRefreshTokens)
+      .where(isNull(oauthRefreshTokens.used_at));
+    expect(next!.id).not.toBe(first!.id);
+    expect(next!.expires_at).toBe(first!.expires_at);
     await env.db
       .update(oauthRefreshTokens)
       .set({ expires_at: new Date(Date.now() - 1000).toISOString() })
-      .where(eq(oauthRefreshTokens.id, row!.id));
-    expect((await refresh(token.refresh_token)).status).toBe(400);
+      .where(eq(oauthRefreshTokens.id, next!.id));
+    expect((await refresh(rotated.refresh_token)).status).toBe(400);
+  });
+  it('refreshes after the access token has expired', async () => {
+    const { token } = await connect();
+    await env.db.update(oauthGrants).set({ expires_at: new Date(Date.now() - 1000).toISOString() });
+    const userinfo = (accessToken: string) =>
+      request('/oauth/userinfo', { headers: { Authorization: 'Bearer ' + accessToken } });
+    expect((await userinfo(token.access_token)).status).toBe(401);
+    const refreshed = await refresh(token.refresh_token);
+    expect(refreshed.status).toBe(200);
+    const next = (await refreshed.json()) as { access_token: string; expires_in: number };
+    expect(next.expires_in).toBeGreaterThan(3000);
+    expect((await userinfo(next.access_token)).status).toBe(200);
+  });
+  it('keeps the refresh token usable when a refresh is rejected', async () => {
+    const { token } = await connect();
+    const rejected = await refresh(token.refresh_token, { scope: 'preview:deploy' });
+    expect(rejected.status).toBe(400);
+    expect((await rejected.json()) as { error: string }).toMatchObject({
+      error: 'invalid_scope',
+    });
+    expect((await refresh(token.refresh_token)).status).toBe(200);
+  });
+  it('keeps refreshable grants through housekeeping and lists them as connected', async () => {
+    const { token } = await connect();
+    const longAgo = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000).toISOString();
+    await env.db.update(oauthGrants).set({ expires_at: longAgo });
+    const connections = async () =>
+      (
+        await request('/oauth/connections', { headers: { Cookie: 'void_oauth_user=' + user.jwt } })
+      ).text();
+    const [grant] = await env.db.select().from(oauthGrants);
+    expect(await connections()).toContain(grant!.id);
+    await purgeExpiredOAuthRequests(env.db);
+    expect(await env.db.select().from(oauthGrants)).toHaveLength(1);
+    const refreshed = (await (await refresh(token.refresh_token)).json()) as {
+      refresh_token: string;
+    };
+
+    await env.db.update(oauthGrants).set({ expires_at: longAgo });
+    await env.db.update(oauthRefreshTokens).set({ expires_at: longAgo });
+    expect(await connections()).not.toContain(grant!.id);
+    await purgeExpiredOAuthRequests(env.db);
+    expect(await env.db.select().from(oauthGrants)).toHaveLength(0);
+    expect(await env.db.select().from(oauthRefreshTokens)).toHaveLength(0);
+    expect((await refresh(refreshed.refresh_token)).status).toBe(400);
+
+    // A disconnected grant is removed even while its refresh token is unexpired.
+    const disconnected = await connect();
+    await env.db.update(oauthGrants).set({ expires_at: longAgo, revoked_at: longAgo });
+    await purgeExpiredOAuthRequests(env.db);
+    expect(await env.db.select().from(oauthGrants)).toHaveLength(0);
+    expect((await refresh(disconnected.token.refresh_token)).status).toBe(400);
   });
   it('narrows scope on refresh and does not let a later refresh widen it back', async () => {
     await setOAuthPreviewPermission(env.db, registration.client.id, true);
@@ -1009,7 +1097,7 @@ describe('registered OAuth applications', () => {
     const [grant] = await env.db.select().from(oauthGrants);
     expect(grant!.scopes).toEqual(['profile']);
   });
-  it('rejects a refresh token presented to a different client', async () => {
+  it('rejects a refresh token presented to a different client without spending it', async () => {
     const { token } = await connect();
     const other = await registerOAuthClient(env.db, {
       name: 'Other app',
@@ -1019,6 +1107,12 @@ describe('registered OAuth applications', () => {
     });
     const otherBasic = 'Basic ' + btoa(other.client.id + ':' + other.clientSecret);
     expect((await refresh(token.refresh_token, {}, otherBasic)).status).toBe(400);
+    const rotated = await refresh(token.refresh_token);
+    expect(rotated.status).toBe(200);
+    // Another client presenting the rotated-out token does not revoke the grant.
+    expect((await refresh(token.refresh_token, {}, otherBasic)).status).toBe(400);
+    const { refresh_token } = (await rotated.json()) as { refresh_token: string };
+    expect((await refresh(refresh_token)).status).toBe(200);
   });
   it('blocks refresh once the grant is revoked, client disabled, account suspended, or the session is invalidated', async () => {
     const disconnected = await connect();
@@ -1027,12 +1121,14 @@ describe('registered OAuth applications', () => {
       headers: { Authorization: basic(), 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ token: disconnected.token.access_token }),
     });
-    expect((await refresh(disconnected.token.refresh_token)).status).toBe(401);
+    expect((await refresh(disconnected.token.refresh_token)).status).toBe(400);
 
     const suspended = await connect();
     await env.db.update(users).set({ suspended_reason: 'admin' }).where(eq(users.id, user.id));
-    expect((await refresh(suspended.token.refresh_token)).status).toBe(401);
+    expect((await refresh(suspended.token.refresh_token)).status).toBe(400);
     await env.db.update(users).set({ suspended_reason: null }).where(eq(users.id, user.id));
+    // The rejected refresh did not spend the token.
+    expect((await refresh(suspended.token.refresh_token)).status).toBe(200);
 
     const disabled = await connect();
     await disableOAuthClient(env.db, registration.client.id);
@@ -1055,7 +1151,7 @@ describe('registered OAuth applications', () => {
     user.jwt = human.token;
     const bySession = await connect();
     await revokeConnectionSessions(env.db, 'github');
-    expect((await refresh(bySession.token.refresh_token)).status).toBe(401);
+    expect((await refresh(bySession.token.refresh_token)).status).toBe(400);
   });
   it('revokes a refresh token (and its grant) through the revocation endpoint', async () => {
     const { token } = await connect();
@@ -1065,7 +1161,7 @@ describe('registered OAuth applications', () => {
       body: new URLSearchParams({ token: token.refresh_token }),
     });
     expect(revoked.status).toBe(200);
-    expect((await refresh(token.refresh_token)).status).toBe(401);
+    expect((await refresh(token.refresh_token)).status).toBe(400);
     expect(
       (
         await request('/oauth/userinfo', {
