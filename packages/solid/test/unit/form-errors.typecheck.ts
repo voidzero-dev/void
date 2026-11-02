@@ -27,6 +27,10 @@ export function checkFieldErrors(): void {
   form.wasSuccessful = true;
   // @ts-expect-error Form state is read-only.
   form.recentlySuccessful = true;
+  // @ts-expect-error Errors change through setError and clearErrors.
+  form.errors.email = 'Invalid';
+  // @ts-expect-error Fields change through setData.
+  form.data.email = '';
   // @ts-expect-error Submission callbacks are specific to the React adapter.
   useForm('/__form-errors/solid', { email: '' }, { onSuccess: () => {} });
   // @ts-expect-error Submission callbacks are specific to the React adapter.

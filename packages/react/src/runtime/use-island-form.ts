@@ -6,7 +6,7 @@ import {
   type VoidActionError,
 } from 'void/pages-client';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<Readonly<T>> &
   Readonly<{ setData: <K extends keyof T & string>(field: K, value: T[K]) => void }>;
 
 /**

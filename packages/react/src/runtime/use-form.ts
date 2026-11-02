@@ -23,8 +23,8 @@ import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/route
 import { RouterContext } from './context.ts';
 
 type SubmitPayload = FormData | { method: string };
-// Submit methods are native form actions, so they take the submitted FormData.
-type FormReturn<TData> = FormState<TData> & {
+// Data changes go through setData, and submit methods are native form actions that take FormData.
+type FormReturn<TData> = FormState<Readonly<TData>> & {
   setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
   post(formData: FormData): void;
   put(formData: FormData): void;

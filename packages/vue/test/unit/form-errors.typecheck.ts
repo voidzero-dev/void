@@ -28,4 +28,6 @@ export function checkFieldErrors(): void {
   form.wasSuccessful = true;
   // @ts-expect-error Form state is read-only.
   form.recentlySuccessful = true;
+  // @ts-expect-error Errors change through setError and clearErrors.
+  form.errors.email = 'Invalid';
 }

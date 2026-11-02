@@ -23,11 +23,12 @@ export type FormStatus = {
 };
 /**
  * The `useForm()` contract every adapter shares. Field names are typed from the action body.
- * Adapters add their submit methods and any framework-specific setter.
+ * Adapters add their submit methods and any framework-specific setter; adapters whose data
+ * must not be written in place pass `Readonly<TData>`.
  */
 export type FormState<TData> = FormStatus & {
   readonly data: TData;
-  readonly errors: Partial<Record<keyof TData & string, string>>;
+  readonly errors: Readonly<Partial<Record<keyof TData & string, string>>>;
   reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
   reset(...fields: ReadonlyArray<keyof TData & string>): void;
   setError(field: keyof TData & string, message: string): void;
@@ -41,7 +42,7 @@ export type FormState<TData> = FormStatus & {
 export type IslandFormState<TData> = FormStatus &
   Readonly<{
     data: TData;
-    errors: Record<string, string>;
+    errors: Readonly<Partial<Record<string, string>>>;
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
     clearErrors(...fields: ReadonlyArray<string>): void;
     clearError(): void;

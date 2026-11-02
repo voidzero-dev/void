@@ -11,6 +11,12 @@ export function checkIslandForm(): void {
   form.reset('missing');
   // @ts-expect-error Island form state is read-only.
   form.pending = true;
+  const titleError: string | undefined = form.errors.title;
+  void titleError;
+  // @ts-expect-error A field may have no error.
+  void form.errors.title.length;
+  // @ts-expect-error Island errors are read-only.
+  form.errors.title = 'Invalid';
   void form.post('/notes');
   form.data.title = 'Hello';
   void form.submit('/notes', 'PATCH');

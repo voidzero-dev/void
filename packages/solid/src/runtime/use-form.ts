@@ -16,7 +16,8 @@ import {
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
 
-type FormReturn<TData> = FormState<TData> & {
+// Data is a store, so changes go through setData.
+type FormReturn<TData> = FormState<Readonly<TData>> & {
   setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
   post(opts?: FormSubmitOptions): Promise<void>;
   put(opts?: FormSubmitOptions): Promise<void>;
