@@ -107,3 +107,50 @@ export default function Title() {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+it('an island that only the Markdown page imports hydrates', async () => {
+  const root = mkdtempSync(join(import.meta.dirname, '__tmp_md_page_island_'));
+  mkdirSync(join(root, 'pages'));
+  mkdirSync(join(root, 'components'));
+  writeFileSync(
+    join(root, 'components', 'Title.tsx'),
+    `import { createElement } from "react";
+import { useFrontmatter } from "@void/md";
+export default function Title() {
+  return createElement("p", { id: "island-fm" }, String(useFrontmatter().title));
+}`,
+  );
+  writeFileSync(
+    join(root, 'pages', 'index.md'),
+    `<script>
+import Title from "../components/Title" with { island: "load" };
+</script>
+
+---
+title: Hello from frontmatter
+---
+
+<Title />
+`,
+  );
+
+  let visit: IslandPageVisit | undefined;
+  try {
+    visit = await openIslandPage(root, {
+      alias: { '@void/react': join(import.meta.dirname, '../../src/runtime/index.ts') },
+      plugins: [
+        ...voidMarkdown(),
+        { name: 'void-react:pages' },
+        ...islandsPlugin(join(root, 'pages')),
+      ],
+    });
+    expect(visit.html).toContain(ISLAND_FRONTMATTER_SCRIPT);
+    await waitForIslandsHydrated(visit.page);
+    expect(await visit.page.textContent('#island-fm')).toBe('Hello from frontmatter');
+    expect(visit.diagnostics().toLowerCase()).not.toContain('hydrat');
+    expect(visit.diagnostics()).not.toContain('pageerror');
+  } finally {
+    await visit?.close();
+    rmSync(root, { recursive: true, force: true });
+  }
+});
