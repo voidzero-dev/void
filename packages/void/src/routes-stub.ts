@@ -1,15 +1,23 @@
 export { routeUrl } from './runtime/route-url.ts';
 export type {
+  Href,
   RoutePath,
   RouteOptions,
   RouteQuery,
   RouteQueryValue,
   RouteDestination,
+  RouteUrl,
   RouteUrlInput,
 } from './runtime/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
+
+/** Percent-encoded spellings of patterns with encoded fixed segments, augmented by .void/routes.d.ts. */
+export interface EncodedRoutePathMap {}
+
+/** Route type options, augmented by .void/routes.d.ts when `routing.typedRoutes` is on. */
+export interface RouteTypesConfig {}
 
 /** Stub interface augmented by the generated .void/routes.d.ts */
 export interface RouteMap {}

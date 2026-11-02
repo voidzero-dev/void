@@ -193,7 +193,9 @@ export function routingPlugin(
     if (!scan) {
       return;
     }
-    const { dts } = generateRouteTypes(scan, routesDir, outDir, pagesDir);
+    const { dts } = generateRouteTypes(scan, routesDir, outDir, pagesDir, {
+      typedRoutes: options.routing?.typedRoutes,
+    });
     writeFileIfChanged(join(outDir, 'routes.d.ts'), dts);
   }
 

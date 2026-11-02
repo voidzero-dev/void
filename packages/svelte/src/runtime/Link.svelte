@@ -1,16 +1,12 @@
 <script lang="ts">
-  import { getContext, onDestroy, onMount, type Snippet } from "svelte";
+  import { getContext, onDestroy, onMount } from "svelte";
   import {
     isModifiedEvent,
     mergeDataIntoHref,
     type PrefetchOptions,
     type VoidRouter,
   } from "void/pages-client";
-
-  type PrefetchStrategy = "hover" | "click" | "mount" | "visible";
-  type LinkMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
-  type NavigateEvent = { preventDefault(): void };
-  type EventHandler<T extends Event> = (event: T) => void;
+  import type { LinkMethod, LinkProps, PrefetchStrategy } from "./link-props.ts";
 
   let {
     href,
@@ -33,28 +29,7 @@
     ontouchstart: onTouchStartProp = undefined,
     style = undefined,
     ...rest
-  }: {
-    href: string;
-    method?: LinkMethod | Lowercase<LinkMethod>;
-    data?: Record<string, unknown>;
-    preserveScroll?: boolean;
-    preserveState?: boolean;
-    replace?: boolean;
-    reloadDocument?: boolean;
-    viewTransition?: boolean;
-    prefetch?: boolean | PrefetchStrategy | Array<PrefetchStrategy>;
-    cacheFor?: number | string | [string, string];
-    onNavigate?: (event: NavigateEvent) => void;
-    children?: Snippet;
-    onclick?: EventHandler<MouseEvent>;
-    onmouseenter?: EventHandler<MouseEvent>;
-    onmouseleave?: EventHandler<MouseEvent>;
-    onfocus?: EventHandler<FocusEvent>;
-    onmousedown?: EventHandler<MouseEvent>;
-    ontouchstart?: EventHandler<TouchEvent>;
-    style?: string;
-    [key: string]: unknown;
-  } = $props();
+  }: LinkProps = $props();
 
   const router = getContext<VoidRouter>("__void_router");
 
@@ -102,7 +77,7 @@
     if ((e.currentTarget as HTMLElement).hasAttribute("download")) {
       return;
     }
-    const url = new URL(hrefWithData, window.location.origin);
+    const url = new URL(hrefWithData, window.location.href);
     if (url.origin !== window.location.origin) {
       return;
     }

@@ -1377,6 +1377,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(() => readFileSync(join(root, 'index.html'), 'utf-8')).toThrow(/ENOENT/);
       expect(() => readFileSync(join(root, 'src', 'main.ts'), 'utf-8')).toThrow(/ENOENT/);
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         },
@@ -1411,6 +1412,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.devDependencies.void).toBeDefined();
 
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         database: 'pg',
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
@@ -1548,6 +1550,7 @@ describe('isScaffoldableEmptyProject', () => {
         readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8'),
       ).toThrow();
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         },

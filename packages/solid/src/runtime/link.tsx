@@ -1,6 +1,7 @@
 import { createMemo, onCleanup, onMount, splitProps, useContext } from 'solid-js';
 import type { JSX } from 'solid-js';
 import { isModifiedEvent, mergeDataIntoHref } from 'void/pages-client';
+import type { Href } from 'void/routes';
 import { RouterContext } from './context.ts';
 
 type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
@@ -9,7 +10,7 @@ type NavigateEvent = { preventDefault(): void };
 type PrefetchOptions = { cacheFor?: LinkProps['cacheFor'] };
 
 type CommonProps = {
-  href: string;
+  href: Href;
   method?: LinkMethod | Lowercase<LinkMethod>;
   data?: Record<string, unknown>;
   preserveScroll?: boolean;
@@ -131,7 +132,7 @@ export function Link(props: LinkProps): JSX.Element {
       return false;
     }
 
-    const url = new URL(hrefWithData(), window.location.origin);
+    const url = new URL(hrefWithData(), window.location.href);
     if (url.origin !== window.location.origin) {
       return false;
     }

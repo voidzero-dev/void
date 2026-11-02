@@ -199,6 +199,8 @@ import { routeUrl } from 'void/routes';
 
 :::
 
+With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps created with `void init` have on, `href` and the router methods below reject plain strings such as `"/user"` that don't match a route.
+
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
 ```tsx
