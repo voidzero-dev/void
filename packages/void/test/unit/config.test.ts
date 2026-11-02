@@ -81,6 +81,27 @@ describe('routing.alwaysUseHttps', () => {
   });
 });
 
+describe('routing.typedRoutes', () => {
+  it.each([true, false, undefined])('preserves %s', (typedRoutes) => {
+    setup(JSON.stringify({ routing: { typedRoutes } }));
+    try {
+      expect(readConfig(tmpDir).routing?.typedRoutes).toBe(typedRoutes);
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (typedRoutes) => {
+    setup(JSON.stringify({ routing: { typedRoutes } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow(
+        '"routing.typedRoutes" in void.json must be a boolean.',
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
+
 describe('readConfig', () => {
   it('loads and re-reads a typed Void config', () => {
     setup();

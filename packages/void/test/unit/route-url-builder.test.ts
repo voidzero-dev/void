@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { routeUrl } from '../../src/routes-stub.ts';
+import { toUrlString } from '../../src/runtime/route-url.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -16,6 +17,21 @@ declare module 'void/routes' {
 }
 
 describe('routeUrl', () => {
+  it('converts typed destinations and preserves ordinary URLs', () => {
+    expect(
+      toUrlString({
+        pathname: '/route-util/:id',
+        params: { id: 'a/b' },
+        query: { page: 2 },
+        hash: 'details',
+      }),
+    ).toBe('/route-util/a%2Fb?page=2#details');
+    expect(toUrlString('../users?tab=one#details')).toBe('../users?tab=one#details');
+    expect(toUrlString(new URL('https://example.com/users?tab=one#details'))).toBe(
+      'https://example.com/users?tab=one#details',
+    );
+  });
+
   it('returns static paths as ordinary strings', () => {
     expect(routeUrl('/')).toBe('/');
     expect(routeUrl('/', { hash: '#' })).toBe('/');

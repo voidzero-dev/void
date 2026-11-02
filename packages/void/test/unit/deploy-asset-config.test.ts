@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  edgeRulesNeedWorker,
   hasApiRoutes,
   hasDocumentRoutes,
   resolveAssetConfig,
@@ -575,5 +576,23 @@ describe('generated serveWithAssets — routing.notFound end to end', () => {
         body: '<html>GENERATED 404</html>',
       });
     });
+  });
+});
+
+describe('edgeRulesNeedWorker', () => {
+  it.each([
+    ['alwaysUseHttps', { alwaysUseHttps: true }],
+    ['a header rule', { headerRules: [{ pattern: '/*', headers: [] }] }],
+    ['a redirect or rewrite rule', { redirectRules: [{}] }],
+    ['a fallback rule', { fallbackRules: [{}] }],
+  ])('keeps the worker in front with %s', (_name, rules) => {
+    expect(edgeRulesNeedWorker(rules)).toBe(true);
+  });
+
+  it('lets assets answer without rules', () => {
+    expect(edgeRulesNeedWorker({})).toBe(false);
+    expect(edgeRulesNeedWorker({ alwaysUseHttps: false, headerRules: [], redirectRules: [] })).toBe(
+      false,
+    );
   });
 });

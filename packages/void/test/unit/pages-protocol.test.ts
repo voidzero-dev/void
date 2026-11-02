@@ -8,8 +8,9 @@ import {
   flattenValidationErrors,
   ValidationError,
 } from '../../src/pages/protocol.ts';
+import type { CloudContext, CloudEnv } from '../../src/runtime/handler.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing.ts';
 
-type TestContext = Context & { set(key: string, value: unknown): void };
 type RenderPage = { component: string };
 type PageResponse = {
   component: string;
@@ -35,16 +36,17 @@ function createTestContext(
     routePattern?: string;
     shared?: Record<string, unknown>;
   } = {},
-): Promise<Context> {
-  const app = new Hono();
-  let resolveContext!: (c: Context) => void;
-  const contextPromise = new Promise<Context>((resolve) => {
+): Promise<CloudContext> {
+  const app = new Hono<CloudEnv>();
+  app.use(createRoutingRuntime(app as unknown as Hono, { nodeTarget: true }).contextMiddleware);
+  let resolveContext!: (c: CloudContext) => void;
+  const contextPromise = new Promise<CloudContext>((resolve) => {
     resolveContext = resolve;
   });
 
   app.use(async (c, next) => {
     if (options.shared) {
-      (c as TestContext).set('shared', options.shared);
+      c.set('shared', options.shared);
     }
     await next();
   });

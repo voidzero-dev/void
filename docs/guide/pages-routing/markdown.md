@@ -64,9 +64,9 @@ Add the plugin to your Vite config **after** the framework adapter:
 ::: code-group
 
 ```ts [React]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidReact } from '@void/react/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -76,9 +76,9 @@ export default defineConfig({
 ```
 
 ```ts [Vue]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidVue } from '@void/vue/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -88,9 +88,9 @@ export default defineConfig({
 ```
 
 ```ts [Svelte]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSvelte } from '@void/svelte/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -100,9 +100,9 @@ export default defineConfig({
 ```
 
 ```ts [Solid]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSolid } from '@void/solid/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -230,7 +230,7 @@ export default function DocsLayout(props) {
 
 :::
 
-Island components on a Markdown page can call `useFrontmatter()` too. A page with islands includes its frontmatter in the HTML for them to read in the browser. Keep private values out of the frontmatter of those pages.
+Island components can also call `useFrontmatter()`. Keep frontmatter on pages with islands safe to share with the browser.
 
 ## Pages Virtual Module
 
@@ -241,7 +241,7 @@ import pages from '@void/md/pages';
 // [{ path: "/docs/getting-started", title: "Getting Started", frontmatter: {...}, headings: [...] }, ...]
 ```
 
-The list holds only the pages for the current [environment](./overview.md#environment-only-pages): `.dev` pages on the dev server, `.prod` pages in builds. The suffix is dropped from `path`: `debug.dev.md` is listed as `/debug`.
+The list follows [page environment suffixes](./overview.md#environment-only-pages): `debug.dev.md` appears as `/debug` during development.
 
 Each entry has this shape:
 

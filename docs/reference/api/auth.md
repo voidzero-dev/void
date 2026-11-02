@@ -111,7 +111,7 @@ interface AuthSession {
 ```
 
 ::: tip Types inside `auth.ts`
-`AuthUser` and `AuthSession` are built from `auth.ts`. Inside `auth.ts` and the files it imports, don't use them, or values from `getUser()`, `getSession()` and `requireAuth()`, to type a hook's parameters or returned data. TypeScript reports a circular reference and the extra fields are lost. Let Better Auth infer those types, or use its own `User` and `Session` types. Better Auth callbacks such as `sendResetPassword` pass its base `User`, without plugin fields.
+In `auth.ts` and its imports, let Better Auth infer hook types or use its `User` and `Session` types. Using Void's inferred auth types or auth helper results there creates a circular reference. Callbacks such as `sendResetPassword` receive Better Auth's base `User` type.
 :::
 
 ## `AuthState` {#authstate}

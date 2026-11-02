@@ -4,7 +4,17 @@ import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Selector } from '@astryxdesign/core/Selector';
 import { TextArea } from '@astryxdesign/core/TextArea';
 import { TextInput } from '@astryxdesign/core/TextInput';
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type InputHTMLAttributes,
+  type TextareaHTMLAttributes,
+} from 'react';
+
+// Astryx forwards native validation attributes, but its field prop types omit them.
 
 export function FormTextInput({
   label,
@@ -42,8 +52,7 @@ export function FormTextInput({
       // Astryx forwards the type to the native input but its type union omits url.
       type={type as 'text' | 'password' | 'email'}
       isRequired={required}
-      required={required}
-      maxLength={maxLength}
+      {...({ required, maxLength } satisfies InputHTMLAttributes<HTMLInputElement>)}
       placeholder={placeholder}
       description={description}
       isReadOnly={isReadOnly}
@@ -105,7 +114,7 @@ export function FormTextArea({
       value={value}
       onChange={setValue}
       isRequired={required}
-      required={required}
+      {...({ required } satisfies TextareaHTMLAttributes<HTMLTextAreaElement>)}
       placeholder={placeholder}
       rows={1}
       width={width}
@@ -192,7 +201,7 @@ export function FormNumberInput({
       min={min}
       max={max}
       isRequired={required}
-      required={required}
+      {...({ required } satisfies InputHTMLAttributes<HTMLInputElement>)}
       isIntegerOnly
       hasClear
       width={width}

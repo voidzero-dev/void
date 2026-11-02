@@ -338,10 +338,10 @@ function requireManagementToken() {
       }),
       actions: [
         {
-          action: 'adopt',
+          action: 'create',
           kind: 'dns-record',
           key: 'wildcard-dns',
-          id: 'dns-id',
+          id: null,
           name: '*.example.com',
           reason: 'test',
         },

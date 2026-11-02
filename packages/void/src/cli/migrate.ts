@@ -21,6 +21,7 @@ import {
 import { loadTypedVoidConfigFile, TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { GENERATED_MARKERS, renderVoidConfig } from '../config-write.ts';
 import { validateConfig, type VoidConfig } from '../config.ts';
+import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   applyFrameworkConfigMigration,
   discoverFrameworkWranglerFiles,
@@ -225,11 +226,21 @@ export function migrateLegacyVoidConfig(root: string): boolean {
 
 export async function runMigrateCommand(root: string): Promise<void> {
   console.log();
-  if (migrateLegacyVoidConfig(root)) {
+  const migrated = migrateLegacyVoidConfig(root);
+  const updatedIgnore =
+    ensureGitignoreLines(root, ['.cloudflare'], {
+      '.cloudflare': ['/.cloudflare', '.cloudflare/', '/.cloudflare/'],
+    }).length > 0;
+  if (migrated) {
     log.step(
       `Migrated project settings to ${TYPED_CONFIG_FILE}. Commit it and ${VOID_LOCK_FILE} when present.`,
     );
-    printSuccess('Configuration migration complete.');
+  }
+  if (updatedIgnore) {
+    log.step('Added .cloudflare to .gitignore.');
+  }
+  if (migrated || updatedIgnore) {
+    printSuccess('Project migration complete.');
   } else {
     log.info('No legacy project configuration found.');
   }

@@ -12,7 +12,7 @@ import module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { cloudflare } from '@cloudflare/vite-plugin';
+import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
@@ -88,7 +88,7 @@ describe('voidPlugin Vite environments', () => {
       environments: {
         void_worker: {
           build: {
-            outDir: 'dist/ssr',
+            outDir: getWorkerBundleDir(realpathSync.native(root)),
           },
         },
       },
@@ -123,7 +123,7 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.void_worker.resolve.conditions).toContain('workerd');
     expect(config.environments.void_worker.build).toMatchObject({
       emptyOutDir: false,
-      outDir: 'dist/ssr',
+      outDir: getWorkerBundleDir(realpathSync.native(root)),
     });
   });
 
@@ -191,7 +191,7 @@ describe('voidPlugin Vite environments', () => {
       );
       writeFileSync(join(root, 'worker.ts'), 'export default {};\n');
       writeFileSync(
-        join(root, 'wrangler.jsonc'),
+        join(root, '.void-wrangler.jsonc'),
         JSON.stringify({
           name: 'adapter-app',
           main: './worker.ts',
@@ -200,8 +200,21 @@ describe('voidPlugin Vite environments', () => {
       );
       vi.spyOn(process, 'cwd').mockReturnValue(root);
       // @astrojs/cloudflare runs Astro's ssr environment in workerd this way.
-      const adapter = cloudflare({
-        configPath: join(root, 'wrangler.jsonc'),
+      // Astro retains its own stable plugin dependency; exercise that adapter,
+      // independently of the v2 plugin bundled by Void.
+      const astroRequire = createRequire(
+        new URL('../../../../playground/astro/package.json', import.meta.url),
+      );
+      const pluginManifest = module.findPackageJSON(
+        '@cloudflare/vite-plugin',
+        pathToFileURL(astroRequire.resolve('@astrojs/cloudflare')),
+      )!;
+      const { exports: pluginExports } = JSON.parse(readFileSync(pluginManifest, 'utf8'));
+      const { cloudflare: astroCloudflare } = await import(
+        new URL(pluginExports['.'].import, pathToFileURL(pluginManifest)).href
+      );
+      const adapter = astroCloudflare({
+        configPath: join(root, '.void-wrangler.jsonc'),
         viteEnvironment: { name: 'ssr' },
       });
 

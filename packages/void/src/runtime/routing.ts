@@ -7,7 +7,9 @@ import {
   substituteParams,
 } from '@void/edge';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
+import type { TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
+import type { RouteDestination, RouteUrlInput } from 'void/routes';
 import {
   actionKeySegment,
   hasActionKey,
@@ -16,6 +18,7 @@ import {
 } from '../pages/action-key.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
+import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
@@ -31,7 +34,11 @@ export type RoutingRule = {
 export type RoutingHeaderRule = { pattern: string; headers: Array<[string, string]> };
 export type RequestContextStore = { request: Request; executionCtx?: Context['executionCtx'] };
 export type RoutingContext = Context & {
-  rewrite: (path: string) => Promise<Response>;
+  redirect: <T extends RedirectStatusCode = 302>(
+    location: RouteUrlInput,
+    status?: T,
+  ) => Response & TypedResponse<undefined, T, 'redirect'>;
+  rewrite: (path: string | RouteDestination) => Promise<Response>;
   originalUrl: () => URL | null;
   isRewritten: () => boolean;
 };
@@ -155,7 +162,8 @@ export function createRoutingRuntime(
         }
       }
     }
-    c.rewrite = (path) => {
+    c.rewrite = (destination) => {
+      const path = toUrlString(destination);
       if (!path.startsWith('/') || path.startsWith('//')) {
         throw new Error(
           'c.rewrite() only accepts internal, path-absolute destinations — they must start with a single "/" (a leading "//" parses as protocol-relative and would proxy cross-origin); use fetch() for external URLs',
@@ -181,9 +189,10 @@ export function createRoutingRuntime(
         annotate(response, `c.rewrite -> ${path} (middleware)`),
       );
     };
-    const redirect = c.redirect.bind(c);
-    c.redirect = (location, status) => {
-      if (typeof location === 'string' && location.startsWith('/') && !location.startsWith('//')) {
+    const redirect = context.redirect.bind(context);
+    c.redirect = (destination, status) => {
+      const location = toUrlString(destination);
+      if (location.startsWith('/') && !location.startsWith('//')) {
         return redirect(redirectLocation(c.req.raw, location, status), status);
       }
       return redirect(location, status);

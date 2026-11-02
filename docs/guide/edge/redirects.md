@@ -65,13 +65,13 @@ export default defineConfig({
 });
 ```
 
-Void answers with a permanent `308` redirect to the same URL over HTTPS. The path, query string, and request method stay the same. Omitted or `false` means off. `localhost` and loopback addresses such as `127.0.0.1` stay on HTTP, so local development and `vite preview` are unchanged.
+Void returns a permanent `308` redirect that preserves the path, query string, and request method. The option defaults to `false`. Localhost and loopback addresses stay on HTTP for local development and previews.
 
-It works on the Void platform and for Void apps on `void deploy --platform cloudflare`. It needs the Cloudflare target: setting it with `target: 'node'`, `'bun'`, or `'deno'` is a config error.
+This option requires the Cloudflare target and works for Void apps and static sites on either deployment platform.
 
-On `void deploy --platform cloudflare`, built files with a content hash in their name, such as `/assets/index-abc123.js`, can be served by Cloudflare before Void runs, so they may still answer over HTTP. Pages always redirect, so browsers load these files over HTTPS. To redirect every request, also turn on [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) for your Cloudflare zone.
+For direct Cloudflare deployments, also enable [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) on your zone to cover assets served directly by Cloudflare.
 
-SvelteKit, Nuxt, Astro, Analog, TanStack Start, React Router, and vinext apps run their own Worker, so `void deploy --platform cloudflare` stops with an error when the option is on. Static builds of these frameworks, deployed with `--dir` or `inference.appType`, redirect as usual. For the others, redirect to HTTPS in the framework, or turn on [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) for your Cloudflare zone.
+For direct Cloudflare deployments of SvelteKit, Nuxt, Astro, Analog, TanStack Start, React Router, or vinext, configure HTTPS in the framework or your Cloudflare zone. Use `routing.alwaysUseHttps` only for their static builds, deployed with `--dir` or `inference.appType`.
 
 ## Framework `_redirects` files
 

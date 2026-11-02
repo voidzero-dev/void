@@ -32,7 +32,7 @@ Filename rules match regular server routes:
 - route groups like `(marketing)/chat.ws.ts` are ignored in the URL
 - `chat.dev.ws.ts` / `chat.prod.ws.ts` restrict the route to one environment
 
-The environment suffix goes **before** `.ws`. `chat.ws.dev.ts` is not a WebSocket route.
+Place the environment suffix **before** `.ws`, as in `chat.dev.ws.ts`.
 
 ## `defineRoom()`
 

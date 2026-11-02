@@ -59,12 +59,17 @@ export async function runSecretCommand(root: string, args: SecretArgs): Promise<
       log.message(`  ${s.name}`);
     }
 
-    const proceed = await confirm({
-      message: `This will overwrite ${formatCount(secrets.length, 'secret')} in the ${backend.target}. Continue?`,
-    });
-    if (isCancel(proceed) || !proceed) {
-      cancel('Secret sync cancelled.');
-      process.exit(0);
+    if (!args.yes) {
+      if (process.env.CI || !process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error('secret: Pass --yes to sync secrets in CI or a non-interactive shell.');
+      }
+      const proceed = await confirm({
+        message: `This will overwrite ${formatCount(secrets.length, 'secret')} in the ${backend.target}. Continue?`,
+      });
+      if (isCancel(proceed) || !proceed) {
+        cancel('Secret sync cancelled.');
+        process.exit(1);
+      }
     }
 
     await backend.sync(secrets);
@@ -203,7 +208,7 @@ async function readSecretValue(): Promise<string> {
 
   if (isCancel(result) || typeof result === 'symbol') {
     cancel('Secret command cancelled.');
-    process.exit(0);
+    process.exit(1);
   }
 
   const value = result ?? '';

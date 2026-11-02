@@ -37,7 +37,7 @@ If your account's dashboard has no **Enable** action, create a disposable Hello 
 
 ## Install the CLI and Preview
 
-With Node.js 24.21.0 or later, install the CLI:
+With Node.js 24.22+ or 26.12+, install the CLI:
 
 ```sh
 pnpm add --global void

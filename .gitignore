@@ -5,6 +5,7 @@ dist
 *.tsbuildinfo
 .DS_Store
 .wrangler
+.cloudflare
 .void-wrangler.jsonc
 .env
 .claude
@@ -21,6 +22,7 @@ playground/*/.node-version
 playground-local
 .svelte-kit/
 .next/
+.vinext/
 next-env.d.ts
 docs/superpowers/
 

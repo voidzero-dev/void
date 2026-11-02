@@ -1027,7 +1027,12 @@ const actualSpawnSync=child.spawnSync;
 child.spawnSync = (binary, args, options) => {
   if(args.slice(1,4).join(' ') !== 'workers versions create' && args[1] !== 'deploy') return actualSpawnSync(binary,args,options);
   writeFileSync(${JSON.stringify(join(directory, 'upload-environment.json'))}, JSON.stringify({version:options.env.CLI_VERSION,telemetry:options.env.CF_SEND_TELEMETRY}));
-  return { status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' };
+  return ${
+    uploadType === 'worker.deploy'
+      ? // cf 1.0.0-beta.21 and later print the uploaded version on stderr.
+        "{ status:0, stdout:'', stderr:'│  Current Version ID: 11111111-1111-4111-8111-111111111111\\n' }"
+      : "{ status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' }"
+  };
 };
 syncBuiltinESMExports();`,
     );

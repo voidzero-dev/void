@@ -41,8 +41,8 @@ Add both plugins to your Vite config:
 ::: code-group
 
 ```ts [React]
-import { voidReact } from '@void/react/plugin';
 // vite.config.ts
+import { voidReact } from '@void/react/plugin';
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -52,8 +52,8 @@ export default defineConfig({
 ```
 
 ```ts [Vue]
-import { voidVue } from '@void/vue/plugin';
 // vite.config.ts
+import { voidVue } from '@void/vue/plugin';
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -63,8 +63,8 @@ export default defineConfig({
 ```
 
 ```ts [Svelte]
-import { voidSvelte } from '@void/svelte/plugin';
 // vite.config.ts
+import { voidSvelte } from '@void/svelte/plugin';
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -74,8 +74,8 @@ export default defineConfig({
 ```
 
 ```ts [Solid]
-import { voidSolid } from '@void/solid/plugin';
 // vite.config.ts
+import { voidSolid } from '@void/solid/plugin';
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -94,16 +94,9 @@ Pages can be flat files such as `about.vue` or directory-based routes such as `a
 
 <PagesFileTree />
 
-Keep one file per route. Void reports an error when two page files resolve to the same path, such as `about.vue` and `about/index.vue`, or the same page in two route groups.
+Use one page file per URL in each environment.
 
-Each page can have a companion `.server.ts`, `.server.tsx`, `.server.js`, `.server.jsx`, `.server.mts`, or `.server.mjs` file that runs exclusively on the server. Use `.server.tsx` or `.server.jsx` when the companion contains JSX (see [JSX handlers](../server-routing.md#jsx-handlers) for the JSX runtime). A companion belongs to its matching page and does not create a separate route:
-
-| File                   | Role                           |
-| ---------------------- | ------------------------------ |
-| `pages/foo.tsx`        | Page component at `/foo`       |
-| `pages/foo.server.tsx` | Server companion for that page |
-
-A companion can export:
+Pair a page with a `.server.ts` file for server code, such as `about.server.ts` for `about.vue`. Companions also support `.js`, `.mts`, `.mjs`, and [JSX](../server-routing.md#jsx-handlers) with `.tsx` or `.jsx`. They can export:
 
 - A [**loader**](./loaders), which runs on `GET` and returns the data that becomes the page component's props
 - [**Actions**](./actions-and-forms), which handle mutations from forms and programmatic calls. Export a single `action` or multiple [named actions](./actions-and-forms#named-actions) when a page has several mutations
@@ -113,7 +106,7 @@ File-based routing rules are the same as [server routing](../server-routing.md):
 
 ### Environment-only pages
 
-Add a `.dev` or `.prod` suffix before the extension to include a page in only one environment. The suffix is not part of the URL:
+Add a `.dev` or `.prod` suffix before the extension to choose when a page is available:
 
 ```
 pages/
@@ -126,12 +119,9 @@ pages/
 
 `.dev` pages run only on the dev server; `.prod` pages run in builds, deployments, and production previews.
 
-- A `.dev` page and a `.prod` page can share a URL. A plain page and a suffixed page for the same URL is an error wherever both run: `home.tsx` with `home.dev.tsx` fails on the dev server, and `home.tsx` with `home.prod.tsx` fails the build.
-- The suffix goes **before** `.island`: `chart.dev.island.tsx` is a development-only island page. `chart.island.dev.tsx` is not an island page.
-- A companion repeats the suffix: `home.dev.server.ts` belongs to `home.dev.tsx`.
-- Suffixes apply to page files only. Layouts take no suffix.
-- A resource used only by `.dev` pages and their companions is not provisioned for production.
-- The dev server and builds generate types for their own environment. `void prepare` generates types for both.
+Keep the suffix in companion filenames (`home.dev.server.ts`) and place it before `.island` for island pages (`chart.dev.island.tsx`). Layouts are shared across environments.
+
+Production deploys exclude resources used only by `.dev` pages and their companions. Run `void prepare` to generate types for both environments.
 
 ## How Navigation Works
 
@@ -163,45 +153,53 @@ Render and prerender flags combine like this:
 | Island page + `ssr = false`            | Invalid. Island pages already use the island renderer.                    |
 | `output: "static"` + `prerender` unset | Auto-prerender pages that have known paths, including client-only shells. |
 
-Use the `Link` component for SPA navigation between pages. It renders an `<a>` tag that intercepts clicks and navigates without a full page reload:
+### Typed navigation
+
+Use the `Link` component for SPA navigation between pages. Build dynamic URLs with [`routeUrl()`](../type-safety.md#typed-urls-and-navigation) to check the route pattern and its parameters:
 
 ::: code-group
 
 ```tsx [React]
 import { Link } from "@void/react";
+import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 ```vue [Vue]
 <script setup lang="ts">
 import { Link } from '@void/vue';
+import { routeUrl } from 'void/routes';
 </script>
 
 <template>
   <Link href="/users">Users</Link>
-  <Link :href="`/users/${id}`">View</Link>
+  <Link :href="routeUrl('/users/:id', { params: { id } })">View</Link>
 </template>
 ```
 
 ```svelte [Svelte]
 <script>
   import { Link } from "@void/svelte";
+  import { routeUrl } from 'void/routes';
 </script>
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 ```tsx [Solid]
 import { Link } from "@void/solid";
+import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 :::
+
+With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps created with `void init` have on, `href` and the router methods below reject plain strings such as `"/user"` that don't match a route.
 
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
@@ -232,16 +230,27 @@ import { Link } from "@void/solid";
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
-For programmatic navigation, use `useRouter()`:
+For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
 ```ts
 import { useRouter } from '@void/vue'; // or "@void/react", "@void/svelte", "@void/solid"
+import type { RouteDestination } from 'void/routes';
 
 const router = useRouter();
-router.visit('/users');
+const profile = {
+  pathname: '/users/:id',
+  params: { id: 42 },
+  query: { tab: 'activity' },
+} satisfies RouteDestination;
+
+await router.prefetch(profile);
+await router.visit(profile);
+router.flush(profile); // clear its prefetched data
 router.refresh(); // re-fetch current page props, keeping the same history entry
 router.visit('/logout', { method: 'POST' }); // non-GET navigation
 ```
+
+You can also pass URL strings or `URL` instances to these router methods. See [Typed URLs and Navigation](../type-safety.md#typed-urls-and-navigation) for query values, fragments, and catch-all routes.
 
 `router.visit()` updates the page in place for same-origin URLs. `http(s)` URLs on another origin get a full page load, and other schemes such as `javascript:` are rejected.
 

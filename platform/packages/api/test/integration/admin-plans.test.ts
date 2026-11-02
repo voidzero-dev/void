@@ -443,7 +443,7 @@ describe('administrator plan dashboard', () => {
       ]);
       expect(new Set(reevaluated).size).toBe(31);
       await page
-        .getByRole('navigation', { name: 'Side navigation', exact: true })
+        .getByRole('navigation', { name: 'Admin sections', exact: true })
         .getByRole('link', { name: 'Plans', exact: true })
         .click();
       await page.getByRole('link', { name: 'Starter', exact: true }).waitFor();

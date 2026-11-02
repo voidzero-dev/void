@@ -9,6 +9,7 @@ import type {
   RefObject,
 } from 'react';
 import { isModifiedEvent, mergeDataIntoHref } from 'void/pages-client';
+import type { Href } from 'void/routes';
 import { RouterContext } from './context.ts';
 
 type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
@@ -16,7 +17,7 @@ type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 type PrefetchOptions = { cacheFor?: LinkProps['cacheFor'] };
 
 type CommonProps = {
-  href: string;
+  href: Href;
   method?: LinkMethod | Lowercase<LinkMethod>;
   data?: Record<string, unknown>;
   preserveScroll?: boolean;
@@ -111,7 +112,7 @@ export function Link({
         return false;
       }
 
-      const url = new URL(hrefWithData, window.location.origin);
+      const url = new URL(hrefWithData, window.location.href);
       if (url.origin !== window.location.origin) {
         return false;
       }

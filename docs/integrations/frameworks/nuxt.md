@@ -80,8 +80,8 @@ Void-managed auth is not supported in framework mode yet. Use Better Auth's offi
 ### Database
 
 ```ts
-import { users } from '@schema';
 // server/api/users.get.ts
+import { users } from '@schema';
 import { db } from 'void/db';
 
 export default defineEventHandler(async () => {

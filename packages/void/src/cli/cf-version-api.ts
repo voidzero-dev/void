@@ -17,10 +17,10 @@ import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
 import { extname, join, relative } from 'pathslash';
-import { isGeneratedAssetHeaders } from '../asset-worker-bypass.ts';
 import type { CfBuildOutput } from './cf-build-output.ts';
 import { record as object } from './cf-config-migrate.ts';
 import { getVoidUserAgent } from './cf-user-agent.ts';
+import { readGeneratedAssetHeadersFile } from './headers.ts';
 import { Buffer } from './node-buffer.ts';
 
 type Json = Record<string, unknown>;
@@ -823,7 +823,10 @@ async function prepareContainerMetadata(options: {
           if (pushed.status !== 0 || pushed.signal || pushed.error) {
             throw new Error('Cloudflare Container image push failed.');
           }
-          const matches = [...pushed.stdout.matchAll(/Pushed image:\s*(\S+)/g)];
+          // cf prints this on stdout before 1.0.0-beta.21, and on stderr since.
+          const matches = [
+            ...`${pushed.stdout}\n${pushed.stderr}`.matchAll(/Pushed image:\s*(\S+)/g),
+          ];
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||
@@ -988,19 +991,9 @@ async function ensureContainerApplications(options: {
  * uploads. A user-authored `_headers` is not sent on this path.
  */
 function readGeneratedAssetHeaders(output: CfBuildOutput): string | undefined {
-  if (!output.assetsDirectory) {
-    return undefined;
-  }
-  let text: string;
-  try {
-    text = readFileSync(join(getWorkerAssetsDir(output.directory), '_headers'), 'utf8');
-  } catch (cause) {
-    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
-      return undefined;
-    }
-    throw cause;
-  }
-  return isGeneratedAssetHeaders(text) ? text : undefined;
+  return output.assetsDirectory
+    ? readGeneratedAssetHeadersFile(getWorkerAssetsDir(output.directory))
+    : undefined;
 }
 
 async function uploadAssets(options: {

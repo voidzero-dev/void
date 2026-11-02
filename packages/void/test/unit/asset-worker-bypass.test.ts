@@ -16,6 +16,8 @@ function facts(overrides: Partial<AssetWorkerBypassFacts> = {}): AssetWorkerBypa
     base: '/',
     hasMiddleware: false,
     authEnabled: false,
+    liveEnabled: false,
+    alwaysUseHttps: false,
     headerRuleCount: 0,
     redirectRuleCount: 0,
     fallbackRuleCount: 0,
@@ -76,13 +78,6 @@ describe('resolveAssetWorkerBypass', () => {
     expect(resolveAssetWorkerBypass(facts({ authEnabled: true }))).toEqual(expected);
   });
 
-  it('replaces the rule an earlier bypass wrote', () => {
-    expect(
-      resolveAssetWorkerBypass(facts({ runWorkerFirst: ['/**', '!/assets/old-12345678.js'] }))
-        ?.runWorkerFirst,
-    ).toEqual(['/**', '!/assets/chunk-12345678.js', '!/assets/main-abcdefgh.js']);
-  });
-
   it('lists only immutable files under the assets folder', () => {
     const headers = resolveAssetWorkerBypass(
       facts({ immutableFiles: ['root-abcdefgh.js', 'assets/a-12345678.js'] }),
@@ -95,6 +90,7 @@ describe('resolveAssetWorkerBypass', () => {
     ['run_worker_first true', { runWorkerFirst: true }],
     ['an API-only run_worker_first', { runWorkerFirst: ['/api', '/api/*'] }],
     ['an extra run_worker_first rule', { runWorkerFirst: ['/**', '/x'] }],
+    ['an earlier bypass rule', { runWorkerFirst: ['/**', '!/assets/old-12345678.js'] }],
     ['a SPA not_found_handling', { notFoundHandling: 'single-page-application' }],
     ['a non-root base', { base: '/app/' }],
     ['middleware', { hasMiddleware: true }],
@@ -125,7 +121,107 @@ describe('resolveAssetWorkerBypass', () => {
   it('accepts 99 immutable files, one run_worker_first rule each', () => {
     const bypass = resolveAssetWorkerBypass(facts({ immutableFiles: files(99) }));
     expect(bypass?.runWorkerFirst).toHaveLength(100);
-    expect(bypass?.headers.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(99);
+    expect(bypass?.headers?.split('\n').filter((line) => line.startsWith('/'))).toHaveLength(99);
+  });
+});
+
+describe('resolveAssetWorkerBypass for output: "static" Pages builds', () => {
+  const chunkRule = ['/**', '!/assets/chunk-12345678.js', '!/assets/main-abcdefgh.js'];
+
+  it('lists only paths with server code, widened before the first parameter', () => {
+    expect(
+      resolveAssetWorkerBypass(
+        facts({
+          serverPatterns: [
+            '/api/hello',
+            '/api/users/:id',
+            '/products',
+            '/blog/:slug/edit',
+            '/docs/:path{.+}',
+            '/feed.xml',
+            '/api/hello',
+          ],
+        }),
+      )?.runWorkerFirst,
+    ).toEqual([
+      '/__void',
+      '/__void/*',
+      '/api/hello',
+      '/api/users/*',
+      '/blog/*',
+      '/docs/*',
+      '/feed.xml',
+      '/products',
+    ]);
+  });
+
+  it('keeps a root page with server code exact', () => {
+    expect(resolveAssetWorkerBypass(facts({ serverPatterns: ['/'] }))?.runWorkerFirst).toEqual([
+      '/__void',
+      '/__void/*',
+      '/',
+    ]);
+  });
+
+  it('also lists the prefix a trailing wildcard matches, unlike a named catch-all', () => {
+    expect(
+      resolveAssetWorkerBypass(facts({ serverPatterns: ['/proxy/*', '/docs/:path{.+}'] }))
+        ?.runWorkerFirst,
+    ).toEqual(['/__void', '/__void/*', '/docs/*', '/proxy', '/proxy/*']);
+  });
+
+  it.each<[string, Partial<AssetWorkerBypassFacts>, number | null]>([
+    ['no hashed files', { immutableFiles: [] }, null],
+    ['an empty assetsDir', { assetsDir: '' }, null],
+    ['a page in the assets folder', { patterns: ['/assets/guide'] }, 2],
+    ['100 hashed files', { immutableFiles: files(100) }, 100],
+  ])('serves pages from assets with %s', (_name, overrides, headerRules) => {
+    const bypass = resolveAssetWorkerBypass(facts({ serverPatterns: ['/products'], ...overrides }));
+    expect(bypass?.runWorkerFirst).toEqual(['/__void', '/__void/*', '/products']);
+    expect(bypass?.headers?.split('\n').filter((line) => line.startsWith('/')).length ?? null).toBe(
+      headerRules,
+    );
+  });
+
+  it.each<[string, Partial<AssetWorkerBypassFacts>]>([
+    ['more than 100 hashed files', { immutableFiles: files(101) }],
+    ['a hashed file name with a placeholder', { immutableFiles: ['assets/a:b-12345678.js'] }],
+  ])('keeps hashed files on the Worker with %s', (_name, overrides) => {
+    expect(
+      resolveAssetWorkerBypass(facts({ serverPatterns: ['/products'], ...overrides })),
+    ).toEqual({
+      runWorkerFirst: ['/__void', '/__void/*', '/assets/*', '/products'],
+      headers: null,
+    });
+  });
+
+  it('keeps every path on the Worker when no rule can cover the hashed files', () => {
+    expect(
+      resolveAssetWorkerBypass(
+        facts({
+          serverPatterns: ['/products'],
+          assetsDir: 'a:b',
+          immutableFiles: ['a:b/x-12345678.js'],
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it.each<[string, Partial<AssetWorkerBypassFacts>]>([
+    ['auth', { authEnabled: true }],
+    ['live updates', { liveEnabled: true }],
+    ['routing.alwaysUseHttps', { alwaysUseHttps: true }],
+    ['a root parameter', { serverPatterns: ['/:slug'] }],
+    ['a root wildcard', { serverPatterns: ['/*'] }],
+    ['a path that needs encoding', { serverPatterns: ['/caf\u00e9'] }],
+    ['a trailing slash', { serverPatterns: ['/blog/'] }],
+    ['a rule over 100 characters', { serverPatterns: ['/' + 'a'.repeat(100)] }],
+    ['more than 100 rules', { serverPatterns: Array.from({ length: 99 }, (_, i) => `/r${i}`) }],
+  ])('keeps every page on the Worker with %s', (_name, overrides) => {
+    expect(
+      resolveAssetWorkerBypass(facts({ serverPatterns: ['/products'], ...overrides }))
+        ?.runWorkerFirst,
+    ).toEqual(chunkRule);
   });
 });
 

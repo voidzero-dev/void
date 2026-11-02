@@ -20,6 +20,7 @@ import {
   isAbortError,
   isCallSiteActionError,
   refreshPage,
+  toUrlString,
   type PageNavigationResource,
   type PageNavigationResult,
   type NavigationState,
@@ -28,6 +29,7 @@ import {
 } from 'void/pages-client';
 import type { CacheForResult } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
+import type { RouteUrlInput } from 'void/routes';
 import { setActionRouter } from './action.ts';
 import {
   ErrorsContext,
@@ -154,11 +156,13 @@ function currentUrl(): string {
   return window.location.pathname + window.location.search + window.location.hash;
 }
 
-function normalizeUrl(value: string | URL): string {
-  if (typeof value === 'string' && value.startsWith('#')) {
-    return value;
+function normalizeUrl(value: RouteUrlInput): string {
+  const urlString = toUrlString(value);
+  if (urlString.startsWith('#')) {
+    return urlString;
   }
-  const url = value instanceof URL ? value : new URL(value, window.location.origin);
+  // Relative URLs such as `?page=2` resolve against the current page, as in an anchor.
+  const url = new URL(urlString, window.location.href);
   return url.origin === window.location.origin ? url.pathname + url.search + url.hash : url.href;
 }
 
@@ -502,7 +506,7 @@ function App({
             pendingVisitSettlers.delete(resource.id);
             visitSettler.reject(error);
           } else {
-            // A form visit has already settled with its action result.
+            // A data-ready visit has already settled with its result.
             reportError(error);
           }
           if (activePendingNavigationId === resource.id) {
@@ -517,6 +521,8 @@ function App({
   const schedule = useCallback(
     (url: string, options: VisitOptions = {}) => {
       const prepared = engine.prepareVisit(url, options) as ReactPageResource;
+      const resolveOnData =
+        prepared.options.resolveOn === 'data' || prepared.options._resolveOnShell;
       if (prepared.immediate) {
         const navigation = navigationForResource(prepared);
 
@@ -565,7 +571,7 @@ function App({
               // The browser is leaving or downloading a file: keep the current page.
               dispatch({ type: 'abandon', resource: prepared, location: currentUrl() });
               resolveVisit(undefined);
-            } else if (prepared.options._resolveOnShell) {
+            } else if (resolveOnData) {
               pendingVisitSettlers.delete(prepared.id);
               resolveVisit(result.pageData);
             }
@@ -578,6 +584,7 @@ function App({
               resolveViewTransition();
             }
             pendingVisitSettlers.delete(prepared.id);
+            // Public data completion keeps the usual cancellation behavior for GETs.
             const abortingGetVisit =
               prepared.method.toUpperCase() === 'GET' &&
               !prepared.options._resolveOnShell &&
@@ -592,7 +599,7 @@ function App({
             }
             if (
               NavigationFallback ||
-              prepared.options._resolveOnShell ||
+              resolveOnData ||
               isAbortError(error) ||
               isCallSiteActionError(error)
             ) {

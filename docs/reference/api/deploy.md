@@ -8,7 +8,7 @@ Build the app in managed mode inside its isolated environment:
 VOID_DEPLOY_BUILD=1 VOID_DEPLOY_PROJECT_ID=artifact npm run build
 ```
 
-These values select a platform-compatible build. `artifact` is a build marker, not an existing project ID or a credential; the target project is selected during publish approval.
+These values select a platform-compatible build. The target project is selected during publish approval.
 
 ```ts
 import { prepareDeployArtifact } from 'void/deploy';
@@ -16,9 +16,9 @@ import { prepareDeployArtifact } from 'void/deploy';
 const { artifact, assets } = await prepareDeployArtifact('/path/to/app');
 ```
 
-`artifact` contains the deployment manifest, content-addressed asset metadata, and base64 Worker modules when the app needs a Worker. SPAs and static sites contain only assets, using the same app detection, output directory and routing configuration as `void deploy`. `assets` maps asset URL paths to base64 bytes. Keep this result immutable while requesting [publish approval](/guide/platform/administration/connected-apps).
+`artifact` contains the deployment manifest, asset metadata, and any Worker modules. `assets` maps asset URL paths to base64 bytes. SPAs and static sites use the same output directory and routing configuration as `void deploy`. Keep the prepared result unchanged while requesting [publish approval](/guide/platform/administration/connected-apps).
 
-Preparation packages existing build output; it does not build, contact a platform, provision resources, or deploy. It supports Void Cloudflare Worker builds, SPAs, and static sites. Node targets, Pages `output: 'static'`, remote data, deploy-time prerendering, Sandbox, and Live resources require the normal `void deploy` workflow instead.
+Use this API for built Cloudflare Worker apps, SPAs, and static sites. For Node targets, Pages `output: 'static'`, remote data, deploy-time prerendering, Sandbox, or Live resources, use `void deploy`.
 
 Run preparation inside the same isolated environment as the app build. App configuration and build plugins execute project code; keep platform credentials on the publishing server.
 
@@ -28,7 +28,7 @@ Run preparation inside the same isolated environment as the app build. App confi
 `prepareCfBuildOutput` follows Cloudflare's draft Build Output format. Its options and the prepared directory can change between Void releases.
 :::
 
-Use `prepareCfBuildOutput` to convert an existing Cloudflare Worker build into a disposable Cloudflare Build Output directory:
+Use `prepareCfBuildOutput` to prepare an existing Worker build for Cloudflare publication:
 
 ```ts
 import { prepareCfBuildOutput } from 'void/deploy';
@@ -48,7 +48,7 @@ try {
 }
 ```
 
-Pass the Worker output directory that contains a generated `wrangler.json`, such as `dist/ssr`, `dist/rsc`, or `dist/server`. When Cloudflare's build tooling built the app, pass the project root that contains its native Build Output at `.cloudflare/output/v0` instead. Preparation copies modules and assets without changing that input. Native output keeps its module types, auxiliary Workers, Container declarations, and build metadata. Preparation does not provision resources, upload a Worker, or activate a deployment. Container images built from a local Dockerfile exist only in the Docker environment that built them, so publish from that environment.
+Pass a Worker output directory containing a generated `wrangler.json`, such as `dist/ssr` or `dist/server`. For native Cloudflare Build Output, pass the project root containing `.cloudflare/output/v0`. The result is a temporary copy for your publication workflow. For Containers built from a local Dockerfile, publish from the same Docker environment used to build the image.
 
 | Option        | Description                                                                                                                                          |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -56,4 +56,4 @@ Pass the Worker output directory that contains a generated `wrangler.json`, such
 | `mode`        | Vite build mode. Native output keeps the mode it was built with, and a different value returns `null`. For other output it defaults to `production`. |
 | `projectRoot` | App directory containing `package.json` and its installed dependencies. Defaults to the input directory.                                             |
 
-The result contains `directory`, an optional `assetsDirectory` pointing to the input assets, and an asynchronous `dispose()` method. Always dispose the result after use. Unsupported build configuration returns `null`. A directory without a Worker build, a missing or invalid Worker module, or an asset symlink outside the asset directory throws an error.
+The result provides `directory`, an optional `assetsDirectory` pointing to the input assets, and an async `dispose()` method. Dispose the result after publication. Unsupported configurations return `null`; missing or invalid build files throw an error.

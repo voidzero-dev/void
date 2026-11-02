@@ -12,7 +12,7 @@ Create route handlers in `routes/` using `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, o
 
 <RoutesFileTree />
 
-Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` becomes a catch-all. Files or directories starting with `_` are ignored, and so are those starting with `.`, except `.well-known`. Directories wrapped in parentheses like `(admin)` are route groups. They help organize files without changing the URL.
+Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` becomes a catch-all. Prefix files or directories with `_` or `.` to exclude them from routing; `.well-known` remains available for standard discovery endpoints. Directories wrapped in parentheses like `(admin)` are route groups. They help organize files without changing the URL.
 
 ### Environment-only routes
 
@@ -45,8 +45,8 @@ export const GET = defineHandler((c) => {
 A file can export multiple methods:
 
 ```ts
-import { users } from '@schema';
 // routes/api/users/index.ts  →  GET + POST /api/users
+import { users } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -61,13 +61,13 @@ export const POST = defineHandler(async (c) => {
 });
 ```
 
-`GET` also answers `HEAD` requests, so route files can't export `HEAD`.
+`GET` handlers also answer `HEAD` requests automatically.
 
 See [Database](./database.md) for queries with D1, PostgreSQL, or MySQL.
 
 ### JSX handlers
 
-Use `.tsx` or `.jsx` when a server handler contains JSX. Void doesn't choose a JSX runtime: route files compile with the same JSX settings as the rest of your Vite app. In a React or Solid app, that is the framework's JSX, so render it with the framework's server renderer and return HTML. For example, in a React app:
+Use `.tsx` or `.jsx` when a server handler contains JSX. Route files use your app's JSX settings. In React or Solid, render JSX to HTML with the framework's server renderer. For example, in React:
 
 ```tsx
 // routes/hello.tsx → GET /hello
@@ -77,7 +77,7 @@ import { defineHandler } from 'void';
 export const GET = defineHandler((c) => c.html(renderToStaticMarkup(<h1>Hello!</h1>)));
 ```
 
-In an app without a JSX framework (API only, Vue, or Svelte), use [Hono's JSX](https://hono.dev/docs/guides/jsx). Your app needs `hono` in its own dependencies (new Void apps have it). Set the runtime in `vite.config.ts`, so it applies to `.tsx` and `.jsx` files alike:
+For API-only, Vue, or Svelte apps, add `hono` as a dependency and configure [Hono's JSX](https://hono.dev/docs/guides/jsx) in `vite.config.ts`:
 
 ```ts
 // vite.config.ts
@@ -115,8 +115,8 @@ Return values are automatically converted:
 `defineHandler.withValidator()` adds input validation for `body`, `query`, and `params`. The recommended approach is to derive validators from your [Drizzle schema](./database.md#schema-derived-validators), which keeps validation in sync with the database.
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // routes/api/users/index.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -254,8 +254,8 @@ defineHandler(middleware1, middleware2, handler);
 Middleware runs in order. Each can short-circuit (return a response without calling `next()`) or post-process (modify the response after `await next()`). Both `defineMiddleware`-wrapped functions and raw Hono `MiddlewareHandler` functions are accepted.
 
 ```ts
-import { cors } from 'hono/cors';
 // routes/api/stats.ts
+import { cors } from 'hono/cors';
 import { defineHandler } from 'void';
 
 export const GET = defineHandler(cors({ origin: 'https://app.example.com' }), (c) => ({

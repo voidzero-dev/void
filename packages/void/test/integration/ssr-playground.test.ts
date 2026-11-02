@@ -1,6 +1,7 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { getWorkerAssetsDir, getWorkerConfigPath } from '@cloudflare/build-output-utils';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer } from '../../../../test/integration-helpers.ts';
@@ -124,6 +125,7 @@ describe('playground/ssr build + preview', () => {
 
     expect(existsSync(workerEntry)).toBe(true);
     expect(existsSync(clientManifest)).toBe(true);
+    expect(existsSync(join(ROOT, 'playground/ssr/cloudflare.config.ts'))).toBe(false);
 
     const code = readFileSync(workerEntry, 'utf-8');
     // String literals survive minification; function names may be mangled
@@ -151,6 +153,11 @@ describe('playground/ssr build + preview', () => {
     expect(headers).toContain(
       `/${clientEntryFile()}\n  Cache-Control: public, max-age=31536000, immutable\n`,
     );
+    // v2 preview consumes the native artifact; CLI validation consumes dist.
+    const nativeRoot = join(ROOT, 'playground/ssr');
+    const native = JSON.parse(readFileSync(getWorkerConfigPath(nativeRoot), 'utf8'));
+    expect(native.assets.runWorkerFirst).toEqual(runWorkerFirst);
+    expect(readFileSync(join(getWorkerAssetsDir(nativeRoot), '_headers'), 'utf8')).toBe(headers);
   });
 
   it('preview serves the hashed client entry immutable with and without cookies', async () => {

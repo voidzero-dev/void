@@ -30,7 +30,7 @@ On a direct Cloudflare target, the value is stored as an encrypted Worker secret
 ## `void secret sync` {#void-secret-sync}
 
 ```
-void secret sync <file> [--project <name>]
+void secret sync <file> [--project <name>] [--yes]
 ```
 
 Upload production server values from a dotenv file stored outside your project. Include only keys declared in `env.ts`; leave out local development credentials and public `VITE_*` values.
@@ -38,6 +38,8 @@ Upload production server values from a dotenv file stored outside your project. 
 ```sh
 void secret sync /secure/path/production.env
 ```
+
+Pass `--yes` to skip confirmation in scripts and CI.
 
 Existing remote secrets absent from the file are kept. Every entry must be a server key declared in `env.ts`, and its value must pass validation.
 

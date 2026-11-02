@@ -1,9 +1,11 @@
-import type { Context, Env, MiddlewareHandler } from 'hono';
-import type { RewriteDestination } from 'void/routes';
+import type { Context, Env, MiddlewareHandler, Next } from 'hono';
+import type { RewriteDestination, RouteDestination, RouteUrl } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
+import { executeComposedHandler, setHandlerComposition } from './handler-composition.ts';
 import { convertReturnValue } from './response.ts';
+import type { TypedRoutes } from './route-url.ts';
 import type { AssetBinding } from './routing-worker.ts';
 import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
 
@@ -24,6 +26,10 @@ export class VoidAssetRewriteError extends Error {
     );
   }
 }
+
+// `routing.rewrites` and `routing.fallbacks` keep RewriteDestination, whose
+// destinations may contain placeholders or static files.
+type RewritePath = TypedRoutes extends true ? RouteUrl : RewriteDestination;
 
 /** Hono `Variables` for Void workers, including auth values populated by Better Auth middleware. */
 export interface CloudContextVariables {
@@ -76,6 +82,7 @@ declare module 'hono' {
      * ```ts
      * export default defineMiddleware(async (c, next) => {
      *   if (!hasLocalePrefix(c.req.path)) {
+     *     // With `routing.typedRoutes`, add `as RouteUrl` to a path built at runtime.
      *     return c.rewrite(`/en${c.req.path}`);
      *   }
      *   return next();
@@ -87,12 +94,12 @@ declare module 'hono' {
      * do not re-evaluate on it. Your middleware is responsible for its own loop
      * prevention (e.g., checking if the path already has a prefix).
      *
-     * The `path` type is `RewriteDestination`, which is `keyof RouteMap | (string & {})`.
-     * Known routes autocomplete, but any string is still accepted so dynamic paths
-     * (e.g. `` `/users/${id}` ``) continue to work. When `.void/routes.d.ts` has not
-     * been generated yet, `RouteMap` is empty and this is equivalent to `string`.
+     * Accepts a typed `{ pathname, params, query, hash }` destination or a string.
+     * String destinations retain route autocomplete and support dynamic paths
+     * (e.g. `` `/users/${id}` ``). With `routing.typedRoutes`, a string must be a
+     * `RouteUrl`: cast a path built at runtime with `as RouteUrl`.
      */
-    rewrite: (path: RewriteDestination) => Promise<Response>;
+    rewrite: (path: RewritePath | RouteDestination) => Promise<Response>;
 
     /**
      * Returns the URL the client actually requested — the pre-rewrite URL as
@@ -133,7 +140,7 @@ type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;
 type LoaderFn<R> = (c: CloudContext) => R | Response | Promise<R | Response>;
 // For loaders that LoaderFn cannot infer, such as `cond ? loadA() : loadB()`.
 type LoaderOutput<F extends HandlerFn> = Exclude<Awaited<ReturnType<F>>, Response>;
-type MiddlewareFn = MiddlewareHandler<CloudEnv>;
+type MiddlewareFn = (c: CloudContext, next: Next) => ReturnType<MiddlewareHandler<CloudEnv>>;
 type BasicAuthOptionValue = string | (() => string);
 
 export interface BasicAuthOptions {
@@ -218,6 +225,10 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
 export function defineHandler<R>(
   handler: LoaderFn<R>,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+// Middleware keeps a typed leaf's validators and output (e.g. withValidator).
+export function defineHandler<V extends ValidatorSlots, R>(
+  ...args: [MiddlewareFn, ...Array<MiddlewareFn>, TypedHandler<V, R>]
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
@@ -284,23 +295,14 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
   }
   const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
   const handler = args[args.length - 1] as HandlerFn;
-
-  return (async (c: CloudContext) => {
-    let index = 0;
-    const dispatch = async (): Promise<void> => {
-      if (index < middlewares.length) {
-        const middleware = middlewares[index++];
-        const middlewareResponse = await middleware(c, dispatch);
-        if (middlewareResponse instanceof Response) {
-          c.res = middlewareResponse;
-        }
-      } else {
-        c.res = convertReturnValue(await handler(c));
-      }
-    };
-    await dispatch();
-    return c.res;
-  }) as TypedHandler;
+  // Pages read the recorded composition to render inside the same chain.
+  const composed = setHandlerComposition(
+    async (c: CloudContext) =>
+      executeComposedHandler(c, middlewares, async () => convertReturnValue(await handler(c))),
+    middlewares,
+    handler,
+  );
+  return composed as unknown as TypedHandler;
 }
 
 /**
@@ -338,9 +340,7 @@ export namespace defineHandler {
  * Identity function that provides type inference for middleware.
  * At runtime it simply returns the function passed to it.
  */
-export function defineMiddleware(
-  handler: MiddlewareHandler<CloudEnv>,
-): MiddlewareHandler<CloudEnv> {
+export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
   return handler;
 }
 

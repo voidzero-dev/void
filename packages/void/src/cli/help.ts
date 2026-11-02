@@ -151,9 +151,9 @@ const HELP_TREE: HelpTree = {
     ],
   },
   migrate: {
-    summary: 'Move legacy Void project settings into void.config.ts.',
+    summary: 'Update project configuration.',
     usage: ['void migrate'],
-    examples: [{ command: 'void migrate', description: 'Convert void.json to void.config.ts' }],
+    examples: [{ command: 'void migrate', description: 'Update project configuration' }],
   },
   deploy: {
     summary:
@@ -825,10 +825,17 @@ const HELP_TREE: HelpTree = {
       list: withProjectOption('List project secrets.', 'void secret list [options]'),
       put: withProjectOption('Set a project secret.', 'void secret put <name> [options]'),
       delete: withProjectOption('Delete a project secret.', 'void secret delete <name> [options]'),
-      sync: withProjectOption(
-        'Sync secrets from a dotenv file.',
-        'void secret sync <file> [options]',
-      ),
+      sync: {
+        summary: 'Sync secrets from a dotenv file.',
+        usage: ['void secret sync <file> [options]'],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          {
+            command: '--yes',
+            description: 'Skip confirmation (required in CI and non-interactive shells)',
+          },
+        ],
+      },
     },
   },
   domain: {

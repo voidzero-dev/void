@@ -41,7 +41,7 @@ The installed platform needs a separate runtime token to provision resources for
 
 To enable email during install or upgrade, set both `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID`. Void records the pair for later upgrades; supplying only one is an error.
 
-Use `--dashboard-url `[`https://dash.example.com`](https://dash.example.com) when deploying the optional user
+Use `--dashboard-url https://dash.example.com` when deploying the optional user
 dashboard separately. The URL must be an HTTPS origin without credentials, a
 path, query, or fragment. Void permits that origin's login callbacks and saves
 it for later maintenance; it does not deploy a dashboard Worker. Omission keeps
@@ -138,7 +138,7 @@ After discovery on another machine, set `VOID_PLATFORM_DATABASE_URL`. See [Manag
 
 Repair and upgrade preserve disabled state. New, resumed, and previously disabled installations block user traffic until all target Workers pass verification; the installer's health probes can still run. Routes and custom domains remain attached.
 
-If a platform Worker was changed outside Void, or has an active version without a Void deployment record, a command that deploys the platform Workers stops before it changes a platform Worker or pauses traffic, unless you agree in a terminal to replace the changes. See [Platform Workers changed outside Void](../../guide/platform/installation/maintenance.md#workers-changed-outside-void).
+Replacing platform Worker configuration changed outside Void requires interactive approval. Follow [Platform Workers changed outside Void](../../guide/platform/installation/maintenance.md#workers-changed-outside-void) if maintenance asks for it.
 
 `--runtime` selects a custom platform build. Relative paths resolve from your current directory. Void verifies the build before making changes; see [Platform Development](../../guide/platform/development/runtime.md#deploying-your-runtime) for creating one.
 

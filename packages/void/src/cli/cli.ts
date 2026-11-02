@@ -279,7 +279,7 @@ if (helpPath) {
       hint: '--tsconfig | --github | --git | --no-git',
       description: 'Set up void in a new or existing project',
     },
-    { name: 'migrate', description: 'Migrate legacy project configuration' },
+    { name: 'migrate', description: 'Update project configuration' },
     {
       name: 'info',
       hint: '--json',

@@ -11,8 +11,8 @@ Use an action to change server data from a form or button. Define it in the page
 Export `action` from a `.server.ts` file. Use `withValidator()` with a [schema-derived validator](../database.md#schema-derived-validators) to validate the request body:
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // pages/users/index.server.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -163,7 +163,7 @@ The types are inferred from your action's `withValidator()` schema in the compan
 | `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                  |
 | `clearError()`                   | Clear `error`.                                                                                                                                                                      |
 
-Use `setError()` to display errors from your own client-side validation. Setting an error preserves errors on other fields. Changing a field clears that field's validation error automatically (`setData` in React and Solid, or assigning to `data` in Vue and Svelte).
+Use `setError()` for client-side validation. Editing a field clears its error automatically.
 
 For a native React form, use `form.post`, `form.put`, `form.patch`, or `form.delete` as a native form action. For an awaitable mutation, use `action()`. In Vue, Svelte, and Solid, form submissions return `Promise<void>`; catch thrown errors or use your framework's error handling.
 
@@ -175,7 +175,7 @@ const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
 <Form form={form} method="put">{/* submits to /users/42 */}</Form>
 ```
 
-Create forms often need empty fields again after a successful save. Either pass `resetOnSuccess: true` in the third argument, or call `form.reset({ initial: true })` when `form.wasSuccessful` becomes `true`.
+To clear a create form after saving, pass `resetOnSuccess: true` in the third argument. Use `form.reset({ initial: true })` to restore the original values manually.
 
 ### React submission callbacks
 
@@ -188,16 +188,15 @@ const form = useForm(
   {
     onSuccess: () => setDialogOpen(false),
     onError: (error) => {
-      // A field-error map or VoidActionError for a handled action failure.
       console.error(error);
     },
   },
 );
 ```
 
-Each submission uses the callbacks from when it was dispatched. Callbacks run inside the React Action, before the updated UI commits. Use an effect or ref callback to focus an element that appears after submission.
+`onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
 
-Callbacks can return `Promise<void>`. The Action awaits them, and `form.pending` stays true until they complete. Errors thrown or rejected by callbacks reach the nearest React error boundary. Aborted submissions invoke neither callback.
+If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
 
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
@@ -206,8 +205,8 @@ Vue, Svelte, and Solid submissions return a promise instead; use `await form.pos
 When a page needs multiple mutations, such as updating and deleting a user on the same page, export `actions` (plural) instead of `action`:
 
 ```ts
-import { users, updateUserSchema } from '@schema';
 // pages/users/[id].server.ts
+import { users, updateUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db, eq } from 'void/db';
 
@@ -227,7 +226,7 @@ export const actions = {
 };
 ```
 
-Named actions are dispatched via a `?actionName` suffix on the URL (e.g. `/users/42?update`). The client primitives `useForm` and `action()` handle this automatically. The action key stays out of the page URL. When `POST /users/42?update&tab=profile` renders the page again, `useForm` and `action()` leave the address bar at `/users/42?tab=profile`, and `c.redirect('/users/42')` goes to `/users/42?tab=profile`.
+Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
 
 Use `action` or `actions` in a file, not both.
 

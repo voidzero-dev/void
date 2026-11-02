@@ -53,7 +53,7 @@ export function SearchTypeahead({
             search: async (query: string) => searchItems(await remoteSearch(query)),
           }
         : createStaticSource(items, {
-            keywords: (item: SearchItem) => item.auxiliaryData?.keywords ?? [],
+            keywords: (item: SearchItem) => [...(item.auxiliaryData?.keywords ?? [])],
           }),
     [items, remoteSearch],
   );

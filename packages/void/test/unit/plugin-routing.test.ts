@@ -1098,9 +1098,11 @@ describe('routingPlugin native asset Worker bypass', () => {
     }
   });
 
-  function createBuildRoot(options: { wrangler?: boolean } = {}): string {
+  function createBuildRoot(options: { wrangler?: boolean; route?: boolean } = {}): string {
     const root = createTempRoot();
-    writeFileSync(join(root, 'routes', 'index.ts'), 'export const GET = () => "ok";\n');
+    if (options.route !== false) {
+      writeFileSync(join(root, 'routes', 'index.ts'), 'export const GET = () => "ok";\n');
+    }
     mkdirSync(join(root, 'dist', 'ssr'), { recursive: true });
     mkdirSync(join(root, 'dist', 'client', 'assets'), { recursive: true });
     if (options.wrangler !== false) {
@@ -1150,11 +1152,7 @@ describe('routingPlugin native asset Worker bypass', () => {
       {},
       clientBundle(),
     );
-    (getHookHandler(plugin.writeBundle) as (...args: Array<unknown>) => void).call(
-      { environment },
-      {},
-      {},
-    );
+    plugin.api.finalizeCloudflareAssets(normalizePath(join(root, 'dist/client')), 'assets');
   }
 
   const wranglerText = (root: string) =>
@@ -1282,15 +1280,18 @@ describe('routingPlugin native asset Worker bypass', () => {
     expect(existsSync(headersPath(root))).toBe(false);
   });
 
-  function writeEarlierBypass(root: string): void {
+  function writeEarlierRule(
+    root: string,
+    runWorkerFirst = ['/**', '!/assets/old-12345678.js'],
+  ): void {
     const wrangler = JSON.parse(WRANGLER);
-    wrangler.assets.run_worker_first = ['/**', '!/assets/old-12345678.js'];
+    wrangler.assets.run_worker_first = runWorkerFirst;
     writeFileSync(join(root, 'dist', 'ssr', 'wrangler.json'), JSON.stringify(wrangler));
   }
 
   it('refreshes an earlier bypass on a client-only watch rebuild', async () => {
     const root = createBuildRoot();
-    writeEarlierBypass(root);
+    writeEarlierRule(root);
     await runClientBuild(root);
     expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(['/**', `!/${CHUNK}`]);
     expect(readFileSync(headersPath(root), 'utf8')).toContain(`/${CHUNK}\n`);
@@ -1298,7 +1299,7 @@ describe('routingPlugin native asset Worker bypass', () => {
 
   it('sends every path to the Worker again when a client-only rebuild is not eligible', async () => {
     const root = createBuildRoot();
-    writeEarlierBypass(root);
+    writeEarlierRule(root);
     await runClientBuild(root, { routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } });
     expect(wranglerText(root)).toBe(WRANGLER);
     expect(existsSync(headersPath(root))).toBe(false);
@@ -1309,5 +1310,61 @@ describe('routingPlugin native asset Worker bypass', () => {
     await runClientBuild(root);
     expect(existsSync(join(root, 'dist', 'ssr', 'wrangler.json'))).toBe(false);
     expect(existsSync(headersPath(root))).toBe(false);
+  });
+
+  describe('output: "static" pages', () => {
+    const PAGE_RULE = ['/__void', '/__void/*', '/api/hello', '/contact', '/items/*', '/products'];
+
+    function createPagesRoot(output = 'static'): string {
+      const root = createBuildRoot({ route: false });
+      const page = 'export default () => null;\n';
+      for (const [file, source] of Object.entries({
+        'void.json': JSON.stringify({ output }),
+        'pages/index.tsx': page,
+        'pages/about.tsx': page,
+        'pages/products.tsx': page,
+        'pages/products.server.ts': 'export const loader = () => ({});\n',
+        'pages/contact.tsx': page,
+        'pages/contact.server.ts': 'export const action = () => ({});\n',
+        'pages/items/[id].tsx': page,
+        'routes/api/hello.ts': 'export const GET = () => "hi";\n',
+      })) {
+        mkdirSync(dirname(join(root, file)), { recursive: true });
+        writeFileSync(join(root, file), source);
+      }
+      return root;
+    }
+
+    it('lists only paths with server code for the Worker and keeps the immutable _headers', async () => {
+      const root = createPagesRoot();
+      await runClientBuild(root);
+      expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(PAGE_RULE);
+      expect(readFileSync(headersPath(root), 'utf8')).toContain(`/${CHUNK}\n`);
+    });
+
+    it.each<[string, string, Parameters<typeof runClientBuild>[1]]>([
+      ['output: "server"', 'server', {}],
+      ['routing.alwaysUseHttps', 'static', { routing: { alwaysUseHttps: true } }],
+      ['live updates', 'static', { live: { bindingName: 'LIVE', className: 'Live' } }],
+    ])('keeps every page on the Worker with %s', async (_name, output, options) => {
+      const root = createPagesRoot(output);
+      await runClientBuild(root, options);
+      expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(['/**', `!/${CHUNK}`]);
+    });
+
+    it('refreshes an earlier page rule on a client-only watch rebuild', async () => {
+      const root = createPagesRoot();
+      writeEarlierRule(root, ['/__void', '/__void/*', '/old']);
+      await runClientBuild(root);
+      expect(JSON.parse(wranglerText(root)).assets.run_worker_first).toEqual(PAGE_RULE);
+    });
+
+    it('sends every path to the Worker again when a client-only rebuild is not eligible', async () => {
+      const root = createPagesRoot();
+      writeEarlierRule(root, PAGE_RULE);
+      await runClientBuild(root, { routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } });
+      expect(wranglerText(root)).toBe(WRANGLER);
+      expect(existsSync(headersPath(root))).toBe(false);
+    });
   });
 });

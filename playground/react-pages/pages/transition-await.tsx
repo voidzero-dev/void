@@ -1,4 +1,4 @@
-import { action, useForm } from '@void/react';
+import { action, useForm, useRouter } from '@void/react';
 import { use, useActionState, useEffect, useOptimistic, useState, useTransition } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { Props } from './transition-await.server.ts';
@@ -9,6 +9,8 @@ function FormButton({ testId }: { testId: string }) {
 }
 
 export default function TransitionAwaitPage({ revision }: Props) {
+  const router = useRouter();
+  const [operation, setOperation] = useState('action');
   const [pending, startTransition] = useTransition();
   const [plainPending, setPlainPending] = useState(false);
   const [completed, setCompleted] = useState(false);
@@ -33,9 +35,22 @@ export default function TransitionAwaitPage({ revision }: Props) {
   }
 
   async function run() {
-    const result = await action('/transition-await?ping');
-    if (!result.ok) {
-      throw result.error;
+    if (operation === 'action') {
+      const result = await action('/transition-await?ping');
+      if (!result.ok) {
+        throw result.error;
+      }
+    } else {
+      // A mutation performed outside Void's action client, like an auth SDK call.
+      await fetch('/transition-await?ping', { method: 'POST' });
+      if (operation === 'visit') {
+        await router.visit('/transition-await?visited=1', {
+          preserveState: true,
+          resolveOn: 'data',
+        });
+      } else {
+        await router.refresh({ resolveOn: 'data' });
+      }
     }
     startTransition(() => setCompleted(true));
   }
@@ -55,6 +70,15 @@ export default function TransitionAwaitPage({ revision }: Props) {
   return (
     <section>
       <h1>Transition Await</h1>
+      <select
+        data-testid="operation"
+        value={operation}
+        onChange={(event) => setOperation(event.target.value)}
+      >
+        <option value="action">Action</option>
+        <option value="visit">Visit</option>
+        <option value="refresh">Refresh</option>
+      </select>
       <output data-testid="revision">{revision}</output>
       <output data-testid="completed">{completed ? 'complete' : 'waiting'}</output>
       <output data-testid="optimistic">{optimisticRevision}</output>
