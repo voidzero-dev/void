@@ -8,17 +8,18 @@
  * request matching a negative rule never reaches the Worker, even when the
  * file is missing. Misses and other paths in the folder keep the Worker's
  * not-found, SPA and page handling.
- * `routing.alwaysUseHttps` alone does not count as an edge rule: hashed files
- * are only linked from pages the Worker has already moved to HTTPS.
+ * `routing.alwaysUseHttps` alone does not block this: hashed files are only
+ * linked from pages the Worker has already moved to HTTPS.
  *
  * The asset layer does not know which files are fingerprinted, so a generated
  * `_headers` file gives every bypassed chunk the immutable policy the Worker
  * would have set.
  *
  * An `output: "static"` Pages build goes further when nothing site-wide must
- * run first: every file answers first, and only paths with server code reach
- * the Worker first. A page without a server module prerenders the HTML the
- * Worker would render, so its file can answer. Hashed files keep their
+ * run first (auth, live, `routing.alwaysUseHttps`): every file answers first,
+ * and only paths with server code reach the Worker first. A page without a
+ * server module prerenders the HTML the Worker would render, so its file can
+ * answer. Hashed files keep their
  * immutable policy from the generated `_headers`, or stay on the Worker when
  * it cannot list them.
  */
@@ -35,8 +36,6 @@ const MAX_RUN_WORKER_FIRST_RULE_LENGTH = 100;
 const MAX_HEADERS_RULES = 100;
 
 const IMMUTABLE_CACHE_CONTROL = 'public, max-age=31536000, immutable';
-// Void's own Worker paths. They are not in the route scan.
-const INTERNAL_PATTERNS = ['/__void/*'];
 const AUTH_PATTERNS = ['/api/auth/*'];
 
 export type AssetWorkerBypassFacts = {
@@ -201,7 +200,8 @@ function resolveHashedFileBypass(
   }
   const patterns = [
     ...facts.patterns,
-    ...INTERNAL_PATTERNS,
+    // Void's own Worker paths. They are not in the route scan.
+    ...VOID_INTERNAL_WORKER_FIRST,
     ...(facts.authEnabled ? AUTH_PATTERNS : []),
   ];
   if (patterns.some((pattern) => patternCanReachUnder(pattern, assetsDir))) {

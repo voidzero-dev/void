@@ -58,8 +58,8 @@ With the default `output: "server"`, use `export const prerender = true` for dep
 
 `void deploy` chooses the deployment automatically:
 
-- **Fully static:** if every page is prerendered and there are no API routes, middleware, cron jobs, or queues, Void deploys as a pure static site with no worker.
-- **Hybrid:** if any pages are not prerenderable, such as dynamic pages without `getPrerenderPaths()` or pages with `export const prerender = false`, a worker is deployed to handle those routes at runtime. Prerendered pages are still served as static assets.
+- **Fully static:** if every page is prerendered and there are no API routes, middleware, cron jobs, or queues, Void deploys the built files as a static site. With `--platform cloudflare`, pages and files are served without running a Worker. If you use [edge rules](./edge/headers.md) (`routing` headers, redirects, rewrites, fallbacks, or `alwaysUseHttps`) or a `_headers` or `_redirects` file in `public/`, a small Worker runs on every request to apply them.
+- **Hybrid:** if any pages are not prerenderable, such as dynamic pages without `getPrerenderPaths()` or pages with `export const prerender = false`, a Worker is deployed to handle those routes at runtime. With `--platform cloudflare`, prerendered pages without a `.server.ts` file are served as static files without running the Worker. API routes, pages with a `.server.ts` file, and dynamic pages run in the Worker. Every page runs through the Worker when the app uses middleware, auth, live updates, edge rules (including a `_headers` or `_redirects` file in `public/`), a custom Vite `base`, a `routing.notFound` setting other than `"none"`, or a dynamic page at the top level of `pages/`, such as `pages/[slug].vue`.
 
 ## Relationship to `inference.appType: "static"`
 
@@ -68,5 +68,5 @@ The `inference.appType` field describes app type (SPA, static, void), while `out
 |              | `inference.appType: "static"`                   | `output: "static"`                            |
 | ------------ | ----------------------------------------------- | --------------------------------------------- |
 | **What**     | Deploy a pre-built static site (no Void plugin) | Prerender a Void app at build time            |
-| **Worker**   | None (static assets only)                       | Only if some pages can't be prerendered       |
+| **Worker**   | None (static assets only)                       | Only for server code and edge rules           |
 | **Use case** | VitePress, plain HTML, external SSG tools       | Void apps with mostly or fully static content |

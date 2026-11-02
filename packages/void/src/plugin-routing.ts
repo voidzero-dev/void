@@ -509,8 +509,6 @@ export function routingPlugin(
     assetsDir: string,
     userHeaders: boolean,
   ): { headers: string | null; wranglerPath: string; wranglerText: string | null } | null {
-    // `routing.alwaysUseHttps` keeps the bypass: hashed files are only linked
-    // from pages the Worker has already moved to HTTPS.
     if (!scan || !resolvedConfig || compileOptions.managedDispatch) {
       return null;
     }
