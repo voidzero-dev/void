@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { isDeepStrictEqual } from 'node:util';
 import { isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
@@ -6,6 +6,7 @@ import { parseJsoncObject } from './cli/generated-wrangler-config.ts';
 import { TYPED_CONFIG_FILE } from './config-loader.ts';
 import { readConfig } from './config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
+import { ensureGitignoreLines } from './shared/gitignore.ts';
 
 export const MATERIALIZED_CLOUDFLARE_FILE = '.void-wrangler.jsonc';
 export const VOID_LOCK_FILE = 'void.lock.json';
@@ -13,17 +14,9 @@ const PREVIEW_POINTER_FILE = 'preview-deploy-config.json';
 
 /** Add the generated Cloudflare config to `.gitignore` unless a line already ignores it. */
 export function ignoreMaterializedCloudflareConfig(root: string): void {
-  const path = join(root, '.gitignore');
-  const source = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  const ignored = source.split('\n').some((line) => {
-    const entry = line.trim();
-    return entry === MATERIALIZED_CLOUDFLARE_FILE || entry === `/${MATERIALIZED_CLOUDFLARE_FILE}`;
+  ensureGitignoreLines(root, [MATERIALIZED_CLOUDFLARE_FILE], {
+    [MATERIALIZED_CLOUDFLARE_FILE]: [`/${MATERIALIZED_CLOUDFLARE_FILE}`],
   });
-  if (ignored) {
-    return;
-  }
-  const separator = source && !source.endsWith('\n') ? '\n' : '';
-  writeFileSync(path, `${source}${separator}${MATERIALIZED_CLOUDFLARE_FILE}\n`);
 }
 
 type JsonObject = Record<string, unknown>;

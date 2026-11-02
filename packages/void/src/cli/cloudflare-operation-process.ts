@@ -1192,7 +1192,7 @@ async function workerChanges(): Promise<Result> {
     } catch {
       /* Human upload presentation. */
     }
-    const printed = readCfUploadOutput(called.stdout);
+    const printed = readCfUploadOutput(called);
     const versionId = uploaded.version_id ?? uploaded.id ?? uploaded.versionId ?? printed.versionId;
     if (typeof versionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(versionId)) {
       throw new Error('Cloudflare did not return the uploaded Worker version ID.');

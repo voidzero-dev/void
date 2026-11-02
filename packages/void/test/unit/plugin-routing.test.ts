@@ -1150,11 +1150,7 @@ describe('routingPlugin native asset Worker bypass', () => {
       {},
       clientBundle(),
     );
-    (getHookHandler(plugin.writeBundle) as (...args: Array<unknown>) => void).call(
-      { environment },
-      {},
-      {},
-    );
+    plugin.api.finalizeCloudflareAssets(join(root, 'dist/client'), 'assets');
   }
 
   const wranglerText = (root: string) =>

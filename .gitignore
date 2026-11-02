@@ -5,6 +5,7 @@ dist
 *.tsbuildinfo
 .DS_Store
 .wrangler
+.cloudflare
 .void-wrangler.jsonc
 .env
 .claude

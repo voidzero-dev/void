@@ -16,10 +16,10 @@ export default defineConfig({
 });
 ```
 
-| Option             | Type                      | Description                                                                                                                                                                                                                       |
-| ------------------ | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `persistTo`        | `string`                  | Directory path for persisting local dev state (D1, KV, R2). Defaults to `.void/` in the project root.                                                                                                                             |
-| `auxiliaryWorkers` | `AuxiliaryWorkerConfig[]` | Additional workers to run inside the same Miniflare instance during dev. Passed through to `@cloudflare/vite-plugin`. Useful for running multiple workers that share bindings (e.g. a separate API worker alongside a dashboard). |
+| Option             | Type                      | Description                                                                                                                                                                                                                                 |
+| ------------------ | ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `persistTo`        | `string`                  | Directory path for persisting local dev state (D1, KV, R2). Defaults to `.void/` in the project root.                                                                                                                                       |
+| `auxiliaryWorkers` | `AuxiliaryWorkerConfig[]` | Additional Workers to run alongside your app, such as a separate API Worker and dashboard that share bindings. Each entry accepts `configPath` (JSON, JSONC, or TOML), `config` (settings or a callback), `viteEnvironment`, and `devOnly`. |
 
 ## Project configuration {#project-configuration}
 

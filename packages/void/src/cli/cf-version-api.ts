@@ -823,7 +823,10 @@ async function prepareContainerMetadata(options: {
           if (pushed.status !== 0 || pushed.signal || pushed.error) {
             throw new Error('Cloudflare Container image push failed.');
           }
-          const matches = [...pushed.stdout.matchAll(/Pushed image:\s*(\S+)/g)];
+          // cf prints this on stdout before 1.0.0-beta.21, and on stderr since.
+          const matches = [
+            ...`${pushed.stdout}\n${pushed.stderr}`.matchAll(/Pushed image:\s*(\S+)/g),
+          ];
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||

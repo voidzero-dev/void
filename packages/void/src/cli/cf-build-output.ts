@@ -159,6 +159,73 @@ export async function prepareCfBuildOutput(
 ): Promise<CfBuildOutput | null> {
   const source = resolve(workerDirectory);
   if (existsSync(getRootConfigPath(source))) {
+    const deferredContainers = join(dirname(getRootConfigPath(source)), 'void-containers.json');
+    if (existsSync(deferredContainers)) {
+      const built = await readBuildOutput(source);
+      if (
+        (accountId !== undefined &&
+          built.rootConfig.accountId !== undefined &&
+          accountId !== built.rootConfig.accountId) ||
+        (mode !== undefined && mode !== built.rootConfig.buildContext.mode)
+      ) {
+        return null;
+      }
+      const metadata = record(JSON.parse(readFileSync(deferredContainers, 'utf8')));
+      const path = metadata?.workerDirectory;
+      if (
+        typeof path !== 'string' ||
+        isAbsolute(path) ||
+        path.includes('\\') ||
+        path.includes(':') ||
+        !isInside(source, resolve(source, path)) ||
+        resolve(source, path) === source
+      ) {
+        throw new Error('Invalid Void Container build output directory.');
+      }
+      const directory = realpathSync(resolve(source, path));
+      const canonicalRoot = realpathSync(source);
+      if (directory === canonicalRoot || !isInside(canonicalRoot, directory)) {
+        throw new Error('Void Container output must stay inside the project.');
+      }
+      const prepared = await prepareCfBuildOutput(
+        directory,
+        accountId,
+        mode ?? built.rootConfig.buildContext.mode,
+        projectRoot,
+      );
+      if (!prepared) {
+        return null;
+      }
+      let native: CfBuildOutput | null = null;
+      try {
+        // Stage native Workers through the same manifest/path validation as
+        // ordinary native output before combining them with deferred Containers.
+        native = await prepareNativeBuildOutput(source, accountId, mode, projectRoot);
+        if (!native) {
+          await prepared.dispose();
+          return null;
+        }
+        const staged = await readBuildOutput(native.directory);
+        // Container preparation replaces only the entry Worker. Auxiliary Workers
+        // remain part of the native build and must travel with the final upload.
+        for (const [name, worker] of Object.entries(staged.workers)) {
+          if (name !== 'default') {
+            cpSync(
+              dirname(worker.configPath),
+              dirname(getWorkerConfigPath(prepared.directory, name)),
+              { recursive: true },
+            );
+          }
+        }
+        await readBuildOutput(prepared.directory);
+        return prepared;
+      } catch (error) {
+        await prepared.dispose();
+        throw error;
+      } finally {
+        await native?.dispose();
+      }
+    }
     return prepareNativeBuildOutput(source, accountId, mode, projectRoot);
   }
   if (!existsSync(join(source, 'wrangler.json'))) {

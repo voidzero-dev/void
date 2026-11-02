@@ -174,7 +174,9 @@ it.each(['native', 'legacy'])(
         expect(existsSync(join(getWorkerBundleDir(prepared.directory), 'node_modules'))).toBe(
           false,
         );
-        expectCfDryRun(prepared.directory);
+        const dryRun = expectCfDryRun(prepared.directory);
+        expect(dryRun.stdout).toBe('');
+        expect(dryRun.stderr).toContain('--dry-run: exiting now.');
       },
     );
     expect(existsSync(prepared.directory)).toBe(false);
@@ -468,15 +470,6 @@ it(
     const root = mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-'));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
-    const configPath = join(root, 'wrangler.json');
-    writeFileSync(
-      configPath,
-      JSON.stringify({
-        name: 'void-additional-modules',
-        main: 'index.js',
-        compatibility_date: '2026-09-29',
-      }),
-    );
     const assets = {
       'message.txt': 'hello',
       'page.html': '<p>hello</p>',
@@ -504,16 +497,28 @@ export default { fetch() {
       root,
       configFile: false,
       logLevel: 'silent',
-      plugins: [cloudflare({ configPath })],
+      plugins: [
+        cloudflare({
+          config: () => ({
+            worker: {
+              name: 'void-additional-modules',
+              entrypoint: join(root, 'index.js'),
+              compatibilityDate: '2026-09-29',
+              compatibilityFlags: [],
+            },
+            containers: [],
+          }),
+        }),
+      ],
       build: { sourcemap: true },
     });
     await builder.buildApp();
-    const output = join(root, 'dist', 'void_additional_modules');
+    const output = getWorkerBundleDir(root);
     expect(
       readdirSync(output, { recursive: true }).some((name) => String(name).endsWith('.css')),
     ).toBe(true);
     await withPrepared(
-      prepareCfBuildOutput(output, { accountId: 'account-id' }),
+      prepareCfBuildOutput(root, { accountId: 'account-id' }),
       async (prepared) => {
         const built = await readBuildOutput(prepared.directory);
         const manifest = built.workers.default.config.manifest!;
@@ -576,7 +581,7 @@ it(
         });
         expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
         expect(built.workers.default.assetsDir).toBeDefined();
-        expect(expectCfDryRun(prepared.directory).stdout).toContain('--dry-run: exiting now.');
+        expectCfDryRun(prepared.directory);
       },
     );
     expect(existsSync(disposed.directory)).toBe(false);

@@ -19,6 +19,7 @@ import {
   type ParsedInputConfig,
 } from '@cloudflare/config';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import {
   activateCloudflareVersion,
@@ -324,13 +325,151 @@ it(
         capture: true,
       });
       expect(result).toMatchObject({ status: 1, signal: null, error: null });
-      expect(result.stdout.replace(/\s+/g, ' ')).toContain(
-        'Aborting the upload operation because of conflicts.',
+      // cf 1.0.0-beta.21 and later print upload messages on stderr.
+      expect(result.stdout).toBe('');
+      expect(cloudflareCommandDiagnostic(result)).toBe(
+        'You are about to upload a Worker that was last updated via the script API.\n' +
+          'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
       );
-      expect(result.stdout.replace(/\s+/g, ' ')).toContain('last updated via the script API');
       expect(requests).toEqual([
         { method: 'GET', path: '/client/v4/accounts/account-id/workers/services/void-test' },
       ]);
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
+it(
+  'keeps the dashboard config diff out of the pinned cf upload conflict diagnostic',
+  async () => {
+    const prepared = await output({ vars: { LOCAL_VALUE: 'local-value-do-not-echo' } });
+    const apiBaseUrl = await listen(
+      createServer((request, response) => {
+        const path = request.url!.split('?')[0]!;
+        request.resume();
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: true,
+            errors: [],
+            messages: [],
+            result: path.endsWith('/services/void-test')
+              ? {
+                  default_environment: {
+                    environment: 'production',
+                    script: { id: 'void-test', last_deployed_from: 'dash' },
+                  },
+                }
+              : path.endsWith('/bindings')
+                ? [{ type: 'plain_text', name: 'REMOTE_VALUE', text: 'remote-value-do-not-echo' }]
+                : path.endsWith('/environments/production')
+                  ? { script: { compatibility_date: '2026-01-01' } }
+                  : path.endsWith('/schedules')
+                    ? { schedules: [] }
+                    : [],
+          }),
+        );
+      }),
+    );
+    try {
+      const result = await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
+        cwd: prepared.directory,
+        capture: true,
+      });
+      expect(result).toMatchObject({ status: 1, signal: null, error: null });
+      // The diff that explains the conflict shows values from both configurations.
+      expect(result.stderr).toContain('remote-value-do-not-echo');
+      expect(result.stderr).toContain('local-value-do-not-echo');
+      expect(cloudflareCommandDiagnostic(result)).toBe(
+        'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
+      );
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
+it.each([false, true])(
+  'reads the pinned cf upload result without echoing its binding table (rejected=%s)',
+  async (rejected) => {
+    const next = '22222222-2222-4222-8222-222222222222';
+    const prepared = await output({ vars: { LOCAL_VALUE: 'local-value-do-not-echo' } });
+    const apiBaseUrl = await listen(
+      createServer((request, response) => {
+        const path = request.url!.split('?')[0]!;
+        const upload = request.method === 'POST' && path.endsWith('/scripts/void-test/versions');
+        request.resume();
+        response.writeHead(upload && rejected ? 400 : 200, {
+          'Content-Type': 'application/json',
+        });
+        response.end(
+          JSON.stringify(
+            upload && rejected
+              ? {
+                  success: false,
+                  errors: [{ code: 10021, message: 'Uploaded script has a validation error.' }],
+                  messages: [],
+                  result: null,
+                }
+              : {
+                  success: true,
+                  errors: [],
+                  messages: [],
+                  result: upload
+                    ? { id: next, number: 2, metadata: { has_preview: true }, resources: {} }
+                    : path.endsWith('/workers/workers/void-test')
+                      ? {
+                          subdomain: {
+                            enabled: true,
+                            previews_enabled: true,
+                            preview_url_suffix: '-void-test.example.workers.dev',
+                          },
+                        }
+                      : path.endsWith('/services/void-test')
+                        ? {
+                            default_environment: {
+                              environment: 'production',
+                              script: { id: 'void-test' },
+                            },
+                          }
+                        : path.endsWith('/settings')
+                          ? {}
+                          : [],
+                },
+          ),
+        );
+      }),
+    );
+    try {
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        runCf: pinnedCf(apiBaseUrl),
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+      });
+      const result = await runner(
+        { type: 'versions.upload', workerName: 'void-test' },
+        { capture: true },
+      );
+      // cf prints the binding table, with values, before it uploads.
+      expect(result.stderr).toContain('local-value-do-not-echo');
+      if (rejected) {
+        expect(result.status).toBe(1);
+        expect(cloudflareCommandDiagnostic(result)).toBe(
+          '┌ APIError\n│ [10021] Uploaded script has a validation error. [code: 10021]\n│ 400 Bad Request\n└',
+        );
+      } else {
+        expect(result).toMatchObject({
+          status: 0,
+          data: {
+            versionId: next,
+            previewUrl: `https://${next.slice(0, 8)}-void-test.example.workers.dev`,
+          },
+        });
+      }
     } finally {
       prepared.dispose();
     }
@@ -2244,10 +2383,11 @@ it.each([
 ] as const)('preserves pinned Sandbox image and application lifecycle: %s', async (mode) => {
   const { prepared, requests, counts, existing, expectedImages, apiBaseUrl } =
     await containerApi(mode);
+  // cf 1.0.0-beta.21 and later print the pushed image on stderr.
   const runCf = vi.fn(() => ({
     status: 0,
-    stdout: 'Pushed image: registry.cloudflare.com/account-id/sandbox:fixture\n',
-    stderr: '',
+    stdout: '',
+    stderr: '│  Pushed image: registry.cloudflare.com/account-id/sandbox:fixture\n',
   }));
   const inspect =
     mode === 'local'

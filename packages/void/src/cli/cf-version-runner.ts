@@ -389,7 +389,7 @@ export function createCfVersionRunner(options: {
     if (record(result.data) && typeof result.data.versionId === 'string') {
       return result;
     }
-    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result.stdout);
+    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
     return {
       ...result,
       data: versionId

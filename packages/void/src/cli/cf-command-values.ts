@@ -19,13 +19,18 @@ export function isD1Bookmark(value: unknown): value is string {
   return typeof value === 'string' && /^[0-9a-f]+(?:-[0-9a-f]+)+$/i.test(value);
 }
 
-/** Read the version ID and URLs that cf prints after a prebuilt upload. */
-export function readCfUploadOutput(
-  stdout: string,
-): Record<'versionId' | 'previewUrl' | 'workersDevUrl', string | undefined> {
+/**
+ * Read the version ID and URLs that cf prints after a prebuilt upload: on stdout before
+ * cf 1.0.0-beta.21, and on stderr since.
+ */
+export function readCfUploadOutput(result: {
+  stdout: string;
+  stderr: string;
+}): Record<'versionId' | 'previewUrl' | 'workersDevUrl', string | undefined> {
+  const output = `${result.stdout}\n${result.stderr}`;
   return {
-    versionId: stdout.match(/(?:Worker|Current) Version ID:\s*([0-9a-f]{8}-[0-9a-f-]{27})/i)?.[1],
-    previewUrl: stdout.match(/Version Preview(?: Alias)? URL:\s*(https:\/\/\S+)/i)?.[1],
-    workersDevUrl: stdout.match(/(https:\/\/[a-z0-9.-]+\.workers\.dev(?:\/[^\s]*)?)/i)?.[1],
+    versionId: output.match(/(?:Worker|Current) Version ID:\s*([0-9a-f]{8}-[0-9a-f-]{27})/i)?.[1],
+    previewUrl: output.match(/Version Preview(?: Alias)? URL:\s*(https:\/\/\S+)/i)?.[1],
+    workersDevUrl: output.match(/(https:\/\/[a-z0-9.-]+\.workers\.dev(?:\/[^\s]*)?)/i)?.[1],
   };
 }

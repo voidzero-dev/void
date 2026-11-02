@@ -8,6 +8,7 @@ export const SCAFFOLD_GITIGNORE_LINES = [
   'dist',
   '.void',
   '.wrangler',
+  '.cloudflare',
   '.void-wrangler.jsonc',
   '.env',
   '.env.*',

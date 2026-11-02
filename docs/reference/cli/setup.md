@@ -23,7 +23,7 @@ Resources recorded in `void.lock.json` without a matching definition appear sepa
 
 `void migrate` converts legacy `void.json` and root `wrangler.jsonc` or `wrangler.json` files into `void.config.ts`. It also accepts one root `wrangler*.json(c)` file referenced by a supported framework adapter. Void saves backups in `.void/config-migration/`, records resource IDs in `void.lock.json`, and updates supported adapters to use its generated Cloudflare config.
 
-`.void-wrangler.jsonc` is generated for Cloudflare tooling and belongs in `.gitignore`; migration adds the entry. Review and commit `void.config.ts`, `void.lock.json`, and `.gitignore`. `void init` and `void deploy` migrate legacy files automatically. If the project has conflicting or multiple Cloudflare configs, resolve them first. The project's installed `void` package must match the CLI version before Cloudflare deployment.
+`void migrate` also adds `.cloudflare` to `.gitignore`, including in projects that already use `void.config.ts`. Configuration migration adds `.void-wrangler.jsonc` to `.gitignore` as well. Review and commit `void.config.ts`, `void.lock.json`, and `.gitignore`. `void init` and `void deploy` migrate legacy files automatically. If the project has conflicting or multiple Cloudflare configs, resolve them first. The project's installed `void` package must match the CLI version before Cloudflare deployment.
 
 ## `void init` {#void-init}
 

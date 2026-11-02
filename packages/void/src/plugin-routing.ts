@@ -123,7 +123,12 @@ type RoutingPluginOptions = {
  * - Generates virtual modules for the route table and worker entry
  * - Watches for file changes and triggers HMR
  */
-export function routingPlugin(root: string, options: RoutingPluginOptions): Plugin {
+export function routingPlugin(
+  root: string,
+  options: RoutingPluginOptions,
+): Plugin & {
+  api: { finalizeCloudflareAssets(clientDir: string, assetsDir: string): void };
+} {
   let scan: ScanResult | null = null;
   let routeEnvironment: RouteEnvironment = 'prod';
   let previewing = false;
@@ -561,6 +566,37 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
     };
   }
 
+  // The Cloudflare bridge calls this after both compatible outputs exist.
+  function finalizeCloudflareAssets(clientDir: string, assetsDir: string): void {
+    if (!options.assetWorkerBypass || options.target || resolvedConfig?.command !== 'build') {
+      return;
+    }
+    const headersPath = join(clientDir, '_headers');
+    let generatedHeaders = false;
+    let userHeaders = false;
+    if (existsSync(headersPath)) {
+      try {
+        generatedHeaders = isGeneratedAssetHeaders(readFileSync(headersPath, 'utf8'));
+      } catch {
+        return;
+      }
+      // A user-authored `_headers` keeps the Worker in front, as before.
+      userHeaders = !generatedHeaders;
+    }
+    const plan = planAssetWorkerBypass(clientDir, assetsDir, userHeaders);
+    // `_headers` first: on its own it changes nothing, as the Worker sets
+    // the same policy for these files. Write errors fail the build.
+    if (plan?.headers) {
+      writeFileSync(headersPath, plan.headers);
+    } else if (generatedHeaders) {
+      // A `_headers` left by an earlier build must not outlive the bypass.
+      rmSync(headersPath);
+    }
+    if (plan?.wranglerText) {
+      writeFileSync(plan.wranglerPath, plan.wranglerText);
+    }
+  }
+
   const sandboxEntry = options.hasSandbox
     ? {
         bindingName: options.sandboxBindingName,
@@ -641,6 +677,7 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
 
   return {
     name: 'void:routing',
+    api: { finalizeCloudflareAssets },
     enforce: 'pre',
     configResolved(config) {
       resolvedConfig = config;
@@ -747,45 +784,6 @@ export function routingPlugin(root: string, options: RoutingPluginOptions): Plug
             : [];
         }
       },
-    },
-
-    // Runs after the Cloudflare plugin wrote the Worker's `wrangler.json` and
-    // before the client `closeBundle` prerender reads it.
-    writeBundle() {
-      if (
-        !options.assetWorkerBypass ||
-        options.target ||
-        resolvedConfig?.command !== 'build' ||
-        this.environment.name !== 'client'
-      ) {
-        return;
-      }
-      const { outDir, assetsDir } = this.environment.config.build;
-      const clientDir = resolve(resolvedConfig.root, outDir);
-      const headersPath = join(clientDir, '_headers');
-      let generatedHeaders = false;
-      let userHeaders = false;
-      if (existsSync(headersPath)) {
-        try {
-          generatedHeaders = isGeneratedAssetHeaders(readFileSync(headersPath, 'utf8'));
-        } catch {
-          return;
-        }
-        // A user-authored `_headers` keeps the Worker in front, as before.
-        userHeaders = !generatedHeaders;
-      }
-      const plan = planAssetWorkerBypass(clientDir, assetsDir, userHeaders);
-      // `_headers` first: on its own it changes nothing, as the Worker sets
-      // the same policy for these files. Write errors fail the build.
-      if (plan?.headers) {
-        writeFileSync(headersPath, plan.headers);
-      } else if (generatedHeaders) {
-        // A `_headers` left by an earlier build must not outlive the bypass.
-        rmSync(headersPath);
-      }
-      if (plan?.wranglerText) {
-        writeFileSync(plan.wranglerPath, plan.wranglerText);
-      }
     },
 
     buildStart() {

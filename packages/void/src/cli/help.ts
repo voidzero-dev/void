@@ -151,9 +151,9 @@ const HELP_TREE: HelpTree = {
     ],
   },
   migrate: {
-    summary: 'Move legacy Void project settings into void.config.ts.',
+    summary: 'Update project configuration.',
     usage: ['void migrate'],
-    examples: [{ command: 'void migrate', description: 'Convert void.json to void.config.ts' }],
+    examples: [{ command: 'void migrate', description: 'Update project configuration' }],
   },
   deploy: {
     summary:

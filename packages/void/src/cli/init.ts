@@ -23,6 +23,7 @@ import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
 import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
+import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   hasPackageDependency,
   readPackageJson,
@@ -156,6 +157,7 @@ const EMPTY_PROJECT_ALLOWED_ENTRIES = new Set([
   '.DS_Store',
   '.void',
   '.wrangler',
+  '.cloudflare',
   'node_modules',
   'package.json',
   'package-lock.json',
@@ -1974,28 +1976,10 @@ function writeFileIfMissing(root: string, filePath: string, content: string): vo
 }
 
 function ensureGitignore(root: string): void {
-  const gitignorePath = join(root, '.gitignore');
-  if (!existsSync(gitignorePath)) {
-    writeFileSync(gitignorePath, SCAFFOLD_GITIGNORE_LINES.join('\n') + '\n');
-    log.step('Created .gitignore');
-    return;
+  const existed = existsSync(join(root, '.gitignore'));
+  if (ensureGitignoreLines(root, SCAFFOLD_GITIGNORE_LINES).length > 0) {
+    log.step(existed ? 'Updated .gitignore with Void defaults' : 'Created .gitignore');
   }
-
-  const content = readFileSync(gitignorePath, 'utf-8');
-  const existing = new Set(
-    content
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
-  const missing = SCAFFOLD_GITIGNORE_LINES.filter((line) => !existing.has(line));
-  if (missing.length === 0) {
-    return;
-  }
-
-  const separator = content.endsWith('\n') ? '' : '\n';
-  writeFileSync(gitignorePath, content + separator + missing.join('\n') + '\n');
-  log.step('Updated .gitignore with Void defaults');
 }
 
 /** Removes each block-style top-level `key:` block; `removed` holds its non-blank lines. */
