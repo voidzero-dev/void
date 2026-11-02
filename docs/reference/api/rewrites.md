@@ -10,6 +10,24 @@ URL rewrites re-dispatch a request at a different internal path without changing
 
 Re-dispatches the current request at `destination` and returns the resulting `Response`. The browser URL does not change — this is a server-side hop. If `destination` has no query string, the original request query is preserved. If `destination` includes a query string, it replaces the original query. `destination` must start with `/`; known generated routes autocomplete via [`RewriteDestination`](#rewritedestination), while arbitrary strings remain accepted for dynamic paths.
 
+Pass a [`RouteDestination`](./types.md#route-types) object to check the route pattern and its parameters:
+
+```ts
+return c.rewrite({
+  pathname: '/users/:id',
+  params: { id: 42 },
+  query: { tab: 'activity' },
+});
+```
+
+For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options):
+
+```ts
+import { routeUrl } from 'void/routes';
+
+return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
+```
+
 `c.redirect()` merges request query parameters into internal destinations, with destination values taking precedence. Redirecting a [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) to a GET page drops the action key: `POST /users/42?delete&tab=profile` redirects to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
 
 ```ts
@@ -25,7 +43,7 @@ export const GET = defineHandler((c) => {
 
 ```ts
 interface CloudContext {
-  rewrite(destination: RewriteDestination): Promise<Response>;
+  rewrite(destination: RewriteDestination | RouteDestination): Promise<Response>;
 }
 ```
 

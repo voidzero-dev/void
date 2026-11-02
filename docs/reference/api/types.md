@@ -91,3 +91,44 @@ Generated route types used by the typed `fetch` client. Contains each route’s 
 ```ts
 import type { RouteMap } from 'void/routes';
 ```
+
+## `void/routes` {#void-routes}
+
+### `routeUrl(path, options?)` {#routeurl-path-options}
+
+Build a relative URL string from a known page, HTTP, or WebSocket route pattern:
+
+```ts
+import { routeUrl } from 'void/routes';
+
+routeUrl('/users/:id', {
+  params: { id: 42 },
+  query: { tab: 'activity' },
+  hash: 'details',
+});
+// /users/42?tab=activity#details
+```
+
+| Option   | Type           | Description                                                                        |
+| -------- | -------------- | ---------------------------------------------------------------------------------- |
+| `params` | Route-specific | Required for dynamic routes. Each parameter accepts a `string` or `number`.        |
+| `query`  | `RouteQuery`   | Query parameters. Arrays become repeated keys; `null` and `undefined` are omitted. |
+| `hash`   | `string`       | URL fragment, such as `'details'` or `'#details'`.                                 |
+
+Static routes accept optional `query` and `hash` options. Pass raw parameter values for URL encoding. Catch-all parameters preserve `/` separators between segments. Invalid or missing path parameters throw a `TypeError`.
+
+Use the returned string with `Link`, `<a>`, and `c.redirect()`. See [Typed URLs and Navigation](../../guide/type-safety.md#typed-urls-and-navigation) for setup and examples.
+
+### Route types {#route-types}
+
+Import these types from `void/routes`:
+
+| Type                  | Description                                                                                     |
+| --------------------- | ----------------------------------------------------------------------------------------------- |
+| `RoutePathMap`        | Generated map of page, HTTP, and WebSocket route patterns to their parameter names.             |
+| `RoutePath`           | Union of the known route patterns in `RoutePathMap`.                                            |
+| `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`. |
+| `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.     |
+| `RouteUrlInput`       | `string`, `URL`, or `RouteDestination`; accepted by router navigation methods.                  |
+| `RouteQuery`          | Query keys mapped to `RouteQueryValue` or readonly arrays of those values.                      |
+| `RouteQueryValue`     | `string`, `number`, `boolean`, `null`, or `undefined`.                                          |

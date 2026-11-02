@@ -153,42 +153,48 @@ Render and prerender flags combine like this:
 | Island page + `ssr = false`            | Invalid. Island pages already use the island renderer.                    |
 | `output: "static"` + `prerender` unset | Auto-prerender pages that have known paths, including client-only shells. |
 
-Use the `Link` component for SPA navigation between pages. It renders an `<a>` tag that intercepts clicks and navigates without a full page reload:
+### Typed navigation
+
+Use the `Link` component for SPA navigation between pages. Build dynamic URLs with [`routeUrl()`](../type-safety.md#typed-urls-and-navigation) to check the route pattern and its parameters:
 
 ::: code-group
 
 ```tsx [React]
 import { Link } from "@void/react";
+import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 ```vue [Vue]
 <script setup lang="ts">
 import { Link } from '@void/vue';
+import { routeUrl } from 'void/routes';
 </script>
 
 <template>
   <Link href="/users">Users</Link>
-  <Link :href="`/users/${id}`">View</Link>
+  <Link :href="routeUrl('/users/:id', { params: { id } })">View</Link>
 </template>
 ```
 
 ```svelte [Svelte]
 <script>
   import { Link } from "@void/svelte";
+  import { routeUrl } from 'void/routes';
 </script>
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 ```tsx [Solid]
 import { Link } from "@void/solid";
+import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={`/users/${id}`}>View</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 :::
@@ -222,16 +228,27 @@ import { Link } from "@void/solid";
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
-For programmatic navigation, use `useRouter()`:
+For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
 ```ts
 import { useRouter } from '@void/vue'; // or "@void/react", "@void/svelte", "@void/solid"
+import type { RouteDestination } from 'void/routes';
 
 const router = useRouter();
-router.visit('/users');
+const profile = {
+  pathname: '/users/:id',
+  params: { id: 42 },
+  query: { tab: 'activity' },
+} satisfies RouteDestination;
+
+await router.prefetch(profile);
+await router.visit(profile);
+router.flush(profile); // clear its prefetched data
 router.refresh(); // re-fetch current page props, keeping the same history entry
 router.visit('/logout', { method: 'POST' }); // non-GET navigation
 ```
+
+You can also pass URL strings or `URL` instances to these router methods. See [Typed URLs and Navigation](../type-safety.md#typed-urls-and-navigation) for query values, fragments, and catch-all routes.
 
 `router.visit()` updates the page in place for same-origin URLs. `http(s)` URLs on another origin get a full page load, and other schemes such as `javascript:` are rejected.
 

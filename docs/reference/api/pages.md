@@ -6,6 +6,14 @@ outline: deep
 
 Framework adaptors for [Pages Routing](../../guide/pages-routing/overview). Each adaptor provides a Vite plugin and client-side runtime.
 
+## Navigation destinations {#navigation-destinations}
+
+All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`.
+
+The router's `visit(destination, options?)`, `prefetch(destination, options?)`, and `flush(destination, method?)` accept [`RouteUrlInput`](./types.md#route-types): a string, `URL`, or typed destination object.
+
+See [Typed navigation](../../guide/pages-routing/overview.md#typed-navigation) for framework examples.
+
 ## `@void/vue` {#void-vue}
 
 ### `voidVue(options?)` {#voidvue-options}
