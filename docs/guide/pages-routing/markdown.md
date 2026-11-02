@@ -64,9 +64,9 @@ Add the plugin to your Vite config **after** the framework adapter:
 ::: code-group
 
 ```ts [React]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidReact } from '@void/react/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -76,9 +76,9 @@ export default defineConfig({
 ```
 
 ```ts [Vue]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidVue } from '@void/vue/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -88,9 +88,9 @@ export default defineConfig({
 ```
 
 ```ts [Svelte]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSvelte } from '@void/svelte/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -100,9 +100,9 @@ export default defineConfig({
 ```
 
 ```ts [Solid]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSolid } from '@void/solid/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 

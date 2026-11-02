@@ -11,8 +11,8 @@ Use an action to change server data from a form or button. Define it in the page
 Export `action` from a `.server.ts` file. Use `withValidator()` with a [schema-derived validator](../database.md#schema-derived-validators) to validate the request body:
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // pages/users/index.server.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -206,8 +206,8 @@ Vue, Svelte, and Solid submissions return a promise instead; use `await form.pos
 When a page needs multiple mutations, such as updating and deleting a user on the same page, export `actions` (plural) instead of `action`:
 
 ```ts
-import { users, updateUserSchema } from '@schema';
 // pages/users/[id].server.ts
+import { users, updateUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db, eq } from 'void/db';
 
