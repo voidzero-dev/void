@@ -5,6 +5,7 @@ import type { ApiEnv } from '../env.ts';
 import {
   oauthClients,
   oauthGrants,
+  oauthRefreshTokens,
   oauthRequests,
   previewTickets,
   users,
@@ -147,10 +148,25 @@ export async function purgeExpiredOAuthRequests(db: Db) {
     SELECT id FROM oauth_requests WHERE expires_at < now() - interval '1 day'
     ORDER BY expires_at LIMIT 1000
   )`);
+  // oauth_grants.expires_at is the access token expiry. Keep a grant while its
+  // refresh token family can still renew it; deleting the grant cascades to it.
   await db.execute(sql`DELETE FROM oauth_grants WHERE id IN (
-    SELECT id FROM oauth_grants WHERE expires_at < now() - interval '1 day'
+    SELECT g.id FROM oauth_grants g
+    WHERE g.expires_at < now() - interval '1 day'
+      AND (g.revoked_at IS NOT NULL OR NOT EXISTS (
+        SELECT 1 FROM oauth_refresh_tokens r
+        WHERE r.grant_id = g.id AND r.expires_at >= now() - interval '1 day'
+      ))
+    ORDER BY g.expires_at LIMIT 1000
+  )`);
+  await db.execute(sql`DELETE FROM oauth_refresh_tokens WHERE id IN (
+    SELECT id FROM oauth_refresh_tokens WHERE expires_at < now() - interval '1 day'
     ORDER BY expires_at LIMIT 1000
   )`);
+}
+/** Matches grants that still hold an unused, unexpired refresh token. */
+export function hasLiveRefreshToken() {
+  return sql`EXISTS (SELECT 1 FROM ${oauthRefreshTokens} WHERE ${oauthRefreshTokens.grant_id} = ${oauthGrants.id} AND ${oauthRefreshTokens.used_at} IS NULL AND ${oauthRefreshTokens.expires_at} > ${new Date().toISOString()})`;
 }
 export async function activeOAuthClient(db: DbOrTx, id: string, lock = false) {
   const query = db
@@ -190,6 +206,9 @@ export async function activeOAuthGrant(
   id: string,
   companyIdentity?: ApiEnv['Variables']['companyIdentity'],
   lock = false,
+  // A refresh may follow an expired access token, so it skips that check. It
+  // locks the grant FOR UPDATE so concurrent refreshes of one grant run in turn.
+  forRefresh = false,
 ) {
   if (!lock) {
     return readActiveOAuthGrant(db, eq(oauthGrants.id, id), companyIdentity);
@@ -214,10 +233,10 @@ export async function activeOAuthGrant(
       and(
         eq(oauthGrants.id, id),
         isNull(oauthGrants.revoked_at),
-        gt(oauthGrants.expires_at, new Date().toISOString()),
+        ...(forRefresh ? [] : [gt(oauthGrants.expires_at, new Date().toISOString())]),
       ),
     );
-  const [grant] = await (lock ? query.for('share') : query);
+  const [grant] = await (lock ? query.for(forRefresh ? 'update' : 'share') : query);
   if (!grant) {
     throw new OAuthError('invalid_token', 'Application access expired or was revoked.', 401);
   }
