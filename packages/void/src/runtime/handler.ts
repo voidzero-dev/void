@@ -3,6 +3,7 @@ import type { RewriteDestination, RouteDestination } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
+import { executeComposedHandler, setHandlerComposition } from './handler-composition.ts';
 import { convertReturnValue } from './response.ts';
 import type { AssetBinding } from './routing-worker.ts';
 import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
@@ -217,6 +218,10 @@ export type TypedHandler<V extends ValidatorSlots = {}, R = unknown> = {
 export function defineHandler<R>(
   handler: LoaderFn<R>,
 ): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+// Middleware keeps a typed leaf's validators and output (e.g. withValidator).
+export function defineHandler<V extends ValidatorSlots, R>(
+  ...args: [MiddlewareFn, ...Array<MiddlewareFn>, TypedHandler<V, R>]
+): TypedHandler<V, R>;
 export function defineHandler<R>(
   firstMiddleware: MiddlewareFn,
   handler: LoaderFn<R>,
@@ -283,23 +288,14 @@ export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHa
   }
   const middlewares = args.slice(0, -1) as Array<MiddlewareFn>;
   const handler = args[args.length - 1] as HandlerFn;
-
-  return (async (c: CloudContext) => {
-    let index = 0;
-    const dispatch = async (): Promise<void> => {
-      if (index < middlewares.length) {
-        const middleware = middlewares[index++];
-        const middlewareResponse = await middleware(c, dispatch);
-        if (middlewareResponse instanceof Response) {
-          c.res = middlewareResponse;
-        }
-      } else {
-        c.res = convertReturnValue(await handler(c));
-      }
-    };
-    await dispatch();
-    return c.res;
-  }) as TypedHandler;
+  // Pages read the recorded composition to render inside the same chain.
+  const composed = setHandlerComposition(
+    async (c: CloudContext) =>
+      executeComposedHandler(c, middlewares, async () => convertReturnValue(await handler(c))),
+    middlewares,
+    handler,
+  );
+  return composed as unknown as TypedHandler;
 }
 
 /**

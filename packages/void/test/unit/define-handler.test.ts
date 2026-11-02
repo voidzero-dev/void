@@ -8,6 +8,7 @@ import {
   type TypedHandler,
 } from '../../src/runtime/handler.ts';
 import { convertReturnValue } from '../../src/runtime/response.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -148,6 +149,25 @@ describe('defineHandler', () => {
     expect(await res.json()).toEqual({ ok: true });
     expect(res.headers.get('X-Raw')).toBe('yes');
     expect(order).toEqual(['raw-before', 'handler', 'raw-after']);
+  });
+
+  it('keeps route middleware header edits made after next()', async () => {
+    const addHeader = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-Route-Mw', 'yes');
+    });
+
+    const handler = defineHandler(addHeader, () => ({ ok: true }));
+    const app = new Hono();
+    app.get(
+      '/test',
+      createHttpRouteHandler(async () => ({ GET: handler }), 'GET'),
+    );
+
+    const res = await app.request(req());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Route-Mw')).toBe('yes');
+    expect(await res.json()).toEqual({ ok: true });
   });
 
   it('middleware error propagates', async () => {

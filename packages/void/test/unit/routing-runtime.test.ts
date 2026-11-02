@@ -1,9 +1,12 @@
 import { Hono, type Context } from 'hono';
+import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defer } from '../../src/pages/defer.ts';
+import { ValidationError } from '../../src/pages/protocol.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import {
@@ -29,6 +32,7 @@ import {
   createRoutingRuntime,
   type RoutingContext,
 } from '../../src/runtime/routing.ts';
+import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
 const wrap = <T>(_env: RuntimeEnvironment, callback: () => T): T => callback();
@@ -1139,5 +1143,189 @@ describe('native HTTPS policy', () => {
       context,
     );
     expect(await discovery.json()).toEqual({ paths: ['/page'] });
+  });
+});
+
+describe('page loaders and actions composed with defineHandler middleware', () => {
+  const pageOptions = {
+    componentId: 'page',
+    render: async (page: { props: unknown; errors: unknown }) =>
+      '<html>' + JSON.stringify({ props: page.props, errors: page.errors }) + '</html>',
+    assets: async () => ({ css: '', body: '', preloads: '' }),
+    headConfig: undefined,
+    renderOptions: { renderMode: 'server' as const },
+  };
+  const schema = (message?: string): StandardSchemaV1 => ({
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (value: unknown) =>
+        message ? { issues: [{ message, path: ['title'] }] } : { value },
+    },
+  });
+  const passThrough = defineMiddleware(async (_c, next) => {
+    await next();
+  });
+  type PageJson = { props: Record<string, unknown>; errors: unknown; shared: unknown };
+
+  function createPageApp(mod: Record<string, unknown>) {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    const load = async () => mod;
+    app.get('/db', createPageGetHandler({ ...pageOptions, load }));
+    app.post('/db', createPageMutationHandler({ ...pageOptions, load, namedActions: true }));
+    return app;
+  }
+  const get = (app: Hono, headers: Record<string, string> = { 'X-VoidPages': 'true' }) =>
+    app.fetch(new Request('https://app.test/db', { headers }));
+  const post = (app: Hono, body: unknown, pages = true) =>
+    app.fetch(
+      new Request('https://app.test/db?create', {
+        method: 'POST',
+        headers: {
+          ...(pages && { 'X-VoidPages': 'true' }),
+          Origin: 'https://app.test',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  it('renders the page from a loader with middleware', async () => {
+    const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
+    const json = await get(app);
+    expect(json.status).toBe(200);
+    expect(((await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    const html = await get(app, {});
+    expect(html.status).toBe(200);
+    expect(await html.text()).toContain('{"notes":["a"]}');
+  });
+
+  it('re-renders the page after an action with middleware, or shows its field errors', async () => {
+    const action = (message?: string) =>
+      defineHandler(
+        passThrough,
+        defineHandler.withValidator({ body: schema(message) })(async () => {}),
+      );
+    const loader = defineHandler(passThrough, () => ({ notes: ['fresh'] }));
+    const valid = await post(createPageApp({ loader, actions: { create: action() } }), {
+      title: 'a',
+    });
+    expect(valid.status).toBe(200);
+    expect(await valid.json()).toMatchObject({ props: { notes: ['fresh'] }, errors: null });
+    const invalid = await post(createPageApp({ loader, actions: { create: action('Required') } }), {
+      title: '',
+    });
+    expect(invalid.status).toBe(200);
+    expect(await invalid.json()).toMatchObject({
+      props: { notes: ['fresh'] },
+      errors: { title: 'Required' },
+    });
+    // A form posted without JavaScript gets the rendered page too.
+    const form = await post(
+      createPageApp({ loader, actions: { create: action('Required') } }),
+      {},
+      false,
+    );
+    expect(form.headers.get('Content-Type')).toContain('text/html');
+    expect(await form.text()).toContain('"errors":{"title":"Required"}');
+  });
+
+  it('streams deferred props through loader middleware', async () => {
+    const after = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-After', '1');
+    });
+    const app = createPageApp({
+      loader: defineHandler(after, () => ({ a: 1, slow: defer(async () => 2) })),
+    });
+    const json = await get(app);
+    expect(json.headers.get('X-After')).toBe('1');
+    expect(await json.text()).toContain('{"__deferred":"slow","data":2}');
+    const html = await get(app, {});
+    expect(html.headers.get('X-After')).toBe('1');
+    expect(await html.text()).toContain('__resolveDeferred');
+  });
+
+  it('lets etag() middleware tag each rendered page form', async () => {
+    const app = createPageApp({ loader: defineHandler(etag(), () => ({ v: 'stable' })) });
+    const json = (await get(app)).headers.get('ETag')!;
+    const html = (await get(app, {})).headers.get('ETag')!;
+    expect(json).not.toBe(html);
+    expect((await get(app, { 'X-VoidPages': 'true', 'If-None-Match': json })).status).toBe(304);
+    expect((await get(app, { 'If-None-Match': html })).status).toBe(304);
+  });
+
+  it('runs middleware around the rendered page response', async () => {
+    const shared = defineMiddleware(async (c, next) => {
+      c.header('X-Before', '1');
+      c.set('shared', { user: 'u1' });
+      await next();
+      c.res.headers.set('X-After', '1');
+    });
+    const app = createPageApp({
+      loader: defineHandler(shared, () => ({ ok: true })),
+      actions: { create: defineHandler(shared, async () => {}) },
+    });
+    for (const response of [await get(app), await post(app, {})]) {
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Before')).toBe('1');
+      expect(response.headers.get('X-After')).toBe('1');
+      expect(((await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+    }
+  });
+
+  it('keeps edits outer middleware makes after an inner middleware answers', async () => {
+    const outer = defineMiddleware(async (c, next) => {
+      await next();
+      c.res = new Response('outer:' + (await c.res.text()), c.res);
+    });
+    const deny = defineMiddleware(async () => new Response('denied', { status: 401 }));
+    const app = createPageApp({
+      loader: defineHandler(outer, deny, () => ({})),
+      actions: { create: defineHandler(passThrough, async () => {}) },
+    });
+    for (const response of [await get(app), await post(app, {})]) {
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe('outer:denied');
+    }
+  });
+
+  it('turns a ValidationError from action middleware into field errors, once', async () => {
+    const check = defineMiddleware(async () => {
+      throw new ValidationError({ title: 'Taken' });
+    });
+    const loader = vi.fn(() => ({ ok: true }));
+    const errors = await post(
+      createPageApp({ loader, actions: { create: defineHandler(check, async () => {}) } }),
+      {},
+    );
+    expect(errors.status).toBe(200);
+    expect(await errors.json()).toMatchObject({ errors: { title: 'Taken' } });
+
+    // A ValidationError from the loader while re-rendering is not the action's.
+    const failing = vi.fn(() => {
+      throw new ValidationError({ title: 'loader' });
+    });
+    const app = createPageApp({
+      loader: failing,
+      actions: { create: defineHandler(passThrough, async () => {}) },
+    });
+    app.onError(() => new Response('failed', { status: 500 }));
+    expect((await post(app, {})).status).toBe(500);
+    expect(failing).toHaveBeenCalledTimes(1);
+
+    // Once the action's response exists, a later ValidationError is an error.
+    const late = defineMiddleware(async (_c, next) => {
+      await next();
+      throw new ValidationError({ title: 'late' });
+    });
+    const lateApp = createPageApp({
+      loader,
+      actions: { create: defineHandler(late, async () => {}) },
+    });
+    lateApp.onError(() => new Response('failed', { status: 500 }));
+    expect((await post(lateApp, {})).status).toBe(500);
   });
 });
