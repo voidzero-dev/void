@@ -2,7 +2,7 @@ import { type as arktype } from 'arktype';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 /**
@@ -107,21 +107,21 @@ describe('ExtractInput<handler.__validators>', () => {
     }>();
   });
 
-  it('preserves validators when middleware wraps withValidator handler', () => {
-    const middleware = async (_c: unknown, next: () => Promise<void>) => {
+  it('preserves validators and output when middleware wraps a typed handler', () => {
+    const passThrough = defineMiddleware(async (_c, next) => {
       await next();
-    };
-    const handler = defineHandler(
-      middleware as never,
-      defineHandler.withValidator({
-        body: z.object({ title: z.string() }),
-      })((_c, { body }) => {
-        void body;
-      }),
-    );
+    });
+    const validated = defineHandler.withValidator({
+      body: z.object({ title: z.string() }),
+    })(() => ({ saved: true }));
+    const handler = defineHandler(passThrough, validated);
+    const nested = defineHandler(passThrough, passThrough, defineHandler(passThrough, validated));
 
-    type Input = ExtractInput<(typeof handler)['__validators']>;
-    expectTypeOf<Input>().toEqualTypeOf<{ body: { title: string } }>();
+    expectTypeOf<ExtractInput<(typeof handler)['__validators']>>().toEqualTypeOf<{
+      body: { title: string };
+    }>();
+    expectTypeOf(handler).toEqualTypeOf(validated);
+    expectTypeOf(nested).toEqualTypeOf(validated);
   });
 
   it('extracts all three slots combined', () => {
