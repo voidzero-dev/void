@@ -21,14 +21,16 @@ export type FormStatus = {
   readonly wasSuccessful: boolean;
   readonly recentlySuccessful: boolean;
 };
+/** Field-keyed validation messages; a field without an error is absent. */
+export type FormErrors<TData> = Partial<Record<keyof TData & string, string>>;
 /**
  * The `useForm()` contract every adapter shares. Field names are typed from the action body.
- * Adapters add their submit methods and any framework-specific setter; adapters whose data
- * must not be written in place pass `Readonly<TData>`.
+ * `data` and `errors` default to editable in place, as reactive frameworks expect; adapters
+ * whose state changes go through setters pass read-only types. Adapters add submit methods.
  */
-export type FormState<TData> = FormStatus & {
+export type FormState<TData, TErrors = FormErrors<TData>> = FormStatus & {
   readonly data: TData;
-  readonly errors: Readonly<Partial<Record<keyof TData & string, string>>>;
+  readonly errors: TErrors;
   reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
   reset(...fields: ReadonlyArray<keyof TData & string>): void;
   setError(field: keyof TData & string, message: string): void;
@@ -37,12 +39,12 @@ export type FormState<TData> = FormStatus & {
 };
 /**
  * The `useIslandForm()` contract every adapter shares. Submit methods take the action URL.
- * Adapters add any framework-specific setter or submit helper.
+ * As with `FormState`, `data` and `errors` default to editable in place.
  */
-export type IslandFormState<TData> = FormStatus &
+export type IslandFormState<TData, TErrors = FormErrors<Record<string, unknown>>> = FormStatus &
   Readonly<{
     data: TData;
-    errors: Readonly<Partial<Record<string, string>>>;
+    errors: TErrors;
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
     clearErrors(...fields: ReadonlyArray<string>): void;
     clearError(): void;

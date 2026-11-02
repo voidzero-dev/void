@@ -9,6 +9,7 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
+  type FormErrors,
   type FormResetOptions,
   type FormState,
   type FormSubmitOptions,
@@ -16,8 +17,8 @@ import {
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
 
-// Data is a store, so changes go through setData.
-type FormReturn<TData> = FormState<Readonly<TData>> & {
+// Solid state changes go through setters, so data and errors are read-only.
+type FormReturn<TData> = FormState<Readonly<TData>, Readonly<FormErrors<TData>>> & {
   setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
   post(opts?: FormSubmitOptions): Promise<void>;
   put(opts?: FormSubmitOptions): Promise<void>;

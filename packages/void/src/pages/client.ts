@@ -598,6 +598,7 @@ export {
   scheduleFormRetry,
   type FormModel,
   type FormMethod,
+  type FormErrors,
   type FormState,
   type FormStatus,
   type FormSubmitOptions,
