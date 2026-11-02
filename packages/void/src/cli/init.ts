@@ -1453,16 +1453,6 @@ function removeDatabaseConfig(root: string): void {
   log.step('Removed database config from void.config.ts');
 }
 
-/** New apps check URL strings against their routes. Existing projects opt in themselves. */
-function enableTypedRoutes(root: string): void {
-  const config = readConfig(root);
-  if (config.routing?.typedRoutes !== undefined || !canRewriteVoidProjectConfig(root)) {
-    return;
-  }
-  writeVoidProjectConfig(root, { ...config, routing: { ...config.routing, typedRoutes: true } });
-  log.step('Turned on routing.typedRoutes in void.config.ts');
-}
-
 function applyDatabaseDialect(root: string, dialect: DatabaseDialect): void {
   const config = readConfig(root);
 
@@ -2334,7 +2324,6 @@ function scaffoldPagesApp(
   }
 
   ensureGitignore(root);
-  enableTypedRoutes(root);
   if (starterMode !== 'static') {
     applyDatabaseDialect(root, starterMode);
   }
