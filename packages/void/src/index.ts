@@ -5,6 +5,7 @@ import { type Plugin } from 'vite';
 import { analyzeApplicationSync, type ApplicationAnalysis } from './application-analysis.ts';
 import { applyBindingOverrides } from './application-features.ts';
 import {
+  edgeRulesNeedWorker,
   hasApiRoutes as routeScanHasApiRoutes,
   hasDocumentRoutes as routeScanHasDocumentRoutes,
   resolveAssetRoutingPolicy,
@@ -901,10 +902,7 @@ export function voidPlugin(options?: {
     const rules = mergeRoutingRules({ dir: assetRoutingPublicDir, routing: config.routing });
     const nativeOwnsEdgeRouting =
       !managedCloudflareBuild &&
-      (config.routing?.alwaysUseHttps === true ||
-        rules.headerRules.length > 0 ||
-        rules.redirectRules.length > 0 ||
-        (rules.fallbackRules?.length ?? 0) > 0);
+      edgeRulesNeedWorker({ ...rules, alwaysUseHttps: config.routing?.alwaysUseHttps });
     if (nativeOwnsEdgeRouting) {
       // Cloudflare otherwise serves an existing asset before the generated
       // Worker can apply redirects or response headers. Native builds own the

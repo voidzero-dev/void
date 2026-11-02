@@ -15,7 +15,8 @@ import {
 import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import { analyzeApplication } from '../application-routing.ts';
-import { type VoidConfig } from '../config.ts';
+import { edgeRulesNeedWorker, VOID_INTERNAL_WORKER_FIRST } from '../asset-routing.ts';
+import { convertHeadersConfig, type RoutingConfig, type VoidConfig } from '../config.ts';
 import { collectRevalidate, hasRevalidate } from '../isr-config.ts';
 import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
 import { type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
@@ -58,11 +59,13 @@ import {
   deployChildEnv,
 } from './deploy-transport.ts';
 import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types.ts';
+import { readGeneratedAssetHeadersFile } from './headers.ts';
 import { type CliLogger } from './log-file.ts';
 import { getErrorMessage, note } from './output.ts';
 import { buildStaticManifest, readWranglerHtmlHandling } from './package.ts';
 import { detectPreset, type StaticPreset, type FrameworkPreset } from './preset.ts';
 import { deleteEnvVarCaseAware } from './provision.ts';
+import type { AssetConfig, DeployManifest } from './types.ts';
 import { readWranglerManagedQueueCleanupCandidates } from './wrangler.ts';
 
 /** Default runtime date for static and framework Workers that set none. */
@@ -247,6 +250,64 @@ export async function resolveCloudflareVoidStaticPreset(
   };
 }
 
+export type StaticEdgeRouting = {
+  assetConfig: AssetConfig;
+  /** Rules the thin edge Worker applies. */
+  entry: Pick<DeployManifest, 'alwaysUseHttps' | 'headerRules' | 'redirectRules' | 'fallbackRules'>;
+  /** `_headers` text Cloudflare applies to asset responses itself. */
+  assetHeaders: string | undefined;
+};
+
+/**
+ * Route a static deploy around its thin edge Worker. Without edge rules that
+ * Worker only answers `/__void/ready`, so Cloudflare serves every other request
+ * from assets without starting it. The Void-generated `_headers` is not such a
+ * rule: it only marks fingerprinted files immutable, which Cloudflare applies
+ * itself. Any other rule keeps the Worker in front of every request.
+ */
+export function planStaticEdgeRouting(options: {
+  outputDir: string;
+  appType: StaticPreset['appType'];
+  routing: RoutingConfig | undefined;
+  htmlHandling: AssetConfig['html_handling'];
+}): StaticEdgeRouting {
+  const generatedHeaders = readGeneratedAssetHeadersFile(options.outputDir);
+  const merged = mergeAndLintRoutingRules(options.outputDir, options.routing);
+  const manifest = buildStaticManifest({
+    appType: options.appType,
+    alwaysUseHttps: options.routing?.alwaysUseHttps,
+    hashedAssetsPrefix: 'assets',
+    headerRules: merged.headerRules,
+    redirectRules: merged.redirectRules,
+    fallbackRules: merged.fallbackRules,
+    notFound: options.routing?.notFound,
+    html_handling: options.htmlHandling,
+  });
+  const assetConfig = manifest.assetConfig ?? { not_found_handling: 'none' };
+  const entry = {
+    alwaysUseHttps: manifest.alwaysUseHttps,
+    headerRules: manifest.headerRules,
+    redirectRules: manifest.redirectRules,
+    fallbackRules: manifest.fallbackRules,
+  };
+  const userHeaderRules =
+    generatedHeaders === undefined
+      ? entry.headerRules
+      : convertHeadersConfig(options.routing?.headers);
+  if (edgeRulesNeedWorker({ ...entry, headerRules: userHeaderRules })) {
+    return {
+      assetConfig: { ...assetConfig, run_worker_first: true },
+      entry,
+      assetHeaders: undefined,
+    };
+  }
+  return {
+    assetConfig: { ...assetConfig, run_worker_first: [...VOID_INTERNAL_WORKER_FIRST] },
+    entry: { ...entry, headerRules: undefined },
+    assetHeaders: generatedHeaders,
+  };
+}
+
 export async function runCloudflareStaticDeploy(
   root: string,
   options: RunDeployOptions,
@@ -340,16 +401,11 @@ export async function runCloudflareStaticDeploy(
     return exit(1);
   }
 
-  const merged = mergeAndLintRoutingRules(preset.outputDir, voidConfig.routing);
-  const manifest = buildStaticManifest({
+  const edgeRouting = planStaticEdgeRouting({
+    outputDir: preset.outputDir,
     appType: preset.appType,
-    alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
-    hashedAssetsPrefix: 'assets',
-    headerRules: merged.headerRules,
-    redirectRules: merged.redirectRules,
-    fallbackRules: merged.fallbackRules,
-    notFound: voidConfig.routing?.notFound,
-    html_handling: readWranglerHtmlHandling(rootConfig),
+    routing: voidConfig.routing,
+    htmlHandling: readWranglerHtmlHandling(rootConfig),
   });
   const entryPath = join(root, '.void', 'deploy', 'cloudflare', 'static-edge.mjs');
   mkdirSync(dirname(entryPath), { recursive: true });
@@ -368,7 +424,7 @@ export async function runCloudflareStaticDeploy(
       voidConfig.worker?.compatibility_date ??
       readWranglerTopLevelString(rootConfig, 'compatibility_date') ??
       DEFAULT_COMPATIBILITY_DATE,
-    assetConfig: manifest.assetConfig ?? { not_found_handling: 'none' },
+    assetConfig: edgeRouting.assetConfig,
   });
   deduplicateGeneratedCompatibilityFlags(staticConfigPath, configPath);
   const staticConfig = parseRootWranglerConfig(staticConfigPath);
@@ -387,10 +443,7 @@ export async function runCloudflareStaticDeploy(
     entryPath,
     renderCloudflareStaticEntry({
       runtimeImport: 'void/edge',
-      alwaysUseHttps: manifest.alwaysUseHttps,
-      headerRules: manifest.headerRules,
-      redirectRules: manifest.redirectRules,
-      fallbackRules: manifest.fallbackRules,
+      ...edgeRouting.entry,
       versionMetadataBinding,
     }),
   );
@@ -403,6 +456,7 @@ export async function runCloudflareStaticDeploy(
   stageCloudflareStaticAssets({
     sourceDirectory: preset.outputDir,
     destinationDirectory: stagedAssetsDirectory,
+    headers: edgeRouting.assetHeaders,
   });
 
   const queueConsumerCleanup = readWranglerManagedQueueCleanupCandidates(configPath);

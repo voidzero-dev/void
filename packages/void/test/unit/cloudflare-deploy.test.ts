@@ -24,6 +24,7 @@ import {
   operationFixture,
   operationFixtureRequest,
 } from '../../../deploy-cloudflare/test/operation-fixture.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { readCloudflareLink } from '../../src/cli/cloudflare-link.ts';
 import { verifyGeneratedDeployConfig } from '../../src/cli/deploy-artifact-validation.ts';
 import {
@@ -2501,6 +2502,9 @@ describe('computeDesiredCloudflareResources — provisioned resources are never 
 describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
   const generatedStaticConfig = (root: string) =>
     join(root, '.void/deploy/cloudflare/wrangler-static.json');
+  const staticEntry = (root: string) =>
+    readFileSync(join(root, '.void/deploy/cloudflare/static-edge.mjs'), 'utf-8');
+  const stagedHeaders = (root: string) => join(root, '.void/deploy/cloudflare/assets/_headers');
 
   it('links an assets-only SPA and validates the static adapter before activation, including retries', async () => {
     const root = makeProject({
@@ -2538,7 +2542,11 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
         expect(options.validateUploadedVersion).toBeTypeOf('function');
         expect(parseRootWranglerConfig(options.configPath!)).toMatchObject({
           keep_vars: true,
-          assets: { binding: 'ASSETS', not_found_handling: 'single-page-application' },
+          assets: {
+            binding: 'ASSETS',
+            not_found_handling: 'single-page-application',
+            run_worker_first: ['/__void', '/__void/*'],
+          },
         });
         await options.validateUploadedVersion!('new');
         await options.recordVerifiedCandidate!('new', 'original');
@@ -2586,7 +2594,7 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
     expect(trace).toEqual([]);
   });
 
-  it('deploys a configured SPA through the thin edge Worker', async () => {
+  it('serves a configured SPA from assets, with the thin edge Worker only for /__void', async () => {
     const root = makeProject({
       'package.json': JSON.stringify({ name: 'spaapp' }),
       'void.json': JSON.stringify({ inference: { appType: 'spa' } }),
@@ -2610,11 +2618,11 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
       assets: {
         directory: '../../../dist',
         binding: 'ASSETS',
-        run_worker_first: true,
+        run_worker_first: ['/__void', '/__void/*'],
         not_found_handling: 'single-page-application',
       },
     });
-    const entry = readFileSync(join(root, '.void/deploy/cloudflare/static-edge.mjs'), 'utf-8');
+    const entry = staticEntry(root);
     expect(entry).toContain('void/edge');
     expect(entry).not.toContain('alwaysUseHttps');
     expect(wranglerArgs.at(-1)).toContain(toSlash(join(root, '.void/deploy/cloudflare/assets')));
@@ -3059,8 +3067,13 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
       account_id: 'acc123',
     });
     expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
-      assets: { directory: '../../../public', not_found_handling: '404-page' },
+      assets: {
+        directory: '../../../public',
+        not_found_handling: '404-page',
+        run_worker_first: true,
+      },
     });
+    expect(staticEntry(root)).toContain('"X-Test","yes"');
     const stagedAssets = join(root, '.void/deploy/cloudflare/assets');
     expect(readFileSync(join(stagedAssets, 'index.html'), 'utf-8')).toBe('<h1>Static</h1>');
     expect(existsSync(join(stagedAssets, '_headers'))).toBe(false);
@@ -3161,7 +3174,80 @@ describe('runCloudflareDeploy — static, SPA, and SSG apps', () => {
     });
     expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
       main: 'static-edge.mjs',
-      assets: { directory: '../../../dist/client', not_found_handling: '404-page' },
+      assets: {
+        directory: '../../../dist/client',
+        not_found_handling: '404-page',
+        run_worker_first: ['/__void', '/__void/*'],
+      },
+    });
+  });
+
+  describe('static edge Worker routing', () => {
+    const generatedHeaders = `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/app-abcdefgh.js\n  Cache-Control: public, max-age=31536000, immutable\n`;
+
+    function prerenderedSite(voidConfig: Record<string, unknown>) {
+      const root = makeProject({
+        'package.json': JSON.stringify({ name: 'ssgapp' }),
+        'void.json': JSON.stringify({ output: 'static', ...voidConfig }),
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+        'pages/index.vue': `<template><div>hi</div></template>`,
+      });
+      const { deps, exitCalls } = harness({
+        runStaticBuild: () => {
+          mkdirSync(join(root, 'dist/client/assets'), { recursive: true });
+          writeFileSync(join(root, 'dist/client/index.html'), '<h1>Prerendered</h1>');
+          writeFileSync(join(root, 'dist/client/assets/app-abcdefgh.js'), 'export {};');
+          writeFileSync(join(root, 'dist/client/_headers'), generatedHeaders);
+        },
+      });
+      return { root, deps, exitCalls };
+    }
+
+    it('lets Cloudflare apply the generated _headers when no rule needs the Worker', async () => {
+      const { root, deps, exitCalls } = prerenderedSite({});
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+
+      expect(exitCalls).toEqual([]);
+      expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
+        assets: { run_worker_first: ['/__void', '/__void/*'] },
+      });
+      expect(readFileSync(stagedHeaders(root), 'utf-8')).toBe(generatedHeaders);
+      expect(staticEntry(root)).not.toContain('headerRules');
+    });
+
+    it.each([
+      { name: 'routing.alwaysUseHttps', routing: { alwaysUseHttps: true } },
+      { name: 'routing.redirects', routing: { redirects: { '/old': '/' } } },
+      { name: 'routing.headers', routing: { headers: { '/*': ['X-Frame-Options: DENY'] } } },
+    ])('keeps the Worker in front of every request with $name', async ({ routing }) => {
+      const { root, deps, exitCalls } = prerenderedSite({ routing });
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+
+      expect(exitCalls).toEqual([]);
+      expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
+        assets: { run_worker_first: true },
+      });
+      expect(existsSync(stagedHeaders(root))).toBe(false);
+      expect(staticEntry(root)).toContain('public, max-age=31536000, immutable');
+    });
+
+    it('keeps the Worker in front of a SPA with routing.fallbacks', async () => {
+      const root = makeProject({
+        'package.json': JSON.stringify({ name: 'spaapp' }),
+        'void.json': JSON.stringify({
+          inference: { appType: 'spa' },
+          routing: { fallbacks: { '/docs/*': '/docs/index.html' } },
+        }),
+        'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+        'dist/index.html': '<!doctype html><div id="app"></div>',
+      });
+      const { deps, exitCalls } = harness();
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+
+      expect(exitCalls).toEqual([]);
+      expect(parseRootWranglerConfig(generatedStaticConfig(root))).toMatchObject({
+        assets: { not_found_handling: 'none', run_worker_first: true },
+      });
     });
   });
 
