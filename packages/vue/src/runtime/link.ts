@@ -1,7 +1,12 @@
 import {
-  isModifiedEvent,
-  mergeDataIntoHref,
-  type PrefetchOptions,
+  handleLinkClick,
+  linkPrefetchStrategies,
+  observeLinkVisible,
+  prefetchLink,
+  resolveLink,
+  type BaseLinkProps,
+  type LinkNavigateEvent,
+  type LinkPrefetchStrategy,
   type VoidRouter,
 } from 'void/pages-client';
 import type { Href } from 'void/routes';
@@ -20,42 +25,29 @@ import {
   type PropType,
 } from 'vue';
 
-type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
-type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-type NavigateEvent = { preventDefault(): void };
-
-type VoidLinkProps = {
-  href: Href;
-  method?: LinkMethod | Lowercase<LinkMethod>;
-  data?: Record<string, unknown>;
-  preserveScroll?: boolean;
-  preserveState?: boolean;
-  replace?: boolean;
-  reloadDocument?: boolean;
-  viewTransition?: boolean;
-  onNavigate?: (event: NavigateEvent) => void;
-  prefetch?: boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>;
-  cacheFor?: number | string | [string, string];
-};
+type LinkMethod = NonNullable<BaseLinkProps['method']>;
 
 // Attributes and listeners fall through to the rendered <a> or <button>.
-type LinkProps = VoidLinkProps &
-  Omit<AnchorHTMLAttributes, keyof VoidLinkProps> &
-  Omit<ButtonHTMLAttributes, keyof VoidLinkProps>;
+type LinkProps = BaseLinkProps &
+  Omit<AnchorHTMLAttributes, keyof BaseLinkProps> &
+  Omit<ButtonHTMLAttributes, keyof BaseLinkProps>;
 
 const linkPropOptions = {
   href: { type: String as PropType<Href>, required: true },
-  method: { type: String as PropType<LinkMethod | Lowercase<LinkMethod>>, default: 'GET' },
+  method: { type: String as PropType<LinkMethod>, default: 'GET' },
   data: { type: Object as PropType<Record<string, unknown>>, default: undefined },
   preserveScroll: { type: Boolean, default: false },
   preserveState: { type: Boolean, default: false },
   replace: { type: Boolean, default: false },
   reloadDocument: { type: Boolean, default: false },
   viewTransition: { type: Boolean, default: undefined },
-  onNavigate: { type: Function as PropType<(event: NavigateEvent) => void>, default: undefined },
+  onNavigate: {
+    type: Function as PropType<(event: LinkNavigateEvent) => void>,
+    default: undefined,
+  },
   prefetch: {
     type: [Boolean, String, Array] as PropType<
-      boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>
+      boolean | LinkPrefetchStrategy | ReadonlyArray<LinkPrefetchStrategy>
     >,
     default: false,
   },
@@ -65,14 +57,14 @@ const linkPropOptions = {
   },
 } as const;
 
-// isolatedDeclarations needs VoidLinkProps written out. This fails to compile if
-// it drifts from the runtime props above.
+// isolatedDeclarations needs the public props written out. This fails to compile if
+// the runtime props above drift from the shared Link props.
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-const voidLinkPropsMatchRuntime: Same<
+const linkPropsMatchRuntime: Same<
   ExtractPublicPropTypes<typeof linkPropOptions>,
-  VoidLinkProps
+  BaseLinkProps
 > = true;
-void voidLinkPropsMatchRuntime;
+void linkPropsMatchRuntime;
 
 function callHandler(handler: unknown, event: Event): void {
   if (Array.isArray(handler)) {
@@ -92,81 +84,28 @@ const LinkComponent = defineComponent({
   setup(props, { slots, attrs }) {
     const router = inject<VoidRouter | null>('__void_router', null);
     const elRef = ref<HTMLElement | null>(null);
-    const normalizedMethod = computed(() => props.method.toUpperCase() as LinkMethod);
-    const isGet = computed(() => normalizedMethod.value === 'GET');
-    const hrefWithData = computed(() =>
-      isGet.value ? mergeDataIntoHref(props.href, props.data) : props.href,
-    );
-    const strategies = computed<ReadonlyArray<PrefetchStrategy>>(() => {
-      if (props.prefetch === false || props.reloadDocument) {
-        return [];
-      }
-      if (props.prefetch === true) {
-        return ['hover'];
-      }
-      if (typeof props.prefetch === 'string') {
-        return [props.prefetch];
-      }
-      return props.prefetch;
-    });
+    const link = computed(() => resolveLink(props));
+    const strategies = computed(() => linkPrefetchStrategies(props));
 
     function doPrefetch() {
-      if (!router?.prefetch) {
-        return;
-      }
-      const current = window.location.pathname + window.location.search;
-      if (hrefWithData.value === current) {
-        return;
-      }
-      const options: PrefetchOptions = { method: normalizedMethod.value };
-      if (props.cacheFor !== undefined) {
-        options.cacheFor = props.cacheFor;
-      }
-      router.prefetch(hrefWithData.value, options);
+      prefetchLink(router, link.value.href, props.cacheFor);
     }
 
     function onClick(e: MouseEvent) {
       callHandler(attrs.onClick, e);
-      if (props.reloadDocument || !router || e.defaultPrevented || isModifiedEvent(e)) {
-        return;
-      }
-      if ((e.currentTarget as HTMLElement).hasAttribute('download')) {
-        return;
-      }
-      const url = new URL(hrefWithData.value, window.location.href);
-      if (url.origin !== window.location.origin) {
-        return;
-      }
-
-      let navigatePrevented = false;
-      props.onNavigate?.({
-        preventDefault() {
-          navigatePrevented = true;
-        },
-      });
-      if (navigatePrevented) {
-        e.preventDefault();
-        return;
-      }
-
-      e.preventDefault();
-      router.visit(hrefWithData.value, {
-        method: normalizedMethod.value,
-        data: isGet.value ? undefined : props.data,
-        preserveScroll: props.preserveScroll,
-        preserveState: props.preserveState,
-        replace: props.replace,
-        viewTransition: props.viewTransition,
-      });
+      handleLinkClick(e, router, link.value, props);
     }
 
     let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-    let observer: IntersectionObserver | null = null;
+    let stopObserving: (() => void) | null = null;
 
     function onMouseEnter(e: MouseEvent) {
       callHandler(attrs.onMouseenter ?? attrs.onMouseEnter, e);
       if (e.defaultPrevented) {
         return;
+      }
+      if (hoverTimer) {
+        clearTimeout(hoverTimer);
       }
       hoverTimer = setTimeout(doPrefetch, router?._hoverDelay ?? 75);
     }
@@ -205,17 +144,7 @@ const LinkComponent = defineComponent({
         doPrefetch();
       }
       if (strategies.value.includes('visible') && elRef.value) {
-        observer = new IntersectionObserver(
-          (entries) => {
-            if (entries.some((e) => e.isIntersecting)) {
-              doPrefetch();
-              observer?.disconnect();
-              observer = null;
-            }
-          },
-          { rootMargin: '0px' },
-        );
-        observer.observe(elRef.value);
+        stopObserving = observeLinkVisible(elRef.value, doPrefetch);
       }
     });
 
@@ -223,23 +152,12 @@ const LinkComponent = defineComponent({
       if (hoverTimer) {
         clearTimeout(hoverTimer);
       }
-      if (observer) {
-        observer.disconnect();
-        observer = null;
-      }
+      stopObserving?.();
     });
 
     return () => {
-      if (props.prefetch !== false && !isGet.value) {
-        throw new Error(
-          'Link: prefetch only supports GET links. Remove `prefetch` or use method="GET".',
-        );
-      }
-      if (props.reloadDocument && !isGet.value) {
-        throw new Error('Link: reloadDocument only supports GET links.');
-      }
-
-      const tag = isGet.value ? 'a' : 'button';
+      const { href, isGet } = link.value;
+      const tag = isGet ? 'a' : 'button';
 
       const eventHandlers: Record<string, unknown> = { onClick };
 
@@ -260,7 +178,7 @@ const LinkComponent = defineComponent({
         {
           ...attrs,
           ref: elRef,
-          ...(isGet.value ? { href: hrefWithData.value } : { type: 'button' }),
+          ...(isGet ? { href } : { type: 'button' }),
           style: [{ touchAction: 'manipulation' }, (attrs as { style?: unknown }).style],
           ...eventHandlers,
         },

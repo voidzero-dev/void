@@ -1,12 +1,14 @@
 <script lang="ts">
   import { getContext, onDestroy, onMount } from "svelte";
   import {
-    isModifiedEvent,
-    mergeDataIntoHref,
-    type PrefetchOptions,
+    handleLinkClick,
+    linkPrefetchStrategies,
+    observeLinkVisible,
+    prefetchLink,
+    resolveLink,
     type VoidRouter,
   } from "void/pages-client";
-  import type { LinkMethod, LinkProps, PrefetchStrategy } from "./link-props.ts";
+  import type { LinkProps } from "./link-props.ts";
 
   let {
     href,
@@ -33,79 +35,25 @@
 
   const router = getContext<VoidRouter>("__void_router");
 
-  function getStrategies(): Array<PrefetchStrategy> {
-    if (prefetchProp !== false && !isGet) {
-      throw new Error(
-        'Link: prefetch only supports GET links. Remove `prefetch` or use method="GET".',
-      );
-    }
-    if (reloadDocument && !isGet) {
-      throw new Error("Link: reloadDocument only supports GET links.");
-    }
-    if (prefetchProp === false || reloadDocument) {
-      return [];
-    }
-    if (prefetchProp === true) {
-      return ["hover"];
-    }
-    if (typeof prefetchProp === "string") {
-      return [prefetchProp];
-    }
-    return prefetchProp;
-  }
-
   function doPrefetch() {
-    if (!router?.prefetch) {
-      return;
-    }
-    const current = window.location.pathname + window.location.search;
-    if (hrefWithData === current) {
-      return;
-    }
-    const options: PrefetchOptions = { method: normalizedMethod };
-    if (cacheFor !== undefined) {
-      options.cacheFor = cacheFor;
-    }
-    router.prefetch(hrefWithData, options);
+    prefetchLink(router, link.href, cacheFor);
   }
 
   function onClick(e: MouseEvent) {
     onclickProp?.(e);
-    if (reloadDocument || !router || e.defaultPrevented || isModifiedEvent(e)) {
-      return;
-    }
-    if ((e.currentTarget as HTMLElement).hasAttribute("download")) {
-      return;
-    }
-    const url = new URL(hrefWithData, window.location.href);
-    if (url.origin !== window.location.origin) {
-      return;
-    }
-
-    let navigatePrevented = false;
-    onNavigate?.({
-      preventDefault() {
-        navigatePrevented = true;
-      },
-    });
-    if (navigatePrevented) {
-      e.preventDefault();
-      return;
-    }
-
-    e.preventDefault();
-    router.visit(hrefWithData, {
-      method: normalizedMethod,
-      data: isGet ? undefined : data,
+    handleLinkClick(e, router, link, {
+      data,
       preserveScroll,
       preserveState,
       replace,
+      reloadDocument,
       viewTransition,
+      onNavigate,
     });
   }
 
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-  let observer: IntersectionObserver | null = null;
+  let stopObserving: (() => void) | null = null;
   let el = $state<HTMLElement | null>(null);
 
   function onMouseEnter(e: MouseEvent) {
@@ -153,17 +101,7 @@
       doPrefetch();
     }
     if (strategies.includes("visible") && el) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((e) => e.isIntersecting)) {
-            doPrefetch();
-            observer?.disconnect();
-            observer = null;
-          }
-        },
-        { rootMargin: "0px" },
-      );
-      observer.observe(el);
+      stopObserving = observeLinkVisible(el, doPrefetch);
     }
   });
 
@@ -171,25 +109,22 @@
     if (hoverTimer) {
       clearTimeout(hoverTimer);
     }
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
+    stopObserving?.();
   });
 
-  const normalizedMethod = $derived(method.toUpperCase() as LinkMethod);
-  const isGet = $derived(normalizedMethod === "GET");
-  const hrefWithData = $derived(isGet ? mergeDataIntoHref(href, data) : href);
-  const strategies = $derived(getStrategies());
+  const link = $derived(
+    resolveLink({ href, method, data, prefetch: prefetchProp, reloadDocument }),
+  );
+  const strategies = $derived(linkPrefetchStrategies({ prefetch: prefetchProp, reloadDocument }));
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
   );
 </script>
 
-{#if isGet}
+{#if link.isGet}
   <a
     bind:this={el}
-    href={hrefWithData}
+    href={link.href}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}
