@@ -84,9 +84,6 @@ the app's existing saved destination, including when the target project is new.
   guides and use `void info` to preserve resource names and instance keys.
 - Declare application environment keys in `env.ts` and access them through
   `void/env`; follow `docs/guide/env-vars.md` for local and production values.
-- New apps turn on `routing.typedRoutes`, so `Link` hrefs and router URLs must
-  match a route. Build them with `routeUrl()`; see
-  `docs/guide/type-safety.md#checked-url-strings` before casting.
 - For platform setup, follow the pages linked from
   `docs/guide/self-hosted-platform.md`. Use `void platform list` to find the
   installation slug for maintenance. For recovery, use its documented resume
