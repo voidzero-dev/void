@@ -1,6 +1,5 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
-import { isRecord } from '@void/deploy-core';
 import { hash as blake3hash } from 'blake3-jit';
 import ignore from 'ignore';
 import { extname, join, relative } from 'pathslash';
@@ -656,26 +655,15 @@ const WRANGLER_HTML_HANDLING = new Set<AssetConfig['html_handling']>([
 export function readWranglerHtmlHandling(
   rootConfig: Record<string, unknown>,
 ): AssetConfig['html_handling'] | undefined {
-  const value = readWranglerAssetsField(rootConfig, 'html_handling');
+  const assets = rootConfig.assets;
+  if (typeof assets !== 'object' || assets === null || Array.isArray(assets)) {
+    return undefined;
+  }
+  const value = (assets as Record<string, unknown>).html_handling;
   return typeof value === 'string' &&
     WRANGLER_HTML_HANDLING.has(value as AssetConfig['html_handling'])
     ? (value as AssetConfig['html_handling'])
     : undefined;
-}
-
-/** Read `assets.run_worker_first` from a materialized root Wrangler config object. */
-export function readWranglerRunWorkerFirst(
-  rootConfig: Record<string, unknown>,
-): AssetConfig['run_worker_first'] {
-  const value = readWranglerAssetsField(rootConfig, 'run_worker_first');
-  return typeof value === 'boolean' ||
-    (Array.isArray(value) && value.every((rule) => typeof rule === 'string'))
-    ? value
-    : undefined;
-}
-
-function readWranglerAssetsField(rootConfig: Record<string, unknown>, field: string): unknown {
-  return isRecord(rootConfig.assets) ? rootConfig.assets[field] : undefined;
 }
 
 /**

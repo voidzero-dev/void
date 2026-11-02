@@ -5,7 +5,6 @@ import {
   buildFrameworkManifest,
   buildStaticManifest,
   readWranglerHtmlHandling,
-  readWranglerRunWorkerFirst,
   buildVoidManifest,
   computeAssetHash,
   collectAndHashAssets,
@@ -360,20 +359,6 @@ describe('readWranglerHtmlHandling', () => {
   it('ignores missing or invalid values', () => {
     expect(readWranglerHtmlHandling({})).toBeUndefined();
     expect(readWranglerHtmlHandling({ assets: { html_handling: 'bogus' } })).toBeUndefined();
-  });
-});
-
-describe('readWranglerRunWorkerFirst', () => {
-  it.each([true, false, ['/__void/*', '!/assets/*']])(
-    'reads assets.run_worker_first %j',
-    (value) => {
-      expect(readWranglerRunWorkerFirst({ assets: { run_worker_first: value } })).toEqual(value);
-    },
-  );
-
-  it('ignores missing or invalid values', () => {
-    expect(readWranglerRunWorkerFirst({})).toBeUndefined();
-    expect(readWranglerRunWorkerFirst({ assets: { run_worker_first: [1] } })).toBeUndefined();
   });
 });
 

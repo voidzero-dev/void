@@ -12,7 +12,6 @@ import {
   writeCloudflareStaticDeployConfig,
   assertExistingCloudflareConfig,
 } from '@void/deploy-cloudflare';
-import { matchLiteralPattern } from '@void/edge';
 import { dirname, join, relative } from 'pathslash';
 import { analyzeApplicationSync } from '../application-analysis.ts';
 import { analyzeApplication } from '../application-routing.ts';
@@ -63,11 +62,7 @@ import { type RunDeployOptions, type CloudflareDeployDeps } from './deploy-types
 import { readGeneratedAssetHeadersFile } from './headers.ts';
 import { type CliLogger } from './log-file.ts';
 import { getErrorMessage, note } from './output.ts';
-import {
-  buildStaticManifest,
-  readWranglerHtmlHandling,
-  readWranglerRunWorkerFirst,
-} from './package.ts';
+import { buildStaticManifest, readWranglerHtmlHandling } from './package.ts';
 import { detectPreset, type StaticPreset, type FrameworkPreset } from './preset.ts';
 import { deleteEnvVarCaseAware } from './provision.ts';
 import type { AssetConfig, DeployManifest } from './types.ts';
@@ -268,16 +263,13 @@ export type StaticEdgeRouting = {
  * Worker only answers `/__void/ready`, so Cloudflare serves every other request
  * from assets without starting it. The Void-generated `_headers` is not such a
  * rule: it only marks fingerprinted files immutable, which Cloudflare applies
- * itself. Any other rule keeps the Worker in front of every request, unless the
- * app chose `run_worker_first` itself.
+ * itself. Any other rule keeps the Worker in front of every request.
  */
 export function planStaticEdgeRouting(options: {
   outputDir: string;
   appType: StaticPreset['appType'];
   routing: RoutingConfig | undefined;
   htmlHandling: AssetConfig['html_handling'];
-  /** `assets.run_worker_first` from the app's Cloudflare config. */
-  runWorkerFirst?: AssetConfig['run_worker_first'];
 }): StaticEdgeRouting {
   const generatedHeaders = readGeneratedAssetHeadersFile(options.outputDir);
   const merged = mergeAndLintRoutingRules(options.outputDir, options.routing);
@@ -298,13 +290,6 @@ export function planStaticEdgeRouting(options: {
     redirectRules: manifest.redirectRules,
     fallbackRules: manifest.fallbackRules,
   };
-  if (options.runWorkerFirst !== undefined) {
-    return {
-      assetConfig: { ...assetConfig, run_worker_first: options.runWorkerFirst },
-      entry,
-      assetHeaders: generatedHeaders,
-    };
-  }
   const userHeaderRules =
     generatedHeaders === undefined
       ? entry.headerRules
@@ -321,20 +306,6 @@ export function planStaticEdgeRouting(options: {
     entry: { ...entry, headerRules: undefined },
     assetHeaders: generatedHeaders,
   };
-}
-
-/** Whether `run_worker_first` sends `/__void/ready`, the deployment check, to the Worker. */
-function sendsReadinessToWorker(
-  runWorkerFirst: NonNullable<AssetConfig['run_worker_first']>,
-): boolean {
-  if (typeof runWorkerFirst === 'boolean') {
-    return runWorkerFirst;
-  }
-  const matches = (rule: string) => matchLiteralPattern(rule, '/__void/ready');
-  return (
-    runWorkerFirst.some((rule) => !rule.startsWith('!') && matches(rule)) &&
-    !runWorkerFirst.some((rule) => rule.startsWith('!') && matches(rule.slice(1)))
-  );
 }
 
 export async function runCloudflareStaticDeploy(
@@ -389,13 +360,6 @@ export async function runCloudflareStaticDeploy(
     throw new Error('The pending Cloudflare handoff was not saved before deployment.');
   }
   const rootConfig = parseRootWranglerConfig(configPath);
-  const runWorkerFirst = readWranglerRunWorkerFirst(rootConfig);
-  if (runWorkerFirst !== undefined && !sendsReadinessToWorker(runWorkerFirst)) {
-    log.error(
-      'deploy: cloudflare.assets.run_worker_first must send /__void/ready to the Worker, which answers deployment checks. Include "/__void/*" or remove the setting.',
-    );
-    return exit(1);
-  }
   const workerName = readWranglerTopLevelString(rootConfig, 'name') ?? deriveWorkerName(root);
   printDeployContext(workerName, 'Cloudflare');
   const rootConfigBeforeBuild = existsSync(configPath) ? readFileSync(configPath, 'utf-8') : null;
@@ -442,7 +406,6 @@ export async function runCloudflareStaticDeploy(
     appType: preset.appType,
     routing: voidConfig.routing,
     htmlHandling: readWranglerHtmlHandling(rootConfig),
-    runWorkerFirst,
   });
   const entryPath = join(root, '.void', 'deploy', 'cloudflare', 'static-edge.mjs');
   mkdirSync(dirname(entryPath), { recursive: true });
