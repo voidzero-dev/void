@@ -76,6 +76,16 @@ function pageJson(body: unknown): Response {
 
 const loadComponent = async () => ({ default: {} });
 
+function controlledPromise<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 function createTestRouter({ adapter, ...config }: TestRouterConfig = {}) {
   return createVoidRouter({
     components: { home: loadComponent },
@@ -137,6 +147,174 @@ describe('createVoidRouter', () => {
       'Void Router: visit() is not available during SSR.',
     );
   });
+
+  it('loads the destination page and layouts while its data request is pending', async () => {
+    stubClientGlobals();
+    const response = controlledPromise<Response>();
+    const page = controlledPromise<{ default: object }>();
+    const layout = controlledPromise<{ default: object }>();
+    const pageLoader = vi.fn(() => page.promise);
+    const layoutLoader = vi.fn(() => layout.promise);
+    const fetchMock = vi.fn(() => response.promise);
+    vi.stubGlobal('fetch', fetchMock);
+    const applyUpdate = vi.fn();
+    const { router } = await createTestRouter({
+      adapter: { applyUpdate },
+      components: { home: loadComponent, users: pageLoader, layout: layoutLoader },
+      layoutTree: { users: ['layout'] },
+      matchRoute: (path) => (path === '/users' ? 'users' : 'home'),
+    });
+
+    const visit = router.visit('/users?tab=all#top');
+    expect(fetchMock).toHaveBeenCalledOnce();
+    expect(pageLoader).toHaveBeenCalledOnce();
+    expect(layoutLoader).toHaveBeenCalledOnce();
+    expect(applyUpdate).not.toHaveBeenCalled();
+
+    const pageData = { component: 'users', props: { count: 3 } };
+    response.resolve(pageJson(pageData));
+    const component = {};
+    page.resolve({ default: component });
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(applyUpdate).not.toHaveBeenCalled();
+    const layoutComponent = {};
+    layout.resolve({ default: layoutComponent });
+
+    await expect(visit).resolves.toEqual(pageData);
+    expect(applyUpdate).toHaveBeenCalledWith(pageData, component, [layoutComponent], {
+      preserveState: false,
+    });
+    expect(pageLoader).toHaveBeenCalledOnce();
+    expect(layoutLoader).toHaveBeenCalledOnce();
+  });
+
+  it.each(['redirect', 'rewrite'])(
+    'renders the server destination after a %s even if a speculative import fails',
+    async (kind) => {
+      stubClientGlobals();
+      const response = controlledPromise<Response>();
+      const pageLoader = vi.fn(async () => {
+        throw new Error('Unused page chunk failed');
+      });
+      const destinationLoader = vi.fn(loadComponent);
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(() => response.promise),
+      );
+      const applyUpdate = vi.fn();
+      const { router } = await createTestRouter({
+        adapter: { applyUpdate },
+        components: { home: loadComponent, users: pageLoader, destination: destinationLoader },
+        matchRoute: () => 'users',
+      });
+
+      const visit = router.visit('/users');
+      // Let a speculative rejection settle before the server responds. Vitest also
+      // fails this test if that rejection escapes as an unhandled promise.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+      expect(pageLoader).toHaveBeenCalledOnce();
+      expect(destinationLoader).not.toHaveBeenCalled();
+      const pageData = { component: 'destination', props: {}, url: '/destination' };
+      const result = pageJson(pageData);
+      if (kind === 'redirect') {
+        Object.defineProperties(result, {
+          redirected: { value: true },
+          url: { value: 'http://localhost/destination' },
+        });
+      }
+      response.resolve(result);
+
+      await expect(visit).resolves.toEqual(pageData);
+      expect(destinationLoader).toHaveBeenCalledOnce();
+      expect(applyUpdate.mock.calls[0][0]).toEqual(pageData);
+      expect(history.pushState).toHaveBeenCalledWith(
+        expect.anything(),
+        '',
+        kind === 'redirect' ? '/destination' : '/users',
+      );
+    },
+  );
+
+  it('surfaces a speculative import failure when the response selects that page', async () => {
+    stubClientGlobals();
+    const response = controlledPromise<Response>();
+    const failure = new Error('Page chunk failed');
+    const pageLoader = vi.fn(async () => {
+      throw failure;
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(() => response.promise),
+    );
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: pageLoader },
+      matchRoute: () => 'users',
+    });
+
+    const visit = router.visit('/users');
+    const rejected = expect(visit).rejects.toBe(failure);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    response.resolve(pageJson({ component: 'users', props: {} }));
+    await rejected;
+    expect(pageLoader).toHaveBeenCalledOnce();
+  });
+
+  it('ignores a speculative import failure after the visit is aborted', async () => {
+    stubClientGlobals();
+    const page = controlledPromise<{ default: object }>();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((url: string, options: RequestInit) =>
+        url === '/users'
+          ? new Promise<Response>((_resolve, reject) => {
+              options.signal!.addEventListener('abort', () => {
+                reject(options.signal!.reason);
+              });
+            })
+          : Promise.resolve(pageJson({ component: 'home', props: {} })),
+      ),
+    );
+    const applyUpdate = vi.fn();
+    const pageLoader = vi.fn(() => page.promise);
+    const { router } = await createTestRouter({
+      adapter: { applyUpdate },
+      components: { home: loadComponent, users: pageLoader },
+      matchRoute: (path) => (path === '/users' ? 'users' : 'home'),
+    });
+
+    const abandonedVisit = router.visit('/users');
+    expect(pageLoader).toHaveBeenCalledOnce();
+    await router.visit('/');
+    await expect(abandonedVisit).resolves.toBeUndefined();
+    page.reject(new Error('Abandoned chunk failed'));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(applyUpdate).toHaveBeenCalledOnce();
+    expect(applyUpdate.mock.calls[0][0].component).toBe('home');
+  });
+
+  it.each(['unknown', 'island', 'mutation', 'external'])(
+    'does not speculate on %s destinations',
+    async (kind) => {
+      stubClientGlobals();
+      const response = controlledPromise<Response>();
+      const pageLoader = vi.fn(loadComponent);
+      const fetchMock = vi.fn(() => response.promise);
+      vi.stubGlobal('fetch', fetchMock);
+      const { router } = await createTestRouter({
+        components: { home: loadComponent, users: pageLoader },
+        routeMeta: kind === 'island' ? { users: { island: true } } : {},
+        matchRoute: () => (kind === 'unknown' ? null : 'users'),
+      });
+
+      const visit = router.visit(kind === 'external' ? 'https://other.example/users' : '/users', {
+        method: kind === 'mutation' ? 'POST' : 'GET',
+      });
+      expect(pageLoader).not.toHaveBeenCalled();
+      response.resolve(pageJson({ component: 'home', props: {} }));
+      await visit;
+      expect(pageLoader).not.toHaveBeenCalled();
+    },
+  );
 
   it('rejects non-GET methods before route side effects', async () => {
     const documentStub = stubClientGlobals();

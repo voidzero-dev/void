@@ -640,6 +640,17 @@ export async function createPageNavigationEngine(
       _prefetchCache.flushAll();
     }
 
+    // Start known GET route imports alongside data. The response still selects
+    // the rendered component, since middleware may rewrite or redirect the URL.
+    const matchedComponentId = method === 'GET' ? matchRoute(fetchUrl) : null;
+    const preloadComponentPromise =
+      matchedComponentId && !routeMeta[matchedComponentId]?.island && components[matchedComponentId]
+        ? Promise.all([resolveComponent(matchedComponentId), resolveLayouts(matchedComponentId)])
+        : null;
+    // A speculative failure only belongs to this visit if the response selects
+    // that component. Handle it while data is pending, even if the visit aborts.
+    preloadComponentPromise?.catch(() => {});
+
     const headers: Record<string, string> = {
       'X-VoidPages': 'true',
       Accept: 'application/json',
@@ -829,8 +840,12 @@ export async function createPageNavigationEngine(
       commitTarget.fetchUrl = withoutActionKey(fetchUrl, pageData.url);
     }
 
+    // Reuse the preload only if the response selects the matched page; redirects
+    // or rewrites may select another. Cancellation stops waiting for the imports.
     const [component, layouts] = await Promise.race([
-      Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
+      matchedComponentId === pageData.component && preloadComponentPromise
+        ? preloadComponentPromise
+        : Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
       abortSignalPromise(signal),
     ]);
 
