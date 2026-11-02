@@ -13,4 +13,6 @@ export function checkFieldErrors(): void {
   form.setError('missing', 'Invalid field');
   // @ts-expect-error Error messages must be strings.
   form.setError('email', 123);
+  // @ts-expect-error Form state is read-only.
+  form.pending = true;
 }

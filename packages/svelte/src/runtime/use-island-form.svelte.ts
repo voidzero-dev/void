@@ -1,13 +1,13 @@
-import { isEqualFormValue, submitIslandAction, type VoidActionError } from 'void/pages-client';
+import {
+  isEqualFormValue,
+  submitIslandAction,
+  type FormStatus,
+  type VoidActionError,
+} from 'void/pages-client';
 
-type UntypedIslandForm = {
+type UntypedIslandForm = FormStatus & {
   readonly data: Record<string, unknown>;
   readonly errors: Record<string, string>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
   submit(url: string, method: string): Promise<void>;
   post(url: string): Promise<void>;
   put(url: string): Promise<void>;

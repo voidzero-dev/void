@@ -1,24 +1,25 @@
 import { createSignal, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
-import { isEqualFormValue, submitIslandAction, type VoidActionError } from 'void/pages-client';
+import {
+  isEqualFormValue,
+  submitIslandAction,
+  type FormStatus,
+  type VoidActionError,
+} from 'void/pages-client';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = Readonly<{
-  data: T;
-  setData: <K extends keyof T & string>(field: K, value: T[K]) => void;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  reset: (...fields: ReadonlyArray<keyof T & string>) => void;
-  clearErrors: (...fields: ReadonlyArray<string>) => void;
-  clearError: () => void;
-  post: (url: string) => Promise<void>;
-  put: (url: string) => Promise<void>;
-  patch: (url: string) => Promise<void>;
-  delete: (url: string) => Promise<void>;
-}>;
+export type IslandFormReturn<T extends Record<string, unknown>> = FormStatus &
+  Readonly<{
+    data: T;
+    setData: <K extends keyof T & string>(field: K, value: T[K]) => void;
+    errors: Record<string, string>;
+    reset: (...fields: ReadonlyArray<keyof T & string>) => void;
+    clearErrors: (...fields: ReadonlyArray<string>) => void;
+    clearError: () => void;
+    post: (url: string) => Promise<void>;
+    put: (url: string) => Promise<void>;
+    patch: (url: string) => Promise<void>;
+    delete: (url: string) => Promise<void>;
+  }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
