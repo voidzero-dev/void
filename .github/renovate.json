@@ -3,9 +3,14 @@
   "extends": ["github>Boshen/renovate"],
   "packageRules": [
     {
-      "description": "Keep Hono aligned across the SDK and hosted platform; dashboard typechecking has regressed when the versions diverge.",
-      "matchPackageNames": ["hono"],
+      "description": "Manage npm dependencies and package managers manually.",
+      "matchDatasources": ["npm"],
       "enabled": false
+    },
+    {
+      "description": "Use the same weekly cadence for all remaining updates.",
+      "matchPackageNames": ["*"],
+      "schedule": ["before 10am on monday"]
     }
   ]
 }
