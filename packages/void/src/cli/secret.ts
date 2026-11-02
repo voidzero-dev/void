@@ -60,6 +60,9 @@ export async function runSecretCommand(root: string, args: SecretArgs): Promise<
     }
 
     if (!args.yes) {
+      if (process.env.CI || !process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error('secret: Pass --yes to sync secrets in CI or a non-interactive shell.');
+      }
       const proceed = await confirm({
         message: `This will overwrite ${formatCount(secrets.length, 'secret')} in the ${backend.target}. Continue?`,
       });

@@ -830,7 +830,10 @@ const HELP_TREE: HelpTree = {
         usage: ['void secret sync <file> [options]'],
         options: [
           { command: '--project <name>', description: 'Project name override' },
-          { command: '--yes', description: 'Apply without an interactive confirmation' },
+          {
+            command: '--yes',
+            description: 'Skip confirmation (required in CI and non-interactive shells)',
+          },
         ],
       },
     },

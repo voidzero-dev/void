@@ -33,6 +33,10 @@ vi.mock('@voidzero-dev/vite-plus-prompts', async (importOriginal) => {
 import { runSecretCommand } from '../../src/cli/secret.ts';
 
 const roots: Array<string> = [];
+const terminalStreams = [process.stdin, process.stdout];
+const ttyDescriptors = terminalStreams.map((stream) =>
+  Object.getOwnPropertyDescriptor(stream, 'isTTY'),
+);
 
 function project(): string {
   const root = mkdtempSync(join(tmpdir(), 'void-cf-secret-validation-'));
@@ -44,6 +48,10 @@ function project(): string {
 }
 
 beforeEach(() => {
+  vi.stubEnv('CI', '');
+  for (const stream of terminalStreams) {
+    Object.defineProperty(stream, 'isTTY', { configurable: true, get: () => true });
+  }
   defineEnv({});
   cloudflare.put.mockReset();
   cloudflare.sync.mockReset();
@@ -54,6 +62,16 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllEnvs();
+  for (const [index, stream] of terminalStreams.entries()) {
+    const descriptor = ttyDescriptors[index];
+    if (descriptor) {
+      Object.defineProperty(stream, 'isTTY', descriptor);
+    } else {
+      Reflect.deleteProperty(stream, 'isTTY');
+    }
+  }
   for (const root of roots.splice(0, roots.length)) {
     rmSync(root, { recursive: true, force: true });
   }
@@ -120,7 +138,32 @@ describe('direct Cloudflare secret validation', () => {
     exit.mockRestore();
   });
 
-  it('syncs without confirmation when --yes is set', async () => {
+  it.each(['stdin', 'stdout', 'CI'] as const)(
+    'requires --yes when %s is non-interactive',
+    async (stream) => {
+      if (stream === 'CI') {
+        vi.stubEnv('CI', 'true');
+      } else {
+        vi.spyOn(process[stream], 'isTTY', 'get').mockReturnValue(false);
+      }
+      const root = project();
+      const dotenv = join(root, 'production.env');
+      writeFileSync(dotenv, 'API_TOKEN=secret\n');
+      defineEnv({ API_TOKEN: string() });
+
+      await expect(runSecretCommand(root, { action: 'sync', file: dotenv })).rejects.toThrow(
+        'Pass --yes',
+      );
+      expect(confirm).not.toHaveBeenCalled();
+      expect(cloudflare.sync).not.toHaveBeenCalled();
+    },
+  );
+
+  it('syncs without confirmation in CI with closed stdin when --yes is set', async () => {
+    vi.stubEnv('CI', 'true');
+    for (const stream of terminalStreams) {
+      vi.spyOn(stream, 'isTTY', 'get').mockReturnValue(false);
+    }
     const root = project();
     const dotenv = join(root, 'production.env');
     writeFileSync(dotenv, 'API_TOKEN=secret\n');
