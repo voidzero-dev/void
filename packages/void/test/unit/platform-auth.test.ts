@@ -165,16 +165,16 @@ describe('platform Cloudflare authentication', () => {
       expect(request.mock.calls.every((call) => call.length === 1)).toBe(true);
     },
   );
-  it('requires an API token before browser OAuth applies zone or DNS writes', () => {
-    const action = (kind: 'dns-record' | 'zone', action: 'adopt' | 'create' | 'reuse') => ({
-      action,
-      id: action === 'create' ? null : `${kind}-id`,
-      key: kind,
-      kind,
-      name: 'example.com',
-      reason: 'test',
-    });
+  const action = (kind: 'dns-record' | 'zone', action: 'adopt' | 'create' | 'reuse') => ({
+    action,
+    id: action === 'create' ? null : `${kind}-id`,
+    key: kind,
+    kind,
+    name: 'example.com',
+    reason: 'test',
+  });
 
+  it('requires an API token before browser OAuth applies zone or DNS writes', () => {
     expect(() =>
       assertPlatformOperatorCredentialCanApplyPlan(
         { source: 'oauth', token: 'browser-token' },
@@ -197,14 +197,6 @@ describe('platform Cloudflare authentication', () => {
 
   it('does not require an API token for a DNS record the install only adopts', () => {
     const oauth = { source: 'oauth' as const, token: 'browser-token' };
-    const action = (kind: 'dns-record' | 'zone', action: 'adopt' | 'create' | 'reuse') => ({
-      action,
-      id: action === 'create' ? null : `${kind}-id`,
-      key: kind,
-      kind,
-      name: 'example.com',
-      reason: 'test',
-    });
 
     const adopt = { actions: [action('zone', 'reuse'), action('dns-record', 'adopt')] };
     expect(platformOperatorNeedsManagementToken(oauth, adopt)).toBe(false);
