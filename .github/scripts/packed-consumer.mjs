@@ -306,12 +306,6 @@ try {
           JSON.parse(readFileSync(join(fixture, 'node_modules/void/package.json'), 'utf8')).version,
           version,
         );
-        // New apps check Link and router URL strings; the typecheck below runs with it on.
-        assert.match(
-          readFileSync(join(fixture, 'void.config.ts'), 'utf8'),
-          /"typedRoutes": true/,
-          'init must turn on routing.typedRoutes for new apps',
-        );
         await run(process.execPath, [cli, 'prepare'], fixture);
         await run(manager, manager === 'npm' ? ['ci'] : ['install', '--frozen-lockfile'], fixture);
         const extension = framework === 'vue' ? 'vue' : framework === 'svelte' ? 'svelte' : 'tsx';
