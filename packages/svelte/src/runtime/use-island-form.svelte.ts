@@ -1,29 +1,19 @@
 import {
   isEqualFormValue,
   submitIslandAction,
-  type FormStatus,
+  type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
 
-type UntypedIslandForm = FormStatus & {
-  readonly data: Record<string, unknown>;
-  readonly errors: Record<string, string>;
-  submit(url: string, method: string): Promise<void>;
-  post(url: string): Promise<void>;
-  put(url: string): Promise<void>;
-  patch(url: string): Promise<void>;
-  delete(url: string): Promise<void>;
-  reset(...fields: ReadonlyArray<string>): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+  Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
  * Void Router (which is not available in island mode).
  */
-export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandForm {
-  let data: Record<string, unknown> = $state({ ...defaults });
+export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T> {
+  let data: T = $state({ ...defaults });
   let errors: Record<string, string> = $state({});
   let error: VoidActionError | null = $state(null);
   let pending = $state(false);
@@ -37,7 +27,7 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
     Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key])),
   );
 
-  function reset(...fields: ReadonlyArray<string>) {
+  function reset(...fields: ReadonlyArray<keyof T & string>) {
     if (fields.length === 0) {
       data = { ...defaults_ };
     } else {

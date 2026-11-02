@@ -601,4 +601,5 @@ export {
   type FormState,
   type FormStatus,
   type FormSubmitOptions,
+  type IslandFormState,
 } from './form-presentation.ts';

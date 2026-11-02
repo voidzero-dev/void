@@ -2,23 +2,12 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import {
   isEqualFormValue,
   submitIslandAction,
-  type FormStatus,
+  type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = FormStatus &
-  Readonly<{
-    data: T;
-    setData: <K extends keyof T & string>(field: K, value: T[K]) => void;
-    errors: Record<string, string>;
-    reset: (...fields: ReadonlyArray<keyof T & string>) => void;
-    clearErrors: (...fields: ReadonlyArray<string>) => void;
-    clearError: () => void;
-    post: (url: string) => Promise<void>;
-    put: (url: string) => Promise<void>;
-    patch: (url: string) => Promise<void>;
-    delete: (url: string) => Promise<void>;
-  }>;
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+  Readonly<{ setData: <K extends keyof T & string>(field: K, value: T[K]) => void }>;
 
 /**
  * Form hook for island pages. Uses fetch + page reload instead of the

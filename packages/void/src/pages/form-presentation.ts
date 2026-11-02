@@ -34,6 +34,22 @@ export type FormState<TData> = FormStatus & {
   clearErrors(...fields: ReadonlyArray<keyof TData & string>): void;
   clearError(): void;
 };
+/**
+ * The `useIslandForm()` contract every adapter shares. Submit methods take the action URL.
+ * Adapters add any framework-specific setter or submit helper.
+ */
+export type IslandFormState<TData> = FormStatus &
+  Readonly<{
+    data: TData;
+    errors: Record<string, string>;
+    reset(...fields: ReadonlyArray<keyof TData & string>): void;
+    clearErrors(...fields: ReadonlyArray<string>): void;
+    clearError(): void;
+    post(url: string): Promise<void>;
+    put(url: string): Promise<void>;
+    patch(url: string): Promise<void>;
+    delete(url: string): Promise<void>;
+  }>;
 
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {
   return form.error?.message ?? (Object.values(form.errors).filter(Boolean).join('. ') || null);

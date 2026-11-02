@@ -1,24 +1,13 @@
 import {
   isEqualFormValue,
   submitIslandAction,
-  type FormStatus,
+  type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
 import { reactive, ref, watch } from 'vue';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = FormStatus &
-  Readonly<{
-    data: T;
-    errors: Record<string, string>;
-    submit(url: string, method: string): Promise<void>;
-    post(url: string): Promise<void>;
-    put(url: string): Promise<void>;
-    patch(url: string): Promise<void>;
-    delete(url: string): Promise<void>;
-    reset(...fields: ReadonlyArray<keyof T & string>): void;
-    clearErrors(...fields: ReadonlyArray<string>): void;
-    clearError(): void;
-  }>;
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+  Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
