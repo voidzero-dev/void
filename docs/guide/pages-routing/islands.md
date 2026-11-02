@@ -209,7 +209,7 @@ After a successful action, an island page reloads or redirects through `window.l
 
 ## Forms
 
-Island pages cannot use `useForm` because it depends on the Void Router. Use `useIslandForm` instead. It has the same form state, but its submit helpers take the action URL and use `fetch()` directly:
+Use `useIslandForm` for forms in island components. It provides the same form state as `useForm`, and its submit helpers take the action URL:
 
 ::: code-group
 

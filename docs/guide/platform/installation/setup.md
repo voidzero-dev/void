@@ -260,6 +260,6 @@ You can also rerun `void platform install` and choose **Continue setup** for an 
 
 Resume restores your selected Hyperdrive. If that selection is missing from the saved checkpoint, add `--hyperdrive <existing-id>` when resuming, using the same configuration you originally selected.
 
-If Cloudflare rejects a saved runtime token during continued credential setup, Void opens the token page and asks for a replacement in the same run. A missing [email permission](/guide/platform/installation/credentials#enable-email) does not discard the saved token: add the permission to the same token, then resume. Network or service failures do not discard saved tokens. Tokens supplied through the environment must be corrected there instead.
+If Cloudflare rejects a saved runtime token, Void opens the token page and asks for a replacement. For a missing [email permission](/guide/platform/installation/credentials#enable-email), update the existing token's permissions and resume. If you supplied a token through an environment variable, update that variable.
 
 :::

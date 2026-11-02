@@ -195,7 +195,7 @@ The inbox keeps the most recent 100 messages through HMR and clears on a full se
 
 The dev inbox works in native Void apps, TanStack Start, and React Router. It is unavailable in SvelteKit, Nuxt, Analog, and Astro; sends from those apps return `BINDING_MISSING`. Use `createEmailTestHarness` from `void/email/testing` to capture sends in tests. If a configured inbox cannot be reached, `sendEmail` returns `UPSTREAM_ERROR` without sending.
 
-`sendInDev` is deprecated. During local development it skips the inbox and returns `BINDING_MISSING`, so it never delivers. Remove it, and deploy the app to test real delivery.
+Remove the deprecated `sendInDev` option to use the local inbox. Deploy the app to test real delivery.
 
 ## Testing {#testing}
 

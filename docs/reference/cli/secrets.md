@@ -39,7 +39,7 @@ Upload production server values from a dotenv file stored outside your project. 
 void secret sync /secure/path/production.env
 ```
 
-Pass `--yes` to skip confirmation. This is required in CI and non-interactive shells; without it, the command exits non-zero without uploading secrets.
+Pass `--yes` to skip confirmation in scripts and CI.
 
 Existing remote secrets absent from the file are kept. Every entry must be a server key declared in `env.ts`, and its value must pass validation.
 

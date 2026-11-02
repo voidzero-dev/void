@@ -70,7 +70,7 @@ Void checks access before provisioning. If it reports a missing permission, upda
 
 Choose a shared sender domain and its Cloudflare zone ID. The mail zone may differ from the application zone, but it must belong to the platform's Cloudflare account.
 
-Before you enable email, enable [Cloudflare Email Routing](https://developers.cloudflare.com/email-service/get-started/route-emails/) for the exact shared sender domain and confirm that its MX records point to Cloudflare. For a subdomain, add that name under the zone's **Email Routing → Settings → Subdomains**. Cloudflare adds the required MX and SPF records. The installer's shared-mail bootstrap verifies those records; it does not add them. Keep existing mail-provider records on other domain names in place.
+Before enabling platform email, configure [Cloudflare Email Routing](https://developers.cloudflare.com/email-service/get-started/route-emails/) for the shared sender domain. For a subdomain, add it under **Email Routing → Settings → Subdomains**. Let Cloudflare add the required MX and SPF records, then confirm that the domain's MX records point to Cloudflare.
 
 Enabling email lets administrators [register email domains for projects](/guide/platform/administration/email#registering-email-domains-for-projects) and lets projects register destination addresses through the runtime token. The runtime token needs these permissions:
 
@@ -86,7 +86,7 @@ The zone permissions must include each zone that will carry mail, including the 
 
 For a new installation, set `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID` before `void platform install`. The runtime-token link then preselects these permissions.
 
-For an existing installation, add the permissions to its runtime token first. Edit the token in the Cloudflare dashboard. The token value stays the same. Or set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a new token that has all runtime permissions. Then run:
+For an existing installation, edit its runtime token's permissions in Cloudflare, or supply a replacement with `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`. Then run:
 
 ```sh
 VOID_EMAIL_SENDER_DOMAIN=mail.example.com \
@@ -94,13 +94,13 @@ VOID_EMAIL_SHARED_ZONE_ID=your-zone-id \
 void platform upgrade your-installation-id
 ```
 
-Void records the domain and zone for later upgrades; an ordinary upgrade cannot replace them.
+Void saves this domain and zone for later upgrades. Choose them for the lifetime of the installation.
 
-Before the CLI changes anything or pauses traffic, it checks that the runtime token can read the mail zone and its Email Routing settings, rules, and addresses. If Cloudflare denies a request, the command stops and names each missing permission. Void keeps a saved runtime token, so you can add the permission to the same token and run the command again. The check cannot confirm Edit access or Email Sending, so select those permissions as the table shows.
+If setup reports a missing permission, add it to the runtime token and rerun the command. Select all permissions in the table, including Edit access and Email Sending.
 
-Without `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`, `upgrade`, `repair`, `enable`, and `rollback` check the runtime token saved on this machine. The platform can use a newer token, for example one set from another machine. If Cloudflare does not accept the saved token, the CLI shows a warning and continues without the check. To check the token that the platform uses, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to it.
+When maintaining the platform from another machine, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to the current runtime token so the CLI checks its permissions.
 
-The installer deploys the email gateway, prepares the shared mail route, and verifies inbound readiness before opening platform traffic. If setup fails, fix the problem that the error names, for example a missing permission, the exact-domain MX records, or a routing conflict. Then run the same install or upgrade command again. A fresh install resumes with `void platform install --resume --name <installation-id>`; it continues the recorded email operation after the configuration is corrected.
+The installer configures the email gateway and shared mail route. If setup fails, fix the reported permission, DNS, or routing problem and rerun the command. Resume a fresh installation with `void platform install --resume --name <installation-id>`.
 
 ## R2 Upload Credentials
 

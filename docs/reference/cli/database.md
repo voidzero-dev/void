@@ -20,7 +20,7 @@ For SQLite, Void checks that the migration history applies to a fresh database. 
 
 ## `void db status` {#void-db-status}
 
-Show migration status. Displays which migrations are applied or pending locally, then uses the saved deployment target for remote status: the hosted API for Void projects, the pinned D1 database and its configured migration table for direct Cloudflare SQLite projects, or the shell `DATABASE_URL` for direct Cloudflare PostgreSQL/MySQL projects. If the remote credential or service is unavailable, local status is still shown. If the local PostgreSQL or MySQL database cannot be read, local status shows `unknown`; the command fails when remote status is not available either.
+Show applied and pending migrations locally and on the saved deployment target. Direct Cloudflare PostgreSQL and MySQL projects use `DATABASE_URL` from the current shell for remote status.
 
 ## `void db reset` {#void-db-reset}
 
@@ -28,7 +28,7 @@ Show migration status. Displays which migrations are applied or pending locally,
 void db reset [--yes]
 ```
 
-Drop the development database and re-apply all migrations. D1 resets the local database. PostgreSQL drops the tables, views, sequences, and custom types in the `public` schema of the `DATABASE_URL` database from `.env` and keeps installed extensions. If a table, view, or function in another schema uses one of those views, sequences, or types, reset stops before it drops anything and lists those objects. MySQL drops every table and view in that database.
+Reset the development database and re-apply all migrations. D1 resets local data. PostgreSQL clears tables, views, sequences, and custom types from the `public` schema while preserving extensions; dependencies from other schemas must be resolved first. MySQL drops all tables and views. PostgreSQL and MySQL use `DATABASE_URL` from `.env`.
 
 When that `DATABASE_URL` points to a host other than `localhost`, Void names the database and asks before dropping its tables. Pass `--yes` to skip the prompt in scripts and CI; without a terminal, the command stops unless `--yes` is set. If `.env` uses the same URL as your deployment (for example after `void db connect`), reset drops the deployed tables.
 
@@ -87,7 +87,7 @@ By default, targets the local database. Pass `--remote` to open Studio against t
 
 - **Hosted PostgreSQL and MySQL projects**: fetch the stored connection string from the platform and open Studio against it. If the URL isn't stored yet, run `void db set-url` first.
 - **Direct Cloudflare PostgreSQL and MySQL projects**: use `DATABASE_URL` from the current shell.
-- **D1 projects**: remote Studio is not available. Use `void db execute --remote` to query your deployed D1 database.
+- **D1 projects**: use `void db execute --remote` to query the deployed database.
 
 ## `void db restore` {#void-db-restore}
 
@@ -96,19 +96,25 @@ void db restore --bookmark <bookmark> [--platform cloudflare] [--yes]
 void db restore --timestamp <iso-time> [--platform cloudflare] [--yes]
 ```
 
-Restore the deployed D1 database of a direct Cloudflare deploy with D1 [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/). Before `void deploy --platform cloudflare` applies migrations, it prints the `--bookmark` that undoes them. `--timestamp` restores the state at an ISO 8601 time with `Z` or an offset instead, such as `2026-10-16T09:30:00Z`, with at most millisecond precision. Time Travel keeps 7 days of history on Workers Free and 30 days on Workers Paid. An older bookmark or time can no longer be restored: Cloudflare rejects it and the database stays unchanged. To undo an older migration, write a new migration that reverses it.
+Restore a directly deployed Cloudflare D1 database using [Time Travel](https://developers.cloudflare.com/d1/reference/time-travel/). Use the bookmark printed before deployment migrations, or an ISO 8601 timestamp with a timezone, such as `2026-10-16T09:30:00Z`.
 
-If the project's saved destination is not Cloudflare and you deployed once with `void deploy --platform cloudflare`, pass `--platform cloudflare`; deploy prints the command with it.
+Time Travel keeps 7 days of history on Workers Free and 30 days on Workers Paid. Reverse older migrations with a new migration.
 
-Restoring replaces the whole database and discards every write made after that point. Void names the database and asks before it restores. Pass `--yes` to skip the prompt in scripts and CI; without a terminal, the command stops unless `--yes` is set. Afterwards Void prints the `void db restore` command that undoes the restore.
+Restoring discards every write made after the selected point. Void asks for confirmation and prints a command to undo the restore afterward. Pass `--yes` for scripts and CI.
 
-A restore also rewinds the record of applied migrations. Void lists the migration files the database no longer has applied; the next deploy applies them, so fix or remove the one that caused the problem first. Restoring does not change the deployed code: use [`void project rollback`](./project.md#void-project-rollback-deployid) if the live version needs the newer schema. After a one-off Cloudflare deploy, pass `--platform cloudflare` to `void project rollback` and `void deploy` as well.
+To recover from a bad migration:
+
+1. Roll back the code with [`void project rollback`](./project.md#void-project-rollback-deployid) if the live version needs the newer schema.
+2. Restore the database using the printed bookmark.
+3. Fix or remove the failed migration before deploying again. The restore also rewinds migration history, so the next deploy reapplies pending files.
+
+For a one-off Cloudflare deployment, add `--platform cloudflare` to restore, rollback, and deploy commands.
 
 ## `void db rename-migrations` {#void-db-rename-migrations}
 
-Rename existing migrations from the old numeric prefix format (`0001_name.sql`) to timestamp-based format (`20260410161500_name.sql`). Updates local tracking table and remote records if logged in with a linked project. A project that deploys to Void must be linked first with `void project link`; otherwise the command stops without changes.
+For linked Void platform projects, rename migrations from numeric prefixes (`0001_name.sql`) to timestamps (`20260410161500_name.sql`) and update local and remote migration records. Sign in and run `void project link` first.
 
-Direct Cloudflare deploys are not supported: Void cannot rename the records in the deployed database, so the command stops without changes. Keep the existing names; new migrations use timestamps and run after them.
+For direct Cloudflare deployments, keep existing filenames. New migrations use timestamps and run after them.
 
 ## `void db connect` {#void-db-connect}
 

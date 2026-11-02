@@ -10,7 +10,7 @@ URL rewrites re-dispatch a request at a different internal path without changing
 
 Re-dispatches the current request at `destination` and returns the resulting `Response`. The browser URL does not change — this is a server-side hop. If `destination` has no query string, the original request query is preserved. If `destination` includes a query string, it replaces the original query. `destination` must start with `/`; known generated routes autocomplete via [`RewriteDestination`](#rewritedestination), while arbitrary strings remain accepted for dynamic paths.
 
-`c.redirect()` also preserves request query params for internal destinations, but it merges rather than replaces: destination params win on collision, and request-only params are appended. On a request to a [named action](../../guide/pages-routing/actions-and-forms.md#named-actions), the action key (`?delete` in `POST /users/42?delete`) is not carried over, whether the action or middleware redirects. A redirect after which the browser sends the same request again keeps it: `307` and `308`, and `301` or `302` after a `PUT`, `PATCH` or `DELETE`.
+`c.redirect()` merges request query parameters into internal destinations, with destination values taking precedence. Redirecting a [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) to a GET page drops the action key: `POST /users/42?delete&tab=profile` redirects to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
 
 ```ts
 import { defineHandler } from 'void';

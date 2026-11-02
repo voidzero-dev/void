@@ -59,9 +59,11 @@ void email alias <name> [--yes] [--project <name>]
 
 With no name, show the project's address on the platform's shared mail domain and whether inbound mail reaches it.
 
-With a name, give that address a shorter name: `void email alias acme` makes `acme@<mail domain>` and `acme+<tag>@<mail domain>` reach the project and lets it send from them. Only the project owner can set it. The name follows the same rules as a project slug, must not be used by any other project's slug or alias, and names of five characters or fewer need a plan that allows short names.
+As the project owner, run `void email alias acme` to send and receive at `acme@<mail domain>` and `acme+<tag>@<mail domain>`. Choose an available name that follows the project slug rules. Names of five characters or fewer require a plan that allows short names.
 
-The alias is permanent: it cannot be changed or removed, and it is freed only when the project is deleted. The slug address keeps working for sending and receiving, so nothing that already uses it breaks. The CLI asks for confirmation; pass `--yes` to skip the prompt, which is required outside an interactive terminal. Inbound mail at the alias starts once the project has `email/` handlers deployed and its recipient rule is ready; run `void email alias` to check. Redeploy with the current `void` before you share the alias: an app built with an older version sees `message.to` with the alias still in front (`acme+support@…` instead of `support@…`).
+An alias is permanent and reserved until the project is deleted. The original slug address keeps working. The CLI asks for confirmation; use `--yes` in scripts and CI.
+
+Before sharing the alias, redeploy with the current Void version so handlers receive the expected `message.to` address. Inbound mail starts when the project's `email/` handlers and recipient rule are ready; run `void email alias` to check.
 
 ## `void email domain` {#void-email-domain}
 
