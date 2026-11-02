@@ -91,7 +91,7 @@ export function Layout({
       }
       sideNav={
         <SideNav
-          label="Admin sections"
+          aria-label="Admin sections"
           collapsible={{
             isCollapsed: collapsed,
             onCollapsedChange: (next: boolean) => {

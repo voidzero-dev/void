@@ -36,7 +36,7 @@
     "typecheck": "tsc --noEmit --rootDir ../.."
   },
   "dependencies": {
-    "vite-plugin-solid": "^2.11.14"
+    "vite-plugin-solid": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

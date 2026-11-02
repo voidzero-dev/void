@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",
-    "hono": "^4.13.13",
+    "hono": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"
   },

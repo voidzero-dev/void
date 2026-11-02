@@ -22,6 +22,7 @@ playground/*/.node-version
 playground-local
 .svelte-kit/
 .next/
+.vinext/
 next-env.d.ts
 docs/superpowers/
 
