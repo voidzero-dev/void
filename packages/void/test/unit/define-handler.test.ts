@@ -277,6 +277,20 @@ describe('defineHandler.withValidator', () => {
     });
   });
 
+  it.each([
+    ['__proto__=work', 'work'],
+    ['__proto__=work&__proto__=urgent', ['work', 'urgent']],
+  ])('preserves %s as an own query property', async (search, expected) => {
+    const handler = defineHandler.withValidator({ query: passSchema() })((_c, { query }) => ({
+      query,
+    }));
+    const app = createValidatedApp('get', '/test', handler);
+    const res = await app.request(new Request(`http://localhost/test?${search}`));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ query: { ['__proto__']: expected } });
+  });
+
   it('validates route params', async () => {
     const handler = defineHandler.withValidator({
       params: passSchema(),
