@@ -247,7 +247,7 @@ export function formatPlatformSetupPlan(
   const writesDns = plan.actions.some(
     (action) =>
       (action.kind === 'zone' && action.action === 'create') ||
-      (action.kind === 'dns-record' && action.action !== 'reuse'),
+      (action.kind === 'dns-record' && action.action !== 'reuse' && action.action !== 'adopt'),
   );
   const credentials = [
     ...(options.managementToken

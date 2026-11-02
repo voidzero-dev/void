@@ -156,8 +156,13 @@ function planCreatesZone(plan: Pick<PlatformInstallPlan, 'actions'>): boolean {
   return plan.actions.some((action) => action.kind === 'zone' && action.action === 'create');
 }
 
+// Only an action that sends a DNS write needs Zone → DNS → Edit. 'reuse' changes nothing and 'adopt'
+// only records the id of an existing record in the manifest; applyPlatformDomain writes DNS for 'create'.
 function planWritesDns(plan: Pick<PlatformInstallPlan, 'actions'>): boolean {
-  return plan.actions.some((action) => action.kind === 'dns-record' && action.action !== 'reuse');
+  return plan.actions.some(
+    (action) =>
+      action.kind === 'dns-record' && action.action !== 'reuse' && action.action !== 'adopt',
+  );
 }
 
 export async function resolvePlatformCloudflareCredential(
