@@ -191,6 +191,6 @@ const LinkComponent = defineComponent({
 // isolatedDeclarations needs an explicit type. `DefineComponent<LinkProps>` would
 // treat LinkProps as runtime prop options and widen `href` to an optional `any`.
 // The options component is not assignable to it, so cast; the check above keeps
-// VoidLinkProps in step with the runtime props.
+// the runtime props in step with BaseLinkProps.
 export const Link: DefineSetupFnComponent<LinkProps> =
   LinkComponent as DefineSetupFnComponent<LinkProps>;
