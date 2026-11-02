@@ -1,8 +1,18 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { getWorkerAssetsDir, readBuildOutput } from '@cloudflare/build-output-utils';
-import { createBuilder, preview, resolveConfig } from 'vite';
+import { createBuilder, normalizePath, preview, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {
@@ -29,6 +39,56 @@ afterEach(() => {
 });
 
 describe('Cloudflare v2 compatibility', () => {
+  it('includes split Worker modules in a Wrangler deployment', async () => {
+    const root = project();
+    writeFileSync(
+      join(root, 'worker.js'),
+      "export default { async fetch() { return new Response((await import('./chunk.js')).default); } };",
+    );
+    writeFileSync(join(root, 'chunk.js'), "export default 'chunk-loaded';");
+    const builder = await createBuilder({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: cloudflare({
+        config: () => ({ name: 'split-worker', main: './worker.js' }),
+        viteEnvironment: { name: 'ssr' },
+      }),
+    });
+    await builder.buildApp();
+    const { manifest } = (await readBuildOutput(root)).workers.default.config;
+    const chunks = Object.entries(manifest!.modules)
+      .filter(([name, module]) => module.type === 'esm' && name !== manifest!.mainModule)
+      .map(([name]) => name);
+    expect(chunks.length).toBeGreaterThan(0);
+
+    const wranglerPackage = createRequire(
+      new URL('../../../../platform/packages/dashboard/package.json', import.meta.url),
+    ).resolve('wrangler/package.json');
+    const wrangler = join(dirname(wranglerPackage), 'bin/wrangler.js');
+    const uploadDir = join(root, 'upload');
+    execFileSync(
+      process.execPath,
+      [
+        wrangler,
+        'deploy',
+        '--config',
+        join(root, 'dist/ssr/wrangler.json'),
+        '--dry-run',
+        '--outdir',
+        uploadDir,
+        '--autoconfig=false',
+      ],
+      { cwd: root, env: { ...process.env, WRANGLER_SEND_METRICS: 'false' }, timeout: 20_000 },
+    );
+    const uploaded = readdirSync(uploadDir, { recursive: true }).map((file) =>
+      normalizePath(String(file)),
+    );
+    for (const chunk of chunks) {
+      expect(uploaded).toContain(chunk);
+    }
+  });
+
   it('selects named environments explicitly without letting production mode select one', () => {
     const root = project();
     expect(toNativeCloudflareConfig({}, root).worker?.name).toBe('void-cf-v2');
@@ -130,7 +190,7 @@ describe('Cloudflare v2 compatibility', () => {
     expect(config.accountId).toBe('account-id');
     expect(config.worker).toMatchObject({
       name: 'existing-app',
-      entrypoint: join(root, 'worker.ts'),
+      entrypoint: normalizePath(join(root, 'worker.ts')),
       compatibilityFlags: ['nodejs_compat'],
       env: {
         DB: { id: 'existing-id' },
@@ -167,7 +227,7 @@ describe('Cloudflare v2 compatibility', () => {
     });
     expect(config).toMatchObject({
       name: 'helper',
-      entrypoint: join(root, 'aux/worker.ts'),
+      entrypoint: normalizePath(join(root, 'aux/worker.ts')),
       env: { OWNER: { type: 'text', value: 'entry' } },
     });
     expect(workers[0]!.devOnly).toBe(true);

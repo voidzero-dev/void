@@ -162,6 +162,7 @@ export function cloudflare(options: {
           compatibility_flags: worker.config.compatibilityFlags,
           main: worker.config.manifest.mainModule,
           no_bundle: true,
+          rules: [{ type: 'ESModule', globs: ['**/*.js', '**/*.mjs'] }],
           ...(process.env.CLOUDFLARE_ENV ? { targetEnvironment: process.env.CLOUDFLARE_ENV } : {}),
           ...(workerConfig.assets || worker.assetsDir
             ? { assets: { ...workerConfig.assets, directory: relative(destination, client) } }

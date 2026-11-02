@@ -88,7 +88,7 @@ describe('voidPlugin Vite environments', () => {
       environments: {
         void_worker: {
           build: {
-            outDir: getWorkerBundleDir(realpathSync(root)),
+            outDir: getWorkerBundleDir(realpathSync.native(root)),
           },
         },
       },
@@ -123,7 +123,7 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.void_worker.resolve.conditions).toContain('workerd');
     expect(config.environments.void_worker.build).toMatchObject({
       emptyOutDir: false,
-      outDir: getWorkerBundleDir(realpathSync(root)),
+      outDir: getWorkerBundleDir(realpathSync.native(root)),
     });
   });
 
