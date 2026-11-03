@@ -26,6 +26,8 @@ const state = vi.hoisted(() => ({
   clientTokens: [] as Array<string>,
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
+  listNamespaceScripts: vi.fn(),
+  patchScriptSettings: vi.fn(),
   request: vi.fn(),
   requiredGatewayToken: '',
   events: [] as Array<string>,
@@ -86,6 +88,8 @@ vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
       }
       listAccounts = state.listAccounts;
       listWorkerNames = state.listWorkerNames;
+      listDispatchNamespaceScripts = state.listNamespaceScripts;
+      patchDispatchNamespaceScriptSettings = state.patchScriptSettings;
       request = state.request;
       getWorkerLastDeployedFrom = state.getWorkerLastDeployedFrom;
       async getKvValue() {
@@ -287,6 +291,21 @@ describe('installed platform upgrade', () => {
       "void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\\''s runtime' --yes",
     );
   });
+  it('replays --runtime-logs in the upgrade resume command', () => {
+    expect(
+      platformLifecycleResumeCommand(
+        {
+          subcommand: 'upgrade',
+          selector: '',
+          plan: false,
+          yes: true,
+          runtime: '',
+          runtimeLogs: 'minimal',
+        },
+        'installation',
+      ),
+    ).toBe('void platform upgrade installation --runtime-logs minimal --yes');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token');
@@ -295,6 +314,10 @@ describe('installed platform upgrade', () => {
     state.requiredGatewayToken = '';
     state.listAccounts.mockReset().mockResolvedValue([{ id: 'account', name: 'Account' }]);
     state.listWorkerNames.mockReset().mockResolvedValue([]);
+    state.listNamespaceScripts
+      .mockReset()
+      .mockResolvedValue(['user-app-dpl', 'void-do-project-hash', 'other']);
+    state.patchScriptSettings.mockReset().mockResolvedValue(undefined);
     state.request.mockReset().mockResolvedValue({ name: 'assets' });
     state.getWorkerLastDeployedFrom.mockReset().mockResolvedValue('cf_cli');
     state.wait.mockReset().mockResolvedValue(undefined);
@@ -470,6 +493,94 @@ describe('installed platform upgrade', () => {
       );
     },
   );
+
+  describe('project Worker runtime logs', () => {
+    const useMinimal = () => {
+      state.manifest = {
+        ...state.manifest!,
+        deployment: { ...state.manifest!.deployment, runtimeLogs: 'minimal', schemaVersion: 5 },
+      };
+    };
+    const patched = () =>
+      state.patchScriptSettings.mock.calls.map(([account, namespace, script, settings]) => ({
+        account,
+        namespace,
+        script,
+        settings,
+      }));
+
+    it.each([
+      ['upgrade', { runtimeLogs: 'minimal' as const }],
+      ['repair', {}],
+    ] as const)(
+      'turns Workers Logs off on project Workers after %s while minimal',
+      async (subcommand, extra) => {
+        useMinimal();
+        await runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+          ...extra,
+        });
+        const namespace = state.manifest!.deployment.resources.dispatchNamespace;
+        expect(state.listNamespaceScripts).toHaveBeenCalledExactlyOnceWith('account', namespace);
+        expect(patched()).toEqual(
+          ['user-app-dpl', 'void-do-project-hash'].map((script) => ({
+            account: 'account',
+            namespace,
+            script,
+            settings: { observability: { enabled: false } },
+          })),
+        );
+        expect(state.patchScriptSettings.mock.invocationCallOrder[0]).toBeGreaterThan(
+          vi.mocked(installPlatform).mock.invocationCallOrder[0]!,
+        );
+        expect(log.warn).not.toHaveBeenCalled();
+      },
+    );
+
+    it('leaves project Workers alone on a plain full-mode upgrade', async () => {
+      await upgrade();
+      expect(state.listNamespaceScripts).not.toHaveBeenCalled();
+      expect(state.patchScriptSettings).not.toHaveBeenCalled();
+    });
+
+    it('turns Workers Logs back on when full mode is asked for', async () => {
+      await runInstalledPlatformCommand({
+        subcommand: 'upgrade',
+        selector: state.manifest!.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+        runtimeLogs: 'full',
+      });
+      expect(patched().map(({ settings }) => settings)).toEqual([
+        {
+          observability: { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } },
+        },
+        {
+          observability: { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } },
+        },
+      ]);
+    });
+
+    it('warns with a repair hint when a project Worker cannot be updated', async () => {
+      useMinimal();
+      state.patchScriptSettings.mockRejectedValueOnce(new Error('boom'));
+      await runInstalledPlatformCommand({
+        subcommand: 'repair',
+        selector: state.manifest!.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+      });
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.stringContaining(`Run \`void platform repair ${state.manifest!.id}\` to finish.`),
+      );
+    });
+  });
 
   it('borrows database preparation from the held lifecycle lock', async () => {
     await upgrade();

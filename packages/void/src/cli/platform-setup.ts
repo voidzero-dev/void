@@ -305,6 +305,7 @@ export type PlatformInstallCommandOptions = {
   appAccess?: PlatformDeploymentManifest['appAccess'];
   hyperdrive?: string;
   runtime: string;
+  runtimeLogs?: 'full' | 'minimal';
   resumeId?: string;
   yes: boolean;
 };
@@ -357,6 +358,7 @@ export function platformInstallCommandArguments(
   }
   flag('--dashboard-url', options.dashboardUrl ?? '');
   flag('--runtime', options.runtime);
+  flag('--runtime-logs', options.runtimeLogs ?? '');
   if (options.yes) {
     parts.push('--yes');
   }

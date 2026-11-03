@@ -74,6 +74,22 @@ describe('platform deployment manifest', () => {
     expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(manifest);
   });
 
+  it('round-trips minimal runtime logs at schema version 5', () => {
+    const input = {
+      application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
+      displayName: 'My Platform',
+      installationSlug: 'my-platform',
+    };
+    const manifest = createPlatformDeploymentManifest({ ...input, runtimeLogs: 'minimal' });
+    expect(manifest).toMatchObject({ runtimeLogs: 'minimal', schemaVersion: 5 });
+    expect(parsePlatformDeploymentManifest(JSON.parse(JSON.stringify(manifest)))).toEqual(manifest);
+    const full = createPlatformDeploymentManifest(input);
+    expect(full.schemaVersion).toBe(1);
+    expect(() => parsePlatformDeploymentManifest({ ...full, runtimeLogs: 'minimal' })).toThrow(
+      'schema version 5',
+    );
+  });
+
   it('keeps paid container capabilities opt-in', () => {
     const manifest = createPlatformDeploymentManifest({
       application: { baseDomain: 'example.com', zoneName: 'example.com' },

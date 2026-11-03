@@ -79,10 +79,15 @@ export function createPlatformWorkerConfigs(input: {
       }),
     ),
   });
+  // Sent only in minimal mode, so default Worker configs stay unchanged.
+  const runtimeLogs = deployment.runtimeLogs
+    ? { PLATFORM_RUNTIME_LOGS: deployment.runtimeLogs }
+    : {};
   const common = {
     account_id: accountId,
     compatibility_date: '2026-02-24',
-    observability: { enabled: true },
+    // Minimal runtime logs keep Workers Logs off on every platform Worker.
+    observability: { enabled: !deployment.runtimeLogs },
     preview_urls: publicEndpoints && !deployment.authentication.accessProtection,
     workers_dev: publicEndpoints,
   };
@@ -201,6 +206,7 @@ export function createPlatformWorkerConfigs(input: {
       PLATFORM_HEALTH_PROBE_TOKEN: healthProbeToken,
       ...(deployment.appAccess ? { PLATFORM_APP_ACCESS: deployment.appAccess } : {}),
       PLATFORM_INSTALLATION_ID: installationId,
+      ...runtimeLogs,
       PLATFORM_TRAFFIC_STATE: trafficState,
       ...ownershipVars('api-worker', names.apiWorker),
       PLATFORM_VERSION: platformVersion,
@@ -287,6 +293,7 @@ export function createPlatformWorkerConfigs(input: {
       analytics_engine_datasets: [{ binding: 'ANALYTICS', dataset: names.logsDataset }],
       vars: {
         PLATFORM_DISPATCH_WORKER_NAME: names.dispatchWorker,
+        ...runtimeLogs,
         ...ownershipVars('tail-worker', names.tailWorker),
       },
     },
@@ -323,6 +330,7 @@ export function createPlatformWorkerConfigs(input: {
         PLATFORM_HEALTH_PROBE_TOKEN: healthProbeToken,
         PLATFORM_INSTALLATION_ID: installationId,
         PLATFORM_TRAFFIC_STATE: trafficState,
+        ...runtimeLogs,
         ...ownershipVars('dispatch-worker', names.dispatchWorker),
       },
     },

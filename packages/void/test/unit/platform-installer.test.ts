@@ -921,6 +921,24 @@ describe('platform installer', () => {
     ).toBe(false);
   });
 
+  it('refuses minimal runtime logs on a runtime that cannot honour them', async () => {
+    useRegistryDirectory();
+    const plan = await examplePlan(null, { runtimeLogs: 'minimal' });
+    const current = resolvePlatformRuntime(getPlatformRuntimeDirectory());
+    // The built runtime declares support; only the copy below drops it.
+    expect(current.manifest.runtimeLogs).toBe(1);
+    const { runtimeLogs: _runtimeLogs, ...olderManifest } = current.manifest;
+    await expect(
+      installPlatform(plan, freshSecrets(), null, {
+        acquireDatabaseLifecycleLock,
+        claimDatabase,
+        client: unusedClient(),
+        revalidateBeforeWorkerDeploy: async () => {},
+        runtime: { ...current, manifest: olderManifest },
+      }),
+    ).rejects.toThrow('This platform runtime cannot keep runtime logs minimal');
+  });
+
   it('requires externally custodied identity keys for a fresh installation', () => {
     const {
       jwtSecret: _jwtSecret,

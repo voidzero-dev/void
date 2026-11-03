@@ -319,7 +319,8 @@ export class PlatformCloudflareClient {
       headers: {
         Accept: 'application/json',
         Authorization: `Bearer ${this.#token}`,
-        ...(init?.body ? { 'Content-Type': 'application/json' } : {}),
+        // FormData sets its own multipart boundary.
+        ...(typeof init?.body === 'string' ? { 'Content-Type': 'application/json' } : {}),
         ...init?.headers,
       },
       signal: init?.signal ?? AbortSignal.timeout(30_000),
@@ -1288,6 +1289,25 @@ export class PlatformCloudflareClient {
       `/accounts/${encodeURIComponent(accountId)}/workers/dispatch/namespaces/${encodeURIComponent(namespace)}/scripts`,
     );
     return result.map((entry) => requiredString(entry.id, 'Dispatch namespace script name'));
+  }
+
+  /** Change settings of one namespace script. Omitted fields, such as bindings, are kept. */
+  async patchDispatchNamespaceScriptSettings(
+    accountId: string,
+    namespace: string,
+    scriptName: string,
+    settings: Readonly<Record<string, unknown>>,
+  ): Promise<void> {
+    const body = new FormData();
+    body.set(
+      'settings',
+      new Blob([JSON.stringify(settings)], { type: 'application/json' }),
+      'settings.json',
+    );
+    await this.request(
+      `/accounts/${encodeURIComponent(accountId)}/workers/dispatch/namespaces/${encodeURIComponent(namespace)}/scripts/${encodeURIComponent(scriptName)}/settings`,
+      { method: 'PATCH', body },
+    );
   }
 
   async deleteDispatchNamespaceScript(

@@ -86,6 +86,7 @@ import {
   writeInstallationManifest,
   writePendingInstallationSecrets,
 } from './platform-registry.ts';
+import { assertPlatformRuntimeLogsSupported } from './platform-runtime-logs.ts';
 import { assertPlatformWorkerSecretUpdateAuthority } from './platform-secret-update-authority.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
@@ -239,6 +240,7 @@ export async function installPlatform(
   if (plan.deployment.appAccess && runtime.appAccessSetup !== 1) {
     throw new Error('platform: This runtime does not support the installation’s app access setup.');
   }
+  assertPlatformRuntimeLogsSupported(plan.deployment, runtime);
   const hasEmailGatewayArtifact = runtime.artifacts.emailGateway !== undefined;
   if (
     existing?.steps.some((step) => step.key === 'private-previews-initialized:v1') &&

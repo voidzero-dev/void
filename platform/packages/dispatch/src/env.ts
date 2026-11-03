@@ -15,5 +15,7 @@ export type Env = Readonly<{
   DISPATCH_TIMEOUT_MS?: string;
   PLATFORM_HEALTH_PROBE_TOKEN?: string;
   PLATFORM_INSTALLATION_ID?: string;
+  // Set by `--runtime-logs minimal`: keep URLs out of `void_logs` rows.
+  PLATFORM_RUNTIME_LOGS?: 'minimal';
   PLATFORM_TRAFFIC_STATE?: string;
 }>;

@@ -12,6 +12,17 @@ export const MAX_UPLOAD_URLS_BATCH = 5000;
 
 export const DEFAULT_TAIL_SERVICE_NAME = 'void-tail';
 
+/**
+ * Observability metadata for a project Worker upload. Minimal runtime logs
+ * turn Workers Logs off; the tail consumer still records request rows.
+ */
+export function projectObservability(env: Pick<ApiEnv['Bindings'], 'PLATFORM_RUNTIME_LOGS'>) {
+  if (env.PLATFORM_RUNTIME_LOGS === 'minimal') {
+    return { enabled: false };
+  }
+  return { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } };
+}
+
 // Per-module cap for Worker modules that older CLIs send inline as base64
 // `workerFiles`. It bounds the memory one decoded module holds in the request;
 // it is not a Cloudflare limit. Modules uploaded to R2 (`workerInput`) are
