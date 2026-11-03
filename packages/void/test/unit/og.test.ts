@@ -381,8 +381,10 @@ describe('void/og on Node.js targets', () => {
     expect(resolveRenderer).toThrow('The app has takumi-js 2.15.2.');
     installTakumi('3.0.0');
     expect(resolveRenderer).toThrow('The app has takumi-js 3.0.0.');
-    installTakumi('2.17.0-beta.1');
-    expect(resolveRenderer).toThrow('The app has takumi-js 2.17.0-beta.1.');
+    installTakumi('2.18.1');
+    expect(resolveRenderer).toThrow('The app has takumi-js 2.18.1.');
+    installTakumi('2.18.3-beta.1');
+    expect(resolveRenderer).toThrow('The app has takumi-js 2.18.3-beta.1.');
     // takumi-js 2.19.0 draws boxes for text its first matching font lacks.
     installTakumi('2.19.0');
     expect(resolveRenderer).toThrow('The app has takumi-js 2.19.0.');
@@ -405,6 +407,8 @@ describe('void/og on Node.js targets', () => {
 
   it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
     installTakumi(range.replace(/^[~^]/, ''));
+    expect(resolveRenderer()).toBeUndefined();
+    installTakumi('2.18.9');
     expect(resolveRenderer()).toBeUndefined();
   });
 
