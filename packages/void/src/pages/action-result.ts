@@ -16,18 +16,21 @@ export class VoidActionError extends Error {
 
   constructor({
     body,
+    message,
     status,
     statusText,
     url,
   }: {
     body: unknown;
+    message?: string;
     status: number;
     statusText: string;
     url: string;
   }) {
     const limit = status === 429 ? readUsageLimit(body) : null;
     super(
-      limit?.message ??
+      message ??
+        limit?.message ??
         (statusText
           ? `Action failed with ${status} ${statusText}`
           : `Action failed with ${status}`),
@@ -104,12 +107,24 @@ async function readActionErrorBody(response: Response): Promise<unknown> {
   }
 }
 
+function readActionErrorMessage(response: Response, body: unknown): string | undefined {
+  if (response.status < 400 || response.status >= 500) {
+    return undefined;
+  }
+  if (!response.headers.get('content-type')?.includes('text/plain')) {
+    return undefined;
+  }
+  return typeof body === 'string' && body.trim() ? body : undefined;
+}
+
 export async function createActionErrorFromResponse(
   response: Response,
   url: string,
 ): Promise<VoidActionError> {
+  const body = await readActionErrorBody(response);
   return new VoidActionError({
-    body: await readActionErrorBody(response),
+    body,
+    message: readActionErrorMessage(response, body),
     status: response.status,
     statusText: response.statusText,
     url,
