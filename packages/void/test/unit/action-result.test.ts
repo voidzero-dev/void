@@ -127,6 +127,18 @@ describe('action result handling', () => {
 });
 
 describe('action clients', () => {
+  it('uses the adapter completion mode for action calls', async () => {
+    const client = createActionClient({ _resolveOnShell: true });
+    const visit = vi.fn(async () => ({ props: {} }));
+    client.setActionRouter(routerWithVisit(visit));
+    await client.action('/__action-test/static');
+    expect(visit).toHaveBeenCalledWith('/__action-test/static', {
+      method: 'POST',
+      data: undefined,
+      _resolveOnShell: true,
+    });
+  });
+
   it('rejects calls before its router is initialized', async () => {
     const client = createActionClient();
     await expect(client.action('/__action-test/static')).rejects.toThrow(

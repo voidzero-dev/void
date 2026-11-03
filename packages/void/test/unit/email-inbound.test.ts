@@ -283,6 +283,7 @@ describe('parseEmail', () => {
 
 const COMPILE_OPTIONS = {
   honoPath: 'hono',
+  honoRoutePath: 'hono/route',
   runtimeEnvPath: 'void/_env',
   projectRoot: '/project',
   homeDir: '/home/test',

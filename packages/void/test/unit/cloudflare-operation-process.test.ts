@@ -98,50 +98,192 @@ function runOperation(
     execFile(
       command!,
       [...(preload ? ['--import', pathToFileURL(preload).href] : []), ...prefix, ...args],
-      { cwd, encoding: 'utf8', timeout: 20_000, env },
+      { cwd, encoding: 'utf8', timeout: 20_000, maxBuffer: 128 * 1024 * 1024, env },
       (error, stdout, stderr) =>
         resolve({ status: error ? Number(error.code) || 1 : 0, stdout, stderr }),
     );
   });
 }
 
-it('requests immutable version source explicitly without loading or provisioning build output', async () => {
-  const directory = temporaryDirectory('void-cf-secret-source-');
-  const draft = voidSecretDraftVersion();
-  const requests: Array<string> = [];
-  const userAgents: Array<string | undefined> = [];
-  const api = await listen(
-    createServer((request, response) => {
-      requests.push(request.url ?? '');
-      userAgents.push(request.headers['user-agent']);
-      request.resume();
-      response.writeHead(200, { 'Content-Type': 'application/json' });
-      response.end(JSON.stringify({ success: true, errors: [], messages: [], result: draft }));
-    }),
-  );
-  const configPath = join(directory, 'wrangler.json');
-  writeFileSync(configPath, JSON.stringify({ name: 'test-worker', account_id: 'test-account' }));
-  const output = await runOperation(
-    directory,
-    {
-      type: 'versions.view',
-      versionId: draft.id,
-      includeSource: true,
+it.each([
+  { observability: { enabled: true } },
+  { observability: { enabled: false } },
+  { logpush: true },
+  { logpush: false },
+  { observability: { enabled: false }, logpush: false },
+])(
+  'publishes explicit Worker settings from the trigger operation: %j',
+  async (settings) => {
+    const directory = temporaryDirectory('void-cf-observability-');
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(
       configPath,
-      workerName: 'test-worker',
-    },
-    { ...tokenEnv(api), CLI_VERSION: 'inherited-version void/stale' },
-  );
-  expect(output.status, output.stderr).toBe(0);
-  const result = decodeCloudflareOperationResult({ status: 0, stdout: output.stdout, stderr: '' });
-  expect(result.status).toBe(0);
-  expect(isVoidSecretOnlyDraft(result.data as Record<string, unknown>)).toBe(true);
-  expect(requests).toEqual([
-    `/client/v4/accounts/test-account/workers/workers/test-worker/versions/${draft.id}?include=modules`,
-  ]);
-  expect(output.stdout).not.toContain('synthetic-token');
-  expect(userAgents).toEqual([`cf-cli/${cfVersion} void/${voidVersion}`]);
-});
+      JSON.stringify({
+        name: 'test-worker',
+        workers_dev: false,
+        preview_urls: false,
+        ...settings,
+      }),
+    );
+    const patches: Array<{ path: string; body: unknown; authorization?: string }> = [];
+    const api = await listen(
+      createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        if (request.method === 'PATCH') {
+          patches.push({
+            path: request.url ?? '',
+            body: JSON.parse(Buffer.concat(chunks).toString()),
+            authorization: request.headers.authorization,
+          });
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: true,
+            result: request.url?.endsWith('/workers/subdomain')
+              ? { subdomain: 'fixture' }
+              : { subdomain: { enabled: false, previews_enabled: false }, ...settings },
+          }),
+        );
+      }),
+    );
+    const output = await runOperation(
+      directory,
+      {
+        type: 'triggers.deploy',
+        workerName: 'test-worker',
+        configPath,
+      },
+      tokenEnv(api),
+    );
+    expect(output.status, output.stderr).toBe(0);
+    expect(patches).toEqual([
+      {
+        path: '/client/v4/accounts/test-account/workers/scripts/test-worker/script-settings',
+        body: settings,
+        authorization: 'Bearer synthetic-token',
+      },
+    ]);
+  },
+  15_000,
+);
+
+it.each([false, true])(
+  'requests immutable version source without provisioning (large=%s)',
+  async (large) => {
+    const directory = temporaryDirectory('void-cf-secret-source-');
+    const draft = voidSecretDraftVersion();
+    if (large) {
+      draft.modules[0]!.content_base64 = Buffer.from(
+        `/* ${'x'.repeat(1024 * 1024)} */\nexport default { fetch() { return new Response("ok"); } };`,
+      ).toString('base64');
+    }
+    const requests: Array<string> = [];
+    const userAgents: Array<string | undefined> = [];
+    const api = await listen(
+      createServer((request, response) => {
+        requests.push(request.url ?? '');
+        userAgents.push(request.headers['user-agent']);
+        request.resume();
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ success: true, errors: [], messages: [], result: draft }));
+      }),
+    );
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ name: 'test-worker', account_id: 'test-account' }));
+    const output = await runOperation(
+      directory,
+      {
+        type: 'versions.view',
+        versionId: draft.id,
+        includeSource: true,
+        configPath,
+        workerName: 'test-worker',
+      },
+      { ...tokenEnv(api), CLI_VERSION: 'inherited-version void/stale' },
+    );
+    expect(output.status, output.stderr).toBe(0);
+    const result = decodeCloudflareOperationResult({
+      status: 0,
+      stdout: output.stdout,
+      stderr: '',
+    });
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.data).toEqual(draft);
+    expect(isVoidSecretOnlyDraft(result.data as Record<string, unknown>)).toBe(!large);
+    expect(requests).toEqual([
+      `/client/v4/accounts/test-account/workers/workers/test-worker/versions/${draft.id}?include=modules`,
+    ]);
+    expect(output.stdout).not.toContain('synthetic-token');
+    expect(userAgents).toEqual([`cf-cli/${cfVersion} void/${voidVersion}`]);
+  },
+);
+
+it.each([undefined, false, true])(
+  'sends bypassDeploymentChecks=%s through cf alongside the deployment body',
+  async (bypassDeploymentChecks) => {
+    const directory = temporaryDirectory('void-cf-deployment-checks-');
+    const requests: Array<{ url: string | undefined; body: unknown }> = [];
+    const api = await listen(
+      createServer(async (request, response) => {
+        let body = '';
+        for await (const chunk of request) {
+          body += chunk;
+        }
+        requests.push({ url: request.url, body: JSON.parse(body) });
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ success: true, result: { id: 'deployment-id' } }));
+      }),
+    );
+    const preload = join(directory, 'capture-cf.mjs');
+    const callsPath = join(directory, 'calls.json');
+    writeFileSync(
+      preload,
+      `import child from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { writeFileSync } from 'node:fs';
+const spawnSync = child.spawnSync;
+child.spawnSync = (binary, args, options) => {
+  writeFileSync(${JSON.stringify(callsPath)}, JSON.stringify(args.slice(1)));
+  return spawnSync(binary, args, options);
+};
+syncBuiltinESMExports();
+`,
+    );
+    const versionId = '11111111-1111-4111-8111-111111111111';
+    const message = 'Void automatic rollback after readiness failed.';
+    const output = await runOperation(
+      directory,
+      {
+        type: 'versions.deploy',
+        workerName: 'test-worker',
+        versions: [{ versionId, percentage: 100 }],
+        message,
+        bypassDeploymentChecks,
+      },
+      tokenEnv(api),
+      preload,
+    );
+    expect(output.status, output.stderr).toBe(0);
+    expect(decodeCloudflareOperationResult({ ...output, status: 0 }).status).toBe(0);
+    const args = JSON.parse(readFileSync(callsPath, 'utf8')) as Array<string>;
+    expect(args.includes('--bypass-deployment-checks')).toBe(bypassDeploymentChecks === true);
+    expect(args).toContain('--body');
+    expect(requests).toEqual([
+      {
+        url: `/client/v4/accounts/test-account/workers/scripts/test-worker/deployments${bypassDeploymentChecks === true ? '?force=true' : ''}`,
+        body: {
+          strategy: 'percentage',
+          versions: [{ version_id: versionId, percentage: 100 }],
+          annotations: { 'workers/message': message },
+        },
+      },
+    ]);
+  },
+);
 
 it.each([200, 503])(
   'reports HTTP %i without loading the build toolchain when domain cleanup returns non-JSON',
@@ -420,6 +562,82 @@ it('finds existing Queues beyond the first cf API page', async () => {
 
 it.each([
   {
+    label: 'Worker and HTTP pull consumers',
+    queue: {
+      consumers: [
+        { type: 'worker', script_name: 'app-production', consumer_id: 'one' },
+        { type: 'http_pull', consumer_id: 'two' },
+      ],
+      consumers_total_count: 2,
+    },
+    consumers: ['app-production', null],
+  },
+  { label: 'no consumer', queue: { consumers: [], consumers_total_count: 0 }, consumers: [] },
+  {
+    label: 'an incomplete consumer list',
+    queue: { consumers: [], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+  { label: 'no consumer list', queue: {}, consumers: undefined },
+  {
+    label: 'a legacy script field',
+    queue: { consumers: [{ type: 'worker', script: 'app' }], consumers_total_count: 1 },
+    consumers: ['app'],
+  },
+  {
+    label: 'a Worker consumer without a name',
+    queue: { consumers: [{ type: 'worker', script_name: '' }], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+  {
+    label: 'two different Worker names on one consumer',
+    queue: {
+      consumers: [{ type: 'worker', script_name: 'app', script: 'other' }],
+      consumers_total_count: 1,
+    },
+    consumers: undefined,
+  },
+  {
+    label: 'a consumer of an unknown type',
+    queue: { consumers: [{ type: 'other' }], consumers_total_count: 1 },
+    consumers: undefined,
+  },
+])(
+  'reports a queue with $label',
+  async ({ queue, consumers }) => {
+    const directory = temporaryDirectory('void-cf-queue-consumers-');
+    const api = await listen(
+      createServer((_request, response) => {
+        response.setHeader('Content-Type', 'application/json');
+        response.end(
+          JSON.stringify({
+            success: true,
+            result: [{ queue_id: 'queue-id', queue_name: 'jobs', ...queue }],
+            result_info: { page: 1, per_page: 1, total_pages: 1, total_count: 1 },
+          }),
+        );
+      }),
+    );
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ account_id: 'test-account' }));
+    const output = await runOperation(
+      directory,
+      { type: 'queues.info', name: 'jobs', configPath },
+      tokenEnv(api, 'CF_API_TOKEN'),
+    );
+    expect(output.status, output.stderr).toBe(0);
+    // Without a complete list the field is left out; only queue naming needs it.
+    expect(JSON.parse(output.stdout).data).toEqual({
+      id: 'queue-id',
+      name: 'jobs',
+      ...(consumers ? { consumers } : {}),
+    });
+  },
+  30_000,
+);
+
+it.each([
+  {
     label: 'Cloudflare script_name',
     consumers: [{ script_name: 'test-worker', consumer_id: 'owned-consumer', type: 'worker' }],
     deleted: ['owned-consumer'],
@@ -591,6 +809,45 @@ it('uses pinned cf despite a project-local CLI and preserves D1 results and the 
       authorization: 'Bearer synthetic-token',
     },
   ]);
+}, 30_000);
+
+it('sends D1 SQL that starts with a comment as one --sql value through the pinned cf', async () => {
+  const directory = temporaryDirectory('void-cf-d1-comment-sql-');
+  const bodies: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      bodies.push(JSON.parse(body));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({
+          success: true,
+          errors: [],
+          messages: [],
+          result: [{ results: [], success: true, meta: {} }],
+        }),
+      );
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const sql = '-- leading comment\nSELECT 1;';
+  const output = await runOperation(
+    directory,
+    { type: 'd1.execute', database: 'DB', sql, configPath },
+    tokenEnv(api, 'CF_API_TOKEN'),
+  );
+  expect(output.status, output.stderr).toBe(0);
+  expect(bodies).toEqual([{ sql }]);
 }, 30_000);
 
 it('uses the configured HTTP proxy for cf resource requests', async () => {
@@ -770,7 +1027,12 @@ const actualSpawnSync=child.spawnSync;
 child.spawnSync = (binary, args, options) => {
   if(args.slice(1,4).join(' ') !== 'workers versions create' && args[1] !== 'deploy') return actualSpawnSync(binary,args,options);
   writeFileSync(${JSON.stringify(join(directory, 'upload-environment.json'))}, JSON.stringify({version:options.env.CLI_VERSION,telemetry:options.env.CF_SEND_TELEMETRY}));
-  return { status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' };
+  return ${
+    uploadType === 'worker.deploy'
+      ? // cf 1.0.0-beta.21 and later print the uploaded version on stderr.
+        "{ status:0, stdout:'', stderr:'│  Current Version ID: 11111111-1111-4111-8111-111111111111\\n' }"
+      : "{ status:0, stdout:JSON.stringify({id:'11111111-1111-4111-8111-111111111111'}), stderr:'' }"
+  };
 };
 syncBuiltinESMExports();`,
     );
@@ -1331,7 +1593,7 @@ syncBuiltinESMExports();`,
       {
         type: 'versions.upload',
         configPath,
-        message: 'review',
+        message: '-review',
         ...(interactive ? { interactive } : {}),
       },
       unproxiedEnv(api),
@@ -1344,8 +1606,7 @@ syncBuiltinESMExports();`,
       'versions',
       'create',
       '--prebuilt',
-      '--message',
-      'review',
+      '--message=-review',
     ]);
     if (interactive) {
       expect(called.stdio).toBe('inherit');
@@ -1361,3 +1622,77 @@ syncBuiltinESMExports();`,
   },
   30_000,
 );
+
+it.each(['canonical', 'alias', 'bearer'] as const)(
+  'reads the account workers.dev subdomain with %s credentials',
+  async (credentials) => {
+    const directory = temporaryDirectory('void-cf-subdomain-');
+    const requests: Array<{
+      path: string | undefined;
+      key: string | undefined;
+      email: string | undefined;
+      authorization: string | undefined;
+    }> = [];
+    const api = await listen(
+      createServer((request, response) => {
+        requests.push({
+          path: request.url,
+          key: request.headers['x-auth-key'] as string | undefined,
+          email: request.headers['x-auth-email'] as string | undefined,
+          authorization: request.headers.authorization,
+        });
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ success: true, result: { subdomain: 'my-team' } }));
+      }),
+    );
+    const env = {
+      ...systemEnv,
+      CI: 'true',
+      CLOUDFLARE_ACCOUNT_ID: 'test-account',
+      CLOUDFLARE_API_BASE_URL: api + '/client/v4',
+      ...(credentials === 'bearer'
+        ? { CLOUDFLARE_API_TOKEN: 'synthetic-token' }
+        : credentials === 'canonical'
+          ? { CLOUDFLARE_API_KEY: 'synthetic-key', CLOUDFLARE_EMAIL: 'dev@example.test' }
+          : { CF_API_KEY: 'synthetic-key', CF_EMAIL: 'dev@example.test' }),
+    };
+    const output = await runOperation(directory, { type: 'workers.subdomain.get' }, env);
+    expect(output.status, output.stderr).toBe(0);
+    expect(decodeCloudflareOperationResult(output).data).toEqual({ subdomain: 'my-team' });
+    expect(requests).toEqual([
+      {
+        path: '/client/v4/accounts/test-account/workers/subdomain',
+        key: credentials === 'bearer' ? undefined : 'synthetic-key',
+        email: credentials === 'bearer' ? undefined : 'dev@example.test',
+        authorization: credentials === 'bearer' ? 'Bearer synthetic-token' : undefined,
+      },
+    ]);
+    expect(output.stdout + output.stderr).not.toContain('synthetic-');
+  },
+);
+
+it.each([
+  { name: 'HTTP failure', status: 403, body: { success: false, errors: [] } },
+  { name: 'API failure', status: 200, body: { success: false, result: { subdomain: 'team' } } },
+  { name: 'missing subdomain', status: 200, body: { success: true, result: {} } },
+  { name: 'empty subdomain', status: 200, body: { success: true, result: { subdomain: ' ' } } },
+  { name: 'invalid type', status: 200, body: { success: true, result: { subdomain: 42 } } },
+  { name: 'redirect', status: 302, body: {} },
+])('rejects a subdomain lookup with $name', async ({ status, body }) => {
+  const directory = temporaryDirectory('void-cf-subdomain-error-');
+  let redirected = false;
+  const api = await listen(
+    createServer((request, response) => {
+      if (request.url === '/redirected') {
+        redirected = true;
+      }
+      response.writeHead(status, { 'Content-Type': 'application/json', Location: '/redirected' });
+      response.end(JSON.stringify(body));
+    }),
+  );
+  const output = await runOperation(directory, { type: 'workers.subdomain.get' }, tokenEnv(api));
+  expect(output.status).toBe(1);
+  expect(decodeCloudflareOperationResult(output).data).toBeUndefined();
+  expect(redirected).toBe(false);
+  expect(output.stdout + output.stderr).not.toContain('synthetic-token');
+});

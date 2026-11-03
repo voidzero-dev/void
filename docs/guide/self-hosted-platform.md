@@ -6,11 +6,11 @@ outline: deep
 
 A Void platform lets your team deploy apps into a shared Cloudflare account. As an administrator, you install and maintain the platform. Developers connect the Void CLI to its URL, sign in through an enabled login method, and deploy their apps.
 
-If you're deploying an app for yourself, [deploy directly to Cloudflare](/integrations/cloudflare#deploy-to-your-own-cloudflare-account). You don't need to install a platform first.
+For an individual app, [deploy directly to Cloudflare](/integrations/cloudflare#deploy-to-your-own-cloudflare-account).
 
 The core platform supports GitHub, Google, generic OIDC, and Cloudflare Access login, CLI deploys, D1, KV, R2, Queues, cron jobs, Workers AI, WebSockets, SSE, ISR, routing, logs, and rollback.
 
-The core installation includes managed Sandboxes and an email gateway; email is enabled when you configure a shared mail domain and zone. The user dashboard, GitHub builds and webhooks, build Containers, and custom project domains aren't part of the core installation. Source-built platforms that add the optional GitHub services should follow the [isolated webhook ingress setup](/guide/platform/development/runtime#optional-github-webhook-ingress-for-access-protected-apis) when Access protects the API.
+The core installation also includes managed Sandboxes and an email gateway. Configure a shared mail domain and zone to enable email, and add `--custom-domains` for [project custom domains](/guide/platform/installation/domains#project-custom-domains). A user dashboard and managed GitHub builds require a [custom platform build](/guide/platform-development).
 
 ## Deployment features
 
@@ -26,7 +26,7 @@ Both targets use the same application APIs. A core platform adds shared access a
 | Application rollback                             | Worker versions                  | Retained platform deployments                 |
 | Typed Durable State and native Durable Objects   | Supported                        | Supported                                     |
 | Sandboxes                                        | Requires Workers Paid and Docker | Requires Workers Paid on the platform account |
-| Custom application domains                       | Supported                        | Unavailable in the core installation          |
+| Custom application domains                       | Supported                        | Enable with `--custom-domains`                |
 | Generated GitHub deployment workflow             | Supported                        | Use your CI with a scoped developer token     |
 | User dashboard and managed GitHub builds         | Not required                     | Not included in a standard installation       |
 

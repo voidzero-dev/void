@@ -75,6 +75,71 @@ async function runFold(
 }
 
 describe('envClientFoldPlugin', () => {
+  it.each([
+    'function title(env) { return env.VITE_TITLE; }',
+    'const title = ({ env }) => env.VITE_TITLE;',
+    'const title = (...env) => env.VITE_TITLE;',
+    'function title() { console.log(env.VITE_TITLE); if (true) { var env = {}; } }',
+    '{ console.log(env.VITE_TITLE); const env = {}; }',
+    'try {} catch (env) { console.log(env.VITE_TITLE); }',
+    'for (const env of values) { console.log(env.VITE_TITLE); }',
+    'switch (value) { case 0: console.log(env.VITE_TITLE); break; default: let env; }',
+    'const title = function env() { return env.VITE_TITLE; };',
+    'const Title = class env { title() { return env.VITE_TITLE; } };',
+    'class Title { static { console.log(env.VITE_TITLE); var env; } }',
+    'class Title { constructor(private env: any) { console.log(env.VITE_TITLE); } }',
+    'function title() { enum env { VITE_TITLE }; return env.VITE_TITLE; }',
+    'namespace Local { export namespace env { export const VITE_TITLE = "local"; console.log(env.VITE_TITLE); } }',
+  ])('preserves shadowed reads in %s', async (body) => {
+    const code = `import { env } from 'void/env';\n${body}\nconsole.log(env.VITE_TITLE);`;
+    const { result } = await runFold(code, `${ROOT}/src/page.ts`, {
+      env: { VITE_TITLE: 'build title' },
+    });
+    expect(result?.code).toContain(body);
+    expect(result?.code).toContain('console.log("build title");');
+  });
+
+  it('preserves a shadowed namespace and still folds the outer import', async () => {
+    const body = 'function title(ns) { return ns.env.VITE_TITLE; }';
+    const { result } = await runFold(
+      `import * as ns from 'void/env'; ${body} console.log(ns.env.VITE_TITLE);`,
+      `${ROOT}/src/page.ts`,
+      { env: { VITE_TITLE: 'build title' } },
+    );
+    expect(result?.code).toContain(body);
+    expect(result?.code).toContain('console.log("build title");');
+  });
+
+  it('folds imported reads in parameter defaults outside the body var scope', async () => {
+    const { result } = await runFold(
+      `import { env } from 'void/env'; function title(value = env.VITE_TITLE) { var env; return value; }`,
+      `${ROOT}/src/page.ts`,
+      { env: { VITE_TITLE: 'build title' } },
+    );
+    expect(result?.code).toContain('value = "build title"');
+  });
+
+  it('folds a switch discriminant outside the case block scope', async () => {
+    const { result } = await runFold(
+      `import { env } from 'void/env'; switch (env.VITE_TITLE) { default: let env; }`,
+      `${ROOT}/src/page.ts`,
+      { env: { VITE_TITLE: 'build title' } },
+    );
+    expect(result?.code).toContain('switch ("build title")');
+  });
+
+  it('keeps namespace declarations separate from surrounding imports', async () => {
+    const body =
+      'namespace Local { export const env = { VITE_TITLE: "local" }; console.log(env.VITE_TITLE); }';
+    const { result } = await runFold(
+      `import { env } from 'void/env'; ${body} console.log(env.VITE_TITLE);`,
+      `${ROOT}/src/page.ts`,
+      { env: { VITE_TITLE: 'build title' } },
+    );
+    expect(result?.code).toContain(body);
+    expect(result?.code).toContain('console.log("build title");');
+  });
+
   it('folds a VITE_-prefixed key with a .env value into a string literal', async () => {
     const code = `import { env } from "void/env";\nconsole.log(env.VITE_TITLE);\n`;
     const { result } = await runFold(code, `${ROOT}/src/page.ts`, {

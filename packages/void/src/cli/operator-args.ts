@@ -496,7 +496,10 @@ export const operatorCommands: Array<OperatorCommand> = [
     path: '/email/domains',
     positional: ['domain'],
     values: { project: 'Project id or slug' },
-    booleans: { 'token-stdin': 'Read a scoped Cloudflare API token from stdin' },
+    booleans: {
+      'token-stdin': 'Read a scoped Cloudflare API token from stdin',
+      'outbound-only': 'Send only; leave the MX records and inbound mail with the current provider',
+    },
     method: 'POST',
   },
   {
@@ -847,6 +850,9 @@ export function parseOperatorArgs(args: Array<string>): OperatorArgs {
     parsed.body.protected = true;
   } else if (group === 'zero-trust' && action === 'project-public') {
     parsed.body.protected = false;
+  } else if (group === 'email' && action === 'domain-add' && flags.has('outbound-only')) {
+    delete parsed.body['outbound-only'];
+    parsed.body.outboundOnly = true;
   }
   return parsed;
 }

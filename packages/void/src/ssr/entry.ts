@@ -2,8 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'pathslash';
 import { parseSync } from 'vite';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
+import { bindingNames, bindingResolver } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
+  moduleExportName,
   type AstCallExpression,
   type AstExportDefaultDeclaration,
   type AstExportNamedDeclaration,
@@ -12,8 +14,8 @@ import {
   type AstNode,
   type AstProgram,
   type AstVariableDeclaration,
-  type AstVariableDeclarator,
 } from '../shared/ast.ts';
+import { unwrapStaticExpression } from '../shared/static-exports.ts';
 
 const SSR_SERVER_ENTRY_NAMES = ['main.ssr.ts', 'main.ssr.tsx'] as const;
 const SSR_CLIENT_ENTRY_NAMES = ['main.client.ts', 'main.client.tsx'] as const;
@@ -85,22 +87,54 @@ function validateServerRenderExport(entry: ResolvedEntry): void {
 
   const program = parsed.program as unknown as AstProgram;
   const body = program.body ?? [];
+  let resolve: ReturnType<typeof bindingResolver> | undefined;
+  const binding = (node: AstNode, name: string) =>
+    (resolve ??= bindingResolver(program))(node, name);
+
+  function isRenderer(node: AstNode | undefined): boolean {
+    const seen = new Set<AstNode>();
+    while ((node = unwrapStaticExpression(node))) {
+      if (seen.has(node)) {
+        return false;
+      }
+      seen.add(node);
+      if (isIdentifier(node)) {
+        node = binding(node, node.name);
+        continue;
+      }
+      if (node.type === 'VariableDeclarator') {
+        // A destructured value is as opaque as a named render export or an imported renderer.
+        if (!isIdentifier(node.id as AstNode)) {
+          return true;
+        }
+        node = node.init as AstNode | undefined;
+        continue;
+      }
+      if (node.type === 'CallExpression') {
+        const call = node as AstCallExpression;
+        if (!isIdentifier(call.callee)) {
+          return false;
+        }
+        if (call.callee.name === 'defineRender') {
+          return true;
+        }
+        const imported = binding(call, call.callee.name)?.imported as AstNode | undefined;
+        return isIdentifier(imported) && imported.name === 'defineRender';
+      }
+      return [
+        'FunctionDeclaration',
+        'FunctionExpression',
+        'ArrowFunctionExpression',
+        'ImportSpecifier',
+        'ImportDefaultSpecifier',
+      ].includes(node.type);
+    }
+    return false;
+  }
 
   const hasRenderExport = body.some((node: AstNode) => {
     if (node.type === 'ExportDefaultDeclaration') {
-      const declaration = (node as AstExportDefaultDeclaration).declaration;
-      if (
-        declaration?.type === 'FunctionDeclaration' ||
-        declaration?.type === 'FunctionExpression' ||
-        declaration?.type === 'ArrowFunctionExpression'
-      ) {
-        return true;
-      }
-      if (declaration?.type === 'CallExpression') {
-        const call = declaration as AstCallExpression;
-        return isIdentifier(call.callee) && call.callee.name === 'defineRender';
-      }
-      return false;
+      return isRenderer((node as AstExportDefaultDeclaration).declaration);
     }
     if (node.type !== 'ExportNamedDeclaration') {
       return false;
@@ -116,8 +150,8 @@ function validateServerRenderExport(entry: ResolvedEntry): void {
       return isIdentifier(fn.id) && fn.id.name === 'render';
     }
     if (declaration?.type === 'VariableDeclaration') {
-      return ((declaration as AstVariableDeclaration).declarations ?? []).some(
-        (decl: AstVariableDeclarator) => isIdentifier(decl.id) && decl.id.name === 'render',
+      return ((declaration as AstVariableDeclaration).declarations ?? []).some((decl) =>
+        bindingNames(decl.id).includes('render'),
       );
     }
 
@@ -126,8 +160,12 @@ function validateServerRenderExport(entry: ResolvedEntry): void {
       if (specifier.exportKind === 'type') {
         return false;
       }
-      const exported = specifier.exported;
-      return isIdentifier(exported) && exported.name === 'render';
+      const exported = moduleExportName(specifier.exported);
+      return (
+        exported === 'render' ||
+        (exported === 'default' &&
+          (!!(node as AstExportNamedDeclaration).source || isRenderer(specifier.local)))
+      );
     });
   });
 

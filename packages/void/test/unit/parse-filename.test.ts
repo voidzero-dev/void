@@ -38,6 +38,19 @@ describe('parseRouteFilename', () => {
       expect(parseRouteFilename('hello.ts').pattern).toBe('/hello');
     });
 
+    it.each([
+      ['hello.tsx', '/hello', null, []],
+      ['index.tsx', '/', null, []],
+      ['(api)/users/[id].dev.tsx', '/users/:id', 'dev', ['id']],
+      ['files/[...path].prod.tsx', '/files/:path{.+}', 'prod', ['path']],
+      ['hello.jsx', '/hello', null, []],
+      ['index.jsx', '/', null, []],
+      ['(api)/users/[id].dev.jsx', '/users/:id', 'dev', ['id']],
+      ['files/[...path].prod.jsx', '/files/:path{.+}', 'prod', ['path']],
+    ])('parses %s', (filePath, pattern, env, params) => {
+      expect(parseRouteFilename(filePath)).toMatchObject({ filePath, pattern, env, params });
+    });
+
     it('.js', () => {
       expect(parseRouteFilename('hello.js').pattern).toBe('/hello');
     });
@@ -52,6 +65,18 @@ describe('parseRouteFilename', () => {
   });
 
   describe('environment suffixes', () => {
+    it.each(['tsx', 'jsx'])('parses JSX WebSocket routes in .%s', (ext) => {
+      expect(parseWebSocketFilename(`(app)/chat/[room].dev.ws.${ext}`)).toMatchObject({
+        pattern: '/chat/:room',
+        params: ['room'],
+        env: 'dev',
+      });
+      expect(parseWebSocketFilename(`chat/index.prod.ws.${ext}`)).toMatchObject({
+        pattern: '/chat',
+        env: 'prod',
+      });
+    });
+
     it('.dev suffix', () => {
       const r = parseRouteFilename('debug.dev.ts');
       expect(r.pattern).toBe('/debug');

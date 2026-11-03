@@ -129,6 +129,13 @@ const HELP_TREE: HelpTree = {
       { command: '--tsconfig', description: 'Update tsconfig.json and set up coding agents' },
       { command: '--git', description: 'Initialize a Git repository without prompting' },
       { command: '--no-git', description: 'Skip Git repository initialization' },
+      { command: '--toolchain <name>', description: 'Scaffold with vite-plus or vite' },
+      { command: '--framework <name>', description: 'Scaffold with react, vue, svelte, or solid' },
+      {
+        command: '--starter <name>',
+        description: 'Scaffold the sqlite, postgresql, mysql, or static starter',
+      },
+      { command: '--deploy <target>', description: 'Deploy to cloudflare, void, or none' },
       {
         command: '--github',
         description: 'Create the GitHub Actions deploy workflow and set up coding agents',
@@ -136,13 +143,17 @@ const HELP_TREE: HelpTree = {
     ],
     examples: [
       { command: 'void init', description: 'Scaffold or configure the current project' },
+      {
+        command: 'void init --toolchain vite-plus --framework react --starter sqlite --deploy none',
+        description: 'Scaffold without prompts',
+      },
       { command: 'void init --github', description: 'Scaffold the GitHub Actions deploy workflow' },
     ],
   },
   migrate: {
-    summary: 'Move legacy Void project settings into void.config.ts.',
+    summary: 'Update project configuration.',
     usage: ['void migrate'],
-    examples: [{ command: 'void migrate', description: 'Convert void.json to void.config.ts' }],
+    examples: [{ command: 'void migrate', description: 'Update project configuration' }],
   },
   deploy: {
     summary:
@@ -527,6 +538,10 @@ const HELP_TREE: HelpTree = {
             command: '--no-dedicated-zone',
             description: 'Skip zone-wide application catch-all routes',
           },
+          {
+            command: '--custom-domains',
+            description: 'Let projects add their own domains (requires --dedicated-zone)',
+          },
           { command: '--control-plane-domain <domain>', description: 'Optional API hostname' },
           {
             command: '--no-control-plane-domain',
@@ -541,6 +556,11 @@ const HELP_TREE: HelpTree = {
           {
             command: '--runtime <path>',
             description: 'Deploy an integrity-checked runtime directory instead of the package',
+          },
+          {
+            command: '--runtime-logs <full|minimal>',
+            description:
+              'minimal keeps request URLs, console and exception messages out of runtime logs',
           },
           { command: '--yes', description: 'Acknowledge changes without an interactive prompt' },
         ],
@@ -810,10 +830,17 @@ const HELP_TREE: HelpTree = {
       list: withProjectOption('List project secrets.', 'void secret list [options]'),
       put: withProjectOption('Set a project secret.', 'void secret put <name> [options]'),
       delete: withProjectOption('Delete a project secret.', 'void secret delete <name> [options]'),
-      sync: withProjectOption(
-        'Sync secrets from a dotenv file.',
-        'void secret sync <file> [options]',
-      ),
+      sync: {
+        summary: 'Sync secrets from a dotenv file.',
+        usage: ['void secret sync <file> [options]'],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          {
+            command: '--yes',
+            description: 'Skip confirmation (required in CI and non-interactive shells)',
+          },
+        ],
+      },
     },
   },
   domain: {
@@ -856,6 +883,10 @@ const HELP_TREE: HelpTree = {
       { command: 'destinations', description: 'List verified recipient addresses' },
       { command: 'allow <address>', description: 'Add a recipient and trigger CF verification' },
       { command: 'disallow <address>', description: 'Remove a recipient from the allowlist' },
+      {
+        command: 'alias [name]',
+        description: 'Show the shared mail address, or set a shorter permanent name for it',
+      },
       {
         command: 'domain <add|status|list|sync|rotate-secret|remove>',
         description: 'Send and receive at your own domain on a Cloudflare zone',
@@ -900,6 +931,15 @@ const HELP_TREE: HelpTree = {
         'Remove a recipient from the verified allowlist.',
         'void email disallow <address> [options]',
       ),
+      alias: {
+        summary:
+          'Show the project address on the shared mail domain, or give it a shorter name. The alias is permanent; the slug address keeps working.',
+        usage: ['void email alias [options]', 'void email alias <name> [options]'],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--yes', description: 'Set the alias without asking (it cannot be changed)' },
+        ],
+      },
       // The one nested group: verbs parse in email-args.ts (`domain <add|status|list|sync|rotate-secret|remove>`).
       // Void-platform-only; custom inbound requires a zone apex.
       domain: {
@@ -1452,7 +1492,7 @@ function lifecycleHelp(
   return {
     summary,
     usage: [
-      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
+      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
     ],
     options: [
       { command: '--plan', description: 'Print the exact plan without making changes' },
@@ -1470,6 +1510,19 @@ function lifecycleHelp(
               command: '--dashboard-url <origin>',
               description:
                 'Configure a separately deployed dashboard; omission keeps its saved origin',
+            },
+            {
+              command: '--custom-domains',
+              description: 'Turn on project custom domains; omission keeps the saved setting',
+            },
+          ]
+        : []),
+      ...(command === 'upgrade'
+        ? [
+            {
+              command: '--runtime-logs <full|minimal>',
+              description:
+                'minimal keeps request URLs, console and exception messages out of runtime logs; omission keeps the saved setting',
             },
           ]
         : []),

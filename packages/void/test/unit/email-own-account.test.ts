@@ -629,3 +629,74 @@ describe('generated handleEmail on a verified custom-domain receipt', () => {
     expect(actions).toMatchObject([{ type: 'reply', from: 'acme+noreply@mail.void.cloud' }]);
   });
 });
+
+/**
+ * A project with an email alias receives on `<alias>@<domain>` as well as
+ * `<slug>@<domain>`. The platform router already matched the prefix to this
+ * project, so the generated `handleEmail` strips the name the recipient used,
+ * not the injected `__VOID_PROJECT_SLUG`.
+ */
+describe('generated handleEmail on a project email alias', () => {
+  function sharedEnvelope(to: string) {
+    return {
+      from: 'sender@example.com',
+      to,
+      headers: {},
+      raw: new TextEncoder().encode(INBOUND_MIME),
+      rawSize: INBOUND_MIME.length,
+    };
+  }
+
+  it('strips the alias prefix the same way it strips the slug prefix', async () => {
+    const seen: Array<{ to: string; slug: unknown }> = [];
+    const handleEmail = buildHandleEmail(async (message, _env, _ctx, opts) => {
+      seen.push({ to: message.to, slug: opts?.slug });
+    });
+    const env = { __VOID_PROJECT_SLUG: 'proj' };
+
+    await handleEmail(sharedEnvelope('alias+orders@mail.void.cloud'), env, {});
+    await handleEmail(sharedEnvelope('proj+orders@mail.void.cloud'), env, {});
+
+    expect(seen).toEqual([
+      { to: 'orders@mail.void.cloud', slug: 'alias' },
+      { to: 'orders@mail.void.cloud', slug: 'proj' },
+    ]);
+  });
+
+  it('keys a bare alias address on the alias, so it reads as an empty tag', async () => {
+    const seen: Array<{ to: string; slug: unknown }> = [];
+    const handleEmail = buildHandleEmail(async (message, _env, _ctx, opts) => {
+      seen.push({ to: message.to, slug: opts?.slug });
+    });
+
+    await handleEmail(sharedEnvelope('alias@mail.void.cloud'), { __VOID_PROJECT_SLUG: 'proj' }, {});
+
+    // Keyed on `proj`, the dispatcher would read `alias` as an address.
+    expect(seen).toEqual([{ to: 'alias@mail.void.cloud', slug: 'alias' }]);
+  });
+
+  it('still strips nothing when no slug is injected', async () => {
+    const seen: Array<{ to: string; slug: unknown }> = [];
+    const handleEmail = buildHandleEmail(async (message, _env, _ctx, opts) => {
+      seen.push({ to: message.to, slug: opts?.slug });
+    });
+
+    await handleEmail(sharedEnvelope('alias+orders@mail.void.cloud'), {}, {});
+
+    expect(seen).toEqual([{ to: 'alias+orders@mail.void.cloud', slug: undefined }]);
+  });
+
+  it('keeps the slug shared-sender reply default when the alias received the message', async () => {
+    const handleEmail = buildHandleEmail(async (message) => {
+      await replyEmail(message, { text: 'ack' });
+    });
+
+    const actions = (await handleEmail(
+      sharedEnvelope('alias+orders@mail.void.cloud'),
+      { __VOID_PROJECT_SLUG: 'proj', __VOID_EMAIL_DOMAIN: 'mail.void.cloud' },
+      {},
+    )) as Array<{ type: string; from: string }>;
+
+    expect(actions).toMatchObject([{ type: 'reply', from: 'proj+noreply@mail.void.cloud' }]);
+  });
+});

@@ -449,6 +449,7 @@ export function buildVoidManifest(opts: {
   options?: PackageOptions;
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -479,6 +480,9 @@ export function buildVoidManifest(opts: {
   const resolvedDialect = dialect ?? 'sqlite';
 
   const manifest: DeployManifest = { version: 3, assetManifestVersion: 2, bindings: {} };
+  if (opts.alwaysUseHttps !== undefined) {
+    manifest.alwaysUseHttps = opts.alwaysUseHttps;
+  }
   if (opts.durableObjects?.length) {
     manifest.version = 4;
     manifest.durableObjects = {
@@ -640,6 +644,28 @@ export function collectWorkerFiles(workerDir: string): Map<string, Buffer> {
   return out;
 }
 
+const WRANGLER_HTML_HANDLING = new Set<AssetConfig['html_handling']>([
+  'auto-trailing-slash',
+  'force-trailing-slash',
+  'drop-trailing-slash',
+  'none',
+]);
+
+/** Read `assets.html_handling` from a materialized root Wrangler config object. */
+export function readWranglerHtmlHandling(
+  rootConfig: Record<string, unknown>,
+): AssetConfig['html_handling'] | undefined {
+  const assets = rootConfig.assets;
+  if (typeof assets !== 'object' || assets === null || Array.isArray(assets)) {
+    return undefined;
+  }
+  const value = (assets as Record<string, unknown>).html_handling;
+  return typeof value === 'string' &&
+    WRANGLER_HTML_HANDLING.has(value as AssetConfig['html_handling'])
+    ? (value as AssetConfig['html_handling'])
+    : undefined;
+}
+
 /**
  * Build a static-deploy manifest. Pure shape transformation — no I/O.
  */
@@ -647,24 +673,38 @@ export function buildStaticManifest(opts: {
   appType: 'spa' | 'static';
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   /** Explicit `routing.notFound` — overrides the appType-inferred handling. */
   notFound?: NotFoundHandling;
+  /** Authored `cloudflare.assets.html_handling` from the root Wrangler config. */
+  html_handling?: AssetConfig['html_handling'];
 }): DeployManifest {
-  const { appType, hashedAssetsPrefix, headerRules, redirectRules, fallbackRules, notFound } = opts;
+  const {
+    appType,
+    hashedAssetsPrefix,
+    headerRules,
+    redirectRules,
+    fallbackRules,
+    notFound,
+    html_handling,
+  } = opts;
   const { assetConfig, fallbackRules: resolvedFallbackRules } = resolveSpaFallbackChain(
     appType,
     fallbackRules,
     notFound,
   );
+  const resolvedAssetConfig =
+    html_handling === undefined ? assetConfig : { ...assetConfig, html_handling };
 
   const manifest: DeployManifest = {
     version: 3,
     assetManifestVersion: 2,
     bindings: {},
     type: appType,
-    assetConfig,
+    ...(opts.alwaysUseHttps !== undefined ? { alwaysUseHttps: opts.alwaysUseHttps } : {}),
+    assetConfig: resolvedAssetConfig,
   };
 
   if (hashedAssetsPrefix) {
@@ -704,6 +744,7 @@ export function buildFrameworkManifest(opts: {
   packageOptions?: Omit<PackageOptions, 'workerMain'>;
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
+  alwaysUseHttps?: boolean;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -712,6 +753,9 @@ export function buildFrameworkManifest(opts: {
   const dialect = opts.dialect ?? 'sqlite';
 
   const manifest: DeployManifest = { version: 3, assetManifestVersion: 2, bindings: {} };
+  if (opts.alwaysUseHttps !== undefined) {
+    manifest.alwaysUseHttps = opts.alwaysUseHttps;
+  }
   applyResourceBindings(
     manifest,
     opts.bindings,

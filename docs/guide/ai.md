@@ -261,7 +261,7 @@ void secret put OPENAI_API_KEY=sk-...
 
 For local development, add it to `.env` in your project root:
 
-```
+```dotenv
 OPENAI_API_KEY=sk-...
 ```
 

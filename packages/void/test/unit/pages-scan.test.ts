@@ -1,15 +1,22 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import * as tinyglobby from 'tinyglobby';
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';
+import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import {
   scanPages,
   resolveLayoutChain,
   resolveNamedLayout,
   resolveEffectiveLayoutChain,
   MAX_REVALIDATE,
+  pageFileEnvironment,
 } from '../../src/pages/scan.ts';
+import * as sourceAnalysisCache from '../../src/shared/source-analysis-cache.ts';
+
+vi.mock('tinyglobby', { spy: true });
+vi.mock('../../src/shared/source-analysis-cache.ts', { spy: true });
 
 const TMP = join(import.meta.dirname, '__tmp_pages_scan__');
 
@@ -20,6 +27,51 @@ function writeFile(relativePath: string, content: string): void {
 }
 
 describe('scanPages', () => {
+  it('reads quoted server export names and ignores renamed local handlers', async () => {
+    writeFile('[slug].vue', '<template><div>Post</div></template>');
+    writeFile(
+      '[slug].server.ts',
+      `
+      const loader = () => ({}), mutate = () => ({}), paths = () => [];
+      export { loader as "helper", mutate as "action", paths as "getPrerenderPaths" };
+      export { type loader as "loader" };
+    `,
+    );
+    const page = (await scanPages(TMP, { output: 'static' })).pages[0];
+    expect(page.methods).toEqual(['action']);
+    expect(page.hasGetPrerenderPaths).toBe(true);
+    expect(page.shouldPrerender).toBe(true);
+  });
+
+  it.each([
+    ['export const { loader, action, actions } = handlers;', ['loader', 'action', 'actions']],
+    [
+      'export const { get: loader, action: helper, nested: [actions] } = handlers;',
+      ['loader', 'actions'],
+    ],
+    ['export const [loader = fallback, , ...actions] = handlers;', ['loader', 'actions']],
+    ['export const { [action]: helper, other = loader } = handlers;', []],
+    ['const { loader, action } = handlers; export const helper = loader;', []],
+  ])('detects exported page bindings in %s', async (source, methods) => {
+    writeFile('index.vue', '<template><div>Home</div></template>');
+    writeFile('index.server.ts', source as string);
+    expect((await scanPages(TMP)).pages[0].methods).toEqual(methods);
+  });
+
+  it('prerenders a static dynamic page with a destructured path provider', async () => {
+    writeFile('[slug].vue', '<template><div>Post</div></template>');
+    writeFile('[slug].server.ts', 'export const { getPrerenderPaths } = handlers;');
+    const page = (await scanPages(TMP, { output: 'static' })).pages[0];
+    expect(page.hasGetPrerenderPaths).toBe(true);
+    expect(page.shouldPrerender).toBe(true);
+  });
+
+  it('does not automatically prerender an island with a destructured loader', async () => {
+    writeFile('index.island.tsx', 'export default () => null;');
+    writeFile('index.server.ts', 'export const { loader } = handlers;');
+    expect((await scanPages(TMP)).pages[0].shouldPrerender).toBe(false);
+  });
+
   beforeEach(() => {
     mkdirSync(join(TMP, 'pages'), { recursive: true });
   });
@@ -75,6 +127,83 @@ describe('scanPages', () => {
     expect(page!.serverPath).toBe('users/index.server.ts');
     expect(page!.methods).toEqual(['loader', 'action']);
   });
+
+  it.each(['vue', 'svelte', 'md'])(
+    'keeps non-script pages named .server.%s discoverable',
+    async (ext) => {
+      writeFile(`web.server.${ext}`, '');
+      writeFile('web.server.server.jsx', 'export const loader = () => <p>Loaded</p>;');
+
+      const scan = await scanPages(TMP);
+      expect(scan.pages).toHaveLength(1);
+      expect(scan.pages[0]).toMatchObject({
+        pattern: '/web.server',
+        componentPath: `web.server.${ext}`,
+        serverPath: 'web.server.server.jsx',
+        methods: ['loader'],
+      });
+      const manifest = generateComponentManifest(scan, '/project/pages');
+      expect(manifest).toContain(`/project/pages/web.server.${ext}`);
+      expect(manifest).not.toContain('web.server.server.jsx');
+    },
+  );
+
+  it.each(
+    ['tsx', 'jsx'].flatMap((serverExt) =>
+      ['foo.tsx', 'foo.island.tsx', 'foo.jsx', 'foo.vue', 'foo.svelte', 'foo.md'].map(
+        (component) => ({ component, serverExt }),
+      ),
+    ),
+  )(
+    'keeps the .server.$serverExt companion of $component out of page discovery and component manifests',
+    async ({ component, serverExt }) => {
+      writeFile(component, '');
+      writeFile(
+        `foo.server.${serverExt}`,
+        `export const loader = () => ({ html: <p>Loaded</p> });
+export const actions = { save: () => <p>Saved</p> };
+export const revalidate = 60;
+export const prerender = false;
+export const ssr = true;`,
+      );
+      writeFile(`orphan.server.${serverExt}`, 'export const loader = () => <p>Orphan</p>;');
+      writeFile('layout.tsx', 'export default () => null;');
+      writeFile(`layout.server.${serverExt}`, 'export const helper = () => <p>Server</p>;');
+      writeFile('_layouts/marketing.tsx', 'export default () => null;');
+      writeFile(
+        `_layouts/marketing.server.${serverExt}`,
+        'export const helper = () => <p>Server</p>;',
+      );
+
+      const scan = await scanPages(TMP);
+      expect(scan.pages).toHaveLength(1);
+      expect(scan.pages[0]).toMatchObject({
+        pattern: '/foo',
+        componentPath: component,
+        serverPath: `foo.server.${serverExt}`,
+        methods: ['loader', 'actions'],
+        revalidate: 60,
+        prerenderMode: 'disabled',
+        ssrMode: 'server',
+      });
+      expect(scan.layouts.map((layout) => layout.filePath)).toEqual(['layout.tsx']);
+      expect(scan.namedLayouts.map((layout) => layout.filePath)).toEqual([
+        '_layouts/marketing.tsx',
+      ]);
+      const manifest = generateComponentManifest(scan, '/project/pages');
+      expect(manifest).toContain(`/project/pages/${component}`);
+      expect(manifest).not.toContain('.server.');
+      const { dts } = generateRouteTypes(
+        { routes: [], middleware: [], jobs: [], queues: [], pages: scan },
+        join(TMP, 'routes'),
+        join(TMP, '.void'),
+        join(TMP, 'pages'),
+      );
+      expect(dts).toContain('"/foo": {');
+      expect(dts).toContain(`typeof import("../pages/foo.server.${serverExt}")`);
+      expect(dts).not.toContain('"/foo.server"');
+    },
+  );
 
   it('detects actions (plural) export from .server.ts', async () => {
     writeFile('settings.vue', '<template><div>Settings</div></template>');
@@ -769,6 +898,211 @@ const example = 'export const layout = "home"';
       }
     });
   });
+
+  describe('route clashes', () => {
+    it('throws once, listing every route that more than one page file resolves to', async () => {
+      writeFile('about.tsx', 'export default () => null;');
+      writeFile('about/index.tsx', 'export default () => null;');
+      writeFile('(a)/team.tsx', 'export default () => null;');
+      writeFile('(b)/team.tsx', 'export default () => null;');
+      writeFile('docs/x.tsx', 'export default () => null;');
+      writeFile('docs/x.vue', '<template><div /></template>');
+      writeFile('docs/y.tsx', 'export default () => null;');
+      writeFile('docs/y.island.tsx', 'export default () => null;');
+
+      await expect(scanPages(TMP)).rejects.toThrow(
+        [
+          'pages: Multiple page files resolve to the same route:',
+          '  "/about": "about.tsx", "about/index.tsx"',
+          '  "/docs/x": "docs/x.tsx", "docs/x.vue"',
+          '  "/docs/y": "docs/y.island.tsx", "docs/y.tsx"',
+          '  "/team": "(a)/team.tsx", "(b)/team.tsx"',
+          'Keep one page file per route and rename or remove the others.',
+        ].join('\n'),
+      );
+    });
+
+    it('throws when two page files on different routes get the same page id', async () => {
+      writeFile('index.tsx', 'export default () => null;');
+      writeFile('index/index.tsx', 'export default () => null;');
+
+      await expect(scanPages(TMP)).rejects.toThrow(
+        [
+          'pages: Multiple page files resolve to the same page id:',
+          '  "index": "index.tsx", "index/index.tsx"',
+          'Rename or remove one of them.',
+        ].join('\n'),
+      );
+    });
+
+    it('warns once about a dynamic page another page with the same shape hides', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('shadow/[id].tsx', 'export default () => null;');
+        writeFile('shadow/[slug].tsx', 'export default () => null;');
+        const { pages } = await scanPages(TMP);
+        await scanPages(TMP);
+
+        expect(pages.map((page) => page.componentId)).toEqual(['shadow/[id]', 'shadow/[slug]']);
+        expect(log).toHaveBeenCalledOnce();
+        expect(log.mock.calls[0][0]).toContain(
+          "pages: Page 'shadow/[slug].tsx' (/shadow/:slug) is never used: 'shadow/[id].tsx' (/shadow/:id) matches the same URLs first. Remove one of them.",
+        );
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('allows the same param under different names on different routes', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('users/[id].tsx', 'export default () => null;');
+        writeFile('users/[id]/edit.tsx', 'export default () => null;');
+        writeFile('users/[userId]/posts.tsx', 'export default () => null;');
+        writeFile('layout.tsx', 'export default ({ children }) => children;');
+        writeFile('layout/index.tsx', 'export default () => null;');
+
+        const { pages } = await scanPages(TMP);
+
+        expect(pages.map((page) => page.pattern).sort()).toEqual([
+          '/layout',
+          '/users/:id',
+          '/users/:id/edit',
+          '/users/:userId/posts',
+        ]);
+        expect(log).not.toHaveBeenCalled();
+      } finally {
+        log.mockRestore();
+      }
+    });
+  });
+
+  describe('environment suffixes', () => {
+    const page = 'export default () => null;';
+    const ids = async (environment?: 'dev' | 'prod') =>
+      (await scanPages(TMP, { environment })).pages.map((p) => p.componentId);
+
+    it('keeps a .dev page only in dev and in unfiltered scans', async () => {
+      writeFile('debug.dev.tsx', page);
+
+      for (const environment of ['dev', undefined] as const) {
+        const { pages } = await scanPages(TMP, { environment });
+        expect(pages).toHaveLength(1);
+        expect(pages[0]).toMatchObject({
+          pattern: '/debug',
+          componentId: 'debug.dev',
+          componentPath: 'debug.dev.tsx',
+          env: 'dev',
+        });
+      }
+      expect(await ids('prod')).toEqual([]);
+    });
+
+    it('allows a .dev + .prod pair on one route', async () => {
+      writeFile('home.dev.tsx', page);
+      writeFile('home.prod.tsx', page);
+
+      expect(await ids('dev')).toEqual(['home.dev']);
+      expect(await ids('prod')).toEqual(['home.prod']);
+      expect(await ids()).toEqual(['home.dev', 'home.prod']);
+    });
+
+    it('rejects a plain page and a .dev page on one route where both run', async () => {
+      writeFile('home.tsx', page);
+      writeFile('home.dev.tsx', page);
+      const message = [
+        'pages: Multiple page files resolve to the same route:',
+        '  "/home": "home.dev.tsx", "home.tsx"',
+      ].join('\n');
+
+      await expect(scanPages(TMP, { environment: 'dev' })).rejects.toThrow(message);
+      await expect(scanPages(TMP)).rejects.toThrow(message);
+      expect(await ids('prod')).toEqual(['home']);
+    });
+
+    it('rejects a plain page and a .prod page on one route where both run', async () => {
+      writeFile('home.tsx', page);
+      writeFile('home.prod.tsx', page);
+      const message = [
+        'pages: Multiple page files resolve to the same route:',
+        '  "/home": "home.prod.tsx", "home.tsx"',
+      ].join('\n');
+
+      await expect(scanPages(TMP, { environment: 'prod' })).rejects.toThrow(message);
+      await expect(scanPages(TMP)).rejects.toThrow(message);
+      expect(await ids('dev')).toEqual(['home']);
+    });
+
+    it('rejects two .dev pages on one route', async () => {
+      writeFile('home.dev.tsx', page);
+      writeFile('home/index.dev.tsx', page);
+
+      await expect(scanPages(TMP, { environment: 'dev' })).rejects.toThrow(
+        '  "/home": "home.dev.tsx", "home/index.dev.tsx"',
+      );
+    });
+
+    it('warns about shadowed pages only when both run in one environment', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFile('env-a/[id].dev.tsx', page);
+        writeFile('env-a/[slug].prod.tsx', page);
+        writeFile('env-b/[id].tsx', page);
+        writeFile('env-b/[slug].dev.tsx', page);
+        await scanPages(TMP);
+
+        expect(log).toHaveBeenCalledOnce();
+        expect(log.mock.calls[0][0]).toContain(
+          "pages: Page 'env-b/[slug].dev.tsx' (/env-b/:slug) is never used: 'env-b/[id].tsx' (/env-b/:id)",
+        );
+      } finally {
+        log.mockRestore();
+      }
+    });
+
+    it('reads the suffix before .island', async () => {
+      writeFile('x.dev.island.tsx', page);
+
+      const { pages } = await scanPages(TMP, { environment: 'dev' });
+      expect(pages[0]).toMatchObject({ pattern: '/x', componentId: 'x.dev', island: true });
+      expect(await ids('prod')).toEqual([]);
+    });
+
+    it('never reads the companion of a page left out', async () => {
+      writeFile('x.dev.tsx', page);
+      writeFile('x.dev.server.ts', 'export const loader = () => ({});');
+
+      const dev = await scanPages(TMP, { environment: 'dev' });
+      expect(dev.pages[0]).toMatchObject({ serverPath: 'x.dev.server.ts', methods: ['loader'] });
+
+      writeFile('x.dev.server.ts', 'export const loader = (');
+      const derive = vi.mocked(sourceAnalysisCache.deriveFromSource);
+      derive.mockClear();
+      expect((await scanPages(TMP, { environment: 'prod' })).pages).toEqual([]);
+      expect(derive.mock.calls.map(([path]) => path)).toEqual([]);
+    });
+
+    it('drops the suffix from an index page but keeps it in the id', async () => {
+      writeFile('index.dev.tsx', page);
+
+      const { pages } = await scanPages(TMP, { environment: 'dev' });
+      expect(pages[0]).toMatchObject({ pattern: '/', componentId: 'index.dev' });
+    });
+
+    it('does not scope layouts', async () => {
+      writeFile('layout.dev.tsx', page);
+      writeFile('_layouts/a.dev.vue', '<template><slot /></template>');
+
+      const dev = await scanPages(TMP, { environment: 'dev' });
+      expect(dev.pages.map((p) => p.pattern)).toEqual(['/layout']);
+      expect(dev.layouts).toEqual([]);
+      const prod = await scanPages(TMP, { environment: 'prod' });
+      expect(prod.pages).toEqual([]);
+      for (const scan of [dev, prod]) {
+        expect(scan.namedLayouts.map((layout) => layout.name)).toEqual(['a.dev']);
+      }
+    });
+  });
 });
 
 describe('resolveLayoutChain', () => {
@@ -955,5 +1289,132 @@ describe('resolveLayoutIds', () => {
     expect(
       resolveLayoutIds({ componentId: 'guide/intro', layout: '!home' }, layouts, namedLayouts),
     ).toEqual(['_layouts/home']);
+  });
+});
+
+describe('scanPages between saves', () => {
+  beforeEach(() => {
+    mkdirSync(join(TMP, 'pages'), { recursive: true });
+
+    // Files written by a test are too recent to reuse; move the clock past that window.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(Date.now() + 60_000);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('returns stable layout inventories regardless of glob enumeration order', async () => {
+    const files = ['z/layout.tsx', 'a/layout.tsx', '_layouts/z.tsx', '_layouts/a.tsx', 'index.tsx'];
+    for (const file of files) {
+      writeFile(file, 'export default function Component() { return null; }');
+    }
+    const glob = vi.mocked(tinyglobby.glob);
+    try {
+      glob.mockResolvedValueOnce([...files]);
+      const before = await scanPages(TMP);
+      glob.mockResolvedValueOnce([...files].reverse());
+      const after = await scanPages(TMP);
+      expect(after.layouts).toEqual(before.layouts);
+      expect(after.namedLayouts).toEqual(before.namedLayouts);
+    } finally {
+      glob.mockRestore();
+    }
+  });
+
+  it('does not expose cached markdown metadata for mutation between scans', async () => {
+    writeFile('notes.md', '---\ntitle: Original\ndescription: Unchanged\n---\n# Notes');
+    const first = await scanPages(TMP);
+    first.pages[0]!.metadata!.title = 'Mutated';
+    first.pages[0]!.metadata!.description = 'Also mutated';
+    const second = await scanPages(TMP);
+    expect(second.pages[0]!.metadata).toEqual({ title: 'Original', description: 'Unchanged' });
+  });
+
+  it('picks up page metadata changed since the previous scan', async () => {
+    writeFile('cached/post.tsx', 'export default function Post() { return null; }');
+    writeFile('cached/post.server.ts', 'export const revalidate = 60;');
+    writeFile('cached/notes.md', '---\ntitle: Draft\n---\n# Notes');
+
+    const before = await scanPages(TMP);
+
+    expect(before.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
+      methods: [],
+      revalidate: 60,
+    });
+    expect(before.pages.find((page) => page.componentId === 'cached/notes')?.metadata).toEqual({
+      title: 'Draft',
+    });
+
+    writeFile('cached/post.tsx', 'export const layout = false;\nexport default function Post() {}');
+    writeFile('cached/post.server.ts', 'export const loader = () => ({});');
+    writeFile('cached/notes.md', '---\ntitle: Published\n---\n# Notes');
+
+    const after = await scanPages(TMP);
+
+    expect(after.pages.find((page) => page.componentId === 'cached/post')).toMatchObject({
+      methods: ['loader'],
+      layout: false,
+    });
+    expect(after.pages.find((page) => page.componentId === 'cached/notes')?.metadata).toEqual({
+      title: 'Published',
+    });
+  });
+});
+
+describe('pageFileEnvironment', () => {
+  it.each([
+    ['home.tsx', null],
+    ['home.dev.tsx', 'dev'],
+    ['home.dev.island.vue', 'dev'],
+    ['home.prod.server.ts', 'prod'],
+    ['docs.dev.md', 'dev'],
+    ['_lib/x.dev.ts', null],
+    ['utils.dev.ts', null],
+    ['layout.dev.tsx', 'dev'],
+    ['_layouts/x.dev.vue', null],
+  ])('%s -> %s', (file, env) => {
+    expect(pageFileEnvironment(file)).toBe(env);
+  });
+
+  describe('matches scanPages', () => {
+    beforeEach(() => {
+      mkdirSync(join(TMP, 'pages'), { recursive: true });
+    });
+
+    afterEach(() => {
+      rmSync(TMP, { recursive: true, force: true });
+    });
+
+    it('for every page and companion the scanner keeps', async () => {
+      const files = [
+        'debug.dev.tsx',
+        'home.dev.tsx',
+        'home.prod.tsx',
+        'about.tsx',
+        'x.dev.island.tsx',
+        'y.dev.tsx',
+        'index.dev.tsx',
+        'layout.dev.tsx',
+        '(g)/[id].prod.vue',
+        'notes.prod.md',
+      ];
+      for (const file of files) {
+        writeFile(file, 'export default () => null;');
+      }
+      writeFile('y.dev.server.ts', 'export const loader = () => ({});');
+
+      const { pages } = await scanPages(TMP, { checkRoutes: false });
+      expect(pages.map((page) => page.componentPath).sort()).toEqual([...files].sort());
+      for (const page of pages) {
+        expect(pageFileEnvironment(page.componentPath)).toBe(page.env ?? null);
+        if (page.serverPath) {
+          expect(pageFileEnvironment(page.serverPath)).toBe(page.env ?? null);
+        }
+      }
+      expect(pages.find((page) => page.serverPath)?.serverPath).toBe('y.dev.server.ts');
+    });
   });
 });

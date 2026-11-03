@@ -305,6 +305,7 @@ export function buildRoutingJson(opts: {
       : {}),
     ...(manifest?.hashedAssetsPrefix ? { hashedAssetsPrefix: manifest.hashedAssetsPrefix } : {}),
     ...(manifest?.headerRules?.length ? { headerRules: manifest.headerRules } : {}),
+    ...(manifest?.alwaysUseHttps !== undefined ? { alwaysUseHttps: manifest.alwaysUseHttps } : {}),
     ...(manifest?.redirectRules?.length ? { redirectRules: manifest.redirectRules } : {}),
     ...(manifest?.fallbackRules?.length ? { fallbackRules: manifest.fallbackRules } : {}),
     ...(manifest?.revalidateQueryAllowlist
@@ -341,6 +342,7 @@ export function buildStaticRoutingJson(opts: {
     version: opts.deploymentId,
     ...(manifest?.hashedAssetsPrefix ? { hashedAssetsPrefix: manifest.hashedAssetsPrefix } : {}),
     ...(manifest?.headerRules?.length ? { headerRules: manifest.headerRules } : {}),
+    ...(manifest?.alwaysUseHttps !== undefined ? { alwaysUseHttps: manifest.alwaysUseHttps } : {}),
     ...(manifest?.redirectRules?.length ? { redirectRules: manifest.redirectRules } : {}),
     ...(manifest?.fallbackRules?.length ? { fallbackRules: manifest.fallbackRules } : {}),
     ...(manifest?.revalidateQueryAllowlist

@@ -24,6 +24,7 @@ export {
   ParamsContext,
   RouterContext,
   NavigationContext,
+  FrontmatterContext,
   ImagePreloadContext,
 } from './context.ts';
 export type { DeferredState as Deferred, InferProps } from 'void';

@@ -9,9 +9,9 @@
 # Env vars injected by the DO at start():
 #   BUILD_ID, PROJECT_ID, PROJECT_SLUG, SOURCE_TARBALL_URL, SOURCE_TOKEN,
 #   VOID_TOKEN, VOID_API_URL, VOID_PROJECT, DO_LOG_URL, AGENT_TOKEN
-FROM node:26-slim
+FROM node:26.12.1-slim
 
-# node:26-slim ships `tar` + `gzip` but is otherwise minimal. We add:
+# node:26.12.1-slim ships `tar` + `gzip` but is otherwise minimal. We add:
 #   ca-certificates       HTTPS for the tarball fetch, npm/bun installs, deploy upload
 #   curl                  documented fallback download path + the bun install script
 #   unzip                 required by the bun install script
@@ -59,7 +59,7 @@ RUN curl -fsSL https://bun.sh/install | bash -s "bun-v${BUN_VERSION}" \
 # unprivileged install has somewhere writable — build-agent.mjs points the child's
 # cache env vars (builderCacheEnv) at these paths. /tmp/build is the agent's
 # WORK_DIR parent; chowning it lets the builder own the extracted tree.
-# node:26-slim ships a built-in `node` user that already owns uid/gid 1000, so
+# node:26.12.1-slim ships a built-in `node` user that already owns uid/gid 1000, so
 # it must be removed first or the useradd fails with "UID 1000 is not unique"
 # and the image cannot build. Nothing here runs as `node`.
 RUN userdel node \

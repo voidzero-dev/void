@@ -3,3 +3,4 @@ dist/
 .void/
 .wrangler/
 node_modules/
+src/middleware.ts

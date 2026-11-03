@@ -1,9 +1,10 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { join, relative, toSlash } from 'pathslash';
+import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
 import { applyBindingOverrides, applyImageOptimizerRequirement } from './application-features.ts';
 import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
 import { scriptBlocks } from './pages/island-imports.ts';
+import { pageFileEnvironment } from './pages/scan.ts';
 import { readProjectPaths, type ProjectPaths } from './project-paths.ts';
 import {
   isRouteEnabledForEnvironment,
@@ -12,6 +13,8 @@ import {
   type RouteEnvironment,
 } from './router/parse-filename.ts';
 import { isWebSocketPatternFile } from './router/websocket.ts';
+import { conventionFileGlobs, isRouteFile } from './shared/convention-files.ts';
+import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 
 const SOURCE_GLOB = '**/*.{ts,tsx,mts,js,jsx,mjs,astro,vue,svelte}';
@@ -118,6 +121,8 @@ export type InferenceOptions = {
   paths?: ProjectPaths;
   /** Filter route files for a Vite serve/build environment. Other source files are always scanned. */
   environment?: RouteEnvironment;
+  /** Also filter Void page files and their `.server` companions by environment. Off for framework apps. */
+  filterPages?: boolean;
 };
 
 function extractAstroFrontmatter(code: string): string {
@@ -176,18 +181,23 @@ export function inferProjectBindings(
   const allBindings: Array<InferredBindings> = [];
   const scannedFiles = new Set<string>();
   const routesPrefix = `${toSlash(paths.routesDir).replace(/\/$/, '')}/`;
+  const pagesDir = toSlash(paths.pagesDir);
+  const pagesPrefix = pagesDir.endsWith('/') ? pagesDir : `${pagesDir}/`;
+  const scanSourceFiles = (dirPath: string): Array<string> =>
+    globSync(conventionFileGlobs(dirPath, SOURCE_GLOB, paths.routesDir), {
+      cwd: dirPath,
+      absolute: true,
+    });
   const addFile = (file: string): void => {
     const normalizedFile = toSlash(file);
     if (scannedFiles.has(normalizedFile)) {
       return;
     }
     scannedFiles.add(normalizedFile);
-    if (
-      options?.environment &&
-      normalizedFile.startsWith(routesPrefix) &&
-      /\.(?:ts|mts|js|mjs)$/.test(normalizedFile)
-    ) {
-      const routePath = relative(paths.routesDir, normalizedFile);
+    const routePath = normalizedFile.startsWith(routesPrefix)
+      ? normalizedFile.slice(routesPrefix.length)
+      : undefined;
+    if (options?.environment && routePath !== undefined && isRouteFile(routePath)) {
       const route = isWebSocketPatternFile(routePath)
         ? parseWebSocketFilename(routePath)
         : parseRouteFilename(routePath);
@@ -195,15 +205,23 @@ export function inferProjectBindings(
         return;
       }
     }
-    const code = readFileSync(file, 'utf-8');
-    allBindings.push(inferBindingsFromFile(file, code));
+    if (options?.environment && options.filterPages && normalizedFile.startsWith(pagesPrefix)) {
+      const env = pageFileEnvironment(normalizedFile.slice(pagesPrefix.length));
+      if (!isRouteEnabledForEnvironment({ env }, options.environment)) {
+        return;
+      }
+    }
+
+    allBindings.push(
+      deriveFromSource(file, 'bindings', (code) => inferBindingsFromFile(file, code)),
+    );
   };
 
   for (const dir of dirs) {
     const dirPath = join(root, dir);
     let files: Array<string>;
     try {
-      files = globSync(SOURCE_GLOB, { cwd: dirPath, absolute: true });
+      files = scanSourceFiles(dirPath);
     } catch {
       continue;
     }
@@ -226,7 +244,7 @@ export function inferProjectBindings(
     const srcPath = paths.sourceDir ? paths.sourceRoot : join(root, 'src');
     let srcFiles: Array<string>;
     try {
-      srcFiles = globSync(SOURCE_GLOB, { cwd: srcPath, absolute: true });
+      srcFiles = scanSourceFiles(srcPath);
     } catch {
       srcFiles = [];
     }

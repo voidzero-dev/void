@@ -74,6 +74,7 @@ beforeAll(async () => {
       null,
       {
         honoPath: fileURLToPath(import.meta.resolve('hono')),
+        honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
         runtimeEnvPath: runtimeSource('env.ts'),
         projectRoot: directory,
         homeDir: tmpdir(),

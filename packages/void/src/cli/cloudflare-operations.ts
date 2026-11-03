@@ -528,6 +528,8 @@ export async function activateCloudflareExistingVersion(
     );
   }
   let recoveryFailure: string | null = null;
+  // Not forced: `current` served traffic until this rollback, so Cloudflare
+  // refuses it (10220) only when someone else has changed a secret since.
   try {
     await run(
       context,

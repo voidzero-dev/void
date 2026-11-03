@@ -15,6 +15,7 @@ import {
   type IsrCacheMetadata,
 } from '@void/isr/core';
 import { MAX_ISR_VARIANTS_PER_PATH } from '@void/isr/runtime';
+import { createIsrStore } from '@voidcloud/api/isr-store';
 import type { Env } from './env.ts';
 import { matchSegmentPattern } from './pattern.ts';
 
@@ -42,8 +43,8 @@ export { isrCacheKey } from '@void/isr';
 export type { IsrCacheEntry, IsrCacheMetadata } from '@void/isr/core';
 
 /**
- * Read an ISR cache entry from KV.
- * Returns null on cache miss, malformed metadata, or a KV read failure so the
+ * Read an ISR cache entry from the strongly consistent shared store.
+ * Returns null on cache miss, malformed metadata, or a storage read failure so the
  * caller renders the page live.
  */
 export async function readIsrCache(
@@ -56,10 +57,7 @@ export async function readIsrCache(
 ): Promise<IsrCacheEntry | null> {
   const key = isrCacheKey(projectId, deploymentId, host, pathname, originalUrl);
   try {
-    const { value, metadata } = await env.ISR_CACHE.getWithMetadata<IsrCacheMetadata>(
-      key,
-      'arrayBuffer',
-    );
+    const { value, metadata } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(key);
     return decodeIsrCacheEntry(value, metadata);
   } catch {
     return null;
@@ -67,7 +65,7 @@ export async function readIsrCache(
 }
 
 /**
- * Delete an ISR cache entry from KV.
+ * Delete an ISR cache entry from the shared store.
  * Used when a worker permanently opts out via x-revalidate: 0.
  */
 export async function deleteIsrCache(
@@ -79,11 +77,11 @@ export async function deleteIsrCache(
   originalUrl?: string | null,
 ): Promise<void> {
   const key = isrCacheKey(projectId, deploymentId, host, pathname, originalUrl);
-  await env.ISR_CACHE.delete(key);
+  await createIsrStore(env.STATIC_ASSETS_R2, env.ISR_CACHE).delete(key);
 }
 
 /**
- * Write an ISR cache entry to KV. Variant writes are gated by
+ * Write an ISR cache entry to R2. Variant writes are gated by
  * `MAX_ISR_VARIANTS_PER_PATH` — past the cap, only updates to existing
  * variant slots go through. Direct-hit entries (no `originalUrl`) are
  * never gated.
@@ -117,7 +115,7 @@ export async function writeIsrCache(
   const body = await responseClone.arrayBuffer();
   const packed = packIsrValue(headers, body);
 
-  await env.ISR_CACHE.put(key, packed, {
+  await createIsrStore(env.STATIC_ASSETS_R2).put(key, packed, {
     metadata: {
       s: status,
       c: Date.now(),
@@ -132,10 +130,9 @@ export async function writeIsrCache(
  * per-pathname cap. Always allows updates to existing variants (so ISR
  * revalidation keeps working after a path saturates).
  *
- * The KV list call is alphabetically ordered; we list up to `1000` entries
- * (the KV per-call max) which comfortably covers any realistic cap. If a
- * pathname has more variants than the listing returns, we conservatively
- * refuse new writes — that case shouldn't occur with the cap enforced.
+ * R2 can return short or empty nonfinal pages. Count until the cap or end;
+ * once full, a point lookup permits updating an existing variant without
+ * scanning beyond the cap.
  */
 async function isVariantWriteAllowed(
   env: Env,
@@ -146,12 +143,21 @@ async function isVariantWriteAllowed(
   key: string,
 ): Promise<boolean> {
   const prefix = isrCacheVariantPrefix(projectId, deploymentId, host, pathname);
-  const listed = await env.ISR_CACHE.list({ prefix, limit: 1000 });
-  if (listed.keys.length < MAX_ISR_VARIANTS_PER_PATH) {
-    return true;
-  }
-  // At or over cap: only allow updates to existing keys.
-  return listed.keys.some((cacheKey) => cacheKey.name === key);
+  const cache = createIsrStore(env.STATIC_ASSETS_R2);
+  let count = 0;
+  let cursor: string | undefined;
+  do {
+    const listed = await cache.list({ prefix, cursor, limit: MAX_ISR_VARIANTS_PER_PATH });
+    if (listed.keys.some((entry) => entry.name === key)) {
+      return true;
+    }
+    count += listed.keys.length;
+    if (count >= MAX_ISR_VARIANTS_PER_PATH) {
+      return cache.has(key);
+    }
+    cursor = listed.list_complete ? undefined : listed.cursor;
+  } while (cursor);
+  return true;
 }
 
 /**

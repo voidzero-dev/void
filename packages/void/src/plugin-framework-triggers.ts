@@ -6,6 +6,7 @@ import { scanJobsSync, type JobDefinition } from './crons/scan.ts';
 import { voidWarn } from './log.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { scanQueuesSync, type QueueDefinition } from './queues/scan.ts';
+import { ensureGitignoreLines } from './shared/gitignore.ts';
 
 type FrameworkTriggersOptions = {
   devTriggerToken: string;
@@ -254,23 +255,6 @@ export async function handleDevTrigger(request, env, ctx) {
   return __dispatchQueue(request, env);
 }
 `;
-}
-
-/** Append any missing `lines` to the project's `.gitignore` and return the appended ones. */
-function ensureGitignoreLines(root: string, lines: ReadonlyArray<string>): ReadonlyArray<string> {
-  const gitignorePath = join(root, '.gitignore');
-  let contents = '';
-  if (existsSync(gitignorePath)) {
-    contents = readFileSync(gitignorePath, 'utf-8');
-  }
-  const existing = new Set(contents.split('\n').map((line) => line.trim()));
-  const missing = lines.filter((line) => !existing.has(line));
-  if (missing.length === 0) {
-    return [];
-  }
-  const sep = contents.length === 0 || contents.endsWith('\n') ? '' : '\n';
-  writeFileSync(gitignorePath, `${contents}${sep}${missing.join('\n')}\n`);
-  return missing;
 }
 
 /** Remove `lines` from the project's `.gitignore`, if it still exists. */

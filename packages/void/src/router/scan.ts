@@ -5,7 +5,7 @@ import { scanPages } from '../pages/scan.ts';
 import type { PageScanResult } from '../pages/types.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import type { QueueDefinition } from '../queues/scan.ts';
-import { listConventionFiles } from '../shared/convention-files.ts';
+import { listRouteFiles } from '../shared/convention-files.ts';
 import { detectHttpExports } from './detect-exports.ts';
 import type { EmailHandlersScan } from './email.ts';
 import {
@@ -75,15 +75,29 @@ export async function scanRoutes(
     output?: 'server' | 'static';
     paths: ProjectPaths;
     inventory: Omit<ScanResult, 'pages'>;
+    checkPageRoutes?: boolean;
+    /** Keep only pages for this environment. Unset keeps every page. */
+    environment?: RouteEnvironment;
   },
 ): Promise<ScanResult> {
   const { paths, inventory } = options;
-  const pages = await scanPages(root, { output: options.output, paths });
+  const pages = await scanPages(root, {
+    output: options.output,
+    paths,
+    checkRoutes: options.checkPageRoutes,
+    environment: options.environment,
+  });
   const routes = inventory.routes
-    .map((route) => ({
-      ...route,
-      methods: detectHttpExports(join(paths.routesDir, route.filePath)),
-    }))
+    .map((route) => {
+      const methods = detectHttpExports(join(paths.routesDir, route.filePath));
+      // Hono runs the GET handler for HEAD requests and has no way to register a HEAD one.
+      if (methods.includes('HEAD')) {
+        throw new Error(
+          `routes: '${route.filePath}' exports HEAD. HEAD requests are answered by the GET handler; remove the HEAD export.`,
+        );
+      }
+      return { ...route, methods };
+    })
     .sort(compareRouteSpecificity);
   return { ...inventory, routes, pages };
 }
@@ -100,7 +114,7 @@ export function scanRoutePatternsSync(
   paths: ProjectPaths = readProjectPaths(root),
   environment?: RouteEnvironment,
 ): Array<RouteDefinition> {
-  return listConventionFiles(paths.routesDir)
+  return listRouteFiles(paths.routesDir)
     .filter((f) => !isWebSocketPatternFile(f))
     .map((f) => parseRouteFilename(f))
     .filter((route) => isRouteEnabledForEnvironment(route, environment))

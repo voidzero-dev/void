@@ -40,6 +40,7 @@ export {
   deployCloudflareVersionTraffic,
   encodeCloudflareVersionMessage,
   extractWorkersDevSubdomain,
+  normalizeReadinessAccessOrigin,
   normalizeWorkersDevSubdomain,
   parseCloudflareVersionMessage,
   readCloudflareTriggerConfig,
@@ -50,6 +51,7 @@ export {
   type CloudflareVersionActivation,
   type CloudflareVersionActivationOptions,
   type CloudflareVersionMetadata,
+  type CloudflareWorkersDevSubdomainLookup,
 } from './version.ts';
 export { createCloudflareMetadataRunner } from './metadata.ts';
 export { cloudflareCommandDiagnostic } from './diagnostics.ts';

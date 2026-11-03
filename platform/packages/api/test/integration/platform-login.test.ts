@@ -243,116 +243,121 @@ describe('configured platform login routes', () => {
       env,
     );
   }
-  it('confirms a real native linking form while withholding OAuth callback details', async () => {
-    const human = await ordinarySession();
-    const browser = await chromium.launch();
-    const submissions: Array<{
-      origin: string | undefined;
-      referrer: string | undefined;
-      status: number;
-    }> = [];
-    let suppressOrigin = true;
-    try {
-      const context = await browser.newContext();
-      await context.addCookies([
-        {
-          name: 'void_account_session',
-          value: human.token,
-          url: origin,
-          secure: true,
-          httpOnly: true,
-        },
-      ]);
-      const page = await context.newPage();
-      await page.route('**/*', async (route) => {
-        const request = route.request();
-        const url = new URL(request.url());
-        if (url.origin === issuer && url.pathname === '/authorize') {
-          authorization = url;
-          await route.fulfill({
-            contentType: 'text/html',
-            body: '<h1>Local identity provider</h1>',
-          });
-          return;
-        }
-        if (url.origin !== origin) {
-          await route.abort();
-          return;
-        }
-        const headers = await request.allHeaders();
-        const response = await app.fetch(
-          new Request(request.url(), {
-            method: request.method(),
-            headers,
-            ...(request.method() === 'POST' ? { body: request.postData() ?? '' } : {}),
-          }),
-          env,
-        );
-        if (request.method() === 'POST') {
-          submissions.push({
-            origin: headers.origin,
-            referrer: headers.referer,
-            status: response.status,
-          });
-        }
-        const responseHeaders = Object.fromEntries(response.headers);
-        if (response.status === 302) {
-          authorization = new URL(response.headers.get('Location')!);
-          delete responseHeaders.location;
-          await route.fulfill({
-            status: 200,
-            headers: responseHeaders,
-            body: '<h1>Local provider handoff</h1>',
-          });
-          return;
-        }
-        if (url.pathname === '/auth/callback') {
-          expect(response.headers.get('Referrer-Policy')).toBe('strict-origin');
-          if (suppressOrigin) {
-            responseHeaders['referrer-policy'] = 'no-referrer';
-          }
-        }
-        await route.fulfill({
-          status: response.status,
-          headers: responseHeaders,
-          body: Buffer.from(await response.arrayBuffer()),
-        });
-      });
-      async function confirmInBrowser() {
-        const launch = await launchLink(human.token);
-        expect(launch.status).toBe(200);
-        await page.goto((await launch.json<{ url: string }>()).url);
-        await page.goto(authorization.href);
-        await page.goto(
-          `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
-        );
-        await page.getByRole('heading', { name: 'Link this login method?' }).waitFor();
-        await Promise.all([
-          page.waitForURL(`${origin}/auth/link/confirm`),
-          page.getByRole('button', { name: 'Link this identity' }).click(),
+  it(
+    'confirms a real native linking form while withholding OAuth callback details',
+    async () => {
+      const human = await ordinarySession();
+      const browser = await chromium.launch();
+      const submissions: Array<{
+        origin: string | undefined;
+        referrer: string | undefined;
+        status: number;
+      }> = [];
+      let suppressOrigin = true;
+      try {
+        const context = await browser.newContext();
+        await context.addCookies([
+          {
+            name: 'void_account_session',
+            value: human.token,
+            url: origin,
+            secure: true,
+            httpOnly: true,
+          },
         ]);
+        const page = await context.newPage();
+        await page.route('**/*', async (route) => {
+          const request = route.request();
+          const url = new URL(request.url());
+          if (url.origin === issuer && url.pathname === '/authorize') {
+            authorization = url;
+            await route.fulfill({
+              contentType: 'text/html',
+              body: '<h1>Local identity provider</h1>',
+            });
+            return;
+          }
+          if (url.origin !== origin) {
+            await route.abort();
+            return;
+          }
+          const headers = await request.allHeaders();
+          const response = await app.fetch(
+            new Request(request.url(), {
+              method: request.method(),
+              headers,
+              ...(request.method() === 'POST' ? { body: request.postData() ?? '' } : {}),
+            }),
+            env,
+          );
+          if (request.method() === 'POST') {
+            submissions.push({
+              origin: headers.origin,
+              referrer: headers.referer,
+              status: response.status,
+            });
+          }
+          const responseHeaders = Object.fromEntries(response.headers);
+          if (response.status === 302) {
+            authorization = new URL(response.headers.get('Location')!);
+            delete responseHeaders.location;
+            await route.fulfill({
+              status: 200,
+              headers: responseHeaders,
+              body: '<h1>Local provider handoff</h1>',
+            });
+            return;
+          }
+          if (url.pathname === '/auth/callback') {
+            expect(response.headers.get('Referrer-Policy')).toBe('strict-origin');
+            if (suppressOrigin) {
+              responseHeaders['referrer-policy'] = 'no-referrer';
+            }
+          }
+          await route.fulfill({
+            status: response.status,
+            headers: responseHeaders,
+            body: Buffer.from(await response.arrayBuffer()),
+          });
+        });
+        async function confirmInBrowser() {
+          const launch = await launchLink(human.token);
+          expect(launch.status).toBe(200);
+          await page.goto((await launch.json<{ url: string }>()).url);
+          await page.goto(authorization.href);
+          await page.goto(
+            `${origin}/auth/callback?code=provider-code&state=${authorization.searchParams.get('state')}`,
+          );
+          await page.getByRole('heading', { name: 'Link this login method?' }).waitFor();
+          await Promise.all([
+            page.waitForURL(`${origin}/auth/link/confirm`),
+            page.getByRole('button', { name: 'Link this identity' }).click(),
+          ]);
+        }
+        await confirmInBrowser();
+        expect(submissions).toEqual([{ origin: 'null', referrer: undefined, status: 400 }]);
+        expect(
+          await env.db
+            .select()
+            .from(platformLoginIdentities)
+            .where(eq(platformLoginIdentities.connection_id, 'company')),
+        ).toHaveLength(0);
+        suppressOrigin = false;
+        await confirmInBrowser();
+        expect(submissions.at(-1)).toEqual({ origin, referrer: `${origin}/`, status: 200 });
+        expect(
+          await env.db
+            .select()
+            .from(platformLoginIdentities)
+            .where(eq(platformLoginIdentities.connection_id, 'company')),
+        ).toMatchObject([{ user_id: human.user.id, subject: 'employee' }]);
+      } finally {
+        await browser.close();
       }
-      await confirmInBrowser();
-      expect(submissions).toEqual([{ origin: 'null', referrer: undefined, status: 400 }]);
-      expect(
-        await env.db
-          .select()
-          .from(platformLoginIdentities)
-          .where(eq(platformLoginIdentities.connection_id, 'company')),
-      ).toHaveLength(0);
-      suppressOrigin = false;
-      await confirmInBrowser();
-      expect(submissions.at(-1)).toEqual({ origin, referrer: `${origin}/`, status: 200 });
-      expect(
-        await env.db
-          .select()
-          .from(platformLoginIdentities)
-          .where(eq(platformLoginIdentities.connection_id, 'company')),
-      ).toMatchObject([{ user_id: human.user.id, subject: 'employee' }]);
-    } finally {
-      await browser.close();
-    }
-  });
+    },
+    // Launching Chromium alone can take longer than the default under a full parallel run.
+    30_000,
+  );
   it('links an ordinary account only after recent login, provider proof, and explicit browser confirmation', async () => {
     const human = await ordinarySession();
     const launch = await launchLink(human.token);

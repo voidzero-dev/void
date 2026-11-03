@@ -674,7 +674,7 @@ export async function listOperatorEmailDomains(context: Context<ApiEnv>, selecto
 
 export async function addOperatorEmailDomain(
   context: Context<ApiEnv>,
-  input: { domain: string; project: string; apiToken?: string },
+  input: { domain: string; project: string; apiToken?: string; outboundOnly?: boolean },
   dryRunRequested = false,
 ) {
   const db = context.get('db');
@@ -691,8 +691,9 @@ export async function addOperatorEmailDomain(
     );
   }
   const credentialKind = input.apiToken ? 'api_token' : 'platform';
+  const inboundMode = input.outboundOnly ? 'none' : 'managed';
   const action = 'email.domain.add';
-  const target = { domain, projectId: project.id, slug: project.slug, credentialKind };
+  const target = { domain, projectId: project.id, slug: project.slug, credentialKind, inboundMode };
   if (dryRunRequested) {
     // Read-only: the engine's own MX rule, previewed over public DNS. No
     // Cloudflare call — the preview must never spend the credential.
@@ -702,19 +703,31 @@ export async function addOperatorEmailDomain(
     } catch {
       // A failed lookup leaves the placement unknown.
     }
+    // The engine refuses to switch an active domain between inbound and outbound-only.
+    const modeChange =
+      existing?.desired_state === 'active' && existing.inbound_mode !== inboundMode;
     return preview(action, target, {
       existing: existing
-        ? { status: existing.inbound_status, managed_by: existing.managed_by }
+        ? {
+            status:
+              existing.inbound_mode === 'none' ? existing.outbound_status : existing.inbound_status,
+            managed_by: existing.managed_by,
+            inboundMode: existing.inbound_mode,
+          }
         : null,
-      plan: existing ? 'sync' : 'setup',
+      plan: modeChange ? 'refuse' : existing ? 'sync' : 'setup',
       mx,
-      effect: existing
-        ? `The existing assignment for ${domain} belongs to ${project.slug}; use sync to reconcile it.`
-        : mx === 'subdomain'
-          ? `${domain} already receives mail; setup will refuse it — use an unused domain apex or a platform shared email address instead.`
-          : credentialKind === 'platform'
-            ? `Registers ${domain} for ${project.slug} on the platform's own Cloudflare credential; the zone must be in the platform's account.`
-            : `Registers ${domain} for ${project.slug} with the supplied API token.`,
+      effect: modeChange
+        ? `${domain} is ${existing.inbound_mode === 'none' ? 'outbound-only' : 'set up to receive mail'}; setup will refuse to change that — remove it first, then add it again.`
+        : existing
+          ? `The existing assignment for ${domain} belongs to ${project.slug}; use sync to reconcile it.`
+          : input.outboundOnly
+            ? `Onboards ${domain} for ${project.slug} to Cloudflare Email Sending only; its MX records and inbound mail stay with its current mail provider.`
+            : mx === 'subdomain'
+              ? `${domain} already receives mail; setup will refuse it — use an unused domain apex or a platform shared email address instead.`
+              : credentialKind === 'platform'
+                ? `Registers ${domain} for ${project.slug} on the platform's own Cloudflare credential; the zone must be in the platform's account.`
+                : `Registers ${domain} for ${project.slug} with the supplied API token.`,
     });
   }
   return operatorResult(
@@ -722,6 +735,7 @@ export async function addOperatorEmailDomain(
       domain,
       apiToken: input.apiToken,
       managedBy: 'admin',
+      inboundMode,
     }),
     action,
     target,
@@ -748,10 +762,13 @@ export async function syncOperatorEmailDomain(
   const target = { domain, projectId: project.id, slug: project.slug };
   if (dryRunRequested) {
     return preview(action, target, {
-      status: row.inbound_status,
+      status: row.inbound_mode === 'none' ? row.outbound_status : row.inbound_status,
       managed_by: row.managed_by,
       connection_id: row.connection_id,
-      effect: 'Reconciles the shared zone ingress and this exact mail-domain assignment.',
+      effect:
+        row.inbound_mode === 'none'
+          ? 'Re-attempts Cloudflare Email Sending onboarding for this outbound-only domain; its MX records and inbound mail are not touched.'
+          : 'Reconciles the shared zone ingress and this exact mail-domain assignment.',
     });
   }
   return operatorResult(
@@ -819,6 +836,9 @@ export async function rotateOperatorEmailIngressSecret(
   const { domain, row, project } = await requireDomainRow(context.get('db'), rawDomain);
   const action = 'email.domain.rotate-secret',
     target = { domain, projectId: project.id, slug: project.slug, connectionId: row.connection_id };
+  if (row.inbound_mode === 'none') {
+    throw new OperatorError(409, 'Outbound-only email domains have no ingress secret to rotate.');
+  }
   if (dryRunRequested) {
     return preview(action, target, {
       effect:
@@ -830,6 +850,13 @@ export async function rotateOperatorEmailIngressSecret(
     action,
     target,
   );
+}
+
+function outboundOnlyField(body: Record<string, unknown>): boolean {
+  if (body.outboundOnly !== undefined && typeof body.outboundOnly !== 'boolean') {
+    throw new OperatorError(400, 'outboundOnly must be a boolean.', 'invalid_argument');
+  }
+  return body.outboundOnly === true;
 }
 
 emailOperatorRoutes.get('/email/domains', async (context) =>
@@ -844,6 +871,7 @@ emailOperatorRoutes.post('/email/domains', async (context) => {
         domain: stringField(body, 'domain', { maxLength: MAX_DOMAIN_LENGTH }),
         project: stringField(body, 'project'),
         apiToken: stringField(body, 'apiToken', { optional: true, maxLength: 2048 }) || undefined,
+        outboundOnly: outboundOnlyField(body),
       },
       dryRun(body),
     ),

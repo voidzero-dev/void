@@ -5,7 +5,8 @@ import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vite-plus/test';
 import type { GenArgs } from '../../src/cli/gen-args.ts';
-import { runGenCommand, formatTimestamp } from '../../src/cli/gen.ts';
+import { runGenCommand, formatTimestamp, detectValidator } from '../../src/cli/gen.ts';
+import { createPagesStarterTemplate } from '../../src/cli/template.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 import { assertJournalCoherence } from '../../src/migrations/validate.ts';
 
@@ -184,6 +185,40 @@ afterEach(() => {
 });
 
 describe('gen model', () => {
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'detects the %s starter validator and generates matching routes without prompting',
+    async (starterMode) => {
+      const template = createPagesStarterTemplate({
+        framework: 'react',
+        starterMode,
+        voidPackageSpec: '*',
+        adapterPackageSpec: '*',
+      });
+      writePkg(template.dependencies);
+      expect(template.files['pages/index.server.ts']).toContain('void/drizzle-zod');
+      expect(detectValidator(TMP)).toBe('zod');
+
+      await runGenCommand(TMP, {
+        subcommand: 'model',
+        name: 'todos',
+        columns: [{ name: 'title', type: 'string', nullable: false }],
+      });
+
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(read('routes/api/todos/index.ts')).toContain('import { z } from "zod";');
+    },
+  );
+
+  it('keeps the static starter free of an unused validator dependency', () => {
+    const template = createPagesStarterTemplate({
+      framework: 'react',
+      starterMode: 'static',
+      voidPackageSpec: '*',
+      adapterPackageSpec: '*',
+    });
+    expect(template.dependencies).not.toHaveProperty('zod');
+  });
+
   it('generates Drizzle table definition', async () => {
     writePkg({ valibot: '^1.0.0' });
     await runGenCommand(TMP, {

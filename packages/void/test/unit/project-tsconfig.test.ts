@@ -75,6 +75,23 @@ describe('ensureProjectTsconfig', () => {
     expect(statSync(tsconfigPath).mtimeMs).not.toBe(oldTime.getTime());
   });
 
+  it('lists auth.d.ts only when the generated file already exists', () => {
+    writeFileSync(
+      join(root, 'auth.ts'),
+      'import { defineAuth } from "void/auth";\nexport default defineAuth({});\n',
+    );
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().files).not.toContain('auth.d.ts');
+
+    writeFileSync(join(root, '.void', 'auth.d.ts'), 'export {};\n');
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().files).toContain('auth.d.ts');
+
+    rmSync(join(root, '.void', 'auth.d.ts'));
+    ensureProjectTsconfig(root);
+    expect(readTsconfig().files).not.toContain('auth.d.ts');
+  });
+
   it('combines routes, queues, and md when all present', () => {
     mkdirSync(join(root, 'routes'), { recursive: true });
     mkdirSync(join(root, 'queues'), { recursive: true });

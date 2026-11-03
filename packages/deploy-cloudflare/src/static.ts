@@ -24,12 +24,14 @@ export type CloudflareStaticDeployConfig = Readonly<{
 /** Generate the deterministic thin Worker entry bundled by Wrangler. */
 export function renderCloudflareStaticEntry(options: {
   runtimeImport?: string;
+  alwaysUseHttps?: boolean;
   headerRules?: ReadonlyArray<HeaderRule>;
   redirectRules?: ReadonlyArray<RedirectRule>;
   fallbackRules?: ReadonlyArray<RedirectRule>;
   versionMetadataBinding?: string;
 }): string {
   const config = JSON.stringify({
+    ...(options.alwaysUseHttps !== undefined ? { alwaysUseHttps: options.alwaysUseHttps } : {}),
     ...(options.headerRules?.length ? { headerRules: options.headerRules } : {}),
     ...(options.redirectRules?.length ? { redirectRules: options.redirectRules } : {}),
     ...(options.fallbackRules?.length ? { fallbackRules: options.fallbackRules } : {}),
@@ -50,10 +52,12 @@ export function renderCloudflareStaticEntry(options: {
  * Void has already compiled the root `_headers` and `_redirects` files into the thin edge
  * Worker. Wrangler parses those files independently of `.assetsignore`, so uploading the source
  * directory would apply every rule twice and can reject valid Void fallbacks as redirect loops.
+ * `headers` becomes the staged `_headers` for rules Cloudflare applies to asset responses itself.
  */
 export function stageCloudflareStaticAssets(options: {
   sourceDirectory: string;
   destinationDirectory: string;
+  headers?: string;
 }): void {
   const sourceDirectory = resolve(options.sourceDirectory);
   const destinationDirectory = resolve(options.destinationDirectory);
@@ -83,6 +87,9 @@ export function stageCloudflareStaticAssets(options: {
       return !reserved.has(absolute) && !isInsideDestination(absolute);
     },
   });
+  if (options.headers !== undefined) {
+    writeFileSync(join(destinationDirectory, '_headers'), options.headers);
+  }
 }
 
 /**
@@ -109,7 +116,7 @@ export function writeCloudflareStaticDeployConfig(options: CloudflareStaticDeplo
   upsert(['no_bundle'], false);
   upsert(['assets', 'directory'], options.assetsDirectory);
   upsert(['assets', 'binding'], 'ASSETS');
-  upsert(['assets', 'run_worker_first'], true);
+  upsert(['assets', 'run_worker_first'], options.assetConfig.run_worker_first ?? true);
   upsert(['assets', 'not_found_handling'], options.assetConfig.not_found_handling ?? 'none');
   upsert(['assets', 'html_handling'], options.assetConfig.html_handling ?? 'auto-trailing-slash');
   // The generated static entry only exports a fetch handler. Keep Durable Object migration

@@ -18,6 +18,7 @@ import {
   legacyIsrCachePrefix,
   legacyIsrCacheVariantPrefix,
 } from './isr-legacy-keys.ts';
+import { createIsrStore } from './isr-store.ts';
 import { purgeZoneCache } from './provisioning/cloudflare-api.ts';
 
 type RevalidateProject = Readonly<{
@@ -44,7 +45,7 @@ type RevalidateRequestBody = Readonly<{
  * entries have aged out.
  *
  * Two-layer purge:
- *   1. KV (R2):
+ *   1. R2 body storage plus legacy KV cleanup:
  *      `{all}` — per deployment id in the union, scans TWO disjoint prefixes:
  *        - `<projectId>/isr/v3/<deploymentId>/` (host-scoped): the first tail
  *          segment IS the host, guaranteed by the version.
@@ -66,7 +67,7 @@ type RevalidateRequestBody = Readonly<{
  *
  * The `{paths}` branch issues exactly one `purgeZoneCache` call per invocation
  * (it batches internally at 100 URLs per CF API request); the `{all}` branch
- * flushes per KV list page to bound peak memory (one page ~1000 keys).
+ * flushes per storage list page to bound peak memory (one page ~1000 keys).
  */
 export async function runRevalidate(
   context: Context<ApiEnv>,
@@ -76,6 +77,7 @@ export async function runRevalidate(
   db: Db = context.get('db'),
 ): Promise<Response> {
   const application = readPlatformApplication(context.env);
+  const cache = createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE);
 
   const customDomains = await getDomainsByProjectId(db, projectId);
   // Include `pending` domains, not only `active`. Activation writes the
@@ -109,7 +111,7 @@ export async function runRevalidate(
     // Edge purge fans out to `|keys| × 2` URL strings. For high-cardinality
     // projects (tens of thousands of paths, dozens of variants each, multiple
     // hostnames/ids) that array can pin hundreds of MB and OOM the Worker.
-    // Flush per KV list page instead so peak memory is bounded by a single
+    // Flush per storage list page instead so peak memory is bounded by a single
     // page (~1000 keys). CF tolerates duplicate purge URLs across calls, so
     // cross-page dedup loss is fine.
     const pathnameSet = new Set<string>();
@@ -127,7 +129,7 @@ export async function runRevalidate(
       let cursor: string | undefined;
 
       do {
-        const listed = await context.env.ISR_CACHE.list({ prefix, cursor });
+        const listed = await cache.list({ prefix, cursor });
         if (listed.keys.length > 0) {
           const pageDirect = new Map<string, PurgeEdgeTarget>();
           const pageVariants: Array<PurgeEdgeTarget> = [];
@@ -136,7 +138,7 @@ export async function runRevalidate(
             const slashIndex = tail.indexOf('/');
             if (slashIndex === -1) {
               // Malformed v3 key (no `<host>/` segment). Can't derive an edge
-              // URL without guessing a host, so skip the edge purge — the KV
+              // URL without guessing a host, so skip the edge purge — the storage
               // delete below still wipes it (an `all` purge clears the whole
               // deployment namespace).
               continue;
@@ -158,9 +160,7 @@ export async function runRevalidate(
               });
             }
           }
-          await uploadPool(listed.keys, R2_CONCURRENCY, (key) =>
-            context.env.ISR_CACHE.delete(key.name),
-          );
+          await uploadPool(listed.keys, R2_CONCURRENCY, (key) => cache.delete(key.name));
           await purgeEdgeCache(context, [...pageDirect.values(), ...pageVariants]);
         }
         cursor = listed.list_complete ? undefined : listed.cursor;
@@ -176,7 +176,7 @@ export async function runRevalidate(
       let legacyCursor: string | undefined;
 
       do {
-        const listed = await context.env.ISR_CACHE.list({
+        const listed = await cache.list({
           prefix: legacyPrefix,
           cursor: legacyCursor,
         });
@@ -202,9 +202,7 @@ export async function runRevalidate(
               }
             }
           }
-          await uploadPool(listed.keys, R2_CONCURRENCY, (key) =>
-            context.env.ISR_CACHE.delete(key.name),
-          );
+          await uploadPool(listed.keys, R2_CONCURRENCY, (key) => cache.delete(key.name));
           await purgeEdgeCache(context, [...pageDirect.values(), ...pageVariants]);
         }
         legacyCursor = listed.list_complete ? undefined : listed.cursor;
@@ -212,7 +210,7 @@ export async function runRevalidate(
     }
 
     // `purged` = unique pathnames purged (mirrors what the caller asked for,
-    // not the raw count of KV keys deleted across all deployment namespaces).
+    // not the raw count of stored keys deleted across all deployment namespaces).
     return context.json({ purged: pathnameSet.size });
   }
 
@@ -231,13 +229,13 @@ export async function runRevalidate(
   for (const [hostname, ids] of perHostname) {
     for (const deploymentId of ids) {
       for (const path of body.paths) {
-        await context.env.ISR_CACHE.delete(isrCacheKey(projectId, deploymentId, hostname, path));
+        await cache.delete(isrCacheKey(projectId, deploymentId, hostname, path));
         edgeTargets.push({ host: hostname, pathname: path, deploymentId, variantToken: null });
 
         const variantPrefix = isrCacheVariantPrefix(projectId, deploymentId, hostname, path);
         let cursor: string | undefined;
         do {
-          const listed = await context.env.ISR_CACHE.list({ prefix: variantPrefix, cursor });
+          const listed = await cache.list({ prefix: variantPrefix, cursor });
           if (listed.keys.length > 0) {
             for (const key of listed.keys) {
               // `variantPrefix` ends with the `#rw=` separator, so the
@@ -245,9 +243,7 @@ export async function runRevalidate(
               const variantToken = key.name.slice(variantPrefix.length);
               edgeTargets.push({ host: hostname, pathname: path, deploymentId, variantToken });
             }
-            await uploadPool(listed.keys, R2_CONCURRENCY, (key) =>
-              context.env.ISR_CACHE.delete(key.name),
-            );
+            await uploadPool(listed.keys, R2_CONCURRENCY, (key) => cache.delete(key.name));
           }
           cursor = listed.list_complete ? undefined : listed.cursor;
         } while (cursor);
@@ -279,12 +275,12 @@ export async function runRevalidate(
   for (const deploymentId of union) {
     const hostsForId = hostsResolvingTo(perHostname, deploymentId);
     for (const path of body.paths) {
-      await context.env.ISR_CACHE.delete(legacyIsrCacheKey(projectId, deploymentId, path));
+      await cache.delete(legacyIsrCacheKey(projectId, deploymentId, path));
 
       const legacyVariantPrefix = legacyIsrCacheVariantPrefix(projectId, deploymentId, path);
       let cursor: string | undefined;
       do {
-        const listed = await context.env.ISR_CACHE.list({ prefix: legacyVariantPrefix, cursor });
+        const listed = await cache.list({ prefix: legacyVariantPrefix, cursor });
         if (listed.keys.length > 0) {
           for (const key of listed.keys) {
             // `legacyVariantPrefix` ends with the `#rw=` separator, so the
@@ -294,9 +290,7 @@ export async function runRevalidate(
               edgeTargets.push({ host, pathname: path, deploymentId, variantToken });
             }
           }
-          await uploadPool(listed.keys, R2_CONCURRENCY, (key) =>
-            context.env.ISR_CACHE.delete(key.name),
-          );
+          await uploadPool(listed.keys, R2_CONCURRENCY, (key) => cache.delete(key.name));
         }
         cursor = listed.list_complete ? undefined : listed.cursor;
       } while (cursor);
@@ -304,7 +298,7 @@ export async function runRevalidate(
   }
 
   await purgeEdgeCache(context, edgeTargets);
-  // `purged` = unique path entries the caller asked for. The per-host KV
+  // `purged` = unique path entries the caller asked for. The per-host storage
   // deletes above are an implementation detail of the drift-handling hedge.
   return context.json({ purged: body.paths.length });
 }
@@ -323,14 +317,14 @@ function hostsResolvingTo(
 }
 
 type PurgeEdgeTarget = Readonly<{
-  /** Hostname the KV key / edge entry is scoped to. */
+  /** Hostname the stored key / edge entry is scoped to. */
   host: string;
   /** Public pathname (denormalized, e.g. `/about`). */
   pathname: string;
   /** Deployment id namespace the key lives under (edge `__void_isr` value). */
   deploymentId: string;
   /**
-   * Pre-hashed variant token from the KV key, or null for a direct-hit key.
+   * Pre-hashed variant token from the stored key, or null for a direct-hit key.
    * The original URL is not recoverable post-hash; we only need the token to
    * rebuild the matching `__void_orig=<token>` edge cache URL via
    * `isrEdgeCacheUrlForToken`.

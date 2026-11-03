@@ -6,9 +6,9 @@ outline: deep
 
 Use Void with [Astro](https://astro.build/) for resource detection, typed database queries, and migrations. Astro keeps its own build and Cloudflare integration; Void plugs into its Vite configuration.
 
-::: warning Astro 6 required
+::: warning Astro 7 required
 
-- [Astro 6+](https://astro.build/blog/astro-6/) is required to use `import { x } from "void/x"` helpers in Astro apps.
+- [Astro 7+](https://astro.build/blog/astro-7/) is required because Void needs Vite 8.
 - You also need to enable `"nodejs_als"` under `compatibility_flags` in your Cloudflare config.
 :::
 
@@ -67,16 +67,15 @@ void deploy
 
 ## Using Void Features
 
-Most [Void platform features](../../guide/app-types.md#void-apps) work with Astro in both local dev and production when using Astro 6+ with `nodejs_als`.
+Most [Void platform features](../../guide/app-types.md#void-apps) work with Astro in both local dev and production when using Astro 7+ with `nodejs_als`.
 
 Void-managed auth is not supported in framework mode yet. Use Better Auth's official Astro integration directly for now.
 
-Pages that access runtime bindings must opt out of prerendering:
+Pages and API routes that access runtime bindings must opt out of prerendering:
 
 ```astro
 ---
 export const prerender = false;
-// now Astro.locals.runtime is available
 ---
 ```
 
@@ -88,6 +87,8 @@ Use `void/db` in API routes and server-side code:
 import { users } from '@schema';
 import type { APIRoute } from 'astro';
 import { db } from 'void/db';
+
+export const prerender = false;
 
 export const GET: APIRoute = async () => {
   const rows = await db.select().from(users);
@@ -105,18 +106,20 @@ Declare variables in `env.ts` and read them with `import { env } from "void/env"
 
 Void always uses `VITE_*` for client-exposed schema keys, including in Astro projects. Astro's separate `PUBLIC_*` convention still applies to direct `import.meta.env` access, but it does not change the `void/env` server/client boundary.
 
-`void/env` replaces [`astro:env`](https://docs.astro.build/en/guides/environment-variables/) and `Astro.locals.runtime.env` for env-var access. Keep `Astro.locals.runtime.env` around when you need raw binding access (D1, KV, R2, etc.).
+`void/env` replaces [`astro:env`](https://docs.astro.build/en/guides/environment-variables/) for env-var access. Use `env` from `cloudflare:workers` when you need raw binding access (D1, KV, R2, etc.).
 
 ## Accessing Bindings Directly
 
-Access bindings via `Astro.locals.runtime.env` (works in both dev and production):
+Access bindings with `env` from `cloudflare:workers` (works in both dev and production):
 
 ```ts
 import type { APIRoute } from 'astro';
+import { env } from 'cloudflare:workers';
 
-export const GET: APIRoute = async ({ locals }) => {
-  const { DB } = locals.runtime.env;
-  const { results } = await DB.prepare('SELECT * FROM users').all();
+export const prerender = false;
+
+export const GET: APIRoute = async () => {
+  const { results } = await env.DB.prepare('SELECT * FROM users').all();
   return Response.json(results);
 };
 ```
@@ -125,8 +128,10 @@ In `.astro` pages (remember to set `prerender = false`):
 
 ```astro
 ---
+import { env } from 'cloudflare:workers';
+
 export const prerender = false;
-const { DB } = Astro.locals.runtime.env;
-const { results } = await DB.prepare("SELECT * FROM users").all();
+
+const { results } = await env.DB.prepare("SELECT * FROM users").all();
 ---
 ```

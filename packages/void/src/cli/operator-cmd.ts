@@ -11,7 +11,8 @@ import {
   saveOperatorToken,
 } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
-import { printSuccess, sanitizeTerminalText } from './output.ts';
+import { dim, printSuccess, sanitizeTerminalText } from './output.ts';
+import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
 
 const MAX_RUNTIME_FOLLOW_ROWS = 10_000;
 export const BUILD_LOG_DRAIN_TIMEOUT_MS: number = 2 * 60_000;
@@ -165,10 +166,20 @@ function outputMutation(result: Record<string, unknown>, args: OperatorArgs): vo
   printSuccess(`Platform ${args.group} ${args.action} completed.`);
 }
 
-function outputLogs(result: Record<string, unknown>, json: boolean): void {
+function outputLogs(
+  result: Record<string, unknown>,
+  json: boolean,
+  state: { runtimeLogsNoted?: boolean } = {},
+): void {
   if (json) {
     output(result, true);
     return;
+  }
+  const minimal = result.runtimeLogs === 'minimal';
+  if (minimal && !state.runtimeLogsNoted) {
+    // Follow polls print it once.
+    state.runtimeLogsNoted = true;
+    console.log(dim(MINIMAL_RUNTIME_LOGS_NOTE));
   }
   if (Array.isArray(result.lines)) {
     for (const entry of result.lines) {
@@ -194,16 +205,24 @@ function outputLogs(result: Record<string, unknown>, json: boolean): void {
         continue;
       }
       const row = entry as Record<string, unknown>;
-      console.log(
-        `${printable(row.timestamp ?? row.ts)} ${printable(row.method)} ${printable(row.url)} ${printable(row.status ?? row.statusCode ?? row.outcome)}`,
-      );
+      const parts = [
+        printable(row.timestamp ?? row.ts),
+        printable(row.method),
+        printable(row.url),
+        printable(row.status ?? row.statusCode ?? row.outcome),
+      ];
+      // Minimal runtime logs record no URL or messages; their lines skip them.
+      console.log((minimal ? parts.filter((part) => part !== '') : parts).join(' '));
       if (Array.isArray(row.logs)) {
         for (const log of row.logs) {
           if (log && typeof log === 'object') {
             const record = log as Record<string, unknown>;
-            console.log(
-              `  ${record.level ? `[${printable(record.level)}] ` : ''}${printable(record.message ?? log)}`,
-            );
+            const level = record.level ? `[${printable(record.level)}] ` : '';
+            if (minimal && Array.isArray(record.message) && record.message.length === 0) {
+              console.log(`  ${level.trimEnd()}`);
+            } else {
+              console.log(`  ${level}${printable(record.message ?? log)}`);
+            }
           } else {
             console.log(`  ${printable(log)}`);
           }
@@ -213,8 +232,12 @@ function outputLogs(result: Record<string, unknown>, json: boolean): void {
         for (const exception of row.exceptions) {
           if (exception && typeof exception === 'object') {
             const record = exception as Record<string, unknown>;
-            const name = record.name ? `${printable(record.name)}: ` : '';
-            console.log(`  ${name}${printable(record.message ?? exception)}`);
+            if (minimal && record.message === '' && record.name) {
+              console.log(`  ${printable(record.name)}`);
+            } else {
+              const name = record.name ? `${printable(record.name)}: ` : '';
+              console.log(`  ${name}${printable(record.message ?? exception)}`);
+            }
           } else {
             console.log(`  ${printable(exception)}`);
           }
@@ -424,6 +447,7 @@ export async function followOperatorLogs(
   let previousRuntimeRows = new Map<string, number>();
   let currentRuntimeRows = new Map<string, number>();
   let currentRuntimeRowCount = 0;
+  const outputState = {};
   try {
     while (!combined.aborted) {
       const result = await client.request(args.path, { query, signal: combined });
@@ -450,7 +474,7 @@ export async function followOperatorLogs(
         });
         visibleResult = { ...result, data };
       }
-      outputLogs(visibleResult, args.json);
+      outputLogs(visibleResult, args.json, outputState);
       if (args.group === 'build') {
         if (
           typeof result.lastSeq !== 'number' ||
@@ -688,6 +712,18 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         );
       }
       recoveryFence = { recoveryFence: target.recoveryFence };
+    }
+    // An older platform ignores outboundOnly and would take over the domain's MX.
+    if (
+      args.group === 'email' &&
+      args.action === 'domain-add' &&
+      args.body.outboundOnly === true &&
+      (preview.target as Record<string, unknown> | null)?.inboundMode !== 'none'
+    ) {
+      throw new OperatorClientError(
+        'This platform does not support outbound-only email domains. Upgrade it first. No change was requested.',
+        'unsupported',
+      );
     }
     if (!(await confirmOperatorMutation(origin, preview, args))) {
       return;

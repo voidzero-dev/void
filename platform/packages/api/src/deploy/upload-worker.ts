@@ -35,9 +35,18 @@ import { RESERVED_BINDING_NAMES } from '../reserved-bindings.ts';
 import { deployments } from '../schema.ts';
 import { type DeployManifest, type DeployEvent, type Deployment, type Project } from '../types.ts';
 import {
+  WORKER_UPLOAD_BUDGET_MS,
+  WORKER_UPLOAD_IDLE_MS,
+  WORKER_UPLOAD_MIN_ATTEMPT_MS,
+  WORKER_UPLOAD_RESPONSE_MS,
   WorkerModuleIntegrityError,
+  uploadWatchdog,
   withKnownLength,
   workerUploadBody,
+  workerUploadDeadline,
+  type TrackedStream,
+  type UploadTimeout,
+  type UploadWatchdog,
   type WorkerModule,
 } from '../worker-upload.ts';
 import {
@@ -54,11 +63,56 @@ import {
   DEFAULT_TAIL_SERVICE_NAME,
   CF_RETRY,
   DEFAULT_WORKER_MAIN_MODULE,
+  projectObservability,
 } from './shared.ts';
 import { platformAppUploadUserAgent } from './user-agent.ts';
 
-// Cloudflare sets no subrequest time limit; a timed-out attempt is retried like a network error.
-const WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS = 120_000;
+const UNEXPECTED_UPLOAD_RESPONSE = 'worker upload returned an unexpected Cloudflare response';
+
+function uploadTimeoutMessage(
+  kind: UploadTimeout | undefined,
+  watchdog: UploadWatchdog,
+  runLimited: boolean,
+): string {
+  switch (kind) {
+    case 'idle':
+      return watchdog.stalledOn() === 'storage'
+        ? `The Worker upload stalled: no module bytes were read from storage for ${WORKER_UPLOAD_IDLE_MS / 1000} seconds. Deploy again.`
+        : `The Worker upload stalled: Cloudflare accepted no bytes for ${WORKER_UPLOAD_IDLE_MS / 1000} seconds. Deploy again.`;
+    case 'response':
+      return `Cloudflare did not answer the Worker upload within ${WORKER_UPLOAD_RESPONSE_MS / 1000} seconds after receiving it. Deploy again.`;
+    case 'deadline':
+      return runLimited
+        ? 'The deployment reached its time limit during the Worker upload. Deploy again.'
+        : `The Worker upload did not finish within ${WORKER_UPLOAD_BUDGET_MS / 60_000} minutes. Deploy again.`;
+    default:
+      return 'The Worker upload timed out. Deploy again.';
+  }
+}
+
+/** Where an upload attempt got to, for its log records. Counts and times only. */
+function uploadFields(
+  upload: TrackedStream & Readonly<{ length: number }>,
+  watchdog: UploadWatchdog,
+  attemptStart: number,
+  budgetEndsAt: number,
+): Record<string, unknown> {
+  const progress = upload.progress();
+  const timeout = watchdog.fired() ?? null;
+  return {
+    timeout,
+    // Not `phase`: the logger keeps that key for the deploy step.
+    uploadPhase: progress.done ? 'response' : 'sending',
+    ...(timeout === 'idle' ? { stalledOn: watchdog.stalledOn() } : {}),
+    bytesSent: progress.bytes,
+    bodyBytes: upload.length,
+    modulesStarted: progress.sourcesStarted,
+    modules: progress.sourcesTotal,
+    sourceWaitMs: progress.sourceWaitMs,
+    sendMs: progress.doneAt === undefined ? null : progress.doneAt - attemptStart,
+    budgetRemainingMs: budgetEndsAt - Date.now(),
+  };
+}
 
 /** The Cloudflare error code of a rejected replay of a saved upload, if the body has one. */
 function savedUploadReplayCode(body: string): number | undefined {
@@ -126,6 +180,8 @@ export async function uploadDeploymentWorker(input: {
   readonly owner: ApiEnv['Variables']['user'];
   workerUploadUrl: string | undefined;
   workerUploaded: boolean;
+  /** When the uploads of a queued deployment run must end (epoch ms); undefined outside one. */
+  readonly deadline: number | undefined;
 }) {
   const {
     markPhase,
@@ -432,10 +488,7 @@ export async function uploadDeploymentWorker(input: {
     bindings: allBindings,
     ...(durableObjectMigrations ? { migrations: durableObjectMigrations } : {}),
     ...(completionJwt ? { assets: buildAssetMetadata(completionJwt, assetConfig) } : {}),
-    observability: {
-      enabled: true,
-      logs: { invocation_logs: true, head_sampling_rate: 1 },
-    },
+    observability: projectObservability(context.env),
     tail_consumers: [{ service: tailServiceName }],
   };
   if (manifest.durableObjects?.bindings.length) {
@@ -490,12 +543,28 @@ export async function uploadDeploymentWorker(input: {
     }
     return saved;
   };
+  // Cloudflare sets no subrequest time limit. An attempt is cut when it stops
+  // moving (WORKER_UPLOAD_IDLE_MS, WORKER_UPLOAD_RESPONSE_MS) and retried like
+  // a network error; all attempts together share WORKER_UPLOAD_BUDGET_MS, cut
+  // short by the end of a queued deployment run. Another attempt starts only
+  // when at least WORKER_UPLOAD_MIN_ATTEMPT_MS is left after its backoff.
+  const budgetEndsAt = workerUploadDeadline(input.deadline);
+  const runLimited = budgetEndsAt === input.deadline;
   await retryWithBackoff(
     async (attempt) => {
       const attemptStart = Date.now();
-      const lastAttempt = attempt === CF_RETRY.maxRetries;
       // A streamed body is sent once, so each attempt reopens the modules.
       const upload = workerUploadBody(metadata, workerFiles);
+      const watchdog = uploadWatchdog(upload.progress, {
+        idleMs: WORKER_UPLOAD_IDLE_MS,
+        responseMs: WORKER_UPLOAD_RESPONSE_MS,
+        deadline: budgetEndsAt,
+      });
+      // No retry once the attempts so far leave too little budget for another.
+      const isFinal = () =>
+        attempt === CF_RETRY.maxRetries ||
+        watchdog.fired() === 'deadline' ||
+        budgetEndsAt - Date.now() < WORKER_UPLOAD_MIN_ATTEMPT_MS + CF_RETRY.delayMs * 2 ** attempt;
       let cfResponse: Response | undefined;
       let cfBody: string;
       // The request and its response body are retried together: a connection
@@ -505,7 +574,7 @@ export async function uploadDeploymentWorker(input: {
           method: 'PUT',
           headers: { ...cfHeaders, 'Content-Type': upload.contentType },
           body: withKnownLength(upload.stream, upload.length),
-          signal: AbortSignal.timeout(WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS),
+          signal: watchdog.signal,
         });
         cfBody = await cfResponse.text();
       } catch (error) {
@@ -516,7 +585,9 @@ export async function uploadDeploymentWorker(input: {
         if (failure instanceof WorkerModuleIntegrityError) {
           throw failure;
         }
-        const timedOut = (error as { name?: unknown } | null)?.name === 'TimeoutError';
+        const timeout = watchdog.fired();
+        const timedOut =
+          timeout !== undefined || (error as { name?: unknown } | null)?.name === 'TimeoutError';
         const cause = failure ?? error;
         const fields = {
           attempt,
@@ -525,6 +596,7 @@ export async function uploadDeploymentWorker(input: {
           code: timedOut ? 'timeout' : 'transport',
           status: cfResponse?.status,
           err: cause instanceof Error ? cause.message : String(cause),
+          ...uploadFields(upload, watchdog, attemptStart, budgetEndsAt),
         };
         // A 4xx stays final even when its body drops, unless it replays an
         // upload that was saved. Any other failure is retried.
@@ -534,25 +606,26 @@ export async function uploadDeploymentWorker(input: {
           }
           throw new Error(`worker upload failed (HTTP ${cfResponse.status})`, { cause: error });
         }
-        if (lastAttempt) {
+        if (isFinal()) {
           // This attempt or an earlier one may have been saved.
           if (await savedDespiteFailure(fields)) {
             return true;
           }
-          // The timer also covers the module reads that feed the body.
+          // The watchdog also covers the module reads that feed the body.
           throw (
             failure ??
             (timedOut
-              ? new Error(
-                  `The Worker upload did not finish within ${WORKER_UPLOAD_ATTEMPT_TIMEOUT_MS / 1000} seconds. Deploy again.`,
-                  { cause: error },
-                )
+              ? new Error(uploadTimeoutMessage(timeout, watchdog, runLimited), { cause: error })
               : error)
           );
         }
         maybeSaved = true;
         logger.warn('worker_upload', 'attempt_failed', fields);
         return undefined;
+      } finally {
+        // Frees the storage reads of a failed attempt before the backoff.
+        watchdog.dispose();
+        upload.release();
       }
 
       if (!cfResponse.ok) {
@@ -562,10 +635,11 @@ export async function uploadDeploymentWorker(input: {
           latencyMs: Date.now() - attemptStart,
           status: cfResponse.status,
           bodyPreview: cfBody.slice(0, 500),
+          ...uploadFields(upload, watchdog, attemptStart, budgetEndsAt),
         };
         // Only 5xx is retried. A 429 stays final: the install shares one API
         // token, and Cloudflare blocks it for minutes once it hits the limit.
-        if (cfResponse.status >= 500 && !lastAttempt) {
+        if (cfResponse.status >= 500 && !isFinal()) {
           maybeSaved = true;
           logger.warn('worker_upload', 'attempt_failed', fields);
           return undefined;
@@ -593,14 +667,28 @@ export async function uploadDeploymentWorker(input: {
           latencyMs: Date.now() - attemptStart,
           code: 'cf_plain_text',
           bodyPreview: cfBody.slice(0, 100),
+          ...uploadFields(upload, watchdog, attemptStart, budgetEndsAt),
         });
+        if (isFinal()) {
+          throw new Error(UNEXPECTED_UPLOAD_RESPONSE);
+        }
         return undefined;
       }
+      const progress = upload.progress();
+      logger.info('worker_upload', 'attempt_done', {
+        attempt,
+        latencyMs: Date.now() - attemptStart,
+        bodyBytes: upload.length,
+        modules: progress.sourcesTotal,
+        sendMs: progress.doneAt === undefined ? null : progress.doneAt - attemptStart,
+        sourceWaitMs: progress.sourceWaitMs,
+        responseMs: progress.doneAt === undefined ? null : Date.now() - progress.doneAt,
+      });
       return true;
     },
     {
       ...CF_RETRY,
-      errorMessage: 'worker upload returned an unexpected Cloudflare response',
+      errorMessage: UNEXPECTED_UPLOAD_RESPONSE,
     },
   );
   input.workerUploaded = true;

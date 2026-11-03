@@ -11,6 +11,7 @@ export type StubFailTag =
   | 'mxLookup'
   | 'routingDns'
   | 'onboardSending'
+  | 'sendingPreview'
   | 'sendingSubdomainsGet'
   | 'scriptGet'
   | 'scriptPut'
@@ -66,6 +67,8 @@ export function stubCustomerCf(
     }>;
     /** GET sending/subdomains entries; default []. */
     sendingSubdomains?: ReadonlyArray<{ name: string; enabled: boolean }>;
+    /** POST sending/subdomains/preview `errors`; default []. */
+    sendingPreviewErrors?: ReadonlyArray<{ code: string; existing?: { name: string } }>;
     failOn?: Partial<Record<StubFailTag, { message: string; status: number; code?: number }>>;
     /** Tags whose configured failure is returned before the provider-side mutation occurs. */
     failBeforeEffect?: ReadonlyArray<StubFailTag>;
@@ -287,6 +290,12 @@ export function stubCustomerCf(
         publishedMx.set(name, ['route1.mx.cloudflare.net']);
       }
       return cfSuccess({});
+    }
+
+    if (path.endsWith('/email/sending/subdomains/preview') && method === 'POST') {
+      const body = typeof init?.body === 'string' ? JSON.parse(init.body) : undefined;
+      await record({ tag: 'sendingPreview', method, url, body });
+      return fail('sendingPreview') ?? cfSuccess({ errors: config.sendingPreviewErrors ?? [] });
     }
 
     if (path.includes('/email/sending/subdomains') && method === 'POST') {

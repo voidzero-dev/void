@@ -207,6 +207,60 @@ describe('recordPlatformLog', () => {
   });
 });
 
+describe('recordPlatformLog with minimal runtime logs', () => {
+  function writeMinimal(): DataPoint {
+    const writes: Array<unknown> = [];
+    const env = {
+      LOGS: { writeDataPoint: (d: unknown) => writes.push(d) },
+      PLATFORM_RUNTIME_LOGS: 'minimal',
+    } as unknown as Env;
+    recordPlatformLog(env, {
+      workerName: 'user-my-app-dpl_abc123',
+      method: 'GET',
+      url: 'https://my-app.void.app/private/path?token=secret',
+      status: 503,
+      timeoutMs: 10000,
+    });
+    expect(writes).toHaveLength(1);
+    return writes[0] as DataPoint;
+  }
+
+  it('keeps the request path and query out of every blob', () => {
+    const dp = writeMinimal();
+    expect(dp.blobs[3]).toBe('');
+    for (const blob of dp.blobs) {
+      expect(blob).not.toContain('/private');
+      expect(blob).not.toContain('token');
+      expect(blob).not.toContain('my-app.void.app');
+    }
+  });
+
+  it('still explains the timeout with the method, budget and status', () => {
+    const dp = writeMinimal();
+    const logs = JSON.parse(dp.blobs[1]) as Array<{ level: string; message: Array<string> }>;
+    expect(logs).toHaveLength(1);
+    expect(logs[0].level).toBe('error');
+    const text = logs[0].message.join(' ');
+    expect(text).toContain('10000');
+    expect(text).toContain('GET was cut short');
+    expect(text).toContain('503');
+  });
+
+  it('keeps the row shape and the --level error match', () => {
+    const dp = writeMinimal();
+    const [outcome, logData, exceptionData, , method, statusCode, deployId] = dp.blobs;
+    expect(dp.indexes).toEqual(['user-my-app']);
+    expect(dp.blobs).toHaveLength(7);
+    expect(outcome).toBe('canceled');
+    expect(JSON.parse(exceptionData)).toEqual([]);
+    expect(method).toBe('GET');
+    expect(statusCode).toBe('503');
+    expect(deployId).toBe('dpl_abc123');
+    expect(dp.doubles[1]).toBe(503);
+    expect(logData.includes('"level":"error"')).toBe(true);
+  });
+});
+
 // Analytics Engine caps the SUM of a data point's blobs at 16 KB (raised from
 // 5 KB in June 2025 — `void_logs` holds rows of 13,695 bytes today, which
 // proves the higher cap is live). There is NO per-blob limit. A data point over

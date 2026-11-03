@@ -102,13 +102,28 @@ describe('parseSecretArgs', () => {
 
   it('errors on missing sync file path', () => {
     expect(() => parseSecretArgs(['sync'])).toThrow(
-      'secret: Usage: void secret sync <file> [--project <name>].',
+      'secret: Usage: void secret sync <file> [--project <name>] [--yes].',
     );
   });
 
   it('errors on extra sync positional', () => {
     expect(() => parseSecretArgs(['sync', '.env', 'extra'])).toThrow(
-      'secret: Usage: void secret sync <file> [--project <name>].',
+      'secret: Usage: void secret sync <file> [--project <name>] [--yes].',
+    );
+  });
+
+  it('parses sync with --yes', () => {
+    expect(parseSecretArgs(['sync', '.env', '--yes'])).toEqual({
+      action: 'sync',
+      file: '.env',
+      projectName: undefined,
+      yes: true,
+    });
+  });
+
+  it('rejects --yes on other subcommands', () => {
+    expect(() => parseSecretArgs(['list', '--yes'])).toThrow(
+      'secret: `void secret list` does not support --yes.',
     );
   });
 });

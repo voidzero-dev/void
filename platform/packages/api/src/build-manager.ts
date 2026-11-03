@@ -651,7 +651,10 @@ interface TerminalRenderLine {
 
 const LINE_ENDING_TEXT: Record<TerminalLineEnding, string> = {
   cr: '\r',
-  lf: '\n',
+  // Build children write to pipes, which do not perform a terminal's LF → CRLF
+  // output processing. Start each captured newline at column zero when rendering;
+  // raw stored delimiters and bare-CR progress rewrites remain unchanged.
+  lf: '\r\n',
   crlf: '\r\n',
   none: '',
 };
@@ -798,7 +801,6 @@ function groupTerminalLogLines(lines: Array<TerminalLogInput>): Array<TerminalRe
     current.requiresTerminal ||=
       hasTerminalControl(line.raw) ||
       line.lineEnding === 'cr' ||
-      (line.lineEnding === 'lf' && index + 1 < normalized.length) ||
       (line.lineEnding === 'none' && index + 1 < normalized.length);
 
     state = advanceTerminalParserBoundary(state, line.raw);

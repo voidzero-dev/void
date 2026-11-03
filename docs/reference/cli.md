@@ -73,13 +73,14 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void email destinations`         | List verified recipient addresses                                             |
 | `void email allow <address>`      | Add a recipient and send a verification email                                 |
 | `void email disallow <address>`   | Remove a recipient from the allowlist                                         |
+| `void email alias [name]`         | Show the shared mail address, or give it a shorter permanent name             |
 | `void email domain`               | Send and receive at your own domain on a Cloudflare zone                      |
 | `void init`                       | Set up a new or existing project, including coding agents                     |
-| `void migrate`                    | Convert legacy `void.json` and root Wrangler JSON/JSONC into `void.config.ts` |
+| `void migrate`                    | Update project configuration                                                  |
 
 ## Binary Invocation {#binary-invocation}
 
-The docs use `void` for brevity. Outside package scripts, run it with your package manager: `npx void`, `pnpm void`, `yarn void`, or `bunx void`.
+The docs use `void` for brevity. Outside package scripts, run it with your package manager: `npx void`, `pnpm void`, `yarn void`, `bunx void`, or `vpx void`.
 
 Alternatively, you can add `./node_modules/.bin` to your `PATH` so that you can invoke `void` directly when you are in the root directory of your app.
 

@@ -123,6 +123,7 @@ export default defineConfig({
       'src/runtime/client-svelte.ts',
       'src/runtime/client-solid.ts',
       'src/runtime/fetch.ts',
+      'src/runtime/fetch-server.ts',
       'src/runtime/fetch-stream.ts',
       'src/runtime/route-url.ts',
       'src/runtime/sse.ts',
@@ -191,7 +192,21 @@ export default defineConfig({
     format: 'esm',
     dts: true,
     clean: true,
-    plugins: [injectWorkersTypesReferencePlugin(), staticImageImportTypesPlugin()],
+    plugins: [
+      {
+        name: 'void:raw-assets',
+        load: {
+          filter: { id: /\.(?:css|html|js)\?raw$/ },
+          handler(id) {
+            const file = id.slice(0, -'?raw'.length);
+            this.addWatchFile(file);
+            return `export default ${JSON.stringify(readFileSync(file, 'utf8'))};`;
+          },
+        },
+      },
+      injectWorkersTypesReferencePlugin(),
+      staticImageImportTypesPlugin(),
+    ],
     deps: {
       resolveDepSubpath: true,
       neverBundle: [

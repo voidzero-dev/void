@@ -18,6 +18,7 @@ import type { CloudflareUploadResult } from './operations.ts';
 import { isVoidSecretOnlyDraft, isWranglerSecretOnlyDraft } from './secret-draft.ts';
 
 const DURABLE_MIGRATION_VERSION_ERROR = 10211;
+const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
 
 export type CloudflareVersionMetadata =
   | Readonly<{
@@ -40,6 +41,10 @@ export type CloudflareTriggerConfig = Readonly<{
   preservePreviewUrls?: boolean;
   /** Fingerprint of explicit non-versioned settings while remote triggers stay opaque. */
   settingsHash?: string;
+  /** Explicit Worker-wide observability settings, published after version activation. */
+  observability?: Readonly<Record<string, unknown>>;
+  /** Explicit Worker-wide Logpush setting, published after version activation. */
+  logpush?: boolean;
   workers_dev: boolean;
   preview_urls: boolean;
   routes: ReadonlyArray<unknown>;
@@ -47,7 +52,7 @@ export type CloudflareTriggerConfig = Readonly<{
   queueConsumers: ReadonlyArray<unknown>;
   workflows: ReadonlyArray<unknown>;
   /**
-   * Email Routing addresses (`addresses` in Wrangler config). Wrangler 4.131 applies its
+   * Email Routing addresses (`addresses` in Wrangler config). The Cloudflare CLI applies its
    * Email Routing plan inside `triggers deploy` — `undefined` skips the plan entirely, while
    * `[]` is a destructive plan that deletes every rule this Worker owns — so the two must stay
    * distinct through the snapshot. Absent from annotations written before this field existed.
@@ -59,6 +64,14 @@ export type CloudflareTrafficConfig = Pick<
   CloudflareTriggerConfig,
   'workers_dev' | 'preview_urls' | 'routes'
 >;
+
+/**
+ * Result of an account workers.dev subdomain lookup. `uploader-changed` means the lookup refused
+ * to run a changed uploader with the session credentials.
+ */
+export type CloudflareWorkersDevSubdomainLookup =
+  | { ok: true; subdomain: string }
+  | { ok: false; reason: 'unavailable' | 'uploader-changed' };
 
 export type CloudflareVersionActivation =
   | {
@@ -105,10 +118,21 @@ export type CloudflareVersionActivation =
       versionId?: string;
       previousVersionId?: string | null;
       rollback?: 'not-needed' | 'succeeded' | 'failed' | 'unavailable' | 'unsafe';
+      /**
+       * Cloudflare refused to restore the previous version because a secret
+       * changed with this deploy, so Void forced it. The previous version runs
+       * with its earlier secret values.
+       */
+      restoredOlderSecrets?: true;
       /** Version that owned production after a concurrent operation superseded this command. */
       activeVersionId?: string | null;
       /** Whether Void restored the active version's immutable trigger snapshot. */
       triggerRepair?: 'succeeded' | 'failed' | 'unavailable';
+      /**
+       * Access denied a readiness probe to this custom-route origin. The probe carried no Access
+       * credentials because `readinessHeadersOrigin` did not name the origin.
+       */
+      customRouteReadinessOrigin?: string;
     };
 
 type ProductionDeployment = Readonly<{
@@ -189,18 +213,24 @@ export function parseCloudflareVersionMessage(
 }
 
 /**
- * Capture every configuration surface mutated by `wrangler triggers deploy` — routes,
- * workers.dev / preview flags, crons, queue consumers, workflows, and Email Routing addresses.
+ * Capture shared configuration published after activation: routes, workers.dev / preview flags,
+ * crons, queue consumers, workflows, Email Routing addresses, and explicit observability.
  */
 export function readCloudflareTriggerConfig(
   configPath: string,
   sourceConfigPath?: string,
 ): CloudflareTriggerConfig {
-  const result = triggerConfigFromWrangler(parseRootWranglerConfig(configPath));
+  const config = parseRootWranglerConfig(configPath);
+  // Build tooling can supply defaults; only authored settings may change the live Worker.
+  const source = sourceConfigPath ? parseRootWranglerConfig(sourceConfigPath) : config;
+  const result = triggerConfigFromWrangler({
+    ...config,
+    observability: source.observability,
+    logpush: source.logpush,
+  });
   if (!sourceConfigPath) {
     return result;
   }
-  const source = parseRootWranglerConfig(sourceConfigPath);
   return {
     ...result,
     settingsHash: nonVersionedSettingsHash(source),
@@ -210,7 +240,7 @@ export function readCloudflareTriggerConfig(
   };
 }
 
-/** Apply a version's persisted trigger state using an isolated temporary Wrangler config. */
+/** Apply a version's persisted triggers and Worker settings using an isolated temporary config. */
 export async function deployCloudflareVersionTriggers(options: {
   runWrangler: CloudflareCommandRunner;
   workerName: string;
@@ -585,6 +615,8 @@ function triggerConfigFromWrangler(config: Record<string, unknown>): CloudflareT
     ...(config.workers_dev === undefined ? { preserveWorkersDev: true } : {}),
     ...(config.preview_urls === undefined ? { preservePreviewUrls: true } : {}),
     settingsHash: nonVersionedSettingsHash(config),
+    ...(isRecord(config.observability) ? { observability: config.observability } : {}),
+    ...(typeof config.logpush === 'boolean' ? { logpush: config.logpush } : {}),
     workers_dev: workersDev,
     preview_urls: typeof config.preview_urls === 'boolean' ? config.preview_urls : workersDev,
     routes,
@@ -627,10 +659,11 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     return null;
   }
   if (
-    ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls'].some(
+    ['preserve', 'preserveRoutes', 'preserveWorkersDev', 'preservePreviewUrls', 'logpush'].some(
       (key) => value[key] !== undefined && typeof value[key] !== 'boolean',
     ) ||
     (value.settingsHash !== undefined && typeof value.settingsHash !== 'string') ||
+    (value.observability !== undefined && !isRecord(value.observability)) ||
     typeof value.workers_dev !== 'boolean' ||
     typeof value.preview_urls !== 'boolean' ||
     !Array.isArray(value.routes) ||
@@ -647,6 +680,8 @@ function parseTriggerConfig(value: unknown): CloudflareTriggerConfig | null {
     ...(value.preserveWorkersDev === true ? { preserveWorkersDev: true } : {}),
     ...(value.preservePreviewUrls === true ? { preservePreviewUrls: true } : {}),
     ...(typeof value.settingsHash === 'string' ? { settingsHash: value.settingsHash } : {}),
+    ...(isRecord(value.observability) ? { observability: value.observability } : {}),
+    ...(typeof value.logpush === 'boolean' ? { logpush: value.logpush } : {}),
     workers_dev: value.workers_dev,
     preview_urls: value.preview_urls,
     routes: value.routes,
@@ -668,6 +703,10 @@ function triggerWranglerConfig(
   queues.consumers = [...triggerConfig.queueConsumers];
   const config: Record<string, unknown> = {
     ...base,
+    ...(triggerConfig.observability === undefined
+      ? {}
+      : { observability: triggerConfig.observability }),
+    ...(triggerConfig.logpush === undefined ? {} : { logpush: triggerConfig.logpush }),
     triggers,
     queues,
     workflows: [...triggerConfig.workflows],
@@ -704,6 +743,8 @@ function resolvePreservedTraffic(
   return {
     ...(desired.preserve ? { preserve: true } : {}),
     ...(desired.settingsHash ? { settingsHash: desired.settingsHash } : {}),
+    ...(desired.observability === undefined ? {} : { observability: desired.observability }),
+    ...(desired.logpush === undefined ? {} : { logpush: desired.logpush }),
     workers_dev: desired.preserveWorkersDev
       ? (previous?.workers_dev ?? desired.workers_dev)
       : desired.workers_dev,
@@ -763,10 +804,22 @@ export type CloudflareVersionActivationOptions = {
   /** Account workers.dev subdomain used when this Worker cannot expose version preview URLs. */
   workersDevSubdomain?: string;
   /**
+   * Look up the account workers.dev subdomain when a first publish reports no URL and
+   * `workersDevSubdomain` is not set. The subdomain includes the compliance-region label, for
+   * example `team.fed` for FedRAMP High. A thrown error counts as `unavailable`.
+   */
+  resolveWorkersDevSubdomain?: () => Promise<CloudflareWorkersDevSubdomainLookup>;
+  /**
    * Operator-provided workers.dev subdomain that may receive readiness credentials even when
    * Wrangler cannot report a preview URL. Cached/project-controlled values must not be used here.
    */
   readinessHeadersWorkersDevSubdomain?: string;
+  /**
+   * Operator-provided HTTPS origin that may receive readiness credentials when the probe uses a
+   * configured custom route. A route hostname is not guaranteed to reach this Worker, so only an
+   * exact origin match receives them. Project-controlled values must not be used here.
+   */
+  readinessHeadersOrigin?: string;
   message: string;
   /** Direct empty-domain publisher for the Wrangler reconciliation gap. */
   publishEmptyCustomDomains?: () => Promise<CloudflareCommandResult>;
@@ -1315,12 +1368,18 @@ async function activateCloudflareVersionWithSecretsFile(
     stagedVersionOverride = true;
   }
 
+  const trustedReadinessOrigin = normalizeReadinessAccessOrigin(options.readinessHeadersOrigin);
+  // A route hostname is not guaranteed to reach this Worker. Send Access credentials to a custom
+  // route only when the operator named its exact origin.
+  const withholdsCustomRouteHeaders = (url: string) =>
+    readinessUsesCustomRoute && !isTrustedReadinessOrigin(url, trustedReadinessOrigin);
   const probe = (url: string) =>
     probeReadiness(
       `${url.replace(/\/$/, '')}/__void/ready`,
       options.workerName,
-      readinessUsesCustomRoute ? undefined : options.readinessHeaders,
+      withholdsCustomRouteHeaders(url) ? undefined : options.readinessHeaders,
       authenticatedWorkersDevSubdomain,
+      readinessUsesCustomRoute ? trustedReadinessOrigin : undefined,
       stagedVersionOverride ? versionId : undefined,
       options.fetch ?? globalThis.fetch,
       options.sleep ?? delay,
@@ -1373,11 +1432,14 @@ async function activateCloudflareVersionWithSecretsFile(
       reason: ready === 'access-denied' ? 'readiness-access-denied' : 'readiness-failed',
       versionId,
       previousVersionId: previous.versionId,
-      rollback: stagedVersionOverride
+      ...(ready === 'access-denied' && withholdsCustomRouteHeaders(readinessUrl)
+        ? customRouteReadinessOriginField(readinessUrl)
+        : {}),
+      ...(stagedVersionOverride
         ? await restorePreviousVersion(options, previous.versionId, 'readiness failed', [
             stagedVersionPercentages(previous.versionId, versionId),
           ])
-        : 'not-needed',
+        : { rollback: 'not-needed' as const }),
     };
   }
   if (!options.verifyUploader()) {
@@ -1386,14 +1448,14 @@ async function activateCloudflareVersionWithSecretsFile(
       reason: 'uploader-changed',
       versionId,
       previousVersionId: previous.versionId,
-      rollback: stagedVersionOverride
+      ...(stagedVersionOverride
         ? await restorePreviousVersion(
             options,
             previous.versionId,
             'uploader verification failed',
             [stagedVersionPercentages(previous.versionId, versionId)],
           )
-        : 'not-needed',
+        : { rollback: 'not-needed' as const }),
     };
   }
 
@@ -1449,12 +1511,12 @@ async function activateCloudflareVersionWithSecretsFile(
       status: activate.status,
       versionId,
       previousVersionId: previous.versionId,
-      rollback: stagedVersionOverride
+      ...(stagedVersionOverride
         ? await restorePreviousVersion(options, previous.versionId, 'version activation failed', [
             stagedVersionPercentages(previous.versionId, versionId),
             [{ versionId, percentage: 100 }],
           ])
-        : 'not-needed',
+        : { rollback: 'not-needed' as const }),
     };
   }
 
@@ -1566,7 +1628,7 @@ async function activateCloudflareVersionWithSecretsFile(
         triggerRepair: triggerRepairOutcome(repair),
       };
     }
-    const rollback = await restorePreviousVersionAndTriggers(
+    const restore = await restorePreviousVersionAndTriggers(
       options,
       previous.versionId,
       'trigger activation failed',
@@ -1580,7 +1642,7 @@ async function activateCloudflareVersionWithSecretsFile(
       status: triggers.status,
       versionId,
       previousVersionId: previous.versionId,
-      rollback,
+      ...restore,
     };
   }
 
@@ -1630,15 +1692,15 @@ async function restorePreviousVersionAndTriggers(
   failedTriggerConfig: CloudflareTriggerConfig,
   failedVersionId: string,
   capturedTriggerConfig?: CloudflareTriggerConfig,
-): Promise<'succeeded' | 'failed' | 'unavailable' | 'unsafe'> {
+): Promise<PreviousVersionRestore> {
   const traffic = await restorePreviousVersion(options, previousVersionId, cause, [
     [{ versionId: failedVersionId, percentage: 100 }],
   ]);
-  if (traffic !== 'succeeded' || !previousVersionId) {
+  if (traffic.rollback !== 'succeeded' || !previousVersionId) {
     return traffic;
   }
   if (!options.verifyUploader()) {
-    return 'unsafe';
+    return { ...traffic, rollback: 'unsafe' };
   }
   // Traffic attachments can change between uploads (for example `void domain
   // add`). Restore the snapshot captured before this deployment, not the older
@@ -1648,17 +1710,17 @@ async function restorePreviousVersionAndTriggers(
   if (!targetTriggerConfig) {
     const metadata = await readCloudflareVersionMetadata(options, previousVersionId);
     if (metadata?.schema !== 2) {
-      return 'unavailable';
+      return { ...traffic, rollback: 'unavailable' };
     }
     targetTriggerConfig = metadata.triggerConfig;
   }
   // A preserve marker leaves routes, schedules, queue consumers and workflows opaque, so there
   // is no trigger snapshot to restore. Traffic is already back on the previous version.
   if (targetTriggerConfig.preserve) {
-    return 'unavailable';
+    return { ...traffic, rollback: 'unavailable' };
   }
   if (!options.verifyUploader()) {
-    return 'unsafe';
+    return { ...traffic, rollback: 'unsafe' };
   }
   const triggers = await stabilizeCloudflareVersionTriggers({
     runWrangler: options.runWrangler,
@@ -1671,7 +1733,10 @@ async function restorePreviousVersionAndTriggers(
     publishEmptyCustomDomains: options.publishEmptyCustomDomains,
     publishEmptyCrons: options.publishEmptyCrons,
   });
-  return triggers.ok && triggers.targetOwnsTraffic ? 'succeeded' : 'failed';
+  return {
+    ...traffic,
+    rollback: triggers.ok && triggers.targetOwnsTraffic ? 'succeeded' : 'failed',
+  };
 }
 
 async function readCloudflareVersionMetadata(
@@ -1937,11 +2002,53 @@ async function bootstrapFirstDeployment(
   const desiredMetadata = parseCloudflareVersionMessage(options.message);
   const desiredTriggerConfig = desiredTriggerConfigFor(desiredMetadata, options.configPath);
   const reportedUrl = published?.previewUrl ?? published?.workersDevUrl;
-  const reportedOrConfiguredUrl =
+  let reportedOrConfiguredUrl =
     reportedUrl ??
     (desiredTriggerConfig.workers_dev
       ? workersDevReadinessUrl(options.workerName, options.workersDevSubdomain)
       : customRouteReadinessUrl(desiredTriggerConfig.routes));
+  if (
+    versionId &&
+    !reportedOrConfiguredUrl &&
+    desiredTriggerConfig.workers_dev &&
+    !desiredTriggerConfig.preserve &&
+    !desiredTriggerConfig.preserveWorkersDev &&
+    !options.preserveTriggers &&
+    options.resolveWorkersDevSubdomain
+  ) {
+    // A publish over a Worker with workers.dev disabled, such as the draft that
+    // `secret put` creates, reports no URL. Trigger synchronization below
+    // publishes `workers_dev: true` when no trigger is preserved, so the
+    // readiness URL needs only the account subdomain. The lookup can run the
+    // uploader to read the session token.
+    if (!options.verifyUploader()) {
+      return {
+        ok: false,
+        reason: 'uploader-changed',
+        versionId,
+        previousVersionId,
+        rollback: 'unsafe',
+      };
+    }
+    let lookup: CloudflareWorkersDevSubdomainLookup;
+    try {
+      lookup = await options.resolveWorkersDevSubdomain();
+    } catch {
+      lookup = { ok: false, reason: 'unavailable' };
+    }
+    if (!lookup.ok && lookup.reason === 'uploader-changed') {
+      return {
+        ok: false,
+        reason: 'uploader-changed',
+        versionId,
+        previousVersionId,
+        rollback: 'unsafe',
+      };
+    }
+    reportedOrConfiguredUrl = lookup.ok
+      ? workersDevReadinessUrl(options.workerName, lookup.subdomain)
+      : undefined;
+  }
   if (!versionId || !reportedOrConfiguredUrl) {
     return {
       ok: false,
@@ -2098,12 +2205,21 @@ async function bootstrapFirstDeployment(
     desiredTriggerConfig.routes.some((route) => isRecord(route) && route.custom_domain === true);
   const customDomainBootstrap = !atomic && usesCustomDomain;
   const readinessTimeoutMs = customDomainBootstrap ? 300_000 : 60_000;
+  const previewSubdomain = extractWorkersDevSubdomain(previewUrl);
+  // Outside workers.dev, the probe reaches a configured custom route. Apply the same exact-origin
+  // opt-in as a staged custom-route probe.
+  const trustedReadinessOrigin = previewSubdomain
+    ? undefined
+    : normalizeReadinessAccessOrigin(options.readinessHeadersOrigin);
+  const withholdsCustomRouteHeaders =
+    !previewSubdomain && !isTrustedReadinessOrigin(previewUrl, trustedReadinessOrigin);
   options.onProgress?.('Waiting for the Worker to become ready...');
   const ready = await probeReadiness(
     `${previewUrl.replace(/\/$/, '')}/__void/ready`,
     options.workerName,
-    extractWorkersDevSubdomain(previewUrl) ? options.readinessHeaders : undefined,
-    extractWorkersDevSubdomain(previewUrl),
+    withholdsCustomRouteHeaders ? undefined : options.readinessHeaders,
+    previewSubdomain,
+    trustedReadinessOrigin,
     undefined,
     options.fetch ?? globalThis.fetch,
     options.sleep ?? delay,
@@ -2128,6 +2244,9 @@ async function bootstrapFirstDeployment(
       versionId,
       previousVersionId,
       rollback: 'unavailable',
+      ...(ready === 'access-denied' && withholdsCustomRouteHeaders
+        ? customRouteReadinessOriginField(previewUrl)
+        : {}),
       ...(ready === 'failed' && usesCustomDomain
         ? {
             diagnostic:
@@ -2403,6 +2522,7 @@ async function probeReadiness(
   workerName: string,
   readinessHeaders: Readonly<Record<string, string>> | undefined,
   authenticatedWorkersDevSubdomain: string | undefined,
+  trustedReadinessOrigin: string | undefined,
   versionOverride: string | undefined,
   fetcher: typeof globalThis.fetch,
   sleep: (milliseconds: number) => Promise<void>,
@@ -2415,6 +2535,7 @@ async function probeReadiness(
     workerName,
     readinessHeaders,
     authenticatedWorkersDevSubdomain,
+    trustedReadinessOrigin,
   );
   if (headers === null) {
     return 'failed';
@@ -2468,15 +2589,22 @@ async function probeReadiness(
   return 'failed';
 }
 
-/** Never forward Access headers to a hostname that cannot be this Worker. */
+/**
+ * Never forward Access headers to a hostname that cannot be this Worker, unless the operator
+ * named that exact origin.
+ */
 function guardedReadinessHeaders(
   url: string,
   workerName: string,
   headers: Readonly<Record<string, string>> | undefined,
   authenticatedWorkersDevSubdomain: string | undefined,
+  trustedReadinessOrigin: string | undefined,
 ): Readonly<Record<string, string>> | null {
   if (!headers || Object.keys(headers).length === 0) {
     return {};
+  }
+  if (isTrustedReadinessOrigin(url, trustedReadinessOrigin)) {
+    return headers;
   }
   try {
     const parsed = new URL(url);
@@ -2495,6 +2623,56 @@ function guardedReadinessHeaders(
     return headers;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Normalize an operator-selected readiness origin. Returns `undefined` unless the value is one
+ * exact `https:` origin without a wildcard, credentials, a path, a query, or a fragment. A probe
+ * URL never has a wildcard host, so a wildcard value could never match.
+ */
+export function normalizeReadinessAccessOrigin(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' &&
+      !url.hostname.includes('*') &&
+      !url.username &&
+      !url.password &&
+      url.pathname === '/' &&
+      !url.search &&
+      !url.hash
+      ? url.origin
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function isTrustedReadinessOrigin(url: string, trustedOrigin: string | undefined): boolean {
+  if (trustedOrigin === undefined) {
+    return false;
+  }
+  try {
+    const parsed = new URL(url);
+    return (
+      parsed.protocol === 'https:' &&
+      !parsed.username &&
+      !parsed.password &&
+      parsed.origin === trustedOrigin
+    );
+  } catch {
+    return false;
+  }
+}
+
+function customRouteReadinessOriginField(url: string): { customRouteReadinessOrigin?: string } {
+  try {
+    return { customRouteReadinessOrigin: new URL(url).origin };
+  } catch {
+    return {};
   }
 }
 
@@ -2523,7 +2701,7 @@ async function deployVersionPercentages(
   options: Pick<
     Parameters<typeof activateCloudflareVersion>[0],
     'runWrangler' | 'workerName' | 'preserveTriggers' | 'configPath'
-  >,
+  > & { bypassDeploymentChecks?: boolean },
   percentages: Array<string>,
   message: string,
 ): Promise<CloudflareCommandResult> {
@@ -2546,6 +2724,7 @@ async function deployVersionPercentages(
       configPath: options.configPath,
       workerName: options.workerName,
       message,
+      ...(options.bypassDeploymentChecks ? { bypassDeploymentChecks: true } : {}),
     },
     { capture: false },
   );
@@ -2558,6 +2737,7 @@ export async function deployCloudflareVersionTraffic(options: {
   workerName: string;
   percentages: Array<string>;
   message: string;
+  bypassDeploymentChecks?: boolean;
 }): Promise<CloudflareCommandResult> {
   const config = pickWranglerTriggerContext(parseRootWranglerConfig(options.configPath));
   const directory = mkdtempSync(join(tmpdir(), 'void-version-traffic-'));
@@ -2571,6 +2751,7 @@ export async function deployCloudflareVersionTraffic(options: {
         configPath: path,
         workerName: options.workerName,
         message: options.message,
+        ...(options.bypassDeploymentChecks ? { bypassDeploymentChecks: true } : {}),
       },
       { capture: false },
     );
@@ -2578,6 +2759,11 @@ export async function deployCloudflareVersionTraffic(options: {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+type PreviousVersionRestore = Readonly<{
+  rollback: 'succeeded' | 'failed' | 'unavailable' | 'unsafe';
+  restoredOlderSecrets?: true;
+}>;
 
 async function restorePreviousVersion(
   options: Pick<
@@ -2587,28 +2773,45 @@ async function restorePreviousVersion(
   previousVersionId: string | null,
   cause: string,
   expectedOwnedTraffic: ReadonlyArray<ReadonlyArray<ProductionVersionPercentage>>,
-): Promise<'succeeded' | 'failed' | 'unavailable' | 'unsafe'> {
+): Promise<PreviousVersionRestore> {
   if (!previousVersionId) {
-    return 'unavailable';
+    return { rollback: 'unavailable' };
   }
   if (!options.verifyUploader()) {
-    return 'unsafe';
+    return { rollback: 'unsafe' };
   }
-  const owner = await readCurrentProductionVersion(options);
-  if (
-    owner.kind !== 'ok' ||
-    !expectedOwnedTraffic.some((expected) =>
-      productionVersionPercentagesEqual(owner.versions, expected),
-    )
-  ) {
-    return 'unsafe';
+  const ownsExpectedTraffic = async () => {
+    const owner = await readCurrentProductionVersion(options);
+    return (
+      owner.kind === 'ok' &&
+      expectedOwnedTraffic.some((expected) =>
+        productionVersionPercentagesEqual(owner.versions, expected),
+      )
+    );
+  };
+  if (!(await ownsExpectedTraffic())) {
+    return { rollback: 'unsafe' };
   }
-  const result = await deployVersionPercentages(
-    options,
-    [`${previousVersionId}@100`],
-    `Void automatic rollback after ${cause}.`,
-  );
-  return isCleanCommandExit(result) ? 'succeeded' : 'failed';
+  const restore = (bypassDeploymentChecks: boolean) =>
+    deployVersionPercentages(
+      { ...options, bypassDeploymentChecks },
+      [`${previousVersionId}@100`],
+      `Void automatic rollback after ${cause}.`,
+    );
+  const result = await restore(false);
+  // Cloudflare refuses to move traffic back to a version older than a secret
+  // change (10220). When the failed version made that change, force the
+  // restore, as Wrangler's rollback does. Check again first that Void still
+  // owns traffic, so a deployment made by someone else is not overwritten.
+  if (result.errorCode === CLOUDFLARE_SECRET_CHANGED_ERROR) {
+    if (!(await ownsExpectedTraffic())) {
+      return { rollback: 'unsafe' };
+    }
+    return isCleanCommandExit(await restore(true))
+      ? { rollback: 'succeeded', restoredOlderSecrets: true }
+      : { rollback: 'failed' };
+  }
+  return { rollback: isCleanCommandExit(result) ? 'succeeded' : 'failed' };
 }
 
 function workersDevReadinessUrl(workerName: string, value: string | undefined): string | undefined {

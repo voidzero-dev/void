@@ -24,6 +24,11 @@ const mockRunPgMigrations = vi.fn();
 const mockGetMySqlAppliedMigrations = vi.fn();
 const mockRunMySqlMigrations = vi.fn();
 
+vi.mock('../../src/cli/auth.ts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/cli/auth.ts')>()),
+  getToken: vi.fn(() => null),
+}));
+
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: (...args: Array<unknown>) => mockIntro(...args),
   outro: (...args: Array<unknown>) => mockOutro(...args),

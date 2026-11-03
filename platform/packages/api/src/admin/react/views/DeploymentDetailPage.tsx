@@ -63,7 +63,7 @@ export function DeploymentDetailPage({ path, platformName, username }: AdminPage
           </SectionStack>
         )}
 
-      <Table>
+      <Table className="void-admin-detail-table">
         <TableBody>
           <TableRow>
             <TableHeaderCell>ID</TableHeaderCell>

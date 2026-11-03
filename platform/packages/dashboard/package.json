@@ -17,9 +17,9 @@
     "@stylexjs/stylex": "catalog:",
     "@void/platform": "workspace:*",
     "hono": "catalog:platform",
-    "lucide-react": "1.56.0",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "lucide-react": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:platform",

@@ -75,13 +75,13 @@ export function analyzeApplicationSync(
   const paths = resolveProjectPaths(root, config);
   const framework = detectFramework(root);
   const scanDirs = config.inference?.scanDirs ?? (framework ? FRAMEWORK_SCAN_DIRS : undefined);
-  const overrides = config.inference?.bindings;
   const inferred = inferProjectBindings(
     root,
     {
       paths,
       environment,
-      bindings: overrides,
+      filterPages: !framework,
+      bindings: config.inference?.bindings,
       imageOptimizer: isImageOptimizerEnabled(config, framework),
     },
     scanDirs,
@@ -97,7 +97,7 @@ export function analyzeApplicationSync(
     ...inferred,
     needsAuth: authEnabled,
     needsSandbox: inferred.needsSandbox || isSandboxEnabled(config),
-    ...(vinextImages && overrides?.images === undefined && { needsImages: true }),
+    ...(vinextImages && config.inference?.bindings?.images === undefined && { needsImages: true }),
   };
   const dialect = getDatabaseDialect(config);
   const migrations = collectMigrations(paths.migrationsDir);
@@ -110,6 +110,7 @@ export function analyzeApplicationSync(
   // Typed durable modules currently use the root convention on every target.
   const durableObjects = scanDurableObjectModules(root);
   const email = scanEmailHandlersSync(paths.sourceRoot);
+  const overrides = config.inference?.bindings;
   const bindingReason = (
     key: 'db' | 'kv' | 'storage',
     label: string,

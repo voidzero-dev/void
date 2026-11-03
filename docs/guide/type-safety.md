@@ -102,15 +102,98 @@ const deleteForm = useForm('/users/:id?delete', { id: '' }, { params: { id } });
 
 The `action()` helper gets the same type checking. See [Actions & Forms](./pages-routing/actions-and-forms) for the full API.
 
+## Typed URLs and Navigation
+
+Use `routeUrl()` from `void/routes` to build URLs from your app's page, HTTP, and WebSocket route patterns. For a page at `pages/users/[id].tsx`, the pattern is `/users/:id`:
+
+```ts
+import { routeUrl } from 'void/routes';
+
+const url = routeUrl('/users/:id', {
+  params: { id: 42 },
+  query: { tab: 'activity' },
+  hash: 'details',
+});
+// /users/42?tab=activity#details
+```
+
+Your editor autocompletes route patterns and parameter names. TypeScript checks that the route exists and all required parameters are supplied. Parameter values accept strings or numbers; Void encodes them for the URL. Query keys are chosen by your app, and values can be strings, numbers, booleans, or arrays of those values. Arrays become repeated query parameters; `null` and `undefined` values are omitted.
+
+Pass the returned string to `Link`, a plain `<a>`, or `c.redirect()`. For programmatic navigation and `c.rewrite()`, you can pass a destination object directly:
+
+```ts
+import type { RouteDestination } from 'void/routes';
+
+const profile = {
+  pathname: '/users/:id',
+  params: { id: 42 },
+  query: { tab: 'activity' },
+  hash: 'details',
+} satisfies RouteDestination;
+```
+
+Destination objects use the same parameter checking and URL encoding as `routeUrl()`. See [Pages Routing](./pages-routing/overview.md#typed-navigation) for links and router methods, and [Rewrites](../reference/api/rewrites.md#c-rewrite-destination) for server navigation.
+
+For a catch-all page such as `pages/files/[...path].tsx`, use `/files/:path{.+}` and pass the full path as one value:
+
+```ts
+routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
+// /files/docs/get%20started
+```
+
+### Checked URL strings
+
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Apps created with `void init` have it on. To turn it on in an existing app:
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  routing: { typedRoutes: true },
+});
+```
+
+A string must then match one of your routes, optionally followed by a query string or hash:
+
+```tsx
+<Link href="/about">About</Link>
+<Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href="/abuot">About</Link> // Type error: no route matches
+```
+
+Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, a protocol-relative URL like `//example.com` passes too.
+
+`void/routes` exports two types for these strings:
+
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it.
+- `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
+
+Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
+
+```tsx
+import type { Href, RouteUrl } from 'void/routes';
+
+<Link href={post.path as RouteUrl}>{post.title}</Link>
+<Link href={user.website as Href}>Website</Link>
+```
+
+Restart the dev server or run `void prepare` after changing `routing.typedRoutes`.
+
+Route types update with the dev server. For CI or standalone typechecking, run `void prepare` and follow [Setup](#setup). The [API reference](../reference/api/types.md#void-routes) lists the URL helper and route types.
+
 ## What Gets Checked
 
-| Layer        | What's type-checked                                                  |
-| ------------ | -------------------------------------------------------------------- |
-| Database     | Table columns, value types, insert/update shapes from Drizzle schema |
-| Handlers     | `c.env` bindings, validator input, return type                       |
-| Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type    |
-| `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args, `params`  |
-| `action()`   | Action URLs, `data` payload, `params`                                |
+| Layer        | What's type-checked                                                                                                   |
+| ------------ | --------------------------------------------------------------------------------------------------------------------- |
+| Database     | Table columns, value types, insert/update shapes from Drizzle schema                                                  |
+| Handlers     | `c.env` bindings, validator input, return type                                                                        |
+| Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
+| Navigation   | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
+| Links        | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
+| `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
+| `action()`   | Action URLs, `data` payload, `params`                                                                                 |
 
 ## Serialization
 

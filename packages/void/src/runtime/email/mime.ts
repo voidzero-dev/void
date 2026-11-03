@@ -8,7 +8,14 @@
 
 import { validate as isValidEmailSyntax } from 'email-validator';
 import { bytesToBase64 } from '../base64.ts';
-import type { Address, Attachment, NormalizedAttachment, NormalizedEmail } from './types.ts';
+import { indexOfControl, threadingId, threadingReferences, trimFws } from './threading.ts';
+import type {
+  Address,
+  Attachment,
+  NormalizedAttachment,
+  NormalizedEmail,
+  SendEmailOptions,
+} from './types.ts';
 
 /** Encoded outbound MIME ceiling, separate from the 10 MiB inbound limit. */
 export const MAX_MESSAGE_BYTES: number = 5 * 1024 * 1024;
@@ -47,20 +54,6 @@ function rejectCRLF(field: string, value: string): void {
       throw new MimeError('MIME_ERROR', `${field}: must not contain CR, LF, or NUL.`);
     }
   }
-}
-
-/**
- * Index of the first C0 control other than HTAB, or DEL; -1 when there is
- * none. HTAB is folding whitespace (RFC 5322 §3.2.2).
- */
-export function indexOfControl(value: string): number {
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if ((c < 0x20 && c !== 0x09) || c === 0x7f) {
-      return i;
-    }
-  }
-  return -1;
 }
 
 /**
@@ -524,7 +517,7 @@ export async function normalizeEmail(opts: {
   bcc?: Address | Array<Address>;
   headers?: Record<string, string>;
   attachments?: Array<Attachment>;
-  threading?: { inReplyTo?: string; references?: string };
+  threading?: SendEmailOptions['threading'];
 }): Promise<NormalizedEmail> {
   if (!opts.text && !opts.html) {
     throw new MimeError('MIME_ERROR', "email: at least one of 'text' or 'html' is required.");
@@ -626,13 +619,7 @@ export async function normalizeEmail(opts: {
     }
     attachments.push(normalized);
   }
-  // Threading comes from the trusted reply path, but CR/LF are still refused.
-  if (opts.threading?.inReplyTo) {
-    rejectCRLF('threading.inReplyTo', opts.threading.inReplyTo);
-  }
-  if (opts.threading?.references) {
-    rejectCRLF('threading.references', opts.threading.references);
-  }
+  const threading = normalizeThreading(opts.threading);
 
   return {
     from,
@@ -645,8 +632,37 @@ export async function normalizeEmail(opts: {
     html: opts.html,
     headers: opts.headers ? { ...opts.headers } : {},
     attachments,
-    threading: opts.threading,
+    threading,
   };
+}
+
+/**
+ * `threading` from `sendEmail`, `createEmail` or `replyEmail`. A value that is
+ * not a string is a caller error. Thread ids often come from remote mail, so a
+ * bad id never fails the email: an `inReplyTo` with a control character or
+ * too long for one line is left out, and a `references` chain that cannot be
+ * sent falls back to `inReplyTo`.
+ */
+function normalizeThreading(threading: unknown): NormalizedEmail['threading'] {
+  if (threading === undefined) {
+    return undefined;
+  }
+  if (typeof threading !== 'object' || threading === null || Array.isArray(threading)) {
+    throw new MimeError('MIME_ERROR', 'threading: must be an object.');
+  }
+  const { inReplyTo = '', references = '' } = threading as Record<string, unknown>;
+  if (typeof inReplyTo !== 'string') {
+    throw new MimeError('MIME_ERROR', 'threading.inReplyTo: must be a string.');
+  }
+  if (typeof references !== 'string') {
+    throw new MimeError('MIME_ERROR', 'threading.references: must be a string.');
+  }
+  const parent = threadingId('In-Reply-To', trimFws(inReplyTo));
+  const chain = threadingReferences(references) || parent;
+  if (!parent && !chain) {
+    return undefined;
+  }
+  return { ...(parent ? { inReplyTo: parent } : {}), ...(chain ? { references: chain } : {}) };
 }
 
 /**
@@ -1129,9 +1145,8 @@ const RESERVED_HEADERS = new Set([
   'reply-to',
   'date',
   'message-id',
-  // Threading headers are owned by replyEmail() — accepting them via
-  // the user-supplied `headers` map would let a caller spoof reply
-  // chains. replyEmail builds them itself from the original message.
+  // Threading has one channel, `threading`, which checks each id. replyEmail
+  // builds it from the original message; sendEmail takes it from the caller.
   'in-reply-to',
   'references',
   'mime-version',
@@ -1319,9 +1334,8 @@ export function buildMime(email: NormalizedEmail): { raw: Uint8Array; messageId:
   }
   topHeaders.push(['Subject', encodeWord(email.subject)]);
   topHeaders.push(['Message-ID', messageId]);
-  // Threading headers from the trusted reply path. These are reserved
-  // against user-supplied `headers` (RESERVED_HEADERS) so the only way
-  // they land in the wire MIME is via `email.threading`.
+  // Reserved against user-supplied `headers` (RESERVED_HEADERS), so these
+  // land in the wire MIME only through the checked `email.threading`.
   if (email.threading?.inReplyTo) {
     topHeaders.push(['In-Reply-To', email.threading.inReplyTo]);
   }

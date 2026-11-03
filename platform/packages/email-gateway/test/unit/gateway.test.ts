@@ -623,6 +623,63 @@ describe('dedicated email gateway', () => {
     expect(router.routeInbound).toHaveBeenCalledWith(message, expect.anything(), context, route);
   });
 
+  it('passes a shared route reached through the project email alias to the native router', async () => {
+    const aliasRoute = {
+      ...route,
+      slug: 'proj',
+      mailbox: 'alias',
+      alias: 'alias',
+      addressing: 'shared',
+      domain: 'mail.example.com',
+    };
+    const message = {
+      from: 'sender@example.net',
+      to: 'alias+orders@mail.example.com',
+      setReject: vi.fn(),
+    } as unknown as ForwardableEmailMessage;
+    await gateway.email(
+      message,
+      env(async () => Response.json(aliasRoute)),
+      context,
+    );
+    expect(message.setReject).not.toHaveBeenCalled();
+    expect(router.routeInbound).toHaveBeenCalledWith(
+      message,
+      expect.anything(),
+      context,
+      aliasRoute,
+    );
+  });
+
+  it.each([
+    ['mailbox', 42],
+    ['mailbox', null],
+    ['mailbox', { name: 'alias' }],
+    ['alias', 42],
+    ['alias', null],
+  ])(
+    'treats a route with a non-string %s (%j) as a malformed authority response',
+    async (field, value) => {
+      const environment = env(async () =>
+        Response.json({ ...route, addressing: 'shared', [field]: value }),
+      );
+      expect((await gateway.fetch(request(new Uint8Array()), environment, context)).status).toBe(
+        503,
+      );
+      const message = {
+        from: 'sender@example.net',
+        to: 'support@example.com',
+        setReject: vi.fn(),
+      } as unknown as ForwardableEmailMessage;
+      await expect(gateway.email(message, environment, context)).rejects.toThrow(
+        'temporarily unavailable',
+      );
+      expect(message.setReject).not.toHaveBeenCalled();
+      expect(router.routeInbound).not.toHaveBeenCalled();
+      expect(router.routeRelayed).not.toHaveBeenCalled();
+    },
+  );
+
   it('probes exact staged ingress identity through the authoritative API', async () => {
     const body = JSON.stringify({
       accountId: 'account-1',

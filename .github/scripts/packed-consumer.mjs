@@ -131,6 +131,15 @@ for (const entry of readdirSync(join(root, 'packages'), { withFileTypes: true })
   packages.push(inspectPackage(archive));
 }
 const registry = await startPackedRegistry(packages);
+// Packed tests must install new local builds, even when the matching npm release
+// is less than a day old. Keep this policy inside the temporary fixture config.
+environment.XDG_CONFIG_HOME = join(work, 'config');
+const pnpmConfigDirectory = join(environment.XDG_CONFIG_HOME, 'pnpm');
+mkdirSync(pnpmConfigDirectory, { recursive: true });
+writeFileSync(
+  join(pnpmConfigDirectory, 'config.yaml'),
+  `registries:\n  default: ${registry.origin}\nminimumReleaseAge: 0\n`,
+);
 environment.npm_config_registry = registry.origin;
 environment.NPM_CONFIG_REGISTRY = registry.origin;
 environment.PNPM_CONFIG_REGISTRY = registry.origin;

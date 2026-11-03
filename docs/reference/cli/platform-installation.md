@@ -24,6 +24,8 @@ void platform install [options] [--yes]
 | `--zone <domain>`                         | Cloudflare zone containing the application domain                                    |
 | `--dedicated-zone`                        | Add zone-wide catch-all routes; valid only when the app domain is the whole zone     |
 | `--no-dedicated-zone`                     | Skip zone-wide application catch-all routes                                          |
+| `--custom-domains`                        | Let projects add their own domains; needs a dedicated zone                           |
+| `--runtime-logs <full\|minimal>`          | `minimal` keeps request URLs and log and exception messages out of runtime logs      |
 | `--control-plane-domain <domain>`         | Optional API custom hostname; defaults to `workers.dev`                              |
 | `--no-control-plane-domain`               | Use the default `workers.dev` API hostname                                           |
 | `--dashboard-url <origin>`                | HTTPS origin of an optional dashboard deployed separately                            |
@@ -40,7 +42,7 @@ The installed platform needs a separate runtime token to provision resources for
 
 To enable email during install or upgrade, set both `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID`. Void records the pair for later upgrades; supplying only one is an error.
 
-Use `--dashboard-url `[`https://dash.example.com`](https://dash.example.com) when deploying the optional user
+Use `--dashboard-url https://dash.example.com` when deploying the optional user
 dashboard separately. The URL must be an HTTPS origin without credentials, a
 path, query, or fragment. Void permits that origin's login callbacks and saves
 it for later maintenance; it does not deploy a dashboard Worker. Omission keeps
@@ -100,9 +102,9 @@ Use these commands to recover, update, pause, or remove an installation:
 
 ```sh
 void platform discover [--account <id>] [--installation <id-or-name>]
-void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--plan] [--yes]
+void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--runtime-logs <full|minimal>] [--plan] [--yes]
 void platform rollback [id] --runtime <earlier-path> [--from-runtime <current-path>] [--plan] [--yes]
-void platform repair [id] [--runtime <path>] [--dashboard-url <origin>] [--auth-config <path>] [--plan] [--yes]
+void platform repair [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--auth-config <path>] [--plan] [--yes]
 void platform disable [id] [--plan] [--yes]
 void platform enable [id] [--runtime <path>] [--plan] [--yes]
 void platform uninstall [id] [--plan] [--purge-data | --purge-resources] [--yes]
@@ -111,6 +113,8 @@ void platform uninstall [id] [--plan] [--purge-data | --purge-resources] [--yes]
 `discover --installation` limits recovery and endpoint verification to one installation in a shared Cloudflare account.
 
 Use the installation slug shown beside its name in `void platform list`. Installation IDs and saved connection IDs also work. Lifecycle commands require local installation records; use `discover` to restore them on another machine. Omit `id` when only one installation is configured, or choose from the interactive picker. Non-interactive commands need a slug or ID when several installations exist. Commands that make changes also require `--yes`; `--plan` only previews changes.
+
+`upgrade --runtime-logs <full|minimal>` changes what runtime logs record; without it, upgrades keep the current setting. See [Choose what runtime logs record](../../guide/platform/installation/setup.md#runtime-logs).
 
 To add or explicitly change a separately deployed dashboard after installation,
 use `repair --dashboard-url <origin>` or `upgrade --dashboard-url <origin>`.
@@ -137,7 +141,7 @@ After discovery on another machine, set `VOID_PLATFORM_DATABASE_URL`. See [Manag
 
 Repair and upgrade preserve disabled state. New, resumed, and previously disabled installations block user traffic until all target Workers pass verification; the installer's health probes can still run. Routes and custom domains remain attached.
 
-If a platform Worker was changed outside Void, or has an active version without a Void deployment record, a command that deploys the platform Workers stops before it changes a platform Worker or pauses traffic, unless you agree in a terminal to replace the changes. See [Platform Workers changed outside Void](../../guide/platform/installation/maintenance.md#workers-changed-outside-void).
+Replacing platform Worker configuration changed outside Void requires interactive approval. Follow [Platform Workers changed outside Void](../../guide/platform/installation/maintenance.md#workers-changed-outside-void) if maintenance asks for it.
 
 `--runtime` selects a custom platform build. Relative paths resolve from your current directory. Void verifies the build before making changes; see [Platform Development](../../guide/platform/development/runtime.md#deploying-your-runtime) for creating one.
 

@@ -39,7 +39,9 @@ import {
   createCloudflareEmptyDomainPublisher,
 } from './cloudflare-operations.ts';
 import {
+  readCloudflareWorkersDevSubdomain,
   rememberCloudflareWorkersDevSubdomain,
+  resolveCloudflareReadinessAccessOrigin,
   resolveCloudflareWorkersDevSubdomain,
 } from './cloudflare-readiness.ts';
 import {
@@ -57,6 +59,7 @@ import { deployChildEnv, resolveDeployTransport } from './deploy-transport.ts';
 import type { CloudflareDeployDeps, DeployWranglerRun } from './deploy-types.ts';
 import { type CliLogger } from './log-file.ts';
 import { createSpinner, getErrorMessage } from './output.ts';
+import { resolveWorkersDevComplianceRegion, type ComplianceRegion } from './provision.ts';
 import {
   acknowledgeWranglerManagedQueueRemovals,
   readWranglerPublishedTrafficSnapshot,
@@ -134,11 +137,15 @@ function logCloudflareAuthFailure(error: unknown): void {
 
 type CloudflareDeployConnection = {
   apiBaseUrl: string;
+  /** The workers.dev region, pinned with the API base. Undefined if it does not resolve. */
+  complianceRegion: ComplianceRegion | undefined;
   usesCf: boolean;
   cfUploaderIsPinned: () => boolean;
   assertUploaderStillPinned: () => boolean;
   accountId: string;
   workersDevSubdomain: string | undefined;
+  /** Validated operator origin that may receive readiness Access credentials. */
+  readinessAccessOrigin: string | undefined;
   runWrangler: DeployWranglerRun;
   /** The root config, read again after a first-run account choice. */
   rootConfig: Record<string, unknown>;
@@ -154,6 +161,8 @@ export async function connectCloudflareDeployAccount(options: {
   rootConfig: Record<string, unknown>;
   deps: CloudflareDeployDeps;
   persistAccount: boolean;
+  /** `CF_ACCESS_READINESS_ORIGIN` as recorded before project code ran. */
+  readinessAccessOrigin: string | null | undefined;
 }): Promise<CloudflareDeployConnection | null> {
   const { root, configPath, deps } = options;
   let { rootConfig } = options;
@@ -164,6 +173,11 @@ export async function connectCloudflareDeployAccount(options: {
     log.error(`deploy: ${getErrorMessage(error)}`);
     return null;
   }
+  // Pin the region from the same inputs, before project code can edit the root config.
+  const complianceRegion = resolveWorkersDevComplianceRegion(
+    process.env,
+    readWranglerTopLevelString(rootConfig, 'compliance_region'),
+  );
   // Pin the uploaders before the first authenticated command, including account discovery.
   const pins = createCloudflareUploaderPins(root, deps);
   let accountId =
@@ -187,8 +201,13 @@ export async function connectCloudflareDeployAccount(options: {
     }
   }
   let workersDevSubdomain: string | undefined;
+  let readinessAccessOrigin: string | undefined;
   try {
     workersDevSubdomain = resolveCloudflareWorkersDevSubdomain(root, accountId);
+    // Reject an invalid opt-in before the build.
+    readinessAccessOrigin = resolveCloudflareReadinessAccessOrigin({
+      CF_ACCESS_READINESS_ORIGIN: options.readinessAccessOrigin ?? undefined,
+    });
   } catch (error) {
     log.error(getErrorMessage(error));
     return null;
@@ -196,8 +215,10 @@ export async function connectCloudflareDeployAccount(options: {
   return {
     ...pins,
     apiBaseUrl,
+    complianceRegion,
     accountId,
     workersDevSubdomain,
+    readinessAccessOrigin,
     runWrangler: deps.runWrangler ?? createDeployWranglerRunner(root, accountId, apiBaseUrl),
     rootConfig,
   };
@@ -301,8 +322,12 @@ export function cloudflareCandidateActivationOptions(options: {
   uploadConfigPath: string;
   accountId: string;
   apiBaseUrl: string;
+  /** The workers.dev region that the connection pinned. Undefined if it did not resolve. */
+  complianceRegion: ComplianceRegion | undefined;
   workerName: string;
   workersDevSubdomain: string | undefined;
+  /** Validated operator origin from the deploy connection. */
+  readinessAccessOrigin: string | undefined;
   runWrangler: DeployWranglerRun;
   readExistingWorker: CloudflareDeployDeps['readExistingWorker'];
   existingWorker: ExistingCloudflareWorker | null;
@@ -367,9 +392,23 @@ export function cloudflareCandidateActivationOptions(options: {
         },
     readinessHeaders: cloudflareWorkerReadinessHeaders(),
     workersDevSubdomain,
+    resolveWorkersDevSubdomain: async () => {
+      const { complianceRegion } = options;
+      // Without a region, the host is unknown. Do not guess one.
+      if (complianceRegion === undefined) {
+        return { ok: false, reason: 'unavailable' };
+      }
+      return readCloudflareWorkersDevSubdomain({
+        configPath,
+        complianceRegion,
+        runWrangler,
+        verifyUploader: options.assertUploaderStillPinned,
+      });
+    },
     readinessHeadersWorkersDevSubdomain: process.env.CLOUDFLARE_WORKERS_SUBDOMAIN?.trim()
       ? workersDevSubdomain
       : undefined,
+    readinessHeadersOrigin: options.readinessAccessOrigin,
     ...createCloudflareEmptyTriggerPublishers({
       accountId,
       apiBaseUrl: options.apiBaseUrl,
@@ -472,6 +511,15 @@ export async function activateCloudflareVersionWithProgress(
 export function formatCloudflareActivationError(
   result: Exclude<CloudflareActivationResult, { ok: true }>,
 ): string {
+  const message = formatCloudflareActivationFailure(result);
+  return result.restoredOlderSecrets
+    ? `${message}\nCloudflare refused to restore the previous version because this deploy changed a secret, so Void forced the restore. The previous version runs with its old secret values; deploy again to apply the new ones.`
+    : message;
+}
+
+function formatCloudflareActivationFailure(
+  result: Exclude<CloudflareActivationResult, { ok: true }>,
+): string {
   const status = result.status === undefined ? '' : ` (exit ${String(result.status)})`;
   const cloudflareCode =
     result.cloudflareErrorCode === undefined
@@ -534,21 +582,49 @@ export function formatCloudflareActivationError(
         'Set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain (for example "my-team")',
         'and retry. Void caches it after a successful workers.dev deployment; production traffic is unchanged.',
       ].join('\n');
-    case 'readiness-staging-failed':
-      return `deploy: Cloudflare could not stage the uploaded Worker Version at zero-percent traffic${status}; production traffic is unchanged.${cloudflareCode}${diagnostic}${result.cloudflareErrorCode === 10210 && /Durable Object migration/i.test(result.diagnostic ?? '') ? '\n\nReview the Durable Object migration, then run `void deploy --platform cloudflare --atomic`. For future deploys, set deploy.cloudflare.mode to "atomic" in void.config.ts.' : ''}`;
+    case 'readiness-staging-failed': {
+      const hint =
+        result.cloudflareErrorCode === 10210 &&
+        (result.diagnostic ?? '').toLowerCase().includes('durable object migration')
+          ? '\n\nReview the Durable Object migration, then run `void deploy --platform cloudflare --atomic`. For future deploys, set deploy.cloudflare.mode to "atomic" in void.config.ts.'
+          : result.cloudflareErrorCode === 100405
+            ? '\n\nThe new version declares different exports from the live version (for example a Durable Object or Workflow class), so Cloudflare cannot split traffic between them. Run `void deploy --platform cloudflare --atomic` once to publish it at 100% directly; it receives traffic before readiness is checked.'
+            : '';
+      return `deploy: Cloudflare could not stage the uploaded Worker Version at zero-percent traffic${status}; production traffic is unchanged.${cloudflareCode}${diagnostic}${hint}`;
+    }
     case 'atomic-failed':
       return `deploy: Cloudflare could not publish the Worker atomically${status}; inspect production status before retrying.${cloudflareCode}${diagnostic}`;
     case 'atomic-output-invalid':
-      return 'deploy: Cloudflare published atomically but did not report a version id or URL. Inspect `void project status` immediately.';
+      if (result.versionId) {
+        // An atomic retry publishes through the same bootstrap, which then
+        // enables workers.dev during trigger synchronization.
+        return formatCloudflarePublishWithoutUrl(
+          `Cloudflare published Worker version ${result.versionId} atomically`,
+          `If the app uses workers.dev, set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`,
+        );
+      }
+      return 'deploy: Cloudflare published atomically but did not report its version id. Inspect `void project status` immediately.';
     case 'atomic-readiness-failed':
-    case 'atomic-readiness-access-denied':
-      return `deploy: the atomic Worker deployment is live, but /__void/ready could not be verified. Inspect \`void project status\` and Worker logs immediately.${diagnostic}`;
+    case 'atomic-readiness-access-denied': {
+      const accessHint = result.customRouteReadinessOrigin
+        ? `\n\n${customRouteAccessHint(result.customRouteReadinessOrigin).join('\n')}`
+        : '';
+      return `deploy: the atomic Worker deployment is live, but /__void/ready could not be verified. Inspect \`void project status\` and Worker logs immediately.${diagnostic}${accessHint}`;
+    }
     case 'readiness-failed':
       return [
         'deploy: the uploaded Worker Version did not pass /__void/ready.',
         formatCloudflareReadinessRestoration(result),
       ].join('\n');
     case 'readiness-access-denied':
+      if (result.customRouteReadinessOrigin) {
+        return [
+          'deploy: Cloudflare Access blocked the uploaded Worker Version readiness probe.',
+          ...customRouteAccessHint(result.customRouteReadinessOrigin),
+          ATOMIC_ACCESS_ALTERNATIVE,
+          formatCloudflareReadinessRestoration(result),
+        ].join('\n');
+      }
       return [
         'deploy: Cloudflare Access blocked the uploaded Worker Version readiness probe.',
         'For CI, set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to an admitted service token.',
@@ -559,9 +635,17 @@ export function formatCloudflareActivationError(
     case 'bootstrap-failed':
       return `deploy: Cloudflare could not bootstrap the first Worker deployment${status}.${cloudflareCode}${diagnostic}`;
     case 'bootstrap-output-invalid':
+      if (result.versionId) {
+        // A non-atomic retry stages the next version behind the workers.dev
+        // URL, which stays off until a trigger synchronization succeeds.
+        return formatCloudflarePublishWithoutUrl(
+          `Cloudflare published the first Worker deployment as version ${result.versionId}`,
+          `If the app uses workers.dev, enable workers.dev for this Worker in the Cloudflare dashboard. Then set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`,
+        );
+      }
       return [
         'deploy: Cloudflare bootstrapped the first Worker deployment, but Wrangler',
-        'did not report its version id and workers.dev URL. Inspect `void project status` before retrying.',
+        'did not report its version id. Inspect `void project status` before retrying.',
       ].join('\n');
     case 'bootstrap-readiness-failed':
       return (
@@ -572,6 +656,15 @@ export function formatCloudflareActivationError(
         ].join('\n') + diagnostic
       );
     case 'bootstrap-readiness-access-denied':
+      if (result.customRouteReadinessOrigin) {
+        return [
+          'deploy: Cloudflare Access blocked the first Worker deployment readiness probe.',
+          'Cloudflare requires the first deployment to be non-versioned, so the new Worker is already active behind Access.',
+          ...customRouteAccessHint(result.customRouteReadinessOrigin),
+          'Later deploys check readiness before traffic moves, so they need the same setting.',
+          ATOMIC_ACCESS_ALTERNATIVE,
+        ].join('\n');
+      }
       return [
         'deploy: Cloudflare Access blocked the first Worker deployment readiness probe.',
         'For CI, set CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET to an admitted service token;',
@@ -596,6 +689,18 @@ export function formatCloudflareActivationError(
   }
 }
 
+/** Explain why a custom-route readiness probe carried no Access credentials. */
+function customRouteAccessHint(origin: string): Array<string> {
+  return [
+    `Void did not send Access credentials to ${origin}. A route or Custom Domain receives them only when CF_ACCESS_READINESS_ORIGIN names its origin.`,
+    `If Access protects ${origin} and admits your credentials, set CF_ACCESS_READINESS_ORIGIN=${origin} with CF_ACCESS_CLIENT_ID and CF_ACCESS_CLIENT_SECRET, or CF_ACCESS_TOKEN. Then retry.`,
+    'Set it only if you control this hostname and it serves this Worker, because Void sends your Access credentials to it.',
+  ];
+}
+
+const ATOMIC_ACCESS_ALTERNATIVE =
+  'For a Worker with Durable Object migration history, `void deploy --platform cloudflare --atomic` publishes without the zero-traffic check. The new version receives traffic first, and the command still exits with an error because Void cannot verify readiness through Access.';
+
 function formatCloudflareReadinessRestoration(
   result: Exclude<CloudflareActivationResult, { ok: true }>,
 ): string {
@@ -611,6 +716,18 @@ function formatCloudflareReadinessRestoration(
     default:
       return 'The failed version remains inactive for inspection; production traffic is unchanged.';
   }
+}
+
+const WORKERS_SUBDOMAIN_EXAMPLE = '(for example "my-team", or "my-team.fed" for FedRAMP High)';
+
+/** Explain a live version whose readiness URL Void could not determine. */
+function formatCloudflarePublishWithoutUrl(published: string, recovery: string): string {
+  return [
+    `deploy: ${published}, but Void could not determine its URL.`,
+    'Void did not update its routes, workers.dev setting, or other triggers, and did not check /__void/ready.',
+    recovery,
+    'Then inspect `void project status` before you deploy again.',
+  ].join('\n');
 }
 
 /** Capture the Access credential used only by the guarded Worker readiness probe. */

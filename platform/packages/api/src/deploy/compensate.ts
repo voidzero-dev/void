@@ -16,6 +16,7 @@ import {
 } from '../db.ts';
 import { sendDeployFailedEmail } from '../email.ts';
 import type { ApiEnv } from '../env.ts';
+import { createIsrStore } from '../isr-store.ts';
 import { type DeployLogger } from '../observability/logger.ts';
 import { ProjectAccessDeniedError } from '../project-access.ts';
 import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.ts';
@@ -478,7 +479,11 @@ export async function recoverFailedDeployment(input: {
       }),
     );
     await cleanupSandboxController();
-    await clearIsrCache(context.env.ISR_CACHE, projectId, failedDeployment.id).catch((e) =>
+    await clearIsrCache(
+      createIsrStore(context.env.STATIC_ASSETS_R2, context.env.ISR_CACHE),
+      projectId,
+      failedDeployment.id,
+    ).catch((e) =>
       logger.error('catch', 'isr_cache_clear_failed', e, {
         deploymentId: failedDeployment.id,
       }),

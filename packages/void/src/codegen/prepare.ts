@@ -2,11 +2,12 @@ import { existsSync, rmSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { join } from 'pathslash';
 import { analyzeApplication } from '../application-routing.ts';
-import { loadVoidAuthConfig } from '../auth/config.ts';
+import { loadVoidAuthConfig, projectAuthConfigImporter } from '../auth/config.ts';
 import { generateVoidAuthDatabaseModule, generateVoidAuthDrizzleSchema } from '../auth/drizzle.ts';
-import { readConfig } from '../config.ts';
+import { getDatabaseCasing, readConfig } from '../config.ts';
 import { discoverSchema } from '../drizzle/discover.ts';
 import { loadLocalEnv } from '../shared/env.ts';
+import { generateAuthTypes } from './auth-types.ts';
 import { generateDbDts } from './db-types.ts';
 import { findEnvFileForPaths, generateEnvTypes } from './env-types.ts';
 import { ensureProjectTsconfig } from './project-tsconfig.ts';
@@ -55,10 +56,19 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
     removeGeneratedFile(outDir, 'env.d.ts', removed);
   }
 
+  if (authConfigPath) {
+    const { dts } = generateAuthTypes(authConfigPath, outDir);
+    writeGeneratedFile(outDir, 'auth.d.ts', dts, written);
+  } else {
+    removeGeneratedFile(outDir, 'auth.d.ts', removed);
+  }
+
   const hasRouteTypes =
     scan.routes.length > 0 || (scan.websockets?.length ?? 0) > 0 || scan.pages.pages.length > 0;
   if (hasRouteTypes) {
-    const { dts } = generateRouteTypes(scan, paths.routesDir, outDir, paths.pagesDir);
+    const { dts } = generateRouteTypes(scan, paths.routesDir, outDir, paths.pagesDir, {
+      typedRoutes: config.routing?.typedRoutes,
+    });
     writeGeneratedFile(outDir, 'routes.d.ts', dts, written);
   } else {
     removeGeneratedFile(outDir, 'routes.d.ts', removed);
@@ -74,7 +84,8 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   }
 
   const schema = discoverSchema(root, paths);
-  const hasDbRuntime = schema != null || authEnabled;
+  // Matches the Vite plugin, which serves its own `void/db` for `database.casing`.
+  const hasDbRuntime = schema != null || authEnabled || getDatabaseCasing(config) !== undefined;
   if (hasDbRuntime) {
     if (generateDbDts(outDir, schema, dialect)) {
       written.push(join('.void', 'db.d.ts'));
@@ -87,7 +98,7 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
     const authRuntime = {
       dialect,
       providers: config.auth?.providers ?? null,
-      userConfig: await loadVoidAuthConfig(authConfigPath),
+      userConfig: await loadVoidAuthConfig(authConfigPath, projectAuthConfigImporter(root)),
     };
     const env = { ...loadLocalEnv(root), ...process.env } as Record<string, unknown>;
     const schemaPath = join(outDir, 'better-auth-schema.ts');

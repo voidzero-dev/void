@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import type { CloudflareCommandResult, CloudflareOperation } from '@void/deploy-cloudflare';
+import { CF_VERSION_SOURCE_MAX_OUTPUT_BYTES } from './cf-command-values.ts';
 import { resolveCloudflareOperationArgv } from './preset.ts';
 
 /** Operations contain public targets only. Secret values travel through stdin. */
@@ -133,7 +134,10 @@ export function createCloudflareProcessRunner(options: {
       encoding: 'utf8',
       shell: false,
       windowsHide: true,
-      maxBuffer: 32 * 1024 * 1024,
+      maxBuffer:
+        operation.type === 'versions.view' && operation.includeSource
+          ? CF_VERSION_SOURCE_MAX_OUTPUT_BYTES
+          : 32 * 1024 * 1024,
       timeout: options.timeoutMs,
       stdio: streaming ? ['inherit', 'inherit', 'inherit'] : ['pipe', 'pipe', 'pipe'],
     });

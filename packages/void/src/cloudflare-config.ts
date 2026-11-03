@@ -6,10 +6,18 @@ import { parseJsoncObject } from './cli/generated-wrangler-config.ts';
 import { TYPED_CONFIG_FILE } from './config-loader.ts';
 import { readConfig } from './config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
+import { ensureGitignoreLines } from './shared/gitignore.ts';
 
 export const MATERIALIZED_CLOUDFLARE_FILE = '.void-wrangler.jsonc';
 export const VOID_LOCK_FILE = 'void.lock.json';
 const PREVIEW_POINTER_FILE = 'preview-deploy-config.json';
+
+/** Add the generated Cloudflare config to `.gitignore` unless a line already ignores it. */
+export function ignoreMaterializedCloudflareConfig(root: string): void {
+  ensureGitignoreLines(root, [MATERIALIZED_CLOUDFLARE_FILE], {
+    [MATERIALIZED_CLOUDFLARE_FILE]: [`/${MATERIALIZED_CLOUDFLARE_FILE}`],
+  });
+}
 
 type JsonObject = Record<string, unknown>;
 type CloudflareState = {

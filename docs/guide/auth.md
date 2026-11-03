@@ -119,7 +119,7 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `getSession()` returns `{ user, session } | null`
 - `requireAuth(c)` returns the authenticated user or throws `401`
 
-Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. See their fields in the [API reference](../reference/api/auth.md#authuser).
+Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 
 ## Behavior
 
@@ -128,6 +128,8 @@ Auth sessions use the same database as your app. Void creates `BETTER_AUTH_SECRE
 Local development needs no secret setup. To preview a production build locally, provide `BETTER_AUTH_SECRET`.
 
 Responses to signed-in requests get `Cache-Control: no-store`, so neither the browser cache nor a shared cache keeps a user's data. A route keeps its own policy when it sets `no-store`, or `private` together with `no-cache`. To answer repeat requests with `304`, use `private, no-cache` with Hono's [`etag()`](https://hono.dev/docs/middleware/builtin/etag) middleware. If you set the `ETag` yourself, make it differ per user, so the `304` doesn't reuse another account's page. The browser cache keeps a copy of a `private, no-cache` page, so the Back button can show it again after the user signs out. Keep the default `no-store` for pages that must not stay in the browser cache.
+
+Static files from your build and `public/` keep their own cache policy for signed-in requests, so the browser reuses cached JavaScript and CSS. When your app handles the request, the policy is marked `private`, and a request that refreshes the session cookie gets `no-store`.
 
 `POST`, `PUT`, `PATCH` and `DELETE` requests and WebSocket connections from another origin don't use the signed-in session unless that origin is in `trustedOrigins`. If a separate frontend calls your app, add its origin there (see [Customization](#customization)). If your routes use their own cookies, check the request `Origin` yourself, for example with Hono's [`csrf()`](https://hono.dev/docs/middleware/builtin/csrf) middleware.
 
@@ -184,7 +186,7 @@ For the full set of available options, see the official [Better Auth options ref
 
 ## Database and Migrations
 
-Auth tables live alongside your app's tables. During local development, Void creates them automatically.
+Auth tables live alongside your app's tables. During local development, Void creates them automatically. While the dev server runs, saving `auth.ts`, or a local file it imports, updates the auth schema Void generates for your app. New auth tables and columns are created in the local database the next time the dev server starts.
 
 Void platforms create auth tables automatically. For a direct Cloudflare deploy, include them in your checked-in migrations:
 

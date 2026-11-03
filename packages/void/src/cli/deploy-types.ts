@@ -47,6 +47,11 @@ export type RunDeployOptions = {
   requireEmail?: boolean;
   /** Publish an existing Durable Object Worker atomically after explicit operator choice. */
   atomic?: boolean;
+  /**
+   * `CF_ACCESS_READINESS_ORIGIN` as recorded before project code ran (`null` when unset).
+   * `--platform cloudflare` only.
+   */
+  readinessAccessOrigin?: string | null;
 };
 
 type DeployDoneEvent = Extract<DeployEvent, { event: 'done' }>;

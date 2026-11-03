@@ -1,10 +1,21 @@
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { extractPageDataFromHtml } from '@void/isr/core';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
+
+const PAGE_DATA_SCRIPT_ID = '__VOID_PAGE_DATA__';
 
 export type PrerenderResult = {
   rendered: Array<string>;
   failed: Array<{ path: string; error: string }>;
 };
+
+export function assertNoPrerenderFailures(failed: PrerenderResult['failed']): void {
+  if (failed.length === 0) {
+    return;
+  }
+  const details = failed.map(({ path, error }) => `  ${path}: ${error}`).join('\n');
+  throw new Error(`${failed.length} page(s) failed to prerender:\n${details}`);
+}
 
 export function outputFileForPath(path: string): string {
   return path === '/' ? 'index.html' : `${path.slice(1)}.html`;
@@ -149,6 +160,13 @@ export async function renderPrerenderPaths(
           try {
             const response = await fetchPath(path);
             const html = await response.text();
+            // Redirects are served by routing and have no HTML or page data to emit.
+            if (
+              [301, 302, 303, 307, 308].includes(response.status) &&
+              response.headers.get('Location')
+            ) {
+              continue;
+            }
             if (!response.ok) {
               const error = `HTTP ${response.status}`;
               result.failed.push({ path, error });
@@ -157,13 +175,22 @@ export async function renderPrerenderPaths(
             }
             mkdirSync(dirname(outputPath), { recursive: true });
             writeFileSync(outputPath, html);
-            if (fetchPageData) {
+            // Reuse the page object the HTML embeds for hydration, re-stringified to drop
+            // the \u003c-style escapes. Deferred props embed unresolved, so those pages
+            // still make the X-VoidPages request. HTML without the script gets no JSON.
+            const embeddedPageData = extractPageDataFromHtml(html);
+            let pageData: unknown;
+            if (embeddedPageData !== null) {
+              pageData = JSON.parse(embeddedPageData);
+            } else if (fetchPageData && html.includes(PAGE_DATA_SCRIPT_ID)) {
               const pageDataResponse = await fetchPageData(path);
               if (pageDataResponse.headers.get('X-VoidPages')) {
-                const pageData = await pageDataResponse.json();
-                mkdirSync(dirname(pageDataPath), { recursive: true });
-                writeFileSync(pageDataPath, JSON.stringify(pageData));
+                pageData = await pageDataResponse.json();
               }
+            }
+            if (pageData !== undefined) {
+              mkdirSync(dirname(pageDataPath), { recursive: true });
+              writeFileSync(pageDataPath, JSON.stringify(pageData));
             }
             result.rendered.push(path);
             onResult?.(path, outputFile);

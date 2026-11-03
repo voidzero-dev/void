@@ -25,6 +25,7 @@ import {
   runInitCommand,
 } from '../../src/cli/init.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
+import { readDeploymentPlatform } from '../../src/cli/project.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
 import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';
@@ -36,6 +37,7 @@ const mockText = vi.fn();
 const mockNote = vi.fn();
 const mockOutro = vi.fn();
 const mockLogWarn = vi.fn();
+const mockLogInfo = vi.fn();
 const mockGetToken = vi.fn();
 const mockGetApiUrl = vi.fn();
 const mockRunLogin = vi.fn();
@@ -132,6 +134,91 @@ describe('init Git arguments', () => {
   );
 });
 
+describe('init scaffold arguments', () => {
+  it('parses scaffold choices and rejects unknown values', () => {
+    expect(
+      parseInitArgs([
+        '--toolchain',
+        'vite',
+        '--framework=vue',
+        '--starter',
+        'static',
+        '--deploy',
+        'none',
+      ]),
+    ).toMatchObject({ toolchain: 'vite', framework: 'vue', starter: 'static', deploy: 'none' });
+    expect(parseInitArgs([])).toMatchObject({
+      toolchain: undefined,
+      framework: undefined,
+      starter: undefined,
+      deploy: undefined,
+    });
+    expect(() => parseInitArgs(['--framework', 'angular'])).toThrow(
+      'init: --framework must be one of react, vue, svelte, solid.',
+    );
+  });
+
+  it('scaffolds from flags without prompting when stdin is not a terminal', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-flags-'));
+    try {
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => false });
+      await runInitCommand(
+        root,
+        parseInitArgs([
+          '--toolchain',
+          'vite',
+          '--framework',
+          'react',
+          '--starter',
+          'static',
+          '--deploy',
+          'none',
+        ]),
+      );
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(readDeploymentPlatform(root)).toBe('none');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('fails with the missing flag instead of prompting when stdin is not a terminal', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-flags-missing-'));
+    try {
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => false });
+      await expect(runInitCommand(root, parseInitArgs(['--toolchain', 'vite']))).rejects.toThrow(
+        'init: Pass --framework (react, vue, svelte, solid) when running without an interactive terminal.',
+      );
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(readdirSync(root)).toEqual([]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a missing deployment choice retryable without a terminal', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-flags-retry-'));
+    const flags = ['--toolchain', 'vite', '--framework', 'react', '--starter', 'static'];
+    try {
+      Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => false });
+      await expect(runInitCommand(root, parseInitArgs(flags))).rejects.toThrow(
+        'init: Pass --deploy (cloudflare, void, none) when running without an interactive terminal.',
+      );
+      expect(readdirSync(root)).toEqual([]);
+      expect(mockSpawnSync).not.toHaveBeenCalled();
+      expect(mockSelect).not.toHaveBeenCalled();
+
+      await runInitCommand(root, parseInitArgs([...flags, '--deploy', 'none']));
+      expect(mockSelect).not.toHaveBeenCalled();
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(readDeploymentPlatform(root)).toBe('none');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('GitHub Actions deployment workflows', () => {
   it('requires a selected URL for a Void deployment workflow', () => {
     expect(() => getWorkflowYaml('/project', 'npm', 'my-app', 'void')).toThrow('void connect');
@@ -188,7 +275,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
     success: vi.fn(),
     warn: (...args: Array<unknown>) => mockLogWarn(...args),
     error: vi.fn(),
-    info: vi.fn(),
+    info: (...args: Array<unknown>) => mockLogInfo(...args),
     step: vi.fn(),
   },
   confirm: (...args: Array<unknown>) => mockConfirm(...args),
@@ -447,7 +534,26 @@ function cloudflareOperationType(args: unknown): string | undefined {
   }
 }
 
+// Prompts are mocked, so give init a terminal to prompt in. CI stays set, as
+// in CI runs, so Git and AGENTS.md setup keep skipping their prompts.
+const stdinTtyDescriptor = Object.getOwnPropertyDescriptor(process.stdin, 'isTTY');
+let previousCI: string | undefined;
+
+function restoreInteractiveTerminal(): void {
+  if (previousCI === undefined) {
+    delete process.env.CI;
+  } else {
+    process.env.CI = previousCI;
+  }
+  if (stdinTtyDescriptor) {
+    Object.defineProperty(process.stdin, 'isTTY', stdinTtyDescriptor);
+  } else {
+    Reflect.deleteProperty(process.stdin, 'isTTY');
+  }
+}
+
 afterEach(() => {
+  restoreInteractiveTerminal();
   delete process.env.VOID_PLATFORM_REGISTRY_DIR;
   rmSync(platformRegistryDirectory, { recursive: true, force: true });
   mockSpawnSync.mockReset();
@@ -457,6 +563,7 @@ afterEach(() => {
   mockNote.mockReset();
   mockOutro.mockReset();
   mockLogWarn.mockReset();
+  mockLogInfo.mockReset();
   mockGetToken.mockReset();
   mockGetApiUrl.mockReset();
   mockRunLogin.mockReset();
@@ -467,6 +574,9 @@ afterEach(() => {
 });
 
 beforeEach(() => {
+  previousCI = process.env.CI;
+  process.env.CI = 'true';
+  Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => true });
   platformRegistryDirectory = mkdtempSync(join(tmpdir(), 'void-init-platform-registry-'));
   process.env.VOID_PLATFORM_REGISTRY_DIR = platformRegistryDirectory;
   savePlatformConnection({
@@ -1095,6 +1205,7 @@ describe('isScaffoldableEmptyProject', () => {
               dev: 'vp dev',
               build: 'vp build',
               preview: 'vp preview',
+              postinstall: 'void prepare',
             },
             dependencies: {
               hono: '^4.11.9',
@@ -1200,8 +1311,8 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.react).toBeDefined();
       expect(pkg.dependencies['react-dom']).toBeDefined();
       expect(pkg.dependencies.hono).toBeDefined();
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.2.0');
+      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies.typescript).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
@@ -1211,11 +1322,37 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(pkg.scripts.build).toBe('vp build');
       expect(pkg.scripts.preview).toBe('vp preview');
+      expect(pkg.scripts.postinstall).toBe('void prepare');
 
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
       expect(reactViteConfig).toContain('from "@void/react/plugin"');
       expect(reactViteConfig).toContain('voidReact({ react: { compiler: true } })');
-      expect(readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8')).toContain('Welcome to Void');
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).toContain('The list below is loaded from your database in');
+      expect(page).toContain('href="/api/hello"');
+      expect(page).toContain('void db seed');
+      expect(page).not.toContain('no database or server code yet');
+      expect(page).not.toContain('Void +');
+      expect(page).toContain('src="/react.svg"');
+      expect(page).toContain('import "./style.css"');
+      expect(page).toContain('messages.map');
+      expect(page).toContain('useForm');
+      expect(page).toContain('<Form form={form}');
+      expect(page).toContain('No messages yet.');
+      expect(readFileSync(join(root, 'pages', 'style.css'), 'utf-8')).toContain(
+        'prefers-color-scheme: dark',
+      );
+      expect(readFileSync(join(root, 'pages', 'vite-env.d.ts'), 'utf-8')).toContain(
+        'reference types="vite/client"',
+      );
+      expect(readFileSync(join(root, 'public', 'void.svg'), 'utf-8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'react.svg'), 'utf-8')).toContain('<svg');
+      expect(readFileSync(join(root, 'public', 'stack.svg'), 'utf-8')).toContain('<svg');
+      expect(page).toContain('src="/stack.svg"');
+      expect(readFileSync(join(root, 'public', 'icons.svg'), 'utf-8')).toContain(
+        'id="documentation-icon"',
+      );
       expect(readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toContain(
         'import { messages } from "@schema";',
       );
@@ -1240,6 +1377,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(() => readFileSync(join(root, 'index.html'), 'utf-8')).toThrow(/ENOENT/);
       expect(() => readFileSync(join(root, 'src', 'main.ts'), 'utf-8')).toThrow(/ENOENT/);
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         },
@@ -1274,6 +1412,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.devDependencies.void).toBeDefined();
 
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         database: 'pg',
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
@@ -1283,7 +1422,12 @@ describe('isScaffoldableEmptyProject', () => {
       const vueViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
       expect(vueViteConfig).toContain('from "@void/vue/plugin"');
       expect(vueViteConfig).toContain('voidVue()');
-      expect(readFileSync(join(root, 'pages', 'index.vue'), 'utf-8')).toContain('Welcome to Void');
+      const page = readFileSync(join(root, 'pages', 'index.vue'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).not.toContain('Void +');
+      expect(page).toContain('src="/vue.svg"');
+      expect(page).toContain('v-for="message in messages"');
+      expect(page).toContain('<Form :form="form"');
       expect(readFileSync(join(root, 'db', 'schema.ts'), 'utf-8')).toContain(
         'from "void/schema-pg"',
       );
@@ -1380,17 +1524,23 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.hono).toBeDefined();
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.2.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
+      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
+      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
       expect(pkg.packageManager).toBeUndefined();
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
       expect(installCalls()[0][0]).toBe('vp');
       expect(pkg.scripts.dev).toBe('vp dev');
 
-      expect(readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8')).toContain(
-        'no database or server code yet',
+      const page = readFileSync(join(root, 'pages', 'index.tsx'), 'utf-8');
+      expect(page).toContain('Welcome to Void');
+      expect(page).toContain(
+        'This starter is running in Pages mode with no database or server code yet.',
       );
+      expect(page).toContain('you want to grow into full-stack features.');
+      expect(page).not.toContain('href="/api/hello"');
+      expect(page).not.toContain('useForm');
+      expect(page).not.toContain('<Form');
 
       expect(() => readFileSync(join(root, 'pages', 'index.server.ts'), 'utf-8')).toThrow();
       expect(() => readFileSync(join(root, 'routes', 'api', 'hello.ts'), 'utf-8')).toThrow();
@@ -1400,6 +1550,7 @@ describe('isScaffoldableEmptyProject', () => {
         readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8'),
       ).toThrow();
       expect(readConfig(root)).toEqual({
+        routing: { typedRoutes: true },
         worker: {
           compatibility_date: LATEST_KNOWN_COMPAT_DATE,
         },
@@ -1435,13 +1586,13 @@ describe('isScaffoldableEmptyProject', () => {
         );
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-        expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
+        expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {
-          expect(pkg.overrides.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
+          expect(pkg.overrides.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
         } else if (packageManager.startsWith('yarn@')) {
-          expect(pkg.resolutions.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
+          expect(pkg.resolutions.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
         }
       } finally {
         rmSync(root, { recursive: true, force: true });
@@ -1516,7 +1667,7 @@ describe('isScaffoldableEmptyProject', () => {
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.2.0');
+      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
       expect(pkg.devDependencies.void).toBe('^0.8.9');
       expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8')).toContain(
         'voidReact({ react: { compiler: true } })',
@@ -1551,10 +1702,10 @@ describe('isScaffoldableEmptyProject', () => {
 
       const appRoot = join(root, 'my-new-app');
       const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf-8'));
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.2.0');
+      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf-8')).toContain(
-        'no database or server code yet',
+        'Welcome to Void',
       );
 
       const locationPrompt = mockSelect.mock.calls[0]?.[0];
@@ -2669,11 +2820,11 @@ export default config;
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.2.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.2.0');
+      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
+      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
       expect(pkg.devDependencies.void).toBe('^0.2.3');
       expect(pkg.devDependencies['@void/react']).toBe('^0.2.3');
-      expect(pkg.devDependencies['oxc-transform-react']).toBe('^0.149.0');
+      expect(pkg.devDependencies['oxc-transform-react']).toBe('^0.152.0');
       expectPnpmAllowBuilds(root);
 
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
@@ -2736,10 +2887,80 @@ export default config;
       rmSync(root, { recursive: true, force: true });
     }
   });
+  it('keeps database.casing when switching from pg to sqlite', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { dialect: 'pg', casing: 'snake_case' } }, null, 2) + '\n',
+      );
+      mockSelect.mockResolvedValueOnce('sqlite');
+      mockConfirm
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(readConfig(root)).toEqual({
+        database: { casing: 'snake_case' },
+        worker: {
+          compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps a pg database object with casing when choosing pg', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { dialect: 'pg', casing: 'snake_case' } }, null, 2) + '\n',
+      );
+      mockSelect.mockResolvedValueOnce('postgresql');
+      mockConfirm
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(mockLogInfo).toHaveBeenCalledWith('PostgreSQL already configured in void.config.ts');
+      expect(readConfig(root).database).toEqual({ dialect: 'pg', casing: 'snake_case' });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('removes the pg config when choosing no database yet', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {
       writeFileSync(join(root, 'void.json'), JSON.stringify({ database: 'pg' }, null, 2) + '\n');
+      mockSelect.mockResolvedValueOnce('none');
+      mockConfirm.mockResolvedValueOnce(false);
+
+      await runInitCommand(root);
+
+      expect(readConfig(root)).toEqual({
+        worker: {
+          compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        },
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('removes a casing-only database config when choosing no database yet', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ database: { casing: 'snake_case' } }, null, 2) + '\n',
+      );
       mockSelect.mockResolvedValueOnce('none');
       mockConfirm.mockResolvedValueOnce(false);
 
@@ -3355,6 +3576,52 @@ export default config;
       }
     },
   );
+
+  it.each([
+    ['db/schema.ts', 'Project already has a database schema, skipping demo'],
+    ['src/demo.ts', 'Project already has src/demo.ts, skipping demo'],
+  ])('keeps an existing %s and skips the whole demo', async (existingFile, message) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+      const authored = 'export const authored = "keep me";\n';
+      mkdirSync(join(root, existingFile, '..'), { recursive: true });
+      writeFileSync(join(root, existingFile), authored);
+      mockConfirm.mockImplementation((options: { message?: string }) =>
+        String(options.message).startsWith('Scaffold demo code?'),
+      );
+
+      await runInitCommand(root);
+
+      expect(readFileSync(join(root, existingFile), 'utf-8')).toBe(authored);
+      expect(mockLogInfo).toHaveBeenCalledWith(message);
+      const prompts = mockConfirm.mock.calls.map(([options]) => String(options?.message));
+      expect(prompts.some((prompt) => prompt.startsWith('Scaffold demo code?'))).toBe(false);
+      for (const demoFile of ['db/schema.ts', 'routes/api/posts.ts', 'src/demo.ts']) {
+        if (demoFile !== existingFile) {
+          expect(existsSync(join(root, demoFile))).toBe(false);
+        }
+      }
+      expect(drizzleGenerateCalls()).toHaveLength(0);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('scaffolds every demo file in a project without a schema', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    try {
+      writeExistingViteApp(root, { void: '^0.0.1' });
+
+      await runInitWithDemo(root);
+
+      for (const demoFile of ['db/schema.ts', 'routes/api/posts.ts', 'src/demo.ts']) {
+        expect(existsSync(join(root, demoFile))).toBe(true);
+      }
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it('runs starter migration with injected PnP NODE_OPTIONS in a Yarn Berry PnP project', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));

@@ -14,6 +14,7 @@ import {
   PlatformClient,
   type EmailDomainResponse,
   type EmailOperationResponse,
+  type EmailSharedInbound,
 } from './client.ts';
 import {
   createDeployWranglerRunner,
@@ -49,7 +50,7 @@ export async function runEmailCommand(root: string, args: EmailArgs): Promise<vo
   }
   if (args.subcommand === 'setup') {
     log.error(
-      'email: `void email setup` sets email up on your OWN Cloudflare account — run it with `--platform cloudflare`. The Void platform needs no setup: deploy, and `void email usage` shows your address.',
+      'email: `void email setup` sets email up on your OWN Cloudflare account — run it with `--platform cloudflare`. The Void platform needs no setup: deploy, and `void email alias` shows your address.',
     );
     process.exit(1);
   }
@@ -81,6 +82,8 @@ export async function runEmailCommand(root: string, args: EmailArgs): Promise<vo
       return emailAllow(client, projectId, args.address!);
     case 'disallow':
       return emailDisallow(client, projectId, args.address!);
+    case 'alias':
+      return emailAlias(client, projectId, args.address, { yes: args.yes === true });
     case 'domain':
       return runEmailDomainCommand(client, projectId, args);
   }
@@ -96,6 +99,74 @@ async function emailUsage(client: PlatformClient, projectId: string): Promise<vo
     `Inbound receipts:   ${usage.received}`,
   ];
   note(lines.join('\n'), 'Email Usage');
+}
+
+export async function emailAlias(
+  client: Pick<PlatformClient, 'getEmailSettings' | 'setEmailAlias'>,
+  projectId: string,
+  name: string | undefined,
+  opts: { yes: boolean; isInteractive?: boolean } = { yes: false },
+): Promise<void> {
+  if (!name) {
+    const settings = await client.getEmailSettings(projectId);
+    const shared = settings.sharedInbound;
+    const domain =
+      settings.sharedDomain ??
+      (shared ? shared.recipient.slice(shared.recipient.lastIndexOf('@') + 1) : null);
+    const name = settings.emailAlias ?? settings.domains.projectSlug;
+    if (!domain || !name) {
+      log.info('This platform has no shared mail domain.');
+      return;
+    }
+    const address = `${name}@${domain}`;
+    const lines = [`Address:  ${address}`, `Inbound:  ${inboundLine(shared, address)}`];
+    if (settings.emailAlias && settings.domains.projectSlug) {
+      lines.push(`Also:     ${settings.domains.projectSlug}@${domain} (the project slug)`);
+    }
+    note(lines.join('\n'), 'Shared mail address');
+    if (!settings.emailAlias) {
+      log.info('Run `void email alias <name>` to give this address a shorter, permanent name.');
+    }
+    return;
+  }
+  if (!opts.yes) {
+    if (!(opts.isInteractive ?? (process.stdin.isTTY && process.stdout.isTTY))) {
+      log.error('email: the alias is permanent. Pass --yes to set it without a prompt.');
+      process.exit(1);
+    }
+    const ok = await confirm({
+      message: `Set the permanent email alias "${name}"? It cannot be changed or removed later; the slug address keeps working.`,
+      initialValue: false,
+    });
+    if (isCancel(ok) || !ok) {
+      log.info('Cancelled. No alias was set.');
+      return;
+    }
+  }
+  const result = await client.setEmailAlias(projectId, name);
+  printSuccess(`Email alias set: ${result.address}`);
+  const status = result.sharedInbound?.status;
+  if (status && status !== 'ready') {
+    const other =
+      result.sharedInbound!.recipient === result.address
+        ? ''
+        : ` at ${result.sharedInbound!.recipient}`;
+    log.info(
+      `Inbound mail${other} is ${status}${result.sharedInbound?.reason ? `: ${result.sharedInbound.reason}` : ''}. It starts working once the project has an email handler deployed and routing is ready; check with \`void email alias\`.`,
+    );
+  }
+}
+
+/**
+ * The inbound status covers every name of the project, so name the address
+ * it belongs to when that is not the one shown (the slug row can be the one
+ * not ready yet).
+ */
+function inboundLine(shared: EmailSharedInbound | null | undefined, address: string): string {
+  if (!shared) {
+    return 'not set up on this platform';
+  }
+  return shared.recipient === address ? shared.status : `${shared.status} (${shared.recipient})`;
 }
 
 async function emailDestinations(client: PlatformClient, projectId: string): Promise<void> {
@@ -470,7 +541,7 @@ export async function emailDomainAdd(
   // A foreign MX on the apex stops here; an unreadable one is left to the platform, which
   // re-checks over public DNS.
   const dns = deps.dns ?? (await createNodeEmailDns());
-  const checkApexMx = async (): Promise<void> => {
+  const checkApexMx = async (adminProject?: string): Promise<void> => {
     const mx = await probeMx(dns, domain);
     if (mx.state === 'unknown') {
       log.info(
@@ -478,7 +549,11 @@ export async function emailDomainAdd(
       );
     } else if (mx.state === 'foreign') {
       fail(
-        `email: ${domain} already receives mail from another provider. Platform custom inbound email requires an unused Cloudflare zone apex; choose another apex or use the platform shared mail address.`,
+        `email: ${domain} already receives mail from another provider. Platform custom inbound email requires an unused Cloudflare zone apex; choose another apex or use the platform shared mail address.${
+          adminProject
+            ? ` To only send from ${domain}, ask your administrator to run \`void platform email domain-add ${domain} --project ${adminProject} --outbound-only\`.`
+            : ''
+        }`,
       );
     } else {
       log.info(`MX        using the requested apex ${domain}`);
@@ -493,8 +568,8 @@ export async function emailDomainAdd(
     const rows = await client.listEmailDomains(projectId);
     renewal = rows.some((row) => row.domain === domain && row.managed_by !== 'admin');
     if (!renewal) {
-      await checkApexMx();
       const project = settings.domains.projectSlug ?? projectId;
+      await checkApexMx(project);
       log.info(
         [
           'Email domains on this platform are managed by its administrator.',

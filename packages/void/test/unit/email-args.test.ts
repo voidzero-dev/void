@@ -53,6 +53,7 @@ describe('parseEmailArgs', () => {
 
   it('errors on unknown subcommand', () => {
     expect(() => parseEmailArgs(['nope'])).toThrow(/email: Usage:/);
+    expect(() => parseEmailArgs(['nope'])).toThrow('|disallow|alias|domain|');
   });
 
   it('errors when allow is missing the address', () => {
@@ -239,6 +240,69 @@ describe('parseEmailArgs', () => {
     expect(() => parseEmailArgs(['status', 'acme.com', '--platform', 'cloudflare'])).toThrow(
       /`void email status --platform cloudflare` takes no argument/,
     );
+  });
+
+  it('parses alias with and without a name', () => {
+    expect(parseEmailArgs(['alias'])).toEqual({
+      subcommand: 'alias',
+      projectSlug: undefined,
+      limit: undefined,
+      address: undefined,
+      platform: undefined,
+    });
+    expect(parseEmailArgs(['alias', 'short', '--project', 'my-app'])).toEqual({
+      subcommand: 'alias',
+      projectSlug: 'my-app',
+      limit: undefined,
+      address: 'short',
+      platform: undefined,
+    });
+  });
+
+  it('parses alias --yes before or after the name', () => {
+    expect(parseEmailArgs(['alias', 'short', '--yes'])).toEqual({
+      subcommand: 'alias',
+      projectSlug: undefined,
+      limit: undefined,
+      address: 'short',
+      platform: undefined,
+      yes: true,
+    });
+    expect(parseEmailArgs(['alias', '--yes', 'short'])).toMatchObject({
+      address: 'short',
+      yes: true,
+    });
+    // Without a name there is nothing to confirm; the flag is harmless.
+    expect(parseEmailArgs(['alias', '--yes'])).toMatchObject({
+      address: undefined,
+      yes: true,
+    });
+  });
+
+  it('errors when alias receives more than one name', () => {
+    expect(() => parseEmailArgs(['alias', 'one', 'two'])).toThrow(
+      'email: `void email alias` takes exactly one positional argument (got 2: "one", "two").',
+    );
+  });
+
+  it('rejects --platform cloudflare on alias', () => {
+    expect(() => parseEmailArgs(['alias', '--platform', 'cloudflare'])).toThrow(
+      'email: --platform cloudflare applies to `void email status` and `void email setup` only (`alias` is a Void platform command).',
+    );
+  });
+
+  // `--yes` is an alias-only flag: elsewhere it is not read as a flag at all, so it
+  // never sets `yes` and counts as a positional like any other unknown word.
+  it('does not accept --yes on the other subcommands', () => {
+    expect(() => parseEmailArgs(['allow', 'a@x.dev', '--yes'])).toThrow(
+      'email: `void email allow` takes exactly one positional argument (got 2: "a@x.dev", "--yes").',
+    );
+    expect(() => parseEmailArgs(['disallow', 'a@x.dev', '--yes'])).toThrow(
+      /takes exactly one positional argument/,
+    );
+    const usage = parseEmailArgs(['usage', '--yes']);
+    expect(usage.yes).toBeUndefined();
+    expect(usage.address).toBe('--yes');
   });
 
   it('rejects --backend', () => {

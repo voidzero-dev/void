@@ -53,6 +53,92 @@ describe('Cloudflare command diagnostics', () => {
     ).toBe('┌ APIError\n│ [10000] Worker upload failed.\n└');
   });
 
+  it('keeps an error box and its advice on stderr without the binding table before it', () => {
+    expect(
+      cloudflareCommandDiagnostic({
+        status: 1,
+        stdout: '',
+        // cf 1.0.0-beta.21 and later print upload progress and bindings on stderr.
+        stderr: [
+          '├  Upload',
+          '│  Your Worker has access to the following bindings:',
+          '│  Binding                               Resource',
+          '│  env.PRIVATE_VALUE ("do-not-echo")     Environment Variable',
+          '|  env.ASCII_VALUE ("do-not-echo")       Environment Variable',
+          '│',
+          '',
+          '┌ APIError',
+          '│ [10000] Authentication error [code: 10000]',
+          '│',
+          '│ 403 Forbidden',
+          '└',
+          '',
+          '→ Check your API token permissions',
+        ].join('\n'),
+      }),
+    ).toBe(
+      '┌ APIError\n│ [10000] Authentication error [code: 10000]\n│\n│ 403 Forbidden\n└\n\n→ Check your API token permissions',
+    );
+    expect(
+      cloudflareCommandDiagnostic({
+        status: 1,
+        stdout: '',
+        stderr: '├  Upload\n│  env.PRIVATE_VALUE ("do-not-echo")\nUpload stopped.',
+      }),
+    ).toBe('Upload stopped.');
+    expect(
+      cloudflareCommandDiagnostic({
+        status: 1,
+        stdout: '',
+        stderr: '├  Upload\n│  env.PRIVATE_VALUE ("do-not-echo")\n◆  Version upload complete',
+      }),
+    ).toBeUndefined();
+  });
+
+  it('reports upload conflicts from either stream without the config diff', () => {
+    const abort =
+      'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag';
+    const reason = 'You are about to upload a Worker that was last updated via the script API.';
+    const scriptApi = [
+      '├  Upload',
+      `▲  ${reason}`,
+      '│  Edits that have been made via the script API will be overridden by your local code and config.',
+      `■  ${abort}`,
+      '◆  Version upload complete',
+    ].join('\n');
+    // cf 1.0.0-beta.21 and later print upload messages on stderr, earlier releases on stdout.
+    for (const [stdout, stderr] of [
+      ['', scriptApi],
+      [scriptApi, ''],
+      // Without a Unicode terminal, cf prints fallback symbols.
+      ['', scriptApi.replace('▲', '!').replace('■', 'x').replace('│', '|').replace('◆', '*')],
+    ]) {
+      expect(cloudflareCommandDiagnostic({ status: 1, stdout: stdout!, stderr: stderr! })).toBe(
+        `${reason}\n${abort}`,
+      );
+    }
+    expect(
+      cloudflareCommandDiagnostic({
+        status: 1,
+        stdout: '',
+        stderr: [
+          '├  Upload',
+          '▲  The local configuration being used (generated from your local configuration file) differs from the remote configuration of your Worker set via the Cloudflare Dashboard:',
+          '│   {',
+          '│     vars: {',
+          '│  -    REMOTE_VALUE: "do-not-echo"',
+          `│  +    LOCAL_VALUE: "${abort} do-not-echo"`,
+          '│     }',
+          '│   }',
+          '│',
+          '│  Uploading the Worker will override the remote configuration with your local one.',
+          `■  ${abort}`,
+          '◆  Version upload complete',
+        ].join('\n'),
+      }),
+    ).toBe(abort);
+  });
+
   it('retains plain stderr and process-spawn failures', () => {
     expect(
       cloudflareCommandDiagnostic({ status: 1, stdout: '', stderr: 'Unknown argument: strict' }),

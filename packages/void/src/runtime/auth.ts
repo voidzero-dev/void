@@ -1,10 +1,37 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import type { BetterAuthOptions, Session, User } from 'better-auth';
+import type { Auth, BetterAuthOptions, Session, User } from 'better-auth';
 import type { Context, Env } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 
-export type AuthUser = User;
-export type AuthSession = Session;
+/**
+ * Filled in by the generated `.void/auth.d.ts` with the user and session types
+ * Better Auth infers from the app's `auth.ts`. Empty when the app has no
+ * `auth.ts`, so `AuthUser`/`AuthSession` fall back to Better Auth's base shapes.
+ *
+ * `AuthUser`/`AuthSession` stay type aliases (not merged interfaces) so they
+ * remain assignable to `Record<string, unknown>`, and a union config (a function
+ * form that returns different shapes per branch) stays a valid union type.
+ */
+export interface VoidAuthTypes {}
+
+/**
+ * Better Auth's inferred `{ user, session }` for an `auth.ts` default export.
+ * Used by the generated `.void/auth.d.ts`; it lives here so `better-auth`
+ * resolves from Void's own dependencies, not the app's.
+ *
+ * An `any` default export (an `auth.js` without `allowJs`, or an import that
+ * does not resolve) keeps Better Auth's base shapes instead of a user type that
+ * accepts any key. The tuple check also catches the error `any` of an untyped
+ * import.
+ */
+export type InferAuthSession<T> = [unknown] extends [T]
+  ? { user: User; session: Session }
+  : Auth<
+      Extract<T extends (...args: Array<never>) => infer R ? R : T, BetterAuthOptions>
+    >['$Infer']['Session'];
+
+export type AuthUser = VoidAuthTypes extends { user: infer U } ? U : User;
+export type AuthSession = VoidAuthTypes extends { session: infer S } ? S : Session;
 
 export type AuthState = {
   session: AuthSession;

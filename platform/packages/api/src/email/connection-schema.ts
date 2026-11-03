@@ -121,6 +121,8 @@ export const emailZoneConnections = pgTable(
 );
 
 /** An exact SMTP envelope domain, with a single project assignment or shared addressing. */
+export type EmailInboundMode = 'managed' | 'none';
+
 export const emailDomainRoutes = pgTable(
   'email_domain_routes',
   {
@@ -137,6 +139,9 @@ export const emailDomainRoutes = pgTable(
       .notNull()
       .default('active')
       .$type<'active' | 'disabled' | 'removed'>(),
+    // 'none': outbound only. Inbound mail stays with the domain's own MX provider, so setup
+    // never touches Email Routing and the route never becomes inbound-ready.
+    inbound_mode: text('inbound_mode').notNull().default('managed').$type<EmailInboundMode>(),
     inbound_status: text('inbound_status')
       .notNull()
       .default('pending')
@@ -164,6 +169,10 @@ export const emailDomainRoutes = pgTable(
     check(
       'email_domain_routes_assignment_check',
       sql`(${table.addressing} = 'custom' AND ${table.project_id} IS NOT NULL) OR (${table.addressing} = 'shared' AND ${table.project_id} IS NULL)`,
+    ),
+    check(
+      'email_domain_routes_inbound_mode_check',
+      sql`${table.inbound_mode} = 'managed' OR (${table.inbound_mode} = 'none' AND ${table.addressing} = 'custom')`,
     ),
   ],
 );

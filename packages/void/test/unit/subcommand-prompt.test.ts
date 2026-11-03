@@ -1,6 +1,7 @@
 import { PassThrough, Writable } from 'node:stream';
 import { stripVTControlCharacters } from 'node:util';
 import {
+  S_BAR,
   S_RADIO_ACTIVE,
   S_STEP_ACTIVE,
   S_CHECKBOX_SELECTED,
@@ -142,7 +143,7 @@ it('keeps flag selection, typed values, and focus distinct', async () => {
       ],
     },
   ]);
-  expect(prompt.frame()).not.toContain('│');
+  expect(prompt.frame()).not.toContain(S_BAR);
   prompt.key('\r');
   expect(prompt.frame()).toContain(S_RADIO_ACTIVE + ' ' + S_CHECKBOX_INACTIVE + ' --output');
   prompt.key('data.sql');
@@ -193,7 +194,7 @@ it('follows the shared guide setting and shows hints only on the focused command
     { name: 'init', description: 'Create an app', hint: '--react' },
     { name: 'deploy', description: 'Deploy an app', hint: '--platform' },
   ]);
-  expect(prompt.frame()).toContain('│');
+  expect(prompt.frame()).toContain(S_BAR);
   expect(prompt.frame()).toContain('--react');
   expect(prompt.frame()).not.toContain('--platform');
   prompt.key('\x1B[B');

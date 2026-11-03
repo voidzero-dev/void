@@ -67,6 +67,7 @@ File-based HTTP API endpoints built on [Hono](https://hono.dev). Each file expor
 <RoutesFileTree />
 
 - **Named exports**: `export const GET = defineHandler(...)`, `export const POST = ...`
+- **Extensions**: `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, or `.mjs`; use `.tsx` or `.jsx` for JSX handlers
 - **Dynamic segments**: `[id]` becomes `:id` route parameter
 - **Catch-all**: `[...slug]` matches the remaining path
 - **Route groups**: `(admin)/` organizes files without affecting URL paths
@@ -81,9 +82,10 @@ Full-stack server-rendered pages with co-located data loading. Available with Vu
 
 <PagesFileTree />
 
-- **`.server.ts` files** export `loader` for `GET` data and `action` for mutations, paired with the page component of the same name
+- **`.server.ts` (or `.tsx`, `.js`, `.jsx`, `.mts`, `.mjs`) files** export `loader` for `GET` data and `action` for mutations, paired with the page component of the same name
 - **Layouts** nest automatically and persist across navigations
 - **Markdown** pages are supported with frontmatter
+- **Environment suffix**: `debug.dev.tsx` is served in development only, `stats.prod.tsx` in production only
 
 See [Pages Routing](/guide/pages-routing/overview) for the full guide.
 

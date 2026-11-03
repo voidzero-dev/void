@@ -106,4 +106,4 @@ export default defineRender(async (c, assetTags) => {
 });
 ```
 
-Server-side calls forward the incoming request's `cookie` and `authorization` headers. Explicit headers take precedence.
+Server-side calls to your app forward the incoming request's `cookie` and `authorization` headers. Explicit headers take precedence. For an external `baseURL`, supply authentication headers explicitly.

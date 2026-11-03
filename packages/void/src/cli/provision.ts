@@ -22,6 +22,7 @@ import { parse, type ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import lockfile from 'proper-lockfile';
 import { voidLog, voidWarn } from '../log.ts';
+import type { CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { scanWranglerDotenvKeys } from '../shared/dotenv.ts';
 import {
   encodeCloudflareOperation,
@@ -46,6 +47,8 @@ export interface DesiredResourceSet {
   r2?: { binding: string; bucketName: string };
   /** Queue resource NAMES to ensure exist (account-unique). */
   queues: Array<string>;
+  /** Each `queues/` name to its entry in `queues`; set by `void deploy`. */
+  queueNames?: CloudflareQueueNames;
   /** Hyperdrive config — a connection string is required only to CREATE one. */
   hyperdrive?: { binding: string; name: string; connectionString: string };
 }
@@ -264,8 +267,9 @@ const defaultLogger: ProvisionLogger = {
 };
 
 /**
- * Env vars that move wrangler's API transport to another endpoint or select another config
- * env. Provisioning pins one base ({@link provisionEnv}) and rejects them in project dotenv.
+ * Env vars that move the Cloudflare CLI's API transport to another endpoint or select another
+ * config env. Provisioning pins one base ({@link provisionEnv}) and rejects them in project
+ * dotenv.
  */
 const TRANSPORT_REDIRECT_ENV_VARS = [
   'CLOUDFLARE_API_BASE_URL',
@@ -286,7 +290,7 @@ const OUTPUT_FILE_ENV_VARS = [
 
 /**
  * The one API base URL this provision uses, resolved like wrangler's `getCloudflareApiBaseUrl`
- * so the Hyperdrive REST lister and wrangler agree:
+ * so the Hyperdrive REST lister and the Cloudflare CLI agree:
  *   1. a present `CLOUDFLARE_API_BASE_URL` (then `CF_API_BASE_URL`) is used as-is, even empty;
  *   2. otherwise the staging and compliance selectors derive it, and invalid values fail;
  *   3. the config's `compliance_region` is always validated.
@@ -297,7 +301,7 @@ export function resolvePinnedApiBaseUrl(
 ): string {
   const configRegion =
     configComplianceRegion !== undefined
-      ? assertComplianceChoice(configComplianceRegion, 'the wrangler config "compliance_region"')
+      ? assertComplianceChoice(configComplianceRegion, 'the Cloudflare config "compliance_region"')
       : undefined;
   const direct =
     env.CLOUDFLARE_API_BASE_URL !== undefined ? env.CLOUDFLARE_API_BASE_URL : env.CF_API_BASE_URL;
@@ -310,6 +314,31 @@ export function resolvePinnedApiBaseUrl(
   return `https://api${fed}${staging}.cloudflare.com/client/v4`;
 }
 
+/**
+ * The compliance region that names the workers.dev host, resolved like wrangler's
+ * `getComplianceRegionSubdomain`. It reads the same inputs as {@link resolvePinnedApiBaseUrl},
+ * but a direct API base does not skip the region checks, because the base does not name the
+ * workers.dev host. Returns undefined for an invalid or conflicting region, so that a caller
+ * does not guess a host. Without a direct base, the API base resolution fails first.
+ */
+export function resolveWorkersDevComplianceRegion(
+  env: NodeJS.ProcessEnv = process.env,
+  configComplianceRegion?: string,
+): ComplianceRegion | undefined {
+  try {
+    const configRegion =
+      configComplianceRegion !== undefined
+        ? assertComplianceChoice(
+            configComplianceRegion,
+            'the Cloudflare config "compliance_region"',
+          )
+        : undefined;
+    return resolveComplianceRegion(env, configRegion);
+  } catch {
+    return undefined;
+  }
+}
+
 /** `WRANGLER_API_ENVIRONMENT` like wrangler: absent means production; other values fail. */
 function resolveApiEnvironment(env: NodeJS.ProcessEnv): 'production' | 'staging' {
   const raw = env.WRANGLER_API_ENVIRONMENT;
@@ -319,8 +348,8 @@ function resolveApiEnvironment(env: NodeJS.ProcessEnv): 'production' | 'staging'
   if (raw !== 'production' && raw !== 'staging') {
     throw new Error(
       `provision: the WRANGLER_API_ENVIRONMENT environment variable must be one of ` +
-        `"production" or "staging", got ${JSON.stringify(raw)}. wrangler rejects this value, so ` +
-        `provisioning refuses to guess an endpoint; fix or unset it and retry.`,
+        `"production" or "staging", got ${JSON.stringify(raw)}. The Cloudflare tooling rejects ` +
+        `this value, so provisioning refuses to guess an endpoint; fix or unset it and retry.`,
     );
   }
   return raw;
@@ -328,7 +357,7 @@ function resolveApiEnvironment(env: NodeJS.ProcessEnv): 'production' | 'staging'
 
 /** Compliance-region values wrangler accepts. */
 const COMPLIANCE_REGIONS = ['public', 'fedramp_high'] as const;
-type ComplianceRegion = (typeof COMPLIANCE_REGIONS)[number];
+export type ComplianceRegion = (typeof COMPLIANCE_REGIONS)[number];
 
 function assertComplianceChoice(value: string, source: string): ComplianceRegion {
   if (value !== 'public' && value !== 'fedramp_high') {
@@ -355,9 +384,9 @@ function resolveComplianceRegion(
     throw new Error(
       `provision: the Cloudflare compliance region is set to conflicting values — the ` +
         `CLOUDFLARE_COMPLIANCE_REGION environment variable is ${JSON.stringify(envRegion)} but the ` +
-        `wrangler config "compliance_region" is ${JSON.stringify(configRegion)}. wrangler refuses to ` +
-        `run with a mismatched compliance region; reconcile them (remove one, or set them equal) and ` +
-        `retry.`,
+        `Cloudflare config "compliance_region" is ${JSON.stringify(configRegion)}. The Cloudflare ` +
+        `tooling refuses to run with a mismatched compliance region; reconcile them (remove one, or ` +
+        `set them equal) and retry.`,
     );
   }
   return envRegion ?? configRegion ?? 'public';
@@ -461,6 +490,7 @@ export function provisionEnv(ctx?: {
   scrub('CF_ACCESS_TOKEN');
   scrub('VOID_ACCESS_CREDENTIALS');
   scrub('VOID_ACCESS_ORIGIN');
+  scrub('CF_ACCESS_READINESS_ORIGIN');
   for (const name of TRANSPORT_REDIRECT_ENV_VARS) {
     scrub(name);
   }

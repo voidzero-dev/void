@@ -5,7 +5,7 @@ import {
   type DeployArtifact,
 } from '@void/deploy-core';
 import { browserPageLead, escapeBrowserHtml } from '@void/platform/browser-page';
-import { and, eq, gt, isNull, desc } from 'drizzle-orm';
+import { and, eq, gt, isNull, desc, or } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { getCookie, setCookie, deleteCookie } from 'hono/cookie';
@@ -16,6 +16,7 @@ import {
   activeOAuthClient,
   activeOAuthGrant,
   authenticateOAuthClient,
+  hasLiveRefreshToken,
   oauthBearer,
   OAuthError,
 } from '../auth/oauth.ts';
@@ -24,12 +25,13 @@ import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { validateHumanSession } from '../auth/sessions.ts';
 import { platformBrowserPage, platformBrowserError } from '../browser-page.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { consumeCliAuthCode, getProjectBySlug, getUser } from '../db.ts';
+import { consumeCliAuthCode, getProjectBySlug, getUser, type DbOrTx } from '../db.ts';
 import { isDevBypass, type ApiEnv } from '../env.ts';
-import { oauthClients, oauthGrants, oauthRequests } from '../schema.ts';
+import { MAX_SLUG_LENGTH } from '../project-names.ts';
+import { oauthClients, oauthGrants, oauthRefreshTokens, oauthRequests } from '../schema.ts';
 import { isAdminSuspended } from '../suspension.ts';
 import previews from './previews.ts';
-import { createUserProject, MAX_SLUG_LENGTH } from './projects.ts';
+import { createUserProject } from './projects.ts';
 
 const app = new Hono<ApiEnv>();
 const FLOW_SECONDS = 300;
@@ -47,7 +49,7 @@ export function oauthMetadata(context: Context<ApiEnv>) {
     revocation_endpoint: issuer + '/oauth/revoke',
     userinfo_endpoint: issuer + '/oauth/userinfo',
     response_types_supported: ['code'],
-    grant_types_supported: ['authorization_code'],
+    grant_types_supported: ['authorization_code', 'refresh_token'],
     scopes_supported: ['profile', 'deploy:approve', 'preview:deploy'],
     token_endpoint_auth_methods_supported: ['client_secret_basic'],
     revocation_endpoint_auth_methods_supported: ['client_secret_basic'],
@@ -524,12 +526,127 @@ app.post('/approve', async (context) => {
   return context.redirect(redirect.href);
 });
 
+// Redeem and rotate a refresh token. Locks follow the documented order and take
+// the grant FOR UPDATE before the token row, the same order as the cascade when
+// a grant is deleted. A request rejected by a later check (scope, grant,
+// session) rolls back and leaves the token usable; only a committed rotation
+// marks it used.
+async function refreshAccessToken(
+  context: Context<ApiEnv>,
+  clientId: string,
+  form: Record<string, unknown>,
+) {
+  if (typeof form.refresh_token !== 'string' || !form.refresh_token) {
+    throw new OAuthError('invalid_request', 'A refresh token is required.');
+  }
+  const db = context.get('db');
+  const invalid = () =>
+    new OAuthError('invalid_grant', 'The refresh token is invalid, expired, or was already used.');
+  const revoke = (tx: DbOrTx, grantId: string) =>
+    tx
+      .update(oauthGrants)
+      .set({ revoked_at: new Date().toISOString() })
+      .where(eq(oauthGrants.id, grantId));
+  // A token's grant, hash and expiry never change, and used_at is set once.
+  const [found] = await db
+    .select({ token: oauthRefreshTokens, clientId: oauthGrants.client_id })
+    .from(oauthRefreshTokens)
+    .innerJoin(oauthGrants, eq(oauthGrants.id, oauthRefreshTokens.grant_id))
+    .where(eq(oauthRefreshTokens.token_hash, await hashLoginProof(form.refresh_token)));
+  if (!found || found.clientId !== clientId || Date.parse(found.token.expires_at) <= Date.now()) {
+    throw invalid();
+  }
+  if (found.token.used_at) {
+    // A rotated-out token came back: treat it as stolen and end the grant.
+    await revoke(db, found.token.grant_id);
+    throw invalid();
+  }
+  const token = found.token;
+  const outcome = await db.transaction(async (tx) => {
+    let grant;
+    try {
+      ({ grant } = await activeOAuthGrant(
+        tx,
+        token.grant_id,
+        context.get('companyIdentity'),
+        true,
+        true,
+      ));
+    } catch (error) {
+      // RFC 6749 section 5.2: a revoked or unusable grant is invalid_grant.
+      if (error instanceof OAuthError && error.code === 'invalid_token') {
+        throw new OAuthError('invalid_grant', error.message);
+      }
+      throw error;
+    }
+    const [current] = await tx
+      .select({ usedAt: oauthRefreshTokens.used_at })
+      .from(oauthRefreshTokens)
+      .where(eq(oauthRefreshTokens.id, token.id))
+      .for('update');
+    if (current?.usedAt) {
+      // Another request redeemed this token first: the same reuse rule applies.
+      await revoke(tx, grant.id);
+      return null;
+    }
+    let scopes = grant.scopes;
+    if (typeof form.scope === 'string' && form.scope) {
+      const requested = form.scope.split(' ').filter(Boolean) as Array<OAuthScope>;
+      if (
+        !requested.length ||
+        new Set(requested).size !== requested.length ||
+        requested.some((scope) => !grant.scopes.includes(scope))
+      ) {
+        throw new OAuthError(
+          'invalid_scope',
+          'The requested permission exceeds the granted access.',
+        );
+      }
+      scopes = requested;
+    }
+    await tx
+      .update(oauthRefreshTokens)
+      .set({ used_at: new Date().toISOString() })
+      .where(eq(oauthRefreshTokens.id, token.id));
+    const refreshToken = randomLoginProof();
+    await tx.insert(oauthRefreshTokens).values({
+      id: crypto.randomUUID(),
+      grant_id: grant.id,
+      token_hash: await hashLoginProof(refreshToken),
+      // Copied unchanged: rotation never extends the family's lifetime.
+      expires_at: token.expires_at,
+    });
+    const accessToken = randomLoginProof();
+    const expiresAt = new Date(
+      Math.min(Date.now() + TOKEN_SECONDS * 1000, grant.session.exp * 1000),
+    ).toISOString();
+    await tx
+      .update(oauthGrants)
+      .set({ token_hash: await hashLoginProof(accessToken), expires_at: expiresAt, scopes })
+      .where(eq(oauthGrants.id, grant.id));
+    return {
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: 'Bearer',
+      expires_in: Math.max(0, Math.floor((Date.parse(expiresAt) - Date.now()) / 1000)),
+      scope: scopes.join(' '),
+    };
+  });
+  if (!outcome) {
+    throw invalid();
+  }
+  return context.json(outcome);
+}
+
 app.post('/token', async (context) => {
   const client = await authenticateOAuthClient(
     context.get('db'),
     context.req.header('Authorization'),
   );
   const form = await context.req.parseBody();
+  if (form.grant_type === 'refresh_token') {
+    return refreshAccessToken(context, client.id, form);
+  }
   if (
     form.grant_type !== 'authorization_code' ||
     typeof form.code !== 'string' ||
@@ -609,8 +726,17 @@ app.post('/token', async (context) => {
       .update(oauthGrants)
       .set({ token_hash: await hashLoginProof(accessToken) })
       .where(eq(oauthGrants.id, grant.id));
+    const refreshToken = randomLoginProof();
+    await tx.insert(oauthRefreshTokens).values({
+      id: crypto.randomUUID(),
+      grant_id: grant.id,
+      token_hash: await hashLoginProof(refreshToken),
+      // The family ends with the login session the user approved it from.
+      expires_at: new Date(grant.session.exp * 1000).toISOString(),
+    });
     return context.json({
       access_token: accessToken,
+      refresh_token: refreshToken,
       token_type: 'Bearer',
       expires_in: Math.max(0, Math.floor((Date.parse(grant.expires_at) - Date.now()) / 1000)),
       scope: grant.scopes.join(' '),
@@ -637,16 +763,28 @@ app.post('/revoke', async (context) => {
   );
   const body = await context.req.parseBody();
   if (typeof body.token === 'string') {
-    await context
-      .get('db')
-      .update(oauthGrants)
-      .set({ revoked_at: new Date().toISOString() })
-      .where(
-        and(
-          eq(oauthGrants.client_id, client.id),
-          eq(oauthGrants.token_hash, await hashLoginProof(body.token)),
-        ),
-      );
+    const hash = await hashLoginProof(body.token);
+    await context.get('db').transaction(async (tx) => {
+      const [byAccessToken] = await tx
+        .update(oauthGrants)
+        .set({ revoked_at: new Date().toISOString() })
+        .where(and(eq(oauthGrants.client_id, client.id), eq(oauthGrants.token_hash, hash)))
+        .returning({ id: oauthGrants.id });
+      if (byAccessToken) {
+        return;
+      }
+      const [byRefreshToken] = await tx
+        .select({ grantId: oauthGrants.id })
+        .from(oauthRefreshTokens)
+        .innerJoin(oauthGrants, eq(oauthGrants.id, oauthRefreshTokens.grant_id))
+        .where(and(eq(oauthRefreshTokens.token_hash, hash), eq(oauthGrants.client_id, client.id)));
+      if (byRefreshToken) {
+        await tx
+          .update(oauthGrants)
+          .set({ revoked_at: new Date().toISOString() })
+          .where(eq(oauthGrants.id, byRefreshToken.grantId));
+      }
+    });
   }
   return context.body(null, 200);
 });
@@ -744,7 +882,7 @@ app.get('/connections', async (context) => {
       and(
         eq(oauthGrants.user_id, session.sub),
         isNull(oauthGrants.revoked_at),
-        gt(oauthGrants.expires_at, new Date().toISOString()),
+        or(gt(oauthGrants.expires_at, new Date().toISOString()), hasLiveRefreshToken()),
       ),
     )
     .orderBy(desc(oauthGrants.created_at));

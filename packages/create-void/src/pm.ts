@@ -60,7 +60,8 @@ export function run(argv: ReadonlyArray<string>, cwd?: string): Promise<void> {
     // On Windows the package-manager entry points (npm, npx, pnpm, yarn, bunx)
     // are .cmd/.ps1 shims that spawn() cannot resolve without a shell, so it
     // throws ENOENT. Enable a shell only on win32; every arg here is a fixed
-    // literal (no user input reaches argv), so there is no injection surface.
+    // literal or a plain flag checked by parseCreateArgs, so there is no
+    // injection surface.
     const child = spawn(cmd, args, { stdio: 'inherit', cwd, shell: process.platform === 'win32' });
     child.on('close', (code) => {
       if (code === 0) {

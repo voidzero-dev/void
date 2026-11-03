@@ -1,10 +1,11 @@
 import { Link } from '@void/react';
-import type { ElementType, ReactElement } from 'react';
+import type { ElementType, JSX as ReactJSX, ReactElement } from 'react';
 import { Fragment, jsx as reactJsx, jsxs as reactJsxs } from 'react/jsx-runtime';
 
 export { Fragment };
 
 export namespace JSX {
+  export type ElementType = ReactJSX.ElementType;
   export type Element = ReactElement;
   export interface ElementChildrenAttribute {
     children: unknown;

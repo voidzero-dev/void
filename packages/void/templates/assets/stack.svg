@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 343 361" fill="none">
+  <defs>
+    <linearGradient id="edge" x1="13" y1="0" x2="329" y2="0" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#5420a4" />
+      <stop offset=".12" stop-color="#983ee8" />
+      <stop offset=".24" stop-color="#5919a0" />
+      <stop offset=".4" stop-color="#a465ed" />
+      <stop offset=".52" stop-color="#8044bc" />
+      <stop offset=".62" stop-color="#d2a2ff" />
+      <stop offset=".7" stop-color="#7331c5" />
+      <stop offset=".82" stop-color="#a45aff" />
+      <stop offset=".91" stop-color="#5721a1" />
+      <stop offset="1" stop-color="#7737cd" />
+    </linearGradient>
+    <path id="side" d="M13 246v25q0 8 14 15l121 69q23 12 46 0l121-69q14-8 14-16v-24q0 8-14 15l-121 68q-23 12-46 0L27 261q-14-8-14-15Z" />
+    <clipPath id="side-clip"><use href="#side" /></clipPath>
+    <filter id="grain" x="0" y="0" width="100%" height="100%" color-interpolation-filters="sRGB">
+      <feTurbulence type="fractalNoise" baseFrequency=".7" numOctaves="3" seed="7" />
+      <feColorMatrix type="saturate" values="0" />
+      <feBlend in="SourceGraphic" mode="soft-light" />
+      <feComposite in2="SourceGraphic" operator="in" />
+    </filter>
+  </defs>
+  <path d="M14 125v104m315-104v104" stroke="#716779" stroke-width="1.5" stroke-dasharray="4 4" />
+  <g clip-path="url(#side-clip)" filter="url(#grain)">
+    <use href="#side" fill="url(#edge)" />
+    <path d="m30 253 15 9 9 40-15-9Zm42 23 17 10 8 39-17-10Zm53 29 13 8 8 39-13-8Zm80 1 17-10-8 43-17 10Zm52-30 13-8-8 43-13 8Zm43-25 12-7-8 43-12 7Z" fill="#35105f" opacity=".65" />
+    <path d="m54 267 9 5 9 40-9-5Zm45 25 9 5 8 39-9-5Zm130 1 8-5-8 43-8 5Zm53-30 7-4-8 43-7 4Z" fill="#d3a8ff" opacity=".55" />
+  </g>
+  <path d="m105 183-78 45q-14 8-14 18t14 13l121 70q23 10 46 0l121-70q14-5 14-13t-14-18l-77-45" stroke="#9b31ff" stroke-width="1.5" />
+  <g stroke="#938b9b" stroke-width="1.5">
+    <path d="M14 100v24q0 8 14 14l120 70q23 10 46 0l121-70q14-6 14-14v-24" />
+    <path d="M148 14q23-13 46 0l121 70q14 8 14 16t-14 14l-121 70q-23 10-46 0L28 114q-14-6-14-14t14-16Z" />
+  </g>
+</svg>

@@ -3,6 +3,7 @@ import { type CANCEL_SYMBOL, isCancel, log } from '@voidzero-dev/vite-plus-promp
 import { openBrowser } from './auth.ts';
 import { formatLink, pc } from './output.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
+import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 type PlatformSetupPage = Readonly<{
@@ -244,11 +245,7 @@ export function formatPlatformSetupPlan(
   plan: PlatformInstallPlan,
   options: { managementToken?: boolean; managementAccess?: boolean } = {},
 ): string {
-  const writesDns = plan.actions.some(
-    (action) =>
-      (action.kind === 'zone' && action.action === 'create') ||
-      (action.kind === 'dns-record' && action.action !== 'reuse'),
-  );
+  const writesDns = planCreatesZone(plan) || planWritesDns(plan);
   const credentials = [
     ...(options.managementToken
       ? [
@@ -300,6 +297,7 @@ export type PlatformInstallCommandOptions = {
   zoneName: string;
   controlPlaneDomain: string;
   dashboardUrl?: string;
+  customDomains?: boolean;
   dedicatedZone: boolean;
   workersDev: boolean;
   authConfig?: string;
@@ -307,6 +305,7 @@ export type PlatformInstallCommandOptions = {
   appAccess?: PlatformDeploymentManifest['appAccess'];
   hyperdrive?: string;
   runtime: string;
+  runtimeLogs?: 'full' | 'minimal';
   resumeId?: string;
   yes: boolean;
 };
@@ -337,6 +336,9 @@ export function platformInstallCommandArguments(
       } else {
         parts.push('--no-dedicated-zone');
       }
+      if (options.customDomains) {
+        parts.push('--custom-domains');
+      }
     }
     flag('--control-plane-domain', options.controlPlaneDomain);
     if (!options.controlPlaneDomain) {
@@ -356,6 +358,7 @@ export function platformInstallCommandArguments(
   }
   flag('--dashboard-url', options.dashboardUrl ?? '');
   flag('--runtime', options.runtime);
+  flag('--runtime-logs', options.runtimeLogs ?? '');
   if (options.yes) {
     parts.push('--yes');
   }

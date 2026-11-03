@@ -1,87 +1,102 @@
-import { getContext } from 'svelte';
+import { getContext, untrack } from 'svelte';
 import {
   VoidActionError,
+  cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
   isEqualFormValue,
+  parseFormResetArgs,
   submitAction,
-  type VisitOptions,
+  type FormResetOptions,
+  type FormState,
+  type FormSubmitOptions,
   type VoidRouter,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 
-type FormSubmitOptions = Omit<VisitOptions, 'method' | 'data'> & {
-  data?: Record<string, unknown>;
-};
-type UntypedForm = {
-  readonly data: Record<string, unknown>;
-  readonly errors: Record<string, string>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(...fields: ReadonlyArray<string>): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+type FormReturn<TData> = FormState<TData, 'in-place'> &
+  Readonly<{
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
   options?: ActionFormOptions<U>,
-): {
-  readonly data: ResolveActionBody<U>;
-  readonly errors: Partial<Record<keyof ResolveActionBody<U> & string, string>>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearError(): void;
-};
+): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string> },
-): UntypedForm {
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
+): FormReturn<Record<string, unknown>> {
   const router = getContext<VoidRouter>('__void_router');
 
-  let data = $state({ ...defaults });
+  const initialDefaults = cloneFormValue(defaults);
+  let data = $state(cloneFormValue(initialDefaults));
   let errors: Record<string, string> = $state({});
   let error: VoidActionError | null = $state(null);
   let pending = $state(false);
   let wasSuccessful = $state(false);
   let recentlySuccessful = $state(false);
 
-  let defaults_ = { ...defaults };
+  let defaults_ = $state.raw(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let dataSnapshot = cloneFormValue(initialDefaults);
+
+  $effect(() => {
+    // Read nested values even after an earlier edit, without subscribing to errors.
+    const current = cloneFormValue(data);
+    untrack(() => {
+      for (const key of new Set([...Object.keys(dataSnapshot), ...Object.keys(current)])) {
+        if (!isEqualFormValue(current[key], dataSnapshot[key])) {
+          delete errors[key];
+        }
+      }
+      dataSnapshot = current;
+    });
+  });
+
+  // An input handler may validate its new value before the change effect runs.
+  function snapshotField(field: string) {
+    untrack(() => {
+      dataSnapshot = { ...dataSnapshot, [field]: cloneFormValue(data[field]) };
+    });
+  }
+
+  // Handlers may also write `form.errors.field` directly, which needs the same snapshot.
+  // The view is derived because setError and clearErrors replace `errors`.
+  const errorsView = $derived(
+    new Proxy(errors, {
+      set(target, field, message) {
+        if (typeof field === 'string') {
+          snapshotField(field);
+        }
+        return Reflect.set(target, field, message);
+      },
+    }),
+  );
 
   const hasChanges = $derived(
     Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key])),
   );
 
-  function reset(...fields: ReadonlyArray<string>) {
+  function reset(...args: ReadonlyArray<string | FormResetOptions>) {
+    const { initial, fields } = parseFormResetArgs(args);
+    const source = initial ? initialDefaults : defaults_;
     if (fields.length === 0) {
-      data = { ...defaults_ };
+      data = cloneFormValue(source);
     } else {
       for (const field of fields) {
-        data[field] = defaults_[field];
+        data[field] = cloneFormValue(source[field]);
       }
     }
+    dataSnapshot = cloneFormValue(data);
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
@@ -92,6 +107,11 @@ export function useForm(
         delete errors[field];
       }
     }
+  }
+
+  function setError(field: string, message: string) {
+    snapshotField(field);
+    errors = { ...errors, [field]: message };
   }
 
   function clearError() {
@@ -120,7 +140,9 @@ export function useForm(
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
         if (validationErrors) {
-          Object.assign(errors, validationErrors);
+          for (const [field, message] of Object.entries(validationErrors)) {
+            setError(field, message);
+          }
         } else {
           error = result.error;
         }
@@ -129,7 +151,12 @@ export function useForm(
 
       wasSuccessful = true;
       recentlySuccessful = true;
-      defaults_ = { ...data };
+      if (options?.resetOnSuccess) {
+        data = cloneFormValue(initialDefaults);
+        defaults_ = cloneFormValue(initialDefaults);
+      } else {
+        defaults_ = cloneFormValue(data);
+      }
       successTimeout = setTimeout(() => {
         recentlySuccessful = false;
       }, 2000);
@@ -148,7 +175,7 @@ export function useForm(
       return data;
     },
     get errors() {
-      return errors;
+      return errorsView;
     },
     get error() {
       return error;
@@ -166,6 +193,7 @@ export function useForm(
       return recentlySuccessful;
     },
     reset,
+    setError,
     clearErrors,
     clearError,
     post: (opts?: FormSubmitOptions) => submit('POST', opts),

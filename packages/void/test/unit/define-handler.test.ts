@@ -8,6 +8,7 @@ import {
   type TypedHandler,
 } from '../../src/runtime/handler.ts';
 import { convertReturnValue } from '../../src/runtime/response.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -150,6 +151,25 @@ describe('defineHandler', () => {
     expect(order).toEqual(['raw-before', 'handler', 'raw-after']);
   });
 
+  it('keeps route middleware header edits made after next()', async () => {
+    const addHeader = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-Route-Mw', 'yes');
+    });
+
+    const handler = defineHandler(addHeader, () => ({ ok: true }));
+    const app = new Hono();
+    app.get(
+      '/test',
+      createHttpRouteHandler(async () => ({ GET: handler }), 'GET'),
+    );
+
+    const res = await app.request(req());
+    expect(res.status).toBe(200);
+    expect(res.headers.get('X-Route-Mw')).toBe('yes');
+    expect(await res.json()).toEqual({ ok: true });
+  });
+
   it('middleware error propagates', async () => {
     const failing = defineMiddleware(async () => {
       throw new Error('middleware boom');
@@ -255,6 +275,40 @@ describe('defineHandler.withValidator', () => {
 
     expect(res.status).toBe(200);
     expect(await res.json()).toEqual({ query: { page: '2', limit: '10' } });
+  });
+
+  it('preserves repeated query params as arrays', async () => {
+    const handler = defineHandler.withValidator({
+      query: passSchema(),
+    })((_c, { query }) => {
+      return { query };
+    });
+
+    const app = createValidatedApp('get', '/test', handler);
+
+    const res = await app.request(new Request('http://localhost/test?page=2&tag=work&tag=urgent'));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      query: {
+        page: '2',
+        tag: ['work', 'urgent'],
+      },
+    });
+  });
+
+  it.each([
+    ['__proto__=work', 'work'],
+    ['__proto__=work&__proto__=urgent', ['work', 'urgent']],
+  ])('preserves %s as an own query property', async (search, expected) => {
+    const handler = defineHandler.withValidator({ query: passSchema() })((_c, { query }) => ({
+      query,
+    }));
+    const app = createValidatedApp('get', '/test', handler);
+    const res = await app.request(new Request(`http://localhost/test?${search}`));
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ query: { ['__proto__']: expected } });
   });
 
   it('validates route params', async () => {

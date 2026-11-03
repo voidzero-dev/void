@@ -142,7 +142,7 @@ describe('generateRouteTypes', () => {
     expect(routeMap).toMatch(/output: .*health\.dev\.ts.* \| .*health\.prod\.ts/);
   });
 
-  it('skips routes with no methods', () => {
+  it('keeps default-export routes out of RouteMap but in RoutePathMap', () => {
     const scan = makeScan({
       routes: [
         {
@@ -157,8 +157,11 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const routeMap = dts.split('  interface RouteMap {')[1]!.split('\n  }')[0]!;
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
 
-    expect(dts).not.toContain('/api/legacy');
+    expect(routeMap).not.toContain('/api/legacy');
+    expect(pathMap).toContain('"/api/legacy": never;');
   });
 
   it('handles dynamic params in patterns', () => {
@@ -223,6 +226,63 @@ describe('generateRouteTypes', () => {
     expect(moduleBlock).toContain('export type RewriteDestination = RouteName | (string & {});');
   });
 
+  it('emits percent-encoded spellings only for fixed segments that need encoding', () => {
+    const route = (pattern: string, params: Array<string> = []) => ({
+      pattern,
+      methods: ['GET'],
+      params,
+      catchAll: false,
+      env: null,
+      filePath: `${pattern}.ts`,
+    });
+    const scan = makeScan({
+      routes: [
+        route('/café menu'),
+        route('/café/:id', ['id']),
+        route('/files/:path{.+}', ['path']),
+        route('/docs/*'),
+        route('/api/users/:id', ['id']),
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const encoded = dts.split('  export interface EncodedRoutePathMap {')[1]!.split('  }')[0]!;
+
+    expect(encoded.trim().split('\n')).toEqual([
+      '"/café menu": "/caf%C3%A9%20menu";',
+      '    "/café/:id": "/caf%C3%A9/:id";',
+    ]);
+    expect(dts).toContain('type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  });
+
+  it('turns on typed route URLs only when routing.typedRoutes is set', () => {
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/hello',
+          methods: ['GET'],
+          params: [],
+          catchAll: false,
+          env: null,
+          filePath: 'api/hello.ts',
+        },
+      ],
+    });
+    const typesConfig = (dts: string) =>
+      dts.split('  export interface RouteTypesConfig {')[1]!.split('  }')[0]!;
+
+    const off = generateRouteTypes(scan, '/project/routes', '/project/.void').dts;
+    const on = generateRouteTypes(scan, '/project/routes', '/project/.void', undefined, {
+      typedRoutes: true,
+    }).dts;
+
+    expect(typesConfig(off).trim()).toBe('');
+    expect(typesConfig(on).trim()).toBe('typedRoutes: true;');
+    expect(on.replace('    typedRoutes: true;\n', '')).toBe(off);
+    expect(off).toContain('export type RouteUrlInput = Href | URL | RouteDestination;');
+    expect(off).toContain('  ): RouteUrl;');
+  });
+
   it('generates PageActionMap for pages with actions', () => {
     const scan = makeScan({
       pages: [
@@ -267,6 +327,52 @@ describe('generateRouteTypes', () => {
 
     expect(dts).toContain('"/users/:id"');
     expect(dts).toContain('params: { id: string }');
+  });
+
+  it('joins a .dev + .prod page pair into one PageActionMap key', () => {
+    const page = {
+      ...pageRenderingDefaults,
+      pattern: '/users/:id',
+      params: ['id'],
+      catchAll: false,
+    };
+    const scan = makeScan({
+      pages: [
+        {
+          ...page,
+          componentPath: 'users/[id].dev.vue',
+          serverPath: 'users/[id].dev.server.ts',
+          methods: ['action'],
+          componentId: 'users/[id].dev',
+          env: 'dev',
+        },
+        {
+          ...page,
+          componentPath: 'users/[id].prod.vue',
+          serverPath: 'users/[id].prod.server.ts',
+          methods: ['actions'],
+          componentId: 'users/[id].prod',
+          env: 'prod',
+        },
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const actionMap = dts.split('  interface PageActionMap {')[1]!;
+    const dev = '(typeof import("../pages/users/[id].dev.server.ts"))["action"]';
+    const prod = '(typeof import("../pages/users/[id].prod.server.ts"))["actions"]';
+
+    expect(actionMap.split('"/users/:id"')).toHaveLength(2);
+    expect(actionMap).toContain(
+      [
+        '    "/users/:id": {',
+        `      body: ExtractInput<${dev}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
+        '      params: { id: string };',
+        '    } | {',
+        `      actions: { [K in keyof ${prod}]: {`,
+      ].join('\n'),
+    );
+    expect(actionMap).toContain(['      params: { id: string };', '    };', '  }'].join('\n'));
   });
 
   it('generates WebSocketRouteMap entries', () => {
@@ -352,7 +458,8 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
 
     expect(dts).toContain('export interface PageActionMap {}');
-    expect(dts).not.toContain('"/about"');
+    expect(dts).toContain('"/about": never;');
+    expect(dts.split('  interface PageActionMap {')[1] ?? '').not.toContain('"/about"');
   });
 
   it('generates PageActionMap with named actions', () => {
@@ -378,6 +485,10 @@ describe('generateRouteTypes', () => {
     expect(dts).toContain('[K in keyof');
     expect(dts).toContain('["actions"]');
     expect(dts).toContain('ParseActionUrl<U>["action"]');
+    // A named-actions shape must not add the untyped fallback to a bare-URL body.
+    expect(dts).toContain(
+      'type PageActionBody<P> = [Extract<P, { body: unknown }>] extends [never]',
+    );
   });
 
   it('errors when both action and actions are present', () => {
@@ -420,6 +531,107 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
 
     expect(dts).toContain('export interface PageActionMap {}');
-    expect(dts).not.toContain('"/users"');
+    expect(dts).toContain('"/users": never;');
+    expect(dts).not.toContain('  interface PageActionMap {');
+  });
+
+  it('generates URL patterns for pages, API and WebSocket routes without importing page components', () => {
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/users/:id',
+          methods: ['POST'],
+          params: ['id'],
+          catchAll: false,
+          env: null,
+          filePath: 'api/users/[id].ts',
+        },
+      ],
+      pages: [
+        {
+          ...pageRenderingDefaults,
+          pattern: '/about',
+          params: [],
+          catchAll: false,
+          componentPath: 'about.vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'about',
+        },
+        {
+          ...pageRenderingDefaults,
+          pattern: '/files/:path{.+}',
+          params: ['path'],
+          catchAll: true,
+          componentPath: 'files/[...path].vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'files/[...path]',
+        },
+        {
+          ...pageRenderingDefaults,
+          pattern: '/files/*',
+          params: [],
+          catchAll: true,
+          componentPath: 'files/[...].vue',
+          serverPath: null,
+          methods: [],
+          componentId: 'files/[...]',
+        },
+      ],
+      websockets: [
+        {
+          pattern: '/chat/:room',
+          params: ['room'],
+          methods: [],
+          catchAll: false,
+          env: null,
+          filePath: 'chat/[room].ws.ts',
+          bindingName: 'CHAT_ROOM',
+          className: 'ChatRoom',
+          mode: 'room',
+          hasAuthGate: false,
+        },
+      ],
+    });
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    expect(pathMap).toContain('"/api/users/:id": "id";');
+    expect(pathMap).toContain('"/about": never;');
+    expect(pathMap).toContain('"/files/:path{.+}": "path";');
+    expect(pathMap).toContain('"/files/*": "*";');
+    expect(pathMap).toContain('"/chat/:room": "room";');
+    expect(dts).not.toContain('import("../pages/');
+  });
+
+  it('deduplicates URL patterns shared by environments and page/API routes', () => {
+    const source: PageDefinition = {
+      ...pageRenderingDefaults,
+      pattern: '/users/:id',
+      params: ['id'],
+      catchAll: false,
+      componentPath: 'users/[id].dev.vue',
+      serverPath: null,
+      methods: [],
+      componentId: 'users/[id].dev',
+      env: 'dev',
+    };
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: source.pattern,
+          params: ['id'],
+          catchAll: false,
+          methods: ['POST'],
+          env: null,
+          filePath: 'users/[id].ts',
+        },
+      ],
+      pages: [source, { ...source, env: 'prod', componentPath: 'users/[id].prod.vue' }],
+    });
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
+    expect(pathMap.match(/"\/users\/:id":/g)).toHaveLength(1);
+    expect(pathMap).toContain('"/users/:id": "id";');
   });
 });

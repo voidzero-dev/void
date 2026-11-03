@@ -1,13 +1,22 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { getWorkerAssetsDir, getWorkerConfigPath } from '@cloudflare/build-output-utils';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
+
+function clientEntryFile(): string {
+  const manifest = JSON.parse(
+    readFileSync(join(ROOT, 'playground/ssr/dist/client/.vite/manifest.json'), 'utf-8'),
+  ) as Record<string, { file: string; isEntry?: boolean }>;
+  return Object.values(manifest).find((entry) => entry.isEntry)!.file;
+}
 
 describe('playground/ssr dev', () => {
   let child: ReturnType<typeof spawn>;
@@ -116,6 +125,7 @@ describe('playground/ssr build + preview', () => {
 
     expect(existsSync(workerEntry)).toBe(true);
     expect(existsSync(clientManifest)).toBe(true);
+    expect(existsSync(join(ROOT, 'playground/ssr/cloudflare.config.ts'))).toBe(false);
 
     const code = readFileSync(workerEntry, 'utf-8');
     // String literals survive minification; function names may be mangled
@@ -131,9 +141,32 @@ describe('playground/ssr build + preview', () => {
       };
       kv_namespaces?: Array<{ binding: string }>;
     };
-    expect(wranglerConfig.assets?.run_worker_first).toEqual(['/**']);
+    // No middleware or routing rules: Cloudflare serves the hashed bundles itself.
+    const runWorkerFirst = wranglerConfig.assets?.run_worker_first as Array<string>;
+    expect(runWorkerFirst[0]).toBe('/**');
+    expect(runWorkerFirst).toContain(`!/${clientEntryFile()}`);
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
     expect(wranglerConfig.kv_namespaces?.some((b) => b.binding === 'KV')).toBe(true);
+
+    const headers = readFileSync(join(ROOT, 'playground/ssr/dist/client/_headers'), 'utf-8');
+    expect(headers.split('\n')[0]).toBe(GENERATED_ASSET_HEADERS_MARKER);
+    expect(headers).toContain(
+      `/${clientEntryFile()}\n  Cache-Control: public, max-age=31536000, immutable\n`,
+    );
+    // v2 preview consumes the native artifact; CLI validation consumes dist.
+    const nativeRoot = join(ROOT, 'playground/ssr');
+    const native = JSON.parse(readFileSync(getWorkerConfigPath(nativeRoot), 'utf8'));
+    expect(native.assets.runWorkerFirst).toEqual(runWorkerFirst);
+    expect(readFileSync(join(getWorkerAssetsDir(nativeRoot), '_headers'), 'utf8')).toBe(headers);
+  });
+
+  it('preview serves the hashed client entry immutable with and without cookies', async () => {
+    for (const headers of [{}, { cookie: 'a=b' }] as Array<Record<string, string>>) {
+      const response = await fetch(`${PREVIEW_BASE}/${clientEntryFile()}`, { headers });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      await response.arrayBuffer();
+    }
   });
 
   it('preview serves SSR pages', async () => {

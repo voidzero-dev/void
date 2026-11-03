@@ -19,7 +19,10 @@ import {
   type PlatformInstallationManifest,
 } from '@void/platform';
 import { pc } from './output.ts';
-import { PlatformCloudflareApiError } from './platform-cloudflare.ts';
+import {
+  PlatformCloudflareApiError,
+  PlatformCloudflarePrerequisiteError,
+} from './platform-cloudflare.ts';
 import type {
   CloudflareAccount,
   CloudflareDnsRecord,
@@ -67,12 +70,15 @@ type PlatformInstallPlanInput = Readonly<{
   applicationDomain: string;
   controlPlaneDomain: string;
   dashboardUrl?: string;
+  customDomains?: boolean;
   dedicatedZone: boolean;
   displayName: string;
   externalHyperdrive?: PlatformExternalHyperdrive;
   emailSharedZoneId?: string;
   emailSenderDomain?: string;
   installationSlug: string;
+  /** `full` clears the setting; omitted keeps the recorded value. */
+  runtimeLogs?: 'full' | 'minimal';
   zoneName: string;
   workersDev?: boolean;
 }>;
@@ -110,6 +116,8 @@ export async function createPlatformInstallPlan(
     includeEmailGateway?: boolean;
     enableSandbox?: boolean;
     deploymentExecution?: boolean;
+    /** upgrade only: a changed runtime logs setting is not drift. */
+    allowRuntimeLogsChange?: boolean;
   },
 ): Promise<PlatformInstallPlan> {
   // Validate before even the first provider read; omission retains recorded intent.
@@ -197,7 +205,14 @@ export async function createPlatformInstallPlan(
         }
       : {}),
     ...(enableEmail ? { email: true } : {}),
+    ...(input.customDomains ? { customDomains: true } : {}),
   };
+  // Custom hostnames reach dispatch through the dedicated zone's catch-all routes.
+  if (capabilities.customDomains && (testing || !input.dedicatedZone)) {
+    throw new Error(
+      'platform: Custom domains need a dedicated application zone. Install with a domain and --dedicated-zone.',
+    );
+  }
   if (capabilities.email && options?.includeEmailGateway !== false && !enableEmail) {
     throw new Error(
       'platform: Email-enabled installations require VOID_EMAIL_SENDER_DOMAIN and VOID_EMAIL_SHARED_ZONE_ID before deploying this runtime.',
@@ -215,6 +230,12 @@ export async function createPlatformInstallPlan(
       'platform: The API hostname must be outside the app Access wildcard. Use the application domain apex or workers.dev for the API, then plan again.',
     );
   }
+  const runtimeLogs =
+    input.runtimeLogs === undefined
+      ? existing?.deployment.runtimeLogs
+      : input.runtimeLogs === 'minimal'
+        ? 'minimal'
+        : undefined;
   const deployment = createPlatformDeploymentManifest({
     authentication: input.authentication ?? existing?.deployment.authentication,
     appAccess: input.appAccess ?? existing?.deployment.appAccess,
@@ -239,6 +260,7 @@ export async function createPlatformInstallPlan(
     ...(normalizedEmailSenderDomain ? { emailSenderDomain: normalizedEmailSenderDomain } : {}),
     installationSlug,
     resources: existing?.deployment.resources ?? createPlatformResourceNames(installationSlug),
+    ...(runtimeLogs ? { runtimeLogs } : {}),
   });
   const {
     emailSharedZoneId: configuredEmailZone,
@@ -269,17 +291,36 @@ export async function createPlatformInstallPlan(
         : {}),
     },
   };
-  const comparableExistingWithoutEmailZone =
-    existing && deployment.capabilities.email && !existing.deployment.capabilities.email
+  const existingWithCustomDomains =
+    existing &&
+    deployment.capabilities.customDomains &&
+    !existing.deployment.capabilities.customDomains
       ? {
           ...existingWithDashboard,
-          capabilities: { ...existingWithDashboard.capabilities, email: true },
+          capabilities: { ...existingWithDashboard.capabilities, customDomains: true },
         }
       : existingWithDashboard;
+  const existingWithEmail =
+    existing && deployment.capabilities.email && !existing.deployment.capabilities.email
+      ? {
+          ...existingWithCustomDomains,
+          capabilities: { ...existingWithCustomDomains.capabilities, email: true },
+        }
+      : existingWithCustomDomains;
+  // Upgrade may change runtime logs. The setting also moves the schema version,
+  // so leave both out of the comparison.
+  const comparable = (
+    value: Omit<PlatformDeploymentManifest, 'emailSharedZoneId' | 'emailSenderDomain'>,
+  ) => {
+    if (!options?.allowRuntimeLogsChange) {
+      return JSON.stringify(value);
+    }
+    const { runtimeLogs: _runtimeLogs, schemaVersion: _schemaVersion, ...rest } = value;
+    return JSON.stringify(rest);
+  };
   if (
     existing &&
-    (JSON.stringify(comparableExistingWithoutEmailZone) !==
-      JSON.stringify(deploymentWithoutEmailZone) ||
+    (comparable(existingWithEmail) !== comparable(deploymentWithoutEmailZone) ||
       (recordedEmailZone !== undefined && recordedEmailZone !== configuredEmailZone) ||
       (recordedSenderDomain !== undefined && recordedSenderDomain !== configuredSenderDomain))
   ) {
@@ -329,6 +370,14 @@ export async function createPlatformInstallPlan(
     }
     throw error;
   });
+  const prerequisites: Array<PlatformCloudflarePrerequisiteError> = [];
+  const collectPrerequisite = (error: unknown): [] => {
+    if (!(error instanceof PlatformCloudflarePrerequisiteError)) {
+      throw error;
+    }
+    prerequisites.push(error);
+    return [];
+  };
   const [
     aiGateways,
     routingKv,
@@ -346,17 +395,26 @@ export async function createPlatformInstallPlan(
     client.listKvNamespaces(account.id, names.routingKv),
     client.listKvNamespaces(account.id, names.isrCacheKv),
     client.listKvNamespaces(account.id, names.legacyAssetsKv),
-    client.listR2Buckets(account.id),
+    client.listR2Buckets(account.id).catch(collectPrerequisite),
     client.listQueues(account.id, names.usageQueue),
     client.listQueues(account.id, names.cronQueue),
     (options?.deploymentExecution ??
     existing?.resources.some((resource) => resource.key === 'deployment-queue'))
       ? client.listQueues(account.id, names.deploymentQueue)
       : Promise.resolve([]),
-    client.listDispatchNamespaces(account.id),
+    client.listDispatchNamespaces(account.id).catch(collectPrerequisite),
     client.listHyperdriveConfigs(account.id),
     client.listWorkerNames(account.id),
   ]);
+  if (prerequisites.length === 1) {
+    throw prerequisites[0];
+  }
+  if (prerequisites.length > 1) {
+    throw new AggregateError(
+      prerequisites,
+      `platform: Cloudflare account prerequisites are missing:\n\n${prerequisites.map((error) => error.message).join('\n\n')}`,
+    );
+  }
   const dnsRecords = zone ? await listZoneDnsRecords(client, zone, wildcardHostname) : [];
   const remoteOwnership = existing
     ? await readRemoteOwnership(client, account.id, routingKv, existing)
@@ -1380,7 +1438,13 @@ async function readRemoteOwnership(
   return null;
 }
 
-export function formatPlatformInstallPlan(plan: PlatformInstallPlan): string {
+/** `previous` is the installed deployment, so a changed setting shows what it was. */
+export function formatPlatformInstallPlan(
+  plan: PlatformInstallPlan,
+  previous?: PlatformDeploymentManifest,
+): string {
+  const runtimeLogs = plan.deployment.runtimeLogs ?? 'full';
+  const previousRuntimeLogs = previous ? (previous.runtimeLogs ?? 'full') : runtimeLogs;
   const lines = [
     `${pc.bold(`${plan.deployment.displayName} in ${plan.account.name}`)}`,
     `${pc.bold('Account:')} ${plan.account.id}`,
@@ -1401,6 +1465,11 @@ export function formatPlatformInstallPlan(plan: PlatformInstallPlan): string {
             : `${pc.bold('Default app access:')} ${{ public: 'Public apps', platform: 'Same as platform Access policy', custom: 'Selected Access policy' }[plan.deployment.appAccess]}`,
         ]
       : []),
+    ...(runtimeLogs !== previousRuntimeLogs
+      ? [`${pc.bold('Runtime logs:')} ${runtimeLogs} (was ${previousRuntimeLogs})`]
+      : plan.deployment.runtimeLogs
+        ? [`${pc.bold('Runtime logs:')} ${plan.deployment.runtimeLogs}`]
+        : []),
     `${pc.bold('Login callback:')} ${plan.apiUrl}/auth/callback`,
     `${pc.bold('Database:')} ${plan.externalHyperdrive?.database || 'PostgreSQL'} via Hyperdrive ${plan.deployment.resources.hyperdrive}`,
     '',

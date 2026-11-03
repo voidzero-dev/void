@@ -1,7 +1,7 @@
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import { migrateLegacyVoidConfig } from '../../src/cli/migrate.ts';
+import { migrateLegacyVoidConfig, runMigrateCommand } from '../../src/cli/migrate.ts';
 import { readConfig } from '../../src/config.ts';
 
 const root = join(import.meta.dirname, '.tmp-migrate-test');
@@ -13,6 +13,86 @@ function setup(config: string): void {
 }
 
 afterEach(() => rmSync(root, { recursive: true, force: true }));
+
+describe('void migrate build output ignores', () => {
+  function typedProject(): void {
+    setup('{}');
+    rmSync(join(root, 'void.json'));
+    writeFileSync(join(root, 'void.config.ts'), 'export default {};\n');
+  }
+
+  it('adds the ignore to an already migrated project and leaves it unchanged on reruns', async () => {
+    typedProject();
+    await runMigrateCommand(root);
+    const path = join(root, '.gitignore');
+    expect(readFileSync(path, 'utf8')).toBe('.cloudflare\n');
+    const before = statSync(path);
+    await runMigrateCommand(root);
+    expect(readFileSync(path, 'utf8')).toBe('.cloudflare\n');
+    expect(statSync(path).mtimeMs).toBe(before.mtimeMs);
+  });
+
+  it.each(['\n', '\r\n'] as const)(
+    'preserves existing rules and %j line endings, including an unterminated last line',
+    async (newline) => {
+      typedProject();
+      const path = join(root, '.gitignore');
+      const original = `# Project rules${newline}node_modules/${newline}!important.log`;
+      writeFileSync(path, original);
+      await runMigrateCommand(root);
+      expect(readFileSync(path, 'utf8')).toBe(`${original}${newline}.cloudflare${newline}`);
+    },
+  );
+
+  it.each(['.cloudflare', '/.cloudflare', '.cloudflare/', '/.cloudflare/'])(
+    'does not rewrite an existing %s entry',
+    async (entry) => {
+      typedProject();
+      const path = join(root, '.gitignore');
+      const original = `# Keep these rules\r\n${entry}\r\n`;
+      writeFileSync(path, original);
+      await runMigrateCommand(root);
+      expect(readFileSync(path, 'utf8')).toBe(original);
+    },
+  );
+
+  it('adds the ignore after migrating legacy settings', async () => {
+    setup('{}');
+    await runMigrateCommand(root);
+    expect(readFileSync(join(root, '.gitignore'), 'utf8')).toBe(
+      '.void-wrangler.jsonc\n.cloudflare\n',
+    );
+  });
+
+  it('preserves CRLF rules while migrating legacy settings', async () => {
+    setup('{}');
+    const path = join(root, '.gitignore');
+    writeFileSync(path, '# Keep me\r\nnode_modules');
+    await runMigrateCommand(root);
+    expect(readFileSync(path, 'utf8')).toBe(
+      '# Keep me\r\nnode_modules\r\n.void-wrangler.jsonc\r\n.cloudflare\r\n',
+    );
+  });
+
+  it.each(['# .cloudflare', '!.cloudflare', '.cloudflare-other'])(
+    'keeps %s while adding the output ignore',
+    async (rule) => {
+      typedProject();
+      const path = join(root, '.gitignore');
+      writeFileSync(path, `${rule}\n`);
+      await runMigrateCommand(root);
+      expect(readFileSync(path, 'utf8')).toBe(`${rule}\n.cloudflare\n`);
+    },
+  );
+
+  it('leaves ignore rules untouched if configuration migration fails', async () => {
+    setup('{broken');
+    const path = join(root, '.gitignore');
+    writeFileSync(path, '# Keep me\n');
+    await expect(runMigrateCommand(root)).rejects.toThrow('Invalid JSON');
+    expect(readFileSync(path, 'utf8')).toBe('# Keep me\n');
+  });
+});
 
 describe('migrateLegacyVoidConfig', () => {
   it('preserves config values and keeps the original bytes in a backup', () => {

@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 
+import { searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
 import type { HeadDescriptor } from './head.ts';
@@ -7,6 +8,24 @@ import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
+import { decodePagePath, isSameOrigin } from './url.ts';
+
+/**
+ * The server leaves a named action's key out of the page URL. When the page URL
+ * shows that, drop the key from the URL written to history as well.
+ * Otherwise keep the requested URL: the page URL may reflect a server rewrite.
+ */
+function withoutActionKey(fetchUrl: string, pageUrl: string): string {
+  const q = fetchUrl.indexOf('?');
+  if (q === -1) {
+    return fetchUrl;
+  }
+  const search = searchWithoutActionKey(fetchUrl.slice(q));
+  const pageQ = pageUrl.indexOf('?');
+  return search === (pageQ === -1 ? '' : pageUrl.slice(pageQ))
+    ? fetchUrl.slice(0, q) + search
+    : fetchUrl;
+}
 
 export type PageComponentModule = {
   default: unknown;
@@ -31,12 +50,16 @@ export type VisitOptions = {
   preserveState?: boolean;
   replace?: boolean;
   viewTransition?: boolean;
+  /** React navigation completion: page data readiness or UI commit (default). */
+  resolveOn?: 'data' | 'commit';
   /** @internal Used by React Actions to avoid waiting for a commit blocked by the action itself. */
   _resolveOnShell?: boolean;
   /** @internal Used by popstate handler to pass saved scroll position */
   _scrollPosition?: { x: number; y: number } | null;
   /** @internal Used by popstate handler to avoid writing history while traversing */
   _popstate?: boolean;
+  /** @internal Used by router.refresh() to refetch the current URL even when it has a hash */
+  _refresh?: boolean;
 };
 
 export type PrefetchOptions = {
@@ -57,7 +80,8 @@ export type PageNavigationEngineConfig = {
   components: Record<string, () => Promise<PageComponentModule>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean }>;
-  matchRoute(url: string): string | null;
+  /** Page id for a decoded pathname (see `decodePagePath`). */
+  matchRoute(path: string): string | null;
   staticPageData?: boolean;
   staticPageDataFastPath?: boolean;
   viewTransitions: boolean;
@@ -83,7 +107,8 @@ export type PageNavigationResource = {
   immediate: boolean;
   shell: Promise<PageNavigationResult | undefined>;
   abort(): void;
-  commit(): Promise<void>;
+  /** Resolves false when a newer visit has already set the URL, so nothing was committed. */
+  commit(): Promise<boolean>;
   dispose(): void;
 };
 
@@ -219,7 +244,6 @@ export async function createPageNavigationEngine(
     components,
     layoutTree,
     routeMeta,
-    matchRoute,
     staticPageData: STATIC_PAGE_DATA_ENABLED = false,
     staticPageDataFastPath: STATIC_PAGE_DATA_FAST_PATH = STATIC_PAGE_DATA_ENABLED,
     prefetchHoverDelay: PREFETCH_HOVER_DELAY,
@@ -227,8 +251,14 @@ export async function createPageNavigationEngine(
     cacheVisitedPageData: CACHE_VISITED_PAGE_DATA = false,
   } = config;
 
+  const matchRoute = (url: string) =>
+    config.matchRoute(decodePagePath(new URL(url, 'http://x').pathname));
+
   const _prefetchCache = new PrefetchCache();
   let _nextNavigationId = 0;
+  // The newest visit whose URL is in the address bar: the last commit, or a back/forward
+  // visit, which the browser has already moved to. An older visit must not commit over it.
+  let _urlNavigationId = 0;
   let _pendingResource: PageNavigationResource | null = null;
   let _committedResource: PageNavigationResource | null = null;
   let _committedDeferredRegistry: DeferredRegistry | null = null;
@@ -292,8 +322,14 @@ export async function createPageNavigationEngine(
       }
 
       for (const [key, group] of Object.entries(pageData.deferredKeys) as Array<[string, string]>) {
-        const ref = adapter.createDeferred();
-        const value = resolved ? adapter.resolveDeferred(ref, pageData.props[key]) : ref;
+        let value = adapter.createDeferred();
+        if (resolved) {
+          const error = pageData.deferredErrors?.[group];
+          value =
+            error === undefined
+              ? adapter.resolveDeferred(value, pageData.props[key])
+              : adapter.rejectDeferred(value, error);
+        }
         this.keyRefs[key] = value;
         this.props[key] = value;
         (this.groups[group] ??= []).push(key);
@@ -339,20 +375,7 @@ export async function createPageNavigationEngine(
       }
 
       if (data !== undefined) {
-        if (typeof data === 'object' && data !== null && !Array.isArray(data)) {
-          let resolvedAny = false;
-          for (const [key, value] of Object.entries(data as Record<string, unknown>)) {
-            if (this.keyRefs[key]) {
-              this.resolveKey(key, value);
-              resolvedAny = true;
-            }
-          }
-          if (!resolvedAny) {
-            this.resolveGroup(group, data);
-          }
-        } else {
-          this.resolveGroup(group, data);
-        }
+        this.resolveGroup(group, data);
       } else if (error !== undefined) {
         this.rejectGroup(group, typeof error === 'string' ? error : String(error));
       }
@@ -387,7 +410,6 @@ export async function createPageNavigationEngine(
 
     private retainOnly(keys: Set<string>, props: Record<string, unknown>): void {
       const keyRefs: Record<string, unknown> = {};
-      const groups: Record<string, Array<string>> = {};
       for (const [key, ref] of Object.entries(this.keyRefs)) {
         if (keys.has(key)) {
           keyRefs[key] = ref;
@@ -396,22 +418,24 @@ export async function createPageNavigationEngine(
           adapter.rejectDeferred(ref, 'Navigation disposed before deferred props resolved');
         }
       }
-      for (const [group, groupKeys] of Object.entries(this.groups)) {
-        const preservedGroupKeys = groupKeys.filter((key) => keys.has(key));
-        if (preservedGroupKeys.length > 0) {
-          groups[group] = preservedGroupKeys;
-        }
-      }
+      // Groups keep every key so a group resolves with its original shape.
+      // Keys dropped from keyRefs are skipped when the group settles.
       this.props = props;
       this.keyRefs = keyRefs;
-      this.groups = groups;
       adapter.onDeferredUpdate?.(this.props);
     }
 
+    /** A one-key group takes the raw value; a larger group takes each key from the object. */
     private resolveGroup(group: string, data: unknown): void {
       const keys = this.groups[group] ?? (this.keyRefs[group] ? [group] : []);
+      if (keys.length === 1) {
+        this.resolveKey(keys[0]!, data);
+        return;
+      }
+      const values =
+        typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
       for (const key of keys) {
-        this.resolveKey(key, data);
+        this.resolveKey(key, values[key]);
       }
     }
 
@@ -576,10 +600,10 @@ export async function createPageNavigationEngine(
     options: VisitOptions,
     writeHistory: boolean,
   ): void {
-    _currentFetchUrl = effectiveFetchUrl;
     if (writeHistory) {
       scrollRestoration.writeHistory(effectiveFetchUrl + hash, !!options.replace);
     }
+    _currentFetchUrl = effectiveFetchUrl;
     scrollRestoration.commit();
     restoreScroll(options._scrollPosition, hash);
   }
@@ -595,13 +619,18 @@ export async function createPageNavigationEngine(
     deferredRegistry: DeferredRegistry,
   ): Promise<PageNavigationResult | undefined> {
     // Page data only comes from this origin. Other http(s) URLs get a full page
-    // load; other schemes (javascript:, data:, ...) must never reach location.href.
+    // load. Capacitor's iOS WebView uses capacitor: for local pages.
+    // Unsafe schemes (javascript:, data:, ...) must never reach location.href.
     // Check the scheme first: a blob: URL reports the origin that created it.
     const target = new URL(url, window.location.origin);
-    if (target.protocol !== 'http:' && target.protocol !== 'https:') {
+    if (
+      target.protocol !== 'http:' &&
+      target.protocol !== 'https:' &&
+      target.protocol !== 'capacitor:'
+    ) {
       throw new Error(`Void Router: refusing to navigate to a ${target.protocol} URL.`);
     }
-    if (target.origin !== window.location.origin) {
+    if (!isSameOrigin(target, window.location.origin)) {
       if (method !== 'GET') {
         throw new Error('Void Router: non-GET visits must target the current origin.');
       }
@@ -612,6 +641,17 @@ export async function createPageNavigationEngine(
     if (method !== 'GET') {
       _prefetchCache.flushAll();
     }
+
+    // Start known GET route imports alongside data. The response still selects
+    // the rendered component, since middleware may rewrite or redirect the URL.
+    const matchedComponentId = method === 'GET' ? matchRoute(fetchUrl) : null;
+    const preloadComponentPromise =
+      matchedComponentId && !routeMeta[matchedComponentId]?.island && components[matchedComponentId]
+        ? Promise.all([resolveComponent(matchedComponentId), resolveLayouts(matchedComponentId)])
+        : null;
+    // A speculative failure only belongs to this visit if the response selects
+    // that component. Handle it while data is pending, even if the visit aborts.
+    preloadComponentPromise?.catch(() => {});
 
     const headers: Record<string, string> = {
       'X-VoidPages': 'true',
@@ -676,27 +716,17 @@ export async function createPageNavigationEngine(
 
       if (response?.redirected) {
         const redirectUrl = new URL(response.url, window.location.origin);
-        if (redirectUrl.origin !== window.location.origin) {
+        if (!isSameOrigin(redirectUrl, window.location.origin)) {
           window.location.href = method === 'GET' ? url : response.url;
           return undefined;
         }
-        commitTarget.fetchUrl = redirectUrl.pathname + redirectUrl.search;
+        // The browser already followed the redirect: treat the final response as the GET
+        // result for the destination instead of fetching it a second time.
+        method = 'GET';
+        fetchUrl = redirectUrl.pathname + redirectUrl.search;
+        url = fetchUrl + redirectUrl.hash;
+        commitTarget.fetchUrl = fetchUrl;
         commitTarget.hash = redirectUrl.hash;
-        return loadNavigationShell(
-          id,
-          redirectUrl.pathname + redirectUrl.search + redirectUrl.hash,
-          redirectUrl.pathname + redirectUrl.search,
-          'GET',
-          {
-            preserveScroll: options.preserveScroll,
-            preserveState: options.preserveState,
-            replace: options.replace,
-            viewTransition: options.viewTransition,
-          },
-          signal,
-          commitTarget,
-          deferredRegistry,
-        );
       }
 
       if (response && method !== 'GET' && !response.ok) {
@@ -809,10 +839,15 @@ export async function createPageNavigationEngine(
 
     if (method !== 'GET') {
       deferredRegistry.preserveValuesFrom(_committedDeferredRegistry, pageData);
+      commitTarget.fetchUrl = withoutActionKey(fetchUrl, pageData.url);
     }
 
+    // Reuse the preload only if the response selects the matched page; redirects
+    // or rewrites may select another. Cancellation stops waiting for the imports.
     const [component, layouts] = await Promise.race([
-      Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
+      matchedComponentId === pageData.component && preloadComponentPromise
+        ? preloadComponentPromise
+        : Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
       abortSignalPromise(signal),
     ]);
 
@@ -830,17 +865,43 @@ export async function createPageNavigationEngine(
     deferredRegistry: DeferredRegistry,
     resourceId: number,
     getResource: () => PageNavigationResource,
-  ): () => Promise<void> {
+  ): () => Promise<boolean> {
     let committed = false;
     return async () => {
       if (committed) {
-        return;
+        return false;
       }
       committed = true;
       const result = await shell;
       if (!result) {
-        return;
+        return false;
       }
+      // A newer visit committed while this one was being applied. Committing now would put
+      // back this page's URL, head, scroll and Deferred ownership over the newer page.
+      if (resourceId < _urlNavigationId) {
+        return false;
+      }
+      // Write history before anything else changes. Disposing the previous page and handing
+      // over its Deferred values cannot be undone, so a failed write must find them untouched.
+      // preserveState only controls component state; back/forward traversal already moved history.
+      if (!options._popstate) {
+        const historyUrl = commitTarget.fetchUrl + commitTarget.hash;
+        const resource = getResource();
+        const currentDocumentUrl = window.location.pathname + window.location.search;
+        const replaceHistory =
+          !!options.replace ||
+          (resource.method !== 'GET' && historyUrl === currentDocumentUrl + commitTarget.hash);
+        try {
+          scrollRestoration.writeHistory(historyUrl, replaceHistory);
+        } catch (error) {
+          if (_pendingResource?.id === resourceId) {
+            _pendingResource = null;
+          }
+          resource.dispose();
+          throw error;
+        }
+      }
+      _urlNavigationId = resourceId;
       if (_pendingResource?.id === resourceId) {
         _pendingResource = null;
       }
@@ -886,11 +947,6 @@ export async function createPageNavigationEngine(
       }
       applyClientHead(result.pageData.head as HeadDescriptor | undefined);
       _currentFetchUrl = commitTarget.fetchUrl;
-
-      if (!options.preserveState) {
-        const historyUrl = commitTarget.fetchUrl + commitTarget.hash;
-        scrollRestoration.writeHistory(historyUrl, !!options.replace);
-      }
       scrollRestoration.commit();
 
       requestAnimationFrame(() => {
@@ -898,6 +954,7 @@ export async function createPageNavigationEngine(
           restoreScroll(options._scrollPosition, commitTarget.hash);
         }
       });
+      return true;
     };
   }
 
@@ -951,18 +1008,20 @@ export async function createPageNavigationEngine(
       _pendingResource = null;
 
       const isSamePageHashNavigation =
+        !options._refresh &&
         effectiveFetchUrl === hashNavigationBaseUrl &&
         method === 'GET' &&
         !options.data &&
         Boolean(hash || options._popstate);
 
       if (isSamePageHashNavigation) {
-        commitHashNavigation(
-          effectiveFetchUrl,
-          hash,
-          options,
-          !options._popstate && !options.preserveState,
-        );
+        // A failed history write ends this visit like any other failed visit: through its shell.
+        let shell: Promise<undefined> = Promise.resolve(undefined);
+        try {
+          commitHashNavigation(effectiveFetchUrl, hash, options, !options._popstate);
+        } catch (error) {
+          shell = Promise.reject(error);
+        }
         return {
           id,
           url,
@@ -971,11 +1030,21 @@ export async function createPageNavigationEngine(
           method,
           options,
           immediate: true,
-          shell: Promise.resolve(undefined),
+          shell,
           abort() {},
-          async commit() {},
+          // Same-page hash visits commit right away. They do not stop an older visit
+          // whose page is already on screen from committing its URL.
+          async commit() {
+            return true;
+          },
           dispose() {},
         };
+      }
+
+      if (options._popstate) {
+        // The browser has already moved to this entry. A same-page hash entry is left out
+        // above: it renders nothing, so an older page on screen still commits its URL.
+        _urlNavigationId = id;
       }
 
       const controller = new AbortController();
@@ -992,7 +1061,7 @@ export async function createPageNavigationEngine(
         deferredRegistry,
       );
 
-      let commitResource: () => Promise<void> = async () => {};
+      let commitResource: () => Promise<boolean> = async () => false;
       const stop = () => {
         controller.abort(abortError());
         deferredRegistry.dispose();
@@ -1070,7 +1139,8 @@ export async function createPageNavigationEngine(
     },
 
     flush(url, method = 'GET') {
-      _prefetchCache.flush(url, method);
+      const hashIdx = url.indexOf('#');
+      _prefetchCache.flush(hashIdx !== -1 ? url.slice(0, hashIdx) : url, method);
     },
 
     flushAll() {

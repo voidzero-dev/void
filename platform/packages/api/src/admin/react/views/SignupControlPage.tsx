@@ -412,7 +412,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
             }
           >
             <div className="void-admin-access-table">
-              <Table hasHover>
+              <Table hasHover className="void-admin-invitations-table">
                 <TableHeader>
                   <TableRow>
                     <TableHeaderCell>Email</TableHeaderCell>

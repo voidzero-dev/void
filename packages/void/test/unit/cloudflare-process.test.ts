@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vite-plus/test';
-import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
+import childProcess from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+import { describe, expect, it, vi } from 'vite-plus/test';
+import {
+  createCloudflareProcessRunner,
+  decodeCloudflareOperationResult,
+} from '../../src/cli/cloudflare-process.ts';
 
 const processResult = (envelope: unknown) => ({
   status: 0,
@@ -8,6 +13,32 @@ const processResult = (envelope: unknown) => ({
 });
 
 describe('typed Cloudflare process protocol', () => {
+  it('allows a full-size base64 Worker source through the parent capture without widening other reads', () => {
+    const spawn = vi.spyOn(childProcess, 'spawnSync').mockReturnValue({
+      pid: 1,
+      output: [],
+      status: 0,
+      signal: null,
+      stdout: JSON.stringify({ operationResult: 1, data: { id: 'version-id' } }),
+      stderr: '',
+    });
+    syncBuiltinESMExports();
+    try {
+      const runner = createCloudflareProcessRunner({ root: process.cwd() });
+      const read = { type: 'versions.view', versionId: 'version-id', workerName: 'app' } as const;
+      expect(runner({ ...read, includeSource: true }, { capture: true }).status).toBe(0);
+      // Workers allow 64 MiB of source, which grows by a third when base64-encoded.
+      const encodedWorkerBytes = Math.ceil((64 * 1024 * 1024 * 4) / 3);
+      expect(spawn.mock.calls[0]![2]!.maxBuffer).toBeGreaterThan(encodedWorkerBytes);
+
+      expect(runner(read, { capture: true }).status).toBe(0);
+      expect(spawn.mock.calls[1]![2]!.maxBuffer).toBe(32 * 1024 * 1024);
+    } finally {
+      spawn.mockRestore();
+      syncBuiltinESMExports();
+    }
+  });
+
   it('keeps structured data separate from human output', () => {
     expect(
       decodeCloudflareOperationResult(

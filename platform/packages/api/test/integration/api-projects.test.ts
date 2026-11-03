@@ -2151,6 +2151,34 @@ describe('POST /projects', () => {
     expect(res.status).toBe(409);
     expect(await res.json()).toEqual({ error: 'slug already taken' });
   });
+
+  // A slug is also a mailbox on the shared mail domain, so it may not take
+  // the name another project uses as its email alias.
+  it("rejects a slug equal to another project's email alias", async () => {
+    const user = await createTestUser(env.db);
+    const other = await createTestProject(env.db, user.id, 'alias-holder');
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'taken-alias' })
+      .where(eq(projects.id, other.id));
+
+    const res = await app.fetch(
+      new Request('http://localhost/projects', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${user.jwt}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ slug: 'taken-alias' }),
+      }),
+      env,
+    );
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({ error: 'slug already taken' });
+    expect(await env.db.select().from(projects).where(eq(projects.slug, 'taken-alias'))).toEqual(
+      [],
+    );
+  });
 });
 
 describe('GET /projects/:id/deployments', () => {
@@ -3375,7 +3403,9 @@ describe('GET /projects/:id/logs', () => {
         expect(body).toContain('user-my-app');
         // The dispatch Worker's tail consumer and the user Worker's own consumer
         // each deliver a dispatched request, so identical rows are collapsed.
-        expect(body).toContain('GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1');
+        expect(body).toContain(
+          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
+        );
         expect(body).toContain('min(timestamp) as ingestedAt');
         expect(body).toContain('ORDER BY ingestedAt DESC');
         return Response.json(mockData);
@@ -3396,6 +3426,50 @@ describe('GET /projects/:id/logs', () => {
       url: 'https://my-app.void.app/api/test',
       method: 'GET',
       status: '200',
+    });
+  });
+
+  it('marks the response only when runtime logs are minimal', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'minimal-logs');
+    mockCfApi({
+      analyticsQuery: () =>
+        Response.json({
+          data: [
+            {
+              outcome: 'ok',
+              logData: JSON.stringify([{ level: 'error', message: [], timestamp: 1000 }]),
+              exceptionData: JSON.stringify([{ name: 'TypeError', message: '', timestamp: 1000 }]),
+              url: '',
+              method: 'GET',
+              statusCode: '500',
+              ts: Date.now() - 5000,
+            },
+          ],
+        }),
+    });
+    const fetchLogs = (extraEnv: Record<string, unknown>) =>
+      app.fetch(
+        new Request(`http://localhost/projects/${project.id}/logs`, {
+          headers: { Authorization: `Bearer ${user.jwt}` },
+        }),
+        { ...env, ...extraEnv },
+      );
+
+    const full = (await (await fetchLogs({})).json()) as Record<string, unknown>;
+    expect(full).not.toHaveProperty('runtimeLogs');
+
+    const res = await fetchLogs({ PLATFORM_RUNTIME_LOGS: 'minimal' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runtimeLogs: 'minimal',
+      data: [
+        expect.objectContaining({
+          url: '',
+          logs: [{ level: 'error', message: [], timestamp: 1000 }],
+          exceptions: [{ name: 'TypeError', message: '', timestamp: 1000 }],
+        }),
+      ],
     });
   });
 

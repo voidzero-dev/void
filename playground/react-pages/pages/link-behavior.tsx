@@ -49,7 +49,9 @@ export default function LinkBehaviorPage({ title }: Props) {
     window.addEventListener('unhandledrejection', onUnhandledRejection);
     setAbortTestStatus('Running...');
 
-    void router.visit('/link-behavior?abort-slow=1');
+    void router.visit('/link-behavior?abort-slow=1', {
+      resolveOn: router.query.get('resolveOn') === 'data' ? 'data' : undefined,
+    });
     window.setTimeout(() => {
       void router.visit('#abort-test-complete');
     }, 50);
@@ -79,6 +81,22 @@ export default function LinkBehaviorPage({ title }: Props) {
   return (
     <div>
       <h1>{title}</h1>
+      <p>
+        <button
+          data-testid="typed-visit"
+          onClick={() =>
+            router.visit({ pathname: '/users/:id', params: { id: '2' }, query: { tab: 'visit' } })
+          }
+        >
+          Typed visit
+        </button>
+      </p>
+
+      <p>
+        <Link href="?view=compact" data-testid="query-only-link">
+          Query-only link
+        </Link>
+      </p>
 
       <p>
         <Link

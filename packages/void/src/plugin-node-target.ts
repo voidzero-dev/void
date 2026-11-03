@@ -81,6 +81,9 @@ function honoMiddleware(
       response.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);
       });
+      // Headers yields each Set-Cookie separately and setHeader keeps only the
+      // last one, so send them all together.
+      res.setHeader('set-cookie', response.headers.getSetCookie());
 
       if (response.body) {
         const reader = response.body.getReader();

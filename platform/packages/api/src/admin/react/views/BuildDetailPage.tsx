@@ -23,7 +23,7 @@ export function BuildDetailPage({ path, platformName, username }: AdminPageProps
       <SectionStack>
         <h1>Build {build.id}</h1>
 
-        <Table>
+        <Table className="void-admin-detail-table">
           <TableBody>
             <TableRow>
               <TableHeaderCell>Status</TableHeaderCell>

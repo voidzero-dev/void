@@ -12,6 +12,7 @@ import {
   createManifestLoader,
   type ManifestLoader,
 } from './routing-assets.ts';
+import { markRouteHandler } from './routing-pages.ts';
 import type { RuntimeEnvironment } from './routing-worker.ts';
 
 export type ImageHandlerOptions = {
@@ -107,7 +108,7 @@ export function createImageHandler(
   let immutableFiles: Promise<Set<string>> | undefined = options.immutableFiles
     ? Promise.resolve(new Set(options.immutableFiles))
     : undefined;
-  return async (c) => {
+  return markRouteHandler(async (c: Context) => {
     if (loadingSource.getStore()) {
       return new Response(RECURSIVE, { status: 400 });
     }
@@ -164,5 +165,5 @@ export function createImageHandler(
             }
           },
     });
-  };
+  });
 }

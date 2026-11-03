@@ -449,6 +449,7 @@ describe('buildEnv', () => {
     const savedDatabaseUrl = process.env.DATABASE_URL;
     const savedActionsOidcUrl = process.env.ACTIONS_ID_TOKEN_REQUEST_URL;
     const savedActionsOidcToken = process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN;
+    const savedReadinessOrigin = process.env.CF_ACCESS_READINESS_ORIGIN;
     try {
       process.env.CF_ACCESS_CLIENT_ID = 'svc-id.access';
       process.env.CF_ACCESS_CLIENT_SECRET = 'svc-secret';
@@ -458,6 +459,7 @@ describe('buildEnv', () => {
       process.env.DATABASE_URL = 'postgresql://production:secret@db.example.com/app';
       process.env.ACTIONS_ID_TOKEN_REQUEST_URL = 'https://actions.example.com/oidc';
       process.env.ACTIONS_ID_TOKEN_REQUEST_TOKEN = 'actions-oidc-bearer';
+      process.env.CF_ACCESS_READINESS_ORIGIN = 'https://dashboard.example.com';
 
       const childEnv = buildEnv({ VOID_DEPLOY_PROJECT_ID: 'proj_1' });
 
@@ -469,6 +471,7 @@ describe('buildEnv', () => {
       expect(childEnv.DATABASE_URL).toBeUndefined();
       expect(childEnv.ACTIONS_ID_TOKEN_REQUEST_URL).toBeUndefined();
       expect(childEnv.ACTIONS_ID_TOKEN_REQUEST_TOKEN).toBeUndefined();
+      expect(childEnv.CF_ACCESS_READINESS_ORIGIN).toBeUndefined();
       expect(childEnv.VOID_DEPLOY_PROJECT_ID).toBe('proj_1');
       expect(process.env.CF_ACCESS_CLIENT_ID).toBe('svc-id.access');
       expect(process.env.CF_ACCESS_CLIENT_SECRET).toBe('svc-secret');
@@ -489,6 +492,7 @@ describe('buildEnv', () => {
       restore('DATABASE_URL', savedDatabaseUrl);
       restore('ACTIONS_ID_TOKEN_REQUEST_URL', savedActionsOidcUrl);
       restore('ACTIONS_ID_TOKEN_REQUEST_TOKEN', savedActionsOidcToken);
+      restore('CF_ACCESS_READINESS_ORIGIN', savedReadinessOrigin);
     }
   });
 

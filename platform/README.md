@@ -110,6 +110,11 @@ Forks build their own runtime and use `void platform install` or
 - Static applications are served from platform assets. Worker applications also
   mirror assets in KV/R2 so dispatch can recover from the Cloudflare missing-asset
   response; see the [fallback design](./meta/design-docs/0066-wfp-asset-r2-fallback.md).
+- Managed ISR bodies use the existing assets R2 bucket under `isr-cache/` so a
+  deleted KV value cannot repopulate the edge cache during propagation. Reads
+  never fall back to legacy ISR KV. Purges and deployment cleanup still scan
+  legacy KV to remove old edge entries; project cleanup removes the R2 prefix.
+  This storage change needs no new binding and does not change native app ISR.
 - Keep routing changes, cron synchronization, and resource cleanup ordered around
   the successful deployment cutover. A pre-cutover failure must preserve the
   previous application's active configuration.

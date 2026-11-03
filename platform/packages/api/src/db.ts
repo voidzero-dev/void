@@ -26,6 +26,7 @@ export {
   createProject,
   getProject,
   getProjectBySlug,
+  getProjectByEmailAlias,
   getOwnedProjectsByUserId,
   getAccessibleProjectsByUserId,
   getAccessibleProjectBySlug,

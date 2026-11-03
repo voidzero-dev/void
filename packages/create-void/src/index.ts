@@ -4,6 +4,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import * as p from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
 import pc from 'picocolors';
+import { parseCreateArgs, validateProjectName } from './args.ts';
 import { detectPM, pmExec, pmInstall, run, writePnpmBuildPolicy } from './pm.ts';
 
 const pm = detectPM();
@@ -11,18 +12,20 @@ const pm = detectPM();
 async function main() {
   console.log();
 
-  let appName = process.argv[2];
+  const createArgs = parseCreateArgs(process.argv.slice(2));
+  let appName = createArgs.appName;
+
+  if (!appName && !process.stdin.isTTY) {
+    p.log.error('create-void: Pass a project name when running without an interactive terminal.');
+    process.exit(1);
+  }
 
   if (!appName) {
     const name = await p.text({
       message: 'Project name:',
       defaultValue: 'my-app',
       placeholder: 'my-app',
-      validate(value) {
-        if (value && !value.trim()) {
-          return 'Project name cannot be blank';
-        }
-      },
+      validate: validateProjectName,
     });
     if (p.isCancel(name) || typeof name !== 'string') {
       p.cancel('Cancelled.');
@@ -68,7 +71,7 @@ async function main() {
   await run(pmInstall(pm), targetDir);
 
   p.log.step('Scaffolding starter...');
-  await run([...pmExec(pm), 'void', 'init'], targetDir);
+  await run([...pmExec(pm), 'void', 'init', ...createArgs.initArgs], targetDir);
 
   p.log.step('Installing starter dependencies...');
   await run(pmInstall(pm), targetDir);

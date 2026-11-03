@@ -99,6 +99,13 @@ describe('playground/node-static build (target: node, output: static)', () => {
     expect(existsSync(join(DIST, 'ssr/app.js'))).toBe(true);
   });
 
+  it('emits the default 404 page', () => {
+    const html = readFileSync(join(DIST, 'client/404.html'), 'utf8');
+    expect(html).toContain('<title>404: Not Found</title>');
+    expect(html).toContain('<style>');
+    expect(html).toContain('<script>');
+  });
+
   it('prerenders index.html with production asset URLs', () => {
     const indexPath = join(DIST, 'client/index.html');
     expect(existsSync(indexPath)).toBe(true);
@@ -254,6 +261,85 @@ describe('playground/node-static build (target: node, output: static)', () => {
       ).toHaveLength(1);
     } finally {
       await page.close();
+      await browser.close();
+    }
+  });
+
+  it('keeps the query string in router.url on a prerendered React page', async () => {
+    const browser = await chromium.launch();
+    try {
+      const page = await browser.newPage();
+      page.setDefaultTimeout(10_000);
+      const errors: Array<string> = [];
+      page.on('console', (message) => {
+        const text = message.text();
+        // React reports a hydration text mismatch as minified error #418.
+        if (text.toLowerCase().includes('hydrat') || text.includes('#418')) {
+          errors.push(text);
+        }
+      });
+      page.on('pageerror', (error) => errors.push(error.message));
+      // Mark the server-rendered lazy note before React hydrates it.
+      await page.addInitScript(() => {
+        document.addEventListener('readystatechange', () => {
+          if (document.readyState === 'interactive') {
+            const note = document.querySelector<NavElement>('[data-testid="lazy-note"]');
+            if (note) {
+              note.__STAMP = 1;
+            }
+          }
+        });
+      });
+      const routerUrl = () => page.textContent('[data-testid="router-url"]');
+
+      // The page HTML and its static page data were rendered for the path, without a query.
+      const pageData = JSON.parse(
+        readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf-8'),
+      ) as { url: string };
+      expect(pageData.url).toBe('/router-url/plain');
+      await page.goto(`${staticBase}/router-url/plain?foo=bar#baz`);
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      await expect.poll(routerUrl).toBe('/router-url/plain?foo=bar#baz');
+      expect(await page.textContent('[data-testid="router-path"]')).toBe(
+        '/router-url/plain?foo=bar',
+      );
+      // An effect that runs once, on mount, sees the query too.
+      expect(await page.textContent('[data-testid="router-mount-search"]')).toBe('?foo=bar');
+      // The URL switch after hydration keeps the server HTML of a Suspense boundary that has not
+      // hydrated yet.
+      expect(
+        await page.$eval('[data-testid="lazy-note"]', (note: NavElement) => note.__STAMP),
+      ).toBe(1);
+
+      await page.click('a[href="#details"]');
+      await expect.poll(routerUrl).toBe('/router-url/plain?foo=bar#details');
+
+      await page.click('a[href="/router-url/plain?foo=two"]');
+      await page.waitForURL(`${staticBase}/router-url/plain?foo=two`);
+      await expect.poll(routerUrl).toBe('/router-url/plain?foo=two');
+      expect(await page.textContent('[data-testid="router-path"]')).toBe(
+        '/router-url/plain?foo=two',
+      );
+
+      // Page data holds the decoded path of a page served at an encoded path.
+      await page.goto(`${staticBase}/router-url/a%20b?x=1#a`);
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      await expect.poll(routerUrl).toBe('/router-url/a%20b?x=1#a');
+      await page.click('a[href="#details"]');
+      await expect.poll(routerUrl).toBe('/router-url/a%20b?x=1#details');
+
+      // Static hosts also serve the page at its .html path. router.url keeps the page path.
+      await page.goto(`${staticBase}/router-url/plain.html?foo=bar#baz`);
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      await expect.poll(routerUrl).toBe('/router-url/plain?foo=bar#baz');
+
+      // A page rendered only in the browser has no prerendered HTML to match.
+      await page.goto(`${staticBase}/router-url-client?foo=bar`);
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      expect(await page.textContent('[data-testid="router-first-search"]')).toBe('?foo=bar');
+
+      expect(errors).toEqual([]);
+    } finally {
       await browser.close();
     }
   });

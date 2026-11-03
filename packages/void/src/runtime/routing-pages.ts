@@ -1,9 +1,11 @@
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
+import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
 import type { ErrorRenderer } from './routing-errors.ts';
 import { createAssetCachePolicy } from './routing-worker.ts';
 import type { RoutingRule, RoutingRuntime } from './routing.ts';
+import { markStaticAsset } from './static-asset-marker.ts';
 
 type PageGetArguments = Parameters<typeof handlePageGet>;
 type PageModule = {
@@ -22,8 +24,39 @@ export type PageRouteOptions = {
   renderOptions: PageGetArguments[7];
   namedActions?: boolean;
 };
+function actionNameOf(url: string): string | undefined {
+  return new URL(url).searchParams.keys().next().value;
+}
+const routeHandlers = new WeakSet<Function>();
+const namedActionHandlers = new WeakSet<Function>();
+/** Records a handler that answers a route, so the marker can tell it from middleware. */
+export function markRouteHandler<T extends Function>(handler: T): T {
+  routeHandlers.add(handler);
+  return handler;
+}
+/**
+ * Runs before auth and user middleware, so a c.redirect() there leaves the
+ * action key out too. It marks the request only when a page with named actions
+ * is the route that will answer it, not when a broad page pattern also matches.
+ *
+ * `matchedRoutes` comes from 'hono/route' of the same Hono copy as the app: it
+ * reads the request through a Symbol that each copy defines for itself.
+ */
+export function createNamedActionMarker(
+  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
+): MiddlewareHandler {
+  return async (c, next) => {
+    const answer = matchedRoutes(c)
+      .slice(c.req.routeIndex + 1)
+      .find((route) => routeHandlers.has(route.handler));
+    if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
+      markActionKey(c.req.raw);
+    }
+    await next();
+  };
+}
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
-  return async (context) => {
+  return markRouteHandler(async (context: Context) => {
     const mod = options.load ? await options.load() : { head: options.head };
     return handlePageGet(
       mod.loader,
@@ -35,16 +68,14 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
       options.headConfig ?? undefined,
       options.renderOptions,
     );
-  };
+  });
 }
 export function createPageMutationHandler(
   options: PageRouteOptions,
 ): (c: Context) => Promise<Response> {
-  return async (context) => {
+  const mutationHandler = async (context: Context) => {
     const mod = options.load ? await options.load() : {};
-    const actionName = options.namedActions
-      ? new URL(context.req.url).searchParams.keys().next().value
-      : undefined;
+    const actionName = options.namedActions ? actionNameOf(context.req.url) : undefined;
     // The name comes from the query string, so only own function properties
     // count; `?constructor` or `?valueOf` must not reach Object.prototype.
     const name = actionName || 'default';
@@ -60,6 +91,9 @@ export function createPageMutationHandler(
         status: 404,
       });
     }
+    if (actionName) {
+      markActionKey(context.req.raw);
+    }
     return handlePageMutation(
       handler,
       mod.loader,
@@ -72,6 +106,10 @@ export function createPageMutationHandler(
       options.renderOptions,
     );
   };
+  if (options.namedActions) {
+    namedActionHandlers.add(mutationHandler);
+  }
+  return markRouteHandler(mutationHandler);
 }
 
 export function createPagesFallback(options: {
@@ -96,7 +134,7 @@ export function createPagesFallback(options: {
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
     if (assetResponse.status !== 404) {
-      return cachePolicy(c.req.raw, c.env, assetResponse);
+      return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, assetResponse));
     }
     const fallback = options.fallbackRules
       ? await options.routing.applyFallback(c, options.fallbackRules)
@@ -140,7 +178,7 @@ export function createSsrFallback(options: {
     const response: Response = await binding.fetch(c.req.raw);
     return response.status === 404
       ? options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }))
-      : cachePolicy(c.req.raw, c.env, response);
+      : markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
   };
   return async (c) => {
     if (options.nodeTarget && options.fallbackRules) {
@@ -187,7 +225,7 @@ export function createAssetNotFound(options: {
       if (assets && typeof assets.fetch === 'function') {
         const response: Response = await assets.fetch(c.req.raw);
         if (response.status !== 404) {
-          return cachePolicy(c.req.raw, c.env, response);
+          return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, response));
         }
       }
     }

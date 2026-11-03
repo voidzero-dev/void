@@ -9,11 +9,11 @@
     "preview": "vitepress preview"
   },
   "devDependencies": {
-    "@iconify/vue": "5.0.3",
+    "@iconify/vue": "catalog:",
     "@voidzero-dev/vitepress-theme": "catalog:",
     "reka-ui": "catalog:",
     "vitepress": "2.0.0-alpha.20",
-    "vitepress-plugin-group-icons": "^1.7.7",
+    "vitepress-plugin-group-icons": "catalog:",
     "void": "workspace:*",
     "vue": "^3.5.44",
     "wrangler": "catalog:"

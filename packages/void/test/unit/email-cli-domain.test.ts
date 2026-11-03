@@ -37,7 +37,7 @@ const LEGACY_TOKEN = `Lgcy-${'a1'.repeat(17)}B`; // 40 chars, [A-Za-z0-9_-]
 const CFUT_TOKEN = `cfut_${'c0'.repeat(20)}${'deed'.repeat(2)}`; // 40-char core + checksum tail
 /** The default platform: owners register their own domains. */
 const selfServeSettings = async (): Promise<{
-  domains: { management: 'self-serve' | 'admin' };
+  domains: { management: 'self-serve' | 'admin'; projectSlug?: string };
 }> => ({ domains: { management: 'self-serve' } });
 const noEmailDomains = async (): Promise<Array<EmailDomainResponse>> => [];
 
@@ -301,6 +301,21 @@ describe('emailDomainAdd', () => {
     expect(deps.openUrl).not.toHaveBeenCalled();
     expect(deps.pasteToken).not.toHaveBeenCalled();
     expect(printed(infoSpy)).toContain('void platform email domain-add acme.com --project prj_1');
+  });
+
+  it('points an administrator-managed apex with foreign mail at outbound-only setup', async () => {
+    const api = client();
+    const deps = addDeps({
+      dns: { resolveMx: async () => [{ exchange: 'aspmx.l.google.com', priority: 1 }] },
+    });
+    api.getEmailSettings.mockResolvedValue({
+      domains: { management: 'admin', projectSlug: 'hr-portal' },
+    });
+    await expect(emailDomainAdd(api, 'prj_1', 'acme.com', deps)).rejects.toThrow('exit 1');
+    expect(printed(errorSpy)).toContain(
+      'void platform email domain-add acme.com --project hr-portal --outbound-only',
+    );
+    expect(api.addEmailDomain).not.toHaveBeenCalled();
   });
 
   it('lets an owner renew their earlier assignment after the administrator mode switch', async () => {

@@ -10,6 +10,8 @@ These commands apply to a platform that enables email. Every project can send fr
 
 Shared inbound mail uses one exact routing rule per receiving project and enables Cloudflare’s per-zone plus addressing. Creating a project or deploying an app that only sends mail consumes no inbound rule. Existing rules and the apex catch-all remain in place. Cloudflare normally allows [200 routing rules per domain](https://developers.cloudflare.com/email-service/platform/limits/); remove unused rules or request a higher limit if the shared domain reaches capacity. An unrelated rule for a project’s base address or a plus address blocks its setup until that conflict is removed.
 
+A project owner can set a permanent, shorter address with [`void email alias <name>`](../../../reference/cli/email.md#void-email-alias). Receiving mail at both the slug and alias uses two routing rules. Resolve conflicting rules and check the domain's rule limit before adding an alias.
+
 If recipient creation is interrupted, inspect its retained intent:
 
 ```sh
@@ -29,7 +31,7 @@ for the recovery requirements.
 
 ### Mail that the platform sends {#platform-sender}
 
-The platform sends its own mail, for example invitations, welcome mail, failed-deploy notices, and error alerts. This mail comes from `noreply@<mail domain>`, and the sender name is the platform's display name. Void sets this sender, so you do not need to configure one. Do not set a different sender on the platform Workers in the Cloudflare dashboard. That change stops the next `upgrade`, `repair`, `enable`, or `rollback` until you let Void replace it. See [Platform Workers changed outside Void](/guide/platform/installation/maintenance#workers-changed-outside-void).
+Platform invitations, welcome mail, and deployment alerts use `noreply@<mail domain>` with the platform's display name. Void configures this sender automatically.
 
 Mail to an address that is not verified needs Cloudflare Email Sending onboarding and [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans).
 
@@ -150,3 +152,17 @@ Run recovery with the same platform version that created the persisted intent.
 `applied` continues without replaying the write; `not-applied` permits that exact
 step to retry. Secret rotation keeps its staged generation, and removal resumes
 from the unresolved cleanup step. Age alone never authorizes a retry.
+
+### Sending from a domain that already receives mail
+
+If an apex already receives mail with another provider, such as Microsoft 365 or Google Workspace, register it for sending only:
+
+```sh
+void platform email domain-add brand.example --project hr-portal --outbound-only
+```
+
+The project can then send from any address on the apex, such as `support@brand.example`. Incoming mail, MX records, and the apex SPF record stay with your current provider.
+
+This requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Cloudflare Email Sending onboarding. Email Sending adds records at `cf-bounce.<domain>` and `_dmarc.<domain>`. Resolve any reported DNS conflicts, then run `domain-sync`.
+
+Only administrators can register outbound-only domains. Choose a zone apex separate from the platform's shared mail zone. Use `domain-remove` to stop sending through the platform. To change between outbound-only and platform-managed inbound mail, remove the domain and add it again.

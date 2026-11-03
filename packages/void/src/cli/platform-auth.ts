@@ -4,6 +4,7 @@ import {
   type CloudflareAccount,
   type PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
+import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 export type PlatformCloudflareCredential = Readonly<{
@@ -150,14 +151,6 @@ export function platformOperatorNeedsManagementToken(
   return (
     credential.source === 'oauth' && (!!access || planCreatesZone(plan) || planWritesDns(plan))
   );
-}
-
-function planCreatesZone(plan: Pick<PlatformInstallPlan, 'actions'>): boolean {
-  return plan.actions.some((action) => action.kind === 'zone' && action.action === 'create');
-}
-
-function planWritesDns(plan: Pick<PlatformInstallPlan, 'actions'>): boolean {
-  return plan.actions.some((action) => action.kind === 'dns-record' && action.action !== 'reuse');
 }
 
 export async function resolvePlatformCloudflareCredential(

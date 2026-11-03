@@ -8,22 +8,30 @@ import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import {
+  getWorkerAssetsDir,
   getWorkerConfigPath,
   readBuildOutput,
   writeContainerConfig,
 } from '@cloudflare/build-output-utils';
-import { OutputContainerSchema } from '@cloudflare/config';
+import {
+  convertToWranglerConfig,
+  OutputContainerSchema,
+  type ParsedInputConfig,
+} from '@cloudflare/config';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import {
   activateCloudflareVersion,
   deployCloudflareVersionTriggers,
   encodeCloudflareVersionMessage,
+  readCloudflareTriggerConfig,
 } from '../../../deploy-cloudflare/src/version.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
-import { uploadPinnedCloudflareVersion } from '../../src/cli/cf-version-api.ts';
+import { exportsFromOutput, uploadPinnedCloudflareVersion } from '../../src/cli/cf-version-api.ts';
 import {
   createActiveSecretPinner,
   createCfCommand,
@@ -69,6 +77,11 @@ async function listen(server: Server): Promise<string> {
   return `http://127.0.0.1:${(server.address() as AddressInfo).port}/client/v4`;
 }
 
+/** Compare JSON with its key order, which a deep equality check ignores. */
+function expectSameJson(actual: unknown, expected: unknown): void {
+  expect(JSON.stringify(actual, null, 2)).toBe(JSON.stringify(expected, null, 2));
+}
+
 /** The real pinned cf, whose child sees only a synthetic token and the fake API. */
 function pinnedCf(apiBaseUrl: string, accountId = 'account-id', env: NodeJS.ProcessEnv = {}) {
   return createCfCommand({
@@ -90,11 +103,16 @@ function pinnedCf(apiBaseUrl: string, accountId = 'account-id', env: NodeJS.Proc
   });
 }
 
-it(
-  'reads the exact immutable SDK draft source through the real pinned cf HTTP transport',
-  async () => {
+it.each([false, true])(
+  'reads immutable version source through the real pinned cf HTTP transport (large=%s)',
+  async (large) => {
     const prepared = await output();
     const draft = voidSecretDraftVersion();
+    if (large) {
+      draft.modules[0]!.content_base64 = Buffer.from(
+        `/* ${'x'.repeat(1024 * 1024)} */\nexport default { fetch() { return new Response("ok"); } };`,
+      ).toString('base64');
+    }
     const requests: Array<string> = [];
     const userAgents: Array<string | undefined> = [];
     const apiBaseUrl = await listen(
@@ -131,14 +149,18 @@ it(
         },
         { capture: true },
       );
-      expect(result.status).toBe(0);
-      expect(isVoidSecretOnlyDraft(result.data as Record<string, unknown>)).toBe(true);
+      expect(result.status, result.stderr).toBe(0);
+      expect(result.data).toMatchObject(draft);
+      expect(isVoidSecretOnlyDraft(result.data as Record<string, unknown>)).toBe(!large);
       expect(requests).toEqual([
         `/client/v4/accounts/test-account/workers/workers/void-test/versions/${draft.id}?include=modules`,
       ]);
       expect(commands).toHaveLength(1);
       expect(userAgents).toEqual([cfUserAgent]);
-      expect(commands[0]!.bounds).toMatchObject({ timeoutMs: 30_000, maxOutputBytes: 1024 * 1024 });
+      expect(commands[0]!.bounds).toMatchObject({
+        timeoutMs: 30_000,
+        maxOutputBytes: 128 * 1024 * 1024,
+      });
       expect(JSON.stringify(result)).not.toContain('synthetic-token');
     } finally {
       await prepared.dispose();
@@ -146,6 +168,40 @@ it(
   },
   REAL_CF_TIMEOUT_MS,
 );
+
+it.each([
+  { label: 'missing', version: { id: 'version-id', number: 35 }, readable: true },
+  { label: 'null', version: { id: 'version-id', number: 35, bindings: null }, readable: false },
+  { label: 'an object', version: { id: 'version-id', number: 35, bindings: {} }, readable: false },
+])('reads a version whose bindings are $label', async ({ version, readable }) => {
+  const prepared = await output();
+  try {
+    const runner = createCfVersionRunner({
+      output: prepared,
+      workerName: 'void-test',
+      runCf: () => ({ status: 0, stdout: JSON.stringify(version), stderr: '' }),
+      verifyResources: async () => {
+        throw new Error('A read must not provision or probe resources');
+      },
+    });
+    const result = await runner(
+      { type: 'versions.view', versionId: 'version-id', workerName: 'void-test' },
+      { capture: true },
+    );
+    if (readable) {
+      // Cloudflare omits `bindings` for a version that has none.
+      expect(result.status).toBe(0);
+      expect(result.data).toMatchObject({ bindings: [], resources: { bindings: [] } });
+    } else {
+      expect(result).toMatchObject({
+        status: 1,
+        stderr: 'The Cloudflare Worker version was not readable.',
+      });
+    }
+  } finally {
+    await prepared.dispose();
+  }
+});
 
 it(
   'preserves real cf provider codes so a missing Worker can reach its first upload',
@@ -269,10 +325,12 @@ it(
         capture: true,
       });
       expect(result).toMatchObject({ status: 1, signal: null, error: null });
-      expect(result.stdout.replace(/\s+/g, ' ')).toContain(
-        'Aborting the upload operation because of conflicts.',
+      // cf 1.0.0-beta.21 and later print upload messages on stderr.
+      expect(result.stdout).toBe('');
+      expect(cloudflareCommandDiagnostic(result)).toBe(
+        'You are about to upload a Worker that was last updated via the script API.\n' +
+          'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
       );
-      expect(result.stdout.replace(/\s+/g, ' ')).toContain('last updated via the script API');
       expect(requests).toEqual([
         { method: 'GET', path: '/client/v4/accounts/account-id/workers/services/void-test' },
       ]);
@@ -283,12 +341,152 @@ it(
   REAL_CF_TIMEOUT_MS,
 );
 
+it(
+  'keeps the dashboard config diff out of the pinned cf upload conflict diagnostic',
+  async () => {
+    const prepared = await output({ vars: { LOCAL_VALUE: 'local-value-do-not-echo' } });
+    const apiBaseUrl = await listen(
+      createServer((request, response) => {
+        const path = request.url!.split('?')[0]!;
+        request.resume();
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: true,
+            errors: [],
+            messages: [],
+            result: path.endsWith('/services/void-test')
+              ? {
+                  default_environment: {
+                    environment: 'production',
+                    script: { id: 'void-test', last_deployed_from: 'dash' },
+                  },
+                }
+              : path.endsWith('/bindings')
+                ? [{ type: 'plain_text', name: 'REMOTE_VALUE', text: 'remote-value-do-not-echo' }]
+                : path.endsWith('/environments/production')
+                  ? { script: { compatibility_date: '2026-01-01' } }
+                  : path.endsWith('/schedules')
+                    ? { schedules: [] }
+                    : [],
+          }),
+        );
+      }),
+    );
+    try {
+      const result = await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
+        cwd: prepared.directory,
+        capture: true,
+      });
+      expect(result).toMatchObject({ status: 1, signal: null, error: null });
+      // The diff that explains the conflict shows values from both configurations.
+      expect(result.stderr).toContain('remote-value-do-not-echo');
+      expect(result.stderr).toContain('local-value-do-not-echo');
+      expect(cloudflareCommandDiagnostic(result)).toBe(
+        'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
+      );
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
+it.each([false, true])(
+  'reads the pinned cf upload result without echoing its binding table (rejected=%s)',
+  async (rejected) => {
+    const next = '22222222-2222-4222-8222-222222222222';
+    const prepared = await output({ vars: { LOCAL_VALUE: 'local-value-do-not-echo' } });
+    const apiBaseUrl = await listen(
+      createServer((request, response) => {
+        const path = request.url!.split('?')[0]!;
+        const upload = request.method === 'POST' && path.endsWith('/scripts/void-test/versions');
+        request.resume();
+        response.writeHead(upload && rejected ? 400 : 200, {
+          'Content-Type': 'application/json',
+        });
+        response.end(
+          JSON.stringify(
+            upload && rejected
+              ? {
+                  success: false,
+                  errors: [{ code: 10021, message: 'Uploaded script has a validation error.' }],
+                  messages: [],
+                  result: null,
+                }
+              : {
+                  success: true,
+                  errors: [],
+                  messages: [],
+                  result: upload
+                    ? { id: next, number: 2, metadata: { has_preview: true }, resources: {} }
+                    : path.endsWith('/workers/workers/void-test')
+                      ? {
+                          subdomain: {
+                            enabled: true,
+                            previews_enabled: true,
+                            preview_url_suffix: '-void-test.example.workers.dev',
+                          },
+                        }
+                      : path.endsWith('/services/void-test')
+                        ? {
+                            default_environment: {
+                              environment: 'production',
+                              script: { id: 'void-test' },
+                            },
+                          }
+                        : path.endsWith('/settings')
+                          ? {}
+                          : [],
+                },
+          ),
+        );
+      }),
+    );
+    try {
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        runCf: pinnedCf(apiBaseUrl),
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+      });
+      const result = await runner(
+        { type: 'versions.upload', workerName: 'void-test' },
+        { capture: true },
+      );
+      // cf prints the binding table, with values, before it uploads.
+      expect(result.stderr).toContain('local-value-do-not-echo');
+      if (rejected) {
+        expect(result.status).toBe(1);
+        expect(cloudflareCommandDiagnostic(result)).toBe(
+          '┌ APIError\n│ [10021] Uploaded script has a validation error. [code: 10021]\n│ 400 Bad Request\n└',
+        );
+      } else {
+        expect(result).toMatchObject({
+          status: 0,
+          data: {
+            versionId: next,
+            previewUrl: `https://${next.slice(0, 8)}-void-test.example.workers.dev`,
+          },
+        });
+      }
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
 // This exercises multiple fresh cf subprocesses. Windows CI has exceeded 30s
 // across those startups; bound each child and give the complete protocol a
 // separate Windows budget, including assertion and cleanup overhead.
-it(
-  'uploads an ordinary API-origin revision with genuine cf reads and UUID-pinned inheritance',
-  async () => {
+it.each([
+  { observability: { enabled: true, logs: { enabled: true }, traces: { enabled: true } } },
+  { logpush: false },
+  { logpush: true },
+])(
+  'uploads an API-origin revision and publishes its explicit Worker settings: %j',
+  async (settings) => {
     const current = '11111111-1111-4111-8111-111111111111';
     const next = '22222222-2222-4222-8222-222222222222';
     const triggerConfig = {
@@ -298,9 +496,11 @@ it(
       crons: [],
       queueConsumers: [],
       workflows: [],
+      ...settings,
     };
     const message = encodeCloudflareVersionMessage([], triggerConfig);
     const prepared = await output({
+      ...settings,
       secrets: { required: ['AUTH_SECRET'] },
       version_metadata: { binding: 'APP_VERSION' },
       send_email: [
@@ -330,7 +530,11 @@ it(
       requests.push(row);
       const path = new URL(row.path, 'http://localhost').pathname;
       let result: unknown;
-      if (row.method === 'POST' && path.endsWith('/workers/workers/void-test/versions')) {
+      if (row.method === 'PATCH' && path.endsWith('/script-settings')) {
+        expect(traffic).toEqual([{ version_id: next, percentage: 100 }]);
+        events.push('settings');
+        result = row.body;
+      } else if (row.method === 'POST' && path.endsWith('/workers/workers/void-test/versions')) {
         uploaded = true;
         events.push('upload');
         result = { id: next, urls: [`https://${next.slice(0, 8)}-void-test.example.workers.dev`] };
@@ -465,6 +669,14 @@ it(
       expect(events.indexOf('upload')).toBeLessThan(events.indexOf('ready'));
       expect(events.indexOf('ready')).toBeLessThan(events.indexOf('activate'));
       expect(events.indexOf('activate')).toBeLessThan(events.indexOf('triggers'));
+      expect(requests.filter((row) => row.method === 'PATCH')).toEqual([
+        {
+          method: 'PATCH',
+          path: '/client/v4/accounts/account-id/workers/scripts/void-test/script-settings',
+          body: settings,
+        },
+      ]);
+      expect(events.indexOf('activate')).toBeLessThan(events.indexOf('settings'));
       expect(
         events.slice(0, events.indexOf('upload')).filter((event) => event === 'owner'),
       ).toHaveLength(2);
@@ -647,6 +859,161 @@ async function output(config: Record<string, unknown> = {}, additionalAsset = fa
   return prepared!;
 }
 
+it.each([false, true])(
+  'uploads the same package versions as real cf when preserving secrets (atomic=%s)',
+  async (atomic) => {
+    const activeVersionId = '11111111-1111-4111-8111-111111111111';
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-package-context-'));
+    roots.push(root);
+    const worker = join(root, 'dist/ssr');
+    const dependency = join(root, 'node_modules/example-framework');
+    mkdirSync(worker, { recursive: true });
+    mkdirSync(dependency, { recursive: true });
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        name: 'example-app',
+        dependencies: {
+          'example-framework': '^1.2.0',
+          '@example/esm-framework': '^2.0.0',
+          'example-tool': '^3.0.0',
+          'missing-framework': '^4.0.0',
+          'local-workspace': 'workspace:*',
+          'local-catalog': 'catalog:',
+          'local-file': 'file:../source',
+          'local-link': 'link:../source',
+        },
+        devDependencies: { 'example-tool': '~3.2.0' },
+      }),
+    );
+    writeFileSync(
+      join(dependency, 'package.json'),
+      '{"name":"example-framework","version":"1.2.3","exports":"./index.cjs"}',
+    );
+    writeFileSync(join(dependency, 'index.cjs'), '');
+    for (const [name, pkg] of Object.entries({
+      '@example/esm-framework': { version: '2.0.1', exports: { '.': { import: './index.js' } } },
+      'example-tool': {
+        name: 'example-toolchain',
+        version: '8.0.0',
+        bundledVersions: { 'example-tool': '3.2.1' },
+      },
+      'local-workspace': { version: '1.0.0' },
+      'local-catalog': { version: '1.0.0' },
+      'local-file': { version: '1.0.0' },
+      'local-link': { version: '1.0.0' },
+    })) {
+      const path = join(root, 'node_modules', name);
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ name, ...pkg }));
+      writeFileSync(join(path, 'index.js'), '');
+    }
+    const extraPackages = atomic
+      ? Array.from({ length: 201 }, (_, index) => `example-extra-${index}`)
+      : [];
+    const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+    for (const name of extraPackages) {
+      pkg.dependencies[name] = '^1.0.0';
+      const path = join(root, 'node_modules', name);
+      mkdirSync(path, { recursive: true });
+      writeFileSync(join(path, 'package.json'), JSON.stringify({ name, version: '1.0.1' }));
+    }
+    writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
+    writeFileSync(join(worker, 'index.js'), 'export default { fetch: () => new Response("ok") };');
+    writeFileSync(
+      join(worker, 'wrangler.json'),
+      JSON.stringify({
+        name: 'void-test',
+        main: 'index.js',
+        compatibility_date: '2026-10-12',
+      }),
+    );
+    const prepared = await prepareCfBuildOutput(worker, 'account-id', undefined, root);
+    expect(prepared).not.toBeNull();
+    const uploads: Array<Record<string, unknown>> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Array<Buffer> = [];
+      for await (const chunk of request) {
+        chunks.push(Buffer.from(chunk));
+      }
+      let result: unknown = {};
+      const path = new URL(request.url!, 'http://localhost').pathname;
+      if (request.method === 'POST' && path.endsWith('/workers/scripts/void-test/versions')) {
+        const form = await new Request('http://localhost', {
+          method: 'POST',
+          headers: { 'content-type': request.headers['content-type']! },
+          body: Buffer.concat(chunks),
+        }).formData();
+        uploads.push(JSON.parse(String(form.get('metadata'))));
+        expect([...form.keys()]).not.toContain('package.json');
+        result = { id: '33333333-3333-4333-8333-333333333333', number: 1 };
+      } else if (
+        request.method === 'POST' &&
+        path.endsWith('/workers/workers/void-test/versions')
+      ) {
+        uploads.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+        result = { id: '22222222-2222-4222-8222-222222222222', urls: [] };
+      } else if (path.endsWith(`/versions/${activeVersionId}`)) {
+        result = { id: activeVersionId, bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }] };
+      } else if (path.endsWith('/services/void-test')) {
+        result = {
+          default_environment: {
+            environment: 'production',
+            script: { id: 'void-test', last_deployed_from: 'wrangler' },
+          },
+        };
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ success: true, errors: [], messages: [], result }));
+    });
+    try {
+      const apiBaseUrl = await listen(server);
+      // The fake response need only acknowledge the upload, not cf's subsequent presentation.
+      const result = await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
+        cwd: prepared!.directory,
+        capture: true,
+        timeoutMs: REAL_CF_TIMEOUT_MS,
+      });
+      expect(uploads, `${result.stdout}\n${result.stderr}`).toHaveLength(1);
+      expect(uploads[0].package_dependencies).toEqual([
+        { name: 'example-framework', packageJsonVersion: '^1.2.0', installedVersion: '1.2.3' },
+        { name: '@example/esm-framework', packageJsonVersion: '^2.0.0', installedVersion: '2.0.1' },
+        { name: 'example-tool', packageJsonVersion: '~3.2.0', installedVersion: '3.2.1' },
+        ...extraPackages
+          .slice(0, 197)
+          .map((name) => ({ name, packageJsonVersion: '^1.0.0', installedVersion: '1.0.1' })),
+      ]);
+      expect(
+        await createActiveSecretPinner({
+          output: prepared,
+          handoffPending: false,
+          requiredNames: [],
+        })!(activeVersionId, [{ name: 'AUTH_SECRET', type: 'secret_text' }]),
+      ).toBe(true);
+      await uploadPinnedCloudflareVersion({
+        output: prepared!,
+        accountId: 'account-id',
+        apiBaseUrl,
+        workerName: 'void-test',
+        token: 'synthetic-token',
+        atomic,
+        verifyUploader: () => true,
+      });
+      expect(uploads).toHaveLength(2);
+      expect(uploads[1].package_dependencies).toEqual(uploads[0].package_dependencies);
+      expect(uploads[1].bindings).toContainEqual({
+        name: 'AUTH_SECRET',
+        type: 'inherit',
+        version_id: activeVersionId,
+      });
+      expect(uploads[1].modules).toEqual([expect.objectContaining({ name: 'index.js' })]);
+    } finally {
+      await prepared!.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
 async function verifyPinnedUpload(atomic: boolean): Promise<void> {
   const prepared = await output(
     {
@@ -656,6 +1023,10 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
       keep_vars: true,
       assets: { directory: '../client', binding: 'ASSETS', not_found_handling: 'none' },
       queues: { producers: [{ binding: 'JOBS', queue: 'jobs', delivery_delay: 7 }] },
+      ratelimits: [
+        { name: 'FAST_LIMIT', namespace_id: '1001', simple: { limit: 5, period: 10 } },
+        { name: 'MINUTE_LIMIT', namespace_id: '1002', simple: { limit: 30, period: 60 } },
+      ],
       ai: { binding: 'AI' },
       hyperdrive: [{ binding: 'POSTGRES', id: 'a'.repeat(32) }],
       services: [
@@ -814,6 +1185,7 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
     );
     expect(upload).toBeDefined();
     const body = JSON.parse(upload!.body);
+    expect(body.package_dependencies).toBeUndefined();
     expect(body.bindings).toEqual(
       expect.arrayContaining([
         { name: 'AUTH_SECRET', type: 'inherit', version_id: activeVersionId },
@@ -821,6 +1193,18 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
         { name: 'DASHBOARD_VAR', type: 'inherit', version_id: activeVersionId },
         { name: 'APP_VERSION', type: 'version_metadata' },
         { name: 'JOBS', type: 'queue', queue_name: 'jobs', delivery_delay: 7 },
+        {
+          name: 'FAST_LIMIT',
+          type: 'ratelimit',
+          namespace_id: '1001',
+          simple: { limit: 5, period: 10 },
+        },
+        {
+          name: 'MINUTE_LIMIT',
+          type: 'ratelimit',
+          namespace_id: '1002',
+          simple: { limit: 30, period: 60 },
+        },
         { name: 'AI', type: 'ai' },
         { name: 'POSTGRES', type: 'hyperdrive', id: 'a'.repeat(32) },
         {
@@ -861,9 +1245,8 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
       ]),
     );
     expect(body.modules).toEqual([expect.objectContaining({ name: 'index.js' })]);
-    expect(body.exports).toEqual({
-      LocalJob: { type: 'workflow', name: 'local-workflow' },
-      ExportOnlyJob: { type: 'workflow', name: 'export-only-workflow' },
+    // cf's key order: Worker entrypoints, Durable Objects, then Workflows.
+    expectSameJson(body.exports, {
       Rpc: { type: 'worker', cache: { enabled: false } },
       Departed: { type: 'durable-object', state: 'transferred', transferred_to: 'target-worker' },
       Arriving: {
@@ -872,6 +1255,8 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
         storage: 'sqlite',
         transfer_from: 'source-worker',
       },
+      LocalJob: { type: 'workflow', name: 'local-workflow' },
+      ExportOnlyJob: { type: 'workflow', name: 'export-only-workflow' },
     });
     expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(
       originalWorkerConfig,
@@ -925,11 +1310,283 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
   }
 }
 
-it('uploads live secrets and multiple asset batches when the latest upload is inactive', () =>
+it('uploads live secrets, rate limits and multiple asset batches when the latest upload is inactive', () =>
   verifyPinnedUpload(false));
 
-it('uploads live secrets and multiple asset batches for atomic publication', () =>
+it('uploads live secrets, rate limits and multiple asset batches for atomic publication', () =>
   verifyPinnedUpload(true));
+
+it('converts Container and transfer exports as cf does', () => {
+  const exports = {
+    Flow: {
+      type: 'workflow',
+      name: 'flow',
+      defaultRetention: { successRetention: 1, errorRetention: '2 days' },
+    },
+    Box: { type: 'durable-object', state: 'created', storage: 'sqlite', container: 'box' },
+    LegacyBox: { type: 'durable-object', storage: 'legacy-kv', container: 'legacy-box' },
+    Incoming: {
+      type: 'durable-object',
+      state: 'expecting-transfer',
+      storage: 'sqlite',
+      transferFrom: 'source-worker',
+      container: 'incoming',
+    },
+    LegacyIncoming: {
+      type: 'durable-object',
+      state: 'expecting-transfer',
+      storage: 'legacy-kv',
+      transferFrom: 'source-worker',
+      container: 'legacy-incoming',
+    },
+    Entry: { type: 'worker' },
+  };
+  // cf's upload: the converter's entries, Worker entrypoints first, then Durable
+  // Objects, then Workflows reduced to their identity.
+  const converted = Object.entries(
+    convertToWranglerConfig({ worker: { exports }, containers: [] } as unknown as ParsedInputConfig)
+      .exports as Record<string, { type: string; name?: string }>,
+  );
+  const fromCf = Object.fromEntries(
+    ['worker', 'durable-object', 'workflow'].flatMap((type) =>
+      converted
+        .filter(([, value]) => value.type === type)
+        .map(([name, value]) => [name, type === 'workflow' ? { type, name: value.name } : value]),
+    ),
+  );
+  expectSameJson(exportsFromOutput(exports, []), fromCf);
+  // What cf sends today, kept readable.
+  expect(fromCf).toEqual({
+    Entry: { type: 'worker' },
+    Box: { type: 'durable-object', storage: 'sqlite', container: 'box' },
+    LegacyBox: { type: 'durable-object', storage: 'legacy-kv' },
+    Incoming: {
+      type: 'durable-object',
+      state: 'expecting-transfer',
+      storage: 'sqlite',
+      transfer_from: 'source-worker',
+      container: 'incoming',
+    },
+    LegacyIncoming: {
+      type: 'durable-object',
+      state: 'expecting-transfer',
+      storage: 'legacy-kv',
+      transfer_from: 'source-worker',
+    },
+    Flow: { type: 'workflow', name: 'flow' },
+  });
+  expect(exportsFromOutput({}, [])).toBeUndefined();
+  expect(() =>
+    exportsFromOutput({ Room: { type: 'durable-object', state: 'paused', storage: 'sqlite' } }, []),
+  ).toThrow('has an unsupported state');
+});
+
+// Cloudflare stages a 0% candidate only when its exports equal the live version's,
+// and the live version may come from cf. Compare against the real pinned cf upload.
+it(
+  'uploads the same exports as cf for the same Build Output',
+  async () => {
+    const activeVersionId = '11111111-1111-4111-8111-111111111111';
+    const prepared = await output({ secrets: { required: ['AUTH_SECRET'] } });
+    const worker = JSON.parse(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8'));
+    worker.exports = {
+      Job: {
+        type: 'workflow',
+        name: 'jobs',
+        limits: { steps: 3 },
+        defaultRetention: { successRetention: '1 day' },
+      },
+      Room: { type: 'durable-object', storage: 'sqlite' },
+      Legacy: { type: 'durable-object', state: 'created', storage: 'legacy-kv' },
+      Rpc: { type: 'worker', cache: { enabled: false } },
+      Removed: { type: 'durable-object', state: 'deleted' },
+      OldRoom: { type: 'durable-object', state: 'renamed', renamedTo: 'Room' },
+      Departed: { type: 'durable-object', state: 'transferred', transferredTo: 'target-worker' },
+      Arriving: {
+        type: 'durable-object',
+        state: 'expecting-transfer',
+        storage: 'sqlite',
+        transferFrom: 'source-worker',
+      },
+    };
+    writeFileSync(getWorkerConfigPath(prepared.directory), JSON.stringify(worker));
+    const uploads: Array<{ path: string; exports: unknown }> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Array<Buffer> = [];
+      for await (const chunk of request) {
+        chunks.push(Buffer.from(chunk));
+      }
+      const body = Buffer.concat(chunks);
+      const path = new URL(request.url!, 'http://localhost').pathname;
+      let result: unknown = {};
+      if (request.method === 'POST' && path.endsWith('/workers/scripts/void-test/versions')) {
+        const form = await new Request('http://localhost', {
+          method: 'POST',
+          headers: { 'content-type': request.headers['content-type']! },
+          body,
+        }).formData();
+        uploads.push({ path, exports: JSON.parse(String(form.get('metadata'))).exports });
+        result = { id: '33333333-3333-4333-8333-333333333333', number: 2 };
+      } else if (
+        request.method === 'POST' &&
+        path.endsWith('/workers/workers/void-test/versions')
+      ) {
+        uploads.push({ path, exports: JSON.parse(body.toString('utf8')).exports });
+        result = { id: '22222222-2222-4222-8222-222222222222', urls: [] };
+      } else if (path.endsWith('/services/void-test')) {
+        result = {
+          default_environment: {
+            environment: 'production',
+            script: { id: 'void-test', last_deployed_from: 'wrangler' },
+          },
+        };
+      } else if (path.endsWith('/workflows/jobs')) {
+        result = { name: 'jobs', script_name: 'void-test', class_name: 'Job' };
+      } else if (path.endsWith(`/versions/${activeVersionId}`)) {
+        result = { id: activeVersionId, bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }] };
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify({ success: true, errors: [], messages: [], result }));
+    });
+    const apiBaseUrl = await listen(server);
+    try {
+      // cf reports a local error after this upload because the fake result is incomplete.
+      await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
+        cwd: prepared.directory,
+        capture: true,
+        timeoutMs: REAL_CF_TIMEOUT_MS,
+      });
+      expect(
+        await createActiveSecretPinner({
+          output: prepared,
+          handoffPending: false,
+          requiredNames: ['AUTH_SECRET'],
+        })!(activeVersionId, [{ name: 'AUTH_SECRET', type: 'secret_text' }]),
+      ).toBe(true);
+      await uploadPinnedCloudflareVersion({
+        output: prepared,
+        accountId: 'account-id',
+        apiBaseUrl,
+        workerName: 'void-test',
+        token: 'synthetic-token',
+        atomic: false,
+        verifyUploader: () => true,
+      });
+      expect(uploads.map(({ path }) => path.split('/').at(-3))).toEqual(['scripts', 'workers']);
+      const [cf, pinned] = uploads.map(({ exports }) => JSON.stringify(exports, null, 2));
+      expect(pinned).toBe(cf);
+      expect(JSON.parse(pinned!)).toEqual({
+        Rpc: { type: 'worker', cache: { enabled: false } },
+        Room: { type: 'durable-object', storage: 'sqlite' },
+        Legacy: { type: 'durable-object', storage: 'legacy-kv' },
+        Removed: { type: 'durable-object', state: 'deleted' },
+        OldRoom: { type: 'durable-object', state: 'renamed', renamed_to: 'Room' },
+        Departed: { type: 'durable-object', state: 'transferred', transferred_to: 'target-worker' },
+        Arriving: {
+          type: 'durable-object',
+          state: 'expecting-transfer',
+          storage: 'sqlite',
+          transfer_from: 'source-worker',
+        },
+        Job: { type: 'workflow', name: 'jobs' },
+      });
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
+it.each([
+  [
+    'Void-generated',
+    `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/a-12345678.js\n  Cache-Control: public, max-age=31536000, immutable\n`,
+  ],
+  ['user-authored', '/assets/*\n  X-Frame-Options: DENY\n'],
+  ['missing', undefined],
+] as const)(
+  'uploads only a Void-generated _headers file with pinned secrets (%s)',
+  async (_kind, headers) => {
+    const prepared = await output({
+      secrets: { required: ['AUTH_SECRET'] },
+      assets: {
+        directory: '../client',
+        binding: 'ASSETS',
+        not_found_handling: 'none',
+        run_worker_first: ['/**', '!/assets/*'],
+      },
+    });
+    try {
+      if (headers !== undefined) {
+        writeFileSync(join(getWorkerAssetsDir(prepared.directory), '_headers'), headers);
+      }
+      await pinActiveWorkerSecrets({
+        output: prepared,
+        activeVersionId: '11111111-1111-4111-8111-111111111111',
+        bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+        requiredNames: ['AUTH_SECRET'],
+      });
+      const posts: Array<{ url: string; body: string }> = [];
+      const server = createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        const url = request.url ?? '';
+        if (request.method === 'POST') {
+          posts.push({ url, body: Buffer.concat(chunks).toString('utf8') });
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: true,
+            errors: [],
+            result: url.endsWith('/assets-upload-session')
+              ? { jwt: 'asset-token', buckets: [] }
+              : request.method === 'GET'
+                ? {
+                    id: '11111111-1111-4111-8111-111111111111',
+                    bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+                  }
+                : { id: '22222222-2222-4222-8222-222222222222', urls: [] },
+          }),
+        );
+      });
+      await uploadPinnedCloudflareVersion({
+        output: prepared,
+        accountId: 'account-id',
+        apiBaseUrl: await listen(server),
+        workerName: 'void-test',
+        token: 'synthetic-token',
+        atomic: false,
+        verifyUploader: () => true,
+      });
+      const session = posts.find(({ url }) => url.endsWith('/assets-upload-session'));
+      expect(Object.keys(JSON.parse(session!.body).manifest)).toEqual(['/index.html']);
+      const body = JSON.parse(posts.find(({ url }) => url.endsWith('/versions'))!.body);
+      expect(body.assets).toEqual({
+        jwt: 'asset-token',
+        config: { not_found_handling: 'none', run_worker_first: ['/**', '!/assets/*'] },
+      });
+      const modules = (body.modules as Array<{ name: string }>).filter(
+        ({ name }) => name === '_headers',
+      );
+      expect(modules).toEqual(
+        _kind === 'Void-generated'
+          ? [
+              {
+                name: '_headers',
+                content_type: 'text/plain',
+                content_base64: Buffer.from(headers!).toString('base64'),
+              },
+            ]
+          : [],
+      );
+    } finally {
+      prepared.dispose();
+    }
+  },
+);
 
 it('uploads Worker limits, placement and cache with pinned secrets', async () => {
   const prepared = await output({
@@ -1001,11 +1658,12 @@ it('uploads Worker limits, placement and cache with pinned secrets', async () =>
   }
 });
 
-it.each([
-  { region: 'aws:us-east-1' },
-  { host: 'db.example.test:5432' },
-  { hostname: 'api.example.test' },
-])('rejects targeted placement with pinned secrets before any upload: %j', async (placement) => {
+/** Upload with pinned secrets to a fake API whose upload reply carries `replyPlacement`. */
+async function uploadTargeted(
+  placement: Record<string, string>,
+  replyPlacement: unknown,
+  atomic = false,
+) {
   const prepared = await output({ secrets: { required: ['AUTH_SECRET'] }, placement });
   try {
     await pinActiveWorkerSecrets({
@@ -1014,9 +1672,18 @@ it.each([
       bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
       requiredNames: ['AUTH_SECRET'],
     });
-    const requests: Array<string> = [];
-    const server = createServer((request, response) => {
-      requests.push(`${request.method} ${request.url}`);
+    const uploads: Array<{ url: string; body: Record<string, unknown> }> = [];
+    const server = createServer(async (request, response) => {
+      const chunks: Array<Buffer> = [];
+      for await (const chunk of request) {
+        chunks.push(Buffer.from(chunk));
+      }
+      if (request.method === 'POST') {
+        uploads.push({
+          url: request.url ?? '',
+          body: JSON.parse(Buffer.concat(chunks).toString('utf8')),
+        });
+      }
       response.writeHead(200, { 'Content-Type': 'application/json' });
       response.end(
         JSON.stringify({
@@ -1028,27 +1695,88 @@ it.each([
                   id: '11111111-1111-4111-8111-111111111111',
                   bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
                 }
-              : { id: '22222222-2222-4222-8222-222222222222', urls: [] },
+              : {
+                  id: '22222222-2222-4222-8222-222222222222',
+                  urls: [],
+                  ...(replyPlacement === undefined ? {} : { placement: replyPlacement }),
+                },
         }),
       );
     });
-    await expect(
-      uploadPinnedCloudflareVersion({
-        output: prepared,
-        accountId: 'account-id',
-        apiBaseUrl: await listen(server),
-        workerName: 'void-test',
-        token: 'synthetic-token',
-        atomic: true,
-        verifyUploader: () => true,
-      }),
-    ).rejects.toThrow(
-      `Cloudflare placement.${Object.keys(placement)[0]} cannot be deployed while the Worker has secrets. Remove cloudflare.placement from void.config.ts, or set it to { mode: 'smart' }.`,
-    );
-    expect(requests).toEqual([]);
+    const upload = uploadPinnedCloudflareVersion({
+      output: prepared,
+      accountId: 'account-id',
+      apiBaseUrl: await listen(server),
+      workerName: 'void-test',
+      token: 'synthetic-token',
+      atomic,
+      verifyUploader: () => true,
+    });
+    return {
+      result: await upload.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      ),
+      uploads,
+    };
   } finally {
     prepared.dispose();
   }
+}
+
+it.each([
+  [{ region: 'aws:us-east-1' }, false],
+  [{ region: 'aws:us-east-1' }, true],
+  [{ host: 'db.example.test:5432' }, false],
+  [{ hostname: 'api.example.test' }, true],
+])('uploads targeted placement %j with pinned secrets (atomic=%s)', async (placement, atomic) => {
+  // Cloudflare replies with the target alone, as observed on the live API.
+  const { result, uploads } = await uploadTargeted(placement, placement, atomic);
+
+  expect(result).toEqual({ value: { id: '22222222-2222-4222-8222-222222222222', urls: [] } });
+  expect(uploads).toHaveLength(1);
+  expect(uploads[0]!.url.endsWith(atomic ? '/versions?deploy=true' : '/versions')).toBe(true);
+  expectSameJson(uploads[0]!.body.placement, { mode: 'targeted', ...placement });
+});
+
+it('accepts an upload reply that lists the target', async () => {
+  const { result } = await uploadTargeted(
+    { region: 'aws:us-east-1' },
+    { mode: 'targeted', target: [{ id: 1, region: 'aws:us-east-1', type: 'region' }] },
+  );
+
+  expect(result).toHaveProperty('value.id', '22222222-2222-4222-8222-222222222222');
+});
+
+it.each([
+  ['no placement', undefined],
+  ['an empty placement', {}],
+  ['a targeted mode without a target', { mode: 'targeted' }],
+  ['smart placement', { mode: 'smart' }],
+  ['another region', { region: 'aws:eu-west-1' }],
+  ['the target under another kind', { hostname: 'aws:us-east-1' }],
+  [
+    'two targets',
+    { mode: 'targeted', target: [{ region: 'aws:us-east-1' }, { region: 'aws:eu-west-1' }] },
+  ],
+])('stops before deploying when the upload reply has %s', async (_case, replyPlacement) => {
+  const { result } = await uploadTargeted({ region: 'aws:us-east-1' }, replyPlacement);
+
+  expect(result).toEqual({
+    error: new Error(
+      `Cloudflare did not keep placement.region "aws:us-east-1" on Worker version 22222222-2222-4222-8222-222222222222, so it was not deployed. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
+    ),
+  });
+});
+
+it('reports a live version whose atomic upload lost its target', async () => {
+  const { result } = await uploadTargeted({ hostname: 'api.example.test' }, {}, true);
+
+  expect(result).toEqual({
+    error: new Error(
+      `Cloudflare did not keep placement.hostname "api.example.test" on Worker version 22222222-2222-4222-8222-222222222222, which is already live. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
+    ),
+  });
 });
 
 it.each(['missing name', 'duplicate name', 'external collision', 'class collision'] as const)(
@@ -1655,10 +2383,11 @@ it.each([
 ] as const)('preserves pinned Sandbox image and application lifecycle: %s', async (mode) => {
   const { prepared, requests, counts, existing, expectedImages, apiBaseUrl } =
     await containerApi(mode);
+  // cf 1.0.0-beta.21 and later print the pushed image on stderr.
   const runCf = vi.fn(() => ({
     status: 0,
-    stdout: 'Pushed image: registry.cloudflare.com/account-id/sandbox:fixture\n',
-    stderr: '',
+    stdout: '',
+    stderr: '│  Pushed image: registry.cloudflare.com/account-id/sandbox:fixture\n',
   }));
   const inspect =
     mode === 'local'
@@ -1720,16 +2449,12 @@ it.each([
       expect(post.body.containers).toEqual([
         { name: 'sandbox', class_name: 'Sandbox', images: expectedImages },
       ]);
-      expect(post.body.exports).toEqual({
+      // Live classes carry no state, as in cf's upload of the same Build Output.
+      expectSameJson(post.body.exports, {
         OldRoom: { type: 'durable-object', state: 'renamed', renamed_to: 'Room' },
-        Room: { type: 'durable-object', storage: 'sqlite', state: 'created' },
         Removed: { type: 'durable-object', state: 'deleted' },
-        Sandbox: {
-          type: 'durable-object',
-          storage: 'sqlite',
-          state: 'created',
-          container: 'sandbox',
-        },
+        Sandbox: { type: 'durable-object', storage: 'sqlite', container: 'sandbox' },
+        Room: { type: 'durable-object', storage: 'sqlite' },
       });
       expect(requests.findIndex((row) => row.url.endsWith('/image-preparations'))).toBeLessThan(
         requests.indexOf(post),
@@ -1792,6 +2517,7 @@ it.each([false, true])(
     const current = '11111111-1111-4111-8111-111111111111';
     const next = '22222222-2222-4222-8222-222222222222';
     const domain = 'app.example.com';
+    const observability = { enabled: true, logs: { enabled: true }, traces: { enabled: true } };
     const triggerConfig = {
       workers_dev: false,
       preview_urls: false,
@@ -1799,8 +2525,10 @@ it.each([false, true])(
       crons: [],
       queueConsumers: [],
       workflows: [],
+      observability,
     };
     const prepared = await output({
+      observability,
       workers_dev: false,
       preview_urls: false,
       routes: triggerConfig.routes,
@@ -1810,6 +2538,18 @@ it.each([false, true])(
     let active = current;
     let published = false;
     const server = createServer(async (request, response) => {
+      if (request.method === 'PATCH') {
+        expect(request.url).toBe(
+          '/client/v4/accounts/account-id/workers/scripts/void-test/script-settings',
+        );
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        expect(JSON.parse(Buffer.concat(chunks).toString())).toEqual({ observability });
+        expect(active).toBe(next);
+        events.push('settings');
+      }
       request.resume();
       response.writeHead(200, { 'Content-Type': 'application/json' });
       const upload = request.method === 'POST';
@@ -1907,7 +2647,7 @@ it.each([false, true])(
         versionId: next,
         previewUrl: `https://${domain}`,
       });
-      expect(events).toEqual(['activate', 'publish-domain', 'readiness']);
+      expect(events).toEqual(['activate', 'publish-domain', 'settings', 'readiness']);
     } finally {
       await prepared.dispose();
     }
@@ -2177,11 +2917,13 @@ it('preserves activation metadata and sorts cf version history for the existing 
       'versions',
       'create',
       '--prebuilt',
-      '--message',
-      'void:metadata',
+      '--message=void:metadata',
       '--preview-alias',
       'void-ready',
     ]);
+    // A leading "-" stays part of the message, not a cf flag.
+    await runner({ type: 'worker.deploy', ...target, message: '-void' }, { capture: true });
+    expect(calls.at(-1)).toEqual(['deploy', '--prebuilt', '--message=-void']);
     await runner(
       {
         type: 'versions.deploy',
@@ -2202,6 +2944,44 @@ it('preserves activation metadata and sorts cf version history for the existing 
     prepared.dispose();
   }
 });
+
+it.each([undefined, false, true])(
+  'passes bypassDeploymentChecks=%s only when true with and without a deployment body',
+  async (bypassDeploymentChecks) => {
+    const prepared = await output();
+    try {
+      const calls: Array<Array<string>> = [];
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+        runCf: (args) => {
+          calls.push(args);
+          return { status: 0, stdout: '', stderr: '' };
+        },
+      });
+      for (const message of [undefined, 'Void automatic rollback after readiness failed.']) {
+        const result = await runner(
+          {
+            type: 'versions.deploy',
+            workerName: 'void-test',
+            versions: [{ versionId: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
+            message,
+            bypassDeploymentChecks,
+          },
+          { capture: false },
+        );
+        expect(result.status).toBe(0);
+        const args = calls.at(-1)!;
+        expect(args.includes('--bypass-deployment-checks')).toBe(bypassDeploymentChecks === true);
+        expect(args.includes('--body')).toBe(message !== undefined);
+        expect(args).toContain('--versions');
+      }
+    } finally {
+      prepared.dispose();
+    }
+  },
+);
 
 it.each(['newest-first', 'oldest-first'] as const)(
   'reads the actual latest ten versions when cf pages %s',
@@ -2240,6 +3020,83 @@ it.each(['newest-first', 'oldest-first'] as const)(
       prepared.dispose();
     }
   },
+);
+
+it.each([
+  { label: 'enable', observability: { enabled: true, traces: { enabled: true } }, rejected: false },
+  { label: 'disable', observability: { enabled: false }, rejected: false },
+  { label: 'omit', observability: undefined, rejected: false },
+  { label: 'reject', observability: { enabled: true }, rejected: true },
+])(
+  'publishes explicit observability with the real cf trigger transport: $label',
+  async ({ observability, rejected }) => {
+    const prepared = await output({ workers_dev: false, preview_urls: false, observability });
+    const requests: Array<{ method: string; path: string; body: unknown; authorization?: string }> =
+      [];
+    const apiBaseUrl = await listen(
+      createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        const text = Buffer.concat(chunks).toString();
+        requests.push({
+          method: request.method ?? '',
+          path: request.url ?? '',
+          body: text ? JSON.parse(text) : undefined,
+          authorization: request.headers.authorization,
+        });
+        const failed = rejected && request.method === 'PATCH';
+        response.writeHead(failed ? 403 : 200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({
+            success: !failed,
+            result: request.url?.endsWith('/workers/subdomain')
+              ? { subdomain: 'fixture' }
+              : { subdomain: { enabled: false, previews_enabled: false }, observability },
+          }),
+        );
+      }),
+    );
+    try {
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        runCf: pinnedCf(apiBaseUrl),
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+        pinnedUpload: {
+          accountId: 'account-id',
+          apiBaseUrl,
+          getToken: async () => 'synthetic-token',
+          verifyUploader: () => true,
+        },
+      });
+      const configPath = join(roots.at(-1)!, 'dist/ssr/wrangler.json');
+      const result = await deployCloudflareVersionTriggers({
+        runWrangler: runner,
+        workerName: 'void-test',
+        configPath,
+        triggerConfig: readCloudflareTriggerConfig(configPath),
+      });
+      expect(result, result.stdout + result.stderr).toMatchObject({ status: rejected ? 1 : 0 });
+      expect(requests.filter(({ method }) => method === 'PATCH')).toEqual(
+        observability
+          ? [
+              {
+                method: 'PATCH',
+                path: '/client/v4/accounts/account-id/workers/scripts/void-test/script-settings',
+                body: { observability },
+                authorization: 'Bearer synthetic-token',
+              },
+            ]
+          : [],
+      );
+      expect(requests.some(({ path }) => path.includes('/versions'))).toBe(false);
+    } finally {
+      prepared.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
 );
 
 it('applies the immutable trigger snapshot through a private cf output copy', async () => {

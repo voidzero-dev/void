@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { toSlash } from 'pathslash';
@@ -9,7 +9,10 @@ import {
   collectPrerenderPaths,
   collectPrerenderPathsNode,
   collectPrerenderWorkerModules,
+  prerenderPages,
+  prerenderPagesNode,
 } from '../../src/prerender.ts';
+import { renderDefaultErrorPage } from '../../src/runtime/error-pages/index.ts';
 import { INTERNAL_ENV_KEYS, stripInternalEnvKeys } from '../../src/shared/env.ts';
 
 const tempDirs: Array<string> = [];
@@ -156,6 +159,77 @@ export default {
       }
       rmSync(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe.each(['cloudflare', 'node'] as const)('static 404 pages (%s)', (target) => {
+  afterEach(() => {
+    while (tempDirs.length > 0) {
+      rmSync(tempDirs.pop()!, { recursive: true, force: true });
+    }
+  });
+
+  function fixture(paths: Array<string> = []) {
+    const root = createTempWorkerDir();
+    const workerDir = join(root, 'dist', 'ssr');
+    const clientDir = join(root, 'dist', 'client');
+    const customPage = '<!doctype html><h1>Custom not found page</h1>';
+    mkdirSync(workerDir, { recursive: true });
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}\n');
+    writeFileSync(
+      join(workerDir, 'wrangler.json'),
+      JSON.stringify({ main: 'index.js', compatibility_date: '2026-07-01' }),
+    );
+    const app = `
+export default {
+  fetch(request, env) {
+    if (new URL(request.url).pathname === '/__void/prerender-paths' && env?.__VOID_PRERENDER === '1') {
+      return Response.json({ paths: ${JSON.stringify(paths)} });
+    }
+    return new Response(${JSON.stringify(customPage)}, { headers: { 'content-type': 'text/html' } });
+  },
+};
+`;
+    writeFileSync(join(workerDir, 'index.js'), app);
+    writeFileSync(join(workerDir, 'app.js'), app);
+    const options = {
+      root,
+      workerDir,
+      ssrDir: workerDir,
+      clientDir,
+      persistDir: join(root, '.void'),
+    };
+    return {
+      clientDir,
+      customPage,
+      render: () => (target === 'node' ? prerenderPagesNode(options) : prerenderPages(options)),
+    };
+  }
+
+  it('does not emit a 404 when there are no pages to prerender', async () => {
+    const { clientDir, render } = fixture();
+    expect(await render()).toEqual({ paths: [], rendered: [], failed: [] });
+    expect(existsSync(join(clientDir, '404.html'))).toBe(false);
+  });
+
+  it('emits the default 404 when there are pages to prerender', async () => {
+    const { clientDir, render } = fixture(['/']);
+    await render();
+    expect(readFileSync(join(clientDir, '404.html'), 'utf8')).toBe(renderDefaultErrorPage(404));
+  });
+
+  it('preserves an existing custom 404', async () => {
+    const { clientDir, customPage, render } = fixture(['/']);
+    mkdirSync(clientDir, { recursive: true });
+    writeFileSync(join(clientDir, '404.html'), customPage);
+    await render();
+    expect(readFileSync(join(clientDir, '404.html'), 'utf8')).toBe(customPage);
+  });
+
+  it('preserves the application page prerendered at /404', async () => {
+    const { clientDir, customPage, render } = fixture(['/404']);
+    expect(await render()).toEqual({ paths: ['/404'], rendered: ['/404'], failed: [] });
+    expect(readFileSync(join(clientDir, '404.html'), 'utf8')).toBe(customPage);
   });
 });
 

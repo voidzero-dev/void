@@ -38,7 +38,8 @@ const TITLES: Partial<Record<AdminPageId, string>> = {
 
 export function AdminNavigationFallback({ initialPageData }: { initialPageData: PageObject }) {
   const navigation = useNavigation();
-  const path = navigation.location?.pathname ?? initialPageData.url;
+  const path =
+    navigation.location?.pathname ?? new URL(initialPageData.url, 'https://void.invalid').pathname;
   const title = TITLES[matchAdminRoute(path) ?? 'adminError'] ?? 'Admin';
   const platformName = String(initialPageData.props.platformName ?? 'Void');
   const username =

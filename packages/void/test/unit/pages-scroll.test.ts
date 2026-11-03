@@ -193,6 +193,34 @@ describe('Pages scroll restoration', () => {
     expect(returned.window.scrollTo).toHaveBeenCalledExactlyOnceWith(0, 3500);
   });
 
+  it('keeps one saved position for an entry that is replaced again and again', async () => {
+    const page = await setup();
+    page.engine.start();
+    page.engine.commitInitialRender();
+    const state = structuredClone(page.history.state);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ component: 'home', props: {} }, { headers: { 'X-VoidPages': 'true' } }),
+      ),
+    );
+    for (const scrollY of [100, 200, 300]) {
+      page.window.scrollY = scrollY;
+      const visit = page.engine.prepareVisit('/', { replace: true, preserveState: true });
+      await visit.shell;
+      await visit.commit();
+    }
+    expect(page.history.state).toEqual(state);
+    expect(page.storage.size).toBe(1);
+
+    page.window.scrollY = 900;
+    page.window.dispatchEvent(new Event('pagehide'));
+    const returned = await setup(state, page.storage);
+    returned.engine.start();
+    returned.engine.commitInitialRender();
+    expect(returned.window.scrollTo).toHaveBeenCalledExactlyOnceWith(0, 900);
+  });
+
   it('uses the latest in-memory position when a storage write fails', async () => {
     const page = await setup();
     page.engine.start();
@@ -212,5 +240,29 @@ describe('Pages scroll restoration', () => {
     page.window.location.hash = '';
     page.window.dispatchEvent(Object.assign(new Event('popstate'), { state }));
     expect(page.window.scrollY).toBe(3500);
+  });
+
+  it('saves positions under the current entry when a history write fails', async () => {
+    const page = await setup();
+    page.engine.start();
+    page.engine.commitInitialRender();
+    const key = page.history.state?.__voidScrollKey;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () =>
+        Response.json({ component: 'home', props: {} }, { headers: { 'X-VoidPages': 'true' } }),
+      ),
+    );
+    const error = new DOMException('History blocked', 'SecurityError');
+    page.history.pushState.mockImplementationOnce(() => {
+      throw error;
+    });
+    const visit = page.engine.prepareVisit('/next');
+    await visit.shell;
+    await expect(visit.commit()).rejects.toBe(error);
+
+    page.window.scrollY = 640;
+    page.window.dispatchEvent(new Event('pagehide'));
+    expect([...page.storage]).toEqual([[`void:scroll:${key}`, '{"x":0,"y":640}']]);
   });
 });

@@ -129,7 +129,6 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   // heading-anchor targets.
   markdown.use(footnote);
 
-  // @ts-expect-error markdown-it-anchor types reference @types/markdown-it, structurally incompatible with markdown-exit
   markdown.use(anchor, {
     permalink: anchor.permalink.ariaHidden({ placement: 'before' }),
   });

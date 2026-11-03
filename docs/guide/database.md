@@ -56,8 +56,8 @@ Define your tables in `db/schema.ts` using column helpers from `void/schema-d1`,
 ::: code-group
 
 ```ts [SQLite (D1)]
-import { sql } from 'void/db';
 // db/schema.ts
+import { sql } from 'void/db';
 import { sqliteTable, text, integer } from 'void/schema-d1';
 
 export const users = sqliteTable('users', {
@@ -113,6 +113,32 @@ export const posts = ...;
 export * from "./schema/users";
 export * from "./schema/posts";
 ```
+
+### Column casing
+
+By default, a column declared without a name, such as `createdAt: timestamp()`, uses its key as the column name. Set `database.casing` to `'snake_case'` to store these columns as `created_at` instead. It applies to `void/db` queries and to `void db` commands such as `generate`, `push`, and `seed`. Columns with an explicit name, such as `text('created_at')`, keep that name.
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  database: { dialect: 'pg', casing: 'snake_case' },
+});
+```
+
+```ts
+// db/schema.ts
+import { pgTable, serial, text, timestamp } from 'void/schema-pg';
+
+export const posts = pgTable('posts', {
+  id: serial().primaryKey(),
+  title: text().notNull(),
+  createdAt: timestamp().notNull().defaultNow(), // created_at
+});
+```
+
+Omit `dialect` for D1. If your database already has tables, run `void db generate` after you change `casing` and review the migration before you apply it.
 
 ## Querying
 
@@ -288,8 +314,8 @@ export const insertUserSchema = createInsertSchema(users, {
 ```
 
 ```ts [Valibot]
-import { pipe, minLength, email } from 'valibot';
 // db/schema.ts
+import { pipe, minLength, email } from 'valibot';
 import { createInsertSchema } from 'void/drizzle-valibot';
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -299,8 +325,8 @@ export const insertUserSchema = createInsertSchema(users, {
 ```
 
 ```ts [ArkType]
-import { type } from 'arktype';
 // db/schema.ts
+import { type } from 'arktype';
 import { createInsertSchema } from 'void/drizzle-arktype';
 
 export const insertUserSchema = createInsertSchema(users, {
@@ -316,8 +342,8 @@ export const insertUserSchema = createInsertSchema(users, {
 Use the derived schema in your route handlers with [`withValidator()`](./server-routing.md#validation):
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // routes/api/users/index.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 

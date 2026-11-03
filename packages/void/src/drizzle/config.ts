@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'pathslash';
-import { readProjectPaths } from '../project-paths.ts';
+import { getDatabaseCasing, readConfig } from '../config.ts';
+import { resolveProjectPaths } from '../project-paths.ts';
 import { discoverSchema, schemaSpecifier } from './discover.ts';
 
 type DrizzleDialect = 'sqlite' | 'postgresql' | 'mysql';
@@ -18,7 +19,8 @@ export const PLACEHOLDER_DB_URL: Record<DrizzleDialect, string> = {
  * Schema and migration paths are relative to the project root: drizzle-kit
  * resolves them against its working directory, and `void db` always runs it
  * with `cwd` set to the project root, so the config file itself may live
- * anywhere (see `outDir`).
+ * anywhere (see `outDir`). It carries `database.casing` from the project's
+ * config, which `void/db` also passes to drizzle.
  *
  * @param options.outDir Directory for the config file. When set, the file is
  *   written readable by the owner only.
@@ -30,7 +32,9 @@ export function writeDrizzleConfig(
   dialect: DrizzleDialect = 'sqlite',
   options?: { additionalSchemas?: Array<string>; outDir?: string },
 ): string {
-  const paths = readProjectPaths(root);
+  const projectConfig = readConfig(root);
+  const paths = resolveProjectPaths(root, projectConfig);
+  const casing = getDatabaseCasing(projectConfig);
   const schema = discoverSchema(root, paths);
   const schemaPaths = [
     ...(schema ? [schemaSpecifier(schema, root)] : []),
@@ -47,6 +51,7 @@ export function writeDrizzleConfig(
 
   const config = {
     dialect,
+    ...(casing ? { casing } : {}),
     schema: schemaPaths.length === 1 ? schemaPaths[0] : schemaPaths,
     out: `./${relative(root, paths.migrationsDir)}`,
     migrations: { prefix: 'timestamp' },

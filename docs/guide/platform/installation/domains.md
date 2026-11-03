@@ -53,6 +53,22 @@ The management token needs **SSL and Certificates: Read** (or Edit) on that zone
 
 :::
 
+## Project Custom Domains
+
+Projects can serve their own domains, such as `www.example.com`, through Cloudflare for SaaS custom hostnames. This needs a dedicated application zone. Turn it on when installing, or later with an upgrade:
+
+```sh
+void platform install --application-domain example.app --zone example.app --dedicated-zone --custom-domains
+void platform upgrade <installation-id> --custom-domains
+```
+
+The runtime token needs **SSL and Certificates: Edit** on the application zone. Void includes it in the runtime token's creation link and checks it before deploying; a token created before custom domains were on needs it added. Before adding the first domain, set up Cloudflare for SaaS on that zone once:
+
+1. Create a proxied DNS record for `cname.<application domain>`, for example an `AAAA` record pointing to `100::`.
+2. Open **SSL/TLS > Custom Hostnames**, enable Cloudflare for SaaS, and set `cname.<application domain>` as the fallback origin.
+
+A project owner then runs `void domain add <hostname>`. Void prints the CNAME target, `cname.<application domain>`, and the TXT records that prove ownership. Once the records resolve and the certificate is issued, the dedicated zone's catch-all routes send the hostname to the project.
+
 ## Optional Dashboard
 
 The API's `/admin/` pages are included in the core installation. You can deploy

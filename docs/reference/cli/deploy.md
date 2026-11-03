@@ -86,15 +86,16 @@ void deploy --platform cloudflare --require-email   # fail instead of deploying 
 
 Void signs you in through your browser when needed and saves the selected account. In CI, set `CLOUDFLARE_API_TOKEN` and, if the token can access several accounts, `CLOUDFLARE_ACCOUNT_ID`.
 
-| Option or setting              | Cloudflare behavior                                                                    |
-| ------------------------------ | -------------------------------------------------------------------------------------- |
-| `--dir`, `--spa`               | Deploy static output through a small Worker and Workers Assets                         |
-| `--skip-build`                 | Reuse existing static, SPA, or SSG output; unavailable for Worker apps                 |
-| `--project`                    | Unavailable; the Worker and account come from `void.config.ts` and `void.lock.json`    |
-| Named environments             | Unavailable; use the top-level `cloudflare` config                                     |
-| `CLOUDFLARE_WORKERS_SUBDOMAIN` | Needed in fresh CI when versions have no preview URL; cached locally after a deploy    |
-| `--require-email`              | Fail instead of deploying without email when the email step cannot run, as in CI       |
-| `DATABASE_URL`                 | Required in the deploy environment for PostgreSQL or MySQL provisioning and migrations |
+| Option or setting              | Cloudflare behavior                                                                                                  |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
+| `--dir`, `--spa`               | Deploy static output through a small Worker and Workers Assets                                                       |
+| `--skip-build`                 | Reuse existing static, SPA, or SSG output; unavailable for Worker apps                                               |
+| `--project`                    | Unavailable; the Worker and account come from `void.config.ts` and `void.lock.json`                                  |
+| Named environments             | Unavailable; use the top-level `cloudflare` config                                                                   |
+| `CLOUDFLARE_WORKERS_SUBDOMAIN` | Needed in fresh CI when versions have no preview URL; cached locally after a deploy                                  |
+| `CF_ACCESS_READINESS_ORIGIN`   | Lets Access credentials reach the readiness check on a route or Custom Domain, for example `https://app.example.com` |
+| `--require-email`              | Fail instead of deploying without email when the email step cannot run, as in CI                                     |
+| `DATABASE_URL`                 | Required in the deploy environment for PostgreSQL or MySQL provisioning and migrations                               |
 
 The token needs Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions. Commit `void.lock.json` after the first deploy before using other machines or CI.
 

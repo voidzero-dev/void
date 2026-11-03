@@ -28,7 +28,7 @@ Add to your `void.config.ts`:
 
 For local development, add `DATABASE_URL` to `.env`:
 
-```
+```dotenv
 DATABASE_URL=postgresql://user:password@host:5432/mydb?sslmode=require
 ```
 

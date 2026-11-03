@@ -8,6 +8,7 @@ import {
   deployCloudflareVersionTriggers,
   encodeCloudflareVersionMessage,
   extractWorkersDevSubdomain,
+  normalizeReadinessAccessOrigin,
   normalizeWorkersDevSubdomain,
   parseCloudflareVersionMessage,
   readCloudflareTriggerConfig,
@@ -40,6 +41,17 @@ function customDomainTriggers(pattern: string): CloudflareTriggerConfig {
     preview_urls: false,
     routes: [{ pattern, custom_domain: true }],
   });
+}
+
+function noWorkersDevMessage(): string {
+  return encodeCloudflareVersionMessage(
+    [],
+    triggersWith({ workers_dev: false, preview_urls: false }),
+  );
+}
+
+function preservedTriggerMessage(): string {
+  return encodeCloudflareVersionMessage([], triggersWith({ preserve: true }));
 }
 
 function readConfigArg(args: Array<string>): Record<string, unknown> {
@@ -499,6 +511,227 @@ describe('Cloudflare version activation', () => {
       ),
     ).toBe(false);
     expect(fixture.fetcher).toHaveBeenCalledOnce();
+  });
+
+  // A draft Worker from `void secret put` has workers.dev disabled, so its first
+  // publish reports a version id without a URL (issue #573).
+  function urlLessDraftPublish(
+    fixture: ReturnType<typeof sdkDraftActivation>,
+    publishedTriggers: Array<Record<string, unknown>> = [],
+  ) {
+    return vi.fn(async (operation: CloudflareOperation): Promise<CloudflareCommandResult> => {
+      if (operation.type === 'triggers.deploy' && operation.configPath) {
+        publishedTriggers.push(
+          JSON.parse(readFileSync(operation.configPath, 'utf8')) as Record<string, unknown>,
+        );
+      }
+      const result = await fixture.runWrangler(operation);
+      return operation.type === 'worker.deploy' ? { ...result, data: { versionId: NEXT } } : result;
+    });
+  }
+
+  it.each([true, false])(
+    'looks up the account subdomain when a draft publish reports no URL (atomic=%s)',
+    async (atomic) => {
+      const fixture = sdkDraftActivation();
+      const publishedTriggers: Array<Record<string, unknown>> = [];
+      const resolveWorkersDevSubdomain = vi.fn(async () => ({
+        ok: true as const,
+        subdomain: 'example',
+      }));
+      const result = await activateCloudflareVersion({
+        ...fixture.options,
+        runWrangler: urlLessDraftPublish(fixture, publishedTriggers),
+        atomic,
+        resolveWorkersDevSubdomain,
+      });
+      expect(result.ok ? null : result.reason).toBeNull();
+      expect(result).toMatchObject({
+        ok: true,
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+        previewUrl: 'https://app.example.workers.dev',
+        workersDevSubdomain: 'example',
+      });
+      expect(resolveWorkersDevSubdomain).toHaveBeenCalledOnce();
+      expect(fixture.events).toEqual(['source', 'pin', 'publish', 'triggers', 'ready']);
+      expect(publishedTriggers).toMatchObject([{ workers_dev: true }]);
+      expect(fixture.fetcher).toHaveBeenCalledOnce();
+    },
+  );
+
+  // The CLI marks traffic settings that the config leaves unset as preserved.
+  // Most projects do not set workers_dev, so this is the usual message.
+  it.each([true, false])(
+    'looks up the account subdomain for the CLI message that preserves unset traffic (atomic=%s)',
+    async (atomic) => {
+      const fixture = sdkDraftActivation();
+      const publishedTriggers: Array<Record<string, unknown>> = [];
+      const resolveWorkersDevSubdomain = vi.fn(async () => ({
+        ok: true as const,
+        subdomain: 'example',
+      }));
+      const result = await activateCloudflareVersion({
+        ...fixture.options,
+        message: encodeCloudflareVersionMessage(
+          [],
+          triggersWith({
+            preserveWorkersDev: true,
+            preservePreviewUrls: true,
+            preserveRoutes: true,
+          }),
+        ),
+        runWrangler: urlLessDraftPublish(fixture, publishedTriggers),
+        atomic,
+        resolveWorkersDevSubdomain,
+      });
+      expect(result.ok ? null : result.reason).toBeNull();
+      expect(result).toMatchObject({ ok: true, previewUrl: 'https://app.example.workers.dev' });
+      expect(resolveWorkersDevSubdomain).toHaveBeenCalledOnce();
+      expect(publishedTriggers).toMatchObject([{ workers_dev: true }]);
+    },
+  );
+
+  it('sends Access headers only to the FedRAMP High workers.dev host from the lookup', async () => {
+    const fixture = sdkDraftActivation();
+    const probes: Array<{ url: string; secret: string | null }> = [];
+    const result = await activateCloudflareVersion({
+      ...fixture.options,
+      runWrangler: urlLessDraftPublish(fixture),
+      atomic: true,
+      readinessHeaders: {
+        'CF-Access-Client-Id': 'synthetic.access',
+        'CF-Access-Client-Secret': 'synthetic-secret',
+      },
+      resolveWorkersDevSubdomain: async () => ({ ok: true, subdomain: 'example.fed' }),
+      fetch: async (url, init) => {
+        probes.push({
+          url: String(url),
+          secret: new Headers(init?.headers).get('cf-access-client-secret'),
+        });
+        return Response.json({ ready: true, versionId: NEXT });
+      },
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      previewUrl: 'https://app.example.fed.workers.dev',
+      workersDevSubdomain: 'example.fed',
+    });
+    expect(probes).toEqual([
+      { url: 'https://app.example.fed.workers.dev/__void/ready', secret: 'synthetic-secret' },
+    ]);
+  });
+
+  it.each([
+    { atomic: true, outcome: 'unavailable' },
+    { atomic: false, outcome: 'unavailable' },
+    { atomic: true, outcome: 'thrown' },
+  ] as const)(
+    'stops before triggers when no workers.dev URL is known (atomic=$atomic, $outcome)',
+    async ({ atomic, outcome }) => {
+      const fixture = sdkDraftActivation();
+      const resolveWorkersDevSubdomain = vi.fn(async () => {
+        if (outcome === 'thrown') {
+          throw new Error('synthetic lookup failure');
+        }
+        return { ok: false as const, reason: 'unavailable' as const };
+      });
+      const result = await activateCloudflareVersion({
+        ...fixture.options,
+        runWrangler: urlLessDraftPublish(fixture),
+        atomic,
+        resolveWorkersDevSubdomain,
+      });
+      expect(result).toEqual({
+        ok: false,
+        reason: atomic ? 'atomic-output-invalid' : 'bootstrap-output-invalid',
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+      });
+      expect(fixture.events).not.toContain('triggers');
+      expect(fixture.fetcher).not.toHaveBeenCalled();
+    },
+  );
+
+  it('reports an uploader change that the lookup detects', async () => {
+    const fixture = sdkDraftActivation();
+    const result = await activateCloudflareVersion({
+      ...fixture.options,
+      runWrangler: urlLessDraftPublish(fixture),
+      atomic: true,
+      resolveWorkersDevSubdomain: async () => ({ ok: false, reason: 'uploader-changed' }),
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'uploader-changed',
+      versionId: NEXT,
+      previousVersionId: CURRENT,
+      rollback: 'unsafe',
+    });
+    expect(fixture.events).not.toContain('triggers');
+    expect(fixture.fetcher).not.toHaveBeenCalled();
+  });
+
+  it('does not look up the account subdomain after the uploader changes', async () => {
+    const fixture = sdkDraftActivation();
+    const resolveWorkersDevSubdomain = vi.fn(async () => ({
+      ok: true as const,
+      subdomain: 'example',
+    }));
+    const result = await activateCloudflareVersion({
+      ...fixture.options,
+      runWrangler: urlLessDraftPublish(fixture),
+      atomic: true,
+      verifyUploader: () => !fixture.events.includes('publish'),
+      resolveWorkersDevSubdomain,
+    });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'uploader-changed',
+      versionId: NEXT,
+      previousVersionId: CURRENT,
+      rollback: 'unsafe',
+    });
+    expect(resolveWorkersDevSubdomain).not.toHaveBeenCalled();
+    expect(fixture.events).not.toContain('triggers');
+  });
+
+  it.each([
+    { label: 'workers.dev is off', options: { message: noWorkersDevMessage() } },
+    { label: 'a subdomain is configured', options: { workersDevSubdomain: 'example' } },
+    { label: 'triggers are preserved', options: { preserveTriggers: true } },
+    { label: 'the snapshot is preserved', options: { message: preservedTriggerMessage() } },
+  ])('does not look up the account subdomain when $label', async ({ options }) => {
+    const fixture = sdkDraftActivation();
+    const resolveWorkersDevSubdomain = vi.fn(async () => ({
+      ok: true as const,
+      subdomain: 'other',
+    }));
+    const result = await activateCloudflareVersion({
+      ...fixture.options,
+      runWrangler: urlLessDraftPublish(fixture),
+      atomic: true,
+      ...options,
+      resolveWorkersDevSubdomain,
+    });
+    expect(resolveWorkersDevSubdomain).not.toHaveBeenCalled();
+    if ('workersDevSubdomain' in options) {
+      expect(result).toMatchObject({ ok: true, previewUrl: 'https://app.example.workers.dev' });
+    } else {
+      expect(result).toMatchObject({ ok: false, reason: 'atomic-output-invalid' });
+    }
+  });
+
+  it('does not look up the account subdomain when the publish reports a URL', async () => {
+    const fixture = sdkDraftActivation();
+    const resolveWorkersDevSubdomain = vi.fn(async () => ({
+      ok: true as const,
+      subdomain: 'other',
+    }));
+    expect(
+      await activateCloudflareVersion({ ...fixture.options, resolveWorkersDevSubdomain }),
+    ).toMatchObject({ ok: true, previewUrl: 'https://app.example.workers.dev' });
+    expect(resolveWorkersDevSubdomain).not.toHaveBeenCalled();
   });
 
   it('does not overwrite a deployment that changed during immutable draft source inspection', async () => {
@@ -1713,10 +1946,116 @@ describe('Cloudflare version activation', () => {
     ).not.toHaveProperty('contentHash');
   });
 
-  // Wrangler 4.131 applies its Email Routing plan inside `triggers deploy`, reading the
+  // The Cloudflare CLI applies its Email Routing plan inside `triggers deploy`, reading the
   // config's `addresses`. The trigger-only config Void hands it must therefore carry the
   // snapshot's addresses verbatim — and carry NOTHING when the snapshot has none, because an
   // absent key skips the plan while `[]` deletes every rule the Worker owns.
+  it('snapshots explicit observability and restores it without borrowing local settings', async () => {
+    const directory = mkdtempSync(join(tmpdir(), 'void-version-observability-'));
+    const configPath = join(directory, 'wrangler.json');
+    const sourcePath = join(directory, 'source.json');
+    const observability = {
+      enabled: true,
+      head_sampling_rate: 0.25,
+      logs: { enabled: true, invocation_logs: false },
+      traces: { enabled: true, head_sampling_rate: 0.1 },
+    };
+    try {
+      writeFileSync(configPath, JSON.stringify({ name: 'app', observability }));
+      const snapshot = readCloudflareTriggerConfig(configPath);
+      expect(snapshot).toMatchObject({ observability });
+      expect(parseCloudflareVersionMessage(encodeCloudflareVersionMessage([], snapshot))).toEqual({
+        schema: 2,
+        migrations: [],
+        triggerConfig: snapshot,
+      });
+
+      writeFileSync(configPath, JSON.stringify({ name: 'app', observability: { enabled: false } }));
+      let applied: Record<string, unknown> | undefined;
+      const publish = async (triggerConfig: CloudflareTriggerConfig, preserveTriggers = false) =>
+        deployCloudflareVersionTriggers({
+          runWrangler: operationFixture(async (args) => {
+            applied = readConfigArg(args);
+            return ok();
+          }),
+          workerName: 'app',
+          configPath,
+          triggerConfig: preserveTriggers ? { ...triggerConfig, preserve: true } : triggerConfig,
+        });
+      await publish(snapshot);
+      expect(applied).toMatchObject({ observability });
+      const disabled = readCloudflareTriggerConfig(configPath);
+      await publish(disabled);
+      expect(applied).toMatchObject({ observability: { enabled: false } });
+
+      // Generated defaults must not turn an omitted source setting into an update.
+      writeFileSync(sourcePath, JSON.stringify({ name: 'app' }));
+      const omitted = readCloudflareTriggerConfig(configPath, sourcePath);
+      expect(omitted).not.toHaveProperty('observability');
+      await publish(omitted);
+      expect(applied).not.toHaveProperty('observability');
+      applied = undefined;
+      await publish(snapshot, true);
+      expect(applied).toBeUndefined();
+      expect(
+        parseCloudflareVersionMessage(
+          `void:${JSON.stringify({ schema: 2, migrations: [], triggerConfig: { ...snapshot, observability: null } })}`,
+        ),
+      ).toBeNull();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it.each([false, true])(
+    'carries explicit Logpush through the version snapshot and trigger config: %s',
+    async (logpush) => {
+      const directory = mkdtempSync(join(tmpdir(), 'void-version-logpush-'));
+      const configPath = join(directory, 'wrangler.json');
+      const sourcePath = join(directory, 'source.json');
+      try {
+        writeFileSync(configPath, JSON.stringify({ name: 'app', logpush }));
+        const snapshot = readCloudflareTriggerConfig(configPath);
+        expect(snapshot.logpush).toBe(logpush);
+        expect(
+          parseCloudflareVersionMessage(encodeCloudflareVersionMessage([], snapshot)),
+        ).toMatchObject({
+          triggerConfig: { logpush },
+        });
+        let applied: Record<string, unknown> | undefined;
+        const publish = (triggerConfig: CloudflareTriggerConfig) =>
+          deployCloudflareVersionTriggers({
+            runWrangler: operationFixture(async (args) => {
+              applied = readConfigArg(args);
+              return ok();
+            }),
+            workerName: 'app',
+            configPath,
+            triggerConfig,
+          });
+        await publish(snapshot);
+        expect(applied?.logpush).toBe(logpush);
+        writeFileSync(sourcePath, JSON.stringify({ name: 'app' }));
+        const omitted = readCloudflareTriggerConfig(configPath, sourcePath);
+        expect(omitted).not.toHaveProperty('logpush');
+        await publish(omitted);
+        expect(applied).not.toHaveProperty('logpush');
+        writeFileSync(sourcePath, JSON.stringify({ name: 'app', logpush: !logpush }));
+        expect(readCloudflareTriggerConfig(configPath, sourcePath).logpush).toBe(!logpush);
+        applied = undefined;
+        await publish({ ...snapshot, preserve: true });
+        expect(applied).toBeUndefined();
+        expect(
+          parseCloudflareVersionMessage(
+            `void:${JSON.stringify({ schema: 2, migrations: [], triggerConfig: { ...snapshot, logpush: 'false' } })}`,
+          ),
+        ).toBeNull();
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('carries Email Routing addresses through the trigger snapshot and the trigger config', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-version-addresses-'));
     const configPath = join(directory, 'wrangler.json');
@@ -2861,6 +3200,8 @@ describe('Cloudflare version activation', () => {
     const immutable = triggersWith({
       routes: [{ pattern: 'old.example.com', custom_domain: true }],
       crons: ['0 * * * *'],
+      observability: { enabled: false },
+      logpush: true,
     });
     const liveTraffic = {
       workers_dev: false,
@@ -2900,6 +3241,8 @@ describe('Cloudflare version activation', () => {
         preserveWorkersDev: true,
         preservePreviewUrls: true,
         crons: ['*/10 * * * *'],
+        observability: { enabled: true, traces: { enabled: true } },
+        logpush: false,
       }),
       fetch: async () => Response.json({ ready: true }),
     });
@@ -2908,8 +3251,15 @@ describe('Cloudflare version activation', () => {
     expect(publications[0]).toMatchObject({
       ...liveTraffic,
       triggers: { crons: ['*/10 * * * *'] },
+      observability: { enabled: true, traces: { enabled: true } },
+      logpush: false,
     });
-    expect(publications[1]).toMatchObject({ ...liveTraffic, triggers: { crons: ['0 * * * *'] } });
+    expect(publications[1]).toMatchObject({
+      ...liveTraffic,
+      triggers: { crons: ['0 * * * *'] },
+      observability: { enabled: false },
+      logpush: true,
+    });
     expect(publications[1].queues).toEqual({ consumers: [] });
   });
 
@@ -3209,6 +3559,258 @@ describe('Cloudflare version activation', () => {
           'Cloudflare-Workers-Version-Overrides': `private-app="${NEXT}"`,
         },
       }),
+    );
+  });
+
+  describe('custom-route readiness Access origin', () => {
+    const accessHeaders = {
+      'CF-Access-Client-Id': 'service-id',
+      'CF-Access-Client-Secret': 'service-secret',
+    };
+    const routeTriggers = () =>
+      triggersWith({
+        workers_dev: false,
+        preview_urls: false,
+        routes: [{ pattern: 'app.example.com/*', zone_name: 'example.com' }],
+      });
+    const firstDeployRunner = () =>
+      runner({
+        status: { stdout: '', stderr: 'This Worker does not exist. [code: 10007]', status: 1 },
+        upload: { stdout: '', stderr: LOCAL_DURABLE_MIGRATION_ERROR, status: 1 },
+        bootstrap: ok(`Current Version ID: ${NEXT}`),
+      });
+    const probeCalls = (fetcher: { mock: { calls: Array<unknown> } }) =>
+      fetcher.mock.calls as unknown as Array<[string, RequestInit]>;
+
+    it.each([
+      ['https://App.Example.com/', 'https://app.example.com'],
+      ['https://app.example.com:443', 'https://app.example.com'],
+      ['https://app.example.com:8443', 'https://app.example.com:8443'],
+      ['https://*.example.com', undefined],
+      ['https://app*.example.com', undefined],
+      ['http://app.example.com', undefined],
+      ['https://app.example.com/path', undefined],
+      [undefined, undefined],
+    ])('normalizes the readiness Access origin %s to %s', (value, expected) => {
+      expect(normalizeReadinessAccessOrigin(value)).toBe(expected);
+    });
+
+    it('does not let the opt-in origin bypass the workers.dev guard', async () => {
+      const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+      const fetcher = vi.fn(async () => Response.json({ ready: true }));
+
+      await expect(
+        activateCloudflareVersion({
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'private-app',
+          workersDevSubdomain: 'cached',
+          readinessHeaders: accessHeaders,
+          readinessHeadersOrigin: 'https://private-app.cached.workers.dev',
+          readinessAttempts: 1,
+          message: encodeCloudflareVersionMessage(
+            [],
+            triggersWith({ workers_dev: true, preview_urls: false }),
+          ),
+          fetch: fetcher,
+        }),
+      ).resolves.toMatchObject({ ok: false, reason: 'readiness-failed' });
+      expect(fetcher).not.toHaveBeenCalled();
+    });
+
+    it.each(['https://app.example.com', 'https://App.Example.com/'])(
+      'sends Access headers to a staged custom route whose origin is opted in (%s)',
+      async (origin) => {
+        const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+        const fetcher = vi.fn(async () => Response.json({ ready: true }));
+
+        await expect(
+          activateCloudflareVersion({
+            runWrangler,
+            verifyUploader: () => true,
+            workerName: 'private-app',
+            readinessHeaders: accessHeaders,
+            readinessHeadersOrigin: origin,
+            message: encodeCloudflareVersionMessage([], routeTriggers()),
+            fetch: fetcher,
+          }),
+        ).resolves.toMatchObject({ ok: true, previewUrl: 'https://app.example.com' });
+        expect(fetcher).toHaveBeenCalledWith(
+          'https://app.example.com/__void/ready',
+          expect.objectContaining({
+            headers: {
+              'user-agent': 'void-deploy-readiness/1',
+              ...accessHeaders,
+              'Cloudflare-Workers-Version-Overrides': `private-app="${NEXT}"`,
+            },
+          }),
+        );
+      },
+    );
+
+    it.each([
+      ['no opt-in', undefined],
+      ['another origin', 'https://other.example.com'],
+      ['another port', 'https://app.example.com:8443'],
+      ['an http origin', 'http://app.example.com'],
+      ['a path', 'https://app.example.com/__void'],
+      ['a query', 'https://app.example.com/?token=1'],
+      ['credentials', 'https://user:pass@app.example.com'],
+      ['a bare hostname', 'app.example.com'],
+    ])(
+      'withholds Access headers from a staged custom route with %s and reports its origin',
+      async (_case, origin) => {
+        const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+        const fetcher = vi.fn(async () => new Response('error code: 1050', { status: 403 }));
+
+        const result = await activateCloudflareVersion({
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'private-app',
+          readinessHeaders: { 'CF-Access-Client-Secret': 'must-not-leak' },
+          readinessHeadersOrigin: origin,
+          readinessAttempts: 1,
+          message: encodeCloudflareVersionMessage([], routeTriggers()),
+          fetch: fetcher,
+        });
+        expect(result).toMatchObject({
+          ok: false,
+          reason: 'readiness-access-denied',
+          rollback: 'succeeded',
+          customRouteReadinessOrigin: 'https://app.example.com',
+        });
+        expect(fetcher).toHaveBeenCalledTimes(1);
+        const [url, init] = probeCalls(fetcher)[0]!;
+        expect(url).toBe('https://app.example.com/__void/ready');
+        expect(init.headers).not.toHaveProperty('CF-Access-Client-Secret');
+      },
+    );
+
+    it('keeps the generic Access denial after credentials reach the opted-in origin', async () => {
+      const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+      const fetcher = vi.fn(async () => new Response('error code: 1050', { status: 403 }));
+
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        verifyUploader: () => true,
+        workerName: 'private-app',
+        readinessHeaders: accessHeaders,
+        readinessHeadersOrigin: 'https://app.example.com',
+        readinessAttempts: 1,
+        message: encodeCloudflareVersionMessage([], routeTriggers()),
+        fetch: fetcher,
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'readiness-access-denied' });
+      expect(result).not.toHaveProperty('customRouteReadinessOrigin');
+      expect(probeCalls(fetcher)[0]![1].headers).toMatchObject(accessHeaders);
+    });
+
+    it('sends Access headers when a denied preview alias falls back to the opted-in custom route', async () => {
+      const alias = 'https://void-ready-abc-private-app.developer-platform-experience.workers.dev';
+      const runWrangler = runner({
+        upload: ok(`Worker Version ID: ${NEXT}\nVersion Preview Alias URL: ${alias}`),
+      });
+      const fetcher = vi.fn(async (input: string | URL | Request) =>
+        String(input).startsWith(alias)
+          ? new Response('error code: 1050', { status: 403 })
+          : Response.json({ ready: true }),
+      );
+
+      await expect(
+        activateCloudflareVersion({
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'private-app',
+          readinessHeaders: accessHeaders,
+          readinessHeadersOrigin: 'https://app.example.com',
+          message: encodeCloudflareVersionMessage(
+            [],
+            triggersWith({
+              workers_dev: false,
+              preview_urls: true,
+              routes: [{ pattern: 'app.example.com', custom_domain: true }],
+            }),
+          ),
+          fetch: fetcher,
+          sleep: async () => {},
+        }),
+      ).resolves.toMatchObject({ ok: true, previewUrl: 'https://app.example.com' });
+      expect(fetcher).toHaveBeenCalledTimes(2);
+      expect(fetcher).toHaveBeenLastCalledWith(
+        'https://app.example.com/__void/ready',
+        expect.objectContaining({
+          headers: expect.objectContaining({
+            ...accessHeaders,
+            'Cloudflare-Workers-Version-Overrides': `private-app="${NEXT}"`,
+          }),
+        }),
+      );
+    });
+
+    it.each([false, true])(
+      'sends Access headers to a custom domain whose origin is opted in after bootstrap publication (atomic=%s)',
+      async (atomic) => {
+        const fetcher = vi.fn(async () => Response.json({ ready: true }));
+
+        await expect(
+          activateCloudflareVersion({
+            runWrangler: atomic
+              ? runner({ bootstrap: ok(`Current Version ID: ${NEXT}`) })
+              : firstDeployRunner(),
+            verifyUploader: () => true,
+            workerName: 'bootstrap-private',
+            atomic,
+            readinessHeaders: accessHeaders,
+            readinessHeadersOrigin: 'https://bootstrap.example.com',
+            message: encodeCloudflareVersionMessage(
+              [],
+              customDomainTriggers('bootstrap.example.com'),
+            ),
+            fetch: fetcher,
+          }),
+        ).resolves.toMatchObject({ ok: true, previewUrl: 'https://bootstrap.example.com' });
+        const [url, init] = probeCalls(fetcher)[0]!;
+        expect(url).toBe('https://bootstrap.example.com/__void/ready');
+        expect(init.headers).toMatchObject(accessHeaders);
+      },
+    );
+
+    it.each([
+      ['bootstrap', false, undefined],
+      ['bootstrap', false, 'https://other.example.com'],
+      ['bootstrap', false, 'http://bootstrap.example.com'],
+      ['atomic', true, undefined],
+      ['atomic', true, 'https://bootstrap.example.com/path'],
+    ])(
+      'withholds Access headers from a custom domain after %s publication (atomic=%s, opt-in %s) and reports its origin',
+      async (kind, atomic, origin) => {
+        const fetcher = vi.fn(async () => new Response('error code: 1050', { status: 403 }));
+
+        const result = await activateCloudflareVersion({
+          runWrangler: atomic
+            ? runner({ bootstrap: ok(`Current Version ID: ${NEXT}`) })
+            : firstDeployRunner(),
+          verifyUploader: () => true,
+          workerName: 'bootstrap-private',
+          atomic,
+          readinessHeaders: { 'CF-Access-Client-Secret': 'must-not-leak' },
+          readinessHeadersOrigin: origin,
+          readinessAttempts: 1,
+          message: encodeCloudflareVersionMessage(
+            [],
+            customDomainTriggers('bootstrap.example.com'),
+          ),
+          fetch: fetcher,
+        });
+        expect(result).toMatchObject({
+          ok: false,
+          reason: `${kind}-readiness-access-denied`,
+          customRouteReadinessOrigin: 'https://bootstrap.example.com',
+        });
+        const [url, init] = probeCalls(fetcher)[0]!;
+        expect(url).toBe('https://bootstrap.example.com/__void/ready');
+        expect(init.headers).not.toHaveProperty('CF-Access-Client-Secret');
+      },
     );
   });
 

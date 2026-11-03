@@ -1,48 +1,25 @@
 import {
-  VoidActionError,
-  categorizeActionError,
-  getValidationErrors,
   isEqualFormValue,
+  submitIslandAction,
+  type IslandFormState,
+  type VoidActionError,
 } from 'void/pages-client';
 import { reactive, ref, watch } from 'vue';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = Readonly<{
-  data: T;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  submit(url: string, method: string): Promise<void>;
-  post(url: string): Promise<void>;
-  put(url: string): Promise<void>;
-  patch(url: string): Promise<void>;
-  delete(url: string): Promise<void>;
-  reset(...fields: ReadonlyArray<keyof T & string>): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-}>;
-
-async function readActionErrorBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') || '';
-  try {
-    if (contentType.includes('application/json')) {
-      return await response.json();
-    }
-    const text = await response.text();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
+  Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
  * Void Router (which is not available in island mode).
  */
-export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T> {
-  const data = reactive({ ...defaults }) as T;
+export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T>;
+
+// Untyped implementation, so the returned object is checked against the island contract.
+export function useIslandForm(
+  defaults: Record<string, unknown>,
+): IslandFormReturn<Record<string, unknown>> {
+  const data = reactive({ ...defaults }) as Record<string, unknown>;
   const errors = reactive<Record<string, string>>({});
   const error = ref<VoidActionError | null>(null);
   const pending = ref(false);
@@ -63,7 +40,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     { deep: true },
   );
 
-  function reset(...fields: ReadonlyArray<keyof T & string>) {
+  function reset(...fields: ReadonlyArray<string>) {
     if (fields.length === 0) {
       Object.assign(data, { ...defaults_ });
     } else {
@@ -100,18 +77,14 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     clearError();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const result = await submitIslandAction(url, method, data);
 
-      if (response.redirected) {
-        window.location.href = response.url;
+      if (result.kind === 'redirect') {
+        window.location.href = result.url;
         return;
       }
 
-      if (response.ok) {
+      if (result.kind === 'success') {
         wasSuccessful.value = true;
         recentlySuccessful.value = true;
         defaults_ = { ...data };
@@ -119,23 +92,10 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
           recentlySuccessful.value = false;
         }, 2000);
         window.location.reload();
+      } else if (result.kind === 'validation') {
+        Object.assign(errors, result.errors);
       } else {
-        const body = await readActionErrorBody(response);
-        const actionError = new VoidActionError({
-          body,
-          status: response.status,
-          statusText: response.statusText,
-          url,
-        });
-        const validationErrors = response.status === 422 ? getValidationErrors(body) : null;
-        if (validationErrors) {
-          Object.assign(errors, validationErrors);
-          return;
-        }
-        if (categorizeActionError(response.status) === 'boundary') {
-          throw actionError;
-        }
-        error.value = actionError;
+        error.value = result.error;
       }
     } finally {
       pending.value = false;
@@ -158,5 +118,5 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     put: (url: string) => submit(url, 'PUT'),
     patch: (url: string) => submit(url, 'PATCH'),
     delete: (url: string) => submit(url, 'DELETE'),
-  }) as IslandFormReturn<T>;
+  });
 }

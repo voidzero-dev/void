@@ -10,7 +10,7 @@ Use queues to process work asynchronously, such as sending emails or handling up
 
 Create a consumer in `queues/`. TypeScript and JavaScript files are supported (`.ts`, `.mts`, `.js`, `.mjs`). Its path determines the queue name: `queues/emails.ts` creates `emails`, and `queues/order/notifications.ts` creates `order-notifications`. Each queue must have a unique name.
 
-The resulting name must follow Cloudflare's queue naming rules: 1–63 characters, only letters, digits, and `-`, beginning and ending with a letter or digit.
+The resulting name must follow Cloudflare's queue naming rules: 1–63 characters, only letters, digits, and `-`, beginning and ending with a letter or digit. On `void deploy --platform cloudflare`, the Cloudflare queue also carries the Worker name, so the limit applies to that full name; see [Cloudflare queue names](#cloudflare-queue-names).
 
 Export a default handler wrapped with [`defineQueue<T>`](../reference/api/handlers.md#definequeue-t-handler). `T` defines the message body for both the consumer and calls to `send()`:
 
@@ -76,7 +76,7 @@ export default defineQueue<Message>(async (batch, env) => {
 - `batch.ackAll()`: acknowledge all messages in the batch
 - `batch.retryAll(options?)`: retry all messages in the batch
 
-The first call wins for each message. Calling `ack()` after `retry()`, or the reverse, does nothing. Messages with no explicit decision are acknowledged if the handler succeeds, or retried if it throws.
+The first `ack()` or `retry()` call wins for each message. Messages without an explicit decision are acknowledged when the handler succeeds and retried when it throws. Void logs handler errors automatically.
 
 The `timestamp` field on each message is a `Date` object.
 
@@ -115,6 +115,14 @@ deletes messages that exhaust their retries without one; see
 [Cloudflare's dead-letter queue guide](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/).
 
 Void provisions queues and connects their producers and consumers when you deploy.
+
+### Cloudflare queue names
+
+With `void deploy --platform cloudflare`, queue names include the Worker name: `queues/jobs.ts` in `app-staging` creates `app-staging-jobs`. Underscores in the Worker name become hyphens. Your app uses `queues.jobs.send()` in every environment.
+
+Keep the full name within 63 characters and unique within the account. Each Cloudflare queue supports one consumer; Void reports naming or consumer conflicts during deploy.
+
+Existing deployments keep their queues and messages. To adopt the new naming, pause producers, drain the old queue, remove its Worker consumer in Cloudflare, and redeploy. Check that the old queue is empty before deleting it.
 
 ## Local development
 

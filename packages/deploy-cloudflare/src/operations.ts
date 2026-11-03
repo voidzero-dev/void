@@ -4,7 +4,9 @@ type WorkerTarget = ConfigTarget & { workerName?: string };
 
 export type CloudflareOperation =
   | ({ type: 'auth.whoami' | 'auth.login' | 'auth.logout' | 'auth.token' } & ConfigTarget)
-  | ({ type: 'd1.list' | 'kv.namespace.list' | 'containers.list' } & ConfigTarget)
+  | ({
+      type: 'd1.list' | 'kv.namespace.list' | 'containers.list' | 'workers.subdomain.get';
+    } & ConfigTarget)
   | ({ type: 'd1.info'; name: string } & ConfigTarget)
   | { type: 'd1.create'; name: string; binding: string; configPath: string }
   | { type: 'd1.execute'; database: string; sql: string; configPath: string }
@@ -39,6 +41,7 @@ export type CloudflareOperation =
       type: 'versions.deploy';
       versions: Array<{ versionId: string; percentage: number }>;
       message?: string;
+      bypassDeploymentChecks?: boolean;
     } & WorkerTarget)
   | ({
       type: 'versions.upload' | 'worker.deploy';

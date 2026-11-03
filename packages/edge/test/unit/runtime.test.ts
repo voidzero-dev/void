@@ -11,6 +11,19 @@ function assets(responses: Record<string, Response>) {
 }
 
 describe('createStaticEdgeHandler', () => {
+  it.each([true, false, undefined])(
+    'applies alwaysUseHttps %s before assets',
+    async (alwaysUseHttps) => {
+      const binding = assets({ '/': new Response('home') });
+      const response = await createStaticEdgeHandler({ alwaysUseHttps }).fetch(
+        new Request('http://oxc.rs/'),
+        { ASSETS: binding },
+      );
+      expect(response.status).toBe(alwaysUseHttps ? 308 : 200);
+      expect(response.headers.get('Location')).toBe(alwaysUseHttps ? 'https://oxc.rs/' : null);
+      expect(binding.fetch).toHaveBeenCalledTimes(alwaysUseHttps ? 0 : 1);
+    },
+  );
   it('answers the deployment readiness probe without touching assets', async () => {
     const binding = assets({});
     const response = await createStaticEdgeHandler({}).fetch(

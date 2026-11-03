@@ -12,6 +12,11 @@ export const emailSubcommands: Array<SubcommandDef> = [
   { name: 'destinations', description: 'List verified recipient addresses for outbound mail' },
   { name: 'allow', arg: '<address>', description: 'Add a recipient and trigger CF verification' },
   { name: 'disallow', arg: '<address>', description: 'Remove a verified recipient' },
+  {
+    name: 'alias',
+    arg: '[name]',
+    description: 'Show the shared mail address, or set a shorter permanent name for it',
+  },
   // The verb is collected as the arg so `domain list` completes in the interactive prompt;
   // `domain add` then errors naming the missing <domain>, like a typed invocation.
   {
@@ -38,6 +43,7 @@ const EMAIL_SUBCOMMANDS = [
   'destinations',
   'allow',
   'disallow',
+  'alias',
   'domain',
   'status',
   'setup',
@@ -57,6 +63,8 @@ export interface EmailArgs {
   address?: string;
   /** `cloudflare` is the developer's own account; `void` (the default) is the Void platform. */
   platform?: 'cloudflare' | 'void';
+  /** `void email alias <name> --yes` sets the permanent alias without a prompt. */
+  yes?: boolean;
 }
 
 /**
@@ -85,7 +93,7 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
   const subcommand = args[0] as EmailArgs['subcommand'];
   if (!subcommand || !(EMAIL_SUBCOMMANDS as ReadonlyArray<string>).includes(subcommand)) {
     throw new Error(
-      'email: Usage: void email <usage|logs|destinations|allow|disallow|domain|status|setup> [args] [--project <name>] [--limit <n>] [--platform cloudflare].',
+      'email: Usage: void email <usage|logs|destinations|allow|disallow|alias|domain|status|setup> [args] [--project <name>] [--limit <n>] [--platform cloudflare].',
     );
   }
 
@@ -95,6 +103,7 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
   const projectValues: Array<string> = [];
   const platformValues: Array<string> = [];
   const positional: Array<string> = [];
+  let yes = false;
 
   const rest = args.slice(1);
   for (let i = 0; i < rest.length; i++) {
@@ -127,6 +136,8 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
       }
       platformValues.push(value);
       i = next;
+    } else if (rest[i] === '--yes' && subcommand === 'alias') {
+      yes = true;
     } else if (rest[i] === '--backend' || rest[i]?.startsWith('--backend=')) {
       throw new Error("email: Unknown option '--backend'.");
     } else if (rest[i] === '--subdomain' || rest[i]?.startsWith('--subdomain=')) {
@@ -197,7 +208,7 @@ export function parseEmailArgs(args: Array<string>): EmailArgs {
     }
   }
 
-  return { subcommand, projectSlug, limit, address, platform };
+  return { subcommand, projectSlug, limit, address, platform, ...(yes ? { yes } : {}) };
 }
 
 /**

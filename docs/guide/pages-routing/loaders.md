@@ -11,8 +11,8 @@ A loader fetches the data a page needs. Define it in a companion `.server.ts` fi
 `loader` runs on GET requests and returns an object that becomes the page's props:
 
 ```ts
-import { users } from '@schema';
 // pages/users/index.server.ts
+import { users } from '@schema';
 import { defineHandler } from 'void';
 import type { InferProps } from 'void';
 import { db } from 'void/db';
@@ -79,8 +79,8 @@ defineProps<Props>();
 ```
 
 ```tsx [Solid]
-import { For } from 'solid-js';
 // pages/users/index.tsx
+import { For } from 'solid-js';
 import type { Props } from './index.server';
 
 export default function UsersPage(props: Props) {
@@ -102,8 +102,8 @@ export default function UsersPage(props: Props) {
 Use `defer()` for slow data. The page renders immediately and receives the result when it is ready:
 
 ```ts
-import { projects } from '@schema';
 // pages/dashboard.server.ts
+import { projects } from '@schema';
 import { defineHandler, defer } from 'void';
 import type { InferProps } from 'void';
 import { db } from 'void/db';

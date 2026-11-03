@@ -42,7 +42,7 @@ export default function AppHeader({
             button={{
               label: accountMenuLabel,
               variant: 'ghost',
-              title: accountMenuLabel,
+              tooltip: accountMenuLabel,
               icon: <CircleUserRound aria-hidden="true" className="dashboard-account-icon" />,
             }}
             hasChevron={false}

@@ -54,43 +54,70 @@ describe('typed routing in generated Workers', () => {
         join(routes, 'move.ts'),
         `export function GET(c) { return c.rewrite('/hello'); }\n`,
       );
+      mkdirSync(join(routes, 'typed'));
+      writeFileSync(
+        join(routes, 'typed/[id].ts'),
+        `export function GET(c) { return { id: c.req.param('id'), tab: c.req.query('tab'), original: c.originalUrl()?.pathname }; }\n`,
+      );
+      writeFileSync(
+        join(routes, 'typed-redirect.ts'),
+        `export function GET(c) { return c.redirect({ pathname: '/typed/:id', params: { id: 'a/b' }, query: { tab: 'activity' }, hash: 'details' }, 307); }\n`,
+      );
+      writeFileSync(
+        join(routes, 'typed-rewrite.ts'),
+        `export function GET(c) { return c.rewrite({ pathname: '/typed/:id', params: { id: 'a/b' }, query: { tab: 'activity' } }); }\n`,
+      );
+      writeFileSync(
+        join(routes, 'destructured.ts'),
+        `const handlers = {
+  GET: (c) => ({ method: 'GET', path: c.req.path }),
+  POST: async (c) => ({ method: 'POST', body: await c.req.json() }),
+};
+export const { GET, POST } = handlers;\n`,
+      );
       writeFileSync(
         join(middleware, '01.headers.ts'),
         `export default async (c, next) => { await next(); c.header('x-user-middleware', 'ran'); };\n`,
       );
       writeFileSync(
-        join(pages, 'index.server.ts'),
-        `export function loader() { return { title: 'real page loader' }; }\nexport const actions = { save: () => new Response('saved') };\n`,
+        join(routes, 'quoted.ts'),
+        `
+const get = () => ({ method: 'GET' });
+const post = () => new Response('quoted POST', { status: 201 });
+const DELETE = () => new Response('should not be a route');
+export { get as "GET", post as "POST", DELETE as "helper" };
+`,
       );
+      writeFileSync(join(pages, 'quoted-page.tsx'), 'export default () => null;');
+      writeFileSync(
+        join(pages, 'quoted-page.server.ts'),
+        `
+const mutate = () => new Response('quoted action');
+export { mutate as "action" };
+`,
+      );
+      writeFileSync(
+        join(pages, 'index.server.ts'),
+        `export const { loader, actions } = {
+  loader: () => ({ title: 'real page loader' }),
+  actions: { save: () => new Response('saved') },
+};\n`,
+      );
+      writeFileSync(join(pages, 'index.tsx'), 'export default () => null;');
       const { scan } = await analyzeApplication(directory, { config: readConfig(directory) });
-      scan.pages.pages = [
-        {
-          pattern: '/',
-          params: [],
-          catchAll: false,
-          componentPath: 'index.tsx',
-          componentId: 'index',
-          serverPath: 'index.server.ts',
-          methods: ['loader', 'actions'],
-          ssrMode: 'server',
-          prerenderMode: 'disabled',
-          renderMode: 'server',
-          shouldPrerender: false,
-        },
-        {
-          pattern: '/client-only',
-          params: [],
-          catchAll: false,
-          componentPath: 'client-only.tsx',
-          componentId: 'client-only',
-          serverPath: null,
-          methods: [],
-          ssrMode: 'client',
-          prerenderMode: 'disabled',
-          renderMode: 'client',
-          shouldPrerender: false,
-        },
-      ];
+      scan.pages.pages.push({
+        pattern: '/client-only',
+        params: [],
+        catchAll: false,
+        componentPath: 'client-only.tsx',
+        componentId: 'client-only',
+        serverPath: null,
+        methods: [],
+        ssrMode: 'client',
+        prerenderMode: 'disabled',
+        renderMode: 'client',
+        shouldPrerender: false,
+      });
       const routeTable = join(directory, 'generated-routes.ts');
       const entry = join(directory, 'generated-worker.ts');
       writeFileSync(
@@ -104,6 +131,7 @@ describe('typed routing in generated Workers', () => {
           null,
           {
             honoPath: fileURLToPath(import.meta.resolve('hono')),
+            honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
             runtimeEnvPath: source('env.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),
@@ -200,7 +228,45 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       expect(await hello.json()).toEqual({ path: '/hello', rewritten: false, public: 'public' });
       expect(hello.headers.get('x-user-middleware')).toBe('ran');
       expect(hello.headers.get('x-edge-rule')).toBe('ran');
+      const redirected = await runtime.dispatchFetch('https://app.test/typed-redirect', {
+        redirect: 'manual',
+      });
+      expect(redirected.status).toBe(307);
+      expect(redirected.headers.get('Location')).toBe('/typed/a%2Fb?tab=activity#details');
+      const rewritten = await runtime.dispatchFetch('https://app.test/typed-rewrite');
+      expect(await rewritten.json()).toEqual({
+        id: 'a/b',
+        tab: 'activity',
+        original: '/typed-rewrite',
+      });
+      const destructuredGet = await runtime.dispatchFetch('https://app.test/destructured');
+      expect(destructuredGet.status).toBe(200);
+      expect(await destructuredGet.json()).toEqual({ method: 'GET', path: '/destructured' });
+      const destructuredPost = await runtime.dispatchFetch('https://app.test/destructured', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ message: 'destructured handler' }),
+      });
+      expect(destructuredPost.status).toBe(200);
+      expect(await destructuredPost.json()).toEqual({
+        method: 'POST',
+        body: { message: 'destructured handler' },
+      });
       const asset = await runtime.dispatchFetch('https://app.test/static/client-abcdefgh.js');
+      expect(await (await runtime.dispatchFetch('https://app.test/quoted')).json()).toEqual({
+        method: 'GET',
+      });
+      const quotedPost = await runtime.dispatchFetch('https://app.test/quoted', { method: 'POST' });
+      expect(quotedPost.status).toBe(201);
+      expect(await quotedPost.text()).toBe('quoted POST');
+      expect(
+        (await runtime.dispatchFetch('https://app.test/quoted', { method: 'DELETE' })).status,
+      ).toBe(404);
+      const quotedAction = await runtime.dispatchFetch('https://app.test/quoted-page', {
+        method: 'POST',
+      });
+      expect(quotedAction.status).toBe(200);
+      expect(await quotedAction.text()).toBe('quoted action');
       expect(asset.headers.get('x-user-middleware')).toBe('ran');
       expect(asset.headers.get('x-edge-rule')).toBe('ran');
       expect(asset.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');

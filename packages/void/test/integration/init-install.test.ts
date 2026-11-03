@@ -43,7 +43,7 @@ beforeEach(() => {
     JSON.stringify({
       private: true,
       packageManager: 'pnpm@12.4.1',
-      devDependencies: { 'vite-plus': '^1.2.0' },
+      devDependencies: { 'vite-plus': '^1.3.0' },
     }),
   );
   // The host's tools must not mask a missing vp or supply a newer pnpm.
@@ -81,7 +81,7 @@ describe('init dependency installation (real subprocesses)', () => {
     expect(calls()).toEqual([
       {
         command: 'npx',
-        args: ['--yes', '--package=vite-plus@^1.2.0', 'vp', 'install', '--no-frozen-lockfile'],
+        args: ['--yes', '--package=vite-plus@^1.4.0', 'vp', 'install', '--no-frozen-lockfile'],
         cwd: root,
       },
     ]);
