@@ -51,7 +51,7 @@ export default function UsersPage({ users }: Props) {
 <!-- pages/users/index.vue -->
 <script setup lang="ts">
 import type { Props } from './index.server';
-defineProps<Props>();
+const { users } = defineProps<Props>();
 </script>
 
 <template>
@@ -177,7 +177,7 @@ Check `loading` first, then `error`. TypeScript narrows `value` to `T` in the re
 ```vue [Vue]
 <script setup lang="ts">
 import type { Props } from './dashboard.server';
-defineProps<Props>();
+const { projects, usage } = defineProps<Props>();
 </script>
 
 <template>
