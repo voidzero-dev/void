@@ -3,6 +3,7 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
@@ -210,7 +211,53 @@ describe('playground/static-pages build (output: static)', () => {
       };
     };
     expect(wranglerConfig.assets?.directory).toBe('../client');
-    expect(wranglerConfig.assets?.run_worker_first).toBeDefined();
+    // Pages with a server module stay on the Worker; /plain has none, so its file answers.
+    expect(wranglerConfig.assets?.run_worker_first).toEqual([
+      '/__void',
+      '/__void/*',
+      '/',
+      '/about',
+      '/client-only',
+      '/docs/*',
+      '/items/*',
+      '/posts/*',
+      '/tags/*',
+    ]);
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
+  });
+
+  it('serves a page without a server module from its prerendered file', async () => {
+    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf-8')) as {
+      assets: { run_worker_first: Array<string> };
+    };
+    // Hashed files keep the immutable policy without the Worker.
+    const headers = readFileSync(join(DIST, 'client/_headers'), 'utf-8');
+    expect(headers.startsWith(GENERATED_ASSET_HEADERS_MARKER)).toBe(true);
+    expect(headers).toContain('/assets/');
+    expect(headers).toContain('immutable');
+    const runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: "export default { fetch() { return new Response('worker'); } };",
+        assets: {
+          directory: join(DIST, 'client'),
+          binding: 'ASSETS',
+          run_worker_first: wranglerConfig.assets.run_worker_first,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { not_found_handling: 'none' },
+        },
+      }),
+    );
+    try {
+      const plain = await runtime.dispatchFetch('http://localhost/plain');
+      expect(plain.status).toBe(200);
+      expect(await plain.text()).toContain('data-testid="plain-title"');
+      // A page with a server module still reaches the Worker first.
+      const about = await runtime.dispatchFetch('http://localhost/about');
+      expect(await about.text()).toBe('worker');
+    } finally {
+      await runtime.dispose();
+    }
   });
 });

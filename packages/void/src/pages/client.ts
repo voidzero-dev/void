@@ -23,6 +23,17 @@ import { isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
+  handleLinkClick,
+  linkPrefetchStrategies,
+  observeLinkVisible,
+  prefetchLink,
+  resolveLink,
+  type BaseLinkProps,
+  type LinkNavigateEvent,
+  type LinkPrefetchStrategy,
+  type ResolvedLink,
+} from './link.ts';
+export {
   VoidActionError,
   categorizeActionError,
   isAbortError,
