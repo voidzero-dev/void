@@ -3,14 +3,41 @@ import type { Rolldown } from 'vite';
 import type { ClientManifest } from './runtime/routing-assets.ts';
 import type { RoutingHeaderRule } from './runtime/routing.ts';
 
+/** Build facts that prove statically imported images are fingerprinted. */
+export type ClientImageCacheProof = {
+  /** Source files imported with `?image`, relative to the project root (client manifest keys). */
+  imageSources: Iterable<string>;
+  /**
+   * The client build names every emitted asset from a string `assetFileNames`
+   * template containing `[hash]` (see `hasHashedAssetFileNames`).
+   */
+  hashedAssetFileNames: boolean;
+};
+
+/**
+ * Whether Rollup output options name every emitted asset with `[hash]`: Vite's
+ * default template, or an authored string template that contains it. A
+ * function template cannot be proven.
+ */
+export function hasHashedAssetFileNames(output: unknown): boolean {
+  const outputs = Array.isArray(output) ? output : [output];
+  return outputs.every((options) => {
+    const template = (options as { assetFileNames?: unknown } | undefined)?.assetFileNames;
+    return template === undefined || (typeof template === 'string' && template.includes('[hash]'));
+  });
+}
+
 /**
  * Attach cache provenance to the existing manifest without changing its entry inventory.
- * Returns the stamped immutable files, sorted, relative to the client root.
+ * Returns the stamped immutable files, sorted, relative to the client root. Stamped
+ * `?image` files are left out: the return value feeds the Worker bypass
+ * (`asset-worker-bypass.ts`), whose rule limits must not depend on an app's images.
  */
 export function stampClientAssetCachePolicy(
   bundle: Rolldown.OutputBundle,
   manifestPath: string,
   headerRules: Array<RoutingHeaderRule> = [],
+  images?: ClientImageCacheProof,
 ): Array<string> {
   const asset = bundle[manifestPath];
   if (asset?.type !== 'asset') {
@@ -39,6 +66,22 @@ export function stampClientAssetCachePolicy(
     }
   }
   const manifest = JSON.parse(String(asset.source)) as ClientManifest;
+  const chunkFiles = new Set(fingerprinted);
+  if (images?.hashedAssetFileNames) {
+    // Images imported with `?image` are emitted by Vite's asset pipeline under
+    // the proven [hash] template, so their manifest files are fingerprinted.
+    // Other output assets stay unproven, as above.
+    for (const source of images.imageSources) {
+      const file = manifest[source]?.file;
+      if (
+        file &&
+        bundle[file]?.type === 'asset' &&
+        !authoredCachePatterns.some((pattern) => matchPattern(pattern, '/' + file))
+      ) {
+        fingerprinted.add(file);
+      }
+    }
+  }
   const stamped = new Set<string>();
   for (const entry of Object.values(manifest)) {
     if (entry.file && fingerprinted.has(entry.file)) {
@@ -49,5 +92,5 @@ export function stampClientAssetCachePolicy(
     }
   }
   asset.source = JSON.stringify(manifest, null, 2);
-  return [...stamped].sort();
+  return [...stamped].filter((file) => chunkFiles.has(file)).sort();
 }

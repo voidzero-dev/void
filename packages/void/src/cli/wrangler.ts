@@ -548,7 +548,7 @@ export function syncWranglerBindings(
   root: string,
   bindings: InferredBindings,
   options?: {
-    bindingNames?: { d1?: string; kv?: string; r2?: string; ai?: string };
+    bindingNames?: { d1?: string; kv?: string; r2?: string; ai?: string; images?: string };
     directCloudflareAi?: { gateway?: string };
     websockets?: Array<WebSocketRouteDefinition>;
     live?: boolean | LiveBindingConfig;
@@ -612,6 +612,13 @@ export function syncWranglerBindings(
         modified = true;
       }
     }
+  }
+
+  // Miniflare transforms images locally, so the binding needs no `remote` flag.
+  const imagesName = options?.bindingNames?.images ?? 'IMAGES';
+  if (addsImagesBinding(parsed, bindings.needsImages, imagesName)) {
+    parsed.images = { binding: imagesName };
+    modified = true;
   }
 
   if (options?.websockets) {
@@ -2282,6 +2289,37 @@ export function findBindingNameOwner(
   const owners = collectWorkerBindingNames(configWithoutField(config, field));
   addQueueProducerOwners(owners, config);
   return owners.get(name);
+}
+
+/**
+ * Whether Void adds the Cloudflare Images binding `name` to a Wrangler config:
+ * the app needs it, the config declares no `images` entry (an authored one
+ * stays authoritative), and no other binding uses the name. With such a
+ * binding, an `env.IMAGES` read reads the user's own binding.
+ */
+export function addsImagesBinding(
+  config: Record<string, unknown>,
+  needsImages: boolean | undefined,
+  name: string,
+): boolean {
+  return (
+    needsImages === true &&
+    config.images === undefined &&
+    findImagesBindingOwner(config, name) === undefined
+  );
+}
+
+/** The label of another binding in `config` that uses the Images binding name, if any. */
+export function findImagesBindingOwner(
+  config: Record<string, unknown>,
+  name: string,
+): string | undefined {
+  try {
+    return findBindingNameOwner(config, 'images', name);
+  } catch {
+    // A malformed field is Wrangler's to report; this check only names a collision.
+    return undefined;
+  }
 }
 
 /**

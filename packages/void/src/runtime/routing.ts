@@ -388,3 +388,4 @@ export {
 } from './routing-worker.ts';
 export { createClientAssetTags, createManifestLoader } from './routing-assets.ts';
 export { createSsrFallback, createAssetNotFound } from './routing-pages.ts';
+export { createImageHandler, type ImageHandlerOptions } from './routing-image.ts';

@@ -278,7 +278,10 @@ export async function renderIslandPage(pageObj, assetTags) {
     }
   });
 
-  const html = await renderToString(app);
+  // \`Image\` collects its <link rel="preload" as="image"> tags in the SSR context.
+  const ssrContext = {};
+  const html = await renderToString(app, ssrContext);
+  const imagePreloads = ssrContext.__voidImagePreloads ? ssrContext.__voidImagePreloads.render() : "";
   // Islands hydrate as separate roots. Send the page frontmatter so their
   // useFrontmatter() returns the same value in the browser.
   const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")
@@ -291,7 +294,7 @@ export async function renderIslandPage(pageObj, assetTags) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
+<head>\${headHtml}\${imagePreloads}\${assetTags.css}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.preloads : ""}</head>
 <body\${bodyAttrs}>
   <div id="app"\${__mdScriptAttr}>\${html}</div>
   \${__frontmatterScript}\${__pagesNeedingClientJS.has(pageObj.component) ? assetTags.body : ""}

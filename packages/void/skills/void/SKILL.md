@@ -43,6 +43,7 @@ the app's existing saved destination, including when the target project is new.
 | Authentication                             | `docs/guide/auth.md`, `docs/guide/env-vars.md`                                            |
 | Cloudflare runtime bindings and config     | `docs/integrations/cloudflare.md`, `docs/reference/config.md`, `docs/guide/env-vars.md`   |
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
+| Images, `Image`, `getImageProps`           | `docs/guide/images.md`, `docs/reference/config.md`                                        |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |

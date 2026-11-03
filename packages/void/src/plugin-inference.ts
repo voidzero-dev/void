@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join, toSlash } from 'pathslash';
 import { globSync } from 'tinyglobby';
-import { applyBindingOverrides } from './application-features.ts';
+import { applyBindingOverrides, applyImageOptimizerRequirement } from './application-features.ts';
 import { inferBindingsFromSource, mergeBindings, type InferredBindings } from './inference/walk.ts';
+import { scriptBlocks } from './pages/island-imports.ts';
 import { pageFileEnvironment } from './pages/scan.ts';
 import { readProjectPaths, type ProjectPaths } from './project-paths.ts';
 import {
@@ -16,7 +17,7 @@ import { conventionFileGlobs, isRouteFile } from './shared/convention-files.ts';
 import { deriveFromSource } from './shared/source-analysis-cache.ts';
 import { getSsrServerEntryPath } from './ssr/entry.ts';
 
-const SOURCE_GLOB = '**/*.{ts,tsx,mts,js,jsx,mjs,astro}';
+const SOURCE_GLOB = '**/*.{ts,tsx,mts,js,jsx,mjs,astro,vue,svelte}';
 
 /** Framework class determines integration depth. */
 export type FrameworkClass = 'a' | 'b' | 'c';
@@ -110,7 +111,13 @@ export type InferenceOptions = {
     storage?: boolean | string;
     ai?: boolean | string;
     email?: boolean;
+    images?: boolean | string;
   };
+  /**
+   * The default `/_void/image` optimizer serves this app, so `Image` and
+   * `getImageProps` usage requires the Images binding.
+   */
+  imageOptimizer?: boolean;
   paths?: ProjectPaths;
   /** Filter route files for a Vite serve/build environment. Other source files are always scanned. */
   environment?: RouteEnvironment;
@@ -123,8 +130,28 @@ function extractAstroFrontmatter(code: string): string {
   return match?.[1] ?? '';
 }
 
-function inferBindingsFromFile(file: string, code: string): InferredBindings {
+/**
+ * Infer one source file. `.astro` files are read from their frontmatter.
+ * Vue and Svelte `<script>` blocks are read for image usage only, so other
+ * bindings are still inferred from `.ts`/`.js` modules alone.
+ */
+export function inferBindingsFromFile(file: string, code: string): InferredBindings {
   const filename = file.split('/').pop() ?? 'unknown.ts';
+  if (/\.(?:vue|svelte)$/.test(filename)) {
+    // Every image signal (`Image`, `getImageProps`, `*/image`, `IMAGES`) contains "image".
+    if (!/image/i.test(code)) {
+      return mergeBindings([]);
+    }
+    const blocks = scriptBlocks(code, filename).map((block) =>
+      inferBindingsFromSource(block.source, block.filename),
+    );
+    const merged = mergeBindings(blocks);
+    return {
+      ...mergeBindings([]),
+      needsImages: merged.needsImages,
+      usesImageOptimizer: merged.usesImageOptimizer,
+    };
+  }
   if (!filename.endsWith('.astro')) {
     return inferBindingsFromSource(code, filename);
   }
@@ -228,5 +255,9 @@ export function inferProjectBindings(
 
   // Overrides apply to their named binding only. Setting KV must not suppress
   // auth, Sandbox, queues, or any other feature found in the same application.
-  return applyBindingOverrides(mergeBindings(allBindings), options?.bindings);
+  // `inference.bindings.images` also wins over the optimizer requirement.
+  return applyBindingOverrides(
+    applyImageOptimizerRequirement(mergeBindings(allBindings), options?.imageOptimizer === true),
+    options?.bindings,
+  );
 }

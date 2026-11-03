@@ -35,6 +35,9 @@ function setupPlugin(options?: { dev?: boolean }) {
     loadClientEntry(): string | undefined {
       return plugin.load.handler('\0virtual:void-islands-client');
     },
+    loadRenderer(): string | undefined {
+      return plugin.load.handler('\0virtual:void-islands-renderer');
+    },
   };
 }
 
@@ -198,5 +201,34 @@ export default function X() { return <Counter />; }`,
 
     expect(clientEntry).toContain('pages/Toggle');
     expect(clientEntry).not.toContain('pages/Counter');
+  });
+});
+
+describe('islandsPlugin — image preloads', () => {
+  beforeEach(() => {
+    mkdirSync(PAGES_DIR, { recursive: true });
+  });
+
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('collects preloads per request and puts them into <head>', async () => {
+    writeFile('index.island.tsx', `export default function Home() { return <div>Home</div>; }`);
+
+    const { buildStart, loadRenderer } = setupPlugin();
+    await buildStart();
+    const renderer = loadRenderer() ?? '';
+
+    expect(renderer).toContain('import { createImagePreloadCollector } from "void/image";');
+    expect(renderer).toMatch(/import \{[^}]*\bImagePreloadContext\b[^}]*\} from "@void\/solid";/);
+    expect(
+      renderer.indexOf('const imagePreloads = createImagePreloadCollector();'),
+    ).toBeGreaterThan(renderer.indexOf('export async function renderIslandPage('));
+    // The provider wraps the whole page render, outside each island's hydration root.
+    expect(renderer).toMatch(
+      /renderToStringAsync\(\(\) =>\s*createComponent\(ImagePreloadContext\.Provider, \{\s*value: imagePreloads,\s*get children\(\) \{ return createComponent\(ServerApp, \{\}\); \}/,
+    );
+    expect(renderer).toContain('<head>${headHtml}${imagePreloads.render()}${assetTags.css}');
   });
 });

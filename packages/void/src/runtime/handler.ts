@@ -61,6 +61,7 @@ export interface CloudBindings extends VoidGeneratedEnvBindings {
   KV: KVNamespace;
   STORAGE: R2Bucket;
   AI: Ai;
+  IMAGES: ImagesBinding;
   SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
   /** Node, Bun and Deno targets serve static files through a provider that takes only a `Request`. */
   ASSETS: AssetBinding;

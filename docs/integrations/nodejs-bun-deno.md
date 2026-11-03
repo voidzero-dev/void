@@ -120,6 +120,10 @@ If you need a database or storage, use an external provider and connect via stan
 
 WebSocket route files (`*.ws.ts`) require Cloudflare. You can still use the `void/ws` browser client to connect to a separately hosted WebSocket server.
 
+### No image optimization
+
+There is no `/_void/image` endpoint on these targets. `Image` from the Pages adapters renders original files unless you set a [custom loader](../guide/images.md#loaders) that points at an image service.
+
 ### No cron job runtime
 
 You can still define [cron jobs](../guide/jobs.md) in `crons/` and they will compile into the bundle, but there is no built-in scheduler to invoke them. On Cloudflare, Workers Cron Triggers call the `scheduled` handler automatically. On Node.js, you'll need an external scheduler (e.g. `node-cron`, systemd timers, or your hosting platform's cron) to trigger the exported handler.

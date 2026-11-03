@@ -1147,7 +1147,11 @@ describe('gen ssr', () => {
 
     const ssr = read('src/main.ssr.ts');
     expect(ssr).toContain('import { createSSRApp } from "vue"');
-    expect(ssr).toContain('import { renderToString } from "vue/server-renderer"');
+    expect(ssr).toContain('import { renderToString, type SSRContext } from "vue/server-renderer"');
+    // `Image` from @void/vue collects preload links in the SSR context.
+    expect(ssr).toContain('const appHtml = await renderToString(app, ssrContext);');
+    expect(ssr).toContain('const imagePreloads = ssrContext.__voidImagePreloads?.render() ?? "";');
+    expect(ssr).toContain('${imagePreloads}${assetTags.css}${assetTags.preloads}\n  </head>');
 
     const client = read('src/main.client.ts');
     expect(client).toContain('import { createSSRApp } from "vue"');
@@ -1163,6 +1167,9 @@ describe('gen ssr', () => {
 
     const ssr = read('src/main.ssr.ts');
     expect(ssr).toContain('import { render } from "svelte/server"');
+    // `<svelte:head>` output, including `Image` preload links, goes into <head>.
+    expect(ssr).toContain('const { head, body: appHtml } = render(App);');
+    expect(ssr).toContain('${head}${assetTags.css}${assetTags.preloads}\n  </head>');
 
     const client = read('src/main.client.ts');
     expect(client).toContain('import { hydrate } from "svelte"');

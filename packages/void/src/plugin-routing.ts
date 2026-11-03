@@ -31,7 +31,7 @@ import {
 } from './auth/config.ts';
 import { resolveDistDir, resolveWorkerDirName } from './cli/build-output-dir.ts';
 import { lintRoutingPhases, mergeRoutingRules } from './cli/headers.ts';
-import { stampClientAssetCachePolicy } from './client-asset-manifest.ts';
+import { hasHashedAssetFileNames, stampClientAssetCachePolicy } from './client-asset-manifest.ts';
 import { removeAuthTypesIfPresent, syncAuthTypesFile } from './codegen/auth-types.ts';
 import { findEnvFileForPaths } from './codegen/env-types.ts';
 import { syncAuthTypesInProjectTsconfig } from './codegen/project-tsconfig.ts';
@@ -40,6 +40,7 @@ import { generateRouteTypes } from './codegen/route-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { readConfig, getDatabaseDialect, type VoidConfig } from './config.ts';
 import { collectPages, collectRevalidate, hasRevalidate } from './isr-config.ts';
+import type { ImagePluginApi } from './plugin-image.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
 import {
@@ -116,6 +117,8 @@ type RoutingPluginOptions = {
    * app build sets this.
    */
   assetWorkerBypass?: boolean;
+  /** Image optimizer mounting and the `?image` sources stamped into the client manifest. */
+  images?: Pick<ImagePluginApi, 'getMountedConfig' | 'imageSources'>;
 };
 
 /**
@@ -138,8 +141,10 @@ export function routingPlugin(
   let output: VoidConfig['output'];
 
   // Inputs to the last successful route table and generated entries, including
-  // authored auth settings that can change without changing the source scan.
-  const routeInputsKey = () => JSON.stringify([scan, authConfigPath, ssr, compileOptions.auth]);
+  // authored auth settings and the image optimizer mount that can change
+  // without changing the source scan.
+  const routeInputsKey = () =>
+    JSON.stringify([scan, authConfigPath, ssr, compileOptions.auth, compileOptions.images]);
   let generatedRouteInputs: string | undefined;
   // Size and mtime of the generated files that checkpoint wrote.
   let generatedFiles: string | undefined;
@@ -216,6 +221,9 @@ export function routingPlugin(
     scan = nextScan;
     authConfigPath = analysis.authConfigPath;
     output = analysis.config.output;
+    // Recomputed on every rescan so dev recompiles keep (or gain) the mount.
+    const images = options.images?.getMountedConfig(analysis.bindings.usesImageOptimizer);
+    compileOptions.images = images ? { config: images } : undefined;
     ssr = entries
       ? {
           serverEntryPath: entries.server.absolutePath,
@@ -494,6 +502,7 @@ export function routingPlugin(
       authEnabled: compileOptions.auth !== null,
       liveEnabled: options.live !== undefined,
       notFound: options.routing?.notFound,
+      imagePath: compileOptions.images?.config.path,
     });
   }
 
@@ -662,6 +671,9 @@ export function routingPlugin(
         dev: compileOptions.dev,
         isr,
         notFound: policy.assetConfig.not_found_handling ?? 'none',
+        assetFallbackSkipPaths: compileOptions.images
+          ? [compileOptions.images.config.path]
+          : undefined,
         durableObjects: options.durableObjects,
       }),
     );
@@ -799,6 +811,12 @@ export function routingPlugin(
                 bundle,
                 typeof manifest === 'string' ? manifest : '.vite/manifest.json',
                 compileOptions.headerRules,
+                {
+                  imageSources: options.images?.imageSources ?? [],
+                  hashedAssetFileNames: hasHashedAssetFileNames(
+                    this.environment.config.build.rolldownOptions?.output,
+                  ),
+                },
               )
             : [];
         }
@@ -864,6 +882,10 @@ export function routingPlugin(
             ? {
                 runtimePath: resolveFile('@void/isr/runtime'),
                 queryAllowlist: buildConfig.routing?.revalidateQueryAllowlist,
+                // Optimized images have their own cache; ISR never wraps them.
+                bypassPaths: compileOptions.images
+                  ? [compileOptions.images.config.path]
+                  : undefined,
               }
             : undefined;
           writeWorkerEntry(isr);

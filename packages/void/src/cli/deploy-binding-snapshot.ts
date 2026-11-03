@@ -123,6 +123,7 @@ export const DEPLOY_PASSTHROUGH_EXCLUDE_FIELDS: ReadonlySet<string> = new Set<st
   'hyperdrive',
   // emitted by Void
   'ai',
+  'images',
   'durable_objects',
   'assets',
   'vars',
@@ -164,17 +165,22 @@ export const DEPLOY_WHOLE_OBJECT_PINNED_FIELDS: ReadonlyArray<string> = [
 
 /**
  * Root values captured for {@link verifyGeneratedDeployConfig}: the whole-object fields plus
- * `durable_objects`, `ai` and `migrations`, which Void emits but a build could still tamper with.
+ * `durable_objects`, `ai`, `images` and `migrations`, which Void emits but a build could still
+ * tamper with.
  */
 const DEPLOY_RAW_SNAPSHOT_FIELDS: ReadonlyArray<string> = [
   ...DEPLOY_WHOLE_OBJECT_PINNED_FIELDS,
   'durable_objects',
   'ai',
+  'images',
   'migrations',
 ];
 
 /** Default Workers AI binding name that Void emits. */
 export const DEFAULT_VOID_AI_BINDING = 'AI';
+
+/** Default Cloudflare Images binding name that Void emits. */
+export const DEFAULT_VOID_IMAGES_BINDING = 'IMAGES';
 
 /** `durable_objects` sub-fields that bind another Worker's Durable Objects. Void never emits them. */
 const DURABLE_OBJECT_EXTERNAL_FIELDS = ['script_name', 'environment'];

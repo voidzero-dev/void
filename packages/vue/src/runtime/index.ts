@@ -1,4 +1,14 @@
 export { Form } from './form.ts';
+export { Image, getImageProps } from './image.ts';
+export type {
+  ImageAttributes,
+  ImageLoader,
+  ImageLoaderProps,
+  ImageProps,
+  PlaceholderValue,
+  StaticImageData,
+  StaticImport,
+} from './image.ts';
 export { Link } from './link.ts';
 export { useRouter } from './use-router.ts';
 export { useParams } from './use-params.ts';

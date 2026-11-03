@@ -23,6 +23,7 @@ interface CloudEnv extends Env {
     KV: KVNamespace;
     STORAGE: R2Bucket;
     AI: Ai;
+    IMAGES: ImagesBinding;
     SANDBOX: DurableObjectNamespace<import('void/sandbox').VoidPlatformSandbox>;
     ASSETS: { fetch(request: Request): Promise<Response> };
     [key: string]: unknown;

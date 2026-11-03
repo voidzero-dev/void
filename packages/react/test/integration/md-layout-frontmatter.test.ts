@@ -10,6 +10,23 @@ import { openIslandPage, type IslandPageVisit } from '../../../../test/island-pa
 import { voidMarkdown } from '../../../md/src/plugin.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
+// Prebundle React up front like the real pages plugin: `@void/react` imports react-dom for
+// `Image`, and discovering it during hydration makes Vite re-optimize and reload the page.
+const pagesPlugin = {
+  name: 'void-react:pages',
+  config: () => ({
+    optimizeDeps: {
+      include: [
+        'react',
+        'react/jsx-runtime',
+        'react/jsx-dev-runtime',
+        'react-dom',
+        'react-dom/client',
+      ],
+    },
+  }),
+};
+
 const ISLAND_FRONTMATTER_SCRIPT =
   '<script type="application/json" id="__void_frontmatter">{"title":"Hello from frontmatter"}</script>';
 
@@ -90,11 +107,7 @@ export default function Title() {
   try {
     visit = await openIslandPage(root, {
       alias: { '@void/react': join(import.meta.dirname, '../../src/runtime/index.ts') },
-      plugins: [
-        ...voidMarkdown(),
-        { name: 'void-react:pages' },
-        ...islandsPlugin(join(root, 'pages')),
-      ],
+      plugins: [...voidMarkdown(), pagesPlugin, ...islandsPlugin(join(root, 'pages'))],
     });
     expect(visit.html).toContain(ISLAND_FRONTMATTER_SCRIPT);
     await waitForIslandsHydrated(visit.page);
@@ -138,11 +151,7 @@ title: Hello from frontmatter
   try {
     visit = await openIslandPage(root, {
       alias: { '@void/react': join(import.meta.dirname, '../../src/runtime/index.ts') },
-      plugins: [
-        ...voidMarkdown(),
-        { name: 'void-react:pages' },
-        ...islandsPlugin(join(root, 'pages')),
-      ],
+      plugins: [...voidMarkdown(), pagesPlugin, ...islandsPlugin(join(root, 'pages'))],
     });
     expect(visit.html).toContain(ISLAND_FRONTMATTER_SCRIPT);
     await waitForIslandsHydrated(visit.page);

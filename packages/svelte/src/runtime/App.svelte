@@ -1,6 +1,7 @@
 <script>
   import { setContext, onMount, untrack } from "svelte";
   import { createRouterFacade, idleNavigationState } from "void/pages-client";
+  import { IMAGE_PRELOADS_KEY } from "./image-preloads.ts";
 
   let props = $props();
 
@@ -53,6 +54,8 @@
   setContext("__void_navigation", {
     get value() { return navigation; },
   });
+  // Image preload links of this render, one per image.
+  setContext(IMAGE_PRELOADS_KEY, new Map());
   // Island pages pass Markdown frontmatter so layouts can read it (useFrontmatter).
   if (init.frontmatter) {
     setContext("__void_frontmatter", init.frontmatter);

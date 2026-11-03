@@ -4,11 +4,13 @@ import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
+import { resolveImageConfig } from '../../src/image-config.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { createImageHandler } from '../../src/runtime/routing-image.ts';
 import {
   createAssetNotFound,
   createPageGetHandler,
@@ -335,6 +337,23 @@ describe('typed Worker fetch execution', () => {
     );
     expect(env.__VOID_ISR_HOST).toBe('two.test');
     expect(env.__VOID_ISR_DEPLOYMENT_ID).toBe('existing');
+    expect(handle).toHaveBeenCalledTimes(1);
+  });
+  it('never sends ISR bypass paths such as the image optimizer through the cache', async () => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const fetch = worker({
+      isr: { deploymentId: 'deploy-one', bypassPaths: ['/_void/image'], handle },
+    });
+    const response = await fetch(
+      new Request('https://one.test/_void/image?url=%2Fhero.png&w=64&q=75'),
+      { ISR_CACHE: {} },
+      context,
+    );
+    expect(response.status).toBe(404);
+    expect(handle).not.toHaveBeenCalled();
+    expect(
+      await (await fetch(new Request('https://one.test/app'), { ISR_CACHE: {} }, context)).text(),
+    ).toBe('cache');
     expect(handle).toHaveBeenCalledTimes(1);
   });
   it('hides capabilities through property lookup, membership, enumeration and descriptors only when selected', () => {
@@ -672,6 +691,29 @@ describe('typed Pages and SSR execution', () => {
         }),
       );
       expect(response.headers.get('location')).toBe('/login?code=1&state=2');
+    });
+
+    it('leaves the query alone when the image optimizer answers before a catch-all page', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
+      app.all(
+        '/_void/image',
+        createImageHandler({
+          config: resolveImageConfig(undefined, { root: '/project', dev: false }),
+          deploymentId: 'deployment-1',
+        }),
+      );
+      app.post('/*', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+      const response = await app.fetch(
+        new Request('https://app.test/_void/image?url=/a.png&w=64&q=75', {
+          method: 'POST',
+          headers: { 'x-anon': '1' },
+        }),
+      );
+      expect(response.headers.get('location')).toBe('/login?url=/a.png&w=64&q=75');
     });
 
     it('leaves the key out of the page URL when the action renders the page again', async () => {

@@ -1,4 +1,5 @@
 import { createContext, type Context } from 'solid-js';
+import type { ImagePreloadCollector } from 'void/image';
 import type { NavigationState, VoidRouter } from 'void/pages-client';
 
 export const SharedContext: Context<Record<string, unknown> | null> = createContext<Record<
@@ -21,3 +22,9 @@ export const NavigationContext: Context<(() => NavigationState) | null> = create
 export const FrontmatterContext: Context<Record<string, unknown>> = createContext<
   Record<string, unknown>
 >({});
+/**
+ * Collects the `<link rel="preload" as="image">` tags of one server render
+ * for the page `<head>`. `null` in the browser.
+ */
+export const ImagePreloadContext: Context<ImagePreloadCollector | null> =
+  createContext<ImagePreloadCollector | null>(null);

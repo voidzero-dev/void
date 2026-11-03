@@ -38,3 +38,17 @@ export function shouldInjectEmailDevInboxVar(
     !!assetsBinding
   );
 }
+
+/** Cloudflare Images binding the `/_void/image` endpoint reads unless renamed. */
+export const DEFAULT_IMAGES_BINDING = 'IMAGES';
+
+/** Resolve the Images binding name, preserving a root Wrangler declaration. */
+export function resolveImagesBindingName(resolvedImages: unknown, configuredName?: string): string {
+  if (typeof resolvedImages === 'object' && resolvedImages !== null) {
+    const binding = (resolvedImages as { binding?: unknown }).binding;
+    if (typeof binding === 'string') {
+      return binding;
+    }
+  }
+  return configuredName ?? DEFAULT_IMAGES_BINDING;
+}
