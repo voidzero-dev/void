@@ -286,7 +286,7 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
         const range = readTakumiRange();
         const installed = findInstalledPackage('takumi-js', this.environment.config.root);
         const version = installed && readManifest(installed)?.version;
-        if (version && satisfiesCaret(version, range)) {
+        if (version && satisfiesRange(version, range)) {
           return;
         }
         const found = version ? ` The app has takumi-js ${version}.` : '';
@@ -329,21 +329,27 @@ function realPath(path: string): string {
 /** The takumi-js range void/og is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
   const range = readManifest(VOID_PACKAGE_DIR)?.dependencies?.['takumi-js'];
-  if (!range || !/^\^\d+\.\d+\.\d+$/.test(range)) {
+  if (!range || !/^[~^]\d+\.\d+\.\d+$/.test(range)) {
     throw new Error(
-      `void/og: expected a caret takumi-js range in void's package.json, got ${range}.`,
+      `void/og: expected a ^ or ~ takumi-js range in void's package.json, got ${range}.`,
     );
   }
   return range;
 }
 
-/** Whether `version` is in the caret `range` (a major version above 0, as takumi-js uses). */
-function satisfiesCaret(version: string, range: string): boolean {
-  const parse = (value: string) => /^\^?(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
-  // A prerelease is outside a caret range.
+/** Whether `version` is in the `^` or `~` `range` (a major version above 0, as takumi-js uses). */
+function satisfiesRange(version: string, range: string): boolean {
+  const parse = (value: string) => /^[~^]?(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
+  // A prerelease is outside the range.
   const actual = parse(version);
   const minimum = parse(range);
-  if (!actual || !minimum || actual[0] !== minimum[0]) {
+  // `~` also fixes the minor version.
+  const fixed = range.startsWith('~') ? 2 : 1;
+  if (
+    !actual ||
+    !minimum ||
+    actual.slice(0, fixed).some((part, index) => part !== minimum[index])
+  ) {
     return false;
   }
   for (const part of [1, 2]) {

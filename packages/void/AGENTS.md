@@ -159,7 +159,11 @@ the app root resolves a `takumi-js` in the range void declares. Takumi's JSX
 helper imports `react` as an optional peer; Vite stubs it in apps without
 React, and Takumi catches the failed import. Fallback fonts come from Google
 Fonts by the scripts in the text, under private family names, with Latin-1
-taken out so Latin text keeps Takumi's built-in Geist.
+taken out so Latin text keeps Takumi's built-in Geist. takumi-js stays on
+`~2.18`: 2.19.0 loads only the first font whose `unicode-range` covers a
+character, and draws the whole word as boxes when that font lacks the glyph
+(Noto Sans JP's latin-ext subset has no Ł). Raise the range, and the install
+command in `docs/guide/og-images.md`, once Takumi fixes it.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 
