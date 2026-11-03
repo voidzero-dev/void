@@ -146,7 +146,7 @@ export const head = defineHead<Props>((c, props) => {
 
 ## Cache generated images
 
-Each request renders the image again. A simple 1200 × 630 card takes under 10 ms of CPU time, one with gradients, bold text, or emoji 30 to 100 ms, and the first render in a new Worker instance about 200 ms more. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so on Workers Free, cache image routes with [revalidation](./edge/revalidation.md):
+Each request renders the image again. A simple 1200 × 630 card takes around 10 ms of CPU time, one with gradients, bold text, or emoji 30 to 80 ms, and the first render in a new Worker instance more than 100 ms. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so on Workers Free, cache image routes with [revalidation](./edge/revalidation.md):
 
 ```json
 {
