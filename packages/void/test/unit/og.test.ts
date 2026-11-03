@@ -280,6 +280,15 @@ describe('ImageResponse fallback fonts', () => {
     expect(requests).toHaveLength(1);
   });
 
+  it('fails on an emoji that cannot download, unless told to leave it out', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    stubFetch(() => new Response(null, { status: 404 }));
+    const emoji = '<div style="display:flex">🪅</div>';
+    await expect(new ImageResponse(emoji).arrayBuffer()).rejects.toThrow();
+    const response = new ImageResponse(emoji, { images: { throwOnError: false } });
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+  });
+
   it('uses the symbol and math families for characters Geist lacks', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch((url) =>
@@ -374,6 +383,9 @@ describe('void/og on Node.js targets', () => {
     expect(resolveRenderer).toThrow('The app has takumi-js 3.0.0.');
     installTakumi('2.17.0-beta.1');
     expect(resolveRenderer).toThrow('The app has takumi-js 2.17.0-beta.1.');
+    // takumi-js 2.19.0 draws boxes for text its first matching font lacks.
+    installTakumi('2.19.0');
+    expect(resolveRenderer).toThrow('The app has takumi-js 2.19.0.');
   });
 
   it('warns once in the dev server instead', () => {
@@ -392,7 +404,7 @@ describe('void/og on Node.js targets', () => {
   });
 
   it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
-    installTakumi(range.replace(/^\^/, ''));
+    installTakumi(range.replace(/^[~^]/, ''));
     expect(resolveRenderer()).toBeUndefined();
   });
 

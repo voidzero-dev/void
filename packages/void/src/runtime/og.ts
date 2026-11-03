@@ -98,7 +98,7 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
 ];
 
 // What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
-// by rendering each code point with takumi-js 2.16: some accented letters and
+// by rendering each code point with takumi-js 2.18: some accented letters and
 // combining marks, spaces, format characters and variation selectors, quotes,
 // dashes, € ™ − ↑ ↓. Number forms such as ⅓ stay missing: no served subset
 // has them.
@@ -181,7 +181,7 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
       images: { fetchCache, ...images },
       // Takumi uses every font registered in the process when it gets no list,
       // which includes earlier images' fallback fonts:
-      // https://github.com/kane50613/takumi/blob/takumi@2.16.2/takumi-helpers/src/renderer.ts#L271-L282
+      // https://github.com/kane50613/takumi/blob/takumi@2.18.2/takumi-helpers/src/renderer.ts#L280-L308
       fonts,
     });
   const [fonts, fallback] = await Promise.all([

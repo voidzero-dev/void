@@ -246,7 +246,7 @@ describe('void/og on the Node.js target', () => {
     );
     const result = runBuild(root);
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('void/og needs takumi-js@^');
-    expect(result.stderr).toContain('npm install takumi-js@^');
+    expect(result.stderr).toContain('void/og needs takumi-js@');
+    expect(result.stderr).toContain('npm install takumi-js@');
   });
 });
