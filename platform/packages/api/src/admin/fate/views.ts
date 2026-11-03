@@ -65,7 +65,11 @@ export const BuildLogsView = view<AdminBuildLogs>()({
   terminal: true,
   logsComplete: true,
 });
-export const DeploymentLogsView = view<AdminDeploymentLogs>()({ id: true, data: true });
+export const DeploymentLogsView = view<AdminDeploymentLogs>()({
+  id: true,
+  data: true,
+  runtimeLogs: true,
+});
 export const buildLogsRequest = (id: string, since: number) =>
   ({ buildLogs: { view: BuildLogsView, args: { id, since } } }) as const;
 export const deploymentLogsRequest = (id: string, since: string, limit: number) =>

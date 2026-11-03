@@ -60,7 +60,7 @@ import { type ApiEnv, isDevBypass } from '../env.ts';
 import { validateSubmittedExecutionPlans } from '../migrations/execution-plan.ts';
 import { ensureTrackingTable, queryD1, runRemoteMigrations } from '../migrations/remote-runner.ts';
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
-import { LOG_ROW_GROUP_BY } from '../observability/log-rows.ts';
+import { LOG_ROW_GROUP_BY, runtimeLogsField } from '../observability/log-rows.ts';
 import { hasSqlState } from '../pg-errors.ts';
 import { resolvePlan, resolvePlanLimits } from '../plans.ts';
 import { PROJECT_PERMISSION_MESSAGES } from '../project-access.ts';
@@ -2584,7 +2584,7 @@ const app = new Hono<ApiEnv>()
       status: row.statusCode,
     }));
 
-    return context.json({ data });
+    return context.json({ data, ...runtimeLogsField(context.env) });
   })
   // Fetch request-level metering for a project. Unlike /logs (which only has
   // user-worker tail rows), this reads the dispatch request-metering dataset,

@@ -17,12 +17,12 @@ import { withTimeout } from '../email-protocol.ts';
 import { getRawRuntimeEnv } from '../env-raw.ts';
 import {
   buildMime,
-  indexOfControl,
   MAX_ADDRESS_LENGTH,
   MimeError,
   normalizeEmail,
   validateAddressParts,
 } from './mime.ts';
+import { fitsHeaderLine, replyReferences, threadingId } from './threading.ts';
 import type { Address, Attachment } from './types.ts';
 
 // SDK limits give handlers early errors. The gateway independently validates
@@ -649,79 +649,6 @@ export function createMessageProxy(
   return { message, getActions: () => [...actions] };
 }
 
-/**
- * Whether `Name: value` fits RFC 5322's 998-octet line. Folding happens only
- * at SP or HTAB, so the widest unbroken run decides.
- */
-function fitsHeaderLine(name: string, value: string | undefined): value is string {
-  if (!value) {
-    return false;
-  }
-  // One pass without allocation: tokenizing a hostile 10 MiB header could
-  // exhaust the isolate. Other `\s` characters do not end a run, because
-  // `foldHeader` cannot fold at them.
-  const budget = 998 - (name.length + 2);
-  let run = 0;
-  for (let i = 0; i < value.length; i++) {
-    const c = value.charCodeAt(i);
-    if (c === 0x20 || c === 0x09) {
-      run = 0;
-      continue;
-    }
-    // UTF-8 octets: a surrogate pair is 4, a lone surrogate (U+FFFD) is 3.
-    if (c < 0x80) {
-      run += 1;
-    } else if (c < 0x800) {
-      run += 2;
-    } else if (
-      c >= 0xd800 &&
-      c <= 0xdbff &&
-      i + 1 < value.length &&
-      (value.charCodeAt(i + 1) & 0xfc00) === 0xdc00
-    ) {
-      run += 4;
-      i++;
-    } else {
-      run += 3;
-    }
-    if (run > budget) {
-      return false;
-    }
-  }
-  return true;
-}
-
-/**
- * `chain` without the ids that hold a control character, joined by single
- * spaces. Called only on a chain already cut to `MAX_REPLY_REFERENCES_CHARS`.
- */
-function dropControlIds(chain: string): string {
-  if (indexOfControl(chain) === -1) {
-    return chain;
-  }
-  const kept: Array<string> = [];
-  let start = -1;
-  let tainted = false;
-  for (let i = 0; i <= chain.length; i++) {
-    const c = i < chain.length ? chain.charCodeAt(i) : 0x20;
-    if (c === 0x20 || c === 0x09) {
-      if (start >= 0 && !tainted) {
-        kept.push(chain.slice(start, i));
-      }
-      start = -1;
-      tainted = false;
-    } else {
-      if (start < 0) {
-        start = i;
-      }
-      if (c < 0x20 || c === 0x7f) {
-        tainted = true;
-      }
-    }
-  }
-  return kept.join(' ');
-}
-
 export interface ReplyEmailOptions {
   /**
    * On the managed platform (a `__VOID_PROJECT_SLUG` is injected) defaults
@@ -795,40 +722,6 @@ function prefixReplySubject(original: string): string {
     return 'Re:';
   }
   return prefixed;
-}
-
-/**
- * Longest `References` value a reply carries, in UTF-16 code units. 8 KiB
- * keeps any real thread whole; past it the newest ids are kept, since mail
- * clients thread on any id they recognise and the parent is `In-Reply-To`.
- */
-const MAX_REPLY_REFERENCES_CHARS = 8192;
-
-/**
- * The reply's `References`, or `''`: the inbound chain plus the parent's id,
- * trimmed to its newest whole ids, or the parent's id alone when an id
- * cannot fit a line.
- */
-function replyReferences(originalReferences: string, messageId: string): string {
-  const parent = messageId ? ` ${messageId}` : '';
-  let chain = originalReferences;
-  const budget = MAX_REPLY_REFERENCES_CHARS - parent.length;
-  if (chain.length > budget) {
-    // Cut at the next SP or HTAB so no id is split.
-    let cut = chain.length - budget;
-    while (cut < chain.length) {
-      const c = chain.charCodeAt(cut);
-      if (c === 0x20 || c === 0x09) {
-        break;
-      }
-      cut++;
-    }
-    chain = chain.slice(cut);
-  }
-  // After the cut, so the walk is bounded; `parent` was already checked.
-  chain = dropControlIds(chain);
-  chain = `${chain}${parent}`.trim();
-  return fitsHeaderLine('References', chain) ? chain : messageId;
 }
 
 /**
@@ -946,10 +839,7 @@ export async function buildReplyMessage(
   // ids are remote-controlled: drop one that cannot fit a line or holds a
   // control character rather than fail the reply.
   const threading: { inReplyTo?: string; references?: string } = {};
-  const messageId =
-    fitsHeaderLine('In-Reply-To', originalMessageId) && indexOfControl(originalMessageId) === -1
-      ? originalMessageId
-      : '';
+  const messageId = threadingId('In-Reply-To', originalMessageId);
   if (messageId) {
     threading.inReplyTo = messageId;
   }

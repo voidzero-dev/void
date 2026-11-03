@@ -557,6 +557,11 @@ const HELP_TREE: HelpTree = {
             command: '--runtime <path>',
             description: 'Deploy an integrity-checked runtime directory instead of the package',
           },
+          {
+            command: '--runtime-logs <full|minimal>',
+            description:
+              'minimal keeps request URLs, console and exception messages out of runtime logs',
+          },
           { command: '--yes', description: 'Acknowledge changes without an interactive prompt' },
         ],
       },
@@ -1487,7 +1492,7 @@ function lifecycleHelp(
   return {
     summary,
     usage: [
-      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
+      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
     ],
     options: [
       { command: '--plan', description: 'Print the exact plan without making changes' },
@@ -1509,6 +1514,15 @@ function lifecycleHelp(
             {
               command: '--custom-domains',
               description: 'Turn on project custom domains; omission keeps the saved setting',
+            },
+          ]
+        : []),
+      ...(command === 'upgrade'
+        ? [
+            {
+              command: '--runtime-logs <full|minimal>',
+              description:
+                'minimal keeps request URLs, console and exception messages out of runtime logs; omission keeps the saved setting',
             },
           ]
         : []),
