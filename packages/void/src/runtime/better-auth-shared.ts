@@ -10,6 +10,7 @@ import {
   type VoidAuthProvider,
   type VoidSocialAuthProvider,
 } from '../auth/providers.ts';
+import { authDependentRequests } from './auth-response.ts';
 import { authContext, type AuthState, type VoidAuthConfig } from './auth.ts';
 import { isUnchangedStaticAsset } from './static-asset-marker.ts';
 
@@ -649,6 +650,11 @@ export function createVoidAuthRuntime(
     c.set('user', state?.user ?? null);
     c.set('session', state?.session ?? null);
 
+    const authEndpoint = c.req.path === '/api/auth' || c.req.path.startsWith('/api/auth/');
+    if (authEndpoint) {
+      authDependentRequests.add(c.req.raw);
+    }
+
     await authContext.run({ user: state?.user ?? null, state }, async () => {
       await next();
     });
@@ -663,8 +669,7 @@ export function createVoidAuthRuntime(
         credentialed ||
         result.headers?.has('set-cookie') === true ||
         setsAuthCookie(c.res.headers, auth.options.advanced) ||
-        c.req.path === '/api/auth' ||
-        c.req.path.startsWith('/api/auth/'),
+        authEndpoint,
       isUnchangedStaticAsset(c),
     );
   }

@@ -16,6 +16,7 @@ import {
   markActionKey,
   searchWithoutActionKey,
 } from '../pages/action-key.ts';
+import { authDependentRequests } from './auth-response.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
@@ -23,6 +24,13 @@ import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 export { createErrorRenderer } from './routing-errors.ts';
+
+// These targeted policies can take precedence over Cache-Control at a CDN.
+const sharedCacheHeaders = [
+  'cdn-cache-control',
+  'cloudflare-cdn-cache-control',
+  'surrogate-control',
+];
 
 export type RoutingRule = {
   source: string;
@@ -48,7 +56,7 @@ export type RoutingRuntime = {
   contextMiddleware: MiddlewareHandler;
   requestMiddleware: MiddlewareHandler;
   routingMiddleware: (rules: Array<RoutingRule>) => MiddlewareHandler;
-  headerMiddleware: (rules: Array<RoutingHeaderRule>) => MiddlewareHandler;
+  headerMiddleware: (rules: Array<RoutingHeaderRule>, phase?: 'auth-error') => MiddlewareHandler;
   applyFallback: (context: Context, rules: Array<RoutingRule>) => Promise<Response | undefined>;
   markNoMatch: (request: Request, response: Response) => Response;
 };
@@ -68,6 +76,7 @@ export function createRoutingRuntime(
   // Outer requests a fallback answered. The fallback already applied the
   // destination's header rules, as edge routing and platform dispatch do.
   const fallbackServed = new WeakSet<Request>();
+  const headerEntered = new WeakSet<Context>();
   const warnedPatterns = new Set<string>();
   const requestContext = new AsyncLocalStorage<RequestContextStore>();
   const assetExtensions = options.blockedAssetExtensions ?? ASSET_EXTENSIONS;
@@ -86,10 +95,19 @@ export function createRoutingRuntime(
       headers,
     });
   };
-  const dispatch = (request: Request, c: Context): Promise<Response> =>
-    Promise.resolve(
-      options.nodeTarget ? app.fetch(request, c.env) : app.fetch(request, c.env, c.executionCtx),
+  const dispatch = async (request: Request, c: Context, trace: string): Promise<Response> => {
+    const response = annotate(
+      await (options.nodeTarget
+        ? app.fetch(request, c.env)
+        : app.fetch(request, c.env, c.executionCtx)),
+      trace,
     );
+    if (authDependentRequests.has(request)) {
+      // The enclosing response may depend on auth even if middleware clones or replaces it.
+      authDependentRequests.add(c.req.raw);
+    }
+    return response;
+  };
   const rememberOriginal = (request: Request, c: Context): void => {
     originalUrls.set(request, originalUrls.get(c.req.raw) ?? new URL(c.req.url));
   };
@@ -141,10 +159,10 @@ export function createRoutingRuntime(
           fallbackHandled.add(request);
           fallbackServed.add(c.req.raw);
         }
-        const response = await dispatch(request, c);
         const kind = rule.force === true ? 'rewrite' : 'fallback';
-        return annotate(
-          response,
+        return dispatch(
+          request,
+          c,
           `${kind}[${rule.source}] -> ${destination} (${rule.origin || 'unknown'})`,
         );
       }
@@ -190,9 +208,7 @@ export function createRoutingRuntime(
       const request = new Request(url.toString(), c.req.raw);
       rememberOriginal(request, c);
       keepActionKey(c.req.raw, request, search);
-      return dispatch(request, c).then((response) =>
-        annotate(response, `c.rewrite -> ${path} (middleware)`),
-      );
+      return dispatch(request, c, `c.rewrite -> ${path} (middleware)`);
     };
     const redirect = context.redirect.bind(context);
     c.redirect = (destination, status) => {
@@ -234,8 +250,26 @@ export function createRoutingRuntime(
         }
       }
     },
-    headerMiddleware: (rules) => async (c, next) => {
+    headerMiddleware: (rules, phase) => async (c, next) => {
+      const authErrorsOnly = phase === 'auth-error';
+      if (!authErrorsOnly) {
+        headerEntered.add(c);
+      }
       await next();
+      if (authErrorsOnly && (!c.error || headerEntered.has(c))) {
+        return;
+      }
+      const protectCache = authErrorsOnly || authDependentRequests.has(c.req.raw);
+      if (protectCache) {
+        authDependentRequests.add(c.req.raw);
+        c.header('Cache-Control', 'no-store');
+        c.header('Pragma', 'no-cache');
+        for (const name of sharedCacheHeaders) {
+          if (c.res.headers.has(name)) {
+            c.header(name, undefined);
+          }
+        }
+      }
       if (fallbackServed.has(c.req.raw)) {
         return;
       }
@@ -257,8 +291,15 @@ export function createRoutingRuntime(
       }
       const asset = isUnchangedStaticAsset(c);
       for (const [name, value] of matched) {
+        const key = name.toLowerCase();
+        if (
+          protectCache &&
+          (key === 'cache-control' || key === 'pragma' || sharedCacheHeaders.includes(key))
+        ) {
+          continue;
+        }
         // A Set-Cookie rule adds its cookie and keeps the response's own cookies.
-        c.header(name, value, { append: name.toLowerCase() === 'set-cookie' });
+        c.header(name, value, { append: key === 'set-cookie' });
       }
       if (asset) {
         // A configured Cache-Control is the file's policy from here on, so auth

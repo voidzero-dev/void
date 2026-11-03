@@ -65,9 +65,13 @@ describe('compileRouteTable auth integration', () => {
       },
     );
     const auth = code.indexOf('return runVoidAuthMiddleware(c, next,');
-    const headers = code.indexOf('app.use("*", __routingRuntime.headerMiddleware(');
+    const errorHeaders = code.indexOf(
+      '__routingRuntime.headerMiddleware(__headerRules, "auth-error")',
+    );
+    const headers = code.indexOf('__routingRuntime.headerMiddleware(__headerRules)');
     const user = code.indexOf('app.use(middleware0)');
-    expect(auth).toBeGreaterThan(-1);
+    expect(errorHeaders).toBeGreaterThan(-1);
+    expect(auth).toBeGreaterThan(errorHeaders);
     expect(headers).toBeGreaterThan(auth);
     expect(user).toBeGreaterThan(headers);
   });

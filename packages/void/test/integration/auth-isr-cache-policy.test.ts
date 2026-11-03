@@ -10,7 +10,11 @@ import {
   createPagesFallback,
   createSsrFallback,
 } from '../../src/runtime/routing-pages.ts';
-import { createRoutingRuntime, type RoutingContext } from '../../src/runtime/routing.ts';
+import {
+  createRoutingRuntime,
+  type RoutingContext,
+  type RoutingHeaderRule,
+} from '../../src/runtime/routing.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };
@@ -101,24 +105,27 @@ describe('real anonymous Better Auth lookup cache policy', () => {
 });
 
 describe('auth cache policy with authored headers', () => {
-  function headerFixture() {
+  const cdnHeaders = ['CDN-Cache-Control', 'Cloudflare-CDN-Cache-Control', 'Surrogate-Control'];
+  function headerFixture(dev = false) {
     const database = memoryAdapter({ user: [], session: [], account: [], verification: [] });
     const runtime = createVoidAuthRuntime('sqlite', async () => {});
     const app = new Hono();
-    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    const routing = createRoutingRuntime(app, { nodeTarget: true, dev });
+    const rules: Array<RoutingHeaderRule> = [
+      {
+        pattern: '/*',
+        headers: [
+          ['Cache-Control', 'public, max-age=31536000, immutable'],
+          ...cdnHeaders.map((name): [string, string] => [name, 'max-age=600']),
+          ['X-Frame-Options', 'DENY'],
+          ['Access-Control-Allow-Origin', 'https://client.test'],
+        ],
+      },
+    ];
     app.use(routing.contextMiddleware);
+    app.use(routing.headerMiddleware(rules, 'auth-error'));
     app.use(async (c, next) => runtime.runVoidAuthMiddleware(c, next, options, database));
-    app.use(
-      routing.headerMiddleware([
-        {
-          pattern: '/*',
-          headers: [
-            ['Cache-Control', 'public, max-age=31536000, immutable'],
-            ['X-Frame-Options', 'DENY'],
-          ],
-        },
-      ]),
-    );
+    app.use(routing.headerMiddleware(rules));
     app.on(['GET', 'POST'], '/api/auth/*', (c) =>
       runtime.handleVoidAuthRequest(c, options, database),
     );
@@ -132,7 +139,67 @@ describe('auth cache policy with authored headers', () => {
     expect(response.headers.get('cache-control')).toBe('no-store');
     expect(response.headers.get('pragma')).toBe('no-cache');
     expect(response.headers.get('x-frame-options')).toBe('DENY');
+    for (const name of cdnHeaders) {
+      expect(response.headers.has(name)).toBe(false);
+    }
     await expect(response.json()).resolves.toBeNull();
+  });
+
+  it.each([false, true])('keeps a nested session rewrite private (dev=%s)', async (dev) => {
+    const { app } = headerFixture(dev);
+    app.get('/session', async (c) =>
+      (await (c as RoutingContext).rewrite('/session-alias')).clone(),
+    );
+    app.get('/session-alias', (c) => (c as RoutingContext).rewrite('/api/auth/get-session'));
+
+    const response = await app.request('https://app.test/session', undefined, env);
+
+    expect(response.status).toBe(200);
+    expect(response.headers.has('set-cookie')).toBe(false);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('pragma')).toBe('no-cache');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+    for (const name of cdnHeaders) {
+      expect(response.headers.has(name)).toBe(false);
+    }
+    await expect(response.json()).resolves.toBeNull();
+  });
+
+  it('protects a HEAD session rewrite when Hono merges response headers', async () => {
+    const { app } = headerFixture();
+    app.get('/session', (c) => {
+      c.res.headers.set('cache-control', 'public, max-age=60');
+      c.res.headers.set('cdn-cache-control', 'max-age=90');
+      return (c as RoutingContext).rewrite('/api/auth/get-session');
+    });
+
+    const method = { method: 'HEAD' };
+    const direct = await app.request('https://app.test/api/auth/get-session', method, env);
+    const response = await app.request('https://app.test/session', method, env);
+
+    expect(response.status).toBe(direct.status);
+    expect(direct.headers.get('cache-control')).toBe('no-store');
+    expect(response.body).toBeNull();
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.has('cdn-cache-control')).toBe(false);
+  });
+
+  it('keeps authored headers when auth fails before routing', async () => {
+    const { app } = headerFixture();
+    app.onError(
+      createErrorRenderer({ dev: false, projectRoot: process.cwd(), homeDir: process.cwd() })
+        .onError,
+    );
+    app.get('/page', (c) => c.text('page'));
+
+    const response = await app.request('https://app.test/page', undefined, {});
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://client.test');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    for (const name of cdnHeaders) {
+      expect(response.headers.has(name)).toBe(false);
+    }
   });
 
   it.each(['/api/auth/sign-in/email', '/login', '/fallback-login'])(
@@ -193,6 +260,9 @@ describe('auth cache policy with authored headers', () => {
     const { app } = headerFixture();
     app.use('/private', async (c) => c.redirect('/login'));
     const response = await app.request('https://app.test/private', undefined, env);
+    for (const name of cdnHeaders) {
+      expect(response.headers.get(name)).toBe('max-age=600');
+    }
     expect(response.status).toBe(302);
     expect(response.headers.get('location')).toBe('/login');
     expect(response.headers.get('x-frame-options')).toBe('DENY');
