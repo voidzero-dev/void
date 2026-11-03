@@ -9,65 +9,32 @@ import {
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
-  type VisitOptions,
+  type FormState,
+  type FormSubmitOptions,
   type VoidRouter,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 
-type FormSubmitOptions = Omit<VisitOptions, 'method' | 'data'> & {
-  data?: Record<string, unknown>;
-};
-type UntypedForm = {
-  readonly data: Record<string, unknown>;
-  readonly errors: Record<string, string>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(options: FormResetOptions, ...fields: ReadonlyArray<string>): void;
-  reset(...fields: ReadonlyArray<string>): void;
-  setError(field: string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+type FormReturn<TData> = FormState<TData, 'in-place'> &
+  Readonly<{
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
   options?: ActionFormOptions<U>,
-): {
-  readonly data: ResolveActionBody<U>;
-  readonly errors: Partial<Record<keyof ResolveActionBody<U> & string, string>>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(
-    options: FormResetOptions,
-    ...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>
-  ): void;
-  reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  setError(field: keyof ResolveActionBody<U> & string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearError(): void;
-};
+): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
   options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
-): UntypedForm {
+): FormReturn<Record<string, unknown>> {
   const router = getContext<VoidRouter>('__void_router');
 
   const initialDefaults = cloneFormValue(defaults);
