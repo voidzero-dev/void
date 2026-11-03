@@ -8,12 +8,20 @@ Use `ImageResponse` from `void/og` to generate Open Graph and social preview ima
 
 ## Create an image route
 
-Route files are TypeScript, so put the image's JSX in a `.tsx` module:
+Return an `ImageResponse` from a [`.tsx` route](./server-routing.md#jsx-handlers):
 
 ```tsx
-// src/og/post-card.tsx
-export function postCard(post: { title: string; author: string }) {
-  return (
+// routes/og/[slug].tsx
+import { defineHandler } from 'void';
+import { ImageResponse } from 'void/og';
+import { getPost } from '../../src/posts';
+
+export const GET = defineHandler(async (c) => {
+  const post = await getPost(c.req.param('slug'));
+  if (!post) {
+    return c.notFound();
+  }
+  return new ImageResponse(
     <div
       style={{
         display: 'flex',
@@ -28,26 +36,8 @@ export function postCard(post: { title: string; author: string }) {
     >
       <div style={{ fontSize: 72, fontWeight: 700 }}>{post.title}</div>
       <div style={{ fontSize: 36, opacity: 0.7 }}>{post.author}</div>
-    </div>
+    </div>,
   );
-}
-```
-
-Then return an `ImageResponse` from a route:
-
-```ts
-// routes/og/[slug].ts
-import { defineHandler } from 'void';
-import { ImageResponse } from 'void/og';
-import { postCard } from '../../src/og/post-card';
-import { getPost } from '../../src/posts';
-
-export const GET = defineHandler(async (c) => {
-  const post = await getPost(c.req.param('slug'));
-  if (!post) {
-    return c.notFound();
-  }
-  return new ImageResponse(postCard(post));
 });
 ```
 
@@ -104,7 +94,7 @@ Content-Type: image/png
 Cache-Control: public, max-age=0, must-revalidate
 ```
 
-During `vp dev`, `Cache-Control` is `no-cache, no-store`. Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
+During local development, `Cache-Control` is `no-cache, no-store`. Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
 
 Emoji and remote `<img>` sources are downloaded while the image renders. An emoji that the chosen style does not have fails the image; `noto` has no flags.
 
@@ -181,7 +171,7 @@ import { ImageResponse } from 'void/og'; // [!code ++]
 
 Then:
 
-- Move the JSX from `route.tsx` into a `.tsx` module and return the response from a route file, as shown above.
+- Move `app/api/og/route.tsx` to a route file outside `/api`, such as `routes/og.tsx`, so its images can be [cached](#cache-generated-images).
 - Read the request from Hono's context: `c.req.url`, `c.req.param()`, and `c.req.query()`.
 - Void draws images with Takumi rather than Satori, so layout can differ slightly. See [Takumi vs. Satori](https://takumi.kane.tw/docs/comparison-to-satori).
 - A font's `lang` is accepted but does not choose the font for a language. Use the `lang` option or attribute for Chinese characters instead.

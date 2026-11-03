@@ -24,13 +24,12 @@ const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 const OG_ROUTE = `import { ImageResponse } from 'void/og';
 export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello</div>');
 `;
+// A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { ImageResponse } from 'void/og';
-import { card } from '../../src/card';
-export const GET = () => new ImageResponse(card('Hello from JSX'));
-`;
-const CARD_COMPONENT = `export function card(title: string) {
+function Card({ title }: { title: string }) {
   return <div style={{ display: 'flex', width: '100%', height: '100%', fontSize: 64 }}>{title}</div>;
 }
+export const GET = () => new ImageResponse(<Card title="Hello from JSX" />);
 `;
 
 // Miniflare types its own Response, without Cloudflare's `cf`.
@@ -140,8 +139,7 @@ describe('void/og in a Cloudflare app', () => {
     root = createApp(
       {
         'routes/api/og.ts': OG_ROUTE,
-        'routes/api/card.ts': CARD_ROUTE,
-        'src/card.tsx': CARD_COMPONENT,
+        'routes/api/card.tsx': CARD_ROUTE,
       },
       { react: 'playground/react-pages/node_modules/react' },
     );
