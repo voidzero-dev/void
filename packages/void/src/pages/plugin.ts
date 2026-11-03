@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname } from 'pathslash';
 import { normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from 'vite';
+import type { CacheForInput } from './prefetch.ts';
 import { scanPages } from './scan.ts';
 import {
   resolveStaticPageDataBuildOptions,
@@ -16,7 +17,27 @@ type PagesPluginContext = {
   scan: () => Promise<PageScanResult | null>;
 };
 
-type PagesPluginOptions = {
+/** The `prefetch` option of a framework adapter plugin. */
+export type PrefetchConfig = {
+  hoverDelay?: number;
+  cacheFor?: CacheForInput;
+};
+
+/** Options of a framework adapter's pages plugin. */
+export type PagesPluginOptions = {
+  root?: string;
+  viewTransitions?: boolean;
+  prefetch?: PrefetchConfig;
+};
+
+/** `prefetch` with its defaults: a 75 ms hover delay and a 30 second cache. */
+export function resolvePrefetchConfig(
+  prefetch: PrefetchConfig | undefined,
+): Required<PrefetchConfig> {
+  return { hoverDelay: prefetch?.hoverDelay ?? 75, cacheFor: prefetch?.cacheFor ?? '30s' };
+}
+
+type CreatePagesPluginOptions = {
   name: string;
   root?: string;
   generateRenderer: (scan: PageScanResult, isDev: boolean) => string;
@@ -25,7 +46,7 @@ type PagesPluginOptions = {
 };
 
 /** Shared Vite lifecycle; adapters own their generated code and environment configuration. */
-export function createPagesPlugin(pagesDir: string, options: PagesPluginOptions): Plugin {
+export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOptions): Plugin {
   let pageScan: PageScanResult | null = null;
   let isDev = false;
   let viteConfig: ResolvedConfig | undefined;
