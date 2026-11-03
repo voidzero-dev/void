@@ -16,7 +16,7 @@
   function editEmail(event: Event) {
     form.data.email = (event.target as HTMLInputElement).value;
     if (!form.data.email.includes('@')) {
-      form.setError('email', 'Client email invalid');
+      form.errors.email = 'Client email invalid';
     }
   }
 </script>

@@ -609,4 +609,7 @@ export {
   scheduleFormRetry,
   type FormModel,
   type FormMethod,
+  type FormState,
+  type FormSubmitOptions,
+  type IslandFormState,
 } from './form-presentation.ts';
