@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
@@ -57,32 +57,22 @@ function mdRouteName(file: string, env: 'dev' | 'prod' | null): string {
   return name.endsWith('/index') ? name.slice(0, -'/index'.length) : name;
 }
 
-function hasMdFilesWithScript(dir: string): boolean {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        const fullPath = join(entry.parentPath, entry.name);
-        const content = readFileSync(fullPath, 'utf-8');
-        if (/^<script\b/m.test(content)) {
-          return true;
-        }
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return false;
+/** The Markdown files that `environment` keeps, relative to `pagesDir`. */
+async function listMdFiles(pagesDir: string, environment: 'dev' | 'prod'): Promise<Array<string>> {
+  const mdFiles = await glob('**/*.md', { cwd: pagesDir });
+  // Skip pages for the other environment, so their scripts are not added either.
+  return mdFiles.filter((file) => {
+    const fileEnv = pageFileEnvironment(file);
+    return !fileEnv || fileEnv === environment;
+  });
 }
 
-function hasIslandFiles(dir: string): boolean {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (entry.isFile() && /\.island\./.test(entry.name)) {
-        return true;
-      }
+/** Whether any page has client code. Without it, pages would load an empty client entry. */
+async function hasMdClientCode(pagesDir: string, environment: 'dev' | 'prod'): Promise<boolean> {
+  for (const file of await listMdFiles(pagesDir, environment)) {
+    if (extractScript(readFileSync(join(pagesDir, file), 'utf-8')).clientCode) {
+      return true;
     }
-  } catch {
-    // ignore
   }
   return false;
 }
@@ -114,12 +104,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
       return [];
     }
 
-    const mdFiles = await glob('**/*.md', { cwd: pagesDir });
-    // Skip pages for the other environment, so their scripts are not added either.
-    const liveFiles = mdFiles.filter((file) => {
-      const fileEnv = pageFileEnvironment(file);
-      return !fileEnv || fileEnv === mdEnvironment;
-    });
+    const liveFiles = await listMdFiles(pagesDir, mdEnvironment);
     const pages = await Promise.all(
       liveFiles.map(async (file) => {
         const content = readFileSync(join(pagesDir, file), 'utf-8');
@@ -156,7 +141,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         },
       },
 
-      config(config, env) {
+      async config(config, env) {
         mdEnvironment = env.command === 'serve' && !env.isPreview ? 'dev' : 'prod';
         if (env.command === 'serve') {
           return;
@@ -166,7 +151,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         if (!existsSync(pagesDir)) {
           return;
         }
-        if (hasMdFilesWithScript(pagesDir) && hasIslandFiles(pagesDir)) {
+        if (await hasMdClientCode(pagesDir, mdEnvironment)) {
           return {
             environments: {
               client: {
