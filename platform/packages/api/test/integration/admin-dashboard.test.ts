@@ -3402,7 +3402,7 @@ describe('GET /admin/deployments/:id/logs', () => {
         );
         expect(query).not.toMatch(/AND double1 >= \d+/);
         expect(query).toContain(
-          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1',
+          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
         );
         expect(query).toContain('ORDER BY ingestedAt DESC, ts DESC');
         return Response.json({
@@ -3457,6 +3457,70 @@ describe('GET /admin/deployments/:id/logs', () => {
     expect(fateBody.results[0]?.ok).toBe(true);
     expect(fateBody.results[0]?.data?.data?.[0]?.outcome).toBe('exception');
     vi.restoreAllMocks();
+  });
+
+  test('marks admin log responses only when runtime logs are minimal', async () => {
+    const admin = await createTestUser(env.db, 'admin-logs3', 'github', undefined, 'free', 'admin');
+    const project = await createTestProject(env.db, admin.id, 'logs-minimal');
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    mockCfApi({
+      analyticsQuery: () =>
+        Response.json({
+          data: [
+            {
+              outcome: 'exception',
+              logData: '[{"level":"error","timestamp":1,"message":[]}]',
+              exceptionData: '[{"name":"Error","timestamp":1,"message":""}]',
+              url: '',
+              method: 'GET',
+              statusCode: '500',
+              ts: Date.now() - 1000,
+              ingestedAt: new Date(Date.now() - 500).toISOString(),
+            },
+          ],
+        }),
+    });
+    const minimal = { PLATFORM_RUNTIME_LOGS: 'minimal' } as const;
+    const fateLogs = (overrides?: Partial<ApiEnv['Bindings']>) =>
+      req(
+        '/admin/fate',
+        admin.adminJwt,
+        {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({
+            version: 1,
+            operations: [
+              {
+                id: 'logs',
+                kind: 'query',
+                name: 'deploymentLogs',
+                args: { id: deployment.id, since: '1h', limit: 50 },
+                select: ['id', 'data', 'runtimeLogs'],
+              },
+            ],
+          }),
+        },
+        overrides,
+      );
+
+    const full = await req(`/admin/deployments/${deployment.id}/logs`, admin.adminJwt);
+    expect(await full.json()).not.toHaveProperty('runtimeLogs');
+    const route = await req(
+      `/admin/deployments/${deployment.id}/logs`,
+      admin.adminJwt,
+      undefined,
+      minimal,
+    );
+    expect(await route.json()).toMatchObject({ runtimeLogs: 'minimal', data: [{ url: '' }] });
+
+    type FateBody = { results: Array<{ ok: boolean; data?: Record<string, unknown> }> };
+    const fullFate = (await (await fateLogs()).json()) as FateBody;
+    expect(fullFate.results[0]?.ok).toBe(true);
+    expect(fullFate.results[0]?.data?.runtimeLogs ?? null).toBeNull();
+    const minimalFate = (await (await fateLogs(minimal)).json()) as FateBody;
+    expect(minimalFate.results[0]?.ok).toBe(true);
+    expect(minimalFate.results[0]?.data?.runtimeLogs).toBe('minimal');
   });
 
   test('returns 404 for unknown deployment', async () => {

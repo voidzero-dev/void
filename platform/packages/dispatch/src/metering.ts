@@ -124,6 +124,9 @@ export function truncateUtf8(value: string, maxBytes: number): string {
  * writes, so the existing read path needs no change. `outcome` is `canceled` to
  * match the tail row for the same invocation rather than invent a status.
  *
+ * With `PLATFORM_RUNTIME_LOGS=minimal` the row carries no URL: blob4 is empty
+ * and the message names only the method, budget and status.
+ *
  * Best effort by construction: every call site is already returning a 503, and
  * an uncaught throw there would surface to the client as a 500. A dropped log
  * line is strictly better than that, so all failures are swallowed.
@@ -146,16 +149,21 @@ export function recordPlatformLog(
     return;
   }
 
-  let pathname = data.url;
-  try {
-    pathname = new URL(data.url).pathname;
-  } catch {
-    // Keep the raw string — a message is worth more than a thrown URL parse.
+  const minimal = env.PLATFORM_RUNTIME_LOGS === 'minimal';
+  let target = '';
+  if (!minimal) {
+    let pathname = data.url;
+    try {
+      pathname = new URL(data.url).pathname;
+    } catch {
+      // Keep the raw string — a message is worth more than a thrown URL parse.
+    }
+    target = ` ${truncateUtf8(pathname, MAX_LOG_PATH_BYTES)}`;
   }
 
   const message =
     `Void platform: your worker did not respond within ${data.timeoutMs} ms. ` +
-    `${data.method} ${truncateUtf8(pathname, MAX_LOG_PATH_BYTES)} was cut short and ` +
+    `${data.method}${target} was cut short and ` +
     `returned ${data.status}. The operation may still have side effects; ` +
     `check its outcome before retrying.`;
 
@@ -170,7 +178,7 @@ export function recordPlatformLog(
         'canceled',
         JSON.stringify([{ level: 'error', message: [message], timestamp: Date.now() }]),
         '[]',
-        truncateUtf8(data.url, MAX_LOG_URL_BYTES),
+        minimal ? '' : truncateUtf8(data.url, MAX_LOG_URL_BYTES),
         data.method,
         String(data.status),
         parsed.deployId,

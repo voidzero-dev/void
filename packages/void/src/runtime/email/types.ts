@@ -31,8 +31,21 @@ export interface SendEmailOptions {
   replyTo?: Address;
   cc?: Address | Array<Address>;
   bcc?: Address | Array<Address>;
+  /** Custom headers. Reserved names such as `From`, `Date` and the threading headers are ignored. */
   headers?: Record<string, string>;
   attachments?: Array<Attachment>;
+  /**
+   * Threads this email under an earlier message, such as a reply sent from a
+   * queue job after the inbound handler returned. `inReplyTo` is the parent's
+   * `Message-ID`. `references` lists the thread's ids, oldest first, ending
+   * with the parent; it defaults to `inReplyTo`. An id that cannot be sent,
+   * such as one with a control character, is left out. If `references`
+   * cannot be sent, it falls back to `inReplyTo`. The email still sends.
+   */
+  threading?: {
+    inReplyTo?: string;
+    references?: string;
+  };
   /**
    * Deduplicates a platform send for 30 days. Reuse the same key and message
    * when checking an uncertain attempt; a changed message is a conflict.
@@ -134,11 +147,9 @@ export interface NormalizedEmail {
   headers: Record<string, string>;
   attachments: Array<NormalizedAttachment>;
   /**
-   * Internal-only threading headers, set by `replyEmail`/`buildReplyMessage`.
-   * The MIME builder emits these as proper `In-Reply-To` / `References`
-   * top-level headers. User-supplied `headers` with these names are
-   * always dropped (they're in `RESERVED_HEADERS`); this field is the
-   * supported channel for the trusted reply path.
+   * `In-Reply-To` / `References` after the ids were checked, from the
+   * `threading` option or `replyEmail`. User-supplied `headers` with these
+   * names are always dropped (they're in `RESERVED_HEADERS`).
    */
   threading?: {
     inReplyTo?: string;

@@ -77,6 +77,8 @@ type PlatformInstallPlanInput = Readonly<{
   emailSharedZoneId?: string;
   emailSenderDomain?: string;
   installationSlug: string;
+  /** `full` clears the setting; omitted keeps the recorded value. */
+  runtimeLogs?: 'full' | 'minimal';
   zoneName: string;
   workersDev?: boolean;
 }>;
@@ -114,6 +116,8 @@ export async function createPlatformInstallPlan(
     includeEmailGateway?: boolean;
     enableSandbox?: boolean;
     deploymentExecution?: boolean;
+    /** upgrade only: a changed runtime logs setting is not drift. */
+    allowRuntimeLogsChange?: boolean;
   },
 ): Promise<PlatformInstallPlan> {
   // Validate before even the first provider read; omission retains recorded intent.
@@ -226,6 +230,12 @@ export async function createPlatformInstallPlan(
       'platform: The API hostname must be outside the app Access wildcard. Use the application domain apex or workers.dev for the API, then plan again.',
     );
   }
+  const runtimeLogs =
+    input.runtimeLogs === undefined
+      ? existing?.deployment.runtimeLogs
+      : input.runtimeLogs === 'minimal'
+        ? 'minimal'
+        : undefined;
   const deployment = createPlatformDeploymentManifest({
     authentication: input.authentication ?? existing?.deployment.authentication,
     appAccess: input.appAccess ?? existing?.deployment.appAccess,
@@ -250,6 +260,7 @@ export async function createPlatformInstallPlan(
     ...(normalizedEmailSenderDomain ? { emailSenderDomain: normalizedEmailSenderDomain } : {}),
     installationSlug,
     resources: existing?.deployment.resources ?? createPlatformResourceNames(installationSlug),
+    ...(runtimeLogs ? { runtimeLogs } : {}),
   });
   const {
     emailSharedZoneId: configuredEmailZone,
@@ -289,17 +300,27 @@ export async function createPlatformInstallPlan(
           capabilities: { ...existingWithDashboard.capabilities, customDomains: true },
         }
       : existingWithDashboard;
-  const comparableExistingWithoutEmailZone =
+  const existingWithEmail =
     existing && deployment.capabilities.email && !existing.deployment.capabilities.email
       ? {
           ...existingWithCustomDomains,
           capabilities: { ...existingWithCustomDomains.capabilities, email: true },
         }
       : existingWithCustomDomains;
+  // Upgrade may change runtime logs. The setting also moves the schema version,
+  // so leave both out of the comparison.
+  const comparable = (
+    value: Omit<PlatformDeploymentManifest, 'emailSharedZoneId' | 'emailSenderDomain'>,
+  ) => {
+    if (!options?.allowRuntimeLogsChange) {
+      return JSON.stringify(value);
+    }
+    const { runtimeLogs: _runtimeLogs, schemaVersion: _schemaVersion, ...rest } = value;
+    return JSON.stringify(rest);
+  };
   if (
     existing &&
-    (JSON.stringify(comparableExistingWithoutEmailZone) !==
-      JSON.stringify(deploymentWithoutEmailZone) ||
+    (comparable(existingWithEmail) !== comparable(deploymentWithoutEmailZone) ||
       (recordedEmailZone !== undefined && recordedEmailZone !== configuredEmailZone) ||
       (recordedSenderDomain !== undefined && recordedSenderDomain !== configuredSenderDomain))
   ) {
@@ -1417,7 +1438,13 @@ async function readRemoteOwnership(
   return null;
 }
 
-export function formatPlatformInstallPlan(plan: PlatformInstallPlan): string {
+/** `previous` is the installed deployment, so a changed setting shows what it was. */
+export function formatPlatformInstallPlan(
+  plan: PlatformInstallPlan,
+  previous?: PlatformDeploymentManifest,
+): string {
+  const runtimeLogs = plan.deployment.runtimeLogs ?? 'full';
+  const previousRuntimeLogs = previous ? (previous.runtimeLogs ?? 'full') : runtimeLogs;
   const lines = [
     `${pc.bold(`${plan.deployment.displayName} in ${plan.account.name}`)}`,
     `${pc.bold('Account:')} ${plan.account.id}`,
@@ -1438,6 +1465,11 @@ export function formatPlatformInstallPlan(plan: PlatformInstallPlan): string {
             : `${pc.bold('Default app access:')} ${{ public: 'Public apps', platform: 'Same as platform Access policy', custom: 'Selected Access policy' }[plan.deployment.appAccess]}`,
         ]
       : []),
+    ...(runtimeLogs !== previousRuntimeLogs
+      ? [`${pc.bold('Runtime logs:')} ${runtimeLogs} (was ${previousRuntimeLogs})`]
+      : plan.deployment.runtimeLogs
+        ? [`${pc.bold('Runtime logs:')} ${plan.deployment.runtimeLogs}`]
+        : []),
     `${pc.bold('Login callback:')} ${plan.apiUrl}/auth/callback`,
     `${pc.bold('Database:')} ${plan.externalHyperdrive?.database || 'PostgreSQL'} via Hyperdrive ${plan.deployment.resources.hyperdrive}`,
     '',

@@ -372,7 +372,7 @@ describe('operator deployment operations', () => {
     expect(last).toMatchObject({ nextCursor: null, watermark: page.watermark });
     expect(last.data).toHaveLength(1);
     expect(fetch.mock.calls[0][1]?.body).toContain(
-      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1',
+      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
     );
     expect(fetch.mock.calls[0][1]?.body).toContain('ORDER BY ts ASC, ingestedAt ASC');
     expect(fetch.mock.calls[0][1]?.body).toMatch(/double1 >= \d+ AND double1 < \d+/);
@@ -380,6 +380,34 @@ describe('operator deployment operations', () => {
     expect((await req(`/deployments/${deployment.id}/logs?cursor=garbage`)).status).toBe(400);
     expect((await req(`/deployments/${deployment.id}/logs?limit=-1`)).status).toBe(400);
     expect(fetch).toHaveBeenCalledTimes(2);
+  });
+  test('log pages carry runtimeLogs only when runtime logs are minimal', async () => {
+    const project = await createTestProject(env.db, ownerId);
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const row = {
+      ts: Date.now() - 1000,
+      ingestedAt: new Date(Date.now() - 500).toISOString(),
+      outcome: 'ok',
+      logData: '[{"level":"log","timestamp":1,"message":[]}]',
+      exceptionData: '[]',
+      url: '',
+      method: 'GET',
+      statusCode: '200',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [row] }));
+    const full = (await (await req(`/deployments/${deployment.id}/logs`)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(full).not.toHaveProperty('runtimeLogs');
+    const minimal = await req(`/deployments/${deployment.id}/logs`, undefined, {
+      PLATFORM_RUNTIME_LOGS: 'minimal',
+    });
+    expect(minimal.status).toBe(200);
+    expect(await minimal.json()).toMatchObject({
+      runtimeLogs: 'minimal',
+      data: [{ url: '', logs: [{ level: 'log', timestamp: 1, message: [] }] }],
+    });
   });
   test('follow windows use ingestion time with bounded overlap after the initial history', async () => {
     const project = await createTestProject(env.db, ownerId);
@@ -419,7 +447,9 @@ describe('operator deployment operations', () => {
     expect(query).toContain(
       "timestamp >= toDateTime('1970-01-01 00:03:00') AND timestamp < toDateTime('1970-01-01 00:10:00')",
     );
-    expect(query).toContain('GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1');
+    expect(query).toContain(
+      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
+    );
     expect(query).toContain('ORDER BY ingestedAt ASC, ts ASC');
     expect(query).not.toContain('double1 >= 480000');
     expect((await req(`/deployments/${deployment.id}/logs?after=garbage`)).status).toBe(400);

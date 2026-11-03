@@ -46,6 +46,12 @@ export type PlatformResourceNames = Readonly<{
 
 export type PlatformAppAccess = 'public' | 'platform' | 'custom';
 
+/**
+ * `minimal` keeps request URLs, console messages and exception messages out of
+ * Workers Logs and the platform's request log rows. Omitted means `full`.
+ */
+export type PlatformRuntimeLogs = 'minimal';
+
 export type PlatformDeploymentManifest = Readonly<{
   /** Initial app-access choice. Omitted on installations created before guided setup. */
   appAccess?: PlatformAppAccess;
@@ -64,7 +70,9 @@ export type PlatformDeploymentManifest = Readonly<{
   displayName: string;
   installationSlug: string;
   resources: PlatformResourceNames;
-  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4;
+  /** Requires schema version 5, so an older CLI refuses the manifest instead of dropping it. */
+  runtimeLogs?: PlatformRuntimeLogs;
+  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4 | 5;
 }>;
 
 export type PlatformDeploymentManifestInput = Readonly<{
@@ -88,6 +96,7 @@ export type PlatformDeploymentManifestInput = Readonly<{
   displayName: string;
   installationSlug: string;
   resources?: Partial<PlatformResourceNames>;
+  runtimeLogs?: PlatformRuntimeLogs;
 }>;
 
 export type PlatformApplicationRoute = Readonly<{
@@ -267,6 +276,9 @@ export function createPlatformDeploymentManifest(
   ) {
     throw new Error('appAccess must be public, platform, or custom.');
   }
+  if (input.runtimeLogs !== undefined && input.runtimeLogs !== 'minimal') {
+    throw new Error('runtimeLogs must be minimal when set.');
+  }
   const providers = input.authentication?.providers ?? ['github'];
   if (
     providers.some((provider) => !PLATFORM_LOGIN_KINDS.includes(provider)) ||
@@ -328,8 +340,10 @@ export function createPlatformDeploymentManifest(
     displayName: requiredString(input.displayName, 'displayName').trim(),
     installationSlug,
     resources,
-    schemaVersion:
-      input.appAccess !== undefined
+    ...(input.runtimeLogs ? { runtimeLogs: input.runtimeLogs } : {}),
+    schemaVersion: input.runtimeLogs
+      ? 5
+      : input.appAccess !== undefined
         ? 4
         : configurable
           ? 3
@@ -364,7 +378,8 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     value.schemaVersion !== PLATFORM_DEPLOYMENT_SCHEMA_VERSION &&
     value.schemaVersion !== 2 &&
     value.schemaVersion !== 3 &&
-    value.schemaVersion !== 4
+    value.schemaVersion !== 4 &&
+    value.schemaVersion !== 5
   ) {
     throw new Error(
       `Unsupported platform deployment schema version: ${String(value.schemaVersion)}.`,
@@ -379,8 +394,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   let workersDev: PlatformApplication['workersDev'];
   if (
     value.schemaVersion === 2 ||
-    ((value.schemaVersion === 3 || value.schemaVersion === 4) &&
-      application.workersDev !== undefined)
+    (Number(value.schemaVersion) >= 3 && application.workersDev !== undefined)
   ) {
     assertRecord(application.workersDev, 'application.workersDev');
     workersDev = {
@@ -412,18 +426,14 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     providers.some(
       (provider) =>
         !PLATFORM_LOGIN_KINDS.includes(provider as PlatformLoginKind) ||
-        (value.schemaVersion !== 3 &&
-          value.schemaVersion !== 4 &&
-          provider !== 'github' &&
-          provider !== 'google'),
+        (Number(value.schemaVersion) < 3 && provider !== 'github' && provider !== 'google'),
     )
   ) {
     throw new Error('authentication.providers must contain only github or google.');
   }
   if (
     (value.schemaVersion === 3 && authentication.configurable !== true) ||
-    (value.schemaVersion !== 3 &&
-      value.schemaVersion !== 4 &&
+    (Number(value.schemaVersion) < 3 &&
       (authentication.configurable !== undefined ||
         authentication.accessProtection !== undefined)) ||
     (authentication.accessProtection !== undefined && authentication.accessProtection !== true)
@@ -433,7 +443,10 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   if (
     value.schemaVersion === 4
       ? !['public', 'platform', 'custom'].includes(String(value.appAccess))
-      : value.appAccess !== undefined
+      : value.schemaVersion === 5
+        ? value.appAccess !== undefined &&
+          !['public', 'platform', 'custom'].includes(String(value.appAccess))
+        : value.appAccess !== undefined
   ) {
     throw new Error(
       'Guided app access requires deployment schema version 4 and a valid appAccess choice.',
@@ -441,6 +454,11 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   }
   if (authentication.configurable !== undefined && authentication.configurable !== true) {
     throw new Error('Invalid configurable authentication flag.');
+  }
+  if (
+    value.schemaVersion === 5 ? value.runtimeLogs !== 'minimal' : value.runtimeLogs !== undefined
+  ) {
+    throw new Error('Minimal runtime logs require deployment schema version 5.');
   }
   const resourceDefaults = createPlatformResourceNames(
     requiredString(value.installationSlug, 'installationSlug'),
@@ -462,7 +480,9 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     return hostname === null ? null : requiredString(hostname, `controlPlane.${key}`);
   };
   return createPlatformDeploymentManifest({
-    ...(value.schemaVersion === 4 ? { appAccess: value.appAccess as PlatformAppAccess } : {}),
+    ...(Number(value.schemaVersion) >= 4 && value.appAccess !== undefined
+      ? { appAccess: value.appAccess as PlatformAppAccess }
+      : {}),
     application: {
       baseDomain: requiredString(application.baseDomain, 'application.baseDomain'),
       dedicatedZone: application.dedicatedZone === true,
@@ -496,5 +516,6 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     displayName: requiredString(value.displayName, 'displayName'),
     installationSlug: requiredString(value.installationSlug, 'installationSlug'),
     resources,
+    ...(value.schemaVersion === 5 ? { runtimeLogs: 'minimal' as const } : {}),
   });
 }

@@ -124,6 +124,12 @@ describe('rendered help advertises the flags the parser honours', () => {
     return lines.join('\n').replace(/\u001b\[[0-9;]*m/g, '');
   }
 
+  it('shows --runtime-logs only on platform install and upgrade', () => {
+    expect(render(['platform', 'install'])).toContain('--runtime-logs <full|minimal>');
+    expect(render(['platform', 'upgrade'])).toContain('--runtime-logs <full|minimal>');
+    expect(render(['platform', 'repair'])).not.toContain('--runtime-logs');
+  });
+
   it('shows --provision on `deploy` with the platform it requires', () => {
     const page = render(['deploy']);
     expect(page).toContain('--provision');
