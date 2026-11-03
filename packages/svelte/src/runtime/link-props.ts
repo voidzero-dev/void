@@ -1,23 +1,9 @@
 import type { Snippet } from 'svelte';
-import type { Href } from 'void/routes';
+import type { BaseLinkProps } from 'void/pages-client';
 
-export type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
-export type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-type NavigateEvent = { preventDefault(): void };
 type EventHandler<T extends Event> = (event: T) => void;
 
-export type LinkProps = {
-  href: Href;
-  method?: LinkMethod | Lowercase<LinkMethod>;
-  data?: Record<string, unknown>;
-  preserveScroll?: boolean;
-  preserveState?: boolean;
-  replace?: boolean;
-  reloadDocument?: boolean;
-  viewTransition?: boolean;
-  prefetch?: boolean | PrefetchStrategy | Array<PrefetchStrategy>;
-  cacheFor?: number | string | [string, string];
-  onNavigate?: (event: NavigateEvent) => void;
+export type LinkProps = BaseLinkProps & {
   children?: Snippet;
   onclick?: EventHandler<MouseEvent>;
   onmouseenter?: EventHandler<MouseEvent>;
