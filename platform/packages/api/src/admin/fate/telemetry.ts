@@ -34,6 +34,7 @@ export const buildStatusDataView = dataView<BuildStatusRecord>('AdminBuildStatus
 export const deploymentLogsDataView = dataView<DeploymentLogRecord>('AdminDeploymentLogs')({
   id: true,
   data: true,
+  runtimeLogs: true,
 });
 
 export type AdminBuildLogs = Entity<typeof buildLogsDataView, 'AdminBuildLogs'>;

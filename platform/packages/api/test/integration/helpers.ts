@@ -90,6 +90,7 @@ export type TestEnv = {
   EMAIL_SENDER_DOMAIN?: string;
   REQUESTS_DATASET?: string;
   TAIL_SERVICE_NAME?: string;
+  PLATFORM_RUNTIME_LOGS?: 'minimal';
   PLATFORM_CAPABILITIES?: string;
   PLATFORM_DISPLAY_NAME?: string;
   PLATFORM_BOOTSTRAP_GITHUB_ID?: string;

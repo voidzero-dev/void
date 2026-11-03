@@ -381,6 +381,34 @@ describe('operator deployment operations', () => {
     expect((await req(`/deployments/${deployment.id}/logs?limit=-1`)).status).toBe(400);
     expect(fetch).toHaveBeenCalledTimes(2);
   });
+  test('log pages carry runtimeLogs only when runtime logs are minimal', async () => {
+    const project = await createTestProject(env.db, ownerId);
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const row = {
+      ts: Date.now() - 1000,
+      ingestedAt: new Date(Date.now() - 500).toISOString(),
+      outcome: 'ok',
+      logData: '[{"level":"log","timestamp":1,"message":[]}]',
+      exceptionData: '[]',
+      url: '',
+      method: 'GET',
+      statusCode: '200',
+    };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => Response.json({ data: [row] }));
+    const full = (await (await req(`/deployments/${deployment.id}/logs`)).json()) as Record<
+      string,
+      unknown
+    >;
+    expect(full).not.toHaveProperty('runtimeLogs');
+    const minimal = await req(`/deployments/${deployment.id}/logs`, undefined, {
+      PLATFORM_RUNTIME_LOGS: 'minimal',
+    });
+    expect(minimal.status).toBe(200);
+    expect(await minimal.json()).toMatchObject({
+      runtimeLogs: 'minimal',
+      data: [{ url: '', logs: [{ level: 'log', timestamp: 1, message: [] }] }],
+    });
+  });
   test('follow windows use ingestion time with bounded overlap after the initial history', async () => {
     const project = await createTestProject(env.db, ownerId);
     const deployment = await createTestDeployment(env.db, project.id, 'live');

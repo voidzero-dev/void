@@ -1,7 +1,7 @@
 import { and, count, desc, eq, getTableColumns, ilike, or } from 'drizzle-orm';
 import { cancelDeployment, getDeployment, getProject, type Db } from '../db.ts';
 import { type ApiEnv, isDevBypass } from '../env.ts';
-import { LOG_ROW_GROUP_BY } from '../observability/log-rows.ts';
+import { LOG_ROW_GROUP_BY, runtimeLogsField } from '../observability/log-rows.ts';
 import { deployments, projects } from '../schema.ts';
 import { OperatorError } from './common.ts';
 
@@ -249,6 +249,7 @@ export async function deploymentLogs(
       data: options.order === 'newest-first' ? data : data.reverse(),
       nextCursor: null,
       watermark: String(until),
+      ...runtimeLogsField(env),
     };
   }
   const dataset = env.LOGS_DATASET ?? 'void_logs';
@@ -303,6 +304,7 @@ export async function deploymentLogs(
     })),
     nextCursor,
     watermark: String(until),
+    ...runtimeLogsField(env),
   };
 }
 

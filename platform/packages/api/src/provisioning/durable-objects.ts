@@ -9,6 +9,7 @@ import {
 } from '../assets.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import { getProjectResources, type Db } from '../db.ts';
+import { projectObservability } from '../deploy/shared.ts';
 import type { ApiEnv } from '../env.ts';
 import { generateId } from '../id.ts';
 import { encryptPlatformCredential, decryptPlatformCredential } from '../project-secrets.ts';
@@ -588,6 +589,10 @@ async function restoreObject(
       resource.cf_id,
       {
         ...base,
+        // A release saved before minimal runtime logs still holds Workers Logs on.
+        ...(env.PLATFORM_RUNTIME_LOGS === 'minimal'
+          ? { observability: projectObservability(env) }
+          : {}),
         ...(assets ? { assets } : {}),
         main_module: ENTRY,
         tags: [`void-project:${snapshot.metadata.logProject}`, `void-deployment:${deploymentId}`],

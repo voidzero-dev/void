@@ -11,3 +11,10 @@
  * selected aliases only.
  */
 export const LOG_ROW_GROUP_BY = 'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1';
+
+/** Log reader body field that tells clients messages and URLs are not recorded. */
+export function runtimeLogsField(env: { PLATFORM_RUNTIME_LOGS?: string }): {
+  runtimeLogs?: 'minimal';
+} {
+  return env.PLATFORM_RUNTIME_LOGS === 'minimal' ? { runtimeLogs: 'minimal' } : {};
+}

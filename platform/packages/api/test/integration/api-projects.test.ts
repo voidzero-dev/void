@@ -3427,6 +3427,50 @@ describe('GET /projects/:id/logs', () => {
     });
   });
 
+  it('marks the response only when runtime logs are minimal', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'minimal-logs');
+    mockCfApi({
+      analyticsQuery: () =>
+        Response.json({
+          data: [
+            {
+              outcome: 'ok',
+              logData: JSON.stringify([{ level: 'error', message: [], timestamp: 1000 }]),
+              exceptionData: JSON.stringify([{ name: 'TypeError', message: '', timestamp: 1000 }]),
+              url: '',
+              method: 'GET',
+              statusCode: '500',
+              ts: Date.now() - 5000,
+            },
+          ],
+        }),
+    });
+    const fetchLogs = (extraEnv: Record<string, unknown>) =>
+      app.fetch(
+        new Request(`http://localhost/projects/${project.id}/logs`, {
+          headers: { Authorization: `Bearer ${user.jwt}` },
+        }),
+        { ...env, ...extraEnv },
+      );
+
+    const full = (await (await fetchLogs({})).json()) as Record<string, unknown>;
+    expect(full).not.toHaveProperty('runtimeLogs');
+
+    const res = await fetchLogs({ PLATFORM_RUNTIME_LOGS: 'minimal' });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      runtimeLogs: 'minimal',
+      data: [
+        expect.objectContaining({
+          url: '',
+          logs: [{ level: 'error', message: [], timestamp: 1000 }],
+          exceptions: [{ name: 'TypeError', message: '', timestamp: 1000 }],
+        }),
+      ],
+    });
+  });
+
   it('returns analytics error details when the log query fails', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'broken-logs');

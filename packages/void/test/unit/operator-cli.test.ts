@@ -1372,6 +1372,35 @@ describe('operator transport and execution', () => {
     expect(String(fetcher.mock.calls[1]![0])).toContain('after=2000');
     expect(String(fetcher.mock.calls[1]![0])).not.toContain('since=');
   });
+  it('notes minimal runtime logs once while following', async () => {
+    const controller = new AbortController();
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ data: [], nextCursor: null, runtimeLogs: 'minimal', watermark: '2000' }),
+      )
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return Response.json({
+          data: [],
+          nextCursor: null,
+          runtimeLogs: 'minimal',
+          watermark: '3000',
+        });
+      });
+
+    await followOperatorLogs(
+      new OperatorClient('https://one.example', 'token', fetcher),
+      parseOperatorArgs(['deployment', 'logs', 'id', '--follow', '--since', '1h']),
+      controller.signal,
+      0,
+    );
+
+    expect(
+      write.mock.calls.filter(([line]) => String(line).includes('not recorded on this platform')),
+    ).toHaveLength(1);
+  });
   it('fails explicitly when a runtime follow window exceeds its dedupe bound', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const row = {
@@ -1432,6 +1461,73 @@ describe('operator transport and execution', () => {
     ]);
   });
 
+  it('notes minimal runtime logs once and prints rows without a URL cleanly', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          data: [
+            {
+              timestamp: 1234,
+              method: 'GET',
+              url: '',
+              status: '503',
+              outcome: 'exception',
+              logs: [{ level: 'error', message: [], timestamp: 1 }],
+              exceptions: [{ name: 'TypeError', message: '', timestamp: 1 }],
+            },
+          ],
+          nextCursor: null,
+          runtimeLogs: 'minimal',
+          watermark: '1235',
+        }),
+      ),
+    );
+
+    await runOperatorCommand(parseOperatorArgs(['deployment', 'logs', 'deployment-1']));
+
+    expect(write.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+      'Log messages, exception messages and URLs are not recorded on this platform.',
+      '1234 GET 503',
+      '  [error]',
+      '  TypeError',
+    ]);
+  });
+  it('keeps the full-mode row format for an empty URL or message', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          data: [
+            {
+              timestamp: 1234,
+              method: 'GET',
+              url: '',
+              status: '503',
+              logs: [{ level: 'error', message: '', timestamp: 1 }],
+              exceptions: [{ name: 'TypeError', message: '', timestamp: 1 }],
+            },
+          ],
+          nextCursor: null,
+          watermark: '1235',
+        }),
+      ),
+    );
+
+    await runOperatorCommand(parseOperatorArgs(['deployment', 'logs', 'deployment-1']));
+
+    expect(write.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+      '1234 GET  503',
+      '  [error] ',
+      '  TypeError: ',
+    ]);
+  });
   it('neutralizes C1 terminal controls in human operator output', async () => {
     vi.stubEnv('VOID_API_URL', 'https://one.example');
     vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');

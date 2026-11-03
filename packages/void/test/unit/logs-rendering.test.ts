@@ -5,7 +5,10 @@ import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { runLogsCommand } from '../../src/cli/logs.ts';
 import { sanitizeTerminalLogText } from '../../src/cli/terminal-log-text.ts';
 
-const logsFixture = vi.hoisted(() => ({ entries: undefined as Array<unknown> | undefined }));
+const logsFixture = vi.hoisted(() => ({
+  entries: undefined as Array<unknown> | undefined,
+  runtimeLogs: undefined as 'minimal' | undefined,
+}));
 
 vi.mock('../../src/cli/auth.ts', () => ({ getToken: () => 'fixture-token' }));
 vi.mock('../../src/cli/project.ts', () => ({
@@ -15,31 +18,35 @@ vi.mock('../../src/cli/project.ts', () => ({
 vi.mock('../../src/cli/client.ts', () => ({
   PlatformClient: class {
     async getLogs() {
+      const runtimeLogs = logsFixture.runtimeLogs ? { runtimeLogs: logsFixture.runtimeLogs } : {};
       if (logsFixture.entries) {
-        return logsFixture.entries;
+        return { entries: logsFixture.entries, ...runtimeLogs };
       }
-      return [
-        {
-          timestamp: 0,
-          method: 'POST',
-          url: '/api/comments',
-          status: '500',
-          outcome: 'exception',
-          logs: [
-            {
-              level: 'warn',
-              message: ['Cache miss. Refreshing the published page in the background.'],
-            },
-            {
-              level: 'error',
-              message: ['Comment could not be saved.\nPlease retry after signing in.'],
-            },
-          ],
-          exceptions: [
-            { name: 'Error', message: 'DATABASE_URL is not configured for this deployment.' },
-          ],
-        },
-      ];
+      return {
+        entries: [
+          {
+            timestamp: 0,
+            method: 'POST',
+            url: '/api/comments',
+            status: '500',
+            outcome: 'exception',
+            logs: [
+              {
+                level: 'warn',
+                message: ['Cache miss. Refreshing the published page in the background.'],
+              },
+              {
+                level: 'error',
+                message: ['Comment could not be saved.\nPlease retry after signing in.'],
+              },
+            ],
+            exceptions: [
+              { name: 'Error', message: 'DATABASE_URL is not configured for this deployment.' },
+            ],
+          },
+        ],
+        ...runtimeLogs,
+      };
     }
   },
 }));
@@ -60,6 +67,7 @@ vi.mock('../../src/cli/output.ts', async (original) => {
 
 afterEach(() => {
   logsFixture.entries = undefined;
+  logsFixture.runtimeLogs = undefined;
   vi.restoreAllMocks();
 });
 
@@ -298,4 +306,59 @@ it('drops terminal control sequences from stack frames', async () => {
   const plain = stripVTControlCharacters(printed);
   expect(plain).toContain('    at f (a.js:1:1)');
   expect(plain).toContain('    at g (b.js:2:2)2J');
+});
+
+it('notes minimal runtime logs and prints entries without a URL cleanly', async () => {
+  logsFixture.runtimeLogs = 'minimal';
+  logsFixture.entries = [
+    {
+      timestamp: 0,
+      method: 'GET',
+      url: '',
+      status: '500',
+      outcome: 'exception',
+      logs: [{ level: 'warn', message: [], timestamp: 0 }],
+      exceptions: [{ name: 'TypeError', message: '', timestamp: 0 }],
+    },
+  ];
+  const lines = (await printLogs(120)).map((line) => stripVTControlCharacters(line));
+  expect(lines[1]).toBe(
+    'Log messages, exception messages and URLs are not recorded on this platform.',
+  );
+  // One space between each part: time, method, status.
+  expect(lines[2]!.split(' ').slice(1)).toEqual(['GET', '500']);
+  expect(lines.slice(3)).toEqual(['  [warn]', '  [exception] TypeError']);
+});
+
+it('keeps the full-mode output for entries without a URL or message', async () => {
+  logsFixture.entries = [
+    {
+      timestamp: 0,
+      method: 'GET',
+      url: '',
+      status: '500',
+      outcome: 'exception',
+      logs: [{ level: 'warn', message: [], timestamp: 0 }],
+      exceptions: [{ name: 'TypeError', message: '', timestamp: 0 }],
+    },
+  ];
+  const lines = (await printLogs(120)).map((line) => stripVTControlCharacters(line));
+  expect(lines[1]!.split(' ').slice(1)).toEqual(['GET', '-', '500']);
+  expect(lines.slice(2)).toEqual(['  [warn] ', '  [exception] TypeError: ']);
+});
+
+it('notes minimal runtime logs even when there are no entries', async () => {
+  logsFixture.runtimeLogs = 'minimal';
+  logsFixture.entries = [];
+  const lines = (await printLogs(120)).map((line) => stripVTControlCharacters(line));
+  expect(lines).toEqual([
+    '',
+    'Log messages, exception messages and URLs are not recorded on this platform.',
+  ]);
+  expect(vi.mocked(outro).mock.calls.at(-1)![0]).toBe('No logs found in the last 1h.');
+});
+
+it('prints no note for full runtime logs', async () => {
+  const lines = await printLogs(120);
+  expect(lines.join('\n')).not.toContain('not recorded on this platform');
 });

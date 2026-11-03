@@ -203,6 +203,16 @@ describe('PlatformClient.getLogs URL', () => {
     expect(url).toContain('deploymentId=dpl_abc');
     expect(url).toContain('level=warn');
   });
+
+  it('keeps the minimal runtime logs marker from the response', async () => {
+    const client = new PlatformClient('tok', { apiUrl: 'http://localhost:1234' });
+    globalThis.fetch = withPlatformDiscovery(
+      vi.fn(async () => Response.json({ data: [], runtimeLogs: 'minimal' })),
+    );
+    expect(await client.getLogs('proj_1', '1h')).toEqual({ entries: [], runtimeLogs: 'minimal' });
+    setFetchMock();
+    expect(await client.getLogs('proj_1', '1h')).toEqual({ entries: [] });
+  });
 });
 
 describe('PlatformClient.getRequests URL', () => {

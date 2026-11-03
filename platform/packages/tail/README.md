@@ -31,11 +31,16 @@ Versioned deploys use script names like `user-my-app-dpl_abc123`. Legacy unversi
 | `doubles[0]` | event timestamp           |
 | `doubles[1]` | response status as number |
 
+With `PLATFORM_RUNTIME_LOGS=minimal` (set by `--runtime-logs minimal`),
+`blobs[3]` is `""`, each log is `{ level, timestamp, message: [] }` and each
+exception is `{ name, timestamp, message: "" }`. Other slots are unchanged.
+
 ## Source Layout
 
 ```text
-src/index.ts              # tail() handler + parseScriptName()
+src/index.ts              # tail() handler, parseScriptName(), buildLogDataPoint()
 test/parse-script-name.test.ts
+test/log-data-point.test.ts
 ```
 
 ## Configuration and Deployment

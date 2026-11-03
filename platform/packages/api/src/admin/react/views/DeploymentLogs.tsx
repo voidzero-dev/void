@@ -36,7 +36,14 @@ function formatMessage(message: unknown): string {
   return JSON.stringify(message ?? null).slice(0, 500);
 }
 
-function LogRow({ entry }: { entry: LogEntry }) {
+export const MINIMAL_RUNTIME_LOGS_NOTICE =
+  'Log messages, exception messages and URLs are not recorded on this platform.';
+
+function exceptionText(exception: { name: string; message: string }): string {
+  return exception.message ? `${exception.name}: ${exception.message}` : exception.name;
+}
+
+export function LogRow({ entry }: { entry: LogEntry }) {
   const messages = [
     ...(entry.logs ?? []).map((log) => ({
       level: log.level ?? 'log',
@@ -44,7 +51,7 @@ function LogRow({ entry }: { entry: LogEntry }) {
     })),
     ...(entry.exceptions ?? []).map((exception) => ({
       level: 'error',
-      text: `${exception.name}: ${exception.message}`,
+      text: exceptionText(exception),
     })),
   ];
   const statusCode = Number.parseInt(entry.status ?? '', 10);
@@ -54,12 +61,8 @@ function LogRow({ entry }: { entry: LogEntry }) {
       <span style="color: #999; margin-right: 8px">
         {new Date(entry.timestamp).toLocaleTimeString()}
       </span>
-      {entry.method && entry.url && (
-        <>
-          <span style="margin-right: 8px; font-weight: 600">{entry.method}</span>
-          <span style="margin-right: 8px">{entry.url}</span>
-        </>
-      )}
+      {entry.method && <span style="margin-right: 8px; font-weight: 600">{entry.method}</span>}
+      {entry.method && entry.url && <span style="margin-right: 8px">{entry.url}</span>}
       {entry.status && (
         <span style={{ color: statusColor, fontWeight: 600, marginRight: 8 }}>{entry.status}</span>
       )}
@@ -67,7 +70,9 @@ function LogRow({ entry }: { entry: LogEntry }) {
       {messages.length > 0 && (
         <div style="position: relative; margin-top: 4px; margin-left: 24px">
           <div style="position: absolute; top: 4px; right: 4px">
-            <CopyButton text={messages.map((message) => message.text).join('\n')} />
+            <CopyButton
+              text={messages.map((message) => message.text || message.level).join('\n')}
+            />
           </div>
           <pre style="margin: 0; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: var(--radius-inner); font-size: 0.78rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all">
             {messages.map((message, index) => (
@@ -101,6 +106,7 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
   const [entries, setEntries] = useState<Array<LogEntry> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tailing, setTailing] = useState(false);
+  const [minimal, setMinimal] = useState(false);
 
   const fetchEntries = useCallback(
     async (range: string, limit: number): Promise<Array<LogEntry> | null> => {
@@ -112,8 +118,9 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
         return null;
       }
       const { data } = (await fate.readView(DeploymentLogsView, ref)) as unknown as {
-        data: { data: Array<LogEntry> };
+        data: { data: Array<LogEntry>; runtimeLogs?: string };
       };
+      setMinimal(data.runtimeLogs === 'minimal');
       return data.data;
     },
     [deploymentId, fate],
@@ -150,7 +157,16 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
           return;
         }
         const fresh = latest.filter((entry) => {
-          const key = `${entry.timestamp}:${entry.url}:${entry.status}`;
+          // Minimal runtime logs leave url empty, so the rest of the row tells requests apart.
+          const key = JSON.stringify([
+            entry.timestamp,
+            entry.method,
+            entry.url,
+            entry.status,
+            entry.outcome,
+            entry.logs,
+            entry.exceptions,
+          ]);
           if (seen.has(key)) {
             return false;
           }
@@ -235,6 +251,11 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
           }}
         />
       </div>
+      {minimal && (
+        <p id="runtime-logs-notice" style="color: #6b7280; font-size: 0.8rem">
+          {MINIMAL_RUNTIME_LOGS_NOTICE}
+        </p>
+      )}
       <div id="log-entries">
         {error ? (
           <p style="color: red; font-size: 0.8rem">Failed to load logs: {error}</p>
