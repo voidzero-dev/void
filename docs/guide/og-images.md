@@ -82,7 +82,7 @@ The second argument sets the image and the response:
 | `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                   |
 | `debug`                           | `false`       | Draws a border around every box.                                                                                             |
 | `format`                          | `'png'`       | Image format: `png`, `jpeg`, `webp`, or `ico`.                                                                               |
-| `images`                          |               | Limits for remote `<img>` sources: `allowUrl`, `maxBytes`, and `timeout`. Set them when the markup includes request values.  |
+| `images`                          |               | Limits for remote images: `allowUrl`, `maxBytes`, and `timeout`. Set them when the markup includes request values.           |
 | `status`, `statusText`, `headers` |               | The response status and headers.                                                                                             |
 
 Takumi's other render options, such as `devicePixelRatio`, are passed through. See [Takumi's reference](https://takumi.kane.tw/docs/reference).
@@ -96,7 +96,7 @@ Cache-Control: public, max-age=0, must-revalidate
 
 During local development, `Cache-Control` is `no-cache, no-store`. Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
 
-Emoji and remote `<img>` sources are downloaded while the image renders. An emoji that the chosen style does not have fails the image; `noto` has no flags.
+Emoji and remote images are downloaded while the image renders. An emoji that the chosen style does not have, or an image that fails to download, fails the image unless you pass `images: { throwOnError: false }`; `noto` has no flags.
 
 ## Fonts
 
@@ -181,7 +181,7 @@ Then:
 On the [Node.js, Bun, and Deno targets](../integrations/nodejs-bun-deno.md), add `takumi-js` to your app's `dependencies`, not `devDependencies`, so production installs include it:
 
 ```sh
-npm install takumi-js
+npm install takumi-js@~2.18.2
 ```
 
 If the build cannot find a version of `takumi-js` that Void supports, it fails and prints the command to install one.
