@@ -5,10 +5,45 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build, type Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  renderCloudflareStaticEntry,
+  stageCloudflareStaticAssets,
+} from '../../../deploy-cloudflare/src/index.ts';
 import { analyzeApplicationSync } from '../../src/application-analysis.ts';
+import {
+  GENERATED_ASSET_HEADERS_MARKER,
+  resolveAssetWorkerBypass,
+  type AssetWorkerBypassFacts,
+} from '../../src/asset-worker-bypass.ts';
+import {
+  planStaticEdgeRouting,
+  type StaticEdgeRouting,
+} from '../../src/cli/deploy-cloudflare-static.ts';
+import type { RoutingConfig } from '../../src/config.ts';
 import { routingPlugin } from '../../src/plugin-routing.ts';
 
 const runtimeSource = (file: string) => join(import.meta.dirname, '../../src/runtime', file);
+
+/** Facts of a build that qualifies for the asset Worker bypass. */
+function bypassFacts(overrides: Partial<AssetWorkerBypassFacts>): AssetWorkerBypassFacts {
+  return {
+    runWorkerFirst: ['/**'],
+    notFoundHandling: 'none',
+    base: '/',
+    hasMiddleware: false,
+    authEnabled: false,
+    liveEnabled: false,
+    alwaysUseHttps: false,
+    headerRuleCount: 0,
+    redirectRuleCount: 0,
+    fallbackRuleCount: 0,
+    publicEdgeFiles: false,
+    patterns: ['/'],
+    assetsDir: 'assets',
+    immutableFiles: [],
+    ...overrides,
+  };
+}
 let directory: string;
 let runtime: Miniflare | undefined;
 let clientAsset: string;
@@ -280,5 +315,382 @@ describe('native asset cache policy in real Workers', () => {
       resultPolicy: 'public, max-age=600',
       body: [1, 2, 3],
     });
+  });
+});
+
+describe('native asset Worker bypass in real Workers', () => {
+  let bypassDirectory: string;
+  let bypass: Miniflare | undefined;
+
+  beforeAll(async () => {
+    bypassDirectory = mkdtempSync(join(tmpdir(), 'void-native-asset-bypass-'));
+    const assets = join(bypassDirectory, 'client');
+    mkdirSync(join(assets, 'static', 'nested'), { recursive: true });
+    for (const file of ['client-abcdefgh.js', 'client.js', 'nested/chunk-abcdefgh.js']) {
+      writeFileSync(join(assets, 'static', file), 'export const value = 1;');
+    }
+    const plan = resolveAssetWorkerBypass(
+      bypassFacts({
+        assetsDir: 'static',
+        immutableFiles: ['static/client-abcdefgh.js', 'static/nested/chunk-abcdefgh.js'],
+      }),
+    )!;
+    writeFileSync(join(assets, '_headers'), plan.headers!);
+    const runWorkerFirst = plan.runWorkerFirst;
+    expect(runWorkerFirst).toEqual([
+      '/**',
+      '!/static/client-abcdefgh.js',
+      '!/static/nested/chunk-abcdefgh.js',
+    ]);
+    bypass = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: `export default { async fetch(request, env) {
+          const asset = await env.ASSETS.fetch(request);
+          const response = new Response(asset.body, asset);
+          response.headers.set('x-void-worker', '1');
+          return response;
+        } };`,
+        assets: {
+          directory: assets,
+          binding: 'ASSETS',
+          run_worker_first: runWorkerFirst,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { html_handling: 'none', not_found_handling: 'none' },
+        },
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await bypass?.dispose();
+    if (bypassDirectory) {
+      rmSync(bypassDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves listed chunks immutable without starting the Worker, even with cookies', async () => {
+    for (const path of ['/static/client-abcdefgh.js', '/static/nested/chunk-abcdefgh.js']) {
+      const response = await bypass!.dispatchFetch(`https://app.test${path}`, {
+        headers: { cookie: '__Secure-better-auth.session_token=abc; _ga=1' },
+      });
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(response.headers.get('etag')).toBeTruthy();
+      expect(response.headers.has('x-void-worker')).toBe(false);
+      await response.arrayBuffer();
+    }
+  });
+
+  it('sends unlisted files and misses in the assets folder to the Worker', async () => {
+    const unlisted = await bypass!.dispatchFetch('https://app.test/static/client.js');
+    expect(unlisted.headers.get('cache-control')).toBe('public, max-age=0, must-revalidate');
+    expect(unlisted.headers.get('x-void-worker')).toBe('1');
+    await unlisted.arrayBuffer();
+    for (const path of ['/static/gone-abcdefgh.js', '/static/42', '/static/']) {
+      const missing = await bypass!.dispatchFetch(`https://app.test${path}`);
+      expect(missing.status, path).toBe(404);
+      expect(missing.headers.get('cache-control') ?? '').not.toContain('immutable');
+      expect(missing.headers.get('x-void-worker'), path).toBe('1');
+      await missing.arrayBuffer();
+    }
+  });
+
+  it('still sends other paths to the Worker', async () => {
+    for (const path of ['/', '/api/x', '/static']) {
+      const response = await bypass!.dispatchFetch(`https://app.test${path}`);
+      expect(response.headers.get('x-void-worker')).toBe('1');
+      await response.arrayBuffer();
+    }
+  });
+});
+
+describe('native static edge Worker routing in real Workers', () => {
+  const immutable = 'public, max-age=31536000, immutable';
+  let staticDirectory: string;
+  let site: Miniflare | undefined;
+  let spa: Miniflare | undefined;
+  let https: Miniflare | undefined;
+
+  type StaticDeploy = { routing: StaticEdgeRouting; assets: string; output: string };
+
+  /** Stage and bundle a static deploy as `runCloudflareStaticDeploy` does, marking Worker responses. */
+  async function deployStaticSite(name: string, routing?: RoutingConfig): Promise<StaticDeploy> {
+    const root = join(staticDirectory, name);
+    const outputDir = join(root, 'dist');
+    mkdirSync(join(outputDir, 'assets'), { recursive: true });
+    writeFileSync(join(outputDir, 'index.html'), '<h1>Home</h1>');
+    writeFileSync(join(outputDir, 'about.html'), '<h1>About</h1>');
+    writeFileSync(join(outputDir, '404.html'), '<h1>Not found</h1>');
+    writeFileSync(join(outputDir, 'assets/app-abcdefgh.js'), 'export const value = 1;');
+    writeFileSync(join(outputDir, 'assets/plain.js'), 'export const value = 2;');
+    writeFileSync(
+      join(outputDir, '_headers'),
+      `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/app-abcdefgh.js\n  Cache-Control: ${immutable}\n`,
+    );
+    const edgeRouting = planStaticEdgeRouting({
+      outputDir,
+      appType: 'static',
+      routing,
+      htmlHandling: undefined,
+    });
+    const assets = join(root, 'assets');
+    stageCloudflareStaticAssets({
+      sourceDirectory: outputDir,
+      destinationDirectory: assets,
+      headers: edgeRouting.assetHeaders,
+    });
+    writeFileSync(
+      join(root, 'static-edge.mjs'),
+      renderCloudflareStaticEntry({
+        runtimeImport: join(import.meta.dirname, '../../../edge/src/index.ts'),
+        ...edgeRouting.entry,
+        versionMetadataBinding: 'VERSION',
+      }),
+    );
+    writeFileSync(
+      join(root, 'worker.mjs'),
+      `import edge from './static-edge.mjs';
+      export default { async fetch(request, env, context) {
+        const response = await edge.fetch(request, env, context);
+        const marked = new Response(response.body, response);
+        marked.headers.set('x-void-worker', '1');
+        return marked;
+      } };`,
+    );
+    const output = join(root, 'output');
+    await build({
+      configFile: false,
+      logLevel: 'silent',
+      ssr: { noExternal: true },
+      build: {
+        outDir: output,
+        emptyOutDir: true,
+        ssr: join(root, 'worker.mjs'),
+        target: 'esnext',
+        rollupOptions: { output: { entryFileNames: 'worker.mjs', codeSplitting: false } },
+      },
+    });
+    return { routing: edgeRouting, assets, output };
+  }
+
+  function startStaticSite(
+    deploy: StaticDeploy,
+    notFoundHandling: '404-page' | 'single-page-application',
+  ): Miniflare {
+    return new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        modulesRoot: deploy.output,
+        scriptPath: join(deploy.output, 'worker.mjs'),
+        bindings: { VERSION: { id: 'version-1' } },
+        assets: {
+          directory: deploy.assets,
+          binding: 'ASSETS',
+          run_worker_first: deploy.routing.assetConfig.run_worker_first,
+          routerConfig: { has_user_worker: true },
+          assetConfig: {
+            html_handling: 'auto-trailing-slash',
+            not_found_handling: notFoundHandling,
+          },
+        },
+      }),
+    );
+  }
+
+  async function expectReadiness(runtime: Miniflare): Promise<void> {
+    for (const headers of [{}, { 'sec-fetch-mode': 'navigate' }]) {
+      const ready = await runtime.dispatchFetch('https://site.test/__void/ready', { headers });
+      expect(ready.status).toBe(200);
+      expect(ready.headers.get('x-void-worker')).toBe('1');
+      expect(ready.headers.get('cache-control')).toBe('no-store');
+      await expect(ready.json()).resolves.toEqual({ ready: true, versionId: 'version-1' });
+    }
+  }
+
+  beforeAll(async () => {
+    staticDirectory = mkdtempSync(join(tmpdir(), 'void-native-static-edge-'));
+    const [plain, redirected] = await Promise.all([
+      deployStaticSite('site'),
+      deployStaticSite('https', { alwaysUseHttps: true }),
+    ]);
+    site = startStaticSite(plain, '404-page');
+    // A SPA deploy only changes the asset layer's not-found handling.
+    spa = startStaticSite(plain, 'single-page-application');
+    https = startStaticSite(redirected, '404-page');
+  });
+
+  afterAll(async () => {
+    await Promise.all([site?.dispose(), spa?.dispose(), https?.dispose()]);
+    if (staticDirectory) {
+      rmSync(staticDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves pages, files and the 404 page without the Worker', async () => {
+    for (const [path, body] of [
+      ['/', '<h1>Home</h1>'],
+      ['/about', '<h1>About</h1>'],
+    ]) {
+      const page = await site!.dispatchFetch(`https://site.test${path}`);
+      expect(page.status, path).toBe(200);
+      expect(page.headers.has('x-void-worker'), path).toBe(false);
+      expect(await page.text()).toBe(body);
+    }
+    for (const [path, policy] of [
+      ['/assets/app-abcdefgh.js', immutable],
+      ['/assets/plain.js', 'public, max-age=0, must-revalidate'],
+    ]) {
+      const file = await site!.dispatchFetch(`https://site.test${path}`);
+      expect(file.headers.get('cache-control'), path).toBe(policy);
+      expect(file.headers.has('x-void-worker'), path).toBe(false);
+      await file.arrayBuffer();
+    }
+    const missing = await site!.dispatchFetch('https://site.test/missing');
+    expect(missing.status).toBe(404);
+    expect(missing.headers.has('x-void-worker')).toBe(false);
+    expect(await missing.text()).toBe('<h1>Not found</h1>');
+    const post = await site!.dispatchFetch('https://site.test/', { method: 'POST' });
+    expect(post.status).toBe(405);
+    expect(post.headers.has('x-void-worker')).toBe(false);
+    await post.arrayBuffer();
+    await expectReadiness(site!);
+  });
+
+  it('serves SPA deep links from the shell without the Worker', async () => {
+    for (const headers of [{}, { 'sec-fetch-mode': 'navigate' }]) {
+      const link = await spa!.dispatchFetch('https://site.test/deep/link', { headers });
+      expect(link.status).toBe(200);
+      expect(link.headers.has('x-void-worker')).toBe(false);
+      expect(await link.text()).toBe('<h1>Home</h1>');
+    }
+    await expectReadiness(spa!);
+  });
+
+  it('keeps the Worker in front of every request when a rule needs it', async () => {
+    const redirect = await https!.dispatchFetch('http://site.test/about', { redirect: 'manual' });
+    expect(redirect.status).toBe(308);
+    expect(redirect.headers.get('location')).toBe('https://site.test/about');
+    expect(redirect.headers.get('x-void-worker')).toBe('1');
+    for (const path of ['/', '/assets/plain.js']) {
+      const response = await https!.dispatchFetch(`https://site.test${path}`);
+      expect(response.headers.get('x-void-worker'), path).toBe('1');
+      await response.arrayBuffer();
+    }
+    const chunk = await https!.dispatchFetch('https://site.test/assets/app-abcdefgh.js');
+    expect(chunk.headers.get('cache-control')).toBe(immutable);
+    expect(chunk.headers.get('x-void-worker')).toBe('1');
+    await chunk.arrayBuffer();
+    await expectReadiness(https!);
+  });
+});
+
+describe('native output: "static" pages in real Workers', () => {
+  let hybridDirectory: string;
+  let hybrid: Miniflare | undefined;
+
+  beforeAll(async () => {
+    hybridDirectory = mkdtempSync(join(tmpdir(), 'void-native-static-pages-'));
+    const assets = join(hybridDirectory, 'client');
+    mkdirSync(join(assets, 'assets'), { recursive: true });
+    mkdirSync(join(assets, '_void', 'pages'), { recursive: true });
+    // `output: "static"` prerenders every page, including the ones with a loader.
+    for (const page of ['index', 'about', 'products', 'contact']) {
+      writeFileSync(join(assets, `${page}.html`), `<h1>${page} file</h1>`);
+    }
+    writeFileSync(join(assets, '_void/pages/about.json'), '{"component":"about"}');
+    writeFileSync(join(assets, 'vue.svg'), '<svg></svg>');
+    // The `/proxy/*` route also answers `/proxy`, so this file must not.
+    writeFileSync(join(assets, 'proxy.html'), '<h1>proxy file</h1>');
+    writeFileSync(join(assets, 'assets/app-abcdefgh.js'), 'export const value = 1;');
+    const plan = resolveAssetWorkerBypass(
+      bypassFacts({
+        patterns: ['/', '/about', '/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+        immutableFiles: ['assets/app-abcdefgh.js'],
+        serverPatterns: ['/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+      }),
+    )!;
+    writeFileSync(join(assets, '_headers'), plan.headers!);
+    hybrid = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: `export default { async fetch(request, env) {
+          const url = new URL(request.url);
+          const response = url.pathname === '/__void/ready'
+            ? Response.json({ ready: true })
+            : request.method !== 'GET'
+              ? new Response('action ran')
+              : url.pathname === '/products'
+                ? new Response('<h1>products live</h1>')
+                : await env.ASSETS.fetch(request);
+          const marked = new Response(response.body, response);
+          marked.headers.set('x-void-worker', '1');
+          return marked;
+        } };`,
+        assets: {
+          directory: assets,
+          binding: 'ASSETS',
+          run_worker_first: plan.runWorkerFirst,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { html_handling: 'auto-trailing-slash', not_found_handling: 'none' },
+        },
+      }),
+    );
+  });
+
+  afterAll(async () => {
+    await hybrid?.dispose();
+    if (hybridDirectory) {
+      rmSync(hybridDirectory, { recursive: true, force: true });
+    }
+  });
+
+  it('serves pages without server code, public files, page data and chunks without the Worker', async () => {
+    for (const [path, body] of [
+      ['/', '<h1>index file</h1>'],
+      ['/about', '<h1>about file</h1>'],
+      ['/vue.svg', '<svg></svg>'],
+      ['/_void/pages/about.json', '{"component":"about"}'],
+    ]) {
+      const response = await hybrid!.dispatchFetch(`https://app.test${path}`);
+      expect(response.status, path).toBe(200);
+      expect(response.headers.has('x-void-worker'), path).toBe(false);
+      expect(await response.text(), path).toBe(body);
+    }
+    const chunk = await hybrid!.dispatchFetch('https://app.test/assets/app-abcdefgh.js');
+    expect(chunk.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(chunk.headers.has('x-void-worker')).toBe(false);
+    await chunk.arrayBuffer();
+  });
+
+  it('sends pages with server code, routes, misses and /__void to the Worker', async () => {
+    const products = await hybrid!.dispatchFetch('https://app.test/products');
+    expect(products.headers.get('x-void-worker')).toBe('1');
+    expect(await products.text()).toBe('<h1>products live</h1>');
+    const action = await hybrid!.dispatchFetch('https://app.test/contact', { method: 'POST' });
+    expect(action.headers.get('x-void-worker')).toBe('1');
+    expect(await action.text()).toBe('action ran');
+    for (const path of [
+      '/items/42',
+      '/api/hello',
+      '/proxy',
+      '/proxy/a/b',
+      '/missing',
+      '/__void/ready',
+    ]) {
+      const response = await hybrid!.dispatchFetch(`https://app.test${path}`);
+      expect(response.headers.get('x-void-worker'), path).toBe('1');
+      await response.arrayBuffer();
+    }
+  });
+
+  it('answers a POST to a page without server code from the asset layer', async () => {
+    const response = await hybrid!.dispatchFetch('https://app.test/about', { method: 'POST' });
+    expect(response.status).toBe(405);
+    expect(response.headers.has('x-void-worker')).toBe(false);
+    await response.arrayBuffer();
   });
 });

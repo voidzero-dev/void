@@ -1,7 +1,7 @@
 import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
 import type { AccountArgs } from './account-args.ts';
 import type { AuthArgs } from './auth-args.ts';
-import { listPlatformConnections } from './platform-registry.ts';
+import { listPlatformConnections, normalizePlatformApiUrl } from './platform-registry.ts';
 import { readDeploymentPlatform } from './project.ts';
 
 type Destination = { platform: 'cloudflare' | 'void'; apiUrl?: string };
@@ -71,15 +71,27 @@ export async function runAuthRouter(
   }
   // Account commands resolve their origin through VOID_API_URL. Scope a
   // prompt-selected origin to this invocation without changing the project.
-  const previous = process.env.VOID_API_URL;
+  // VOID_TOKEN stays bound to the original VOID_API_URL: the prompt must never
+  // choose its recipient, so another origin falls back to its saved login.
+  const previous = { VOID_API_URL: process.env.VOID_API_URL, VOID_TOKEN: process.env.VOID_TOKEN };
+  const tokenBound = Boolean(
+    previous.VOID_TOKEN &&
+    previous.VOID_API_URL &&
+    normalizePlatformApiUrl(previous.VOID_API_URL) === destination.apiUrl,
+  );
   process.env.VOID_API_URL = destination.apiUrl;
+  if (previous.VOID_TOKEN && !tokenBound) {
+    delete process.env.VOID_TOKEN;
+  }
   try {
     await runAccountCommand(root, { subcommand });
   } finally {
-    if (previous === undefined) {
-      delete process.env.VOID_API_URL;
-    } else {
-      process.env.VOID_API_URL = previous;
+    for (const [name, value] of Object.entries(previous)) {
+      if (value === undefined) {
+        delete process.env[name];
+      } else {
+        process.env[name] = value;
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const mocks = vi.hoisted(() => ({
@@ -13,8 +13,10 @@ vi.mock('better-auth', () => ({
 import { requireAuth, type AuthState, type AuthUser } from '../../src/runtime/auth.ts';
 import {
   createVoidAuthRuntime,
+  privateCachePolicy,
   type VoidAuthRuntimeOptions,
 } from '../../src/runtime/better-auth-shared.ts';
+import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
 
 const authRuntimeOptions: VoidAuthRuntimeOptions = {
   dialect: 'sqlite',
@@ -414,5 +416,123 @@ describe('cross-origin cookie sessions', () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({ id: 'victim' });
     expect(warn).not.toHaveBeenCalled();
+  });
+});
+
+describe('runVoidAuthMiddleware static asset cache policy', () => {
+  const immutable = 'public, max-age=31536000, immutable';
+  const env = { BETTER_AUTH_SECRET: 'test-secret' };
+  const sessionLookup = () => new Headers({ 'cache-control': 'no-store', pragma: 'no-cache' });
+
+  function assetApp(headers: Headers, status = 200): Hono {
+    const app = createApp({ response: null, headers });
+    app.get('/assets/client-abcdefgh.js', (c) =>
+      markStaticAsset(
+        c,
+        new Response('export {}', { status, headers: { 'cache-control': immutable } }),
+      ),
+    );
+    return app;
+  }
+
+  function withCookie(app: Hono): Response | Promise<Response> {
+    return app.request(
+      'http://localhost/assets/client-abcdefgh.js',
+      { headers: { cookie: 'session=current' } },
+      env,
+    );
+  }
+
+  it('makes the file policy private for a credentialed request', async () => {
+    const response = await withCookie(assetApp(sessionLookup()));
+    expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(response.headers.has('pragma')).toBe(false);
+    await expect(response.text()).resolves.toBe('export {}');
+  });
+
+  it('keeps a session cookie refresh out of every cache', async () => {
+    const headers = sessionLookup();
+    headers.append('set-cookie', 'session=rotated; Path=/; HttpOnly');
+    const response = await withCookie(assetApp(headers));
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.has('pragma')).toBe(false);
+    expect(response.headers.getSetCookie()).toEqual(['session=rotated; Path=/; HttpOnly']);
+  });
+
+  it('leaves the file policy public without a credential', async () => {
+    const response = await assetApp(sessionLookup()).request(
+      'http://localhost/assets/client-abcdefgh.js',
+      undefined,
+      env,
+    );
+    expect(response.headers.get('cache-control')).toBe(immutable);
+    expect(response.headers.has('pragma')).toBe(false);
+  });
+
+  it.each([
+    ['changes its Cache-Control', (c: Context) => c.header('cache-control', 'public, max-age=60')],
+    ['adds a cookie', (c: Context) => c.header('set-cookie', 'route=value; Path=/')],
+    [
+      'replaces the body',
+      (c: Context) => {
+        c.res = c.html('<h1>Please sign in</h1>');
+      },
+    ],
+    [
+      'rewrites the body with the same headers',
+      (c: Context) => {
+        c.res = new Response('export const user = "a"', c.res);
+      },
+    ],
+  ])('treats a file as a route when later middleware %s', async (_label, change) => {
+    const app = createApp({ response: null, headers: sessionLookup() });
+    app.use(async (c, next) => {
+      await next();
+      change(c);
+    });
+    app.get('/assets/client-abcdefgh.js', (c) =>
+      markStaticAsset(c, new Response('export {}', { headers: { 'cache-control': immutable } })),
+    );
+    const response = await withCookie(app);
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('pragma')).toBe('no-cache');
+  });
+
+  it('keeps the file policy when later middleware only adds a header', async () => {
+    const app = createApp({ response: null, headers: sessionLookup() });
+    app.use(async (c, next) => {
+      await next();
+      c.header('x-frame-options', 'DENY');
+    });
+    app.get('/assets/client-abcdefgh.js', (c) =>
+      markStaticAsset(c, new Response('export {}', { headers: { 'cache-control': immutable } })),
+    );
+    const response = await withCookie(app);
+    expect(response.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+  });
+
+  it('treats a marked response with a failure status as a route', async () => {
+    const response = await withCookie(assetApp(sessionLookup(), 404));
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.get('pragma')).toBe('no-cache');
+  });
+});
+
+describe('privateCachePolicy', () => {
+  it.each([
+    ['public, max-age=31536000, immutable', 'private, max-age=31536000, immutable'],
+    ['public, max-age=0, must-revalidate', 'private, max-age=0, must-revalidate'],
+    ['s-maxage=60, max-age=10', 'private, max-age=10'],
+    ['PUBLIC, proxy-revalidate, max-age=10', 'private, max-age=10'],
+    ['private="set-cookie", max-age=60', 'private, max-age=60'],
+    ['no-store', 'no-store'],
+    ['Private, max-age=60', 'Private, max-age=60'],
+    ['', 'private, no-store'],
+    [null, 'private, no-store'],
+    ['no-cache="a,private", public, max-age=60', 'private, no-cache="a,private", max-age=60'],
+    ['no-cache="a\\",no-store", public', 'private, no-cache="a\\",no-store"'],
+  ])('%j -> %j', (policy, expected) => {
+    expect(privateCachePolicy(policy)).toBe(expected);
   });
 });

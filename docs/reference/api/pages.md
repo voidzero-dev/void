@@ -6,6 +6,16 @@ outline: deep
 
 Framework adaptors for [Pages Routing](../../guide/pages-routing/overview). Each adaptor provides a Vite plugin and client-side runtime.
 
+## Navigation destinations {#navigation-destinations}
+
+All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`, which has the type [`Href`](./types.md#route-types).
+
+The router's `visit(destination, options?)`, `prefetch(destination, options?)`, and `flush(destination, method?)` accept [`RouteUrlInput`](./types.md#route-types): a string, `URL`, or typed destination object.
+
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), `href` and router strings must match one of your routes, or be a same-page or external URL. Without it, both accept any string.
+
+See [Typed navigation](../../guide/pages-routing/overview.md#typed-navigation) for framework examples.
+
 ## `@void/vue` {#void-vue}
 
 ### `voidVue(options?)` {#voidvue-options}
@@ -49,7 +59,7 @@ Imported from `"@void/vue"`.
 | `useRouter()`                      | Returns the Void Router with current route state (`url`, `path`, `query`, `params`) and navigation methods: `visit`, `refresh`, awaitable `prefetch`, `flush`, `flushAll`.                                                                        |
 | `useParams()`                      | Returns dynamic route params for the page currently being rendered.                                                                                                                                                                               |
 | `useNavigation()`                  | Returns pending navigation state: `{ state, location, method }`, where `state` is `"idle"`, `"loading"`, or `"submitting"` and `location` is the pending destination.                                                                             |
-| `useForm(url, defaults, options?)` | Typed reactive form helper bound to a page action URL. Returns `{ data, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, clearErrors, clearError }`.                                       |
+| `useForm(url, defaults, options?)` | Typed reactive form helper bound to a page action URL. Returns `{ data, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, setError, clearErrors, clearError }`.                             |
 | `useIslandForm(defaults)`          | Form helper for island components. Same form state as `useForm()`, plus `submit(url, method)`. `post(url)`, `put(url)`, `patch(url)`, and `delete(url)` take the action URL and submit with `fetch()`.                                            |
 | `action(url, options?)`            | Awaitable one-shot page action helper. Uses `POST` by default and accepts `{ data, method, params }`, where `method` can be `"PUT"`, `"PATCH"`, or `"DELETE"`. Returns an `ActionResult`.                                                         |
 | `useShared()`                      | Returns shared data injected by middleware via `c.set("shared", {...})`.                                                                                                                                                                          |
@@ -101,13 +111,15 @@ Imported from `"@void/react"`.
 | `useRouter()`                      | Returns the Void Router with current route state (`url`, `path`, `query`, `params`) and navigation methods: `visit`, `refresh`, awaitable `prefetch`, `flush`, `flushAll`. React navigations are scheduled as transitions.                          |
 | `useParams()`                      | Returns dynamic route params for the page currently being rendered.                                                                                                                                                                                 |
 | `useNavigation()`                  | Returns pending navigation state: `{ state, location, method }`, where `state` is `"idle"`, `"loading"`, or `"submitting"` and `location` is the pending destination.                                                                               |
-| `useForm(url, defaults, options?)` | Form helper hook. Returns `{ data, setData, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, clearErrors, clearError }`.                                                                     |
+| `useForm(url, defaults, options?)` | Form helper hook. Returns `{ data, setData, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, setError, clearErrors, clearError }`.                                                           |
 | `useIslandForm(defaults)`          | Form helper hook for island components. Same form state as `useForm()`. `post(url)`, `put(url)`, `patch(url)`, and `delete(url)` take the action URL and submit with `fetch()`.                                                                     |
 | `action(url, options?)`            | Awaitable one-shot page action helper. Uses `POST` by default and accepts `{ data, method, params }`, where `method` can be `"PUT"`, `"PATCH"`, or `"DELETE"`. Returns an `ActionResult`.                                                           |
 | `useShared()`                      | Returns shared data injected by middleware via `c.set("shared", {...})`.                                                                                                                                                                            |
 | `Deferred<T>`                      | React-only prop type for `defer()` results. It is `Promise<T>` and is consumed with React `use()`.                                                                                                                                                  |
 
 React `Link` GET `data` is merged into the rendered `href` query string. Primitive values are serialized with `String(value)`, arrays become repeated keys, `null` and `undefined` are omitted, and nested objects throw. `prefetch` and `reloadDocument` are GET-only and throw for mutation links.
+
+React `useForm()` accepts `onSuccess?: () => void | Promise<void>` and `onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>`. `pending` stays true until callbacks finish. See [submission callbacks](../../guide/pages-routing/actions-and-forms.md#react-submission-callbacks).
 
 React deferred props returned from `defer()` are Suspense resources. Read them
 with React's `use()` inside a `<Suspense>` boundary. React Pages requires React
@@ -117,6 +129,23 @@ Svelte, and Solid keep the `{ loading, value, error }` deferred state object.
 When explicitly annotating props, import `Deferred` from the framework adapter
 package (`@void/react`, `@void/vue`, `@void/svelte`, or `@void/solid`) so the
 type matches that adapter's client runtime shape.
+
+### React navigation completion {#react-navigation-completion}
+
+By default, `await router.visit()` and `await router.refresh()` wait for React to commit the updated page and URL. You can also request this explicitly with `{ resolveOn: 'commit' }`.
+
+When awaiting navigation inside `startTransition`, a `<form action>`, `useActionState`, or an async `useForm()` callback, pass `{ resolveOn: 'data' }`:
+
+```tsx
+startTransition(async () => {
+  await saveUser();
+  await router.refresh({ resolveOn: 'data' });
+});
+
+await router.visit('/account', { resolveOn: 'data' });
+```
+
+With `'data'`, the promise resolves when the destination's page data is ready, allowing the Action to finish while React renders the update. The transition can remain pending through Suspense. The DOM and URL may still show the previous page after `await`; use an effect or ref callback for work that requires the updated DOM.
 
 ## `@void/svelte` {#void-svelte}
 
@@ -158,7 +187,7 @@ Imported from `"@void/svelte"`.
 | Export                             | Description                                                                                                                                                                                                                                          |
 | ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Link`                             | Svelte component for SPA navigation. Renders `<a>` for GET, `<button>` for non-GET methods. Props: `href`, `method`, `data`, `prefetch`, `cacheFor`, `preserveScroll`, `preserveState`, `replace`, `reloadDocument`, `viewTransition`, `onNavigate`. |
-| `useForm(url, defaults, options?)` | Form helper using Svelte 5 runes. Returns `{ data, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, clearErrors, clearError }`.                                                               |
+| `useForm(url, defaults, options?)` | Form helper using Svelte 5 runes. Returns `{ data, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, setError, clearErrors, clearError }`.                                                     |
 | `useIslandForm(defaults)`          | Form helper for island components. Same form state as `useForm()`, plus `submit(url, method)`. `post(url)`, `put(url)`, `patch(url)`, and `delete(url)` take the action URL and submit with `fetch()`.                                               |
 | `action(url, options?)`            | Awaitable one-shot page action helper. Uses `POST` by default and accepts `{ data, method, params }`, where `method` can be `"PUT"`, `"PATCH"`, or `"DELETE"`. Returns an `ActionResult`.                                                            |
 | `useShared()`                      | Returns shared data injected by middleware via `c.set("shared", {...})`.                                                                                                                                                                             |
@@ -208,7 +237,7 @@ Imported from `"@void/solid"`.
 | Export                             | Description                                                                                                                                                                                                                                         |
 | ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Link`                             | Solid component for SPA navigation. Renders `<a>` for GET, `<button>` for non-GET methods. Props: `href`, `method`, `data`, `prefetch`, `cacheFor`, `preserveScroll`, `preserveState`, `replace`, `reloadDocument`, `viewTransition`, `onNavigate`. |
-| `useForm(url, defaults, options?)` | Form helper using Solid stores. Returns `{ data, setData, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, clearErrors, clearError }`.                                                       |
+| `useForm(url, defaults, options?)` | Form helper using Solid stores. Returns `{ data, setData, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, setError, clearErrors, clearError }`.                                             |
 | `useIslandForm(defaults)`          | Form helper for island components. Same form state as `useForm()`. `post(url)`, `put(url)`, `patch(url)`, and `delete(url)` take the action URL and submit with `fetch()`.                                                                          |
 | `action(url, options?)`            | Awaitable one-shot page action helper. Uses `POST` by default and accepts `{ data, method, params }`, where `method` can be `"PUT"`, `"PATCH"`, or `"DELETE"`. Returns an `ActionResult`.                                                           |
 | `useShared()`                      | Returns shared data injected by middleware via `c.set("shared", {...})`.                                                                                                                                                                            |

@@ -22,6 +22,7 @@ import { createServer as createPgServer } from 'pglite-server';
 import { parseSync } from 'vite';
 import { afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import {
+  bundleEntry,
   cleanupWrapper,
   needsWrapper,
   generateWrapper,
@@ -82,6 +83,34 @@ describe('repeated wrapper generation', () => {
     expect(await (await worker.fetch(new Request('https://app/'), {}, {})).text()).toBe(
       'application',
     );
+    expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
+  });
+
+  it('keeps the named exports of the wrapped entry', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-exports-'));
+    roots.push(root);
+    writeFileSync(
+      join(root, 'index.mjs'),
+      'export class Counter {}\nexport default { fetch() { return new Response("app"); } };',
+    );
+    await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
+    const wrapped = await import(pathToFileURL(join(root, 'index.mjs')).href);
+    // Cloudflare rejects an upload whose Durable Object class is not exported.
+    expect(Object.keys(wrapped).sort()).toEqual(['Counter', 'default']);
+    expect(wrapped.Counter.name).toBe('Counter');
+  });
+
+  it("keeps the entry's own default handlers", async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-handlers-'));
+    roots.push(root);
+    writeFileSync(
+      join(root, 'index.mjs'),
+      'export default { fetch() { return new Response("app"); }, scheduled() { return "cron"; }, email() { return "mail"; } };',
+    );
+    await generateWrapper(root, 'index.mjs', root, { ...base, readiness: true });
+    const worker = (await import(pathToFileURL(join(root, 'index.mjs')).href)).default;
+    expect(worker.scheduled()).toBe('cron');
+    expect(worker.email()).toBe('mail');
     expect((await worker.fetch(new Request('https://app/__void/ready'), {}, {})).status).toBe(200);
   });
 
@@ -266,6 +295,58 @@ describe('selectBundledEntryFilename', () => {
   });
 });
 
+describe('bundleEntry', () => {
+  const roots: Array<string> = [];
+  afterEach(() => {
+    for (const root of roots.splice(0)) {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('resolves dependencies with Worker conditions in a production build', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-bundle-entry-conditions-'));
+    roots.push(root);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    const packages = {
+      dual: {
+        exports: { workerd: './worker.js', browser: './browser.js', default: './node.js' },
+        files: {
+          'worker.js': 'dual-workerd',
+          'browser.js': 'dual-browser',
+          'node.js': 'dual-node',
+        },
+      },
+      modes: {
+        exports: { development: './dev.js', production: './prod.js', default: './dev.js' },
+        files: { 'dev.js': 'modes-development', 'prod.js': 'modes-production' },
+      },
+    };
+    for (const [name, { exports, files }] of Object.entries(packages)) {
+      const dir = join(root, 'node_modules', name);
+      mkdirSync(dir, { recursive: true });
+      writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, type: 'module', exports }));
+      for (const [file, value] of Object.entries(files)) {
+        writeFileSync(join(dir, file), `export const value = '${value}';\n`);
+      }
+    }
+    const entry = join(root, 'build', '_worker.js');
+    mkdirSync(dirname(entry));
+    writeFileSync(
+      entry,
+      "import { value as target } from 'dual'; import { value as mode } from 'modes';\n" +
+        'export default { fetch() { return new Response(target + mode) } };\n',
+    );
+
+    const { outputDir, entryFilename } = await bundleEntry(root, entry);
+
+    const bundle = readFileSync(join(outputDir, entryFilename), 'utf8');
+    expect(bundle).toContain('dual-workerd');
+    expect(bundle).not.toContain('dual-browser');
+    expect(bundle).toContain('modes-production');
+    expect(bundle).not.toContain('modes-development');
+  });
+});
+
 describe('cleanupWrapper', () => {
   const roots: Array<string> = [];
 
@@ -306,6 +387,7 @@ describe('generated wrapper queue dispatch', () => {
     for (const root of roots.splice(0, roots.length)) {
       rmSync(root, { recursive: true, force: true });
     }
+    vi.restoreAllMocks();
   });
 
   async function createRelayWorker() {
@@ -321,7 +403,7 @@ describe('generated wrapper queue dispatch', () => {
       `export default function(batch, env) {
       env.calls.push(batch.messages[0].timestamp.getTime());
       batch.messages[0].ack();
-      if (env.fail) throw new Error('after first message');
+      if (env.fail) throw env.fail;
       batch.messages[0].retry();
       batch.messages[1].retry({ delaySeconds: 9 });
       batch.ackAll();
@@ -354,6 +436,7 @@ describe('generated wrapper queue dispatch', () => {
 
   it('delivers managed HTTP batches and returns first-wins acknowledgment decisions', async () => {
     const worker = await createRelayWorker();
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     const env = { __VOID_PROXY_TOKEN: 'token', calls: [] as Array<number> };
     const response = await worker.fetch(relayRequest('token'), env, {});
     expect(response.status).toBe(200);
@@ -365,8 +448,13 @@ describe('generated wrapper queue dispatch', () => {
       },
     });
     expect(env.calls).toEqual([Date.parse('2026-01-01T00:00:00Z')]);
-    const failed = await worker.fetch(relayRequest('token'), { ...env, fail: true }, {});
+    expect(errorLog).not.toHaveBeenCalled();
+    const failure = new Error('after first message');
+    const failed = await worker.fetch(relayRequest('token'), { ...env, fail: failure }, {});
     expect(await failed.json()).toEqual({ ok: false, decisions: { one: { action: 'ack' } } });
+    expect(errorLog.mock.calls).toHaveLength(1);
+    expect(errorLog.mock.calls[0][0]).toBe('[void] Queue handler failed for queue "emails":');
+    expect(errorLog.mock.calls[0][1]).toBe(failure);
     expect((await worker.fetch(new Request('https://worker/__void/ready'), env, {})).status).toBe(
       200,
     );
@@ -453,6 +541,58 @@ describe('generated wrapper queue dispatch', () => {
     ).rejects.toThrow('No unambiguous queue handler matches "project-unknown"');
     expect(retryAll).toHaveBeenCalledOnce();
     expect(env.calls).toEqual([]);
+  });
+
+  it('matches the Cloudflare queue names a deploy chose exactly', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-wrapper-queue-names-'));
+    const workerDir = join(root, 'server');
+    roots.push(root);
+    mkdirSync(workerDir, { recursive: true });
+    mkdirSync(join(root, 'queues'), { recursive: true });
+    writeFileSync(
+      join(workerDir, 'index.mjs'),
+      'export default { fetch() { return new Response("ok"); } };',
+    );
+    for (const name of ['jobs', 'staging-jobs']) {
+      writeFileSync(
+        join(root, `queues/${name}.ts`),
+        `export default async function(_batch, env) { env.calls.push("${name}"); }`,
+      );
+    }
+
+    // Worker `app-staging`: a suffix match would send `app-staging-jobs` to `staging-jobs`.
+    await generateWrapper(workerDir, 'index.mjs', root, {
+      ...base,
+      queues: [
+        { name: 'jobs', filePath: 'jobs.ts', bindingName: 'QUEUE_JOBS' },
+        { name: 'staging-jobs', filePath: 'staging-jobs.ts', bindingName: 'QUEUE_STAGING_JOBS' },
+      ],
+      cloudflareQueueNames: {
+        jobs: 'app-staging-jobs',
+        'staging-jobs': 'app-staging-staging-jobs',
+      },
+    });
+
+    const wrapper = (await import(
+      `${pathToFileURL(join(workerDir, 'index.mjs')).href}?test=${crypto.randomUUID()}`
+    )) as {
+      default: {
+        queue(
+          batch: MessageBatch,
+          env: { calls: Array<string> },
+          ctx: ExecutionContext,
+        ): Promise<void>;
+      };
+    };
+    for (const [queue, expected] of [
+      ['app-staging-jobs', 'jobs'],
+      ['app-staging-staging-jobs', 'staging-jobs'],
+    ]) {
+      const env = { calls: [] as Array<string> };
+      const batch = { queue, messages: [], ackAll: vi.fn(), retryAll: vi.fn() };
+      await wrapper.default.queue(batch as unknown as MessageBatch, env, {} as ExecutionContext);
+      expect(env.calls).toEqual([expected]);
+    }
   });
 
   it('passes native queue messages, dates, and acknowledgment methods through unchanged', async () => {

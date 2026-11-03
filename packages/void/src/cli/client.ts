@@ -36,7 +36,7 @@ function readCliVersion(): string | null {
 const VOID_CLI_VERSION = readCliVersion();
 
 /** The oldest Void platform release this CLI supports. */
-export const MIN_PLATFORM_VERSION = '1.1.11';
+export const MIN_PLATFORM_VERSION = '1.5.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -353,6 +353,12 @@ export type LogEntry = {
   status: string;
 };
 
+export type LogsResult = {
+  entries: Array<LogEntry>;
+  /** Set when the platform keeps messages and URLs out of its logs. */
+  runtimeLogs?: 'minimal';
+};
+
 export type RequestEntry = {
   timestamp: string;
   type: string;
@@ -438,12 +444,24 @@ export type EmailSettingsResponse = {
     projectSlug?: string;
   };
   recipientPolicy?: { mode: 'verified' | 'domains' | 'any'; domains: Array<string> };
-  sharedInbound?: {
-    recipient: string;
-    status: string;
-    reason: string | null;
-    observedAt: string | null;
-  } | null;
+  /** A second, permanent name on the shared mail domain; the slug keeps working. */
+  emailAlias?: string | null;
+  /** The platform's shared mail domain, or null when it has none. */
+  sharedDomain?: string | null;
+  sharedInbound?: EmailSharedInbound | null;
+};
+
+export type EmailSharedInbound = {
+  recipient: string;
+  status: string;
+  reason: string | null;
+  observedAt: string | null;
+};
+
+export type EmailAliasResponse = {
+  emailAlias: string;
+  address: string;
+  sharedInbound: EmailSharedInbound | null;
 };
 
 export type EmailDomainResponse = {
@@ -451,6 +469,8 @@ export type EmailDomainResponse = {
   domain: string;
   projectId: string;
   managed_by: 'owner' | 'admin';
+  /** `none` sends only; the domain's MX provider keeps inbound mail. */
+  inboundMode?: 'managed' | 'none';
   status: EmailReadiness['inbound']['status'];
   connectionId: string;
   account_id: string;
@@ -1679,7 +1699,7 @@ export class PlatformClient {
     limit = 200,
     deploymentId?: string,
     level?: string,
-  ): Promise<Array<LogEntry>> {
+  ): Promise<LogsResult> {
     const params = new URLSearchParams({
       since,
       limit: String(limit),
@@ -1690,12 +1710,15 @@ export class PlatformClient {
     if (level && level !== 'all') {
       params.set('level', level);
     }
-    const json = await this.json<{ data: Array<LogEntry> }>(
+    const json = await this.json<{ data: Array<LogEntry>; runtimeLogs?: unknown }>(
       `${this.baseUrl}/projects/${projectId}/logs?${params}`,
       'Failed to fetch logs',
       { permission: 'read' },
     );
-    return json.data;
+    return {
+      entries: json.data,
+      ...(json.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
+    };
   }
 
   async getRequests(
@@ -1918,6 +1941,14 @@ export class PlatformClient {
       `${this.baseUrl}/projects/${projectId}/email/settings`,
       'Failed to read email settings',
       { permission: 'read' },
+    );
+  }
+
+  async setEmailAlias(projectId: string, alias: string): Promise<EmailAliasResponse> {
+    return this.json(
+      `${this.baseUrl}/projects/${projectId}/email/alias`,
+      'Failed to set the email alias',
+      { method: 'PUT', body: { alias }, permission: 'settings' },
     );
   }
 

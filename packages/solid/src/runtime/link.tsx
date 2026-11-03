@@ -1,25 +1,16 @@
 import { createMemo, onCleanup, onMount, splitProps, useContext } from 'solid-js';
 import type { JSX } from 'solid-js';
-import { isModifiedEvent, mergeDataIntoHref } from 'void/pages-client';
+import {
+  handleLinkClick,
+  linkPrefetchStrategies,
+  observeLinkVisible,
+  prefetchLink,
+  resolveLink,
+  type BaseLinkProps,
+} from 'void/pages-client';
 import { RouterContext } from './context.ts';
 
-type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
-type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-type NavigateEvent = { preventDefault(): void };
-type PrefetchOptions = { cacheFor?: LinkProps['cacheFor'] };
-
-type CommonProps = {
-  href: string;
-  method?: LinkMethod | Lowercase<LinkMethod>;
-  data?: Record<string, unknown>;
-  preserveScroll?: boolean;
-  preserveState?: boolean;
-  replace?: boolean;
-  reloadDocument?: boolean;
-  viewTransition?: boolean;
-  prefetch?: boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>;
-  cacheFor?: number | string | [string, string];
-  onNavigate?: (event: NavigateEvent) => void;
+type CommonProps = BaseLinkProps & {
   children?: JSX.Element;
 };
 
@@ -72,103 +63,21 @@ export function Link(props: LinkProps): JSX.Element {
   ]);
   const router = useContext(RouterContext);
 
-  const linkState = createMemo(() => {
-    const method = (local.method || 'GET').toUpperCase() as LinkMethod;
-    const isGet = method === 'GET';
-
-    if (local.prefetch !== false && local.prefetch !== undefined && !isGet) {
-      throw new Error(
-        'Link: prefetch only supports GET links. Remove `prefetch` or use method="GET".',
-      );
-    }
-    if (local.reloadDocument && !isGet) {
-      throw new Error('Link: reloadDocument only supports GET links.');
-    }
-
-    return {
-      href: isGet ? mergeDataIntoHref(local.href, local.data) : local.href,
-      isGet,
-      method,
-    };
-  });
-  const normalizedMethod = () => linkState().method;
-  const isGet = () => linkState().isGet;
-  const hrefWithData = () => linkState().href;
-  const strategies = createMemo<ReadonlyArray<PrefetchStrategy>>(() => {
-    if (local.prefetch === false || local.prefetch === undefined || local.reloadDocument) {
-      return [];
-    }
-    if (local.prefetch === true) {
-      return ['hover'];
-    }
-    if (typeof local.prefetch === 'string') {
-      return [local.prefetch];
-    }
-    return local.prefetch;
-  });
+  const link = createMemo(() => resolveLink(local));
+  const strategies = createMemo(() => linkPrefetchStrategies(local));
   const resolvedStyle = createMemo(() => mergeStyle(local.style));
 
   function doPrefetch() {
-    if (!router?.prefetch) {
-      return;
-    }
-    const current = window.location.pathname + window.location.search;
-    if (hrefWithData() === current) {
-      return;
-    }
-    const options: PrefetchOptions = {};
-    if (local.cacheFor !== undefined) {
-      options.cacheFor = local.cacheFor;
-    }
-    router.prefetch(hrefWithData(), options);
-  }
-
-  function shouldHandleClick(event: MouseEvent): boolean {
-    if (local.reloadDocument || !router || event.defaultPrevented || isModifiedEvent(event)) {
-      return false;
-    }
-    if ((event.currentTarget as HTMLElement).hasAttribute('download')) {
-      return false;
-    }
-
-    const url = new URL(hrefWithData(), window.location.origin);
-    if (url.origin !== window.location.origin) {
-      return false;
-    }
-
-    return true;
+    prefetchLink(router, link().href, local.cacheFor);
   }
 
   function onClick(event: MouseEvent) {
     callHandler(local.onClick, event);
-    if (!shouldHandleClick(event)) {
-      return;
-    }
-
-    let navigatePrevented = false;
-    local.onNavigate?.({
-      preventDefault() {
-        navigatePrevented = true;
-      },
-    });
-    if (navigatePrevented) {
-      event.preventDefault();
-      return;
-    }
-
-    event.preventDefault();
-    router?.visit(hrefWithData(), {
-      method: normalizedMethod(),
-      data: isGet() ? undefined : local.data,
-      preserveScroll: local.preserveScroll,
-      preserveState: local.preserveState,
-      replace: local.replace,
-      viewTransition: local.viewTransition,
-    });
+    handleLinkClick(event, router, link(), local);
   }
 
   let hoverTimer: ReturnType<typeof setTimeout> | null = null;
-  let observer: IntersectionObserver | null = null;
+  let stopObserving: (() => void) | null = null;
   let el: HTMLElement | undefined;
 
   function onMouseEnter(event: MouseEvent) {
@@ -216,17 +125,7 @@ export function Link(props: LinkProps): JSX.Element {
       doPrefetch();
     }
     if (strategies().includes('visible') && el) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((e) => e.isIntersecting)) {
-            doPrefetch();
-            observer?.disconnect();
-            observer = null;
-          }
-        },
-        { rootMargin: '0px' },
-      );
-      observer.observe(el);
+      stopObserving = observeLinkVisible(el, doPrefetch);
     }
   });
 
@@ -234,10 +133,7 @@ export function Link(props: LinkProps): JSX.Element {
     if (hoverTimer) {
       clearTimeout(hoverTimer);
     }
-    if (observer) {
-      observer.disconnect();
-      observer = null;
-    }
+    stopObserving?.();
   });
 
   const eventHandlers = createMemo(() => {
@@ -267,12 +163,12 @@ export function Link(props: LinkProps): JSX.Element {
 
   return (
     <>
-      {isGet() ? (
+      {link().isGet ? (
         <a
           ref={(r) => {
             el = r;
           }}
-          href={hrefWithData()}
+          href={link().href}
           {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}

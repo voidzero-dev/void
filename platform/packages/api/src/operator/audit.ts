@@ -231,6 +231,7 @@ function auditTarget(
       return JSON.stringify({
         domain: boundedString(body.domain, 253, true),
         project: boundedString(body.project, 512),
+        ...(body.outboundOnly === true ? { outboundOnly: true } : {}),
       });
     }
     if (

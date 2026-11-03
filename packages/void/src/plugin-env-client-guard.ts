@@ -1,6 +1,6 @@
-import { walk } from 'estree-walker';
 import { relative } from 'pathslash';
 import { parseSync, type Plugin } from 'vite';
+import { bindingResolver } from './shared/ast-bindings.ts';
 import {
   isIdentifier,
   isMemberExpression,
@@ -8,7 +8,6 @@ import {
   type AstImportNamespaceSpecifier,
   type AstImportSpecifier,
   type AstMemberExpression,
-  type AstNode,
   type AstProgram,
 } from './shared/ast.ts';
 import { isClientEnvKey } from './shared/env.ts';
@@ -145,17 +144,26 @@ export function walkEnvReads(
   bindings: ImportBindings,
   visit: (node: AstMemberExpression) => void,
 ): void {
-  walk(program as unknown as Parameters<typeof walk>[0], {
-    enter(node) {
-      const current = node as AstNode;
+  const references: Array<{
+    node: AstMemberExpression;
+    name: string;
+    bindingType: 'ImportSpecifier' | 'ImportNamespaceSpecifier';
+  }> = [];
+  const resolve = bindingResolver(program, {
+    names: new Set([...bindings.directNames, ...bindings.namespaceNames]),
+    visit(current) {
       if (!isMemberExpression(current)) {
-        return;
+        return false;
       }
 
       // Case 1: direct env.X — node.object is an Identifier in directNames.
       if (isIdentifier(current.object) && bindings.directNames.has(current.object.name)) {
-        visit(current);
-        return;
+        references.push({
+          node: current,
+          name: current.object.name,
+          bindingType: 'ImportSpecifier',
+        });
+        return true;
       }
 
       // Case 2: namespace.env.X — node.object is itself a MemberExpression
@@ -169,10 +177,22 @@ export function walkEnvReads(
         isIdentifier(obj.property) &&
         obj.property.name === 'env'
       ) {
-        visit(current);
+        references.push({
+          node: current,
+          name: obj.object.name,
+          bindingType: 'ImportNamespaceSpecifier',
+        });
+        return true;
       }
+      return false;
     },
   });
+  // Resolve after the walk so later declarations and hoisted bindings are known.
+  for (const { node, name, bindingType } of references) {
+    if (resolve(node, name)?.type === bindingType) {
+      visit(node);
+    }
+  }
 }
 
 type Hit = {

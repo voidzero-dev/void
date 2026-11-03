@@ -1,11 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
-import { cloudflare, type PluginConfig, type WorkerConfig } from '@cloudflare/vite-plugin';
 import { join, resolve } from 'pathslash';
 import pc from 'picocolors';
 import { type Plugin } from 'vite';
 import { analyzeApplicationSync, type ApplicationAnalysis } from './application-analysis.ts';
 import { applyBindingOverrides } from './application-features.ts';
 import {
+  edgeRulesNeedWorker,
   hasApiRoutes as routeScanHasApiRoutes,
   hasDocumentRoutes as routeScanHasDocumentRoutes,
   resolveAssetRoutingPolicy,
@@ -27,7 +27,7 @@ import {
   restoreCloudflarePreviewPointer,
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
-import { readConfig, isNodeTarget } from './config.ts';
+import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
 import { voidLog, voidWarn } from './log.ts';
@@ -35,6 +35,7 @@ import { pagesDevCssAssetsPlugin } from './pages/dev-css-assets.ts';
 import { readVoidDevCredentials, runAiSetupPrompt } from './plugin-ai-setup.ts';
 import { bindingRuntimePlugin } from './plugin-binding-runtime.ts';
 import { createClientStubsPlugin } from './plugin-client-stubs.ts';
+import { cloudflare, type WorkerConfig, type AuxiliaryWorkerConfig } from './plugin-cloudflare.ts';
 import {
   afterServerReady,
   warnIfPackageJsonIsNotEsm,
@@ -88,7 +89,7 @@ const scheduledPreviewPointerCleanups = new Set<string>();
 /** Returns the Vite plugins that build and serve a Void app for its configured target. */
 export function voidPlugin(options?: {
   persistTo?: string;
-  auxiliaryWorkers?: PluginConfig['auxiliaryWorkers'];
+  auxiliaryWorkers?: Array<AuxiliaryWorkerConfig>;
 }): Array<Plugin> {
   // Resolve root relative to CWD — this runs at config time
   const root = process.cwd();
@@ -118,7 +119,10 @@ export function voidPlugin(options?: {
   // A preview reads the build's Wrangler deploy config, which the build moved aside. Put it back
   // until the preview exits.
   const restorePreviewPointer = () => {
-    if (!existsSync(join(root, 'void.config.ts'))) {
+    if (
+      !existsSync(join(root, 'void.config.ts')) ||
+      process.env[CLOUDFLARE_DEPLOY_BUILD_ENV] === '1'
+    ) {
       return;
     }
     if (restoreCloudflarePreviewPointer(root) && !scheduledPreviewPointerCleanups.has(root)) {
@@ -634,6 +638,7 @@ export function voidPlugin(options?: {
       devTriggerToken,
       dialect,
       config.routing?.notFound,
+      config.cloudflare?.main,
     );
     // Class A builds write no `assets` config, and `not_found_handling` alone would keep
     // unmatched requests from the framework worker. Managed `void deploy` supplies the policy.
@@ -661,7 +666,7 @@ export function voidPlugin(options?: {
         generateClassATriggerWrapper(
           root,
           framework,
-          getOriginalFrameworkEntry(framework, root),
+          getOriginalFrameworkEntry(framework, root, config.cloudflare?.main),
           true,
           dialect,
           resolved.build.assetsDir,
@@ -761,6 +766,7 @@ export function voidPlugin(options?: {
       drizzlePlugin(root, false, dialect, {
         d1BindingName: bindingNames?.d1,
         forceVirtualDb: authEnabled || bindingNames?.d1 !== undefined,
+        casing: getDatabaseCasing(config),
         localD1DatabaseId: localD1.databaseId,
         localD1PersistRoot: localD1.persistRoot,
         redirectDbTypePaths,
@@ -896,9 +902,7 @@ export function voidPlugin(options?: {
     const rules = mergeRoutingRules({ dir: assetRoutingPublicDir, routing: config.routing });
     const nativeOwnsEdgeRouting =
       !managedCloudflareBuild &&
-      (rules.headerRules.length > 0 ||
-        rules.redirectRules.length > 0 ||
-        (rules.fallbackRules?.length ?? 0) > 0);
+      edgeRulesNeedWorker({ ...rules, alwaysUseHttps: config.routing?.alwaysUseHttps });
     if (nativeOwnsEdgeRouting) {
       // Cloudflare otherwise serves an existing asset before the generated
       // Worker can apply redirects or response headers. Native builds own the
@@ -953,6 +957,33 @@ export function voidPlugin(options?: {
 
   applyAssetRoutingPolicy(assetRouting);
 
+  const routes = routingPlugin(root, {
+    getApplicationAnalysis,
+    isAuthEnabled: () => authEnabled,
+    getVersionMetadataBinding: () => versionMetadataBinding,
+    devTriggerToken,
+    headConfig: config.head,
+    prerenderPaths: config.routing?.prerender,
+    remoteMode,
+    // Merged with `public/_redirects` and `_headers`; managed builds omit them (dispatch owns them).
+    routing: config.routing,
+    bindingNames,
+    get hasSandbox() {
+      return bindings.needsSandbox;
+    },
+    sandboxBindingName: sandboxConfig?.binding,
+    sandboxClassName: sandboxConfig?.className,
+    sandboxInstanceType: sandboxConfig?.instanceType,
+    get live() {
+      return shouldEmitLive() ? liveConfig : undefined;
+    },
+    durableObjects,
+    websocketTombstones,
+    onDevAssetRoutingPolicyChange: updateDevAssetRoutingPolicy,
+    // Native builds of eligible apps let Cloudflare serve hashed build files directly.
+    assetWorkerBypass: true,
+  });
+
   return [
     createCloudflareBuiltinsExternalPlugin(),
     createDefaultWorkerEnvironmentPlugin(),
@@ -971,33 +1002,11 @@ export function voidPlugin(options?: {
     bindingRuntimePlugin(bindingNames),
     ...(bindings.needsSandbox ? [createSandboxSdkResolvePlugin()] : []),
     ...pagesDevCssAssetsPlugin(root, devTriggerToken),
-    routingPlugin(root, {
-      getApplicationAnalysis,
-      isAuthEnabled: () => authEnabled,
-      getVersionMetadataBinding: () => versionMetadataBinding,
-      devTriggerToken,
-      headConfig: config.head,
-      prerenderPaths: config.routing?.prerender,
-      remoteMode,
-      // Merged with `public/_redirects` and `_headers`; managed builds omit them (dispatch owns them).
-      routing: config.routing,
-      bindingNames,
-      get hasSandbox() {
-        return bindings.needsSandbox;
-      },
-      sandboxBindingName: sandboxConfig?.binding,
-      sandboxClassName: sandboxConfig?.className,
-      sandboxInstanceType: sandboxConfig?.instanceType,
-      get live() {
-        return shouldEmitLive() ? liveConfig : undefined;
-      },
-      durableObjects,
-      websocketTombstones,
-      onDevAssetRoutingPolicyChange: updateDevAssetRoutingPolicy,
-    }),
+    routes,
     drizzlePlugin(root, true, dialect, {
       d1BindingName: bindingNames?.d1,
       forceVirtualDb: authEnabled || bindingNames?.d1 !== undefined,
+      casing: getDatabaseCasing(config),
       localD1DatabaseId: localD1.databaseId,
       localD1PersistRoot: localD1.persistRoot,
     }),
@@ -1005,7 +1014,6 @@ export function voidPlugin(options?: {
       enabled: authEnabled,
       configPath: authConfigPath,
     }),
-    prerenderPlugin(root, config),
     devTriggersHintPlugin(root, devTriggerToken),
     ...cloudflare({
       configPath: cloudflareConfigPath,
@@ -1014,7 +1022,16 @@ export function voidPlugin(options?: {
       auxiliaryWorkers: options?.auxiliaryWorkers,
       viteEnvironment: { name: DEFAULT_WORKER_ENVIRONMENT_NAME },
       config: mergeBindings,
+      finalizeAssets(clientDir, environment) {
+        // Vite can create a separate plugin instance for each environment. Use
+        // the client instance that recorded this build's immutable asset files.
+        const clientRoutes = environment?.config.plugins.find(
+          (plugin) => plugin.name === routes.name,
+        ) as typeof routes | undefined;
+        clientRoutes?.api.finalizeCloudflareAssets(clientDir, environment!.config.build.assetsDir);
+      },
     }),
+    prerenderPlugin(root, config),
     implicitDeployGuard,
   ];
 }

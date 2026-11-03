@@ -56,6 +56,77 @@ describe('platform Cloudflare client', () => {
     expect((error as Error).message).not.toContain('query-value');
     expect((error as Error).message).not.toContain('secret-token');
   });
+
+  it.each([
+    {
+      code: 10042,
+      path: '/accounts/account/r2/buckets',
+      message: 'Please enable R2 through the Cloudflare Dashboard.',
+      guidance: 'Cloudflare R2 is not enabled for this account (code 10042).',
+      dashboard: 'https://dash.cloudflare.com/account/r2/overview',
+    },
+    {
+      code: 10121,
+      path: '/accounts/account/workers/dispatch/namespaces',
+      message:
+        'You do not have access to dispatch namespaces. Purchase at https://dash.cloudflare.com?to=/:account/workers-for-platforms',
+      guidance:
+        'Cloudflare Workers for Platforms requires a paid subscription for this account (code 10121).',
+      dashboard: 'https://dash.cloudflare.com/account/workers-for-platforms',
+    },
+  ])('explains prerequisite code $code while preserving provider diagnostics', async (test) => {
+    const client = new PlatformCloudflareClient('secret-token', {
+      fetcher: async () =>
+        Response.json(
+          { success: false, errors: [{ code: test.code, message: test.message }] },
+          { status: 403 },
+        ),
+    });
+    const error = await client.request(`${test.path}?secret=query-value`).catch((error) => error);
+    if (!(error instanceof PlatformCloudflareApiError)) {
+      throw new Error('Expected a Cloudflare API error', { cause: error });
+    }
+    expect(error).toMatchObject({ status: 403, requestPath: test.path });
+    expect(error.message.startsWith(test.guidance)).toBe(true);
+    expect(error.message).toContain(test.dashboard);
+    expect(error.message).toContain('retry the same command');
+    expect(error.cause).toBeInstanceOf(PlatformCloudflareApiError);
+    expect(error.cause).toMatchObject({
+      status: 403,
+      requestPath: test.path,
+      message: `Cloudflare API error: ${test.message} (code ${test.code}) (HTTP 403; GET ${test.path}).`,
+    });
+    expect(error.message).not.toContain(test.message);
+    expect(error.message).not.toContain('HTTP 403');
+    expect(error.message).not.toContain(test.path);
+    expect(error.message).not.toContain('--resume');
+    expect(error.message).not.toContain('query-value');
+    expect(error.message).not.toContain('secret-token');
+    if (test.code === 10121) {
+      expect(error.message).toContain('Enterprise customers');
+    }
+  });
+
+  it.each([
+    { status: 401, code: 10000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10000, path: '/accounts/account/r2/buckets' },
+    { status: 403, code: 10042, path: '/accounts/account/ai-gateway/gateways' },
+    { status: 500, code: 7000, path: '/accounts/account/ai-gateway/gateways' },
+  ])('keeps unrelated provider errors unchanged: $status/$code', async ({ status, code, path }) => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json(
+          { success: false, errors: [{ code, message: 'Please enable R2' }] },
+          { status },
+        ),
+    });
+    await expect(client.request(path)).rejects.toMatchObject({
+      status,
+      requestPath: path,
+      message: `Cloudflare API error: Please enable R2 (code ${code}) (HTTP ${status}; GET ${path}).`,
+    });
+  });
+
   it.each([401, 403, 429, 500, 503])(
     'distinguishes HTTP %s from missing workers.dev onboarding',
     async (status) => {

@@ -269,7 +269,7 @@ export function cloudflareAuthEnvironment(
   for (const key of Object.keys(env)) {
     if (
       /^VOID_PLATFORM_/i.test(key) ||
-      /^(?:DATABASE_URL|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET|CF_ACCESS_TOKEN|VOID_ACCESS_CREDENTIALS|VOID_ACCESS_ORIGIN)$/i.test(
+      /^(?:DATABASE_URL|CF_ACCESS_CLIENT_ID|CF_ACCESS_CLIENT_SECRET|CF_ACCESS_TOKEN|CF_ACCESS_READINESS_ORIGIN|VOID_ACCESS_CREDENTIALS|VOID_ACCESS_ORIGIN)$/i.test(
         key,
       ) ||
       scrubbedKeys.has(key.toUpperCase())

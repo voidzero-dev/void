@@ -10,6 +10,17 @@ import {
 } from '../../src/index.ts';
 
 describe('Cloudflare static deployment', () => {
+  it.each([true, false, undefined])(
+    'preserves alwaysUseHttps %s in the generated entry',
+    (alwaysUseHttps) => {
+      const entry = renderCloudflareStaticEntry({ alwaysUseHttps });
+      if (alwaysUseHttps === undefined) {
+        expect(entry).not.toContain('alwaysUseHttps');
+      } else {
+        expect(entry).toContain(`"alwaysUseHttps":${alwaysUseHttps}`);
+      }
+    },
+  );
   it('renders one deterministic shared-runtime entry', () => {
     expect(
       renderCloudflareStaticEntry({
@@ -88,6 +99,54 @@ describe('Cloudflare static deployment', () => {
     });
   });
 
+  it('writes authored html_handling instead of the default fallback', () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-static-html-handling-'));
+    const configPath = join(root, 'wrangler.jsonc');
+    writeFileSync(configPath, '{}\n');
+
+    writeCloudflareStaticDeployConfig({
+      configPath,
+      name: 'site',
+      accountId: 'account-id',
+      main: 'static.mjs',
+      assetsDirectory: 'dist',
+      compatibilityDate: '2026-09-11',
+      assetConfig: { not_found_handling: '404-page', html_handling: 'drop-trailing-slash' },
+    });
+
+    expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+      html_handling: 'drop-trailing-slash',
+    });
+  });
+
+  it('writes the given run_worker_first and falls back to true', () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-static-run-worker-first-'));
+    const configPath = join(root, 'wrangler.jsonc');
+    writeFileSync(configPath, '{}\n');
+    const input = {
+      configPath,
+      name: 'site',
+      accountId: 'account-id',
+      main: 'static.mjs',
+      assetsDirectory: 'dist',
+      compatibilityDate: '2026-09-11',
+    };
+
+    writeCloudflareStaticDeployConfig({
+      ...input,
+      assetConfig: { not_found_handling: '404-page', run_worker_first: ['/__void', '/__void/*'] },
+    });
+    expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+      run_worker_first: ['/__void', '/__void/*'],
+    });
+
+    writeCloudflareStaticDeployConfig({
+      ...input,
+      assetConfig: { not_found_handling: '404-page' },
+    });
+    expect(parseRootWranglerConfig(configPath).assets).toMatchObject({ run_worker_first: true });
+  });
+
   it('rejects duplicate keys before an edit can silently target the wrong member', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-static-duplicate-'));
     const configPath = join(root, 'wrangler.jsonc');
@@ -153,5 +212,10 @@ describe('Cloudflare static deployment', () => {
     writeFileSync(join(destinationDirectory, 'stale.txt'), 'stale');
     stageCloudflareStaticAssets({ sourceDirectory, destinationDirectory });
     expect(existsSync(join(destinationDirectory, 'stale.txt'))).toBe(false);
+
+    const headers = '/assets/app.js\n  Cache-Control: public, max-age=31536000, immutable\n';
+    stageCloudflareStaticAssets({ sourceDirectory, destinationDirectory, headers });
+    expect(readFileSync(join(destinationDirectory, '_headers'), 'utf-8')).toBe(headers);
+    expect(existsSync(join(destinationDirectory, '_redirects'))).toBe(false);
   });
 });

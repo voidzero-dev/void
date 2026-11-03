@@ -46,6 +46,8 @@ const zones = Object.fromEntries(
     'mail.example.com',
     'recovery.example.com',
     'blocked.example.com',
+    'brand.example.com',
+    'brand-race.example.com',
     'deleted-cleanup.example.com',
     'deleted-owner-cleanup.example.com',
     'replacement-cleanup.example.com',
@@ -165,6 +167,126 @@ describe('operator email domain management', () => {
     });
     expect(stub.calls.every((call) => call.method === 'GET')).toBe(true);
     expect(await env.db.select().from(emailDomainRoutes)).toHaveLength(0);
+  });
+
+  it('adds an outbound-only apex that keeps its Microsoft 365 MX', async () => {
+    const owner = await createTestUser(env.db, 'outbound-owner');
+    const project = await createTestProject(env.db, owner.id, 'outbound-project');
+    const sendingSubdomains: Array<{ name: string; enabled: boolean }> = [];
+    const failOn: NonNullable<Parameters<typeof stubCustomerCf>[0]>['failOn'] = {
+      onboardSending: { message: 'entitlement required', status: 403 },
+    };
+    const stub = stubCustomerCf({
+      zones,
+      sendingSubdomains,
+      failOn,
+      mx: { 'brand.example.com': ['brand-example.mail.protection.outlook.com'] },
+    });
+    const body = { domain: 'brand.example.com', project: project.slug, outboundOnly: true };
+    expect((await request('/email/domains', { ...body, outboundOnly: 'yes' })).status).toBe(400);
+
+    const preview = await request('/email/domains', { ...body, dryRun: true });
+    expect(await preview.json()).toMatchObject({
+      dryRun: true,
+      target: { domain: 'brand.example.com', inboundMode: 'none' },
+      effect: expect.stringContaining('MX records and inbound mail stay with its current'),
+    });
+    expect(stub.calls.filter((call) => call.method !== 'GET')).toEqual([]);
+
+    // Without Email Sending the domain cannot send at all, so setup fails instead of degrading.
+    const blocked = await request('/email/domains', body);
+    expect(await blocked.json()).toMatchObject({
+      ok: false,
+      domain: {
+        inboundMode: 'none',
+        operationStatus: 'blocked',
+        readiness: { inbound: { status: 'disabled' }, outbound: { status: 'blocked' } },
+      },
+    });
+    expect(callsByTag(stub.calls, 'routingDns')).toEqual([]);
+    expect(callsByTag(stub.calls, 'scriptPut')).toEqual([]);
+    expect(callsByTag(stub.calls, 'catchAll')).toEqual([]);
+
+    delete failOn.onboardSending;
+    const synced = await request('/email/domains/brand.example.com/sync', {});
+    expect(await synced.json()).toMatchObject({
+      domain: {
+        inboundMode: 'none',
+        status: 'ready',
+        operationStatus: 'completed',
+        readiness: { inbound: { status: 'disabled' }, outbound: { status: 'ready' } },
+      },
+    });
+    sendingSubdomains.push({ name: 'brand.example.com', enabled: true });
+    const status = await request('/email/domains/brand.example.com');
+    expect(await status.json()).toMatchObject({
+      inboundMode: 'none',
+      status: 'ready',
+      readiness: {
+        inbound: { status: 'disabled' },
+        outbound: { status: 'ready' },
+        management: { status: 'healthy' },
+      },
+    });
+    expect(callsByTag(stub.calls, 'catchAllGet')).toEqual([]);
+    expect(
+      await (
+        await request('/email/domains', {
+          domain: 'brand.example.com',
+          project: project.slug,
+          dryRun: true,
+        })
+      ).json(),
+    ).toMatchObject({ plan: 'refuse', existing: { inboundMode: 'none', status: 'ready' } });
+    expect(
+      await (await request('/email/domains/brand.example.com/sync', { dryRun: true })).json(),
+    ).toMatchObject({ effect: expect.stringContaining('Email Sending onboarding') });
+    expect(
+      (await request('/email/domains/brand.example.com/rotate-secret', { dryRun: true })).status,
+    ).toBe(409);
+    expect((await request('/email/domains/brand.example.com/rotate-secret', {})).status).toBe(409);
+    expect(callsByTag(stub.calls, 'secretPut')).toEqual([]);
+    expect(
+      (
+        await env.db.select().from(operatorEvents).where(eq(operatorEvents.action, 'email/domains'))
+      ).map((event) => JSON.parse(event.target)),
+    ).toContainEqual({ domain: 'brand.example.com', project: project.slug, outboundOnly: true });
+
+    expect((await request('/email/domains/brand.example.com/remove', {})).status).toBe(200);
+    expect((await env.db.select().from(emailDomainRoutes))[0]?.desired_state).toBe('removed');
+    expect(callsByTag(stub.calls, 'routingDns')).toEqual([]);
+  });
+
+  it('keeps a newer Sending result when a status refresh read it stale', async () => {
+    const owner = await createTestUser(env.db, 'outbound-race-owner');
+    const project = await createTestProject(env.db, owner.id, 'outbound-race-project');
+    const on: NonNullable<Parameters<typeof stubCustomerCf>[0]>['on'] = {};
+    stubCustomerCf({ zones, on });
+    await request('/email/domains', {
+      domain: 'brand-race.example.com',
+      project: project.slug,
+      outboundOnly: true,
+    });
+    await env.db
+      .update(emailDomainRoutes)
+      .set({ outbound_status: 'pending', outbound_observed_at: null })
+      .where(eq(emailDomainRoutes.domain, 'brand-race.example.com'));
+    // The refresh reads an empty Sending list, then a setup step records 'ready'.
+    on.sendingSubdomainsGet = async () => {
+      await env.db
+        .update(emailDomainRoutes)
+        .set({ outbound_status: 'ready', outbound_observed_at: new Date().toISOString() })
+        .where(eq(emailDomainRoutes.domain, 'brand-race.example.com'));
+    };
+    expect((await request('/email/domains/brand-race.example.com')).status).toBe(200);
+    expect(
+      (
+        await env.db
+          .select()
+          .from(emailDomainRoutes)
+          .where(eq(emailDomainRoutes.domain, 'brand-race.example.com'))
+      )[0]?.outbound_status,
+    ).toBe('ready');
   });
 
   it('leaves a foreign catch-all untouched and reports the refusal', async () => {

@@ -213,7 +213,9 @@ it.each(['fresh', 'initialized'] as const)(
     expect(queries).toHaveLength(2);
     const usageTag = await deriveAiUsageTag(env.JWT_SECRET, project.id);
     for (const query of queries) {
-      expect(query).toContain(`metadata_projectId: "${usageTag}"`);
+      expect(query).toContain(
+        `metadataRaw: ${JSON.stringify(JSON.stringify({ projectId: usageTag }))}`,
+      );
       expect(query).toContain(`datetime_geq: "${ownershipStartedAt}"`);
       expect(query).toContain(`datetime_lt: "${window!.ownershipEndedAt}"`);
     }

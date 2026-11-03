@@ -5,13 +5,14 @@ import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
+import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
 import { ASSET_EXTENSIONS } from '../runtime/routing-assets.ts';
 import { DEFAULT_SANDBOX_CLASS_NAME } from '../sandbox/config.ts';
 import type { ScanResult } from './scan.ts';
 
-const ROUTE_URL_PATH = fileURLToPath(import.meta.resolve('#self/runtime/route-url'));
+const FETCH_SERVER_PATH = fileURLToPath(import.meta.resolve('#self/runtime/fetch-server'));
 const ROUTING_RUNTIME_PATH = fileURLToPath(import.meta.resolve('#self/runtime/routing'));
 
 function pushDefaultErrorPageHelpers(lines: Array<string>, options: CompileOptions): void {
@@ -33,6 +34,8 @@ export type AuthCompileOptions = {
 export type CompileOptions = {
   /** Absolute path to the hono module entry */
   honoPath: string;
+  /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
+  honoRoutePath: string;
   /** Absolute path to the void/_env module */
   runtimeEnvPath: string;
   /** Absolute path to the project's `email/` directory; enables `__emailHandler`. */
@@ -94,6 +97,8 @@ export type CompileOptions = {
   hasLive?: boolean;
   /** Removed WebSocket classes retained to preserve Durable Object storage. */
   webSocketTombstones?: Array<string>;
+  /** Cloudflare queue names chosen by `void deploy --platform cloudflare`. */
+  cloudflareQueueNames?: CloudflareQueueNames;
 };
 
 export type SsrCompileOptions = {
@@ -117,6 +122,38 @@ export type PagesCompileOptions = {
   /** Head config from void.json */
   headConfig?: import('../pages/head.ts').HeadConfig;
 };
+
+/**
+ * Returns a lookup that gives each key its own identifier suffix. The suffix
+ * keeps the key's ASCII letters and digits; keys that clean up to the same
+ * text (user-list.ts and user_list.ts, or two CJK names of one length) get a
+ * counter so the generated consts never clash.
+ */
+function createIdentifierNames(): (key: string) => string {
+  const byKey = new Map<string, string>();
+  const used = new Set<string>();
+  return (key) => {
+    const known = byKey.get(key);
+    if (known !== undefined) {
+      return known;
+    }
+    let base = '';
+    for (const char of key.split('')) {
+      const alphanumeric =
+        (char >= '0' && char <= '9') ||
+        (char >= 'a' && char <= 'z') ||
+        (char >= 'A' && char <= 'Z');
+      base += alphanumeric ? char : '_';
+    }
+    let name = base;
+    for (let n = 2; used.has(name); n++) {
+      name = `${base}_${n}`;
+    }
+    used.add(name);
+    byKey.set(key, name);
+    return name;
+  };
+}
 
 /**
  * Generate the code for the virtual route table module (virtual:void-routes).
@@ -154,7 +191,7 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
@@ -261,6 +298,15 @@ export function compileRouteTable(
     compileHeaderMiddleware(lines, options.headerRules);
   }
 
+  // After routing rules, which ignore the action key as platform dispatch does,
+  // and before auth and user middleware, so their c.redirect() drops it too.
+  if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+    lines.push(
+      `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
+    );
+    lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+  }
+
   if (auth) {
     lines.push('app.use(async (c, next) => {');
     lines.push('  return runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase);');
@@ -296,21 +342,22 @@ export function compileRouteTable(
   }
 
   if (auth) {
-    lines.push('app.all("/api/auth", async (c) => {');
+    lines.push('app.all("/api/auth", __markRouteHandler(async (c) => {');
     lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
-    lines.push('app.all("/api/auth/*", async (c) => {');
+    lines.push('app.all("/api/auth/*", __markRouteHandler(async (c) => {');
     lines.push('  return handleVoidAuthRequest(c, __voidAuthOptions, __voidAuthDatabase);');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
   }
 
   // Register routes with lazy-loaded handlers (shared loader per file)
   const seenFiles = new Set<string>();
+  const routeNames = createIdentifierNames();
   for (const route of scan.routes) {
     const filePath = `${routesDir}/${route.filePath}`;
-    const loaderName = `_load_${route.filePath.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const loaderName = `_load_${routeNames(route.filePath)}`;
 
     if (!seenFiles.has(route.filePath)) {
       seenFiles.add(route.filePath);
@@ -382,15 +429,16 @@ export function compileRouteTable(
   }
 
   // Pages mode — generate page route handlers
+  const pageNames = createIdentifierNames();
   if (pages && scan.pages.pages.length > 0) {
-    compilePageRoutes(lines, scan, pages, options);
+    compilePageRoutes(lines, scan, pages, options, pageNames);
   }
 
   // Ordinary HTTP hooks are fallbacks for WebSocket paths. Explicit API and
   // Pages handlers win for their methods; upgrades were forwarded above.
   for (let i = 0; i < webSockets.length; i++) {
     lines.push(
-      `app.all(${JSON.stringify(webSockets[i].pattern)}, (c) => __forwardWebSocketRequest(c.req.raw, c.env, __voidWebSocketRoutes[${i}]));`,
+      `app.all(${JSON.stringify(webSockets[i].pattern)}, __markRouteHandler((c) => __forwardWebSocketRequest(c.req.raw, c.env, __voidWebSocketRoutes[${i}])));`,
     );
   }
   if (webSockets.length > 0) {
@@ -403,7 +451,7 @@ export function compileRouteTable(
     );
   }
 
-  compilePrerenderCollector(lines, scan, ssr, options);
+  compilePrerenderCollector(lines, scan, ssr, options, pageNames);
 
   if (ssr) {
     lines.push(
@@ -414,7 +462,9 @@ export function compileRouteTable(
     );
   } else if (
     emitEdgeRules &&
-    (options.fallbackRules?.length || (!options.nodeTarget && options.headerRules?.length)) &&
+    (options.fallbackRules?.length ||
+      options.redirectRules?.some((rule) => rule.status === 200) ||
+      (!options.nodeTarget && options.headerRules?.length)) &&
     !(pages && scan.pages.pages.length > 0)
   ) {
     lines.push(
@@ -489,22 +539,37 @@ export function compileRouteTable(
     lines.push('  await scheduled(controller, c.env, c.executionCtx);');
     lines.push('  return c.json({ ok: true });');
     lines.push('};');
-    lines.push('app.post("/__void/scheduled", __scheduledHandler);');
+    lines.push('app.post("/__void/scheduled", __markRouteHandler(__scheduledHandler));');
     lines.push('');
   }
 
   if (scan.queues.length > 0) {
-    lines.push(generateQueueResolverSource(scan.queues.map((queue) => queue.name)));
+    const queueNames = scan.queues.map((queue) => queue.name);
+    const cloudflareNames = options.cloudflareQueueNames;
+    lines.push(
+      generateQueueResolverSource(
+        queueNames,
+        cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
+      ),
+    );
     lines.push('');
+    const queueLabels = scan.queues.map((queue) =>
+      relative(options.projectRoot, `${queuesDir}/${queue.filePath}`),
+    );
+    lines.push(`const __queueLabels = ${JSON.stringify(queueLabels)};`);
     // Queue dispatch as a standalone function — called directly by native queue handler
     // and via the authenticated HTTP route. No global mutable state needed.
+    // It logs why a batch failed: the native handler throws only "queue: Handler failed.",
+    // the HTTP route returns no handler error, and the Void Cloud relay ignores `error`.
     lines.push('export async function __processQueue(payload, env) {');
     lines.push('  const queueSuffix = payload.queue;');
     lines.push('  const __queueIndex = __resolveQueueIndex(queueSuffix);');
     lines.push('  if (__queueIndex === -1) {');
     lines.push(
-      '    return { ok: false, error: `No unambiguous queue handler matches "${String(queueSuffix)}"` };',
+      '    const __error = `No unambiguous queue handler matches "${String(queueSuffix)}"`;',
     );
+    lines.push('    console.error(`[void] ${__error}`);');
+    lines.push('    return { ok: false, error: __error };');
     lines.push('  }');
     lines.push('  const __decisions = new Map();');
     lines.push('  function __wrapMsg(m) {');
@@ -542,7 +607,12 @@ export function compileRouteTable(
       lines.push('      }');
     }
     lines.push('    }');
-    lines.push('  } catch { __ok = false; }');
+    lines.push('  } catch (error) {');
+    lines.push(
+      '    console.error(`[void] Queue handler ${__queueLabels[__queueIndex]} failed for queue "${String(queueSuffix)}":`, error);',
+    );
+    lines.push('    __ok = false;');
+    lines.push('  }');
     lines.push(
       '  return { ok: __ok, ...(__decisions.size > 0 ? { decisions: Object.fromEntries(__decisions) } : {}) };',
     );
@@ -557,7 +627,7 @@ export function compileRouteTable(
     lines.push('  const result = await __processQueue(payload, c.env);');
     lines.push('  return c.json(result);');
     lines.push('};');
-    lines.push('app.post("/__void/queue", __queueHandler);');
+    lines.push('app.post("/__void/queue", __markRouteHandler(__queueHandler));');
     lines.push('');
   }
 
@@ -703,20 +773,20 @@ export function compileRouteTable(
     lines.push('  return null;');
     lines.push('}');
     lines.push(
-      `app.post("/__void/migrate", (c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(c.req.raw));`,
+      `app.post("/__void/migrate", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, false)(c.req.raw)));`,
     );
     lines.push(
-      `app.get("/__void/migrate/capabilities", (c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(c.req.raw));`,
+      `app.get("/__void/migrate/capabilities", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(${auth ? 'true' : 'false'}, true)(c.req.raw)));`,
     );
     lines.push(
-      'app.post("/__void/migrate/app", (c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw));',
+      'app.post("/__void/migrate/app", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
     );
     lines.push(
-      'app.get("/__void/migrate/app/attempt/:attemptId", (c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw));',
+      'app.get("/__void/migrate/app/attempt/:attemptId", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(false, true)(c.req.raw)));',
     );
     if (auth) {
       lines.push(
-        'app.post("/__void/migrate/auth", (c) => __voidCreateMigrationRequestHandler(true, true)(c.req.raw));',
+        'app.post("/__void/migrate/auth", __markRouteHandler((c) => __voidCreateMigrationRequestHandler(true, true)(c.req.raw)));',
       );
     }
     lines.push('');
@@ -731,14 +801,14 @@ export function compileRouteTable(
       `import { createBindingHandler as __createBindingHandler } from ${JSON.stringify(options.bindingHandlerPath)};`,
     );
     lines.push('let __voidBindingApp;');
-    lines.push('app.all("/__void/*", async (c) => {');
+    lines.push('app.all("/__void/*", __markRouteHandler(async (c) => {');
     lines.push(
       '  if (!__voidBindingApp) __voidBindingApp = __createBindingHandler(__getRawEnv());',
     );
     lines.push('  const url = new URL(c.req.url);');
     lines.push('  url.pathname = url.pathname.slice(7);');
     lines.push('  return __voidBindingApp.fetch(new Request(url.toString(), c.req.raw));');
-    lines.push('});');
+    lines.push('}));');
     lines.push('');
   }
 
@@ -781,6 +851,7 @@ function compilePrerenderCollector(
   scan: ScanResult,
   ssr: SsrCompileOptions | null,
   options: CompileOptions,
+  pageNames: (componentId: string) => string,
 ): void {
   const staticPaths = scan.pages.pages
     .filter((page) => page.shouldPrerender && page.params.length === 0 && !page.catchAll)
@@ -817,7 +888,7 @@ function compilePrerenderCollector(
   }
 
   for (const page of dynamicPages) {
-    const loaderName = `_pload_${page.componentId.replace(/[^a-zA-Z0-9]/g, '_')}`;
+    const loaderName = `_pload_${pageNames(page.componentId)}`;
     lines.push(`      {`);
     lines.push(`        const mod = await ${loaderName}();`);
     lines.push(`        if (typeof mod.getPrerenderPaths === "function") {`);
@@ -863,6 +934,7 @@ function compilePageRoutes(
   scan: ScanResult,
   pages: PagesCompileOptions,
   options: CompileOptions,
+  pageNames: (componentId: string) => string,
 ): void {
   // Import protocol helpers and renderer
   lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
@@ -948,7 +1020,7 @@ function compilePageRoutes(
   // Generate lazy loaders and route registrations for each page
   const seenServerFiles = new Set<string>();
   for (const page of scan.pages.pages) {
-    const safeId = page.componentId.replace(/[^a-zA-Z0-9]/g, '_');
+    const safeId = pageNames(page.componentId);
 
     // Determine server module path
     let serverImportPath: string | null = null;
@@ -1013,6 +1085,11 @@ const serveWithAssets = __createAssetFallback(${JSON.stringify({ assetsDir, serv
 export interface WorkerEntryOptions {
   /** Native readiness proves the actual served Worker version through this binding. */
   versionMetadataBinding?: string;
+  /**
+   * Redirect public HTTP requests to HTTPS before ISR and the app. Native
+   * Cloudflare production builds only: managed dispatch enforces it there.
+   */
+  alwaysUseHttps?: boolean;
   hasQueues?: boolean;
   remote?: {
     remotePath: string;
@@ -1087,6 +1164,7 @@ export function compileWorkerEntry(options: WorkerEntryOptions = {}): string {
   const {
     hasQueues = false,
     versionMetadataBinding,
+    alwaysUseHttps = false,
     remote,
     assetsDir = 'assets',
     webSocketClasses = [],
@@ -1185,7 +1263,7 @@ const __filterInternalBindings = (env) => __filterBindings(env, ${JSON.stringify
     app, assets: serveWithAssets, withRawEnv: __withRawEnv, withRuntimeEnv,
     filterBindings: __filterInternalBindings,
     internalRoute: __voidHandleInternalRoute,
-    collectPrerenderPaths: __voidCollectPrerenderPaths${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
+    collectPrerenderPaths: __voidCollectPrerenderPaths${alwaysUseHttps ? ', alwaysUseHttps: true' : ''}${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
   })`;
   const remoteEnvSwap = remotePath
     ? `  if (env.__VOID_REMOTE === "1") env = ${createRemoteEnvCall};\n`
@@ -1203,11 +1281,14 @@ ${envValidateCall}${remoteEnvSwap}${isrDeploymentStamp}  const userEnv = __filte
     ? `import { createMessageProxy as __createMessageProxy, enactEmailActions as __enactEmailActions, isForwardableEmailMessage as __isForwardableEmailMessage } from ${JSON.stringify(runtimeEmailPath)};\nimport { EMAIL_PROTOCOL_VERSION as __EMAIL_PROTOCOL_VERSION, encodeEmailActions as __encodeEmailActions, readEmailEnvelope as __readEmailEnvelope, verifyEmailReceiptThroughProxy as __verifyEmailReceiptThroughProxy } from "void/_email-protocol";\n`
     : '';
   // Custom-domain receipts (`viaDomain`) carry no `<slug>+` prefix, so they get no slug.
+  // On the shared domain the prefix is the slug or the project's email alias. The
+  // platform router already matched it to this project, so strip the name the
+  // recipient actually used.
   const emailHandler = hasEmail
     ? `async function handleEmail(envelope, env, ctx) {
 ${envValidateCall}${remoteEnvSwap}  const userEnv = __filterInternalBindings(env);
   const __relayed = typeof envelope.viaDomain === "string" && envelope.viaDomain.length > 0;
-  const __slug = __relayed ? undefined : (typeof env.__VOID_PROJECT_SLUG === "string" && env.__VOID_PROJECT_SLUG.length > 0 ? env.__VOID_PROJECT_SLUG : undefined);
+  const __slug = __relayed || typeof env.__VOID_PROJECT_SLUG !== "string" || env.__VOID_PROJECT_SLUG.length === 0 ? undefined : (String(envelope.to || "").split("@")[0].split("+")[0] || env.__VOID_PROJECT_SLUG);
   const { message, getActions } = __createMessageProxy(envelope, { slug: __slug });
   await __withRawEnv(env, () => withRuntimeEnv(env, () => __emailHandler(message, userEnv, ctx, { slug: __slug })));
   const __actions = getActions();
@@ -1415,68 +1496,17 @@ function compileHeaderMiddleware(lines: Array<string>, rules: Array<HeaderRule>)
 export function compileWorkerClient(authClientPath: string, nodeTarget = false): string {
   const envImport = nodeTarget ? '' : 'import { env } from "cloudflare:workers";\n';
   const dispatch = nodeTarget
-    ? 'const response = await app.fetch(request);'
-    : 'const executionCtx = store?.executionCtx ?? { waitUntil() {}, passThroughOnException() {} };\n  const response = await app.fetch(request, env, executionCtx);';
+    ? 'app.fetch(request)'
+    : 'app.fetch(request, env, store?.executionCtx ?? { waitUntil() {}, passThroughOnException() {} })';
   return `import app, { requestContext } from "virtual:void-routes";
-import { interpolateRouteParams } from ${JSON.stringify(ROUTE_URL_PATH)};
+import { createServerFetch } from ${JSON.stringify(FETCH_SERVER_PATH)};
+export { FetchError } from ${JSON.stringify(FETCH_SERVER_PATH)};
 ${envImport}export { auth, createAuthClient } from ${JSON.stringify(authClientPath)};
 
-export class FetchError extends Error {
-  constructor(status, statusText, data) {
-    super(\`fetch: Request failed with status \${status}.\`);
-    this.name = "FetchError";
-    this.status = status;
-    this.statusText = statusText;
-    this.data = data;
-  }
-}
-
-export async function fetch(path, options) {
-  let url = interpolateRouteParams(path, options?.params);
-
-  if (options?.query) {
-    const qs = new URLSearchParams(options.query).toString();
-    if (qs) url += "?" + qs;
-  }
-
-  const method = options?.method ?? "GET";
-  const headers = new Headers(options?.headers);
-
-  const store = requestContext.getStore();
-  if (store?.request) {
-    const outerReq = store.request;
-    if (!headers.has("cookie")) {
-      const cookie = outerReq.headers.get("cookie");
-      if (cookie) headers.set("cookie", cookie);
-    }
-    if (!headers.has("authorization")) {
-      const auth = outerReq.headers.get("authorization");
-      if (auth) headers.set("authorization", auth);
-    }
-  }
-
-  if (options?.body != null && !headers.has("content-type")) {
-    headers.set("content-type", "application/json");
-  }
-
-  const request = new Request("${nodeTarget ? 'http://localhost' : 'http://worker.local'}" + url, {
-    method,
-    headers,
-    body: options?.body != null ? JSON.stringify(options.body) : undefined,
-  });
-
-  ${dispatch}
-
-  if (response.status === 204) return undefined;
-
-  const contentType = response.headers.get("content-type") ?? "";
-  const data = contentType.includes("application/json") ? await response.json() : await response.text();
-
-  if (!response.ok) {
-    throw new FetchError(response.status, response.statusText, data);
-  }
-
-  return data;
-}
+export const fetch = createServerFetch(
+  (request, store) => ${dispatch},
+  () => requestContext.getStore(),
+  "${nodeTarget ? 'http://localhost' : 'http://worker.local'}",
+);
 `;
 }

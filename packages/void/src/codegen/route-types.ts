@@ -7,6 +7,21 @@ export type RouteTypesResult = {
   dts: string;
 };
 
+/** Percent-encode a pattern's fixed segments the way `routeUrl()` serializes its pathname. */
+function encodeRoutePattern(pattern: string): string {
+  return pattern
+    .split('/')
+    .map((segment) => {
+      if (segment.startsWith(':') || segment === '*') {
+        return segment;
+      }
+      const url = new URL('https://void.invalid');
+      url.pathname = `/${segment}`;
+      return url.pathname.slice(1);
+    })
+    .join('/');
+}
+
 /**
  * Generate .void/routes.d.ts content.
  *
@@ -18,6 +33,7 @@ export function generateRouteTypes(
   routesDir: string,
   outDir: string,
   pagesDir?: string,
+  options: { typedRoutes?: boolean } = {},
 ): RouteTypesResult {
   const lines: Array<string> = [];
 
@@ -78,6 +94,91 @@ export function generateRouteTypes(
   lines.push('  export interface WebSocketRouteMap {}');
   lines.push('  export interface PageActionMap {}');
   lines.push('');
+  // Projects resolve void/routes to this generated declaration through their
+  // tsconfig paths, so keep the standalone helper's declarations here as well.
+  lines.push('  export type RoutePath = keyof RoutePathMap & string;');
+  lines.push('  export type RouteQueryValue = string | number | boolean | null | undefined;');
+  lines.push(
+    '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
+  );
+  lines.push('  export type RouteOptions<P extends RoutePath> = {');
+  lines.push('    query?: RouteQuery;');
+  lines.push('    hash?: string;');
+  lines.push('  } & ([RoutePathMap[P]] extends [never]');
+  lines.push('    ? { params?: never }');
+  lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
+  lines.push(
+    '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
+  );
+  lines.push('    ? { pathname: P } & RouteOptions<P>');
+  lines.push('    : never;');
+  lines.push(
+    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
+  );
+  lines.push(
+    '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
+  );
+  lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
+  lines.push('    : RouteUrlSegment<P>;');
+  lines.push('  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`');
+  lines.push(
+    '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
+  );
+  lines.push('    : RouteSegmentsUrl<P>;');
+  lines.push('  type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;');
+  lines.push('  type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
+  lines.push('  export type RouteUrl = TypedRoutes extends true');
+  lines.push('    ? RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
+  lines.push('    : string;');
+  lines.push('  export type Href = TypedRoutes extends true');
+  lines.push(
+    '    ? RouteUrl | `${"?" | "#"}${string}` | `${"http://" | "https://" | "mailto:" | "tel:"}${string}`',
+  );
+  lines.push('    : string;');
+  lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
+  lines.push('  export function routeUrl<P extends RoutePath>(');
+  lines.push('    path: P,');
+  lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
+  lines.push('      ? [options?: RouteOptions<P>]');
+  lines.push('      : [options: RouteOptions<P>]');
+  lines.push('  ): RouteUrl;');
+  lines.push('');
+  lines.push('  export interface RouteTypesConfig {');
+  if (options.typedRoutes) {
+    lines.push('    typedRoutes: true;');
+  }
+  lines.push('  }');
+  lines.push('');
+  lines.push('  export interface RoutePathMap {');
+  const paths = new Map<string, Set<string>>();
+  // A route file without HTTP method exports serves every method through its default export.
+  for (const route of [...scan.routes, ...scan.pages.pages, ...(scan.websockets ?? [])]) {
+    const params = paths.get(route.pattern) ?? new Set<string>();
+    for (const name of route.params) {
+      params.add(name);
+    }
+    if (route.pattern.split('/').includes('*')) {
+      params.add('*');
+    }
+    paths.set(route.pattern, params);
+  }
+  for (const [pattern, params] of paths) {
+    const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
+    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+  }
+  lines.push('  }');
+  lines.push('');
+  // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
+  lines.push('  export interface EncodedRoutePathMap {');
+  for (const pattern of paths.keys()) {
+    const encoded = encodeRoutePattern(pattern);
+    if (encoded !== pattern) {
+      lines.push(`    ${JSON.stringify(pattern)}: ${JSON.stringify(encoded)};`);
+    }
+  }
+  lines.push('  }');
+  lines.push('');
   lines.push('  /** Union of known route patterns (keys of the generated RouteMap). */');
   lines.push('  export type RouteName = keyof RouteMap;');
   lines.push('');
@@ -102,19 +203,33 @@ export function generateRouteTypes(
   lines.push('    action: never;');
   lines.push('  };');
   lines.push('');
+  // A .dev + .prod page pair is a union of two page shapes. A type parameter
+  // makes these helpers read each shape on its own, as in void/routes.
+  lines.push('  type PageActionBody<P> = [Extract<P, { body: unknown }>] extends [never]');
+  lines.push('    ? Record<string, unknown>');
+  lines.push('    : Extract<P, { body: unknown }>["body"];');
+  lines.push('');
+  lines.push('  type PageNamedActionBody<P, K> = P extends { actions: infer A }');
+  lines.push('    ? K extends keyof A');
+  lines.push('      ? A[K] extends { body: infer B }');
+  lines.push('        ? B');
+  lines.push('        : Record<string, unknown>');
+  lines.push('      : never');
+  lines.push('    : never;');
+  lines.push('');
+  lines.push('  type PageActionUrl<K extends string, P> = P extends { body: any }');
+  lines.push('    ? K');
+  lines.push('    : P extends { actions: infer A }');
+  lines.push('      ? `${K}?${keyof A & string}`');
+  lines.push('      : never;');
+  lines.push('');
   lines.push('  export type ResolveActionBody<U extends string> =');
   lines.push('    ParseActionUrl<U>["base"] extends keyof PageActionMap');
   lines.push('      ? ParseActionUrl<U>["action"] extends never');
-  lines.push('        ? PageActionMap[ParseActionUrl<U>["base"]] extends { body: infer B }');
-  lines.push('          ? B');
-  lines.push('          : Record<string, unknown>');
-  lines.push('        : PageActionMap[ParseActionUrl<U>["base"]] extends { actions: infer A }');
-  lines.push('          ? ParseActionUrl<U>["action"] extends keyof A');
-  lines.push('            ? A[ParseActionUrl<U>["action"]] extends { body: infer B }');
-  lines.push('              ? B');
-  lines.push('              : Record<string, unknown>');
-  lines.push('            : never');
-  lines.push('          : never');
+  lines.push('        ? PageActionBody<PageActionMap[ParseActionUrl<U>["base"]]>');
+  lines.push(
+    '        : PageNamedActionBody<PageActionMap[ParseActionUrl<U>["base"]], ParseActionUrl<U>["action"]>',
+  );
   lines.push('      : Record<string, unknown>;');
   lines.push('');
   lines.push('  export type ResolveActionParams<U extends string> =');
@@ -125,24 +240,22 @@ export function generateRouteTypes(
   lines.push('      : never;');
   lines.push('');
   lines.push('  export type HasActionParams<U extends string> =');
-  lines.push('    ResolveActionParams<U> extends Record<string, string> ? true : false;');
+  lines.push('    [ResolveActionParams<U>] extends [never]');
+  lines.push('      ? false');
+  lines.push('      : ResolveActionParams<U> extends Record<string, string> ? true : false;');
   lines.push('');
-  lines.push('  export type ActionFormOptions<U extends string> =');
-  lines.push(
-    '    HasActionParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never };',
-  );
+  lines.push('  type ActionFormBaseOptions = {');
+  lines.push('    resetOnSuccess?: boolean;');
+  lines.push('  };');
   lines.push('');
-  lines.push('  export type ActionUrl =');
-  lines.push('    | {');
-  lines.push(
-    '        [K in keyof PageActionMap]: PageActionMap[K] extends { body: any } ? K : never;',
-  );
-  lines.push('      }[keyof PageActionMap]');
-  lines.push('    | {');
-  lines.push('        [K in keyof PageActionMap]: PageActionMap[K] extends { actions: infer A }');
-  lines.push('          ? `${K & string}?${keyof A & string}`');
-  lines.push('          : never;');
-  lines.push('      }[keyof PageActionMap]');
+  lines.push('  export type ActionFormOptions<U extends string> = ActionFormBaseOptions &');
+  lines.push('    (HasActionParams<U> extends true');
+  lines.push('      ? { params: ResolveActionParams<U> }');
+  lines.push('      : { params?: never });');
+  lines.push('');
+  lines.push('  export type ActionUrl = {');
+  lines.push('    [K in keyof PageActionMap]: PageActionUrl<K & string, PageActionMap[K]>;');
+  lines.push('  }[keyof PageActionMap]');
   lines.push('');
   lines.push('  interface RouteMap {');
 
@@ -220,6 +333,10 @@ export function generateRouteTypes(
   if (actionPages.length > 0 && pagesDir) {
     lines.push('  interface PageActionMap {');
 
+    // A .dev + .prod page pair shares one pattern: write one key and join the shapes
+    // with |. The page at that URL is one environment's page or the other's, so each
+    // page's own action body must type-check.
+    const bodiesByPattern = new Map<string, Array<Array<string>>>();
     for (const page of actionPages) {
       const hasAction = page.methods.includes('action');
       const hasActions = page.methods.includes('actions');
@@ -230,29 +347,45 @@ export function generateRouteTypes(
         );
       }
 
-      lines.push(`    ${JSON.stringify(page.pattern)}: {`);
+      const body: Array<string> = [];
 
       // Page actions are only detected in a companion .server file.
       const importPath = relative(outDir, `${pagesDir}/${page.serverPath!}`);
       if (hasActions) {
         const actionsImport = `(typeof import(${JSON.stringify(importPath)}))["actions"]`;
-        lines.push(`      actions: { [K in keyof ${actionsImport}]: {`);
-        lines.push(
+        body.push(`      actions: { [K in keyof ${actionsImport}]: {`);
+        body.push(
           `        body: ExtractInput<${actionsImport}[K]["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         );
-        lines.push('      } };');
+        body.push('      } };');
       } else {
         const importExpr = `(typeof import(${JSON.stringify(importPath)}))["action"]`;
-        lines.push(
+        body.push(
           `      body: ExtractInput<${importExpr}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         );
       }
 
       if (page.params.length > 0) {
         const paramsType = page.params.map((p) => `${p}: string`).join('; ');
-        lines.push(`      params: { ${paramsType} };`);
+        body.push(`      params: { ${paramsType} };`);
       }
 
+      const bodies = bodiesByPattern.get(page.pattern);
+      if (bodies) {
+        bodies.push(body);
+      } else {
+        bodiesByPattern.set(page.pattern, [body]);
+      }
+    }
+
+    for (const [pattern, bodies] of bodiesByPattern) {
+      lines.push(`    ${JSON.stringify(pattern)}: {`);
+      bodies.forEach((body, index) => {
+        if (index > 0) {
+          lines.push('    } | {');
+        }
+        lines.push(...body);
+      });
       lines.push('    };');
     }
 

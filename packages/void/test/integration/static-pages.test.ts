@@ -1,7 +1,9 @@
 import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
@@ -28,6 +30,35 @@ describe('playground/static-pages build (output: static)', () => {
 
     expect(existsSync(workerEntry)).toBe(true);
     expect(existsSync(clientManifest)).toBe(true);
+  });
+
+  it('serves the generated 404 for missing static URLs with HTTP 404', async () => {
+    const html = readFileSync(join(DIST, 'client/404.html'), 'utf8');
+    expect(html).toContain('<title>404: Not Found</title>');
+    const runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: 'export default { fetch(request, env) { return env.ASSETS.fetch(request); } };',
+        assets: {
+          directory: join(DIST, 'client'),
+          binding: 'ASSETS',
+          run_worker_first: true,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { not_found_handling: '404-page' },
+        },
+      }),
+    );
+    try {
+      for (const path of ['/missing', '/nested/missing']) {
+        const response = await runtime.dispatchFetch(`http://localhost${path}`);
+        expect(response.status).toBe(404);
+        expect(response.headers.get('content-type')).toContain('text/html');
+        expect(await response.text()).toBe(html);
+      }
+    } finally {
+      await runtime.dispose();
+    }
   });
 
   it('prerenders index.html with production asset URLs', () => {
@@ -180,7 +211,53 @@ describe('playground/static-pages build (output: static)', () => {
       };
     };
     expect(wranglerConfig.assets?.directory).toBe('../client');
-    expect(wranglerConfig.assets?.run_worker_first).toBeDefined();
+    // Pages with a server module stay on the Worker; /plain has none, so its file answers.
+    expect(wranglerConfig.assets?.run_worker_first).toEqual([
+      '/__void',
+      '/__void/*',
+      '/',
+      '/about',
+      '/client-only',
+      '/docs/*',
+      '/items/*',
+      '/posts/*',
+      '/tags/*',
+    ]);
     expect(wranglerConfig.assets?.not_found_handling).toBe('none');
+  });
+
+  it('serves a page without a server module from its prerendered file', async () => {
+    const wranglerConfig = JSON.parse(readFileSync(join(DIST, 'ssr/wrangler.json'), 'utf-8')) as {
+      assets: { run_worker_first: Array<string> };
+    };
+    // Hashed files keep the immutable policy without the Worker.
+    const headers = readFileSync(join(DIST, 'client/_headers'), 'utf-8');
+    expect(headers.startsWith(GENERATED_ASSET_HEADERS_MARKER)).toBe(true);
+    expect(headers).toContain('/assets/');
+    expect(headers).toContain('immutable');
+    const runtime = new Miniflare(
+      convertV4MiniflareOptions({
+        compatibilityDate: '2026-07-01',
+        modules: true,
+        script: "export default { fetch() { return new Response('worker'); } };",
+        assets: {
+          directory: join(DIST, 'client'),
+          binding: 'ASSETS',
+          run_worker_first: wranglerConfig.assets.run_worker_first,
+          routerConfig: { has_user_worker: true },
+          assetConfig: { not_found_handling: 'none' },
+        },
+      }),
+    );
+    try {
+      const plain = await runtime.dispatchFetch('http://localhost/plain');
+      expect(plain.status).toBe(200);
+      expect(await plain.text()).toContain('data-testid="plain-title"');
+      // A page with a server module still reaches the Worker first.
+      const about = await runtime.dispatchFetch('http://localhost/about');
+      expect(await about.text()).toBe('worker');
+    } finally {
+      await runtime.dispose();
+    }
   });
 });

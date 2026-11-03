@@ -1,4 +1,5 @@
 import { stripVTControlCharacters } from 'node:util';
+import { S_BAR } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { runSecretCommand } from '../../src/cli/secret.ts';
 
@@ -72,7 +73,7 @@ it('lists secrets when the terminal reports 0 columns', async () => {
     const text = stripVTControlCharacters(output);
     const contents = text
       .split('\n')
-      .filter((line) => line.startsWith('│'))
+      .filter((line) => line.startsWith(S_BAR))
       .map((line) => line.slice(1, -1).trim())
       .join('');
     expect(contents).toContain('API_KEY');

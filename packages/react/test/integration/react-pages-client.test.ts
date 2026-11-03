@@ -2,7 +2,7 @@ import { execSync, type ChildProcess } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
-import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
+import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -41,12 +41,31 @@ const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const REACT_PAGES_ROOT = join(ROOT, 'playground/react-pages');
 const REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
 const LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
+const OPTIMIZER_PROBE_FILES = {
+  '_optimizer-helper.ts': `import { value } from '@void-repro/worker-only';
+export const readWorkerValue = () => value;`,
+  '_optimizer-browser.ts': `export { value } from '@void-repro/browser-only';`,
+  'optimizer-probe/[id].tsx': `import { value } from '../_optimizer-browser';
+export default function Probe() { return <p>{value}</p>; }`,
+  'optimizer-probe/[id].server.ts': `import { defineHandler } from 'void/handler';
+import { readWorkerValue } from '../_optimizer-helper';
+export const loader = defineHandler(() => ({ value: readWorkerValue() }));`,
+  'optimizer-island.island.tsx': `import Probe from './_OptimizerIsland' with { island: 'load' };
+import { readWorkerValue } from './_optimizer-helper';
+export default function IslandPage() { return <><p>{readWorkerValue()}</p><Probe /></>; }`,
+  '_OptimizerIsland.tsx': `import { value } from '@void-repro/island-only';
+export default function Probe() { return <p>{value}</p>; }`,
+};
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
 let browser: Browser;
 
-function writeLateWorkerDep(name: string, source: string) {
+function writeLateWorkerDep(
+  name: string,
+  source: string,
+  exports: string | Record<string, string> = './index.js',
+) {
   const packageDir = join(LATE_WORKER_DEPS_ROOT, name);
   mkdirSync(packageDir, { recursive: true });
   writeFileSync(
@@ -55,7 +74,7 @@ function writeLateWorkerDep(name: string, source: string) {
       name: `@void-repro/${name}`,
       version: '1.0.0',
       type: 'module',
-      exports: './index.js',
+      exports,
     }),
   );
   writeFileSync(join(packageDir, 'index.js'), source);
@@ -63,6 +82,16 @@ function writeLateWorkerDep(name: string, source: string) {
 
 function installLateWorkerDeps() {
   rmSync(LATE_WORKER_DEPS_ROOT, { recursive: true, force: true });
+  writeLateWorkerDep('worker-only', 'export const value = "Worker value";', {
+    workerd: './index.js',
+  });
+  writeLateWorkerDep('browser-only', 'export const value = "Browser value";');
+  writeLateWorkerDep('island-only', 'export const value = "Island value";');
+  for (const [file, source] of Object.entries(OPTIMIZER_PROBE_FILES)) {
+    const path = join(REACT_PAGES_ROOT, 'pages', file);
+    mkdirSync(join(path, '..'), { recursive: true });
+    writeFileSync(path, source);
+  }
   writeLateWorkerDep(
     'boundary',
     `import React from 'react';
@@ -178,6 +207,185 @@ function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = '
   describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
 }
 
+function defineTransitionAwaitTests(getBase: () => string) {
+  describe.concurrent('React action completion', { retry: 0 }, () => {
+    const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
+
+    for (const operation of ['visit', 'refresh'] as const) {
+      it.for(['transition', 'form-action', 'action-state', 'plain'] as const)(
+        `router.${operation} with resolveOn data resolves when awaited from %s`,
+        async (mode, { expect }) => {
+          const context = await browser.newContext();
+          const page = await context.newPage();
+          const errors: Array<string> = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          let releaseResponse!: () => void;
+          const responseGate = new Promise<void>((resolve) => {
+            releaseResponse = resolve;
+          });
+          try {
+            const url = `${getBase()}/transition-await`;
+            await page.goto(url);
+            await page.waitForSelector('#app[data-hydrated="true"]');
+            await page.getByTestId('operation').selectOption(operation);
+            await page.route('**/transition-await*', async (route) => {
+              if (route.request().method() === 'GET') {
+                await responseGate;
+              }
+              await route.continue();
+            });
+            const button = page.getByTestId(mode);
+            const [response] = await Promise.all([
+              page.waitForResponse(
+                (response) =>
+                  new URL(response.url()).pathname === '/transition-await' &&
+                  response.request().method() === 'GET' &&
+                  Boolean(response.request().headers()['x-voidpages']),
+              ),
+              (async () => {
+                await button.click();
+                await expect.poll(() => button.textContent()).toBe('pending');
+                releaseResponse();
+              })(),
+            ]);
+            expect(response.status()).toBe(200);
+            expect((await response.json()).props.revision).toBe('updated');
+            await expect
+              .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
+              .toBe('complete');
+            await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+            await expect.poll(() => button.textContent()).toBe('run');
+            expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
+            expect(errors).toEqual([]);
+          } finally {
+            releaseResponse();
+            await context.close();
+          }
+        },
+      );
+    }
+
+    it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
+      const context = await browser.newContext();
+      const page = await context.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      let releaseResponse!: () => void;
+      const responseGate = new Promise<void>((resolve) => {
+        releaseResponse = resolve;
+      });
+
+      try {
+        await page.goto(`${getBase()}/transition-await`);
+        await page.waitForSelector('#app[data-hydrated="true"]');
+        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('initial');
+        await page.route('**/transition-await*', async (route) => {
+          await responseGate;
+          await route.continue();
+        });
+        const button = page.getByTestId(mode);
+        const [response] = await Promise.all([
+          page.waitForResponse(
+            (response) =>
+              new URL(response.url()).pathname === '/transition-await' &&
+              Boolean(response.request().headers()['x-voidpages']),
+          ),
+          (async () => {
+            await button.click();
+            await expect.poll(() => button.textContent()).toBe('pending');
+            releaseResponse();
+          })(),
+        ]);
+        expect(response.status()).toBe(200);
+        expect((await response.json()).props.revision).toBe('updated');
+
+        // The server has finished. Awaiting its result must not keep React's
+        // Action pending forever or prevent the new page from committing.
+        await expect
+          .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
+          .toBe('complete');
+        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+        await expect.poll(() => button.textContent()).toBe('run');
+        expect(errors).toEqual([]);
+      } finally {
+        releaseResponse();
+        await context.close();
+      }
+    });
+
+    it.for(['action', 'visit', 'refresh'] as const)(
+      '%s preserves optimistic state and stays pending through the Action and Suspense',
+      async (operation, { expect }) => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const errors: Array<string> = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        let releaseResponse!: () => void;
+        const responseGate = new Promise<void>((resolve) => {
+          releaseResponse = resolve;
+        });
+        try {
+          const url = `${getBase()}/transition-await`;
+          await page.goto(url);
+          await page.waitForSelector('#app[data-hydrated="true"]');
+          await page.getByTestId('operation').selectOption(operation);
+          const method = operation === 'action' ? 'POST' : 'GET';
+          await page.route('**/transition-await*', async (route) => {
+            if (route.request().method() === method) {
+              await responseGate;
+            }
+            await route.continue();
+          });
+          const button = page.getByTestId('async-contract');
+          // Cold dev compilation can exceed expect.poll's one-second default on
+          // Windows. Wait for the server before checking the Action continuation.
+          const [response] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === '/transition-await' &&
+                response.request().method() === method &&
+                Boolean(response.request().headers()['x-voidpages']),
+            ),
+            (async () => {
+              await button.click();
+              await expect.poll(() => button.textContent()).toBe('pending');
+              await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('saving');
+              releaseResponse();
+            })(),
+          ]);
+          expect(response.status()).toBe(200);
+          await expect.poll(() => page.getByTestId('data-ready').textContent()).toBe('ready');
+          expect(await button.textContent()).toBe('pending');
+          expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+          expect(await page.getByTestId('revision').textContent()).toBe('initial');
+          expect(page.url()).toBe(url);
+
+          // The caller finishes, but the new page still suspends. The old page,
+          // optimistic state and URL must stay until React can commit the new UI.
+          await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
+          await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+          );
+          expect(await button.textContent()).toBe('pending');
+          expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+          expect(await page.getByTestId('revision').textContent()).toBe('initial');
+          expect(page.url()).toBe(url);
+
+          await page.evaluate(() => window.dispatchEvent(new Event('finish-render')));
+          await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+          await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('updated');
+          await expect.poll(() => button.textContent()).toBe('run');
+          expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
+          expect(errors).toEqual([]);
+        } finally {
+          releaseResponse();
+          await context.close();
+        }
+      },
+    );
+  });
+}
+
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
@@ -227,26 +435,31 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
-  it('router.visit resolves after the React navigation commits', async () => {
-    const page = await newPage();
+  it.for(['default', 'commit'] as const)(
+    'router.visit resolves after the React navigation commits with %s completion',
+    async (completion) => {
+      const page = await newPage();
 
-    try {
-      await page.goto(BASE + '/visit-await');
-      await waitForHydration(page);
+      try {
+        await page.goto(
+          BASE + '/visit-await' + (completion === 'commit' ? '?resolveOn=commit' : ''),
+        );
+        await waitForHydration(page);
 
-      await page.click('button:has-text("Visit users")');
-      await page.waitForFunction(() =>
-        document.querySelector('h1')?.textContent?.includes('Users'),
-      );
-      await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.click('button:has-text("Visit users")');
+        await page.waitForFunction(() =>
+          document.querySelector('h1')?.textContent?.includes('Users'),
+        );
+        await page.waitForFunction(() => window.__visitAwaitObserved != null);
 
-      const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
-      expect(observedHeading).toBe('Users');
-      expect(page.url()).toBe(BASE + '/users');
-    } finally {
-      await page.context().close();
-    }
-  });
+        const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
+        expect(observedHeading).toBe('Users');
+        expect(page.url()).toBe(BASE + '/users');
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
 
   it('router.visit works from an initial layout effect', async () => {
     const page = await newPage();
@@ -496,31 +709,73 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
-  it('Link ignores aborted GET navigations from interrupted clicks', async () => {
+  it.for(['default', 'data'] as const)(
+    'Link ignores aborted GET navigations from interrupted clicks with %s completion',
+    async (completion) => {
+      const page = await newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => {
+        errors.push(error.message);
+      });
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          errors.push(msg.text());
+        }
+      });
+
+      try {
+        await page.goto(BASE + '/link-behavior' + (completion === 'data' ? '?resolveOn=data' : ''));
+        await waitForHydration(page);
+
+        await page.click('button:has-text("Run interrupted navigation check")');
+        await page.waitForFunction(() =>
+          document
+            .querySelector('[data-testid="abort-navigation-status"]')
+            ?.textContent?.startsWith('Passed:'),
+        );
+
+        expect(errors.filter((error) => error.includes('Navigation aborted'))).toEqual([]);
+        expect(errors.filter((error) => error.includes('AbortError'))).toEqual([]);
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
+
+  it('Link keeps the current page when the target downloads a file', async () => {
     const page = await newPage();
     const errors: Array<string> = [];
     page.on('pageerror', (error) => {
       errors.push(error.message);
     });
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        errors.push(msg.text());
-      }
-    });
 
     try {
+      // A non-Void response makes the client fall back to a full page load, which only
+      // downloads the file, so the current page must stay on screen.
+      await page.route(BASE + '/users', (route) =>
+        route.fulfill({
+          status: 200,
+          headers: {
+            'content-type': 'text/csv',
+            'content-disposition': 'attachment; filename="users.csv"',
+          },
+          body: 'id,name\n1,Ada\n',
+        }),
+      );
       await page.goto(BASE + '/link-behavior');
       await waitForHydration(page);
 
-      await page.click('button:has-text("Run interrupted navigation check")');
-      await page.waitForFunction(() =>
-        document
-          .querySelector('[data-testid="abort-navigation-status"]')
-          ?.textContent?.startsWith('Passed:'),
+      const download = page.waitForEvent('download');
+      await page.click('[data-testid="onclick-link"]');
+      await download;
+      await page.waitForFunction(
+        () =>
+          document.querySelector('[data-testid="navigation-state"]')?.textContent === 'idle' &&
+          document.querySelector('h1')?.textContent === 'Link Behavior',
       );
 
-      expect(errors.filter((error) => error.includes('Navigation aborted'))).toEqual([]);
-      expect(errors.filter((error) => error.includes('AbortError'))).toEqual([]);
+      expect(errors).toEqual([]);
+      expect(page.url()).toBe(BASE + '/link-behavior');
     } finally {
       await page.context().close();
     }
@@ -594,6 +849,58 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.context().close();
     }
   });
+  // The next pushState or replaceState call throws, like a browser that rate-limits history.
+  async function failNextHistoryWrite(page: Page, method: 'pushState' | 'replaceState') {
+    await page.evaluate((name) => {
+      const original = History.prototype[name];
+      History.prototype[name] = function () {
+        History.prototype[name] = original;
+        throw new DOMException('History blocked by test', 'SecurityError');
+      };
+    }, method);
+  }
+
+  async function waitForIdle(page: Page) {
+    await page.waitForFunction(
+      () => document.querySelector('[data-testid="navigation-state"]')?.textContent === 'idle',
+    );
+  }
+
+  for (const [link, method] of [
+    ['onclick-link', 'pushState'],
+    ['replace-link', 'replaceState'],
+  ] as const) {
+    it(`${link} keeps the current page when ${method} fails`, async () => {
+      const page = await newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => {
+        errors.push(error.message);
+      });
+
+      try {
+        await page.goto(BASE + '/link-behavior');
+        await waitForHydration(page);
+        const heading = await page.textContent('h1');
+        await failNextHistoryWrite(page, method);
+
+        await page.click(`[data-testid="${link}"]`);
+        await vi.waitFor(() => expect(errors).toContain('History blocked by test'), {
+          timeout: 10_000,
+        });
+        await waitForIdle(page);
+        expect(await page.textContent('h1')).toBe(heading);
+        expect(page.url()).toBe(BASE + '/link-behavior');
+
+        await page.click(`[data-testid="${link}"]`);
+        await page.waitForURL(BASE + '/users');
+        await page.waitForFunction(() =>
+          document.querySelector('h1')?.textContent?.includes('Users'),
+        );
+      } finally {
+        await page.context().close();
+      }
+    });
+  }
 }
 
 describe('react-pages client (dev)', () => {
@@ -649,6 +956,25 @@ describe('react-pages client (dev)', () => {
       await killChild(child);
     }
     rmSync(LATE_WORKER_DEPS_ROOT, { recursive: true, force: true });
+    for (const file of Object.keys(OPTIMIZER_PROBE_FILES)) {
+      rmSync(join(REACT_PAGES_ROOT, 'pages', file), { force: true });
+    }
+    rmSync(join(REACT_PAGES_ROOT, 'pages/optimizer-probe'), { recursive: true, force: true });
+  });
+
+  it('dev: prebundles browser roots without scanning server-only dependencies', async () => {
+    await vi.waitFor(() => {
+      const metadata = JSON.parse(
+        readFileSync(join(REACT_PAGES_ROOT, 'node_modules/.vite/deps/_metadata.json'), 'utf8'),
+      );
+      expect(metadata.optimized).toHaveProperty('@void-repro/browser-only');
+      expect(metadata.optimized).toHaveProperty('@void-repro/island-only');
+      expect(metadata.optimized).not.toHaveProperty('@void-repro/worker-only');
+    });
+    expect(stderr).not.toContain('Failed to run dependency scan');
+    const response = await fetch(`${DEV_BASE}/optimizer-probe/example`);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain('Browser value');
   });
 
   it('dev: cold SSR startup does not hit invalid React hook calls', () => {
@@ -847,6 +1173,7 @@ describe('react-pages client (dev)', () => {
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
+  defineTransitionAwaitTests(() => DEV_BASE);
   defineSharedIslandTests(
     () => DEV_BASE,
     () => browser,
@@ -922,6 +1249,7 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   });
 
   defineClientTests(() => PREVIEW_BASE);
+  defineTransitionAwaitTests(() => PREVIEW_BASE);
   defineSharedIslandTests(
     () => PREVIEW_BASE,
     () => browser,

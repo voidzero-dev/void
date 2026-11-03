@@ -1,153 +1,34 @@
-import { existsSync, readdirSync } from 'node:fs';
-import { dirname } from 'pathslash';
-import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
-import {
-  generateComponentManifest,
-  resolveStaticPageDataBuildOptions,
-  scanPages,
+import type { Plugin } from 'vite';
+import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
+import type {
+  PageScanResult,
+  PagesPluginOptions,
+  PrefetchConfig,
+  StaticPageDataBuildOptions,
 } from 'void/pages';
-import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
 
-const RENDERER_ID = 'virtual:void-pages-renderer';
+export type { PrefetchConfig } from 'void/pages';
+
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 
-export type PrefetchConfig = {
-  hoverDelay?: number;
-  cacheFor?: number | string | [string, string];
-};
-
-type PagesPluginOptions = {
-  root?: string;
-  viewTransitions?: boolean;
-  prefetch?: PrefetchConfig;
-};
-
-/** Check if the pages directory has any non-island page files (.tsx/.jsx without .island.). */
-function hasNonIslandPages(dir: string): boolean {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (!entry.isFile()) {
-        continue;
-      }
-      const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.')) {
-        continue;
-      }
-      if (/\.(tsx|jsx)$/.test(name) && !name.includes('.island.')) {
-        return true;
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return false;
-}
-
 export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plugin {
-  let pageScan: PageScanResult | null = null;
-  let isDev = false;
-  let viteConfig: ResolvedConfig | undefined;
-  const root = options?.root ?? dirname(pagesDir);
-  const normalizedPagesDir = normalizePath(pagesDir);
-  let pendingRescan: Promise<void> | null = null;
-  const rescanPages = async () => {
-    pageScan = existsSync(pagesDir) ? await scanPages(root, { pagesDir }) : null;
-  };
-  const runRescan = () => {
-    pendingRescan ??= rescanPages().finally(() => {
-      pendingRescan = null;
-    });
-    return pendingRescan;
-  };
-
-  const invalidatePageModules = (server: ViteDevServer) => {
-    for (const env of Object.values(server.environments)) {
-      for (const id of ['\0' + RENDERER_ID, '\0' + CLIENT_ENTRY_ID]) {
-        const mod = env.moduleGraph.getModuleById(id);
-        if (mod) {
-          env.moduleGraph.invalidateModule(mod);
-        }
-      }
-    }
-  };
-
-  return {
+  return createPagesPlugin(pagesDir, {
     name: 'void-solid:pages',
-
-    async buildStart() {
-      await runRescan();
+    root: options?.root,
+    generateRenderer(scan) {
+      return generateRendererModule(scan, pagesDir);
     },
-
-    resolveId: {
-      filter: { id: /^virtual:void-pages-(renderer|client)$/ },
-      handler(id) {
-        return '\0' + id;
-      },
+    generateClient(scan, staticPageData) {
+      return generateClientEntry(
+        scan,
+        pagesDir,
+        options?.viewTransitions,
+        options?.prefetch,
+        staticPageData,
+      );
     },
-
-    load: {
-      // eslint-disable-next-line no-control-regex -- Vite virtual module null-byte prefix
-      filter: { id: /^\0virtual:void-pages-(renderer|client)$/ },
-      async handler(id) {
-        if (isDev && pendingRescan) {
-          await pendingRescan;
-        }
-        if (!pageScan && existsSync(pagesDir)) {
-          await runRescan();
-        }
-        if (id === '\0' + RENDERER_ID) {
-          if (!pageScan) {
-            return "export function renderPage() { throw new Error('No pages found'); }";
-          }
-          return generateRendererModule(pageScan, pagesDir);
-        }
-        if (id === '\0' + CLIENT_ENTRY_ID) {
-          if (!pageScan) {
-            return '';
-          }
-          return generateClientEntry(
-            pageScan,
-            pagesDir,
-            options?.viewTransitions,
-            options?.prefetch,
-            resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir }),
-          );
-        }
-      },
-    },
-
-    configureServer(server) {
-      const handlePagesChange = async (path: string, event: 'add' | 'change' | 'unlink') => {
-        const normalizedPath = normalizePath(path);
-        if (
-          normalizedPath !== normalizedPagesDir &&
-          !normalizedPath.startsWith(normalizedPagesDir + '/')
-        ) {
-          return;
-        }
-        if (event === 'change' && !normalizedPath.endsWith('.md')) {
-          return;
-        }
-        await runRescan();
-        invalidatePageModules(server);
-      };
-
-      server.watcher.on('add', (path) => handlePagesChange(path, 'add'));
-      server.watcher.on('change', (path) => handlePagesChange(path, 'change'));
-      server.watcher.on('unlink', (path) => handlePagesChange(path, 'unlink'));
-    },
-
-    configResolved(config) {
-      viteConfig = config;
-    },
-
-    config(_, env) {
-      if (!existsSync(pagesDir)) {
-        return;
-      }
-
-      if (env.command === 'serve') {
-        isDev = true;
+    async config({ isDev, scan }) {
+      if (isDev) {
         return {
           optimizeDeps: {
             // Pre-include Solid entries discovered late via dynamic imports
@@ -157,7 +38,8 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
       }
 
       // Skip the pages-client bundle when all pages are island pages
-      if (!hasNonIslandPages(pagesDir)) {
+      const pageScan = await scan();
+      if (!pageScan?.pages.some((page) => !page.island)) {
         return;
       }
 
@@ -170,7 +52,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
         },
       };
     },
-  };
+  });
 }
 
 function generateRendererModule(scan: PageScanResult, pagesDir: string): string {
@@ -255,6 +137,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
+  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { createSignal, createComponent, createMemo, mergeProps, untrack, batch } from "solid-js";
 import { createMutable } from "solid-js/store";
@@ -316,8 +199,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
-    prefetchHoverDelay: ${prefetch?.hoverDelay ?? 75},
-    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(prefetch?.cacheFor ?? '30s')}),
+    prefetchHoverDelay: ${hoverDelay},
+    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
     onRouteChange(url) {
       setRouteUrl(url);
     },

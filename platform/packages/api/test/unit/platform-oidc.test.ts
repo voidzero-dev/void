@@ -218,6 +218,26 @@ describe('platform OIDC', () => {
     expect((await accepted.exchange()).subject).toBe('person-123');
   });
 
+  it('sends client credentials unescaped in the form body when the provider supports it', async () => {
+    const clientId = '761060634857-abc_def.apps.googleusercontent.com';
+    const server = fixture({
+      configuration: {
+        id: 'google',
+        kind: 'google',
+        issuer: 'https://accounts.google.com',
+        clientId,
+      },
+      metadata: {
+        token_endpoint_auth_methods_supported: ['client_secret_post', 'client_secret_basic'],
+      },
+    });
+    await server.start();
+    await server.exchange();
+    const [, init] = server.request.mock.calls.find(([url]) => url.endsWith('/token'))!;
+    expect((init.body as URLSearchParams).get('client_id')).toBe(clientId);
+    expect(new Headers(init.headers).has('authorization')).toBe(false);
+  });
+
   it('names each login failure with a short code', async () => {
     await expect(
       fixture({ metadata: { issuer: 'https://other.example.com' } }).start(),

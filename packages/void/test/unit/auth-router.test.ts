@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { parseAuthArgs } from '../../src/cli/auth-args.ts';
 import { runAuthRouter } from '../../src/cli/auth-router.ts';
+import { getToken } from '../../src/cli/auth.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { writeDeploymentPlatform } from '../../src/cli/project.ts';
 
@@ -11,6 +12,12 @@ const mocks = vi.hoisted(() => ({
   account: vi.fn(),
   cloudflare: vi.fn(),
   select: vi.fn(),
+  keyringRead: vi.fn((): string | null => null),
+}));
+vi.mock('../../src/cli/keyring.ts', () => ({
+  readKeyringPassword: mocks.keyringRead,
+  writeKeyringPassword: () => true,
+  deleteKeyringPassword: () => true,
 }));
 vi.mock('../../src/cli/account-cmd.ts', () => ({ runAccountCommand: mocks.account }));
 vi.mock('../../src/cli/cloudflare-cmd.ts', () => ({ runCloudflareCommand: mocks.cloudflare }));
@@ -23,9 +30,11 @@ let root: string;
 beforeEach(() => {
   vi.clearAllMocks();
   mocks.account.mockReset();
+  mocks.keyringRead.mockReset();
   root = mkdtempSync(join(tmpdir(), 'void-auth-router-'));
   vi.stubEnv('VOID_PLATFORM_REGISTRY_DIR', join(root, 'registry'));
   vi.stubEnv('VOID_API_URL', undefined);
+  vi.stubEnv('VOID_TOKEN', undefined);
 });
 afterEach(() => {
   vi.unstubAllEnvs();
@@ -82,6 +91,36 @@ describe('void auth destination routing', () => {
     );
     expect(process.env.VOID_API_URL).toBeUndefined();
     expect(mocks.account).toHaveBeenCalledWith(root, { subcommand: 'login' });
+  });
+
+  it.each([
+    ['another platform', 'https://a.example.com', 'https://b.example.com', 'saved-login-token'],
+    ['the bound platform', 'https://a.example.com/', 'https://a.example.com', 'env-token-for-a'],
+    ['a platform without VOID_API_URL', undefined, 'https://a.example.com', 'saved-login-token'],
+  ])('uses VOID_TOKEN only when the prompt selects %s', async (_, envUrl, apiUrl, expected) => {
+    for (const origin of ['https://a.example.com', 'https://b.example.com']) {
+      savePlatformConnection({
+        accountId: null,
+        apiUrl: origin,
+        applicationDomain: 'apps.example.com',
+        displayName: origin,
+        installationId: null,
+        kind: 'connected',
+        proxyUrl: 'https://proxy.example.com',
+      });
+    }
+    vi.stubEnv('VOID_API_URL', envUrl);
+    vi.stubEnv('VOID_TOKEN', 'env-token-for-a');
+    mocks.keyringRead.mockReturnValue('saved-login-token');
+    mocks.select.mockResolvedValue(apiUrl);
+    let token: string | null = null;
+    mocks.account.mockImplementation(() => {
+      token = getToken(root);
+    });
+    await runAuthRouter(root, parseAuthArgs(['status']), true);
+    expect(token).toBe(expected);
+    expect(process.env.VOID_API_URL).toBe(envUrl);
+    expect(process.env.VOID_TOKEN).toBe('env-token-for-a');
   });
 
   it('shows the Void platform as disabled until a platform is connected', async () => {

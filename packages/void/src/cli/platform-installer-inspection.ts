@@ -30,7 +30,7 @@ export async function readActivePlatformWorkerVersion(
     true,
   );
   if (result.status !== 0) {
-    assertCleanPlatformWrangler(result, `read active version for ${workerName}`);
+    assertCleanPlatformWrangler(result, `read active version for ${workerName}`, accountId);
   }
   const value = result.data;
   if (
@@ -136,7 +136,7 @@ export async function readPlatformWorkerDeployments(
     true,
   );
   if (result.status !== 0) {
-    assertCleanPlatformWrangler(result, `read deployment lineage for ${workerName}`);
+    assertCleanPlatformWrangler(result, `read deployment lineage for ${workerName}`, accountId);
   }
   const value = result.data;
   if (!Array.isArray(value)) {
@@ -342,7 +342,7 @@ export async function readPlatformWorkerVersionSnapshot(
     process.cwd(),
     true,
   );
-  assertCleanPlatformWrangler(result, `read rollback metadata for ${workerName}`);
+  assertCleanPlatformWrangler(result, `read rollback metadata for ${workerName}`, accountId);
   const value = result.data;
   if (!value || typeof value !== 'object') {
     throw new Error(`platform: Wrangler returned malformed version metadata for ${workerName}.`);

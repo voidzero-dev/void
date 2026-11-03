@@ -63,7 +63,7 @@ With that config, Void reads `src/pages`, `src/routes`, `src/db/schema.ts`, `src
 
 ### `ai`
 
-`ai.gateway` names the Cloudflare AI Gateway that `ai.provider().fetch()` uses when your app runs on your own Cloudflare account. `ai.run()`, `ai.stream()`, and `ai.image()` use the Workers AI binding and do not need a gateway. On a Void platform, the platform selects the gateway and ignores this setting.
+Set `ai.gateway` to the Cloudflare AI Gateway used by `ai.provider().fetch()` on your own Cloudflare account. `ai.run()`, `ai.stream()`, and `ai.image()` use the Workers AI binding. On a Void platform, the platform selects the gateway.
 
 ```json
 { "ai": { "gateway": "my-gateway" } }
@@ -140,6 +140,19 @@ Database backend. Omit for D1/SQLite (default). Set to `"pg"` or `"mysql"` for a
 | _(omitted)_ | D1 (SQLite), fully managed by Void with no extra config |
 | `"pg"`      | PostgreSQL via Hyperdrive; bring your own database      |
 | `"mysql"`   | MySQL via Hyperdrive; bring your own database           |
+
+Use an object to also set how Drizzle names columns declared without a name:
+
+```json
+{
+  "database": { "dialect": "pg", "casing": "snake_case" }
+}
+```
+
+| Key       | Values                                  | Description                                                                                                                                                                         |
+| --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dialect` | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                  |
+| `casing`  | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name |
 
 When using an external database:
 
@@ -284,7 +297,7 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 
 ### `worker`
 
-Curated Cloudflare Workers configuration. `void init` pins `compatibility_date` here. Binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` go in [`cloudflare`](#cloudflare), where Void preserves custom settings and resolved IDs during deployment.
+Cloudflare Workers settings, including the `compatibility_date` pinned by `void init`. Put binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` in [`cloudflare`](#cloudflare).
 
 | Field                 | Type       | Description                            |
 | --------------------- | ---------- | -------------------------------------- |
@@ -352,6 +365,26 @@ This choice applies to subsequent `void deploy` runs. Atomic deployment sends tr
 ### `routing`
 
 Routing and edge configuration for headers, redirects, rewrites, and caching.
+
+#### `routing.alwaysUseHttps`
+
+Redirect HTTP requests to HTTPS with a permanent `308` redirect. Omitted or `false` means off. Requires the Cloudflare target. `localhost` stays on HTTP. See [HTTP to HTTPS](../guide/edge/redirects#http-to-https) for where it works.
+
+```ts
+routing: {
+  alwaysUseHttps: true,
+}
+```
+
+#### `routing.typedRoutes`
+
+Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+
+```ts
+routing: {
+  typedRoutes: true,
+}
+```
 
 #### `routing.headers`
 
@@ -512,7 +545,7 @@ Each binding accepts `true` (use default name), `false` (disable), or a string (
 
 Custom binding names work with `void/db`, `void/kv`, and `void/storage` during development and deployment. Custom AI names also work with `void/ai` on direct Cloudflare deploys; managed Workers AI uses the platform's proxy.
 
-`email` is a boolean feature switch. Set it to `true` to enable [email](../guide/email.md) and the `void dev` inbox without an import from `void/email`, or `false` to disable them. On a Void platform, sending uses the platform proxy. Direct Cloudflare setup records a `SEND_EMAIL` binding in `void.lock.json`; see [`email.from`](#email).
+`email` is a boolean feature switch. Set it to `true` to enable [email](../guide/email.md) and the local email inbox without an import from `void/email`, or `false` to disable them. On a Void platform, sending uses the platform proxy. Direct Cloudflare setup records a `SEND_EMAIL` binding in `void.lock.json`; see [`email.from`](#email).
 
 #### `inference.build`
 

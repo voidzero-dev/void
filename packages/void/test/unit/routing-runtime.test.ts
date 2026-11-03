@@ -1,13 +1,22 @@
-import { Hono } from 'hono';
+import { Hono, type Context } from 'hono';
+import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
+import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { routeUrl } from 'void/routes';
+import { defer } from '../../src/pages/defer.ts';
+import { ValidationError } from '../../src/pages/protocol.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import {
+  createAssetNotFound,
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
+  createNamedActionMarker,
   createSsrFallback,
+  markRouteHandler,
 } from '../../src/runtime/routing-pages.ts';
 import {
   applyAssetCachePolicy,
@@ -23,11 +32,66 @@ import {
   createRoutingRuntime,
   type RoutingContext,
 } from '../../src/runtime/routing.ts';
+import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
 const wrap = <T>(_env: RuntimeEnvironment, callback: () => T): T => callback();
 
+declare module 'void/routes' {
+  interface RoutePathMap {
+    '/typed-rewrite/:id': 'id';
+  }
+}
+
 describe('typed HTTP execution', () => {
+  it.each([undefined, 301, 303, 307, 308] as const)(
+    'redirects typed destinations with status %s',
+    async (status) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      const destination = routeUrl('/typed-rewrite/:id', {
+        params: { id: 'a/b' },
+        query: { tab: 'activity' },
+        hash: 'details',
+      });
+      app.get(
+        '/redirect',
+        createHttpRouteHandler(
+          async () => ({
+            GET: defineHandler((c) => c.redirect(destination, status)),
+          }),
+          'GET',
+        ),
+      );
+      const response = await app.fetch(new Request('https://app.test/redirect'));
+      expect(response.status).toBe(status ?? 302);
+      expect(response.headers.get('Location')).toBe('/typed-rewrite/a%2Fb?tab=activity#details');
+    },
+  );
+
+  it('rewrites typed destinations with encoded params and a query string', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.get('/old', (c) =>
+      c.rewrite({
+        pathname: '/typed-rewrite/:id',
+        params: { id: 'a/b' },
+        query: { tab: 'activity' },
+      }),
+    );
+    app.get('/typed-rewrite/:id', (c) =>
+      c.json({
+        id: c.req.param('id'),
+        tab: c.req.query('tab'),
+        original: c.originalUrl()?.pathname,
+      }),
+    );
+    const response = await app.fetch(new Request('https://app.test/old'));
+    expect(await response.json()).toEqual({ id: 'a/b', tab: 'activity', original: '/old' });
+  });
+
   it('caches successful production loads, retries rejected loads and refreshes dev loads', async () => {
     let count = 0;
     const load = createModuleLoader(async () => {
@@ -456,6 +520,170 @@ describe('typed Pages and SSR execution', () => {
       expect(response.status).toBe(status);
     }
   });
+  it.each([
+    ['/named?delete', '/named'],
+    ['/named?delete&page=2', '/named?page=2'],
+    ['/named?delete=1&page=2', '/named?page=2'],
+    ['/named?&delete&page=2', '/named?page=2'],
+    ['/named?delete&delete=x&page=2', '/named?delete=x&page=2'],
+    ['/named?delete&q=a%20b&flag', '/named?q=a%20b&flag'],
+    ['/single?page=2', '/done?page=2'],
+  ])('drops only the named action key when c.redirect() carries %s', async (path, location) => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    const redirectTo = (location: string) => (c: Context) => c.redirect(location);
+    app.post(
+      '/named',
+      createPageMutationHandler({
+        ...pageOptions,
+        load: async () => ({ actions: { delete: redirectTo('/named') } }),
+        namedActions: true,
+      }),
+    );
+    app.post(
+      '/single',
+      createPageMutationHandler({
+        ...pageOptions,
+        load: async () => ({ action: redirectTo('/done') }),
+      }),
+    );
+    const response = await app.fetch(new Request('https://app.test' + path, { method: 'POST' }));
+    expect(response.headers.get('location')).toBe(location);
+  });
+  describe('the named action key around the action', () => {
+    function createNamedActionApp(pagePattern = '/named') {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
+      app.post(
+        '/api/x',
+        createHttpRouteHandler(async () => ({ POST: (c: Context) => c.redirect('/done') }), 'POST'),
+      );
+      app.on(
+        ['POST', 'PUT'],
+        pagePattern,
+        createPageMutationHandler({
+          ...pageOptions,
+          load: async () => ({
+            actions: {
+              delete: (c: Context) => c.redirect('/named'),
+              update: (c: Context) => c.redirect('/named', 303),
+              move: (c: Context) => c.redirect('/named-v2', 307),
+              moveTab: (c: Context) => c.redirect('/named-v2?tab=details', 307),
+              moveHash: (c: Context) => c.redirect('/named-v2?tab=details#top', 307),
+              moveReset: (c: Context) => c.redirect('/named-v2?', 307),
+              replace: (c: Context) => c.redirect('/named-v2?tab=details', 302),
+              moveKey: (c: Context) => c.redirect('/named-v2?tab=1&moveKey=x', 307),
+              moveSame: (c: Context) => c.redirect('/named-v2?moveSame', 307),
+              toArchive: (c: Context) => c.redirect('/named?archive', 307),
+              toArchiveHere: (c: Context) => c.redirect('/named?', 307),
+              go: (c: Context) => c.rewrite('/api/x'),
+              goWithQuery: (c: Context) => c.rewrite('/api/x?q=1'),
+              save: () => undefined,
+            },
+          }),
+          namedActions: true,
+        }),
+      );
+      return app;
+    }
+
+    it.each([
+      ['POST', '/named?delete&page=2', 'middleware', '/login?page=2'],
+      ['POST', '/named?move&page=2', 'a 307 redirect', '/named-v2?move&page=2'],
+      ['POST', '/named?moveTab&page=2', 'a 307 redirect', '/named-v2?moveTab&tab=details&page=2'],
+      [
+        'POST',
+        '/named?moveTab&moveTab=secondary&page=2',
+        'a 307 redirect',
+        '/named-v2?moveTab&tab=details&moveTab=secondary&page=2',
+      ],
+      ['PUT', '/named?replace&page=2', 'a 302 redirect', '/named-v2?replace&tab=details&page=2'],
+      [
+        'PUT',
+        '/named?&replace=1&page=2',
+        'a 302 redirect',
+        '/named-v2?replace=1&tab=details&page=2',
+      ],
+      ['POST', '/named?replace&page=2', 'a 302 redirect', '/named-v2?tab=details&page=2'],
+      [
+        'POST',
+        '/named?moveHash&page=2',
+        'a 307 redirect',
+        '/named-v2?moveHash&tab=details&page=2#top',
+      ],
+      ['POST', '/named?moveReset&page=2', 'a 307 redirect', '/named-v2?moveReset'],
+      ['POST', '/named?moveKey&page=2', 'a 307 redirect', '/named-v2?moveKey=x&tab=1&page=2'],
+      ['POST', '/named?moveSame', 'a 307 redirect', '/named-v2?moveSame'],
+      ['PUT', '/named?toArchive&page=2', 'a 307 redirect', '/named?archive=&page=2'],
+      ['PUT', '/named?toArchiveHere&page=2', 'a 307 redirect', '/named?toArchiveHere'],
+      ['PUT', '/named?delete&page=2', 'a 302 redirect', '/named?delete&page=2'],
+      ['PUT', '/named?update&page=2', 'a 303 redirect', '/named?page=2'],
+      ['POST', '/named?go&page=2', 'a rewrite', '/done?page=2'],
+      ['POST', '/named?goWithQuery&page=2', 'a rewrite with its own query', '/done?q=1'],
+    ])('%s %s through %s redirects to %s', async (method, path, through, location) => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test' + path, {
+          method,
+          headers: through === 'middleware' ? { 'x-anon': '1' } : {},
+        }),
+      );
+      expect(response.headers.get('location')).toBe(location);
+    });
+
+    it('marks the request for a one-argument middleware that answers first', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use('/named', async (c) => c.redirect('/maintenance'));
+      app.post('/named', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+      const response = await app.fetch(
+        new Request('https://app.test/named?delete&page=2', { method: 'POST' }),
+      );
+      expect(response.headers.get('location')).toBe('/maintenance?page=2');
+    });
+
+    it('leaves the query alone when another route answers a catch-all page pattern', async () => {
+      const response = await createNamedActionApp('/*').fetch(
+        new Request('https://app.test/api/x?return=/a&page=2', { method: 'POST' }),
+      );
+      expect(response.headers.get('location')).toBe('/done?return=/a&page=2');
+    });
+
+    it('leaves the query alone when a tagged Void route answers before a catch-all page', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
+      app.all(
+        '/api/auth/*',
+        markRouteHandler(async () => new Response('auth')),
+      );
+      app.post('/*', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+      const response = await app.fetch(
+        new Request('https://app.test/api/auth/callback?code=1&state=2', {
+          method: 'POST',
+          headers: { 'x-anon': '1' },
+        }),
+      );
+      expect(response.headers.get('location')).toBe('/login?code=1&state=2');
+    });
+
+    it('leaves the key out of the page URL when the action renders the page again', async () => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test/named?save&page=2', {
+          method: 'POST',
+          headers: { 'x-voidpages': 'true' },
+        }),
+      );
+      expect(((await response.json()) as { url: string }).url).toBe('/named?page=2');
+    });
+  });
   it('executes the real page loader and protocol', async () => {
     const app = new Hono();
     app.get(
@@ -522,6 +750,40 @@ describe('typed Pages and SSR execution', () => {
 });
 
 describe('typed error rendering', () => {
+  it.each([
+    [404, 'Not Found'],
+    [500, 'Internal Server Error'],
+  ] as const)(
+    'serves an HTML %s page when custom assets are unavailable',
+    async (status, title) => {
+      const app = new Hono();
+      const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+      app.get('/page', (c) => errors.serveCustomPage(c, status, title));
+      const response = await app.fetch(new Request('https://app.test/page'), {
+        ASSETS: {
+          fetch: async () => {
+            throw new Error('assets unavailable');
+          },
+        },
+      });
+      expect(response.status).toBe(status);
+      expect(response.headers.get('content-type')).toContain('text/html');
+      expect(await response.text()).toContain(String(status));
+    },
+  );
+  it.each([404, 500] as const)('serves a custom %s page unchanged', async (status) => {
+    const app = new Hono();
+    const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+    app.get('/page', (c) => errors.serveCustomPage(c, status, 'Custom error'));
+    const body = '<html><body>Custom error page</body></html>';
+    const fetch = async (request: Request) =>
+      new URL(request.url).pathname === `/${status}.html`
+        ? new Response(body)
+        : new Response('Not Found', { status: 404 });
+    const response = await app.fetch(new Request('https://app.test/page'), { ASSETS: { fetch } });
+    expect(response.status).toBe(status);
+    expect(await response.text()).toBe(body);
+  });
   it('escapes exceptions, renders causes and editor links in development and suppresses details in production', async () => {
     const error = new Error('<script>private</script>', { cause: new Error('nested failure') });
     error.stack = 'Error: private\n    at render (/project/pages/index.ts:12:3)';
@@ -559,6 +821,36 @@ describe('typed error rendering', () => {
         .text(),
     ).toBe('');
   });
+  it.each(['default', 'custom'] as const)(
+    'preserves replacement tokens in the %s error page overlay and captured CSS',
+    async (page) => {
+      const errors = createErrorRenderer({ dev: true, projectRoot: '/project', homeDir: '/home' });
+      const message = "replacement tokens: $& $$ $` $'";
+      const escapedMessage = "replacement tokens: $&amp; $$ $` $'";
+      const css = '<style data-error-css>body::before { content: "$& $$ $`"; }</style>';
+      const error = Object.assign(new Error(message, { cause: new Error(message) }), {
+        __voidPageAssetTags: { css },
+      });
+      error.stack = `Error: ${message}`;
+      const app = new Hono();
+      app.get('/error', (c) => errors.serveCustomPage(c, 500, 'Internal Server Error', error));
+      const response = await app.fetch(new Request('https://app.test/error'), {
+        ASSETS: {
+          fetch: async () =>
+            page === 'custom'
+              ? new Response('<!doctype html><html><head></head><body>Custom error</body></html>')
+              : new Response('Not Found', { status: 404 }),
+        },
+      });
+      const html = await response.text();
+      expect(response.status).toBe(500);
+      expect(html).toContain(css);
+      expect(html).toContain(`<p class="__void-error-message">${escapedMessage}</p>`);
+      expect(html).toContain(`<pre>Error: ${escapedMessage}</pre>`);
+      expect(html.match(/<!doctype html>/g)).toHaveLength(1);
+      expect(html.match(/data-void-error-overlay role=/g)).toHaveLength(1);
+    },
+  );
   it('preserves HTTP exceptions and adds captured page CSS and dev overlay to custom 500 pages', async () => {
     const app = new Hono();
     const errors = createErrorRenderer({ dev: true, projectRoot: '/project', homeDir: '/home' });
@@ -638,6 +930,42 @@ describe('typed client asset tags', () => {
     expect(islandTags.preloads).not.toContain('/md.js');
     expect(binding).toHaveBeenCalledTimes(1);
   });
+
+  it('shares one manifest fetch between concurrent cold loads', async () => {
+    const binding = vi.fn(async () => Response.json({ page: { file: 'page.js' } }));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    const request = new Request('https://app.test/page');
+    const manifests = await Promise.all(Array.from({ length: 8 }, () => loader(request, env)));
+    expect(binding).toHaveBeenCalledTimes(1);
+    expect(new Set(manifests).size).toBe(1);
+    expect(manifests[0]).toEqual({ page: { file: 'page.js' } });
+    expect(await loader(request, env)).toBe(manifests[0]);
+    expect(binding).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries the manifest after a missing response or a rejected fetch', async () => {
+    const manifest = { page: { file: 'page.js' } };
+    const binding = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response('missing', { status: 404 }))
+      .mockRejectedValueOnce(new Error('assets unavailable'))
+      .mockImplementation(async () => Response.json(manifest));
+    const loader = createManifestLoader();
+    const env = { ASSETS: { fetch: binding } };
+    const request = new Request('https://app.test/page');
+    expect(await loader(request, env)).toBeNull();
+    expect(binding).toHaveBeenCalledTimes(1);
+    const rejected = [loader(request, env), loader(request, env)];
+    await expect(rejected[0]).rejects.toThrow('assets unavailable');
+    await expect(rejected[1]).rejects.toThrow('assets unavailable');
+    expect(binding).toHaveBeenCalledTimes(2);
+    expect(await loader(request, env)).toEqual(manifest);
+    expect(binding).toHaveBeenCalledTimes(3);
+    await loader(request, env);
+    expect(binding).toHaveBeenCalledTimes(3);
+  });
+
   it('loads development CSS with active roots and omits client tags when production has no manifest', async () => {
     const devCss = vi.fn(
       async (
@@ -670,5 +998,334 @@ describe('typed client asset tags', () => {
       preloads: '',
       body: '',
     });
+  });
+});
+
+describe('static asset marker', () => {
+  const policy = 'public, max-age=0, must-revalidate';
+  const env = {
+    ASSETS: {
+      fetch: async (request: Request) =>
+        ['/favicon.ico', '/assets/client-abcdefgh.js'].includes(new URL(request.url).pathname)
+          ? new Response('file', { headers: { 'cache-control': policy } })
+          : new Response('missing', { status: 404 }),
+    },
+  };
+
+  function markerApp(
+    fallback: (
+      routing: ReturnType<typeof createRoutingRuntime>,
+    ) => (c: Context) => Promise<Response>,
+    nodeTarget = false,
+  ) {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget });
+    const seen: Array<unknown> = [];
+    app.use(routing.contextMiddleware);
+    app.use(async (c, next) => {
+      await next();
+      seen.push((c as Context).get('__voidStaticAsset'));
+    });
+    app.get('/new', (c) => c.text('fallback rule'));
+    app.notFound(fallback(routing));
+    return { app, seen };
+  }
+  const fallbackRules = [{ source: '/old', destination: '/new', status: 200 }];
+  const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+
+  it.each([
+    [
+      'Pages',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createPagesFallback({ routing, errors, fallbackRules }),
+      ['/missing', '/missing.css', '/old', '/missing/'],
+    ],
+    [
+      'SSR',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createSsrFallback({
+          routing,
+          fallbackRules,
+          load: async () => ({ render: async () => new Response('rendered') }),
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+        }),
+      ['/document', '/missing.css', '/old.css'],
+    ],
+    [
+      'asset-only',
+      (routing: ReturnType<typeof createRoutingRuntime>) =>
+        createAssetNotFound({ routing, fallbackRules }),
+      ['/missing', '/old'],
+    ],
+  ])('marks only ASSETS hits from the %s fallback', async (_label, fallback, unmarked) => {
+    const { app, seen } = markerApp(fallback);
+    for (const path of ['/favicon.ico', '/assets/client-abcdefgh.js']) {
+      const response = await app.fetch(new Request('https://app.test' + path), env);
+      expect(response.status).toBe(200);
+      expect(seen.pop()).toMatchObject({ policy: response.headers.get('cache-control') });
+    }
+    for (const path of unmarked) {
+      await app.fetch(new Request('https://app.test' + path), env);
+      expect(seen.pop(), path).toBeUndefined();
+    }
+  });
+
+  it('does not mark responses without an ASSETS binding', async () => {
+    const { app, seen } = markerApp((routing) => createPagesFallback({ routing, errors }));
+    await app.fetch(new Request('https://app.test/favicon.ico'));
+    expect(seen.pop()).toBeUndefined();
+  });
+});
+
+describe('native HTTPS policy', () => {
+  it('redirects HTTP before ISR and the app, keeping path, query and method', async () => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const app = { fetch: vi.fn(async () => new Response('app')) };
+    const fetch = worker({ alwaysUseHttps: true, app, isr: { deploymentId: 'd', handle } });
+    const response = await fetch(
+      new Request('http://oxc.rs/docs?q=1', { method: 'POST' }),
+      { ISR_CACHE: {} },
+      context,
+    );
+    expect(response.status).toBe(308);
+    expect(response.headers.get('Location')).toBe('https://oxc.rs/docs?q=1');
+    expect(handle).not.toHaveBeenCalled();
+    expect(app.fetch).not.toHaveBeenCalled();
+    const upgrade = await fetch(
+      new Request('http://oxc.rs/chat', { headers: { upgrade: 'websocket' } }),
+      {},
+      context,
+    );
+    expect(upgrade.status).toBe(308);
+  });
+
+  it.each([
+    { name: 'HTTPS', url: 'https://oxc.rs/docs', alwaysUseHttps: true },
+    { name: 'the option off', url: 'http://oxc.rs/docs', alwaysUseHttps: false },
+    { name: 'the option unset', url: 'http://oxc.rs/docs', alwaysUseHttps: undefined },
+    {
+      name: 'the prerender runner on localhost',
+      url: 'http://localhost/docs',
+      alwaysUseHttps: true,
+    },
+  ])('serves the cached page for $name', async ({ url, alwaysUseHttps }) => {
+    const handle = vi.fn(async () => new Response('cache'));
+    const fetch = worker({ alwaysUseHttps, isr: { deploymentId: 'd', handle } });
+    const response = await fetch(new Request(url), { ISR_CACHE: {} }, context);
+    expect(response.status).toBe(200);
+    expect(await response.text()).toBe('cache');
+  });
+
+  it('answers Void endpoints for tools and the platform over HTTP', async () => {
+    const fetch = worker({
+      alwaysUseHttps: true,
+      emailReceipt: async () => new Response('receipt', { status: 202 }),
+      internalRoute: async (request) =>
+        new URL(request.url).pathname === '/__void/migrate' ? new Response('migrated') : null,
+    });
+    const ready = await fetch(new Request('http://oxc.rs/__void/ready'), {}, context);
+    expect(await ready.json()).toEqual({ ready: true });
+    const receipt = await fetch(
+      new Request('http://oxc.rs/__void/email/receipt/v1', { method: 'POST' }),
+      {},
+      context,
+    );
+    expect(receipt.status).toBe(202);
+    const migrate = await fetch(
+      new Request('http://oxc.rs/__void/migrate', { method: 'POST' }),
+      {},
+      context,
+    );
+    expect(await migrate.text()).toBe('migrated');
+    const discovery = await fetch(
+      new Request('http://oxc.rs/__void/prerender-paths', { method: 'POST' }),
+      { __VOID_PRERENDER: '1' },
+      context,
+    );
+    expect(await discovery.json()).toEqual({ paths: ['/page'] });
+  });
+});
+
+describe('page loaders and actions composed with defineHandler middleware', () => {
+  const pageOptions = {
+    componentId: 'page',
+    render: async (page: { props: unknown; errors: unknown }) =>
+      '<html>' + JSON.stringify({ props: page.props, errors: page.errors }) + '</html>',
+    assets: async () => ({ css: '', body: '', preloads: '' }),
+    headConfig: undefined,
+    renderOptions: { renderMode: 'server' as const },
+  };
+  const schema = (message?: string): StandardSchemaV1 => ({
+    '~standard': {
+      version: 1,
+      vendor: 'test',
+      validate: (value: unknown) =>
+        message ? { issues: [{ message, path: ['title'] }] } : { value },
+    },
+  });
+  const passThrough = defineMiddleware(async (_c, next) => {
+    await next();
+  });
+  type PageJson = { props: Record<string, unknown>; errors: unknown; shared: unknown };
+
+  function createPageApp(mod: Record<string, unknown>) {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    const load = async () => mod;
+    app.get('/db', createPageGetHandler({ ...pageOptions, load }));
+    app.post('/db', createPageMutationHandler({ ...pageOptions, load, namedActions: true }));
+    return app;
+  }
+  const get = (app: Hono, headers: Record<string, string> = { 'X-VoidPages': 'true' }) =>
+    app.fetch(new Request('https://app.test/db', { headers }));
+  const post = (app: Hono, body: unknown, pages = true) =>
+    app.fetch(
+      new Request('https://app.test/db?create', {
+        method: 'POST',
+        headers: {
+          ...(pages && { 'X-VoidPages': 'true' }),
+          Origin: 'https://app.test',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+  it('renders the page from a loader with middleware', async () => {
+    const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
+    const json = await get(app);
+    expect(json.status).toBe(200);
+    expect(((await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    const html = await get(app, {});
+    expect(html.status).toBe(200);
+    expect(await html.text()).toContain('{"notes":["a"]}');
+  });
+
+  it('re-renders the page after an action with middleware, or shows its field errors', async () => {
+    const action = (message?: string) =>
+      defineHandler(
+        passThrough,
+        defineHandler.withValidator({ body: schema(message) })(async () => {}),
+      );
+    const loader = defineHandler(passThrough, () => ({ notes: ['fresh'] }));
+    const valid = await post(createPageApp({ loader, actions: { create: action() } }), {
+      title: 'a',
+    });
+    expect(valid.status).toBe(200);
+    expect(await valid.json()).toMatchObject({ props: { notes: ['fresh'] }, errors: null });
+    const invalid = await post(createPageApp({ loader, actions: { create: action('Required') } }), {
+      title: '',
+    });
+    expect(invalid.status).toBe(200);
+    expect(await invalid.json()).toMatchObject({
+      props: { notes: ['fresh'] },
+      errors: { title: 'Required' },
+    });
+    // A form posted without JavaScript gets the rendered page too.
+    const form = await post(
+      createPageApp({ loader, actions: { create: action('Required') } }),
+      {},
+      false,
+    );
+    expect(form.headers.get('Content-Type')).toContain('text/html');
+    expect(await form.text()).toContain('"errors":{"title":"Required"}');
+  });
+
+  it('streams deferred props through loader middleware', async () => {
+    const after = defineMiddleware(async (c, next) => {
+      await next();
+      c.res.headers.set('X-After', '1');
+    });
+    const app = createPageApp({
+      loader: defineHandler(after, () => ({ a: 1, slow: defer(async () => 2) })),
+    });
+    const json = await get(app);
+    expect(json.headers.get('X-After')).toBe('1');
+    expect(await json.text()).toContain('{"__deferred":"slow","data":2}');
+    const html = await get(app, {});
+    expect(html.headers.get('X-After')).toBe('1');
+    expect(await html.text()).toContain('__resolveDeferred');
+  });
+
+  it('lets etag() middleware tag each rendered page form', async () => {
+    const app = createPageApp({ loader: defineHandler(etag(), () => ({ v: 'stable' })) });
+    const json = (await get(app)).headers.get('ETag')!;
+    const html = (await get(app, {})).headers.get('ETag')!;
+    expect(json).not.toBe(html);
+    expect((await get(app, { 'X-VoidPages': 'true', 'If-None-Match': json })).status).toBe(304);
+    expect((await get(app, { 'If-None-Match': html })).status).toBe(304);
+  });
+
+  it('runs middleware around the rendered page response', async () => {
+    const shared = defineMiddleware(async (c, next) => {
+      c.header('X-Before', '1');
+      c.set('shared', { user: 'u1' });
+      await next();
+      c.res.headers.set('X-After', '1');
+    });
+    const app = createPageApp({
+      loader: defineHandler(shared, () => ({ ok: true })),
+      actions: { create: defineHandler(shared, async () => {}) },
+    });
+    for (const response of [await get(app), await post(app, {})]) {
+      expect(response.status).toBe(200);
+      expect(response.headers.get('X-Before')).toBe('1');
+      expect(response.headers.get('X-After')).toBe('1');
+      expect(((await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+    }
+  });
+
+  it('keeps edits outer middleware makes after an inner middleware answers', async () => {
+    const outer = defineMiddleware(async (c, next) => {
+      await next();
+      c.res = new Response('outer:' + (await c.res.text()), c.res);
+    });
+    const deny = defineMiddleware(async () => new Response('denied', { status: 401 }));
+    const app = createPageApp({
+      loader: defineHandler(outer, deny, () => ({})),
+      actions: { create: defineHandler(passThrough, async () => {}) },
+    });
+    for (const response of [await get(app), await post(app, {})]) {
+      expect(response.status).toBe(401);
+      expect(await response.text()).toBe('outer:denied');
+    }
+  });
+
+  it('turns a ValidationError from action middleware into field errors, once', async () => {
+    const check = defineMiddleware(async () => {
+      throw new ValidationError({ title: 'Taken' });
+    });
+    const loader = vi.fn(() => ({ ok: true }));
+    const errors = await post(
+      createPageApp({ loader, actions: { create: defineHandler(check, async () => {}) } }),
+      {},
+    );
+    expect(errors.status).toBe(200);
+    expect(await errors.json()).toMatchObject({ errors: { title: 'Taken' } });
+
+    // A ValidationError from the loader while re-rendering is not the action's.
+    const failing = vi.fn(() => {
+      throw new ValidationError({ title: 'loader' });
+    });
+    const app = createPageApp({
+      loader: failing,
+      actions: { create: defineHandler(passThrough, async () => {}) },
+    });
+    app.onError(() => new Response('failed', { status: 500 }));
+    expect((await post(app, {})).status).toBe(500);
+    expect(failing).toHaveBeenCalledTimes(1);
+
+    // Once the action's response exists, a later ValidationError is an error.
+    const late = defineMiddleware(async (_c, next) => {
+      await next();
+      throw new ValidationError({ title: 'late' });
+    });
+    const lateApp = createPageApp({
+      loader,
+      actions: { create: defineHandler(late, async () => {}) },
+    });
+    lateApp.onError(() => new Response('failed', { status: 500 }));
+    expect((await post(lateApp, {})).status).toBe(500);
   });
 });

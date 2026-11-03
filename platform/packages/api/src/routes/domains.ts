@@ -31,7 +31,6 @@ import {
 } from '../zero-trust/state.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
-const CNAME_TARGET = `cname.${SITE_DOMAIN}`;
 const ORPHAN_ADOPTION_MIN_AGE_MS = 60_000;
 const DOMAIN_LIMIT_ERROR = `Protected projects support at most ${MAX_ZERO_TRUST_CUSTOM_DOMAINS_PER_PROJECT} custom domains`;
 
@@ -88,8 +87,9 @@ const app = new Hono<ApiEnv>()
       return context.json({ error: 'invalid hostname format' }, 400);
     }
 
-    if (hostname.endsWith(`.${SITE_DOMAIN}`)) {
-      return context.json({ error: `cannot use ${SITE_DOMAIN} subdomains` }, 400);
+    const siteDomain = context.env.SITE_DOMAIN ?? SITE_DOMAIN;
+    if (hostname.endsWith(`.${siteDomain}`)) {
+      return context.json({ error: `cannot use ${siteDomain} subdomains` }, 400);
     }
 
     const existing = await getDomainByHostname(context.get('db'), hostname);
@@ -232,7 +232,7 @@ const app = new Hono<ApiEnv>()
 
         return context.json({
           ...domain,
-          cname_target: CNAME_TARGET,
+          cname_target: `cname.${context.env.SITE_DOMAIN ?? SITE_DOMAIN}`,
           ownership_verification: cfHostname.ownership_verification,
           ssl_validation_records: cfHostname.ssl.validation_records ?? [],
         });
@@ -290,7 +290,7 @@ const app = new Hono<ApiEnv>()
     return context.json({
       ...domain,
       status: activated || domain.status === 'active' ? 'active' : domain.status,
-      cname_target: CNAME_TARGET,
+      cname_target: `cname.${context.env.SITE_DOMAIN ?? SITE_DOMAIN}`,
       ssl_status: cf.ssl.status,
       cf_status: cf.status,
       awaiting_deployment: awaitingDeployment,

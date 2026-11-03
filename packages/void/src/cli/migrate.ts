@@ -13,6 +13,7 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import { parseTree, type Node } from 'jsonc-parser';
 import { join } from 'pathslash';
 import {
+  ignoreMaterializedCloudflareConfig,
   seedCloudflareConfig,
   stashCloudflareDeployPointer,
   VOID_LOCK_FILE,
@@ -20,6 +21,7 @@ import {
 import { loadTypedVoidConfigFile, TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { GENERATED_MARKERS, renderVoidConfig } from '../config-write.ts';
 import { validateConfig, type VoidConfig } from '../config.ts';
+import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   applyFrameworkConfigMigration,
   discoverFrameworkWranglerFiles,
@@ -94,18 +96,6 @@ function isOrphanedCompatibilityConfig(
   } catch {
     return false;
   }
-}
-
-function ignoreGeneratedCloudflareConfig(root: string): void {
-  const path = join(root, '.gitignore');
-  const source = existsSync(path) ? readFileSync(path, 'utf8') : '';
-  if (source.split(/\r?\n/).some((line) => /^\/?\.void-wrangler\.jsonc$/.test(line.trim()))) {
-    return;
-  }
-  writeFileSync(
-    path,
-    `${source}${source && !source.endsWith('\n') ? '\n' : ''}.void-wrangler.jsonc\n`,
-  );
 }
 
 /** Move Void and Cloudflare JSON/JSONC settings into a typed, checked-in project config. */
@@ -226,7 +216,7 @@ export function migrateLegacyVoidConfig(root: string): boolean {
     if (wranglerName) {
       unlinkSync(join(root, wranglerName));
     }
-    ignoreGeneratedCloudflareConfig(root);
+    ignoreMaterializedCloudflareConfig(root);
     stashCloudflareDeployPointer(root);
     return true;
   } finally {
@@ -236,11 +226,21 @@ export function migrateLegacyVoidConfig(root: string): boolean {
 
 export async function runMigrateCommand(root: string): Promise<void> {
   console.log();
-  if (migrateLegacyVoidConfig(root)) {
+  const migrated = migrateLegacyVoidConfig(root);
+  const updatedIgnore =
+    ensureGitignoreLines(root, ['.cloudflare'], {
+      '.cloudflare': ['/.cloudflare', '.cloudflare/', '/.cloudflare/'],
+    }).length > 0;
+  if (migrated) {
     log.step(
       `Migrated project settings to ${TYPED_CONFIG_FILE}. Commit it and ${VOID_LOCK_FILE} when present.`,
     );
-    printSuccess('Configuration migration complete.');
+  }
+  if (updatedIgnore) {
+    log.step('Added .cloudflare to .gitignore.');
+  }
+  if (migrated || updatedIgnore) {
+    printSuccess('Project migration complete.');
   } else {
     log.info('No legacy project configuration found.');
   }

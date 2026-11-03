@@ -8,30 +8,19 @@ import type {
   CSSProperties,
   RefObject,
 } from 'react';
-import { isModifiedEvent, mergeDataIntoHref } from 'void/pages-client';
+import {
+  handleLinkClick,
+  linkPrefetchStrategies,
+  observeLinkVisible,
+  prefetchLink,
+  resolveLink,
+  type BaseLinkProps,
+} from 'void/pages-client';
 import { RouterContext } from './context.ts';
 
-type PrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
-type LinkMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
-type PrefetchOptions = { cacheFor?: LinkProps['cacheFor'] };
-
-type CommonProps = {
-  href: string;
-  method?: LinkMethod | Lowercase<LinkMethod>;
-  data?: Record<string, unknown>;
-  preserveScroll?: boolean;
-  preserveState?: boolean;
-  replace?: boolean;
-  reloadDocument?: boolean;
-  viewTransition?: boolean;
-  prefetch?: boolean | PrefetchStrategy | ReadonlyArray<PrefetchStrategy>;
-  cacheFor?: number | string | [string, string];
-  onNavigate?: (event: { preventDefault(): void }) => void;
-};
-
-export type LinkProps = CommonProps &
-  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof CommonProps> &
-  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof CommonProps>;
+export type LinkProps = BaseLinkProps &
+  Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof BaseLinkProps> &
+  Omit<ButtonHTMLAttributes<HTMLButtonElement>, keyof BaseLinkProps>;
 
 export function Link({
   href,
@@ -42,7 +31,7 @@ export function Link({
   replace = false,
   reloadDocument = false,
   viewTransition,
-  prefetch: prefetchProp = false,
+  prefetch = false,
   cacheFor,
   onNavigate,
   children,
@@ -58,110 +47,45 @@ export function Link({
   const router = useContext(RouterContext);
   const elementRef = useRef<HTMLElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const normalizedMethod = useMemo(() => method.toUpperCase() as LinkMethod, [method]);
-  const isGet = normalizedMethod === 'GET';
-  const hrefWithData = useMemo(
-    () => (isGet ? mergeDataIntoHref(href, data) : href),
-    [data, href, isGet],
+  const link = useMemo(
+    () => resolveLink({ href, method, data, prefetch, reloadDocument }),
+    [data, href, method, prefetch, reloadDocument],
   );
-  const strategies = useMemo<ReadonlyArray<PrefetchStrategy>>(() => {
-    if (prefetchProp === false || reloadDocument) {
-      return [];
-    }
-    if (prefetchProp === true) {
-      return ['hover'];
-    }
-    if (typeof prefetchProp === 'string') {
-      return [prefetchProp];
-    }
-    return prefetchProp;
-  }, [prefetchProp, reloadDocument]);
+  const strategies = useMemo(
+    () => linkPrefetchStrategies({ prefetch, reloadDocument }),
+    [prefetch, reloadDocument],
+  );
   const hoverDelay = router?._hoverDelay ?? 75;
 
-  if (prefetchProp !== false && !isGet) {
-    throw new Error(
-      'Link: prefetch only supports GET links. Remove `prefetch` or use method="GET".',
-    );
-  }
-  if (reloadDocument && !isGet) {
-    throw new Error('Link: reloadDocument only supports GET links.');
-  }
-
-  const doPrefetch = useCallback(() => {
-    if (!router?.prefetch) {
-      return;
-    }
-    const current = window.location.pathname + window.location.search;
-    if (hrefWithData === current) {
-      return;
-    }
-    const options: PrefetchOptions = {};
-    if (cacheFor !== undefined) {
-      options.cacheFor = cacheFor;
-    }
-    router.prefetch(hrefWithData, options);
-  }, [cacheFor, hrefWithData, router]);
-
-  const shouldHandleClick = useCallback(
-    (event: MouseEvent): boolean => {
-      if (reloadDocument || !router || event.defaultPrevented || isModifiedEvent(event)) {
-        return false;
-      }
-      if ((event.currentTarget as HTMLElement).hasAttribute('download')) {
-        return false;
-      }
-
-      const url = new URL(hrefWithData, window.location.origin);
-      if (url.origin !== window.location.origin) {
-        return false;
-      }
-
-      return true;
-    },
-    [hrefWithData, reloadDocument, router],
+  const doPrefetch = useCallback(
+    () => prefetchLink(router, link.href, cacheFor),
+    [cacheFor, link.href, router],
   );
 
   const onClick = useCallback(
     (event: MouseEvent) => {
       // oxlint-disable-next-line no-explicit-any -- React merges anchor/button handler types awkwardly here
       onClickProp?.(event as any);
-      if (!shouldHandleClick(event)) {
-        return;
-      }
-
-      let navigatePrevented = false;
-      onNavigate?.({
-        preventDefault() {
-          navigatePrevented = true;
-        },
-      });
-      if (navigatePrevented) {
-        event.preventDefault();
-        return;
-      }
-
-      event.preventDefault();
-      router?.visit(hrefWithData, {
-        method: normalizedMethod,
-        data: isGet ? undefined : data,
+      handleLinkClick(event, router, link, {
+        data,
         preserveScroll,
         preserveState,
         replace,
+        reloadDocument,
         viewTransition,
+        onNavigate,
       });
     },
     [
       data,
-      hrefWithData,
-      isGet,
-      normalizedMethod,
+      link,
       onClickProp,
       onNavigate,
       preserveScroll,
       preserveState,
+      reloadDocument,
       replace,
       router,
-      shouldHandleClick,
       viewTransition,
     ],
   );
@@ -235,29 +159,17 @@ export function Link({
       doPrefetch();
     }
 
-    let observer: IntersectionObserver | null = null;
-    if (strategies.includes('visible') && elementRef.current) {
-      observer = new IntersectionObserver(
-        (entries) => {
-          if (entries.some((e) => e.isIntersecting)) {
-            doPrefetch();
-            observer?.disconnect();
-            observer = null;
-          }
-        },
-        { rootMargin: '0px' },
-      );
-      observer.observe(elementRef.current);
-    }
+    const stopObserving =
+      strategies.includes('visible') && elementRef.current
+        ? observeLinkVisible(elementRef.current, doPrefetch)
+        : null;
 
     return () => {
       if (hoverTimerRef.current) {
         clearTimeout(hoverTimerRef.current);
         hoverTimerRef.current = null;
       }
-      if (observer) {
-        observer.disconnect();
-      }
+      stopObserving?.();
     };
   }, [doPrefetch, strategies]);
 
@@ -309,11 +221,11 @@ export function Link({
     [style],
   );
 
-  if (isGet) {
+  if (link.isGet) {
     return (
       <a
         ref={elementRef as RefObject<HTMLAnchorElement>}
-        href={hrefWithData}
+        href={link.href}
         style={resolvedStyle}
         {...rest}
         {...eventHandlers}

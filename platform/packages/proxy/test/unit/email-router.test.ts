@@ -425,6 +425,139 @@ describe('routeInbound — authoritative routing', () => {
   });
 });
 
+// -----------------------------------------------------------------------
+// Project email alias: the shared-domain name may be the slug or the alias.
+// -----------------------------------------------------------------------
+
+describe('routeInbound — project email alias', () => {
+  /** The gateway route for project `proj` reached through `mailbox`. */
+  function aliasRoute(mailbox?: string): Parameters<typeof routeInboundWithRoute>[3] {
+    return {
+      ...ROUTE_FENCE,
+      projectId: 'p_test',
+      workerName: 'user-worker',
+      deploymentId: 'v1',
+      slug: 'proj',
+      ...(mailbox === undefined ? {} : { mailbox }),
+      addressing: 'shared',
+      domain: PROD_DOMAIN,
+    };
+  }
+
+  it('dispatches alias+tag@domain when the route mailbox is the alias', async () => {
+    const { env, emailFn } = makeEnv({ emailReturn: [] });
+    const { message, rejectCalls } = createFakeMessage({ to: `alias+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('alias'));
+    expect(rejectCalls).toHaveLength(0);
+    expect(emailFn).toHaveBeenCalledTimes(1);
+    // The user worker sees the recipient as sent; the framework strips the name.
+    const envelope = emailFn.mock.calls[0]?.[0] as { to: string };
+    expect(envelope.to).toBe(`alias+x@${PROD_DOMAIN}`);
+  });
+
+  it('compares the route mailbox case-insensitively', async () => {
+    const { env, emailFn } = makeEnv({ emailReturn: [] });
+    const { message, rejectCalls } = createFakeMessage({ to: `Alias+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('ALIAS'));
+    expect(rejectCalls).toHaveLength(0);
+    expect(emailFn).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects when the route mailbox is not the recipient prefix', async () => {
+    const { env, dispatchGet } = makeEnv();
+    const { message, rejectCalls } = createFakeMessage({ to: `alias+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('other'));
+    expect(rejectCalls[0]).toContain('authoritative route mismatch');
+    expect(dispatchGet).not.toHaveBeenCalled();
+  });
+
+  it('rejects the slug address when the route says the alias was used', async () => {
+    const { env, dispatchGet } = makeEnv();
+    const { message, rejectCalls } = createFakeMessage({ to: `proj+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('alias'));
+    expect(rejectCalls[0]).toContain('authoritative route mismatch');
+    expect(dispatchGet).not.toHaveBeenCalled();
+  });
+
+  it('without a mailbox, compares the recipient prefix with the slug', async () => {
+    const { env, emailFn, dispatchGet } = makeEnv({ emailReturn: [] });
+    const { ctx } = createCtx();
+
+    const viaSlug = createFakeMessage({ to: `proj+x@${PROD_DOMAIN}` });
+    await routeInbound(viaSlug.message, env, ctx, aliasRoute());
+    expect(viaSlug.rejectCalls).toHaveLength(0);
+    expect(emailFn).toHaveBeenCalledTimes(1);
+
+    const viaAlias = createFakeMessage({ to: `alias+x@${PROD_DOMAIN}` });
+    await routeInbound(viaAlias.message, env, ctx, aliasRoute());
+    expect(viaAlias.rejectCalls[0]).toContain('authoritative route mismatch');
+    expect(dispatchGet).toHaveBeenCalledTimes(1);
+  });
+
+  it('enacts replies sent from either the slug or the alias', async () => {
+    const fromSlug = `proj+support@${PROD_DOMAIN}`;
+    const fromAlias = `alias+support@${PROD_DOMAIN}`;
+    const { env } = makeEnv({
+      emailReturn: [
+        { type: 'reply', from: fromSlug, to: 'admin@example.com', raw: replyRaw(fromSlug) },
+        { type: 'reply', from: fromAlias, to: 'admin@example.com', raw: replyRaw(fromAlias) },
+      ],
+    });
+    const { message, replyCalls } = createFakeMessage({ to: `alias+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('alias'));
+    expect(replyCalls.map((r) => r.from)).toEqual([fromSlug, fromAlias]);
+  });
+
+  it('enacts a reply from the alias when the message arrived at the slug address', async () => {
+    const fromAlias = `alias+support@${PROD_DOMAIN}`;
+    const { env } = makeEnv({
+      emailReturn: [
+        { type: 'reply', from: fromAlias, to: 'admin@example.com', raw: replyRaw(fromAlias) },
+      ],
+    });
+    const { message, replyCalls } = createFakeMessage({ to: `proj+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, { ...aliasRoute('proj'), alias: 'alias' });
+    expect(replyCalls.map((r) => r.from)).toEqual([fromAlias]);
+  });
+
+  it('drops a reply sent from another project on the shared domain', async () => {
+    const fromOther = `other+support@${PROD_DOMAIN}`;
+    const { env, apiFetch } = makeEnv({
+      emailReturn: [
+        { type: 'reply', from: fromOther, to: 'admin@example.com', raw: replyRaw(fromOther) },
+      ],
+    });
+    const { message, replyCalls } = createFakeMessage({ to: `alias+x@${PROD_DOMAIN}` });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('alias'));
+    expect(replyCalls).toHaveLength(0);
+    expect(apiBodies(apiFetch, '/admit')).toHaveLength(0);
+    expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('sender not owned by project'));
+  });
+
+  it('forwards from the alias recipient', async () => {
+    const recipient = `alias+x@${PROD_DOMAIN}`;
+    const { env, apiFetch } = makeEnv({
+      emailReturn: [{ type: 'forward', to: 'admin@example.com' }],
+    });
+    const { message, forwardCalls } = createFakeMessage({ to: recipient });
+    const { ctx } = createCtx();
+    await routeInbound(message, env, ctx, aliasRoute('alias'));
+    expect(apiBodies(apiFetch, '/admit')[0]).toMatchObject({
+      kind: 'forward',
+      from: recipient,
+      transport: 'native_forward',
+    });
+    expect(forwardCalls).toMatchObject([{ to: 'admin@example.com' }]);
+  });
+});
+
 describe('routeInbound — message size guards', () => {
   it('rejects messages exceeding rawSize > 10MB before streaming', async () => {
     const { env, emailFn } = makeEnv();

@@ -1,6 +1,14 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { extractWorkersDevSubdomain, normalizeWorkersDevSubdomain } from '@void/deploy-cloudflare';
+import {
+  extractWorkersDevSubdomain,
+  normalizeReadinessAccessOrigin,
+  normalizeWorkersDevSubdomain,
+  type CloudflareWorkersDevSubdomainLookup,
+} from '@void/deploy-cloudflare';
 import { dirname, join } from 'pathslash';
+import { isCleanCloudflareExit } from './cloudflare-process.ts';
+import type { DeployWranglerRun } from './deploy-types.ts';
+import type { ComplianceRegion } from './provision.ts';
 
 const STATE_FILE = join('.void', 'cloudflare.json');
 
@@ -28,6 +36,80 @@ export function resolveCloudflareWorkersDevSubdomain(
 
   const cached = subdomainsByAccount(readCloudflareLocalState(root))[accountId];
   return typeof cached === 'string' ? normalizeWorkersDevSubdomain(cached) : undefined;
+}
+
+/**
+ * Record `CF_ACCESS_READINESS_ORIGIN` before project code runs. `void.config.ts` is evaluated in
+ * this process, so a later read of `process.env` could see a value that the project assigned,
+ * for example through a dotenv import. `null` means unset. An already recorded value is kept.
+ */
+export function withRecordedReadinessAccessOrigin<
+  T extends { readinessAccessOrigin?: string | null },
+>(options: T, env: Readonly<Record<string, string | undefined>> = process.env): T {
+  return options.readinessAccessOrigin !== undefined
+    ? options
+    : { ...options, readinessAccessOrigin: env.CF_ACCESS_READINESS_ORIGIN ?? null };
+}
+
+/**
+ * Validate the operator-selected origin that may receive readiness Access credentials when the
+ * probe uses a route or Custom Domain. Pass the value that `withRecordedReadinessAccessOrigin`
+ * recorded, not the current `process.env`.
+ */
+export function resolveCloudflareReadinessAccessOrigin(
+  env: Readonly<Record<string, string | undefined>>,
+): string | undefined {
+  const configured = env.CF_ACCESS_READINESS_ORIGIN?.trim();
+  if (!configured) {
+    return undefined;
+  }
+  const origin = normalizeReadinessAccessOrigin(configured);
+  if (!origin) {
+    throw new Error(
+      'deploy: CF_ACCESS_READINESS_ORIGIN must be one exact https origin, without a wildcard, path, query, fragment, or credentials, for example "https://app.example.com".',
+    );
+  }
+  return origin;
+}
+
+/**
+ * Read the account subdomain from the Cloudflare API when a first publish reports no URL and
+ * no subdomain is configured or cached. The API returns only the account label, so this adds
+ * `.fed` for FedRAMP High, as Wrangler does. A failed lookup resolves `unavailable`.
+ */
+export async function readCloudflareWorkersDevSubdomain(options: {
+  configPath: string;
+  complianceRegion: ComplianceRegion;
+  runWrangler: DeployWranglerRun;
+  verifyUploader: () => boolean;
+}): Promise<CloudflareWorkersDevSubdomainLookup> {
+  // The authenticated read runs in the pinned transport, keeping credentials in its process.
+  if (!options.verifyUploader()) {
+    return { ok: false, reason: 'uploader-changed' };
+  }
+  let label: string;
+  try {
+    const result = await options.runWrangler(
+      { type: 'workers.subdomain.get', configPath: options.configPath },
+      { capture: true },
+    );
+    if (
+      !isCleanCloudflareExit(result) ||
+      !result.data ||
+      typeof result.data !== 'object' ||
+      !('subdomain' in result.data) ||
+      typeof result.data.subdomain !== 'string'
+    ) {
+      return { ok: false, reason: 'unavailable' };
+    }
+    label = result.data.subdomain;
+  } catch {
+    return { ok: false, reason: 'unavailable' };
+  }
+  const subdomain = normalizeWorkersDevSubdomain(
+    options.complianceRegion === 'fedramp_high' ? `${label}.fed` : label,
+  );
+  return subdomain ? { ok: true, subdomain } : { ok: false, reason: 'unavailable' };
 }
 
 /** Cache a Wrangler-reported account subdomain for later no-preview version probes. */

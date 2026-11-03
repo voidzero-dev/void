@@ -81,6 +81,34 @@
     {
       "platformVersion": "1.1.0",
       "schemaDigest": "bd1c4f124ee52cde71a9e2e974e3af2f1431cc7c92796be233784d5790b06eb4"
+    },
+    {
+      "platformVersion": "1.1.11",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.1.12",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.2.0",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.2.1",
+      "schemaDigest": "d8e007d2bbe02637f6e77a33c1db152e0c4f21b30439ad512e16bce6726d6b9b"
+    },
+    {
+      "platformVersion": "1.3.0",
+      "schemaDigest": "8bde0b5b35b98112498be2954726223a6a059cbf92302990437e582f57a1fc98"
+    },
+    {
+      "platformVersion": "1.4.0",
+      "schemaDigest": "8bde0b5b35b98112498be2954726223a6a059cbf92302990437e582f57a1fc98"
+    },
+    {
+      "platformVersion": "1.5.0",
+      "schemaDigest": "8bde0b5b35b98112498be2954726223a6a059cbf92302990437e582f57a1fc98"
     }
   ]
 }

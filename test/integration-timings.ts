@@ -24,6 +24,7 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/mysql-test.test.ts': 11000,
   'packages/void/test/integration/named-layouts.test.ts': 9939,
   'packages/void/test/integration/nitro-worker.test.ts': 30000,
+  'packages/void/test/integration/node-static-md.test.ts': 2000,
   'packages/void/test/integration/node-static.test.ts': 13667,
   'packages/void/test/integration/node-target.test.ts': 10833,
   'packages/void/test/integration/nuxt.test.ts': 43000,

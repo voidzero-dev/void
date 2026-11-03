@@ -12,7 +12,7 @@ import module, { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { cloudflare } from '@cloudflare/vite-plugin';
+import { getWorkerBundleDir } from '@cloudflare/build-output-utils';
 import { createBuilder, createServer, normalizePath, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { voidPlugin } from '../../src/index.ts';
@@ -88,7 +88,7 @@ describe('voidPlugin Vite environments', () => {
       environments: {
         void_worker: {
           build: {
-            outDir: 'dist/ssr',
+            outDir: getWorkerBundleDir(realpathSync.native(root)),
           },
         },
       },
@@ -123,7 +123,7 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.void_worker.resolve.conditions).toContain('workerd');
     expect(config.environments.void_worker.build).toMatchObject({
       emptyOutDir: false,
-      outDir: 'dist/ssr',
+      outDir: getWorkerBundleDir(realpathSync.native(root)),
     });
   });
 
@@ -191,7 +191,7 @@ describe('voidPlugin Vite environments', () => {
       );
       writeFileSync(join(root, 'worker.ts'), 'export default {};\n');
       writeFileSync(
-        join(root, 'wrangler.jsonc'),
+        join(root, '.void-wrangler.jsonc'),
         JSON.stringify({
           name: 'adapter-app',
           main: './worker.ts',
@@ -200,8 +200,21 @@ describe('voidPlugin Vite environments', () => {
       );
       vi.spyOn(process, 'cwd').mockReturnValue(root);
       // @astrojs/cloudflare runs Astro's ssr environment in workerd this way.
-      const adapter = cloudflare({
-        configPath: join(root, 'wrangler.jsonc'),
+      // Astro retains its own stable plugin dependency; exercise that adapter,
+      // independently of the v2 plugin bundled by Void.
+      const astroRequire = createRequire(
+        new URL('../../../../playground/astro/package.json', import.meta.url),
+      );
+      const pluginManifest = module.findPackageJSON(
+        '@cloudflare/vite-plugin',
+        pathToFileURL(astroRequire.resolve('@astrojs/cloudflare')),
+      )!;
+      const { exports: pluginExports } = JSON.parse(readFileSync(pluginManifest, 'utf8'));
+      const { cloudflare: astroCloudflare } = await import(
+        new URL(pluginExports['.'].import, pathToFileURL(pluginManifest)).href
+      );
+      const adapter = astroCloudflare({
+        configPath: join(root, '.void-wrangler.jsonc'),
         viteEnvironment: { name: 'ssr' },
       });
 
@@ -240,6 +253,33 @@ describe('voidPlugin Vite environments', () => {
       );
     },
   );
+
+  it.each([
+    ['a Pages app', {}],
+    ['a class A framework', { '@tanstack/react-start': '*' }],
+    ['a class B framework', { '@sveltejs/kit': '*' }],
+  ])('passes database.casing to the void/db client of %s', async (_, dependencies) => {
+    const root = createProjectRoot();
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module', dependencies }));
+    writeFileSync(
+      join(root, 'void.json'),
+      JSON.stringify({
+        database: { dialect: 'pg', casing: 'snake_case' },
+        worker: { compatibility_date: '2026-02-24' },
+      }),
+    );
+    mkdirSync(join(root, 'db'));
+    writeFileSync(join(root, 'db/schema.ts'), 'export {};\n');
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    const config = await resolveConfig({ root, plugins: [voidPlugin()] }, 'serve', 'development');
+    const plugin = config.plugins.find((candidate) => candidate.name === 'void:drizzle');
+    const load = getHookHandler(plugin?.load) as (this: object, id: string) => string;
+
+    expect(load.call({}, '\0virtual:void-db')).toContain(
+      'drizzle(connectionString, { schema, casing: "snake_case" })',
+    );
+  });
 
   it('serves the void/db virtual module to SvelteKit server code from an installed void', async () => {
     // Windows runners report a short-name temp path, which Vite refuses to serve.
@@ -491,6 +531,88 @@ describe('voidPlugin Vite environments', () => {
       await server.close();
     }
   });
+
+  it('serves the app void/db to installed packages that depend on void in SvelteKit D1 dev with casing', async () => {
+    const root = realpathSync.native(createProjectRoot());
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({
+        type: 'module',
+        dependencies: { 'db-lib': '*' },
+        devDependencies: { '@sveltejs/kit': '*', void: '*' },
+      }),
+    );
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ database: { casing: 'snake_case' } }));
+    installPackage(root, 'void', { type: 'module', exports: { './db': './db.mjs' } }, '');
+    writeFileSync(join(root, 'node_modules/void/db.mjs'), 'export {};\n');
+    installPackage(
+      root,
+      'db-lib',
+      { type: 'module', peerDependencies: { void: '*' } },
+      "export { db } from 'void/db';\n",
+    );
+    mkdirSync(join(root, 'src'));
+    writeFileSync(join(root, 'src/server.ts'), "export { db } from 'db-lib';\n");
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [voidPlugin()],
+      optimizeDeps: { noDiscovery: true },
+      server: { middlewareMode: true, ws: false, preTransformRequests: false },
+    });
+    try {
+      const app = await server.environments.ssr.transformRequest('/src/server.ts');
+      const lib = await server.environments.ssr.transformRequest('/node_modules/db-lib/index.js');
+
+      expect(app?.code).not.toContain('__vite_ssr_import__("db-lib"');
+      expect(lib?.code).toContain('virtual:void-db');
+    } finally {
+      await server.close();
+    }
+  });
+
+  it.each([
+    ['bundles', { casing: 'snake_case' }],
+    ['leaves out', {} as { casing?: string }],
+  ])(
+    '%s installed packages that depend on void in a SvelteKit D1 build with database %j',
+    async (_, database) => {
+      const root = createProjectRoot();
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({
+          type: 'module',
+          dependencies: { 'db-lib': '*' },
+          devDependencies: { '@sveltejs/kit': '*' },
+        }),
+      );
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ database }));
+      installPackage(root, 'db-lib', { type: 'module', peerDependencies: { void: '*' } }, '');
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+      // Kit's plugin adds the ssr environment that builds the server.
+      const config = await resolveConfig(
+        {
+          root,
+          configFile: false,
+          logLevel: 'silent',
+          plugins: [voidPlugin()],
+          environments: { ssr: {} },
+        },
+        'build',
+        'production',
+      );
+
+      expect(config.environments.ssr!.resolve.noExternal).toEqual(
+        database.casing
+          ? expect.arrayContaining(['db-lib'])
+          : expect.not.arrayContaining(['db-lib']),
+      );
+    },
+  );
 
   // The rule vite-plugin-svelte applies to Svelte libraries.
   it("finds installed ES module packages that depend on void among the app's dependencies and theirs", () => {
@@ -836,6 +958,53 @@ describe('voidPlugin Vite environments', () => {
     }
   });
 
+  it('loads a table file outside db/ that imports sql from void/db after a route loads void/db', async () => {
+    // #472: db/schema.ts re-exports a table file outside db/, which imports void/db while
+    // void/db is still loading db/schema.ts.
+    const root = realpathSync.native(createProjectRoot());
+    mkdirSync(join(root, 'db'));
+    writeFileSync(
+      join(root, 'db/schema.ts'),
+      'export * from "../src/resources/projects/projects.schema";\n',
+    );
+    mkdirSync(join(root, 'src/resources/projects'), { recursive: true });
+    // A top-level sql`` call, as in a column default, is enough to need the helper.
+    writeFileSync(
+      join(root, 'src/resources/projects/projects.schema.ts'),
+      "import { sql } from 'void/db';\nexport const projects = sql`(datetime('now'))`;\n",
+    );
+    mkdirSync(join(root, 'routes/api'), { recursive: true });
+    writeFileSync(
+      join(root, 'routes/api/projects.ts'),
+      [
+        "import { db } from 'void/db';",
+        "import { projects } from '@schema';",
+        'export const GET = () => Response.json({ db: typeof db, projects: typeof projects });',
+        '',
+      ].join('\n'),
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+
+    const server = await createServer({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [voidPlugin()],
+      optimizeDeps: { noDiscovery: true },
+      // No watcher: macOS can report the files just written as changed, which
+      // reloads void/db while the route is still loading it.
+      server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
+    });
+    try {
+      const route = await server.ssrLoadModule('/routes/api/projects.ts');
+      const response = (route.GET as () => Response)();
+
+      await expect(response.json()).resolves.toEqual({ db: 'object', projects: 'object' });
+    } finally {
+      await server.close();
+    }
+  }, 30_000);
+
   describe('Node target builds with an installed void', () => {
     /** An API-only Node-target app whose route imports void and an adapter from node_modules. */
     function createNodeApp(route: string): string {
@@ -992,6 +1161,55 @@ describe('voidPlugin Vite environments', () => {
         );
       } finally {
         await server.close();
+      }
+    },
+  );
+});
+
+describe('deploy-build preview', () => {
+  it.each(['vite', 'astro'])(
+    'preserves the fresh deploy pointer when %s previews inside a deploy build',
+    (command) => {
+      const root = createProjectRoot();
+      rmSync(join(root, 'void.json'));
+      writeFileSync(join(root, 'void.config.ts'), 'export default {};\n');
+      if (command === 'astro') {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({ type: 'module', dependencies: { astro: '*' } }),
+        );
+      }
+      const stash = '{"configPath":"../../old-build/wrangler.json"}';
+      const fresh = '{"configPath":"../../dist/server/wrangler.json"}';
+      mkdirSync(join(root, '.void'), { recursive: true });
+      writeFileSync(join(root, '.void/preview-deploy-config.json'), stash);
+      const pointer = join(root, '.wrangler/deploy/config.json');
+      mkdirSync(join(root, '.wrangler/deploy'), { recursive: true });
+      writeFileSync(pointer, fresh);
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+      vi.stubEnv('VOID_CLOUDFLARE_DEPLOY_BUILD', '1');
+      const once = vi.spyOn(process, 'once').mockReturnValue(process);
+      const argv = process.argv;
+      process.argv = [argv[0]!, command, command === 'astro' ? 'preview' : 'build'];
+      try {
+        const guard = voidPlugin().find(
+          (plugin) => plugin.name === 'void:remove-implicit-cloudflare-deploy-pointer',
+        )!;
+        const configure = getHookHandler(guard.config) as (
+          config: object,
+          env: { command: string; mode: string; isPreview: boolean },
+        ) => void;
+        configure({}, { command: 'serve', mode: 'production', isPreview: true });
+        for (const [event, listener] of once.mock.calls) {
+          if (event === 'exit') {
+            (listener as () => void)();
+          }
+        }
+        expect(existsSync(pointer)).toBe(true);
+        expect(readFileSync(pointer, 'utf8')).toBe(fresh);
+        expect(readFileSync(join(root, '.void/preview-deploy-config.json'), 'utf8')).toBe(stash);
+      } finally {
+        process.argv = argv;
       }
     },
   );

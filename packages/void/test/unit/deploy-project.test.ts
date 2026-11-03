@@ -14,6 +14,7 @@ import {
   resolveFullDeployBuildCommand,
   resolveStaticDeployPreset,
   resolveStaticBuildCommand,
+  toManifestSchedulesAndQueues,
 } from '../../src/cli/deploy-helpers.ts';
 import {
   formatProjectCommand,
@@ -397,6 +398,12 @@ describe('resolveFullDeployBuildCommand', () => {
     });
   });
 
+  it('prefers inference.build over a framework build fallback', () => {
+    expect(
+      resolveFullDeployBuildCommand(root, 'vp build', FRAMEWORK_PRESETS.nuxt.buildCommand),
+    ).toEqual({ label: 'vp build', command: 'vp build' });
+  });
+
   it.each([undefined, ''])(
     'falls back to the built-in vite build for inference.build %j',
     (build) => {
@@ -406,6 +413,15 @@ describe('resolveFullDeployBuildCommand', () => {
       });
     },
   );
+
+  it('uses a framework build command as the fallback when provided', () => {
+    expect(
+      resolveFullDeployBuildCommand(root, undefined, FRAMEWORK_PRESETS.nuxt.buildCommand),
+    ).toEqual({
+      label: formatProjectCommand(root, FRAMEWORK_PRESETS.nuxt.buildCommand),
+      command: resolveProjectCommand(root, FRAMEWORK_PRESETS.nuxt.buildCommand),
+    });
+  });
 });
 
 describe('resolveStaticDeployPreset', () => {
@@ -540,5 +556,37 @@ describe('generateDeployWrapperIfNeeded', () => {
     expect(wrapper).toContain('/__void/migrate');
     const handler = readFileSync(join(workerDir, '__void_migration_handler.mjs'), 'utf-8');
     expect(handler).toContain('VALUES ($1, $2)');
+  });
+});
+
+describe('toManifestSchedulesAndQueues', () => {
+  it('keeps queue retry options, including zero', () => {
+    const { queues } = toManifestSchedulesAndQueues(
+      [],
+      [
+        {
+          filePath: 'emails.ts',
+          name: 'emails',
+          bindingName: 'QUEUE_EMAILS',
+          maxBatchSize: 50,
+          maxBatchTimeout: 10,
+          maxRetries: 0,
+          retryDelay: 30,
+        },
+        { filePath: 'jobs.ts', name: 'jobs', bindingName: 'QUEUE_JOBS' },
+      ],
+    );
+    expect(queues).toEqual([
+      {
+        name: 'emails',
+        bindingName: 'QUEUE_EMAILS',
+        maxBatchSize: 50,
+        maxBatchTimeout: 10,
+        maxRetries: 0,
+        retryDelay: 30,
+      },
+      { name: 'jobs', bindingName: 'QUEUE_JOBS' },
+    ]);
+    expect(Object.keys(queues[1]!)).toEqual(['name', 'bindingName']);
   });
 });

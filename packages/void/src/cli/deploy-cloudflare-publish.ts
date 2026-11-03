@@ -55,11 +55,13 @@ export async function publishCloudflareWorker(input: {
     workerName,
     cfUploaderIsPinned,
     apiBaseUrl,
+    complianceRegion,
     runWrangler,
     assertUploaderStillPinned,
     schemaFacts,
     approvedHandoffKv,
     workersDevSubdomain,
+    readinessAccessOrigin,
   } = input.preflight;
   const { migrations, d1MigrateToken, generatedConfigPath, prepareBuildOutput } = input.build;
   const { workerWasMissingBeforeSecretProvisioning, initialAuthSecret, appliedMigrations } =
@@ -109,8 +111,10 @@ export async function publishCloudflareWorker(input: {
         uploadConfigPath: generatedConfigPath,
         accountId,
         apiBaseUrl,
+        complianceRegion,
         workerName,
         workersDevSubdomain,
+        readinessAccessOrigin,
         runWrangler,
         readExistingWorker: deps.readExistingWorker,
         existingWorker,

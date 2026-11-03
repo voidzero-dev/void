@@ -97,6 +97,33 @@ async function withNoSchema(fn: () => Promise<void>): Promise<void> {
 }
 
 describe('envClientGuardPlugin', () => {
+  it.each([
+    `import { env } from 'void/env'; function local(env) { return env.SECRET; }`,
+    `import { env } from 'void/env'; function local() { console.log(env.SECRET); var env; }`,
+    `import { env } from 'void/env'; { console.log(env.SECRET); let env; }`,
+    `import { env } from 'void/env'; try {} catch ({ env }) { console.log(env.SECRET); }`,
+    `import * as ns from 'void/env'; const local = (ns) => ns.env.SECRET;`,
+    `import { env } from 'void/env'; class Local { constructor(private env: any) { console.log(env.SECRET); } }`,
+  ])('accepts reads belonging to local bindings: %s', async (code) => {
+    defineEnv({ SECRET: string() });
+    const ctx = makeContext();
+    expect(await runTransform(ctx, code, `${ROOT}/src/page.ts`)).toEqual({ threw: false });
+    expect(ctx.errors).toEqual([]);
+    expect(ctx.warnings).toEqual([]);
+  });
+
+  it('still rejects an imported server key next to a shadowed read', async () => {
+    defineEnv({ SECRET: string() });
+    const ctx = makeContext();
+    const result = await runTransform(
+      ctx,
+      `import { env } from 'void/env'; function local(env) { return env.SECRET; } console.log(env.SECRET);`,
+      `${ROOT}/src/page.ts`,
+    );
+    expect(result.threw).toBe(true);
+    expect(ctx.errors).toHaveLength(1);
+  });
+
   beforeEach(() => {
     resetSchema();
   });

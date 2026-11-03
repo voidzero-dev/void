@@ -1,4 +1,5 @@
 export type { ProjectZeroTrustRouting } from './access.ts';
+export { redirectToHttps } from './https.ts';
 export {
   applyHeaderRules,
   parseClearSiteData,

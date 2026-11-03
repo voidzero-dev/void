@@ -1,3 +1,4 @@
+import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
 import { createManifestLoader, type ManifestLoader } from './routing-assets.ts';
 
@@ -172,6 +173,8 @@ export type WorkerFetchOptions = {
   withRuntimeEnv: (env: RuntimeEnvironment, fn: () => Promise<Response>) => Promise<Response>;
   filterBindings: (env: RuntimeEnvironment) => RuntimeEnvironment;
   validateEnv?: (env: RuntimeEnvironment) => Promise<void>;
+  /** Native Cloudflare production builds redirect public HTTP requests to HTTPS. */
+  alwaysUseHttps?: boolean;
   /** Authored/generated version metadata binding used to prove the served native version. */
   versionMetadataBinding?: string;
   remoteEnv?: (env: RuntimeEnvironment) => RuntimeEnvironment;
@@ -244,6 +247,15 @@ export function createWorkerFetch(
         }
         if (discovery) {
           return Response.json({ paths: await options.collectPrerenderPaths(request, env, ctx) });
+        }
+        // After the Void endpoints that tools and the platform call above, and
+        // before ISR, so a cached page is never served over HTTP. The
+        // build-time prerender runner fetches localhost, which is never redirected.
+        if (options.alwaysUseHttps) {
+          const redirect = redirectToHttps(request);
+          if (redirect) {
+            return redirect;
+          }
         }
         const userEnv = options.filterBindings(env);
         const render = async (req: Request): Promise<Response> =>

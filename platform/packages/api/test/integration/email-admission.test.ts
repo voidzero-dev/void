@@ -345,6 +345,8 @@ describe('authoritative email admission', () => {
               payloadDigest: 'f'.repeat(64),
               route: receiptRoute(),
             });
+      // It can fail before the assertion below listens; that is not an unhandled rejection.
+      receive.catch(() => {});
       try {
         await waitForPostgresLockWaiter();
         releaseDisable();
@@ -408,6 +410,72 @@ describe('authoritative email admission', () => {
     });
     expect(action.recipients).toMatchObject([{ state: 'rejected', errorCode: 'INVALID_FROM' }]);
     expect((await getProjectEmailUsage(env.db, project.id)).attempts).toBe(0);
+  });
+
+  it('sends from an outbound-only domain and never accepts mail for it', async () => {
+    const project = await fixture();
+    await env.db.insert(emailCredentials).values({
+      id: 'outbound-cred',
+      installation_id: 'installation',
+      managed_by: 'admin',
+      manager_user_id: project.userId,
+      kind: 'api_token',
+      account_id: 'account',
+      zone_id: 'outbound-zone',
+      ciphertext: 'ciphertext',
+      iv: 'iv',
+      key_version: 'key',
+    });
+    await env.db.insert(emailZoneConnections).values({
+      id: 'outbound-connection',
+      installation_id: 'installation',
+      account_id: 'account',
+      zone_id: 'outbound-zone',
+      zone_name: 'brand.example.com',
+      managed_by: 'admin',
+      manager_user_id: project.userId,
+      credential_id: 'outbound-cred',
+      ingress_worker_name: 'gateway',
+      secret_ciphertext: 'ciphertext',
+      secret_iv: 'iv',
+      secret_key_version: 'key',
+      management_status: 'healthy',
+    });
+    await env.db.insert(emailDomainRoutes).values({
+      id: 'outbound-route',
+      domain: 'brand.example.com',
+      connection_id: 'outbound-connection',
+      project_id: project.id,
+      addressing: 'custom',
+      managed_by: 'admin',
+      assigned_by_user_id: project.userId,
+      inbound_mode: 'none',
+      inbound_status: 'disabled',
+      outbound_status: 'ready',
+    });
+
+    const action = await admitEmailAction(env.db, {
+      ...input(project.id, 'outbound-sender'),
+      from: 'support@brand.example.com',
+      transport: 'send_raw',
+    });
+    expect(action.recipients).toMatchObject([{ state: 'reserved' }]);
+    await expect(
+      recordEmailReceipt(env.db, {
+        receiptId: 'outbound-only-receipt',
+        projectId: project.id,
+        status: 'received',
+        route: {
+          routeId: 'outbound-route',
+          routeGeneration: 1,
+          connectionId: 'outbound-connection',
+          addressing: 'custom',
+          domain: 'brand.example.com',
+          projectSlug: project.slug,
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'INVALID_STATE' });
+    expect(await env.db.select().from(emailReceipts)).toHaveLength(0);
   });
 
   it('does not start a reserved custom send after the stored token expires', async () => {
@@ -566,6 +634,45 @@ describe('authoritative email admission', () => {
       { state: 'rejected', errorCode: 'INVALID_FROM' },
     ]);
     expect((await getProjectEmailUsage(env.db, project.id)).attempts).toBe(1);
+  });
+
+  it('admits a shared sender under the project slug or its email alias only', async () => {
+    const project = await fixture();
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'acme-mail' })
+      .where(eq(projects.id, project.id));
+    const otherUser = await createTestUser(env.db);
+    const other = await createTestProject(env.db, otherUser.id, 'other');
+    await env.db
+      .update(projects)
+      .set({ email_alias: 'other-mail' })
+      .where(eq(projects.id, other.id));
+
+    for (const from of [
+      'acme-mail@mail.example.com',
+      'acme-mail+news@mail.example.com',
+      'acme+news@mail.example.com',
+    ]) {
+      const admitted = await admitEmailAction(env.db, {
+        ...input(project.id, `owned-${from}`),
+        from,
+      });
+      expect(admitted.recipients).toMatchObject([{ state: 'reserved', errorCode: null }]);
+    }
+    for (const from of [
+      'other-mail@mail.example.com',
+      'other-mail+news@mail.example.com',
+      'acme-mailx@mail.example.com',
+      'random+acme-mail@mail.example.com',
+    ]) {
+      const refused = await admitEmailAction(env.db, {
+        ...input(project.id, `refused-${from}`),
+        from,
+      });
+      expect(refused.recipients).toMatchObject([{ state: 'rejected', errorCode: 'INVALID_FROM' }]);
+    }
+    expect((await getProjectEmailUsage(env.db, project.id)).attempts).toBe(3);
   });
 
   it('records unsupported relayed forwarding without charging and retains native verified forwarding', async () => {
@@ -1185,6 +1292,8 @@ describe('authoritative email admission', () => {
               payloadDigest: 'd'.repeat(64),
               route: receiptRoute(),
             });
+      // It can fail before the assertion below listens; that is not an unhandled rejection.
+      start.catch(() => {});
       try {
         await waitForPostgresLockWaiter();
         releaseSuspension();

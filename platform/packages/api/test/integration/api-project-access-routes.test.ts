@@ -1,6 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { verifyPrerenderToken } from '../../src/auth/deploy-token.ts';
+import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import app from '../../src/index.ts';
 import * as projectAccess from '../../src/project-access.ts';
 import { deriveAiUsageTag } from '../../src/proxy-token.ts';
@@ -568,6 +569,73 @@ describe('project route membership capabilities', () => {
   });
 });
 
+describe('managed build platform capability', () => {
+  function withoutManagedBuilds(): TestEnv {
+    return {
+      ...env,
+      PLATFORM_CAPABILITIES: JSON.stringify({
+        ...getPlatformCapabilities(env),
+        managedBuilds: false,
+      }),
+    };
+  }
+
+  it('serves project usage when managed builds are disabled', async () => {
+    const owner = await createTestUser(env.db);
+    const project = await createTestProject(env.db, owner.id);
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        const url =
+          typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+        if (url.includes('/analytics_engine/sql')) {
+          return Response.json({ data: [{ requests: 12, bandwidth_bytes: 34 }] });
+        }
+        if (url.includes('/graphql')) {
+          return Response.json({
+            data: {
+              viewer: {
+                accounts: [{ aiGatewayRequests: [{ sum: { cost: 0.000022 } }] }],
+              },
+            },
+          });
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      }),
+    );
+
+    const response = await app.fetch(
+      authed(`/projects/${project.id}/usage`, owner.jwt),
+      withoutManagedBuilds(),
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      projectId: project.id,
+      requests: 12,
+      bandwidthBytes: 34,
+      aiNeurons: 2,
+    });
+  });
+
+  it.each(['GET', 'POST', 'PATCH', 'DELETE'])(
+    'keeps %s project GitHub connections unavailable when managed builds are disabled',
+    async (method) => {
+      const owner = await createTestUser(env.db);
+      const project = await createTestProject(env.db, owner.id);
+      const fetchMock = vi.fn();
+      vi.stubGlobal('fetch', fetchMock);
+
+      const response = await app.fetch(
+        authed(`/projects/${project.id}/github`, owner.jwt, method, {}),
+        withoutManagedBuilds(),
+      );
+      expect(response.status).toBe(501);
+      expect(await response.json()).toMatchObject({ capability: 'managedBuilds' });
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+});
+
 describe('ownership-period account usage', () => {
   it('reports unavailable usage rather than zero when analytics fails', async () => {
     const owner = await createTestUser(env.db, 'usage-owner');
@@ -669,7 +737,9 @@ describe('ownership-period account usage', () => {
     );
     expect(graphqlQueries).toHaveLength(1);
     expect(graphqlQueries[0]).toContain(
-      `metadata_projectId: "${await deriveAiUsageTag(JWT_SECRET, project.id)}"`,
+      `metadataRaw: ${JSON.stringify(
+        JSON.stringify({ projectId: await deriveAiUsageTag(JWT_SECRET, project.id) }),
+      )}`,
     );
     expect(graphqlQueries[0]).toContain(`datetime_geq: "${ownedFrom.toISOString()}"`);
     expect(graphqlQueries[0]).toContain(`datetime_lt: "${transferredAt.toISOString()}"`);

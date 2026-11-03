@@ -52,6 +52,7 @@ This provides binding types and Workers runtime types.
 | `KV`             | KV              | `c.env.KV` or `void/kv`           |
 | `STORAGE`        | R2              | `c.env.STORAGE` or `void/storage` |
 | `AI`             | Workers AI      | `c.env.AI` or `void/ai`           |
+| `ASSETS`         | Static assets   | `c.env.ASSETS.fetch(request)`     |
 | `QUEUE_*`        | Queues          | `defineQueue()` or `void/queues`  |
 | Filename-derived | Durable Objects | A module in `durable-objects/`    |
 
@@ -132,13 +133,14 @@ Apps using email need `email.from` in `void.config.ts`. Void reviews the domain'
 
 Set these CI secrets and variables as needed:
 
-| Name                                             | When needed                                                                                                   |
-| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------- |
-| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions. |
-| `CLOUDFLARE_ACCOUNT_ID`                          | When the token can access several accounts.                                                                   |
-| `DATABASE_URL`                                   | PostgreSQL and MySQL provisioning and migrations.                                                             |
-| `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When the Worker has no version preview URL. Use `my-team` or `my-team.workers.dev`.                           |
-| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                            |
+| Name                                             | When needed                                                                                                              |
+| ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `CLOUDFLARE_API_TOKEN`                           | Required. Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions.            |
+| `CLOUDFLARE_ACCOUNT_ID`                          | When the token can access several accounts.                                                                              |
+| `DATABASE_URL`                                   | PostgreSQL and MySQL provisioning and migrations.                                                                        |
+| `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When the Worker has no version preview URL. Use `my-team` or `my-team.workers.dev`.                                      |
+| `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                                       |
+| `CF_ACCESS_READINESS_ORIGIN`                     | When Access protects a route or Custom Domain and `workers_dev` is `false`. See [Cloudflare Access](#cloudflare-access). |
 
 For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Email Routing Edit and Email Sending Edit.
 
@@ -151,6 +153,14 @@ export CF_ACCESS_TOKEN="$(cloudflared access token --app=https://<worker>.<accou
 ```
 
 Void uses Access credentials for readiness checks without saving them. If checks are denied, the deployment fails. A first-deploy bootstrap can already be active behind Access when this happens.
+
+By default, Void sends Access credentials only to `workers.dev` URLs. If `workers_dev` is `false`, Void can check readiness through your first route or Custom Domain. To send the credentials there, set `CF_ACCESS_READINESS_ORIGIN` to that hostname's origin:
+
+```sh
+export CF_ACCESS_READINESS_ORIGIN="https://app.example.com"
+```
+
+Set this variable in the shell or CI environment running `void deploy`. Use an exact HTTPS origin for a hostname you control that serves this Worker; Void sends your Access credentials there.
 
 ### Databases and secrets
 
@@ -183,7 +193,7 @@ void project status
 void project rollback [version]
 ```
 
-Void restores recorded triggers along with the code. Versions without a complete trigger snapshot keep current routes and schedules. Rollback does not reverse database migrations. To undo D1 migrations, run [`void db restore`](../reference/cli/database.md#void-db-restore) with the restore point that deploy printed before it applied them, within 7 days on Workers Free or 30 days on Workers Paid.
+Void restores recorded triggers along with the code. Versions without a complete trigger snapshot keep current routes and schedules. Database recovery is separate: use [`void db restore`](../reference/cli/database.md#void-db-restore) to undo D1 migrations.
 
 #### Scope and limitations
 

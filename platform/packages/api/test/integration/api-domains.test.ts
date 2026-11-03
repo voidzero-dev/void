@@ -647,6 +647,47 @@ describe('POST /projects/:id/domains', () => {
     expect(await res.json()).toEqual({ error: 'cannot use void.app subdomains' });
   });
 
+  it('uses the installation domain for the CNAME target and reserved suffix', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'self-hosted-domain');
+    mockCfApi({
+      createCustomHostname: () =>
+        cfSuccess({
+          id: 'ch-self-hosted',
+          hostname: 'www.example.com',
+          status: 'pending',
+          ssl: { status: 'pending_validation', method: 'http', type: 'dv' },
+          ownership_verification: {
+            type: 'txt',
+            name: '_cf-custom-hostname.www.example.com',
+            value: 'ownership-v',
+          },
+        }),
+    });
+    const selfHostedEnv = { ...env, SITE_DOMAIN: 'apps.example.com' };
+    const addDomain = (hostname: string) =>
+      app.fetch(
+        new Request(`http://localhost/projects/${project.id}/domains`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${user.jwt}`,
+          },
+          body: JSON.stringify({ hostname }),
+        }),
+        selfHostedEnv,
+      );
+
+    const rejected = await addDomain('bad.apps.example.com');
+    expect(rejected.status).toBe(400);
+    expect(await rejected.json()).toEqual({ error: 'cannot use apps.example.com subdomains' });
+
+    const added = await addDomain('www.example.com');
+    expect(added.status).toBe(200);
+    const body = (await added.json()) as { cname_target: string };
+    expect(body.cname_target).toBe('cname.apps.example.com');
+  });
+
   it('rejects invalid hostname format', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'invalid-host');

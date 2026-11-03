@@ -263,6 +263,80 @@ describe('platform installation planning', () => {
     expect(formatPlatformInstallPlan(resumed)).toContain('https://dash.example.org:8443');
   });
 
+  it('records minimal runtime logs and changes them only on upgrade', async () => {
+    const full = await createPlatformInstallPlan(client(), input, null);
+    expect(full.deployment).not.toHaveProperty('runtimeLogs');
+    const minimal = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'minimal' },
+      null,
+    );
+    expect(minimal.deployment).toMatchObject({ runtimeLogs: 'minimal', schemaVersion: 5 });
+    expect(minimal.actions).toEqual(full.actions);
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(minimal))).toContain(
+      'Runtime logs: minimal',
+    );
+    expect(formatPlatformInstallPlan(full)).not.toContain('Runtime logs');
+    // An upgrade shows a change in both directions.
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(full, minimal.deployment))).toContain(
+      'Runtime logs: full (was minimal)',
+    );
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(minimal, full.deployment))).toContain(
+      'Runtime logs: minimal (was full)',
+    );
+    expect(formatPlatformInstallPlan(full, full.deployment)).not.toContain('Runtime logs');
+
+    const recordedFull = manifestFor(full);
+    const recordedMinimal = manifestFor(minimal);
+    // Omitted keeps the recorded value.
+    expect(
+      (await createPlatformInstallPlan(client(), input, recordedMinimal)).deployment.runtimeLogs,
+    ).toBe('minimal');
+    expect(
+      (await createPlatformInstallPlan(client(), input, recordedFull)).deployment,
+    ).not.toHaveProperty('runtimeLogs');
+    // Upgrade switches it on and off.
+    const on = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'minimal' },
+      recordedFull,
+      { allowRuntimeLogsChange: true },
+    );
+    expect(on.deployment).toEqual(minimal.deployment);
+    const off = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'full' },
+      recordedMinimal,
+      { allowRuntimeLogsChange: true },
+    );
+    expect(off.deployment).toEqual(full.deployment);
+    // Other drift still throws on upgrade.
+    await expect(
+      createPlatformInstallPlan(
+        client(),
+        { ...input, displayName: 'Other', runtimeLogs: 'full' },
+        recordedMinimal,
+        { allowRuntimeLogsChange: true },
+      ),
+    ).rejects.toThrow('--resume inputs do not match');
+    // An install resume with a different value throws.
+    await expect(
+      createPlatformInstallPlan(client(), { ...input, runtimeLogs: 'minimal' }, recordedFull),
+    ).rejects.toThrow('--resume inputs do not match');
+    await expect(
+      createPlatformInstallPlan(client(), { ...input, runtimeLogs: 'full' }, recordedMinimal),
+    ).rejects.toThrow('--resume inputs do not match');
+    expect(
+      (
+        await createPlatformInstallPlan(
+          client(),
+          { ...input, runtimeLogs: 'minimal' },
+          recordedMinimal,
+        )
+      ).deployment.runtimeLogs,
+    ).toBe('minimal');
+  });
+
   it('retains an existing advertised origin and rejects malformed configuration before provider reads', async () => {
     const recorded = setInstallationEndpoints(
       legacyInstallation(),
@@ -650,6 +724,80 @@ describe('platform installation planning', () => {
       ),
     ).rejects.toThrow('KV access denied');
   });
+
+  it('reports both unpaid-account prerequisites from the existing read-only inventory', async () => {
+    const requests: Array<{ path: string; method: string }> = [];
+    const provider = new PlatformCloudflareClient('token', {
+      fetcher: async (input, init) => {
+        const path = new URL(String(input)).pathname;
+        requests.push({ path, method: init?.method ?? 'GET' });
+        const code = path.endsWith('/r2/buckets') ? 10042 : 10121;
+        return Response.json(
+          { success: false, errors: [{ code, message: 'Account prerequisite missing' }] },
+          { status: 403 },
+        );
+      },
+    });
+    const error = await createPlatformInstallPlan(
+      client({
+        listR2Buckets: provider.listR2Buckets.bind(provider),
+        listDispatchNamespaces: provider.listDispatchNamespaces.bind(provider),
+      }),
+      input,
+      null,
+    ).catch((error) => error);
+    expect(error).toBeInstanceOf(AggregateError);
+    expect(error.message).toContain('Cloudflare R2 is not enabled');
+    expect(error.message).toContain('Workers for Platforms requires a paid subscription');
+    expect(error.message).toContain('retry the same command');
+    expect(error.message).not.toContain('--resume');
+    expect(error.errors).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ status: 403, requestPath: '/accounts/account/r2/buckets' }),
+        expect.objectContaining({
+          status: 403,
+          requestPath: '/accounts/account/workers/dispatch/namespaces',
+        }),
+      ]),
+    );
+    expect(error.errors).toHaveLength(2);
+    expect(requests).toEqual([
+      { path: '/client/v4/accounts/account/r2/buckets', method: 'GET' },
+      { path: '/client/v4/accounts/account/workers/dispatch/namespaces', method: 'GET' },
+    ]);
+  });
+
+  it.each([401, 403, 500])(
+    'does not replace an HTTP %s inventory failure with a known prerequisite',
+    async (status) => {
+      const unknown = new PlatformCloudflareApiError(
+        'Unrelated provider failure',
+        status,
+        '/accounts/account/workers/dispatch/namespaces',
+      );
+      const provider = new PlatformCloudflareClient('token', {
+        fetcher: async () =>
+          Response.json(
+            { success: false, errors: [{ code: 10042, message: 'Please enable R2' }] },
+            { status: 403 },
+          ),
+      });
+      await expect(
+        createPlatformInstallPlan(
+          client({
+            listR2Buckets: provider.listR2Buckets.bind(provider),
+            listDispatchNamespaces: async () => {
+              await Promise.resolve();
+              throw unknown;
+            },
+          }),
+          input,
+          null,
+        ),
+      ).rejects.toBe(unknown);
+    },
+  );
+
   it('names the DNS permission when the token cannot read DNS records', async () => {
     const deniedDns = async () => {
       throw new PlatformCloudflareApiError('Authentication error', 403, '/zones/zone/dns_records');

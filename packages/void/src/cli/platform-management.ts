@@ -84,6 +84,11 @@ import {
   writePendingInstallationSecrets,
 } from './platform-registry.ts';
 import {
+  assertPlatformRuntimeLogsSupported,
+  shouldUpdateProjectWorkerRuntimeLogs,
+  updateProjectWorkerRuntimeLogs,
+} from './platform-runtime-logs.ts';
+import {
   assertNoPlatformProjects,
   checkPurgeResourcesCredentials,
   describePurgeResourcesPlan,
@@ -250,6 +255,12 @@ export function platformLifecycleResumeCommand(
   }
   if ('dashboardUrl' in args && args.dashboardUrl) {
     command.push('--dashboard-url', commandArgument(args.dashboardUrl));
+  }
+  if ('customDomains' in args && args.customDomains) {
+    command.push('--custom-domains');
+  }
+  if ('runtimeLogs' in args && args.runtimeLogs) {
+    command.push('--runtime-logs', args.runtimeLogs);
   }
   if (args.yes) {
     command.push('--yes');
@@ -427,6 +438,10 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       ...(args.subcommand !== 'rollback' && args.dashboardUrl !== undefined
         ? { dashboardUrl: args.dashboardUrl }
         : {}),
+      ...(args.subcommand !== 'rollback' && args.customDomains ? { customDomains: true } : {}),
+      ...(args.subcommand === 'upgrade' && args.runtimeLogs !== undefined
+        ? { runtimeLogs: args.runtimeLogs }
+        : {}),
       dedicatedZone: deployment.application.dedicatedZone,
       displayName: deployment.displayName,
       installationSlug: deployment.installationSlug,
@@ -439,10 +454,12 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
       enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
       deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+      allowRuntimeLogsChange: args.subcommand === 'upgrade',
     });
+    assertPlatformRuntimeLogsSupported(plan.deployment, runtime!.manifest);
     markPhase('plan');
     note(
-      formatPlatformInstallPlan(plan),
+      formatPlatformInstallPlan(plan, manifest.deployment),
       args.subcommand === 'upgrade'
         ? 'Upgrade plan'
         : args.subcommand === 'rollback'
@@ -590,7 +607,11 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       r2SecretAccessKey: process.env.VOID_PLATFORM_R2_SECRET_ACCESS_KEY || '',
       ...replacedLogin,
     });
-    const runtimeTokenToPreflight = resolvePlatformRuntimeTokenToPreflight(plan, secrets);
+    const runtimeTokenToPreflight = resolvePlatformRuntimeTokenToPreflight(plan, secrets, {
+      enablingCustomDomains:
+        plan.deployment.capabilities.customDomains &&
+        !manifest.deployment.capabilities.customDomains,
+    });
     // Shared email setup runs after traffic pauses and uses the runtime token,
     // also when this run keeps the saved token. Check its email access first.
     const emailZoneId =
@@ -733,6 +754,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       replanWorkers: async (recoveryManifest) =>
         (
           await createPlatformInstallPlan(client, planInput, recoveryManifest, {
+            allowRuntimeLogsChange: args.subcommand === 'upgrade',
             authoritativeProvisionIntents: true,
             repairMissing: true,
             includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
@@ -751,6 +773,21 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     // Keep progress visible while the outer database session releases its lock.
     progress.message('Finalizing platform changes');
     markPhase('installer complete');
+    const runtimeLogsWarning =
+      !result.waitingForDns &&
+      !result.waitingForSandboxDrain &&
+      shouldUpdateProjectWorkerRuntimeLogs({
+        previous: manifest.deployment,
+        next: result.manifest.deployment,
+        explicit: args.subcommand === 'upgrade' && args.runtimeLogs !== undefined,
+      })
+        ? await updateProjectWorkerRuntimeLogs(client, {
+            accountId: manifest.account.id,
+            namespace: result.manifest.deployment.resources.dispatchNamespace,
+            minimal: !!result.manifest.deployment.runtimeLogs,
+            installationId: manifest.id,
+          })
+        : undefined;
     reportResult = () => {
       progress?.stop(
         result.waitingForDns || result.waitingForSandboxDrain
@@ -799,6 +836,9 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
             `If sign-in fails, run \`void platform repair ${commandArgument(manifest.id)}\` to change the login settings.`,
           );
         }
+      }
+      if (runtimeLogsWarning) {
+        log.warn(runtimeLogsWarning);
       }
       printSuccess(
         `${deployment.displayName}: runtime ${runtime!.manifest.platformVersion} ${args.subcommand === 'rollback' ? 'restored' : 'ready'}.`,
@@ -886,6 +926,11 @@ export function assertPlatformRollbackCompatibility(
       'platform: The rollback target predates the email gateway and cannot safely replace this installation. Use a runtime with email protocol version 1.',
     );
   }
+  if (installation.deployment.runtimeLogs && target.manifest.runtimeLogs !== 1) {
+    throw new Error(
+      'platform: The rollback target cannot keep runtime logs minimal. Run `void platform upgrade --runtime-logs full` first, then roll back.',
+    );
+  }
   if (!installation.runtime) {
     throw new Error(
       'platform: The installed runtime has no artifact provenance, so post-success rollback cannot identify its compatibility manifest.',
@@ -963,10 +1008,21 @@ export function resolvePlatformRuntimeTokenToPreflight(
     ReturnType<typeof createPlatformInstallationSecrets>,
     'cloudflareApiToken' | 'workerSecretUpdates'
   >,
+  options: { enablingCustomDomains?: boolean } = {},
 ): string {
   const explicitUpdate = secrets.workerSecretUpdates?.CF_API_TOKEN;
   if (explicitUpdate) {
     return explicitUpdate;
+  }
+  // Enabling custom hostnames adds a runtime permission even when the Workers
+  // retain their token. Check it before the installer can pause traffic.
+  if (options.enablingCustomDomains) {
+    if (!secrets.cloudflareApiToken) {
+      throw new Error(
+        'platform: Before enabling project custom domains, set VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN to the platform runtime token with Zone → SSL and Certificates → Edit on the application zone so Void can check its access.',
+      );
+    }
+    return secrets.cloudflareApiToken;
   }
   return plan.actions.some(
     (action) =>

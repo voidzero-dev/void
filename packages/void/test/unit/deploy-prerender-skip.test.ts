@@ -73,6 +73,7 @@ describe('hasPrerenderSources', () => {
 describe('__voidCollectPrerenderPaths — sources that can push a path', () => {
   const testOptions = {
     honoPath: '/resolved/hono/index.mjs',
+    honoRoutePath: '/resolved/hono/route.mjs',
 
     runtimeEnvPath: '/resolved/void/runtime/env.mjs',
     projectRoot: '/project',

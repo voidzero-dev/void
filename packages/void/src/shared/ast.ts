@@ -103,6 +103,14 @@ export function isLiteral(node: AstNode | null | undefined): node is AstLiteral 
   return node?.type === 'Literal';
 }
 
+/** Module export names may be identifiers or string literals, independently of the local name. */
+export function moduleExportName(node: AstNode | undefined): string | undefined {
+  if (isIdentifier(node)) {
+    return node.name;
+  }
+  return isLiteral(node) && typeof node.value === 'string' ? node.value : undefined;
+}
+
 export function isMemberExpression(node: AstNode | null | undefined): node is AstMemberExpression {
   return node?.type === 'MemberExpression';
 }

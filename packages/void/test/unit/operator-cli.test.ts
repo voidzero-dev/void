@@ -521,6 +521,19 @@ describe('operator argument and help coverage', () => {
       tokenStdin: true,
       yes: true,
     });
+    const outboundOnly = parseOperatorArgs([
+      'email',
+      'domain-add',
+      'brand.example.com',
+      '--project',
+      'hr-portal',
+      '--outbound-only',
+    ]);
+    expect(outboundOnly.body).toEqual({
+      domain: 'brand.example.com',
+      project: 'hr-portal',
+      outboundOnly: true,
+    });
     expect(parseOperatorArgs(['email', 'domain-status', 'mail.example.com'])).toMatchObject({
       method: 'GET',
       path: '/email/domains/mail.example.com',
@@ -1260,6 +1273,39 @@ describe('operator transport and execution', () => {
     await expect(runOperatorCommand(args)).rejects.toMatchObject({ code: 'invalid_preview' });
     expect(fetcher).toHaveBeenCalledTimes(1);
   });
+  it('stops an outbound-only add when the platform preview ignores the mode', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const preview = (target: Record<string, unknown>) =>
+      Response.json({ dryRun: true, action: 'email.domain.add', target });
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(preview({ domain: 'brand.example.com' }));
+    vi.stubGlobal('fetch', fetcher);
+    const args = parseOperatorArgs([
+      'email',
+      'domain-add',
+      'brand.example.com',
+      '--project',
+      'hr-portal',
+      '--outbound-only',
+      '--yes',
+    ]);
+    await expect(runOperatorCommand(args)).rejects.toMatchObject({ code: 'unsupported' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+
+    fetcher
+      .mockReset()
+      .mockResolvedValueOnce(preview({ domain: 'brand.example.com', inboundMode: 'none' }))
+      .mockResolvedValueOnce(Response.json({ domain: { operationStatus: 'completed' } }));
+    await runOperatorCommand(args);
+    expect(JSON.parse(String(fetcher.mock.calls[1]![1]!.body))).toEqual({
+      domain: 'brand.example.com',
+      project: 'hr-portal',
+      outboundOnly: true,
+    });
+  });
   it('drains runtime cursors and rejects repeated cursors instead of spinning', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const fetcher = vi
@@ -1326,6 +1372,35 @@ describe('operator transport and execution', () => {
     expect(String(fetcher.mock.calls[1]![0])).toContain('after=2000');
     expect(String(fetcher.mock.calls[1]![0])).not.toContain('since=');
   });
+  it('notes minimal runtime logs once while following', async () => {
+    const controller = new AbortController();
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetcher = vi
+      .fn<typeof fetch>()
+      .mockResolvedValueOnce(
+        Response.json({ data: [], nextCursor: null, runtimeLogs: 'minimal', watermark: '2000' }),
+      )
+      .mockImplementationOnce(async () => {
+        controller.abort();
+        return Response.json({
+          data: [],
+          nextCursor: null,
+          runtimeLogs: 'minimal',
+          watermark: '3000',
+        });
+      });
+
+    await followOperatorLogs(
+      new OperatorClient('https://one.example', 'token', fetcher),
+      parseOperatorArgs(['deployment', 'logs', 'id', '--follow', '--since', '1h']),
+      controller.signal,
+      0,
+    );
+
+    expect(
+      write.mock.calls.filter(([line]) => String(line).includes('not recorded on this platform')),
+    ).toHaveLength(1);
+  });
   it('fails explicitly when a runtime follow window exceeds its dedupe bound', async () => {
     vi.spyOn(console, 'log').mockImplementation(() => {});
     const row = {
@@ -1386,6 +1461,73 @@ describe('operator transport and execution', () => {
     ]);
   });
 
+  it('notes minimal runtime logs once and prints rows without a URL cleanly', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          data: [
+            {
+              timestamp: 1234,
+              method: 'GET',
+              url: '',
+              status: '503',
+              outcome: 'exception',
+              logs: [{ level: 'error', message: [], timestamp: 1 }],
+              exceptions: [{ name: 'TypeError', message: '', timestamp: 1 }],
+            },
+          ],
+          nextCursor: null,
+          runtimeLogs: 'minimal',
+          watermark: '1235',
+        }),
+      ),
+    );
+
+    await runOperatorCommand(parseOperatorArgs(['deployment', 'logs', 'deployment-1']));
+
+    expect(write.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+      'Log messages, exception messages and URLs are not recorded on this platform.',
+      '1234 GET 503',
+      '  [error]',
+      '  TypeError',
+    ]);
+  });
+  it('keeps the full-mode row format for an empty URL or message', async () => {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const write = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn<typeof fetch>().mockResolvedValue(
+        Response.json({
+          data: [
+            {
+              timestamp: 1234,
+              method: 'GET',
+              url: '',
+              status: '503',
+              logs: [{ level: 'error', message: '', timestamp: 1 }],
+              exceptions: [{ name: 'TypeError', message: '', timestamp: 1 }],
+            },
+          ],
+          nextCursor: null,
+          watermark: '1235',
+        }),
+      ),
+    );
+
+    await runOperatorCommand(parseOperatorArgs(['deployment', 'logs', 'deployment-1']));
+
+    expect(write.mock.calls.map(([line]) => stripVTControlCharacters(String(line)))).toEqual([
+      '1234 GET  503',
+      '  [error] ',
+      '  TypeError: ',
+    ]);
+  });
   it('neutralizes C1 terminal controls in human operator output', async () => {
     vi.stubEnv('VOID_API_URL', 'https://one.example');
     vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');

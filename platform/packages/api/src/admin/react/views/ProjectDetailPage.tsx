@@ -18,6 +18,7 @@ import { formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';
 import { ProjectOwnerTransferSection } from './ProjectOwnerTransferSection.tsx';
 import { ProjectTeamSection } from './ProjectTeamSection.tsx';
+import { ProjectUrlLink } from './ProjectUrlLink.tsx';
 import { ProjectZeroTrustSection } from './ProjectZeroTrustSection.tsx';
 import { SectionStack } from './SectionStack.tsx';
 export function ProjectDetailPage({ path, platformName, username }: AdminPageProps) {
@@ -47,7 +48,7 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
       <SectionStack>
         <h1>{project.slug}</h1>
 
-        <Table>
+        <Table className="void-admin-detail-table">
           <TableBody>
             <TableRow>
               <TableHeaderCell>ID</TableHeaderCell>
@@ -60,9 +61,7 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
             <TableRow>
               <TableHeaderCell>URL</TableHeaderCell>
               <TableCell>
-                <a href={deployUrl} target="_blank" rel="noopener noreferrer">
-                  {deployUrl}
-                </a>
+                <ProjectUrlLink url={deployUrl} />
               </TableCell>
             </TableRow>
             <TableRow>
@@ -71,14 +70,11 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
                 {domains.length > 0 ? (
                   domains.map((d) => (
                     <span key={d.id}>
-                      <a href={`https://${d.hostname}`} target="_blank" rel="noopener noreferrer">
-                        {d.hostname}
-                      </a>{' '}
-                      ({d.status}){' '}
+                      <ProjectUrlLink url={`https://${d.hostname}`} /> ({d.status}){' '}
                     </span>
                   ))
                 ) : (
-                  <>None</>
+                  <>—</>
                 )}
               </TableCell>
             </TableRow>
@@ -101,7 +97,9 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
             <TableRow>
               <TableHeaderCell>Email</TableHeaderCell>
               <TableCell>
-                <a href={`/admin/email/${project.id}`}>usage, limits, destinations</a>
+                <a className="void-admin-resource-link" href={`/admin/email/${project.id}`}>
+                  usage, limits, destinations
+                </a>
               </TableCell>
             </TableRow>
             <TableRow>

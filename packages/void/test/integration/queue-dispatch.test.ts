@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { build } from 'vite';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 import { compileRouteTable, compileWorkerEntry } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
 
@@ -37,7 +37,7 @@ function queueHandlerSource(handler: string): string {
     attempts: batch.messages.map(message => message.attempts),
     dates: batch.messages.every(message => message.timestamp instanceof Date),
   });
-  if (env.fail === ${JSON.stringify(handler)}) throw new Error("handler failed");
+  if (env.fail === ${JSON.stringify(handler)}) throw env.failure;
   batch.messages[0]?.ack();
   batch.messages[1]?.retry({ delaySeconds: 9 });
 }\n`;
@@ -90,6 +90,7 @@ describe('generated queue dispatch', () => {
       routeTablePath,
       compileRouteTable(scan, temporary, temporary, temporary, queuesDir, null, {
         honoPath: import.meta.resolve('hono'),
+        honoRoutePath: import.meta.resolve('hono/route'),
         runtimeEnvPath,
         projectRoot: temporary,
         homeDir: temporary,
@@ -158,6 +159,10 @@ export { __processQueue } from "virtual:void-routes";\n`,
     rmSync(temporary, { force: true, recursive: true });
   });
 
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
   it.each([
     ['emails', 'emails'],
     ['order-emails', 'order-emails'],
@@ -178,7 +183,8 @@ export { __processQueue } from "virtual:void-routes";\n`,
     expect(env.calls).toEqual([{ handler: expectedHandler, queue, attempts: [2, 3], dates: true }]);
   });
 
-  it('returns failure without dispatching an unknown logical or physical queue', async () => {
+  it('logs and returns failure without dispatching an unknown logical or physical queue', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
     for (const queue of ['unknown', 'project-unknown']) {
       const env = { calls: [] as Array<Record<string, unknown>> };
       const result = await generated.__processQueue(payload(queue), env);
@@ -189,6 +195,27 @@ export { __processQueue } from "virtual:void-routes";\n`,
       });
       expect(env.calls).toEqual([]);
     }
+    expect(errorLog.mock.calls).toEqual([
+      ['[void] No unambiguous queue handler matches "unknown"'],
+      ['[void] No unambiguous queue handler matches "project-unknown"'],
+    ]);
+  });
+
+  it('logs a failed handler with its file and queue and returns failure', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = new Error('handler failed');
+    const env = { calls: [] as Array<Record<string, unknown>>, fail: 'order-emails', failure };
+    const result = await generated.__processQueue(payload('project-order-emails'), env);
+
+    expect(result).toEqual({ ok: false });
+    expect(env.calls).toEqual([
+      { handler: 'order-emails', queue: 'project-order-emails', attempts: [2, 3], dates: true },
+    ]);
+    expect(errorLog.mock.calls).toHaveLength(1);
+    expect(errorLog.mock.calls[0][0]).toBe(
+      '[void] Queue handler queues/order-emails.ts failed for queue "project-order-emails":',
+    );
+    expect(errorLog.mock.calls[0][1]).toBe(failure);
   });
 
   it.each(['emails', 'order-emails'])(
@@ -218,6 +245,8 @@ export { __processQueue } from "virtual:void-routes";\n`,
   );
 
   it('makes native unknown queues and handler failures retry by rejecting the event', async () => {
+    const errorLog = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const failure = new Error('handler failed');
     const makeNativeBatch = (queue: string) => {
       const firstAck = vi.fn();
       const firstRetry = vi.fn();
@@ -269,6 +298,7 @@ export { __processQueue } from "virtual:void-routes";\n`,
     expect(nativeSuccess.firstRetry).not.toHaveBeenCalled();
     expect(nativeSuccess.secondAck).not.toHaveBeenCalled();
     expect(nativeSuccess.secondRetry).toHaveBeenCalledWith({ delaySeconds: 9 });
+    expect(errorLog).not.toHaveBeenCalled();
 
     const nativeUnknown = makeNativeBatch('project-unknown');
 
@@ -284,9 +314,17 @@ export { __processQueue } from "virtual:void-routes";\n`,
     await expect(
       generated.default.queue(
         nativeFailure.batch,
-        { calls: [], fail: 'order-emails' },
+        { calls: [], fail: 'order-emails', failure },
         {} as ExecutionContext,
       ),
     ).rejects.toThrow('queue: Handler failed');
+    expect(errorLog.mock.calls).toHaveLength(2);
+    expect(errorLog.mock.calls[0]).toEqual([
+      '[void] No unambiguous queue handler matches "project-unknown"',
+    ]);
+    expect(errorLog.mock.calls[1][0]).toBe(
+      '[void] Queue handler queues/order-emails.ts failed for queue "project-order-emails":',
+    );
+    expect(errorLog.mock.calls[1][1]).toBe(failure);
   });
 });

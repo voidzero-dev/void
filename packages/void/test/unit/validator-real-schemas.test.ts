@@ -71,3 +71,20 @@ describe.each(libraries)('withValidator + $library', ({ CreateUser }) => {
     expect(json.issues[0].issues.length).toBeGreaterThanOrEqual(1);
   });
 });
+
+it('does not validate inherited array length as a query parameter', async () => {
+  const app = createPostApp(
+    defineHandler.withValidator({ query: z.object({ length: z.number() }) })(
+      (_c, { query }) => query,
+    ),
+  );
+  const res = await app.request(
+    new Request('http://localhost/test?__proto__=work&__proto__=urgent', { method: 'POST' }),
+  );
+
+  expect(res.status).toBe(400);
+  const json = (await res.json()) as ValidationIssueBody;
+  expect(json.error).toBe('Validation failed');
+  expect(json.issues[0].slot).toBe('query');
+  expect(json.issues[0].issues[0].path).toBe('length');
+});

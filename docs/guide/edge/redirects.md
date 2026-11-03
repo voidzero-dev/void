@@ -51,6 +51,28 @@ Path-only sources apply to every domain on the project. Host-prefixed sources ap
 
 The source must use `https://` and a literal hostname without wildcards or a port. Add the domain to your project with `void domain add` before deploying the rule. A domain awaiting certificate verification starts redirecting once it becomes active.
 
+## HTTP to HTTPS
+
+Set `routing.alwaysUseHttps` to redirect HTTP requests to HTTPS:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  routing: {
+    alwaysUseHttps: true,
+  },
+});
+```
+
+Void returns a permanent `308` redirect that preserves the path, query string, and request method. The option defaults to `false`. Localhost and loopback addresses stay on HTTP for local development and previews.
+
+This option requires the Cloudflare target and works for Void apps and static sites on either deployment platform.
+
+For direct Cloudflare deployments, also enable [Always Use HTTPS](https://developers.cloudflare.com/ssl/edge-certificates/additional-options/always-use-https/) on your zone to cover assets served directly by Cloudflare.
+
+For direct Cloudflare deployments of SvelteKit, Nuxt, Astro, Analog, TanStack Start, React Router, or vinext, configure HTTPS in the framework or your Cloudflare zone. Use `routing.alwaysUseHttps` only for their static builds, deployed with `--dir` or `inference.appType`.
+
 ## Framework `_redirects` files
 
 Void reads `_redirects` files produced by supported frameworks. You can also place one in Vite's `publicDir`:

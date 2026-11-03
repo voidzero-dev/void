@@ -8,7 +8,11 @@ import {
   getWorkerBundleDir,
   readBuildOutput,
 } from '@cloudflare/build-output-utils';
-import type { ParsedOutputWorkerConfig } from '@cloudflare/config';
+import {
+  convertToWranglerConfig,
+  type ParsedInputConfig,
+  type ParsedOutputWorkerConfig,
+} from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
@@ -16,6 +20,8 @@ import { extname, join, relative } from 'pathslash';
 import type { CfBuildOutput } from './cf-build-output.ts';
 import { record as object } from './cf-config-migrate.ts';
 import { getVoidUserAgent } from './cf-user-agent.ts';
+import { readGeneratedAssetHeadersFile } from './headers.ts';
+import { Buffer } from './node-buffer.ts';
 
 type Json = Record<string, unknown>;
 export type CfCommand = (
@@ -56,6 +62,39 @@ function textValue(value: unknown, label: string): string {
     throw new Error(`The Cloudflare ${label} is missing from the verified Worker output.`);
   }
   return value;
+}
+
+/** Match cf's package collection for uploads that preserve secrets through the JSON API. */
+async function readPackageDependencies(directory: string) {
+  try {
+    const pkg = object(JSON.parse(readFileSync(join(directory, 'package.json'), 'utf8')));
+    const declared = { ...object(pkg?.dependencies), ...object(pkg?.devDependencies) };
+    const { getInstalledPackageVersion } = await import('@cloudflare/workers-utils');
+    const dependencies: Array<{
+      name: string;
+      packageJsonVersion: string;
+      installedVersion: string;
+    }> = [];
+    for (const [name, packageJsonVersion] of Object.entries(declared)) {
+      if (dependencies.length >= 200) {
+        break;
+      }
+      if (
+        typeof packageJsonVersion !== 'string' ||
+        /^(workspace|catalog|file|link):/.test(packageJsonVersion)
+      ) {
+        continue;
+      }
+      const installedVersion = getInstalledPackageVersion(name, directory);
+      if (installedVersion) {
+        dependencies.push({ name, packageJsonVersion, installedVersion });
+      }
+    }
+    return dependencies.length ? dependencies : undefined;
+  } catch {
+    // As in cf, missing or unreadable package context must not reject an upload.
+    return undefined;
+  }
 }
 
 const moduleContentTypes: Record<string, string> = {
@@ -156,6 +195,14 @@ function bindingsFromOutput(
           ...(value.deliveryDelay === undefined ? {} : { delivery_delay: value.deliveryDelay }),
         });
         break;
+      case 'rate-limit':
+        bindings.push({
+          name,
+          type: 'ratelimit',
+          namespace_id: requiredString(value.namespace, name),
+          simple: value.simple,
+        });
+        break;
       case 'ai':
       case 'browser':
       case 'images':
@@ -244,7 +291,23 @@ function bindingsFromOutput(
   return bindings;
 }
 
-function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json | undefined {
+const durableObjectStates = new Set([
+  'created',
+  'deleted',
+  'renamed',
+  'transferred',
+  'expecting-transfer',
+]);
+
+/**
+ * The `exports` that cf uploads for the same Build Output. cf converts them with
+ * `@cloudflare/config`'s `convertToWranglerConfig` (cf `build-*.mjs`), and its
+ * `resolveExportsUploadPayload` (cf `containers-*.mjs`) sends Worker entrypoints,
+ * then Durable Objects, then Workflows reduced to their identity. Cloudflare
+ * stages a version at 0% only when its exports are identical to the live
+ * version's, and that version may have been uploaded by cf.
+ */
+export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json | undefined {
   if (exports === undefined) {
     return undefined;
   }
@@ -252,7 +315,6 @@ function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json | unde
   if (!entries) {
     throw new Error('Cloudflare Durable Object exports were not readable.');
   }
-  const result: Json = {};
   const workflows = new Map<string, string>();
   for (const [name, raw] of Object.entries(entries)) {
     const value = object(raw);
@@ -262,53 +324,30 @@ function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json | unde
         throw new Error(`Cloudflare Workflow ${workflowName} has multiple local exports.`);
       }
       workflows.set(workflowName, name);
-      // cf uploads identity only. Execution settings stay in the immutable
-      // Build Output and are applied by its separate typed trigger deployment.
-      result[name] = { type: 'workflow', name: workflowName };
       continue;
     }
     if (value?.type === 'worker') {
-      result[name] = {
-        type: 'worker',
-        ...(value.cache === undefined ? {} : { cache: value.cache }),
-      };
       continue;
     }
     if (!value || value.type !== 'durable-object') {
       throw new Error(`Cloudflare export ${name} cannot be uploaded with pinned secrets.`);
     }
-    if (value.state === 'deleted') {
-      result[name] = { type: 'durable-object', state: 'deleted' };
-    } else if (value.state === 'renamed' || value.state === 'transferred') {
-      const renamed = value.state === 'renamed';
-      result[name] = {
-        type: 'durable-object',
-        state: value.state,
-        [renamed ? 'renamed_to' : 'transferred_to']: requiredString(
-          value[renamed ? 'renamedTo' : 'transferredTo'],
-          name,
-        ),
-      };
-    } else if (value.storage === 'sqlite' || value.storage === 'legacy-kv') {
-      if (
-        value.state !== undefined &&
-        !['created', 'expecting-transfer'].includes(String(value.state))
-      ) {
-        throw new Error(`Cloudflare Durable Object export ${name} has an unsupported state.`);
+    const state = value.state ?? 'created';
+    if (!durableObjectStates.has(String(state))) {
+      throw new Error(`Cloudflare Durable Object export ${name} has an unsupported state.`);
+    }
+    if (state === 'renamed' || state === 'transferred') {
+      requiredString(value[state === 'renamed' ? 'renamedTo' : 'transferredTo'], name);
+    } else if (state !== 'deleted') {
+      if (value.storage !== 'sqlite' && value.storage !== 'legacy-kv') {
+        throw new Error(`Cloudflare Durable Object export ${name} has no storage type.`);
       }
-      result[name] = {
-        type: 'durable-object',
-        storage: value.storage,
-        state: value.state ?? 'created',
-        ...(value.container === undefined
-          ? {}
-          : { container: requiredString(value.container, name) }),
-        ...(value.state === 'expecting-transfer'
-          ? { transfer_from: requiredString(value.transferFrom, name) }
-          : {}),
-      };
-    } else {
-      throw new Error(`Cloudflare Durable Object export ${name} has no storage type.`);
+      if (value.container !== undefined) {
+        requiredString(value.container, name);
+      }
+      if (state === 'expecting-transfer') {
+        requiredString(value.transferFrom, name);
+      }
     }
   }
   for (const binding of bindings) {
@@ -325,7 +364,27 @@ function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json | unde
       );
     }
   }
-  return result;
+  // The converter reads only `worker.exports` for this field.
+  const converted =
+    object(
+      convertToWranglerConfig({
+        worker: { exports: entries },
+        containers: [],
+      } as unknown as ParsedInputConfig).exports,
+    ) ?? {};
+  const result: Json = {};
+  for (const type of ['worker', 'durable-object', 'workflow']) {
+    for (const [name, value] of Object.entries(converted)) {
+      const entry = object(value);
+      if (entry?.type !== type) {
+        continue;
+      }
+      // cf uploads Workflow identity only. Execution settings stay in the immutable
+      // Build Output and are applied by its separate typed trigger deployment.
+      result[name] = type === 'workflow' ? { type, name: entry.name } : entry;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
 }
 
 async function preflightWorkflowExports(options: {
@@ -391,11 +450,25 @@ function assetConfigFromOutput(value: unknown): Json | undefined {
   };
 }
 
-/**
- * The version API placement. Smart placement is normalized the same way as cf's own version
- * uploads. Targeted placement is rejected: the Workers beta version endpoint can drop its
- * target, and an atomic upload is live before a read-back could catch that.
- */
+type PlacementTarget = { kind: 'region' | 'host' | 'hostname'; value: string };
+
+/** The region, host or hostname of a targeted placement. */
+function placementTarget(
+  placement: ParsedOutputWorkerConfig['placement'],
+): PlacementTarget | undefined {
+  if (!placement) {
+    return undefined;
+  }
+  for (const kind of ['region', 'host', 'hostname'] as const) {
+    const value = (placement as Record<string, unknown>)[kind];
+    if (typeof value === 'string' && value) {
+      return { kind, value };
+    }
+  }
+  return undefined;
+}
+
+/** The version API placement, in the shape cf's own version uploads send. */
 function placementFromOutput(placement: ParsedOutputWorkerConfig['placement']): Json | undefined {
   if (!placement) {
     return undefined;
@@ -404,16 +477,26 @@ function placementFromOutput(placement: ParsedOutputWorkerConfig['placement']): 
   if (hint || placement.mode === 'smart') {
     return { mode: 'smart', ...(hint ? { hint } : {}) };
   }
-  const target =
-    ('region' in placement && placement.region && 'region') ||
-    ('host' in placement && placement.host && 'host') ||
-    ('hostname' in placement && placement.hostname && 'hostname');
-  if (target) {
-    throw new Error(
-      `Cloudflare placement.${target} cannot be deployed while the Worker has secrets. Remove cloudflare.placement from void.config.ts, or set it to { mode: 'smart' }.`,
-    );
+  const target = placementTarget(placement);
+  return target ? { mode: 'targeted', [target.kind]: target.value } : undefined;
+}
+
+/**
+ * Whether the upload reply still names the requested target. The Workers beta version
+ * endpoint has replied `placement: {}` after dropping one (terraform-provider-cloudflare#7273).
+ * It now replies with the target alone, e.g. `{ region }`.
+ */
+function keepsPlacementTarget(placement: unknown, target: PlacementTarget): boolean {
+  const reply = object(placement);
+  if (!reply) {
+    return false;
   }
-  return undefined;
+  const targets = reply.target === undefined ? [reply] : reply.target;
+  return (
+    Array.isArray(targets) &&
+    targets.length === 1 &&
+    object(targets[0])?.[target.kind] === target.value
+  );
 }
 
 async function apiResult(
@@ -740,7 +823,10 @@ async function prepareContainerMetadata(options: {
           if (pushed.status !== 0 || pushed.signal || pushed.error) {
             throw new Error('Cloudflare Container image push failed.');
           }
-          const matches = [...pushed.stdout.matchAll(/Pushed image:\s*(\S+)/g)];
+          // cf prints this on stdout before 1.0.0-beta.21, and on stderr since.
+          const matches = [
+            ...`${pushed.stdout}\n${pushed.stderr}`.matchAll(/Pushed image:\s*(\S+)/g),
+          ];
           const remote = matches.length === 1 ? matches[0][1] : '';
           if (
             !remote.startsWith(`registry.cloudflare.com/${options.accountId}/`) ||
@@ -899,6 +985,17 @@ async function ensureContainerApplications(options: {
   }
 }
 
+/**
+ * The `_headers` file a native build generated for its fingerprinted files.
+ * This API takes it as a `_headers` module, as cf does on its JSON version
+ * uploads. A user-authored `_headers` is not sent on this path.
+ */
+function readGeneratedAssetHeaders(output: CfBuildOutput): string | undefined {
+  return output.assetsDirectory
+    ? readGeneratedAssetHeadersFile(getWorkerAssetsDir(output.directory))
+    : undefined;
+}
+
 async function uploadAssets(options: {
   output: CfBuildOutput;
   accountUrl: string;
@@ -1045,8 +1142,9 @@ export async function uploadPinnedCloudflareVersion(options: {
         'limits',
         'placement',
         'cache',
-        // Worker-level settings that version uploads cannot set. Like observability, the
-        // live Worker keeps its current values.
+        // Worker-level settings that version uploads cannot set. Observability and
+        // Logpush are published separately during post-activation trigger
+        // synchronization; tail consumers are not applied.
         'logpush',
         'tailConsumers',
       ]).has(key),
@@ -1138,6 +1236,14 @@ export async function uploadPinnedCloudflareVersion(options: {
       ).toString('base64'),
     });
   }
+  const generatedHeaders = readGeneratedAssetHeaders(options.output);
+  if (generatedHeaders !== undefined) {
+    modules.push({
+      name: '_headers',
+      content_type: 'text/plain',
+      content_base64: Buffer.from(generatedHeaders).toString('base64'),
+    });
+  }
   await preflightWorkflowExports({
     exports,
     accountUrl,
@@ -1178,6 +1284,7 @@ export async function uploadPinnedCloudflareVersion(options: {
       modules,
       compatibility_date: config.compatibilityDate,
       compatibility_flags: config.compatibilityFlags,
+      package_dependencies: await readPackageDependencies(options.output.directory),
       bindings,
       ...(config.limits
         ? { limits: { cpu_ms: config.limits.cpuMs, subrequests: config.limits.subrequests } }
@@ -1220,6 +1327,12 @@ export async function uploadPinnedCloudflareVersion(options: {
   } catch {
     throw new Error(
       `Cloudflare Worker version ${versionId} was uploaded${options.atomic ? ' and may already be published' : ''}, but its Container applications could not be verified. Read back the Worker deployment and Container identities before retrying.`,
+    );
+  }
+  const target = placementTarget(config.placement);
+  if (target && !keepsPlacementTarget(uploaded.placement, target)) {
+    throw new Error(
+      `Cloudflare did not keep placement.${target.kind} "${target.value}" on Worker version ${versionId}${options.atomic ? ', which is already live' : ', so it was not deployed'}. Deploy again, or set cloudflare.placement to { mode: 'smart' } in void.config.ts.`,
     );
   }
   return {

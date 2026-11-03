@@ -8,11 +8,11 @@ Create a file in `routes/` to add an endpoint, and export a handler for each HTT
 
 ## Route Files
 
-Create route handlers in `routes/**/*.ts`. Each file maps to a URL path based on its location in the filesystem:
+Create route handlers in `routes/` using `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, or `.mjs`. Each file maps to a URL path based on its location in the filesystem:
 
 <RoutesFileTree />
 
-Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` becomes a catch-all. Files or directories starting with `_` are ignored. Directories wrapped in parentheses like `(admin)` are route groups. They help organize files without changing the URL.
+Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` becomes a catch-all. Prefix files or directories with `_` or `.` to exclude them from routing; `.well-known` remains available for standard discovery endpoints. Directories wrapped in parentheses like `(admin)` are route groups. They help organize files without changing the URL.
 
 ### Environment-only routes
 
@@ -23,11 +23,13 @@ routes/
   api/health.ts        →  always
   api/debug.dev.ts     →  development only
   api/metrics.prod.ts  →  production only
+  preview.dev.tsx      →  development only, with JSX
+  report.prod.jsx      →  production only, with JSX
 ```
 
 `.dev` routes run only in development; `.prod` routes run in builds, deployments, and production previews. A resource used only by `.dev` routes is not provisioned for production.
 
-Suffixes apply only in `routes/`, not in `pages/`, `middleware/`, `crons/`, or `queues/`. `void prepare` generates types for both environments.
+Suffixes apply in `routes/` and [`pages/`](./pages-routing/overview.md#environment-only-pages), not in `middleware/`, `crons/`, or `queues/`. `void prepare` generates types for both environments.
 
 Each file exports named HTTP method constants to handle specific methods:
 
@@ -43,8 +45,8 @@ export const GET = defineHandler((c) => {
 A file can export multiple methods:
 
 ```ts
-import { users } from '@schema';
 // routes/api/users/index.ts  →  GET + POST /api/users
+import { users } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -59,7 +61,43 @@ export const POST = defineHandler(async (c) => {
 });
 ```
 
+`GET` handlers also answer `HEAD` requests automatically.
+
 See [Database](./database.md) for queries with D1, PostgreSQL, or MySQL.
+
+### JSX handlers
+
+Use `.tsx` or `.jsx` when a server handler contains JSX. Route files use your app's JSX settings. In React or Solid, render JSX to HTML with the framework's server renderer. For example, in React:
+
+```tsx
+// routes/hello.tsx → GET /hello
+import { renderToStaticMarkup } from 'react-dom/server';
+import { defineHandler } from 'void';
+
+export const GET = defineHandler((c) => c.html(renderToStaticMarkup(<h1>Hello!</h1>)));
+```
+
+For API-only, Vue, or Svelte apps, add `hono` as a dependency and configure [Hono's JSX](https://hono.dev/docs/guides/jsx) in `vite.config.ts`:
+
+```ts
+// vite.config.ts
+import { defineConfig } from 'vite-plus';
+import { voidPlugin } from 'void';
+
+export default defineConfig({
+  oxc: { jsx: { runtime: 'automatic', importSource: 'hono/jsx' } },
+  plugins: [voidPlugin()],
+});
+```
+
+`c.html()` then takes the JSX directly:
+
+```tsx
+// routes/hello.tsx → GET /hello
+import { defineHandler } from 'void';
+
+export const GET = defineHandler((c) => c.html(<h1>Hello!</h1>));
+```
 
 ## `defineHandler`
 
@@ -77,8 +115,8 @@ Return values are automatically converted:
 `defineHandler.withValidator()` adds input validation for `body`, `query`, and `params`. The recommended approach is to derive validators from your [Drizzle schema](./database.md#schema-derived-validators), which keeps validation in sync with the database.
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // routes/api/users/index.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -216,8 +254,8 @@ defineHandler(middleware1, middleware2, handler);
 Middleware runs in order. Each can short-circuit (return a response without calling `next()`) or post-process (modify the response after `await next()`). Both `defineMiddleware`-wrapped functions and raw Hono `MiddlewareHandler` functions are accepted.
 
 ```ts
-import { cors } from 'hono/cors';
 // routes/api/stats.ts
+import { cors } from 'hono/cors';
 import { defineHandler } from 'void';
 
 export const GET = defineHandler(cors({ origin: 'https://app.example.com' }), (c) => ({

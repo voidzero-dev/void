@@ -1,16 +1,18 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
-import { describe, expect, it, vi, beforeEach } from 'vite-plus/test';
+import { Hono } from 'hono';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vite-plus/test';
 import { compileWorkerClient } from '../../src/router/compile.ts';
 import { FetchError as RuntimeFetchError } from '../../src/runtime/fetch-error.ts';
-import { interpolateRouteParams } from '../../src/runtime/route-url.ts';
+import { createServerFetch } from '../../src/runtime/fetch-server.ts';
 
 describe('compileWorkerClient', () => {
-  it('generates module with fetch function and FetchError class', () => {
+  it('wires the server runtime to the app and request context', () => {
     const code = compileWorkerClient('/resolved/auth-client.mjs');
     expect(code).toContain('import app, { requestContext } from "virtual:void-routes"');
     expect(code).toContain('import { env } from "cloudflare:workers"');
-    expect(code).toContain('export class FetchError');
-    expect(code).toContain('export async function fetch');
+    expect(code).toContain('import { createServerFetch }');
+    expect(code).toContain('export { FetchError }');
+    expect(code).toContain('export const fetch = createServerFetch(');
   });
 
   it('re-exports auth helpers from resolved path', () => {
@@ -269,10 +271,205 @@ function evaluateClient(
     'app',
     'env',
     'requestContext',
-    'interpolateRouteParams',
+    'createServerFetch',
+    'FetchError',
     code + '\nreturn { fetch, FetchError };',
-  )({ fetch }, env, requestContext, interpolateRouteParams);
+  )({ fetch }, env, requestContext, createServerFetch, RuntimeFetchError);
 }
+
+describe.each([false, true])('server fetch documented options (nodeTarget: %s)', (nodeTarget) => {
+  let app: Hono;
+  let requestContext: AsyncLocalStorage<{ request: Request }>;
+  let dispatch: ReturnType<typeof vi.fn<(...args: Array<unknown>) => Promise<Response>>>;
+  let client: ReturnType<typeof evaluateClient>;
+
+  beforeEach(() => {
+    app = new Hono();
+    requestContext = new AsyncLocalStorage();
+    dispatch = vi.fn(async (...args: Array<unknown>) => app.fetch(args[0] as Request));
+    client = evaluateClient(
+      (authClientPath) => compileWorkerClient(authClientPath, nodeTarget),
+      dispatch,
+      {},
+      requestContext,
+    );
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it('prepends a relative baseURL to the route path', async () => {
+    app.get('/api/hello', (c) => c.json({ path: c.req.path }));
+    app.get('/prefix/api/hello', (c) => c.json({ path: c.req.path }));
+
+    await expect(client.fetch('/api/hello', { baseURL: '/prefix' })).resolves.toEqual({
+      path: '/prefix/api/hello',
+    });
+  });
+
+  it('rejects an already-aborted signal without dispatching the handler', async () => {
+    app.get('/api/hello', (c) => c.json({ ok: true }));
+
+    await expect(client.fetch('/api/hello', { signal: AbortSignal.abort() })).rejects.toThrow();
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it('rejects invalid route params through the returned promise', async () => {
+    await expect(client.fetch('/api/users/:id', { params: { id: '..' } })).rejects.toThrow(
+      'would change the request path',
+    );
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it.each([false, true])('times out a slow handler (caller signal: %s)', async (withSignal) => {
+    let finish!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    app.get('/api/slow', async (c) => {
+      await pending;
+      return c.json({ ok: true });
+    });
+    try {
+      await expect(
+        client.fetch('/api/slow', {
+          timeout: 10,
+          retry: 0,
+          signal: withSignal ? new AbortController().signal : undefined,
+        }),
+      ).rejects.toMatchObject({
+        name: 'FetchError',
+        cause: { name: 'TimeoutError' },
+      });
+    } finally {
+      finish();
+    }
+  });
+
+  it('aborts an in-flight handler without retrying', async () => {
+    const controller = new AbortController();
+    app.get('/api/slow', async (c) => {
+      await new Promise<void>((resolve) => {
+        c.req.raw.signal.addEventListener('abort', () => resolve(), { once: true });
+      });
+      return c.json({ ok: true });
+    });
+
+    const result = client.fetch('/api/slow', { signal: controller.signal, retry: 2 });
+    controller.abort();
+
+    await expect(result).rejects.toMatchObject({
+      name: 'FetchError',
+      cause: { name: 'AbortError' },
+    });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+    expect((dispatch.mock.calls[0]![0] as Request).signal.aborted).toBe(true);
+  });
+
+  it.each([
+    { retry: undefined, attempts: 2 },
+    { retry: 2, attempts: 3 },
+  ])(
+    'makes $attempts GET attempts on a 503 response (retry: $retry)',
+    async ({ retry, attempts }) => {
+      let count = 0;
+      app.get('/api/unavailable', (c) => c.json({ attempts: ++count }, 503));
+      const result = client
+        .fetch('/api/unavailable', retry === undefined ? undefined : { retry })
+        .catch((error: RuntimeFetchError) => error);
+
+      const error = (await result) as RuntimeFetchError;
+
+      expect(dispatch).toHaveBeenCalledTimes(attempts);
+      expect(error).toBeInstanceOf(client.FetchError);
+      expect(error.status).toBe(503);
+      expect(error.data).toEqual({ attempts });
+    },
+  );
+
+  it('preserves the raw HTTP response on FetchError', async () => {
+    const response = Response.json(
+      { error: 'unavailable' },
+      { status: 503, headers: { 'x-request-id': 'request-477' } },
+    );
+    app.get('/api/unavailable', () => response);
+
+    const error = (await client
+      .fetch('/api/unavailable', { retry: 0 })
+      .catch((error: RuntimeFetchError) => error)) as RuntimeFetchError;
+
+    expect(error).toBeInstanceOf(client.FetchError);
+    expect(error.status).toBe(503);
+    expect(error.data).toEqual({ error: 'unavailable' });
+    expect(error.response).toBe(response);
+    expect(error.response?.headers.get('x-request-id')).toBe('request-477');
+  });
+
+  it('does not retry POST requests by default', async () => {
+    app.post('/api/users', (c) => c.json({ error: 'unavailable' }, 503));
+
+    await expect(
+      client.fetch('/api/users', { method: 'POST', body: { name: 'Alice' } }),
+    ).rejects.toMatchObject({ status: 503 });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+
+  it('preserves the JSON body when explicitly retrying a POST', async () => {
+    const bodies: Array<unknown> = [];
+    app.post('/api/users', async (c) => {
+      bodies.push(await c.req.json());
+      return c.json({ created: bodies.length === 2 }, bodies.length === 1 ? 503 : 201);
+    });
+
+    await expect(
+      client.fetch('/api/users', {
+        method: 'POST',
+        body: { name: 'Alice' },
+        retry: 1,
+      }),
+    ).resolves.toEqual({ created: true });
+    expect(bodies).toEqual([{ name: 'Alice' }, { name: 'Alice' }]);
+  });
+
+  it('uses HTTP for external base URLs without forwarding ambient credentials', async () => {
+    const networkFetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(Response.json({ ok: true }));
+    const request = new Request('https://app.example/ssr', {
+      headers: { cookie: 'session=secret', authorization: 'Bearer secret' },
+    });
+
+    await requestContext.run({ request }, () =>
+      client.fetch('/api/hello', {
+        baseURL: 'https://external.example/prefix',
+        headers: { 'x-api-key': 'explicit' },
+      }),
+    );
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(networkFetch).toHaveBeenCalledTimes(1);
+    const external = networkFetch.mock.calls[0]![0] as Request;
+    expect(external.url).toBe('https://external.example/prefix/api/hello');
+    expect(external.headers.get('cookie')).toBeNull();
+    expect(external.headers.get('authorization')).toBeNull();
+    expect(external.headers.get('x-api-key')).toBe('explicit');
+  });
+
+  it('dispatches same-origin base URLs internally with the current credentials', async () => {
+    app.get('/prefix/api/hello', (c) => c.json({ cookie: c.req.header('cookie') }));
+    const request = new Request('https://app.example/ssr', {
+      headers: { cookie: 'session=secret' },
+    });
+
+    await expect(
+      requestContext.run({ request }, () =>
+        client.fetch('/api/hello', {
+          baseURL: 'https://app.example/prefix',
+        }),
+      ),
+    ).resolves.toEqual({ cookie: 'session=secret' });
+    expect(dispatch).toHaveBeenCalledTimes(1);
+  });
+});
 
 it.each([false, true])(
   'expands catch-all routes in generated clients (nodeTarget: %s)',

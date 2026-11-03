@@ -149,10 +149,12 @@ export class PlatformOidcProvider {
     try {
       const params = oauth.validateAuthResponse(server, client, input.callback, input.state);
       const methods = server.token_endpoint_auth_methods_supported ?? ['client_secret_basic'];
-      const auth = methods.includes('client_secret_basic')
-        ? oauth.ClientSecretBasic(input.clientSecret)
-        : methods.includes('client_secret_post')
-          ? oauth.ClientSecretPost(input.clientSecret)
+      // Prefer the form body: Basic credentials are form-encoded first (RFC 6749 §2.3.1), which
+      // escapes `-`, `.` and `_`, and providers such as Google compare them without decoding.
+      const auth = methods.includes('client_secret_post')
+        ? oauth.ClientSecretPost(input.clientSecret)
+        : methods.includes('client_secret_basic')
+          ? oauth.ClientSecretBasic(input.clientSecret)
           : null;
       if (!auth) {
         throw new Error('The identity provider must support client-secret authentication.');

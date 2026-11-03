@@ -35,15 +35,11 @@ Header rules do not apply to ISR cache responses.
 
 ### Cookie headers
 
-On a [Void platform](../deployment.md#deploy-to-a-team-platform), apps usually share an application domain, such as `apps.example.com`. Header rules on a platform deploy change two headers on all hostnames of the app, including custom domains:
+On a [Void platform](../deployment.md#deploy-to-a-team-platform), set cookies in your app's response. Header rules ignore `Set-Cookie`, remove `"cookies"` from `Clear-Site-Data`, and ignore `Clear-Site-Data` rules containing `"*"`. You can use directives such as `"cache"` and `"storage"` in header rules.
 
-- Void ignores `Set-Cookie` in header rules.
-- Void removes the `"cookies"` directive from `Clear-Site-Data` in header rules. Other directives, such as `"cache"` and `"storage"`, still apply.
-- Void ignores the full value of a `Clear-Site-Data` rule that includes `"*"`. The response then keeps the `Clear-Site-Data` value from your app's response, without `"cookies"`. If that value also includes `"*"`, the response has no `Clear-Site-Data`.
+These limits apply on all of your app's hostnames, including custom domains, to protect cookies for other apps on the shared domain. Your app's own cookie headers can still affect those apps, so scope cookies carefully. See [Domains and Resources](../platform/installation/domains.md#adding-a-domain).
 
-This stops a header rule from setting or clearing cookies for other apps on the same domain. These limits apply only to header rules. Your app's own response can set cookies and send `Clear-Site-Data`, and on a shared domain those can affect other apps. See [Domains and Resources](../platform/installation/domains.md#adding-a-domain).
-
-In `void dev`, with `void deploy --platform cloudflare`, and on [other runtimes](../deployment.md#other-runtimes), header rules apply both headers as written.
+During local development, with `void deploy --platform cloudflare`, and on [other runtimes](../deployment.md#other-runtimes), header rules apply both headers as written.
 
 ## Framework `_headers` files
 

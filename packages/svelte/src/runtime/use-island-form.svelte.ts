@@ -1,47 +1,19 @@
 import {
-  VoidActionError,
-  categorizeActionError,
-  getValidationErrors,
   isEqualFormValue,
+  submitIslandAction,
+  type IslandFormState,
+  type VoidActionError,
 } from 'void/pages-client';
 
-type UntypedIslandForm = {
-  readonly data: Record<string, unknown>;
-  readonly errors: Record<string, string>;
-  readonly error: VoidActionError | null;
-  readonly pending: boolean;
-  readonly hasChanges: boolean;
-  readonly wasSuccessful: boolean;
-  readonly recentlySuccessful: boolean;
-  submit(url: string, method: string): Promise<void>;
-  post(url: string): Promise<void>;
-  put(url: string): Promise<void>;
-  patch(url: string): Promise<void>;
-  delete(url: string): Promise<void>;
-  reset(...fields: ReadonlyArray<string>): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
-
-async function readActionErrorBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') || '';
-  try {
-    if (contentType.includes('application/json')) {
-      return await response.json();
-    }
-    const text = await response.text();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
+  Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
  * Void Router (which is not available in island mode).
  */
-export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandForm {
-  let data: Record<string, unknown> = $state({ ...defaults });
+export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T> {
+  let data: T = $state({ ...defaults });
   let errors: Record<string, string> = $state({});
   let error: VoidActionError | null = $state(null);
   let pending = $state(false);
@@ -55,7 +27,7 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
     Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key])),
   );
 
-  function reset(...fields: ReadonlyArray<string>) {
+  function reset(...fields: ReadonlyArray<keyof T & string>) {
     if (fields.length === 0) {
       data = { ...defaults_ };
     } else {
@@ -90,18 +62,14 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
     clearError();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const result = await submitIslandAction(url, method, data);
 
-      if (response.redirected) {
-        window.location.href = response.url;
+      if (result.kind === 'redirect') {
+        window.location.href = result.url;
         return;
       }
 
-      if (response.ok) {
+      if (result.kind === 'success') {
         wasSuccessful = true;
         recentlySuccessful = true;
         defaults_ = { ...data };
@@ -109,23 +77,10 @@ export function useIslandForm(defaults: Record<string, unknown>): UntypedIslandF
           recentlySuccessful = false;
         }, 2000);
         window.location.reload();
+      } else if (result.kind === 'validation') {
+        Object.assign(errors, result.errors);
       } else {
-        const body = await readActionErrorBody(response);
-        const actionError = new VoidActionError({
-          body,
-          status: response.status,
-          statusText: response.statusText,
-          url,
-        });
-        const validationErrors = response.status === 422 ? getValidationErrors(body) : null;
-        if (validationErrors) {
-          Object.assign(errors, validationErrors);
-          return;
-        }
-        if (categorizeActionError(response.status) === 'boundary') {
-          throw actionError;
-        }
-        error = actionError;
+        error = result.error;
       }
     } finally {
       pending = false;

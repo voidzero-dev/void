@@ -100,6 +100,8 @@ export type ApiEnv = Env & {
      * Falls back to `void-tail` when unset.
      */
     TAIL_SERVICE_NAME?: string;
+    /** Set to `minimal` when URLs, log messages and exception messages are not recorded. */
+    PLATFORM_RUNTIME_LOGS?: 'minimal';
     VOID_PROXY_SERVICE?: string;
     /** Private readiness checks, attached after the proxy Worker has been provisioned. */
     PLATFORM_PROXY?: Fetcher;
@@ -232,6 +234,8 @@ export type ApiEnv = Env & {
     deploymentExecution?: {
       operation: import('./deployment-operation-types.ts').DeploymentOperation;
       workerFiles: Array<import('./worker-upload.ts').WorkerModule>;
+      /** When this run's Worker uploads must end (epoch ms), leaving time to compensate. */
+      deadline: number;
     };
   };
 };

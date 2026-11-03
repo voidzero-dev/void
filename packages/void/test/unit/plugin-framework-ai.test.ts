@@ -5,7 +5,7 @@ import type { ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 // Framework adapters own the Cloudflare runtime, so these hooks never call the real plugin.
-vi.mock('@cloudflare/vite-plugin', () => import('../helpers/cloudflare-vite-plugin.ts'));
+vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
 
 const roots: Array<string> = [];
 

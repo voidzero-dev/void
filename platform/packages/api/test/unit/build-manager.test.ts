@@ -5817,7 +5817,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
     }
   });
 
-  it('restores exact captured CR, LF, and CRLF while CSI state spans rows', async () => {
+  it('renders captured newlines without losing CSI state or bare-CR rewrites', async () => {
     const first = { line: `before${ESC}[`, lineEnding: 'cr' as const };
     const bareCr = (await formatLogTailMarkdown(
       [first, { line: '31mRED', lineEnding: 'none' }],
@@ -5832,7 +5832,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       ],
       2,
     )) as string;
-    expect(parseFence(bareLf).content).toEqual(['before', '      RED']);
+    expect(parseFence(bareLf).content).toEqual(['before', 'RED']);
 
     const crlf = (await formatLogTailMarkdown(
       [
@@ -5844,7 +5844,7 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
     expect(parseFence(crlf).content).toEqual(['before', 'RED']);
   });
 
-  it('preserves a bare LF cursor column even for otherwise plain rows', async () => {
+  it('starts plain LF-delimited log lines at column zero', async () => {
     const out = (await formatLogTailMarkdown(
       [
         { line: 'abc', lineEnding: 'lf' },
@@ -5852,7 +5852,20 @@ describe('formatLogTailMarkdown sanitizes before measuring', () => {
       ],
       2,
     )) as string;
-    expect(parseFence(out).content).toEqual(['abc', '   X']);
+    expect(parseFence(out).content).toEqual(['abc', 'X']);
+  });
+
+  it('keeps plain LF-delimited logs on the text path beyond the terminal input budget', async () => {
+    const lines = Array.from(
+      { length: CHECK_RUN_LOG_TAIL_LINES },
+      (_, index) => `${index}: ${'x'.repeat(400)}`,
+    );
+    expect(lines.join('\n').length).toBeGreaterThan(TERMINAL_TAIL_MAX_INPUT_CODE_UNITS);
+    const out = (await formatLogTailMarkdown(
+      lines.map((line) => ({ line, lineEnding: 'lf' })),
+      lines.length,
+    )) as string;
+    expect(parseFence(out).content).toEqual(lines);
   });
 
   it('does not invent a REP source across a captured LF inside CSI', async () => {
@@ -7869,6 +7882,44 @@ describe('build-agent pipeStream line splitting + tail cap', () => {
       { line: 'd', lineEnding: 'none' },
     ]);
   });
+
+  it.each(['\n', '\r\n'])(
+    'renders piped build output without staircase indentation (%j)',
+    async (ending) => {
+      const lines = [
+        'dependencies:',
+        '+ vue 3.5.44',
+        '+ void 1.1.11',
+        '[build-agent] $ void deploy --project example',
+        '\x1b[32m✓ built in 119ms\x1b[0m',
+        'dist/client/index.html  0.57 kB',
+        '  at build (build.ts:10:2)',
+        'Uploading 1/2\r\x1b[2K✓ Uploaded 2/2',
+        '╭─ https://example.void.app ─╮',
+        '│  2 static assets          │',
+        '╰───────────────────────────╯',
+        '✓ Successfully deployed!',
+      ];
+      const rows = captureRows((src) => {
+        // Split a newline and an ANSI sequence across stream chunks as well.
+        const raw = lines.join(ending);
+        for (let offset = 0; offset < raw.length; offset += 7) {
+          src.feed(raw.slice(offset, offset + 7));
+        }
+        src.end();
+      });
+      const out = (await formatLogTailMarkdown(rows, rows.length)) as string;
+      expect(parseFence(out).content).toEqual([
+        ...lines.slice(0, 4),
+        '✓ built in 119ms',
+        ...lines.slice(5, 7),
+        '✓ Uploaded 2/2',
+        ...lines.slice(8),
+      ]);
+      expect(rows[0].lineEnding).toBe(ending === '\n' ? 'lf' : 'crlf');
+      expect(rows.some((row) => row.line.includes('\x1b[32m'))).toBe(true);
+    },
+  );
 
   it('classifies a CR at a chunk seam after one-byte lookahead', () => {
     const before = getBufferedLogLines().length;

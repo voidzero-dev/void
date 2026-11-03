@@ -21,7 +21,11 @@ const targets = [
 ];
 
 for (const { target, command, args } of targets) {
-  let available = spawn.sync(command, ['--version']).status === 0;
+  // Node is the runtime executing this suite: its coverage is required, even if
+  // an availability subprocess would time out. Only Bun and Deno are optional.
+  let available =
+    target === 'node' ||
+    spawn.sync(command, ['--version'], { timeout: 10_000, killSignal: 'SIGKILL' }).status === 0;
   if (target === 'deno' && available) {
     // Deno resolves the user's npm configuration before evaluating even a
     // no-import script. Check that optional runtime without altering registries;

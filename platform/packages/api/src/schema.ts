@@ -114,6 +114,33 @@ export const oauthGrants = pgTable(
   ],
 );
 
+export const oauthRefreshTokens = pgTable(
+  'oauth_refresh_tokens',
+  {
+    id: text('id').primaryKey(),
+    grant_id: text('grant_id')
+      .notNull()
+      .references(() => oauthGrants.id, { onDelete: 'cascade' }),
+    token_hash: text('token_hash').notNull(),
+    // Set once from the token that started this rotation family and copied
+    // forward unchanged on every rotation: an absolute cap that rotation
+    // cannot extend.
+    expires_at: timestamp('expires_at', { mode: 'string', withTimezone: true }).notNull(),
+    // Null while this generation is the live refresh token for the grant.
+    // Set when rotated out; a later redemption of a used token is reuse and
+    // revokes the whole grant.
+    used_at: timestamp('used_at', { mode: 'string', withTimezone: true }),
+    created_at: timestamp('created_at', { mode: 'string', withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex('oauth_refresh_tokens_token').on(table.token_hash),
+    index('oauth_refresh_tokens_grant').on(table.grant_id),
+    index('oauth_refresh_tokens_expiry').on(table.expires_at),
+  ],
+);
+
 export const oauthRequests = pgTable(
   'oauth_requests',
   {
@@ -372,11 +399,17 @@ export const projects = pgTable(
     // Highest proxy token generation issued for this project. 0 = legacy token.
     proxy_token_gen: integer('proxy_token_gen').notNull().default(0),
     status: text('status').notNull().default('active').$type<'active' | 'deleting'>(),
+    // A second mailbox name on the shared mail domain, set once by the owner. It
+    // shares one namespace with slugs; a database trigger keeps them apart.
+    email_alias: text('email_alias'),
     created_at: timestamp('created_at', { mode: 'string' }).notNull().defaultNow(),
   },
   (table) => [
     unique().on(table.user_id, table.slug),
     uniqueIndex('idx_projects_slug').on(table.slug),
+    uniqueIndex('idx_projects_email_alias')
+      .on(table.email_alias)
+      .where(sql`${table.email_alias} IS NOT NULL`),
     index('idx_projects_user_id').on(table.user_id),
     uniqueIndex('projects_preview_workspace').on(
       table.preview_client_id,

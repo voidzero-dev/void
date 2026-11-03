@@ -2,81 +2,52 @@ import { createSignal, createMemo, useContext } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
   VoidActionError,
+  cloneFormValue,
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
   isEqualFormValue,
+  parseFormResetArgs,
   submitAction,
-  type VisitOptions,
+  type FormResetOptions,
+  type FormState,
+  type FormSubmitOptions,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
 
-type FormSubmitOptions = Omit<VisitOptions, 'method' | 'data'> & {
-  data?: Record<string, unknown>;
-};
-type UntypedForm = {
-  data: Record<string, unknown>;
-  setData(field: string, value: unknown): void;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(...fields: ReadonlyArray<string>): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+type FormReturn<TData> = FormState<TData, 'setters'> &
+  Readonly<{
+    setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
   options?: ActionFormOptions<U>,
-): {
-  data: ResolveActionBody<U>;
-  setData: <K extends keyof ResolveActionBody<U> & string>(
-    field: K,
-    value: ResolveActionBody<U>[K],
-  ) => void;
-  errors: Partial<Record<keyof ResolveActionBody<U> & string, string>>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearError(): void;
-};
+): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string> },
-): UntypedForm {
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
+): FormReturn<Record<string, unknown>> {
   const router = useContext(RouterContext);
   // ErrorsContext provides the errors signal accessor — a reactive function
   // that returns the current global errors object. This allows useForm to
   // derive errors from the global state, surviving component re-creation
   // during Solid's reactive tree rebuild after router.visit().
   const globalErrors = useContext(ErrorsContext);
-  const [data, setDataStore] = createStore<Record<string, unknown>>({ ...defaults });
-  const [localErrors, setLocalErrors] = createSignal<Record<string, string>>({});
-  const errors = createMemo(() => {
-    const local = localErrors();
-    if (Object.keys(local).length > 0) {
-      return local;
-    }
+  const initialDefaults = cloneFormValue(defaults);
+  const [data, setDataStore] = createStore<Record<string, unknown>>(
+    cloneFormValue(initialDefaults),
+  );
+  const serverErrors = createMemo(() => {
     // globalErrors is a signal accessor (function) on the client, or a plain
     // object on the server. Handle both cases.
     if (!globalErrors) {
@@ -87,12 +58,26 @@ export function useForm(
     }
     return globalErrors;
   });
+  const [localErrors, setLocalErrors] = createSignal<{
+    source: Record<string, string>;
+    values: Record<string, string>;
+  } | null>(null);
+  const errors = createMemo(() => {
+    const server = serverErrors();
+    const local = localErrors();
+    // A new router result replaces earlier edits, including explicit clears.
+    return local?.source === server ? local.values : server;
+  });
+
+  function replaceErrors(values: Record<string, string>) {
+    setLocalErrors({ source: serverErrors(), values });
+  }
   const [pending, setPending] = createSignal(false);
-  const [error, setError] = createSignal<VoidActionError | null>(null);
+  const [error, setActionError] = createSignal<VoidActionError | null>(null);
   const [wasSuccessful, setWasSuccessful] = createSignal(false);
   const [recentlySuccessful, setRecentlySuccessful] = createSignal(false);
 
-  const [defaults_, setDefaults] = createSignal<Record<string, unknown>>({ ...defaults });
+  const [defaults_, setDefaults] = createSignal<Record<string, unknown>>(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
 
   const hasChanges = createMemo(() => {
@@ -102,34 +87,39 @@ export function useForm(
 
   function setData(field: string, value: unknown) {
     setDataStore(field, value);
+    clearErrors(field);
   }
 
-  function reset(...fields: ReadonlyArray<string>) {
+  function reset(...args: ReadonlyArray<string | FormResetOptions>) {
+    const { initial, fields } = parseFormResetArgs(args);
+    const source = initial ? initialDefaults : defaults_();
     if (fields.length === 0) {
-      setDataStore(reconcile({ ...defaults_() }));
+      setDataStore(reconcile(cloneFormValue(source)));
     } else {
       for (const field of fields) {
-        setDataStore(field, defaults_()[field]);
+        setDataStore(field, cloneFormValue(source[field]));
       }
     }
   }
 
   function clearErrors(...fields: ReadonlyArray<string>) {
     if (fields.length === 0) {
-      setLocalErrors({});
+      replaceErrors({});
     } else {
-      setLocalErrors((prev) => {
-        const next = { ...prev };
-        for (const field of fields) {
-          delete next[field];
-        }
-        return next;
-      });
+      const next = { ...errors() };
+      for (const field of fields) {
+        delete next[field];
+      }
+      replaceErrors(next);
     }
   }
 
+  function setFieldError(field: string, message: string) {
+    replaceErrors({ ...errors(), [field]: message });
+  }
+
   function clearError() {
-    setError(null);
+    setActionError(null);
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
@@ -139,7 +129,7 @@ export function useForm(
     if (successTimeout) {
       clearTimeout(successTimeout);
     }
-    setLocalErrors({});
+    clearErrors();
     clearError();
 
     try {
@@ -158,16 +148,21 @@ export function useForm(
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
         if (validationErrors) {
-          setLocalErrors(validationErrors);
+          replaceErrors(validationErrors);
         } else {
-          setError(result.error);
+          setActionError(result.error);
         }
         return;
       }
 
       setWasSuccessful(true);
       setRecentlySuccessful(true);
-      setDefaults({ ...data });
+      if (options?.resetOnSuccess) {
+        setDataStore(reconcile(cloneFormValue(initialDefaults)));
+        setDefaults(cloneFormValue(initialDefaults));
+      } else {
+        setDefaults(cloneFormValue(data));
+      }
       successTimeout = setTimeout(() => {
         setRecentlySuccessful(false);
       }, 2000);
@@ -205,6 +200,7 @@ export function useForm(
       return recentlySuccessful();
     },
     reset,
+    setError: setFieldError,
     clearErrors,
     clearError,
     post: (opts?: FormSubmitOptions) => submit('POST', opts),

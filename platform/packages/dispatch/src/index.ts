@@ -1,4 +1,4 @@
-import type { ProjectZeroTrustRouting } from '@void/edge';
+import { redirectToHttps, type ProjectZeroTrustRouting } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -81,6 +81,7 @@ type RoutingEntry = Readonly<{
   // `redirectRules` fires pre-asset, `fallbackRules` fires post-asset.
   // List identity encodes the pre-vs-post-asset semantic.
   redirectRules?: ReadonlyArray<RedirectRule>;
+  alwaysUseHttps?: boolean;
   fallbackRules?: ReadonlyArray<RedirectRule>;
   // Per-pathname allowlist of query params that are part of the ISR variant
   // key on a rewrite. Default (no entry / no allowlist) drops every param,
@@ -705,9 +706,11 @@ const dispatcher = {
       return createMaintenanceResponse(request);
     }
     const startTime = Date.now();
-    // Budget for the bounded hot paths (static-asset reads, primary dispatch).
-    // See `resolveTimeoutMs` for the operator kill switch.
+    // Keep platform storage/background work bounded. Foreground user workers
+    // follow the client's lifetime unless the operator configures a deadline:
+    // returning early can cancel a mutation after its external side effect.
     const timeoutMs = resolveTimeoutMs(env.DISPATCH_TIMEOUT_MS);
+    const workerTimeoutMs = resolveTimeoutMs(env.DISPATCH_TIMEOUT_MS, 0);
 
     // Block Void-internal routes from external HTTP access.
     // Only /__void/* is reserved by the platform — other __ prefixes
@@ -745,6 +748,17 @@ const dispatcher = {
     }
 
     const routing: RoutingEntry = JSON.parse(routingRaw);
+    if (selected.projectId && selected.projectId !== routing.projectId) {
+      return createErrorResponse(request, 404, 'Not Found');
+    }
+    // Keep omission distinct from false so a future platform default can change
+    // without overriding an application's explicit opt-out.
+    if (routing.alwaysUseHttps ?? false) {
+      const redirect = redirectToHttps(request);
+      if (redirect) {
+        return redirect;
+      }
+    }
     if (!privatePreview && (routing.privatePreview || previewRoute)) {
       if (!routing.privatePreview || !env.PREVIEW_API) {
         return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
@@ -763,9 +777,6 @@ const dispatcher = {
     }
     if (Boolean(routing.privatePreview) !== privatePreview) {
       return createErrorResponse(request, 404, 'Not Found', { 'Cache-Control': 'no-store' });
-    }
-    if (selected.projectId && selected.projectId !== routing.projectId) {
-      return createErrorResponse(request, 404, 'Not Found');
     }
 
     // Access normally rejects unauthenticated traffic before dispatch. This
@@ -885,7 +896,7 @@ const dispatcher = {
         method: request.method,
         url: request.url,
         status: 503,
-        timeoutMs,
+        timeoutMs: workerTimeoutMs,
       });
       return meter(timeoutResponse(503, 'dispatch'));
     };
@@ -1335,11 +1346,15 @@ const dispatcher = {
           requestType = 'isr';
           const worker = getWorker(env, routing);
           const isrWorkerStartedAt = Date.now();
+          const isrWorkerDeadline =
+            env.DISPATCH_TIMEOUT_MS === undefined
+              ? undefined
+              : { startedAt: isrWorkerStartedAt, timeoutMs: workerTimeoutMs };
           let workerResponse: Response;
           try {
             workerResponse = await withTimeout(
               worker.fetch(workerRequest),
-              remainingTimeoutBudget(isrWorkerStartedAt, timeoutMs, 'dispatch'),
+              remainingTimeoutBudget(isrWorkerStartedAt, workerTimeoutMs, 'dispatch'),
               'dispatch',
             );
           } catch (error) {
@@ -1364,7 +1379,7 @@ const dispatcher = {
               pathname,
               response: workerResponse,
               userAgent: request.headers.get('user-agent'),
-              deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+              deadline: isrWorkerDeadline,
             });
             workerResponse = assetFallbackResult.response;
             workerResponseFailureKind = assetFallbackResult.failureKind;
@@ -1383,7 +1398,7 @@ const dispatcher = {
                 originalRequestUrl: request.url,
                 originalUrlHeader,
                 originalUrlVariant: isrOriginalUrlVariant,
-                deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+                deadline: isrWorkerDeadline,
               });
             } catch (error) {
               if (error instanceof DispatchTimeoutError) {
@@ -1403,7 +1418,7 @@ const dispatcher = {
                   pathname: fallbackResult.pathname,
                   response: workerResponse,
                   userAgent: request.headers.get('user-agent'),
-                  deadline: { startedAt: isrWorkerStartedAt, timeoutMs },
+                  deadline: isrWorkerDeadline,
                 });
                 workerResponse = assetFallbackResult.response;
                 workerResponseFailureKind = assetFallbackResult.failureKind;
@@ -1730,9 +1745,13 @@ const dispatcher = {
       const dispatchReqForFallback =
         hasBodyMethod && routing.fallbackRules?.length ? dispatchReq.clone() : dispatchReq;
       const workerDispatchStartedAt = Date.now();
+      const workerDeadline =
+        env.DISPATCH_TIMEOUT_MS === undefined
+          ? undefined
+          : { startedAt: workerDispatchStartedAt, timeoutMs: workerTimeoutMs };
       let response = await withTimeout(
         worker.fetch(dispatchReq),
-        remainingTimeoutBudget(workerDispatchStartedAt, timeoutMs, 'dispatch'),
+        remainingTimeoutBudget(workerDispatchStartedAt, workerTimeoutMs, 'dispatch'),
         'dispatch',
       );
       let isEventStream = isEventStreamResponse(response);
@@ -1748,7 +1767,7 @@ const dispatcher = {
           pathname,
           response,
           userAgent: request.headers.get('user-agent'),
-          deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+          deadline: workerDeadline,
         });
         response = assetFallbackResult.response;
         responseFailureKind = assetFallbackResult.failureKind;
@@ -1776,7 +1795,7 @@ const dispatcher = {
           originalRequestUrl: request.url,
           originalUrlHeader,
           originalUrlVariant,
-          deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+          deadline: workerDeadline,
         });
         if (fallbackResult.applied) {
           writebackFallbackApplied = true;
@@ -1792,7 +1811,7 @@ const dispatcher = {
               pathname,
               response,
               userAgent: request.headers.get('user-agent'),
-              deadline: { startedAt: workerDispatchStartedAt, timeoutMs },
+              deadline: workerDeadline,
             });
             response = assetFallbackResult.response;
             responseFailureKind = assetFallbackResult.failureKind;

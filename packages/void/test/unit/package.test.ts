@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   buildFrameworkManifest,
   buildStaticManifest,
+  readWranglerHtmlHandling,
   buildVoidManifest,
   computeAssetHash,
   collectAndHashAssets,
@@ -37,6 +38,26 @@ afterEach(() => {
 });
 
 describe('worker packaging', () => {
+  it.each([true, false, undefined])(
+    'preserves alwaysUseHttps %s in every app manifest',
+    (value) => {
+      const manifests = [
+        buildVoidManifest({ bindings: makeBindings(), alwaysUseHttps: value }),
+        buildStaticManifest({ appType: 'static', alwaysUseHttps: value }),
+        buildFrameworkManifest({
+          frameworkName: 'nuxt',
+          workerMain: 'index.mjs',
+          bindings: makeBindings(),
+          alwaysUseHttps: value,
+        }),
+      ];
+      for (const manifest of manifests) {
+        const published = JSON.parse(JSON.stringify(manifest));
+        expect(published.alwaysUseHttps).toBe(value);
+        expect(Object.hasOwn(published, 'alwaysUseHttps')).toBe(value !== undefined);
+      }
+    },
+  );
   it('marks Sandbox bundles as controller-capable and omits metadata for apps without Sandbox', () => {
     const manifest = buildVoidManifest({
       bindings: makeBindings({ needsSandbox: true }),
@@ -314,6 +335,30 @@ describe('buildStaticManifest', () => {
     expect(manifest.fallbackRules).toEqual([
       { source: '/docs/*', destination: '/docs.html', status: 200 },
     ]);
+  });
+
+  it('carries authored html_handling into assetConfig', () => {
+    expect(
+      buildStaticManifest({ appType: 'static', html_handling: 'drop-trailing-slash' }).assetConfig,
+    ).toEqual({
+      not_found_handling: '404-page',
+      html_handling: 'drop-trailing-slash',
+    });
+  });
+});
+
+describe('readWranglerHtmlHandling', () => {
+  it('reads a supported assets.html_handling value', () => {
+    expect(
+      readWranglerHtmlHandling({
+        assets: { html_handling: 'drop-trailing-slash' },
+      }),
+    ).toBe('drop-trailing-slash');
+  });
+
+  it('ignores missing or invalid values', () => {
+    expect(readWranglerHtmlHandling({})).toBeUndefined();
+    expect(readWranglerHtmlHandling({ assets: { html_handling: 'bogus' } })).toBeUndefined();
   });
 });
 

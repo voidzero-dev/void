@@ -3,6 +3,7 @@ export {
   resolveLayoutChain,
   resolveNamedLayout,
   resolveEffectiveLayoutChain,
+  pageFileEnvironment,
 } from './scan.ts';
 export type {
   PageDefinition,
@@ -13,6 +14,8 @@ export type {
 export { resolveHead, renderHeadToString, renderHtmlAttrs, renderBodyAttrs } from './head.ts';
 export type { HeadDescriptor, HeadConfig } from './head.ts';
 export { generateComponentManifest } from './manifest.ts';
+export { createPagesPlugin, resolvePrefetchConfig } from './plugin.ts';
+export type { PagesPluginOptions, PrefetchConfig } from './plugin.ts';
 export { resolveStaticPageDataBuildOptions } from './static-data.ts';
 export type { StaticPageDataBuildOptions } from './static-data.ts';
 export { serializePageData } from './serialize.ts';

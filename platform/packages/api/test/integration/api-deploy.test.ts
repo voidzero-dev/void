@@ -24,6 +24,7 @@ import {
   type Db,
 } from '../../src/db.ts';
 import app from '../../src/index.ts';
+import { createIsrStore } from '../../src/isr-store.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
 import * as projectAccess from '../../src/project-access.ts';
 import * as projectIngress from '../../src/project-ingress.ts';
@@ -2492,6 +2493,27 @@ describe('POST /projects/:id/deploy', () => {
         });
     };
 
+    // Collects the worker upload attempt records, at any level.
+    const captureUploadAttemptLogs = () => {
+      const spies = [
+        vi.spyOn(console, 'log').mockImplementation(() => {}),
+        vi.spyOn(console, 'warn').mockImplementation(() => {}),
+      ];
+      return () =>
+        spies.flatMap((spy) =>
+          spy.mock.calls.flatMap(([line]) => {
+            try {
+              const record = JSON.parse(String(line)) as Record<string, unknown>;
+              return record.phase === 'worker_upload' && String(record.msg).startsWith('attempt_')
+                ? [record]
+                : [];
+            } catch {
+              return [];
+            }
+          }),
+        );
+    };
+
     it('marks deployment failed when worker upload fails', async () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id, 'fail-app');
@@ -2721,7 +2743,7 @@ describe('POST /projects/:id/deploy', () => {
       const events = parseDeployStream(await res.text());
       const error = requireEvent<ErrorEvent>(events, 'error');
       expect(error.step).toBe('worker_upload');
-      expect(error.message).toContain('did not finish within 120 seconds');
+      expect(error.message).toContain('The Worker upload timed out');
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
     });
@@ -2931,6 +2953,178 @@ describe('POST /projects/:id/deploy', () => {
           latencyMs: expect.any(Number),
           code: 'timeout',
           err: expect.stringContaining('timeout'),
+          uploadPhase: 'response',
+          bodyBytes: expect.any(Number),
+          modules: expect.any(Number),
+        }),
+      ]);
+    });
+
+    it('logs upload progress on a failed attempt and on success', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-progress-log');
+      const logs = captureUploadAttemptLogs();
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          if (uploadCalls === 1) {
+            throw new TypeError('fetch failed');
+          }
+          return cfSuccess({});
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({ event: 'done' });
+      expect(uploadCalls).toBe(2);
+      const records = logs();
+      expect(records).toHaveLength(2);
+      const failed = records.find((record) => record.msg === 'attempt_failed');
+      const done = records.find((record) => record.msg === 'attempt_done');
+      expect(failed).toMatchObject({
+        lvl: 'warn',
+        msg: 'attempt_failed',
+        attempt: 0,
+        code: 'transport',
+        timeout: null,
+        uploadPhase: 'response',
+        bytesSent: expect.any(Number),
+        bodyBytes: failed!.bytesSent,
+        modulesStarted: failed!.modules,
+        sourceWaitMs: expect.any(Number),
+        sendMs: expect.any(Number),
+        budgetRemainingMs: expect.any(Number),
+      });
+      expect(failed!.modules).toBeGreaterThan(0);
+      expect(done).toMatchObject({
+        lvl: 'info',
+        msg: 'attempt_done',
+        attempt: 1,
+        bodyBytes: expect.any(Number),
+        modules: failed!.modules,
+        sendMs: expect.any(Number),
+        sourceWaitMs: expect.any(Number),
+        responseMs: expect.any(Number),
+      });
+    });
+
+    it('stops retrying once the budget cannot fit another attempt', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-budget');
+      const now = Date.now.bind(Date);
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          // The first attempt took most of the budget.
+          vi.spyOn(Date, 'now').mockImplementation(() => now() + 450_000);
+          throw timeoutError();
+        },
+      });
+
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      const error = requireEvent<ErrorEvent>(events, 'error');
+      expect(error.step).toBe('worker_upload');
+      expect(uploadCalls).toBe(1);
+      expect(dispatchScriptReads(cf)).toBe(1);
+    });
+
+    it('stops retrying a plain-text reply once the budget cannot fit another attempt', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-text-budget');
+      const now = Date.now.bind(Date);
+      let uploadCalls = 0;
+      const cf = mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          vi.spyOn(Date, 'now').mockImplementation(() => now() + 450_000);
+          return new Response('Assets have already been uploaded.');
+        },
+      });
+
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          assets: { 'index.html': '<h1>hi</h1>' },
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(200);
+      const events = parseDeployStream(await res.text());
+      expect(events.at(-1)).toMatchObject({
+        event: 'error',
+        step: 'worker_upload',
+        message: 'worker upload returned an unexpected Cloudflare response',
+      });
+      expect(uploadCalls).toBe(1);
+      expect(dispatchScriptReads(cf)).toBe(0);
+    });
+
+    it('cuts attempts that Cloudflare never answers, then stops at the budget', async () => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'worker-upload-watchdog');
+      const logs = captureUploadAttemptLogs();
+      let stalls = 0;
+      const cf = mockCfApi({
+        // The body has been read in full; no answer comes until the signal aborts.
+        uploadWorker: (_url, init) =>
+          new Promise<Response>((_resolve, reject) => {
+            const signal = init!.signal!;
+            signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+            stalls++;
+          }),
+      });
+      const request = await buildDeployRequest(env, project.id, user.jwt);
+
+      vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+      try {
+        const body = Promise.resolve(app.fetch(request, env)).then((res) => res.text());
+        // Each step passes one response limit and the backoff after it. The
+        // fourth attempt would get its answer past the budget, so the
+        // deadline cuts it.
+        for (let attempt = 1; attempt <= 4; attempt++) {
+          await vi.waitFor(() => expect(stalls).toBe(attempt));
+          await vi.advanceTimersByTimeAsync(128_000);
+        }
+        const events = parseDeployStream(await body);
+        const error = requireEvent<ErrorEvent>(events, 'error');
+        expect(error.step).toBe('worker_upload');
+        expect(error.message).toBe(
+          'The Worker upload did not finish within 8 minutes. Deploy again.',
+        );
+      } finally {
+        vi.useRealTimers();
+      }
+      expect(stalls).toBe(4);
+      expect(dispatchScriptReads(cf)).toBe(1);
+      expect(logs()).toEqual([
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 0,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
+        }),
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 1,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
+        }),
+        expect.objectContaining({
+          msg: 'attempt_failed',
+          attempt: 2,
+          code: 'timeout',
+          timeout: 'response',
+          uploadPhase: 'response',
         }),
       ]);
     });
@@ -2958,7 +3152,7 @@ describe('POST /projects/:id/deploy', () => {
       const events = parseDeployStream(await res.text());
       const error = requireEvent<ErrorEvent>(events, 'error');
       expect(error.step).toBe('worker_upload');
-      expect(error.message).toContain('did not finish within 120 seconds');
+      expect(error.message).toContain('The Worker upload timed out');
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
     });
@@ -5537,8 +5731,10 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    // Verify ISR cache entries were written to KV (packed binary format)
-    const { value: homeValue, metadata: homeMeta } = await env.ISR_CACHE.getWithMetadata<{
+    // Verify ISR cache entries were written to authoritative R2 (packed binary format)
+    const { value: homeValue, metadata: homeMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -5552,7 +5748,7 @@ describe('Deploy with prerendering', () => {
     expect(homeMeta?.s).toBe(200);
     expect(homeMeta?.t).toBe(3600);
 
-    const { value: aboutValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
@@ -5592,7 +5788,7 @@ describe('Deploy with prerendering', () => {
       .select({ id: deployments.id })
       .from(deployments)
       .where(eq(deployments.project_id, project.id));
-    const { value } = await env.ISR_CACHE.getWithMetadata(
+    const { value } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/data`,
       'arrayBuffer',
     );
@@ -5642,9 +5838,11 @@ describe('Deploy with prerendering', () => {
     // deployments' v2 entries remain intact.
     expect(await env.ISR_CACHE.get(`${project.id}/isr/v2/previous/about`)).toBe('previous-v2');
     expect(
-      await env.ISR_CACHE.get(
-        `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
-      ),
+      (
+        await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
+          `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
+        )
+      ).value,
     ).not.toBeNull();
   });
 
@@ -5688,14 +5886,14 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     // /about should have ISR entry
-    const { value: aboutValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: aboutValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/about`,
       'arrayBuffer',
     );
     expect(aboutValue).not.toBeNull();
 
     // /private should NOT have ISR entry
-    const { value: privateValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/private`,
       'arrayBuffer',
     );
@@ -5768,24 +5966,26 @@ describe('Deploy with prerendering', () => {
     const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
 
     // The normal 200 render is warmed.
-    const { value: warmValue, metadata: warmMetadata } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: warmValue, metadata: warmMetadata } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       p: number;
     }>(`${base}/warm`, 'arrayBuffer');
     expect(warmValue).not.toBeNull();
     expect(warmMetadata?.p).toBe(SHARED_CACHE_POLICY_VERSION);
 
     // Neither opt-out render is warmed.
-    const { value: headerOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: headerOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-header`,
       'arrayBuffer',
     );
     expect(headerOptOut).toBeNull();
-    const { value: ccOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: ccOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-cc`,
       'arrayBuffer',
     );
     expect(ccOptOut).toBeNull();
-    const { value: cookieOptOut } = await env.ISR_CACHE.getWithMetadata(
+    const { value: cookieOptOut } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/optout-cookie`,
       'arrayBuffer',
     );
@@ -5841,12 +6041,12 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
     const base = `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app`;
 
-    const { value: otherValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: otherValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/other`,
       'arrayBuffer',
     );
     expect(otherValue).not.toBeNull();
-    const { value: privateValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: privateValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${base}/blog/private`,
       'arrayBuffer',
     );
@@ -5899,14 +6099,14 @@ describe('Deploy with prerendering', () => {
     expect(deployment).toBeDefined();
 
     // /blog/hello should have an ISR entry.
-    const { value: helloValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: helloValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/hello`,
       'arrayBuffer',
     );
     expect(helloValue).not.toBeNull();
 
     // /blog/a/b must NOT have an ISR entry (single-segment anchor).
-    const { value: nestedValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: nestedValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/blog/a/b`,
       'arrayBuffer',
     );
@@ -5964,7 +6164,9 @@ describe('Deploy with prerendering', () => {
     // `c`) exists as bytes but is a permanent cold miss — dispatch's
     // `readIsrCache` returns null without `c`/`t`. Assert the readable shape,
     // not just presence.
-    const { value: introValue, metadata: introMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: introValue, metadata: introMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -5975,11 +6177,12 @@ describe('Deploy with prerendering', () => {
     expect(introMeta!.c).toBeGreaterThan(0);
 
     // The NESTED path /docs/guide/setup must ALSO have a readable ISR entry.
-    const { value: nestedCatchAllValue, metadata: nestedMeta } =
-      await env.ISR_CACHE.getWithMetadata<{ s: number; c: number; t: number }>(
-        `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
-        'arrayBuffer',
-      );
+    const { value: nestedCatchAllValue, metadata: nestedMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{ s: number; c: number; t: number }>(
+      `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/docs/guide/setup`,
+      'arrayBuffer',
+    );
     expect(nestedCatchAllValue).not.toBeNull();
     expect(nestedMeta).toMatchObject({ s: 200, t: 3600 });
     expect(typeof nestedMeta?.c).toBe('number');
@@ -6097,7 +6300,9 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    const { value: pValue, metadata: pMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: pValue, metadata: pMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -6156,13 +6361,15 @@ describe('Deploy with prerendering', () => {
       .where(eq(deployments.project_id, project.id));
     expect(deployment).toBeDefined();
 
-    const { value: specificValue } = await env.ISR_CACHE.getWithMetadata(
+    const { value: specificValue } = await createIsrStore(env.STATIC_ASSETS_R2).getWithMetadata(
       `${project.id}/isr/v3/${deployment!.id}/${project.slug}.void.app/specific`,
       'arrayBuffer',
     );
     expect(specificValue).toBeNull();
 
-    const { value: otherValue, metadata: otherMeta } = await env.ISR_CACHE.getWithMetadata<{
+    const { value: otherValue, metadata: otherMeta } = await createIsrStore(
+      env.STATIC_ASSETS_R2,
+    ).getWithMetadata<{
       s: number;
       c: number;
       t: number;
@@ -6617,6 +6824,33 @@ describe('POST /projects/:id/deploy/preflight', () => {
       enabled: true,
       logs: { invocation_logs: true, head_sampling_rate: 1 },
     });
+  });
+
+  it('turns Workers Logs off and keeps the tail consumer with minimal runtime logs', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'obs-minimal-proj');
+
+    let capturedMetadata: Record<string, unknown> | undefined;
+    mockCfApi({
+      uploadWorker: async (_url: string, init?: RequestInit) => {
+        const body = init?.body as FormData;
+        const metadataBlob = body.get('metadata') as Blob;
+        capturedMetadata = JSON.parse(await metadataBlob.text());
+        return new Response('ok', { status: 200 });
+      },
+    });
+
+    env.PLATFORM_RUNTIME_LOGS = 'minimal';
+    try {
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+      expect(res.status).toBe(200);
+      await res.text();
+    } finally {
+      delete env.PLATFORM_RUNTIME_LOGS;
+    }
+    expect(capturedMetadata).toBeDefined();
+    expect(capturedMetadata!.observability).toEqual({ enabled: false });
+    expect(capturedMetadata!.tail_consumers).toEqual([{ service: 'void-tail' }]);
   });
 
   it('includes explicit tail_consumers metadata in worker upload', async () => {

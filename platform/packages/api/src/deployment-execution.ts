@@ -18,7 +18,16 @@ export type {
 
 // Queue invocations have a 15-minute wall-clock limit. Recovery starts after
 // that invocation is gone, and never repeats its provider writes or SQL.
+export const DEPLOYMENT_INVOCATION_MS = 15 * 60 * 1000;
 export const DEPLOYMENT_EXECUTION_LEASE_MS = 18 * 60 * 1000;
+// Worker uploads of a run (the application, then each custom Durable Object
+// host) end this long before the invocation does. Each host upload also leaves
+// time before then to replay the committed release onto every host the run has
+// moved, so a failed run can undo them. This reserve then covers restoring
+// routing, queues and cron, and an undo slower than the move it reverts. The
+// other 10 minutes cover the 8-minute application upload budget and the steps
+// before it.
+export const DEPLOYMENT_COMPENSATION_RESERVE_MS = 5 * 60 * 1000;
 const MAX_PROGRESS_EVENTS = 1000;
 
 export async function installationDeploymentAdmissionClosed(
@@ -546,6 +555,7 @@ export async function processDeploymentBatch(
   batch: MessageBatch<unknown>,
   env: ApiEnv['Bindings'],
 ): Promise<void> {
+  const uploadDeadline = Date.now() + DEPLOYMENT_INVOCATION_MS - DEPLOYMENT_COMPENSATION_RESERVE_MS;
   const db = createDb(env.HYPERDRIVE.connectionString);
   for (const message of batch.messages) {
     const body = message.body as { deploymentId?: unknown } | null;
@@ -596,7 +606,7 @@ export async function processDeploymentBatch(
         );
       } else {
         const { executeQueuedDeployment } = await import('./routes/deploy.ts');
-        await executeQueuedDeployment(env, db, operation);
+        await executeQueuedDeployment(env, db, operation, uploadDeadline);
       }
       const latest = await getDeploymentOperation(db, id);
       if (latest?.status !== 'terminal') {

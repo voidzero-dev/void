@@ -91,6 +91,8 @@ If installation configured Cloudflare Access, the uninstall plan lists its recor
 
 Uninstall does not remove the applications created for [project Zero Trust](/guide/platform/administration/zero-trust). While Zero Trust is enabled or still has Access applications, uninstall and `--plan` stop before any change and list those applications. Run `void platform zero-trust disable` first. Uninstall reads this from the installation database, so it also stops when the database cannot be reached.
 
+If the installation database is permanently lost, [remove its Cloudflare resources manually](#remove-retained-resources). Once cleanup is complete, delete the local record at `~/.void/platforms/<account-id>/<installation-id>.json` and its sibling `<installation-id>.recovery.enc` and `<installation-id>.secrets.enc` files. These files contain installation metadata and encrypted credentials; deleting them leaves Cloudflare resources in place.
+
 If no platform user exists yet, for example because first administrator setup did
 not finish, nobody can run `zero-trust disable`. Uninstall then turns off project
 Zero Trust and deletes its applications itself. Run it on the computer that installed

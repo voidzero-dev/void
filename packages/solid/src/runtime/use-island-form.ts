@@ -1,42 +1,14 @@
 import { createSignal, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
-  VoidActionError,
-  categorizeActionError,
-  getValidationErrors,
   isEqualFormValue,
+  submitIslandAction,
+  type IslandFormState,
+  type VoidActionError,
 } from 'void/pages-client';
 
-async function readActionErrorBody(response: Response): Promise<unknown> {
-  const contentType = response.headers.get('content-type') || '';
-  try {
-    if (contentType.includes('application/json')) {
-      return await response.json();
-    }
-    const text = await response.text();
-    return text || null;
-  } catch {
-    return null;
-  }
-}
-
-export type IslandFormReturn<T extends Record<string, unknown>> = Readonly<{
-  data: T;
-  setData: <K extends keyof T & string>(field: K, value: T[K]) => void;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  reset: (...fields: ReadonlyArray<keyof T & string>) => void;
-  clearErrors: (...fields: ReadonlyArray<string>) => void;
-  clearError: () => void;
-  post: (url: string) => Promise<void>;
-  put: (url: string) => Promise<void>;
-  patch: (url: string) => Promise<void>;
-  delete: (url: string) => Promise<void>;
-}>;
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'setters'> &
+  Readonly<{ setData: <K extends keyof T & string>(field: K, value: T[K]) => void }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
@@ -100,40 +72,23 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     clearError();
 
     try {
-      const response = await fetch(url, {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(data),
-      });
+      const result = await submitIslandAction(url, method, data);
 
-      if (response.redirected) {
-        window.location.href = response.url;
+      if (result.kind === 'redirect') {
+        window.location.href = result.url;
         return;
       }
 
-      if (response.ok) {
+      if (result.kind === 'success') {
         setWasSuccessful(true);
         setRecentlySuccessful(true);
         defaults_ = { ...data } as typeof defaults_;
         successTimeout = setTimeout(() => setRecentlySuccessful(false), 2000);
         window.location.reload();
+      } else if (result.kind === 'validation') {
+        setErrors(result.errors);
       } else {
-        const body = await readActionErrorBody(response);
-        const actionError = new VoidActionError({
-          body,
-          status: response.status,
-          statusText: response.statusText,
-          url,
-        });
-        const validationErrors = response.status === 422 ? getValidationErrors(body) : null;
-        if (validationErrors) {
-          setErrors(validationErrors);
-          return;
-        }
-        if (categorizeActionError(response.status) === 'boundary') {
-          throw actionError;
-        }
-        setError(actionError);
+        setError(result.error);
       }
     } finally {
       setPending(false);

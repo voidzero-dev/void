@@ -8,7 +8,7 @@ Keep one password-manager entry for this platform. Paste the saved values into t
 
 | Credential                             | Created by                       | Why the platform needs it                                                                |
 | -------------------------------------- | -------------------------------- | ---------------------------------------------------------------------------------------- |
-| Management API token                   | You, in Cloudflare               | Lets the CLI change DNS and Access for a domain installation or Access setup.            |
+| Management API token                   | You, in Cloudflare               | Lets the CLI create a zone, change DNS, and set up Access.                               |
 | Runtime API token                      | You, in Cloudflare               | Stored as a Worker secret so the platform can deploy apps after you close your terminal. |
 | PostgreSQL URL                         | You, with your database provider | Stores platform users, projects, and deployments.                                        |
 | Login provider client ID and secret    | You, or Void for Access login    | Signs people in to the platform.                                                         |
@@ -20,11 +20,13 @@ Keep one password-manager entry for this platform. Paste the saved values into t
 
 ## Cloudflare API Tokens {#runtime-token-permissions}
 
-For a domain installation or Cloudflare Access setup, the installer guides you through creating separate management and runtime tokens using Cloudflare's [API token setup](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/). Its links preselect the permissions and suggest names based on your platform's display name, but Cloudflare's form cannot preselect a zone: for a domain installation, change the zone policy from **All Domains** to **Specified Domains** and select your zone. If Void will create the zone, keep **All Domains** on both tokens: the zone does not exist yet, and the runtime token needs it to purge cache. Save the tokens in your password manager and paste them into the masked CLI prompts.
+For a domain installation or Cloudflare Access setup, the installer guides you through creating tokens using Cloudflare's [API token setup](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/): a runtime token, and a separate management token when the installation creates the zone or its wildcard DNS record, or sets up Access. Its links preselect the permissions and suggest names based on your platform's display name, but Cloudflare's form cannot preselect a zone: for a domain installation, change the zone policy from **All Domains** to **Specified Domains** and select your zone. If Void will create the zone, keep **All Domains** on both tokens: the zone does not exist yet, and the runtime token needs it to purge cache. Save the tokens in your password manager and paste them into the masked CLI prompts.
 
 For workers.dev testing with the default API hostname, browser login can authorize
-infrastructure setup. Void also checks account-wide Access requirements; if the
-current credential cannot read them, the installer asks for a scoped Access token.
+infrastructure setup. So can a domain installation on an existing zone whose
+`*.<application domain>` record is already proxied. Void also checks account-wide
+Access requirements; if the current credential cannot read them, the installer
+asks for a scoped Access token.
 Protected apps and public apps under Default-Deny need an ongoing app-management
 token, stored encrypted. Access setup requires a management token even on
 workers.dev. Skip zone permissions until you add a domain.
@@ -60,7 +62,7 @@ Use the following permissions for the core platform. Cloudflare may label write 
 
 When Void configures Access in the installation account, the initial management-token link also selects **Account → Access: Apps and Policies → Edit** and **Account → Access: Organizations, Identity Providers, and Groups → Read**. Protection adds **Account → Access: Service Tokens → Edit**. When the authentication configuration or saved setup selects existing applications, the link requests Read access instead of Edit. These permissions belong to the management token; the runtime token does not need them.
 
-The management token also needs **Zone Edit** with authority to create zones if you ask Void to create the zone. If it already exists, use the selected zone with Zone Read and DNS Edit. Nested application domains additionally need **SSL and Certificates: Read** on the management token. A custom runtime that enables custom project domains needs **SSL and Certificates: Edit** on the runtime token; the core runtime does not enable that feature.
+The management token also needs **Zone Edit** with authority to create zones if you ask Void to create the zone. If it already exists, use the selected zone with Zone Read and DNS Edit. Nested application domains additionally need **SSL and Certificates: Read** on the management token. An installation with [project custom domains](/guide/platform/installation/domains#project-custom-domains) needs **SSL and Certificates: Edit** on the runtime token.
 
 Void checks access before provisioning. If it reports a missing permission, update the token's permissions for the selected account or zone and retry.
 
@@ -70,7 +72,7 @@ Void checks access before provisioning. If it reports a missing permission, upda
 
 Choose a shared sender domain and its Cloudflare zone ID. The mail zone may differ from the application zone, but it must belong to the platform's Cloudflare account.
 
-Before you enable email, enable [Cloudflare Email Routing](https://developers.cloudflare.com/email-service/get-started/route-emails/) for the exact shared sender domain and confirm that its MX records point to Cloudflare. For a subdomain, add that name under the zone's **Email Routing → Settings → Subdomains**. Cloudflare adds the required MX and SPF records. The installer's shared-mail bootstrap verifies those records; it does not add them. Keep existing mail-provider records on other domain names in place.
+Before enabling platform email, configure [Cloudflare Email Routing](https://developers.cloudflare.com/email-service/get-started/route-emails/) for the shared sender domain. For a subdomain, add it under **Email Routing → Settings → Subdomains**. Let Cloudflare add the required MX and SPF records, then confirm that the domain's MX records point to Cloudflare.
 
 Enabling email lets administrators [register email domains for projects](/guide/platform/administration/email#registering-email-domains-for-projects) and lets projects register destination addresses through the runtime token. The runtime token needs these permissions:
 
@@ -86,7 +88,7 @@ The zone permissions must include each zone that will carry mail, including the 
 
 For a new installation, set `VOID_EMAIL_SENDER_DOMAIN` and `VOID_EMAIL_SHARED_ZONE_ID` before `void platform install`. The runtime-token link then preselects these permissions.
 
-For an existing installation, add the permissions to its runtime token first. Edit the token in the Cloudflare dashboard. The token value stays the same. Or set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to a new token that has all runtime permissions. Then run:
+For an existing installation, edit its runtime token's permissions in Cloudflare, or supply a replacement with `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`. Then run:
 
 ```sh
 VOID_EMAIL_SENDER_DOMAIN=mail.example.com \
@@ -94,13 +96,13 @@ VOID_EMAIL_SHARED_ZONE_ID=your-zone-id \
 void platform upgrade your-installation-id
 ```
 
-Void records the domain and zone for later upgrades; an ordinary upgrade cannot replace them.
+Void saves this domain and zone for later upgrades. Choose them for the lifetime of the installation.
 
-Before the CLI changes anything or pauses traffic, it checks that the runtime token can read the mail zone and its Email Routing settings, rules, and addresses. If Cloudflare denies a request, the command stops and names each missing permission. Void keeps a saved runtime token, so you can add the permission to the same token and run the command again. The check cannot confirm Edit access or Email Sending, so select those permissions as the table shows.
+If setup reports a missing permission, add it to the runtime token and rerun the command. Select all permissions in the table, including Edit access and Email Sending.
 
-Without `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`, `upgrade`, `repair`, `enable`, and `rollback` check the runtime token saved on this machine. The platform can use a newer token, for example one set from another machine. If Cloudflare does not accept the saved token, the CLI shows a warning and continues without the check. To check the token that the platform uses, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to it.
+When maintaining the platform from another machine, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to the current runtime token so the CLI checks its permissions.
 
-The installer deploys the email gateway, prepares the shared mail route, and verifies inbound readiness before opening platform traffic. If setup fails, fix the problem that the error names, for example a missing permission, the exact-domain MX records, or a routing conflict. Then run the same install or upgrade command again. A fresh install resumes with `void platform install --resume --name <installation-id>`; it continues the recorded email operation after the configuration is corrected.
+The installer configures the email gateway and shared mail route. If setup fails, fix the reported permission, DNS, or routing problem and rerun the command. Resume a fresh installation with `void platform install --resume --name <installation-id>`.
 
 ## R2 Upload Credentials
 

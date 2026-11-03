@@ -90,6 +90,7 @@ export type TestEnv = {
   EMAIL_SENDER_DOMAIN?: string;
   REQUESTS_DATASET?: string;
   TAIL_SERVICE_NAME?: string;
+  PLATFORM_RUNTIME_LOGS?: 'minimal';
   PLATFORM_CAPABILITIES?: string;
   PLATFORM_DISPLAY_NAME?: string;
   PLATFORM_BOOTSTRAP_GITHUB_ID?: string;
@@ -262,6 +263,7 @@ export class MemoryKVNamespace {
 type MemoryR2Entry = {
   body: ArrayBuffer;
   httpMetadata?: unknown;
+  customMetadata?: Record<string, string>;
   etag: string;
   uploaded: Date;
 };
@@ -322,6 +324,7 @@ class MemoryR2Bucket {
     value: ArrayBuffer | ArrayBufferView | ReadableStream<Uint8Array> | Blob | string,
     options?: {
       httpMetadata?: unknown;
+      customMetadata?: Record<string, string>;
       onlyIf?: { etagMatches?: string; etagDoesNotMatch?: string };
     },
   ): Promise<{ key: string; size: number; etag: string; uploaded: Date } | null> {
@@ -351,6 +354,7 @@ class MemoryR2Bucket {
     const entry: MemoryR2Entry = {
       body,
       httpMetadata: options?.httpMetadata,
+      customMetadata: options?.customMetadata,
       etag: memoryR2Etag(),
       uploaded: new Date(),
     };
@@ -360,6 +364,7 @@ class MemoryR2Bucket {
 
   async get(key: string): Promise<{
     key: string;
+    customMetadata?: Record<string, string>;
     size: number;
     etag: string;
     uploaded: Date;
@@ -374,6 +379,7 @@ class MemoryR2Bucket {
     }
     return {
       key,
+      customMetadata: entry.customMetadata,
       size: entry.body.byteLength,
       etag: entry.etag,
       uploaded: entry.uploaded,

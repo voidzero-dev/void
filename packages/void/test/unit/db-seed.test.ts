@@ -50,18 +50,24 @@ function createProjectRoot(options: {
   seedFile: { name: string; content: string };
   extraSeedFile?: { name: string; content: string };
   schema?: string;
+  migration?: string;
+  config?: Record<string, unknown>;
 }): string {
   const root = mkdtempSync(join(import.meta.dirname, '.tmp-db-seed-'));
   const migrationsDir = join(root, 'db', 'migrations');
   mkdirSync(join(migrationsDir, 'meta'), { recursive: true });
   writeFileSync(
     join(migrationsDir, '0000_messages.sql'),
-    `CREATE TABLE messages (
+    options.migration ??
+      `CREATE TABLE messages (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   text TEXT NOT NULL
 );
 `,
   );
+  if (options.config) {
+    writeFileSync(join(root, 'void.json'), JSON.stringify(options.config));
+  }
   // Keep the journal coherent with the migration file above.
   writeFileSync(
     join(migrationsDir, 'meta', '_journal.json'),
@@ -164,6 +170,47 @@ export const messages = sqliteTable("messages", {
       { id: 2, text: 'beta' },
     ]);
     expect(output.printSuccess).toHaveBeenCalledWith('Seeded from db/seed.ts.');
+  });
+
+  it('seeds the columns that database.casing names', async () => {
+    const root = createProjectRoot({
+      config: { database: { casing: 'snake_case' } },
+      migration: `CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL,
+  sent_at INTEGER NOT NULL
+);
+`,
+      schema: `import { integer, sqliteTable, text } from "drizzle-orm/sqlite-core";
+
+export const messages = sqliteTable("messages", {
+  id: integer().primaryKey({ autoIncrement: true }),
+  text: text().notNull(),
+  sentAt: integer().notNull(),
+});
+`,
+      seedFile: {
+        name: 'seed.ts',
+        content: `export default async function seed({ db, schema }) {
+  await db.insert(schema.messages).values({ text: "alpha", sentAt: 1815 });
+}
+`,
+      },
+    });
+
+    await runDbCommand(root, { action: 'seed' });
+
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(getMiniflareDatabasePath(join(root, '.void'), 'local'), {
+      readonly: true,
+    });
+    try {
+      expect(db.prepare('SELECT text, sent_at FROM messages').all()).toEqual([
+        { text: 'alpha', sent_at: 1815 },
+      ]);
+    } finally {
+      db.close();
+    }
   });
 
   it('seeds when db/schema.ts re-exports an extensionless module', async () => {

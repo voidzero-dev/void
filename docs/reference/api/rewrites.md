@@ -10,7 +10,27 @@ URL rewrites re-dispatch a request at a different internal path without changing
 
 Re-dispatches the current request at `destination` and returns the resulting `Response`. The browser URL does not change — this is a server-side hop. If `destination` has no query string, the original request query is preserved. If `destination` includes a query string, it replaces the original query. `destination` must start with `/`; known generated routes autocomplete via [`RewriteDestination`](#rewritedestination), while arbitrary strings remain accepted for dynamic paths.
 
-`c.redirect()` also preserves request query params for internal destinations, but it merges rather than replaces: destination params win on collision, and request-only params are appended.
+Pass a [`RouteDestination`](./types.md#route-types) object to check the route pattern and its parameters:
+
+```ts
+return c.rewrite({
+  pathname: '/users/:id',
+  params: { id: 42 },
+  query: { tab: 'activity' },
+});
+```
+
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
+
+For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options):
+
+```ts
+import { routeUrl } from 'void/routes';
+
+return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
+```
+
+`c.redirect()` merges request query parameters into internal destinations, with destination values taking precedence. Redirecting a [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) to a GET page drops the action key: `POST /users/42?delete&tab=profile` redirects to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
 
 ```ts
 import { defineHandler } from 'void';
@@ -25,7 +45,8 @@ export const GET = defineHandler((c) => {
 
 ```ts
 interface CloudContext {
-  rewrite(destination: RewriteDestination): Promise<Response>;
+  // RouteUrl instead of RewriteDestination with routing.typedRoutes
+  rewrite(destination: RewriteDestination | RouteDestination): Promise<Response>;
 }
 ```
 
@@ -70,7 +91,7 @@ import type { RewriteDestination } from 'void/routes';
 
 Suggests known route patterns in your editor while also accepting dynamic strings. Used as:
 
-- The parameter type of [`c.rewrite()`](#c-rewrite-destination).
+- The parameter type of [`c.rewrite()`](#c-rewrite-destination), unless `routing.typedRoutes` is on.
 - The type of `destination` entries in `routing.rewrites` and `routing.fallbacks` in [`void.config.ts`](../config.md#routing).
 
 Like [`RouteMap`](./types.md#routemap), `RewriteDestination` lives in the virtual `void/routes` module and is refreshed whenever routes change.

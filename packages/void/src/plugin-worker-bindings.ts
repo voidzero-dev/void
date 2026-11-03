@@ -1,4 +1,3 @@
-import { type WorkerConfig } from '@cloudflare/vite-plugin';
 import { appendSqliteClassMigration } from '@void/deploy-core';
 import { type ApplicationAnalysis } from './application-analysis.ts';
 import { SEND_EMAIL_BINDING } from './cli/email-cloudflare.ts';
@@ -17,7 +16,9 @@ import {
   readVoidDevCredentials,
 } from './plugin-ai-setup.ts';
 import { hasBinding, shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
+import { type WorkerConfig } from './plugin-cloudflare-config.ts';
 import { type EnvSchemaFacts } from './plugin-env-schema.ts';
+import { cloudflareQueueName, readDeployBuildQueueNames } from './queues/cloudflare-names.ts';
 import { isRouteEnabledForEnvironment, type RouteEnvironment } from './router/parse-filename.ts';
 import { DEV_INBOX_ENV_VAR, DEV_INBOX_TOKEN_ENV_VAR } from './runtime/email/dev-inbox.ts';
 import {
@@ -273,12 +274,17 @@ export function mergeWorkerBindings(
     result.vars = vars;
   }
 
-  // Queues — add producer + consumer bindings for local dev
+  // Queues — producer + consumer bindings. `void deploy` picks the Cloudflare names; every
+  // other run uses the plain names.
   if (queues.length > 0) {
+    const cloudflareNames = viteCommand === 'build' ? readDeployBuildQueueNames() : undefined;
     result.queues = {
-      producers: queues.map((q) => ({ queue: q.name, binding: q.bindingName })),
+      producers: queues.map((q) => ({
+        queue: cloudflareQueueName(q.name, cloudflareNames),
+        binding: q.bindingName,
+      })),
       consumers: queues.map((q) => ({
-        queue: q.name,
+        queue: cloudflareQueueName(q.name, cloudflareNames),
         ...(q.maxBatchSize != null && { max_batch_size: q.maxBatchSize }),
         ...(q.maxBatchTimeout != null && { max_batch_timeout: q.maxBatchTimeout }),
         ...(q.maxRetries != null && { max_retries: q.maxRetries }),

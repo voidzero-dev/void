@@ -14,9 +14,15 @@ import type {
 } from '@void/deploy-cloudflare';
 import { parse } from 'jsonc-parser';
 import { dirname, join, resolve } from 'pathslash';
-import { isD1Bookmark, readCfUploadOutput, safePositional } from './cf-command-values.ts';
+import {
+  CF_VERSION_SOURCE_MAX_OUTPUT_BYTES,
+  isD1Bookmark,
+  readCfUploadOutput,
+  safePositional,
+} from './cf-command-values.ts';
 import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
+import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import {
   cloudflareDeviceCode,
   cloudflareVerificationUrl,
@@ -612,6 +618,42 @@ function listAllResourcePages(command: Array<string>, extraFlags: Array<string> 
   throw new Error(`Cloudflare ${command.join(' ')} exceeded the supported page limit.`);
 }
 
+/**
+ * Each consumer's Worker script name, or null for one that is not a Worker (HTTP pull).
+ * Undefined when the list is incomplete or unreadable; only queue naming needs it.
+ */
+function queueConsumerWorkers(queue: Json): Array<string | null> | undefined {
+  const consumers = queue.consumers;
+  if (
+    !Array.isArray(consumers) ||
+    (queue.consumers_total_count !== undefined && queue.consumers_total_count !== consumers.length)
+  ) {
+    return undefined;
+  }
+  const workers: Array<string | null> = [];
+  for (const entry of consumers) {
+    const consumer = object(entry);
+    const { script_name: scriptName, script } = consumer;
+    // The same identity rules as consumer removal: any doubt leaves the list unread.
+    if (
+      (scriptName !== undefined && (typeof scriptName !== 'string' || !scriptName)) ||
+      (script !== undefined && (typeof script !== 'string' || !script)) ||
+      (scriptName !== undefined && script !== undefined && scriptName !== script)
+    ) {
+      return undefined;
+    }
+    const name = scriptName ?? script;
+    if (typeof name === 'string' && (consumer.type === undefined || consumer.type === 'worker')) {
+      workers.push(name);
+    } else if (name === undefined && consumer.type === 'http_pull') {
+      workers.push(null);
+    } else {
+      return undefined;
+    }
+  }
+  return workers;
+}
+
 async function readAllQueues(): Promise<Array<Json>> {
   // cf queues list has no page option, so read the API's paginated response directly.
   const queues: Array<Json> = [];
@@ -654,9 +696,21 @@ async function readAllQueues(): Promise<Array<Json>> {
 
 async function resources(): Promise<Result> {
   switch (operation.type) {
+    case 'workers.subdomain.get': {
+      const body = await cloudflareApiGet(
+        `/accounts/${encodeURIComponent(accountId())}/workers/subdomain`,
+        'Cloudflare did not return the account workers.dev subdomain.',
+      );
+      const { subdomain } = object(body.result);
+      if (typeof subdomain !== 'string' || !subdomain.trim()) {
+        throw new Error('Cloudflare returned an invalid account workers.dev subdomain.');
+      }
+      return result(0, '', '', { subdomain });
+    }
     case 'd1.execute': {
       const database = d1Database(operation.database);
-      return runCf(['d1', 'query', database.id, '--sql', operation.sql]);
+      // One argv item, so cf cannot read SQL that starts with "-" (such as a comment) as a flag.
+      return runCf(['d1', 'query', database.id, `--sql=${operation.sql}`]);
     }
     case 'd1.migrations.list':
     case 'd1.migrations.apply': {
@@ -806,8 +860,13 @@ async function resources(): Promise<Result> {
       return runCf(['queues', 'create', '--queue-name', operation.name]);
     case 'queues.info': {
       const queue = (await readAllQueues()).find((item) => item.queue_name === operation.name);
+      const consumers = queue && queueConsumerWorkers(queue);
       return queue
-        ? result(0, '', '', { id: queue.queue_id, name: queue.queue_name })
+        ? result(0, '', '', {
+            id: queue.queue_id,
+            name: queue.queue_name,
+            ...(consumers ? { consumers } : {}),
+          })
         : { ...result(1, '', 'Cloudflare Queue does not exist.'), failure: 'not-found' };
     }
     default:
@@ -908,7 +967,7 @@ async function secrets(): Promise<Result> {
       const patch = Object.fromEntries(
         Object.entries(values).map(([name, text]) => [name, { type: 'secret_text', text }]),
       );
-      return withSecretFile(JSON.stringify(patch), (path) =>
+      return withSecretFile(JSON.stringify({ secrets: patch }), (path) =>
         apply(() => runCf(['workers', 'secrets', 'bulk', '--worker', worker, '--file', path])),
       );
     }
@@ -961,7 +1020,9 @@ async function workerHistory(): Promise<Result> {
           ...(operation.includeSource ? ['--include', 'modules'] : []),
         ],
         process.cwd(),
-        operation.includeSource ? { timeoutMs: 30_000, maxOutputBytes: 1024 * 1024 } : undefined,
+        operation.includeSource
+          ? { timeoutMs: 30_000, maxOutputBytes: CF_VERSION_SOURCE_MAX_OUTPUT_BYTES }
+          : undefined,
       );
       if (called.status !== 0) {
         return called;
@@ -1006,6 +1067,7 @@ async function workerHistory(): Promise<Result> {
           versions,
           ...(operation.message ? { annotations: { 'workers/message': operation.message } } : {}),
         }),
+        ...(operation.bypassDeploymentChecks ? ['--bypass-deployment-checks'] : []),
       ]);
     }
     default:
@@ -1082,9 +1144,20 @@ async function workerChanges(): Promise<Result> {
       : clearWorkerCustomDomains(name);
   }
   if (operation.type === 'triggers.deploy') {
-    return withBuildOutput(raw, null, (directory) =>
+    const deployed = await withBuildOutput(raw, null, (directory) =>
       runCf(['workers', 'triggers', 'deploy', '--prebuilt'], directory),
     );
+    if (deployed.status === 0 && (raw.observability !== undefined || raw.logpush !== undefined)) {
+      await publishCloudflareWorkerSettings({
+        apiBaseUrl: apiBaseUrl(),
+        accountId: accountId(),
+        workerName: name,
+        observability: raw.observability,
+        logpush: raw.logpush,
+        headers: await apiHeaders(),
+      });
+    }
+    return deployed;
   }
   if (operation.type === 'versions.upload' || operation.type === 'worker.deploy') {
     const path = configPath()!;
@@ -1098,7 +1171,8 @@ async function workerChanges(): Promise<Result> {
         [
           ...(request.type === 'worker.deploy' ? ['deploy'] : ['workers', 'versions', 'create']),
           '--prebuilt',
-          ...(request.message ? ['--message', request.message] : []),
+          // One argv item, so a message that starts with "-" is not read as a flag.
+          ...(request.message ? [`--message=${request.message}`] : []),
           ...(request.secretsFilePath ? ['--secrets-file', request.secretsFilePath] : []),
         ],
         directory,
@@ -1118,7 +1192,7 @@ async function workerChanges(): Promise<Result> {
     } catch {
       /* Human upload presentation. */
     }
-    const printed = readCfUploadOutput(called.stdout);
+    const printed = readCfUploadOutput(called);
     const versionId = uploaded.version_id ?? uploaded.id ?? uploaded.versionId ?? printed.versionId;
     if (typeof versionId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f-]{27}$/i.test(versionId)) {
       throw new Error('Cloudflare did not return the uploaded Worker version ID.');

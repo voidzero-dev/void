@@ -1,6 +1,5 @@
 import { getApiUrl, getProxyUrl, getToken } from './cli/auth.ts';
 import { ensurePlatformProxyAccess } from './cli/cf-access.ts';
-import { printSuccess } from './cli/output.ts';
 import { readProjectConfig } from './cli/project.ts';
 import { voidWarn, voidError } from './log.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
@@ -97,6 +96,7 @@ export async function runAiSetupPrompt(
   const { PlatformClient } = await import('./cli/client.ts');
   const { attachSelectedPlatform, writeProjectConfig } = await import('./cli/project.ts');
   const { inferDefaultSlug } = await import('./cli/resolve-project.ts');
+  const { printSuccess } = await import('./cli/output.ts');
 
   const client = new PlatformClient(token, { apiUrl });
 

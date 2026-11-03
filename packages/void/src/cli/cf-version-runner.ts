@@ -12,7 +12,11 @@ import type {
 import { isRecord as record } from '@void/deploy-core';
 import { dirname, join } from 'pathslash';
 import type { CfBuildOutput } from './cf-build-output.ts';
-import { readCfUploadOutput, safePositional } from './cf-command-values.ts';
+import {
+  CF_VERSION_SOURCE_MAX_OUTPUT_BYTES,
+  readCfUploadOutput,
+  safePositional,
+} from './cf-command-values.ts';
 import { migrateBuiltWranglerConfig } from './cf-config-migrate.ts';
 import { getCfCliVersion } from './cf-user-agent.ts';
 import {
@@ -20,6 +24,7 @@ import {
   uploadPinnedCloudflareVersion,
   type CfCommand,
 } from './cf-version-api.ts';
+import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
 
 function failed(message: string): CloudflareCommandResult {
@@ -384,7 +389,7 @@ export function createCfVersionRunner(options: {
     if (record(result.data) && typeof result.data.versionId === 'string') {
       return result;
     }
-    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result.stdout);
+    const { versionId, previewUrl, workersDevUrl } = readCfUploadOutput(result);
     return {
       ...result,
       data: versionId
@@ -576,7 +581,7 @@ export function createCfVersionRunner(options: {
             cwd: output.directory,
             capture: true,
             timeoutMs: 30_000,
-            maxOutputBytes: 1024 * 1024,
+            maxOutputBytes: CF_VERSION_SOURCE_MAX_OUTPUT_BYTES,
           })
         : await run(args, true);
       const result = { ...called, data: called.data ?? parseJson(called.stdout) };
@@ -584,16 +589,17 @@ export function createCfVersionRunner(options: {
         return result;
       }
       const version = result.data;
-      if (
-        !record(version) ||
-        version.id !== operation.versionId ||
-        !Array.isArray(version.bindings)
-      ) {
+      if (!record(version) || version.id !== operation.versionId) {
+        return failed('The Cloudflare Worker version was not readable.');
+      }
+      // Cloudflare omits `bindings` for a version that has none.
+      const bindings = version.bindings === undefined ? [] : version.bindings;
+      if (!Array.isArray(bindings)) {
         return failed('The Cloudflare Worker version was not readable.');
       }
       return {
         ...result,
-        data: { ...version, resources: { bindings: version.bindings } },
+        data: { ...version, bindings, resources: { bindings } },
       };
     }
 
@@ -615,7 +621,8 @@ export function createCfVersionRunner(options: {
             'versions',
             'create',
             '--prebuilt',
-            ...(operation.message ? ['--message', operation.message] : []),
+            // One argv item, so a message that starts with "-" is not read as a flag.
+            ...(operation.message ? [`--message=${operation.message}`] : []),
             ...(operation.secretsFilePath ? ['--secrets-file', operation.secretsFilePath] : []),
             ...(operation.previewAlias ? ['--preview-alias', operation.previewAlias] : []),
           ],
@@ -669,6 +676,7 @@ export function createCfVersionRunner(options: {
                 }),
               ]
             : []),
+          ...(operation.bypassDeploymentChecks ? ['--bypass-deployment-checks'] : []),
         ],
         command.capture,
       );
@@ -690,7 +698,8 @@ export function createCfVersionRunner(options: {
           [
             'deploy',
             '--prebuilt',
-            ...(operation.message ? ['--message', operation.message] : []),
+            // One argv item, so a message that starts with "-" is not read as a flag.
+            ...(operation.message ? [`--message=${operation.message}`] : []),
             ...(operation.secretsFilePath ? ['--secrets-file', operation.secretsFilePath] : []),
           ],
           command.capture,
@@ -766,11 +775,39 @@ export function createCfVersionRunner(options: {
         if (!isCleanCloudflareExit(verified)) {
           return verified;
         }
-        return await run(
+        const deployed = await run(
           ['workers', 'triggers', 'deploy', '--prebuilt'],
           command.capture,
           directory,
         );
+        if (
+          isCleanCloudflareExit(deployed) &&
+          (raw.observability !== undefined || raw.logpush !== undefined)
+        ) {
+          const credentials = options.pinnedUpload;
+          if (!credentials || !credentials.verifyUploader()) {
+            return failed('The Cloudflare settings publisher is unavailable.');
+          }
+          try {
+            const token = await credentials.getToken();
+            if (!token || !credentials.verifyUploader()) {
+              return failed('Cloudflare session is unavailable for publishing Worker settings.');
+            }
+            await publishCloudflareWorkerSettings({
+              apiBaseUrl: credentials.apiBaseUrl,
+              accountId: credentials.accountId,
+              workerName,
+              observability: raw.observability,
+              logpush: raw.logpush,
+              headers: { Authorization: `Bearer ${token}` },
+            });
+          } catch (cause) {
+            return failed(
+              cause instanceof Error ? cause.message : 'Cloudflare settings update failed.',
+            );
+          }
+        }
+        return deployed;
       } finally {
         rmSync(directory, { recursive: true, force: true });
       }

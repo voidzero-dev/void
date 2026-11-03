@@ -1,4 +1,4 @@
-import { and, eq } from 'drizzle-orm';
+import { and, eq, or } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { constantTimeEqual, hmacVerifyState } from '../auth/hmac.ts';
 import type { ApiEnv } from '../env.ts';
@@ -202,17 +202,26 @@ app.post('/resolve-ingress', async (context) => {
   }
   let projectId = route.project_id;
   let slug: string;
+  // The shared-domain name the recipient used: the project's slug or its email alias.
+  let mailbox: string | undefined;
+  let alias: string | null = null;
   if (route.addressing === 'shared') {
     const local = recipient.slice(0, recipient.lastIndexOf('@'));
-    const slugPart = local.split('+', 1)[0];
-    if (!slugPart) {
+    const namePart = local.split('+', 1)[0];
+    if (!namePart) {
       return context.json({ error: 'unknown shared recipient' }, 404);
     }
+    // Slugs and aliases share one namespace, so at most one project matches.
     const project = (
       await db
-        .select({ id: projects.id, slug: projects.slug })
+        .select({ id: projects.id, slug: projects.slug, alias: projects.email_alias })
         .from(projects)
-        .where(and(eq(projects.slug, slugPart), eq(projects.status, 'active')))
+        .where(
+          and(
+            or(eq(projects.slug, namePart), eq(projects.email_alias, namePart)),
+            eq(projects.status, 'active'),
+          ),
+        )
         .limit(1)
     )[0];
     if (!project) {
@@ -220,7 +229,12 @@ app.post('/resolve-ingress', async (context) => {
     }
     projectId = project.id;
     slug = project.slug;
-    if ((await getSharedEmailRecipientReadiness(db, context.env, projectId))?.status !== 'ready') {
+    mailbox = namePart;
+    alias = project.alias;
+    if (
+      (await getSharedEmailRecipientReadiness(db, context.env, projectId, false, namePart))
+        ?.status !== 'ready'
+    ) {
       return context.json({ error: 'shared recipient routing is not ready' }, 503);
     }
   } else {
@@ -289,6 +303,9 @@ app.post('/resolve-ingress', async (context) => {
   return context.json({
     projectId,
     slug,
+    ...(mailbox ? { mailbox } : {}),
+    // Replies may come from either name, whichever one the mail arrived at.
+    ...(alias ? { alias } : {}),
     deploymentId,
     workerName: getProjectDeploymentWorkerName(slug, deploymentId),
     addressing: route.addressing,

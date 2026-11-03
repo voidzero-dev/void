@@ -8,10 +8,10 @@
   },
   "dependencies": {
     "@vitejs/plugin-rsc": "catalog:",
-    "react": "19.3.0",
-    "react-dom": "19.3.0",
-    "react-server-dom-webpack": "19.3.0",
-    "vinext": "1.1.0"
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-server-dom-webpack": "catalog:",
+    "vinext": "catalog:"
   },
   "devDependencies": {
     "@types/react": "19.3.0",

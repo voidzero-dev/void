@@ -79,6 +79,7 @@ export async function runStaticDeploy(
    * call site hands the value over directly. Wins over `routing.notFound`.
    */
   notFound?: NotFoundHandling,
+  alwaysUseHttps?: boolean,
 ): Promise<void> {
   const typeLabel = preset.appType === 'spa' ? 'Static SPA' : 'Static Site';
   log.info(`${typeLabel} deploy`);
@@ -140,6 +141,7 @@ export async function runStaticDeploy(
 
   const manifest = buildStaticManifest({
     appType: preset.appType,
+    alwaysUseHttps: alwaysUseHttps ?? routing?.alwaysUseHttps,
     hashedAssetsPrefix: hashedAssetsPrefix ?? 'assets',
     headerRules,
     redirectRules,

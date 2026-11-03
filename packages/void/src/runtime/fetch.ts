@@ -1,4 +1,4 @@
-import { ofetch } from 'ofetch';
+import { createFetch } from 'ofetch';
 import { FetchError } from './fetch-error.ts';
 import { interpolateRouteParams } from './route-url.ts';
 export { FetchError };
@@ -49,7 +49,7 @@ type FetchOptions<P extends keyof RouteMap, M extends MethodsOf<P>> = BodyOption
     timeout?: number;
   };
 
-type UntypedFetchOptions = {
+export type UntypedFetchOptions = {
   method?: string;
   params?: Record<string, string>;
   body?: unknown;
@@ -60,6 +60,8 @@ type UntypedFetchOptions = {
   retry?: number;
   timeout?: number;
 };
+
+const browserFetch = createRouteFetch((...args) => globalThis.fetch(...args));
 
 /**
  * Typed fetch client for Void API routes.
@@ -82,16 +84,26 @@ export function fetch<P extends keyof RouteMap & string, M extends MethodsOf<P> 
   options: FetchOptions<P, M>,
 ): Promise<OutputOf<P, M>>;
 export async function fetch(path: string, options?: UntypedFetchOptions): Promise<unknown> {
-  const url = interpolateRouteParams(path, options?.params);
+  return browserFetch(path, options);
+}
 
-  return ofetch(url, {
-    method: (options?.method ?? 'GET') as string,
-    body: options?.body as Record<string, unknown> | BodyInit | null | undefined,
-    query: options?.query,
-    headers: options?.headers,
-    signal: options?.signal,
-    baseURL: options?.baseURL,
-    retry: options?.retry,
-    timeout: options?.timeout,
-  });
+/** Apply the same route interpolation and request options to browser and server transports. */
+export function createRouteFetch(
+  transport: typeof globalThis.fetch,
+): (path: string, options?: UntypedFetchOptions) => Promise<unknown> {
+  const client = createFetch({ fetch: transport });
+  return async (path, options) => {
+    const url = interpolateRouteParams(path, options?.params);
+
+    return client(url, {
+      method: options?.method ?? 'GET',
+      body: options?.body as Record<string, unknown> | BodyInit | null | undefined,
+      query: options?.query,
+      headers: options?.headers,
+      signal: options?.signal,
+      baseURL: options?.baseURL,
+      retry: options?.retry,
+      timeout: options?.timeout,
+    });
+  };
 }

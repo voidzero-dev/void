@@ -20,13 +20,13 @@ it('draws a note at the default width when the terminal reports zero columns', (
   const lines = renderNote(0);
   expect(lines[0]).toContain('Uninstall plan');
   expect(lines.join('\n')).toContain('Disable all platform traffic.');
-  expect(lines.at(-1)).toMatch(/^╰─+╯$/);
+  expect(lines.at(-1)).toMatch(/^(╰─+╯|\+-+\+)$/);
 });
 
 it('draws a note in a terminal narrower than the box', () => {
   const lines = renderNote(2);
-  expect(lines[0]).toMatch(/^╭.*╮$/);
-  expect(lines.at(-1)).toMatch(/^╰─+╯$/);
+  expect(lines[0]).toMatch(/^(╭.*╮|\+.*\+)$/);
+  expect(lines.at(-1)).toMatch(/^(╰─+╯|\+-+\+)$/);
 });
 
 it.each([0, 80, 160])('separates a deployment URL from the box border at %s columns', (columns) => {

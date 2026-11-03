@@ -144,9 +144,17 @@
       "type": "object",
       "description": "Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering.",
       "properties": {
+        "alwaysUseHttps": {
+          "type": "boolean",
+          "description": "Redirect HTTP requests to HTTPS with a permanent 308 redirect. Omitted or false means off. Requires the Cloudflare target; localhost stays on HTTP."
+        },
         "isr": {
           "type": "boolean",
           "description": "Enable inferred ISR caching. Set false to disable ISR and edge prerendering, including per-page prerender and revalidate policies. Does not disable output: static build-time prerendering."
+        },
+        "typedRoutes": {
+          "type": "boolean",
+          "description": "Type-check URL strings in Link href, router navigation, and c.rewrite() against the app's routes. Omitted or false means off."
         },
         "notFound": {
           "type": "string",
@@ -392,9 +400,29 @@
       "additionalProperties": false
     },
     "database": {
-      "type": "string",
-      "enum": ["pg", "mysql"],
-      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive."
+      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive, or use an object to also set the column casing.",
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": ["pg", "mysql"]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "dialect": {
+              "type": "string",
+              "enum": ["sqlite", "pg", "mysql"],
+              "description": "Database backend. Defaults to \"sqlite\" (D1)."
+            },
+            "casing": {
+              "type": "string",
+              "enum": ["snake_case", "camelCase"],
+              "description": "Drizzle casing: how columns declared without a name are named in the database, for queries and generated migrations."
+            }
+          },
+          "additionalProperties": false
+        }
+      ]
     },
     "ai": {
       "type": "object",

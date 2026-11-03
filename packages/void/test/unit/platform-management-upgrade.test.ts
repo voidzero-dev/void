@@ -26,6 +26,8 @@ const state = vi.hoisted(() => ({
   clientTokens: [] as Array<string>,
   listAccounts: vi.fn(),
   listWorkerNames: vi.fn(),
+  listNamespaceScripts: vi.fn(),
+  patchScriptSettings: vi.fn(),
   request: vi.fn(),
   requiredGatewayToken: '',
   events: [] as Array<string>,
@@ -86,6 +88,8 @@ vi.mock('../../src/cli/platform-cloudflare.ts', async (importOriginal) => {
       }
       listAccounts = state.listAccounts;
       listWorkerNames = state.listWorkerNames;
+      listDispatchNamespaceScripts = state.listNamespaceScripts;
+      patchDispatchNamespaceScriptSettings = state.patchScriptSettings;
       request = state.request;
       getWorkerLastDeployedFrom = state.getWorkerLastDeployedFrom;
       async getKvValue() {
@@ -259,7 +263,7 @@ import {
   writePendingInstallationSecrets,
 } from '../../src/cli/platform-registry.ts';
 
-const upgrade = (overrides: { plan?: boolean; yes?: boolean } = {}) =>
+const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: true } = {}) =>
   runInstalledPlatformCommand({
     subcommand: 'upgrade',
     selector: state.manifest!.id,
@@ -287,6 +291,21 @@ describe('installed platform upgrade', () => {
       "void platform rollback installation --runtime '/tmp/earlier runtime' --from-runtime '/tmp/current'\\''s runtime' --yes",
     );
   });
+  it('replays --runtime-logs in the upgrade resume command', () => {
+    expect(
+      platformLifecycleResumeCommand(
+        {
+          subcommand: 'upgrade',
+          selector: '',
+          plan: false,
+          yes: true,
+          runtime: '',
+          runtimeLogs: 'minimal',
+        },
+        'installation',
+      ),
+    ).toBe('void platform upgrade installation --runtime-logs minimal --yes');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
     vi.stubEnv('CLOUDFLARE_API_TOKEN', 'token');
@@ -295,6 +314,10 @@ describe('installed platform upgrade', () => {
     state.requiredGatewayToken = '';
     state.listAccounts.mockReset().mockResolvedValue([{ id: 'account', name: 'Account' }]);
     state.listWorkerNames.mockReset().mockResolvedValue([]);
+    state.listNamespaceScripts
+      .mockReset()
+      .mockResolvedValue(['user-app-dpl', 'void-do-project-hash', 'other']);
+    state.patchScriptSettings.mockReset().mockResolvedValue(undefined);
     state.request.mockReset().mockResolvedValue({ name: 'assets' });
     state.getWorkerLastDeployedFrom.mockReset().mockResolvedValue('cf_cli');
     state.wait.mockReset().mockResolvedValue(undefined);
@@ -470,6 +493,94 @@ describe('installed platform upgrade', () => {
       );
     },
   );
+
+  describe('project Worker runtime logs', () => {
+    const useMinimal = () => {
+      state.manifest = {
+        ...state.manifest!,
+        deployment: { ...state.manifest!.deployment, runtimeLogs: 'minimal', schemaVersion: 5 },
+      };
+    };
+    const patched = () =>
+      state.patchScriptSettings.mock.calls.map(([account, namespace, script, settings]) => ({
+        account,
+        namespace,
+        script,
+        settings,
+      }));
+
+    it.each([
+      ['upgrade', { runtimeLogs: 'minimal' as const }],
+      ['repair', {}],
+    ] as const)(
+      'turns Workers Logs off on project Workers after %s while minimal',
+      async (subcommand, extra) => {
+        useMinimal();
+        await runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          plan: false,
+          runtime: '',
+          yes: true,
+          ...extra,
+        });
+        const namespace = state.manifest!.deployment.resources.dispatchNamespace;
+        expect(state.listNamespaceScripts).toHaveBeenCalledExactlyOnceWith('account', namespace);
+        expect(patched()).toEqual(
+          ['user-app-dpl', 'void-do-project-hash'].map((script) => ({
+            account: 'account',
+            namespace,
+            script,
+            settings: { observability: { enabled: false } },
+          })),
+        );
+        expect(state.patchScriptSettings.mock.invocationCallOrder[0]).toBeGreaterThan(
+          vi.mocked(installPlatform).mock.invocationCallOrder[0]!,
+        );
+        expect(log.warn).not.toHaveBeenCalled();
+      },
+    );
+
+    it('leaves project Workers alone on a plain full-mode upgrade', async () => {
+      await upgrade();
+      expect(state.listNamespaceScripts).not.toHaveBeenCalled();
+      expect(state.patchScriptSettings).not.toHaveBeenCalled();
+    });
+
+    it('turns Workers Logs back on when full mode is asked for', async () => {
+      await runInstalledPlatformCommand({
+        subcommand: 'upgrade',
+        selector: state.manifest!.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+        runtimeLogs: 'full',
+      });
+      expect(patched().map(({ settings }) => settings)).toEqual([
+        {
+          observability: { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } },
+        },
+        {
+          observability: { enabled: true, logs: { invocation_logs: true, head_sampling_rate: 1 } },
+        },
+      ]);
+    });
+
+    it('warns with a repair hint when a project Worker cannot be updated', async () => {
+      useMinimal();
+      state.patchScriptSettings.mockRejectedValueOnce(new Error('boom'));
+      await runInstalledPlatformCommand({
+        subcommand: 'repair',
+        selector: state.manifest!.id,
+        plan: false,
+        runtime: '',
+        yes: true,
+      });
+      expect(log.warn).toHaveBeenCalledWith(
+        expect.stringContaining(`Run \`void platform repair ${state.manifest!.id}\` to finish.`),
+      );
+    });
+  });
 
   it('borrows database preparation from the held lifecycle lock', async () => {
     await upgrade();
@@ -918,6 +1029,126 @@ describe('installed platform upgrade', () => {
       vi.mocked(installPlatform).mockRejectedValueOnce(new Error('Worker upload failed'));
       await expect(repair({ authConfig: authFile })).rejects.toThrow('Worker upload failed');
       expect(writePendingInstallationSecrets).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('enabling project custom domains', () => {
+    const customHostnamePath = '/zones/zone/custom_hostnames?per_page=1';
+
+    beforeEach(() => {
+      state.manifest = {
+        ...state.manifest!,
+        deployment: createPlatformDeploymentManifest({
+          ...state.manifest!.deployment,
+          application: { baseDomain: 'example.com', zoneName: 'example.com', dedicatedZone: true },
+        }),
+      };
+      const planner = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+      vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+        const plan = await planner(...args);
+        return {
+          ...plan,
+          deployment: createPlatformDeploymentManifest({
+            ...plan.deployment,
+            capabilities: {
+              ...plan.deployment.capabilities,
+              ...(args[1].customDomains ? { customDomains: true } : {}),
+            },
+          }),
+          zone: { id: 'zone', name: 'example.com', nameServers: [], status: 'active' },
+        };
+      });
+      state.createSecrets.mockReturnValue({ cloudflareApiToken: 'saved-runtime-token' });
+      state.request.mockImplementation(async (path: string) => {
+        state.events.push(`request:${path}`);
+        return [];
+      });
+    });
+
+    it.each(['upgrade', 'repair'] as const)(
+      'checks the retained token before %s can pause traffic',
+      async (subcommand) => {
+        await runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          runtime: '',
+          customDomains: true,
+          plan: false,
+          yes: true,
+        });
+        expect(state.clientTokens).toContain('saved-runtime-token');
+        const probe = state.events.indexOf(`request:${customHostnamePath}`);
+        expect(probe).toBeGreaterThan(-1);
+        expect(probe).toBeLessThan(state.events.indexOf('installer-start'));
+        expect(state.createSecrets).toHaveBeenCalledWith(
+          expect.objectContaining({ cloudflareApiToken: '' }),
+        );
+      },
+    );
+
+    it.each([401, 403, 429, 503])(
+      'stops before deployment when the token check returns %s',
+      async (status) => {
+        state.request.mockImplementation(async (path: string) => {
+          if (path === customHostnamePath) {
+            throw new PlatformCloudflareApiError(
+              'upstream echoed saved-runtime-token',
+              status,
+              path,
+            );
+          }
+          return [];
+        });
+        const failure = await upgrade({ customDomains: true }).catch((error: Error) => error);
+        expect(failure).toBeInstanceOf(Error);
+        expect(String(failure)).toContain(`HTTP ${status}`);
+        expect(String(failure)).not.toContain('saved-runtime-token');
+        if (status === 403) {
+          expect(String(failure)).toContain('SSL and Certificates → Edit');
+        }
+        expect(installPlatform).not.toHaveBeenCalled();
+        expect(state.events.filter((event) => event.startsWith('put:'))).toEqual([]);
+      },
+    );
+
+    it('requires a runtime token when enabling custom domains without saved credentials', async () => {
+      state.createSecrets.mockReturnValue({});
+      await expect(upgrade({ customDomains: true })).rejects.toThrow(
+        'VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN',
+      );
+      expect(installPlatform).not.toHaveBeenCalled();
+    });
+
+    it('checks an explicit replacement instead of the retained token', async () => {
+      state.createSecrets.mockReturnValue({
+        cloudflareApiToken: 'replacement-token',
+        workerSecretUpdates: { CF_API_TOKEN: 'replacement-token' },
+      });
+      await upgrade({ customDomains: true });
+      expect(state.clientTokens).toContain('replacement-token');
+      expect(state.clientTokens).not.toContain('saved-runtime-token');
+      expect(state.events).toContain(`request:${customHostnamePath}`);
+    });
+
+    it('does not check retained tokens when custom domains are already enabled', async () => {
+      state.manifest = {
+        ...state.manifest!,
+        deployment: createPlatformDeploymentManifest({
+          ...state.manifest!.deployment,
+          capabilities: { ...state.manifest!.deployment.capabilities, customDomains: true },
+        }),
+      };
+      await upgrade();
+      expect(state.clientTokens).not.toContain('saved-runtime-token');
+      expect(state.events).not.toContain(`request:${customHostnamePath}`);
+    });
+
+    it('can plan enabling custom domains without a runtime token', async () => {
+      state.createSecrets.mockReturnValue({});
+      await upgrade({ customDomains: true, plan: true });
+      expect(state.clientTokens).not.toContain('saved-runtime-token');
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(state.events).not.toContain(`request:${customHostnamePath}`);
     });
   });
 

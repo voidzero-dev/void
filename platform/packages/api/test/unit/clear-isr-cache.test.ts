@@ -1,6 +1,7 @@
 import { isrCachePrefix } from '@void/isr';
 import { describe, expect, it } from 'vite-plus/test';
 import { legacyIsrCachePrefix } from '../../src/isr-legacy-keys.ts';
+import { createIsrStore } from '../../src/isr-store.ts';
 import { clearIsrCache } from '../../src/routes/deploy.ts';
 
 // Minimal KV mock: `list({ prefix })` returns seeded keys whose name starts with
@@ -27,6 +28,25 @@ function makeKv(keys: Array<string>) {
 }
 
 describe('clearIsrCache', () => {
+  it('clears R2 and legacy KV for an evicted deployment while retaining its neighbor', async () => {
+    const current = `${isrCachePrefix('p', 'old')}host/page`;
+    const retained = `${isrCachePrefix('p', 'retained')}host/page`;
+    const { kv, store: legacy } = makeKv([current, retained]);
+    const objects = new Set([`isr-cache/${current}`, `isr-cache/${retained}`]);
+    const bucket = {
+      list: async ({ prefix }: { prefix: string }) => ({
+        objects: [...objects].filter((key) => key.startsWith(prefix)).map((key) => ({ key })),
+        truncated: false,
+      }),
+      delete: async (key: string) => {
+        objects.delete(key);
+      },
+    } as unknown as R2Bucket;
+    await clearIsrCache(createIsrStore(bucket, kv), 'p', 'old');
+    expect([...objects]).toEqual([`isr-cache/${retained}`]);
+    expect([...legacy]).toEqual([retained]);
+  });
+
   it('sweeps BOTH the v3 host-scoped and the legacy v2 hostless namespace for the deployment', async () => {
     const proj = 'proj1';
     const dep = 'dep1';

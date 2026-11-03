@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
@@ -36,7 +36,7 @@ function writePage(relativePath: string, source: string): void {
   writeFileSync(full, source);
 }
 
-function setupWatcher(plugin: PagesPluginHooks) {
+function setupWatcher(plugin: PagesPluginHooks, logError = vi.fn(), invalidateModule = vi.fn()) {
   const handlers = new Map<string, Array<(path: string) => Promise<void> | void>>();
   plugin.configureServer?.({
     watcher: {
@@ -46,7 +46,10 @@ function setupWatcher(plugin: PagesPluginHooks) {
         handlers.set(event, eventHandlers);
       },
     },
-    environments: {},
+    environments: {
+      client: { moduleGraph: { getModuleById: (id: string) => ({ id }), invalidateModule } },
+    },
+    config: { logger: { error: logError } },
   });
   return handlers;
 }
@@ -72,7 +75,44 @@ describe('pagesPlugin dev HMR', () => {
     const load = getHookHandler(plugin.load);
     const renderer = await load('\0virtual:void-pages-renderer');
 
-    expect(renderer).toContain('"test": () => import');
+    expect(renderer).toContain('["test", () => import');
+  });
+
+  it('logs a page scan error from the watcher and keeps the last scan', async () => {
+    writePage('index.svelte', '<h1>Home</h1>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    getHookHandler(plugin.config)({}, { command: 'serve' });
+    await getHookHandler(plugin.buildStart).call({});
+    const logError = vi.fn();
+    const invalidateModule = vi.fn();
+    const handlers = setupWatcher(plugin, logError, invalidateModule);
+    const emitAdd = async (relativePath: string) => {
+      for (const handler of handlers.get('add') ?? []) {
+        await expect(handler(join(PAGES_DIR, relativePath))).resolves.toBeUndefined();
+      }
+    };
+
+    writePage('about.md', '---\nlayout: docs\n---\n# About\n');
+    await emitAdd('about.md');
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(logError.mock.calls[0]?.[0]).toContain("specifies layout 'docs'");
+    expect(invalidateModule).not.toHaveBeenCalled();
+    const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+    expect(renderer).toContain('["index", () => import');
+    expect(renderer).not.toContain('"about"');
+
+    writePage(
+      '_layouts/docs.svelte',
+      '<script>let { children } = $props();</script>\n<main>{@render children()}</main>\n',
+    );
+    await emitAdd('_layouts/docs.svelte');
+
+    expect(logError).toHaveBeenCalledTimes(1);
+    expect(invalidateModule).toHaveBeenCalled();
+    const recovered = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+    expect(recovered).toContain('"about"');
   });
 
   it('excludes @void/svelte from the void worker optimizer in dev', () => {
@@ -94,5 +134,60 @@ describe('pagesPlugin dev HMR', () => {
         },
       },
     });
+  });
+});
+
+describe('pagesPlugin environment suffixes', () => {
+  afterEach(() => {
+    rmSync(TMP, { recursive: true, force: true });
+  });
+
+  it('leaves .dev pages out of the build renderer and client entry', async () => {
+    writePage('index.svelte', '<h1>Home</h1>\n');
+    writePage('debug.dev.svelte', '<h1>Debug</h1>\n');
+    writePage('home.dev.svelte', '<h1>Dev</h1>\n');
+    writePage('home.prod.svelte', '<h1>Prod</h1>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    getHookHandler(plugin.config)({}, { command: 'build' });
+    await getHookHandler(plugin.buildStart).call({});
+    const load = getHookHandler(plugin.load);
+
+    for (const id of ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client']) {
+      const code = await load(id);
+      expect(code).not.toContain('debug.dev');
+      expect(code).not.toContain('home.dev');
+      expect(code).toContain('home.prod.svelte');
+    }
+  });
+
+  it('keeps .dev pages and leaves out .prod pages in serve', async () => {
+    writePage('index.svelte', '<h1>Home</h1>\n');
+    writePage('debug.dev.svelte', '<h1>Debug</h1>\n');
+    writePage('home.dev.svelte', '<h1>Dev</h1>\n');
+    writePage('home.prod.svelte', '<h1>Prod</h1>\n');
+
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    getHookHandler(plugin.config)({}, { command: 'serve' });
+    await getHookHandler(plugin.buildStart).call({});
+    const load = getHookHandler(plugin.load);
+
+    for (const id of ['\0virtual:void-pages-renderer', '\0virtual:void-pages-client']) {
+      const code = await load(id);
+      expect(code).toContain('debug.dev.svelte');
+      expect(code).toContain('home.dev.svelte');
+      expect(code).not.toContain('home.prod');
+    }
+  });
+
+  it('scans for dev when pages/ is created after the serve config', async () => {
+    const plugin = pagesPlugin(PAGES_DIR) as PagesPluginHooks;
+    expect(getHookHandler(plugin.config)({}, { command: 'serve' })).toBeUndefined();
+
+    writePage('debug.dev.svelte', '<h1>Debug</h1>\n');
+    await getHookHandler(plugin.buildStart).call({});
+    const renderer = await getHookHandler(plugin.load)('\0virtual:void-pages-renderer');
+
+    expect(renderer).toContain('debug.dev.svelte');
   });
 });

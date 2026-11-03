@@ -7,10 +7,20 @@ import {
   substituteParams,
 } from '@void/edge';
 import type { Context, Hono, MiddlewareHandler } from 'hono';
+import type { TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
+import type { RouteDestination, RouteUrlInput } from 'void/routes';
+import {
+  actionKeySegment,
+  hasActionKey,
+  markActionKey,
+  searchWithoutActionKey,
+} from '../pages/action-key.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
+import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
+import { markRouteHandler } from './routing-pages.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -24,7 +34,11 @@ export type RoutingRule = {
 export type RoutingHeaderRule = { pattern: string; headers: Array<[string, string]> };
 export type RequestContextStore = { request: Request; executionCtx?: Context['executionCtx'] };
 export type RoutingContext = Context & {
-  rewrite: (path: string) => Promise<Response>;
+  redirect: <T extends RedirectStatusCode = 302>(
+    location: RouteUrlInput,
+    status?: T,
+  ) => Response & TypedResponse<undefined, T, 'redirect'>;
+  rewrite: (path: string | RouteDestination) => Promise<Response>;
   originalUrl: () => URL | null;
   isRewritten: () => boolean;
 };
@@ -118,6 +132,7 @@ export function createRoutingRuntime(
         }
         const request = new Request(rewriteUrl.toString(), c.req.raw);
         rememberOriginal(request, c);
+        keepActionKey(c.req.raw, request, search);
         if (fallback) {
           fallbackHandled.add(request);
         }
@@ -147,7 +162,8 @@ export function createRoutingRuntime(
         }
       }
     }
-    c.rewrite = (path) => {
+    c.rewrite = (destination) => {
+      const path = toUrlString(destination);
       if (!path.startsWith('/') || path.startsWith('//')) {
         throw new Error(
           'c.rewrite() only accepts internal, path-absolute destinations — they must start with a single "/" (a leading "//" parses as protocol-relative and would proxy cross-origin); use fetch() for external URLs',
@@ -168,14 +184,16 @@ export function createRoutingRuntime(
       }
       const request = new Request(url.toString(), c.req.raw);
       rememberOriginal(request, c);
+      keepActionKey(c.req.raw, request, search);
       return dispatch(request, c).then((response) =>
         annotate(response, `c.rewrite -> ${path} (middleware)`),
       );
     };
-    const redirect = c.redirect.bind(c);
-    c.redirect = (location, status) => {
-      if (typeof location === 'string' && location.startsWith('/') && !location.startsWith('//')) {
-        return redirect(mergeQueryIntoLocation(location, new URL(c.req.raw.url).search), status);
+    const redirect = context.redirect.bind(context);
+    c.redirect = (destination, status) => {
+      const location = toUrlString(destination);
+      if (location.startsWith('/') && !location.startsWith('//')) {
+        return redirect(redirectLocation(c.req.raw, location, status), status);
       }
       return redirect(location, status);
     };
@@ -245,6 +263,75 @@ export function createRoutingRuntime(
   };
 }
 
+function redirectLocation(
+  request: Request,
+  location: string,
+  status: RedirectStatusCode | undefined,
+): string {
+  const url = new URL(request.url);
+  const search = url.search;
+  if (!hasActionKey(request)) {
+    return mergeQueryIntoLocation(location, search);
+  }
+  // The key goes only when the browser follows with a GET: after a 303, or after
+  // a 301/302 (the default) to a POST. Other redirects send the same method and
+  // body again, and the destination needs the key to pick the action.
+  const followsWithGet =
+    status === 303 ||
+    ((status === undefined || status === 301 || status === 302) && request.method === 'POST');
+  if (followsWithGet) {
+    return mergeQueryIntoLocation(location, searchWithoutActionKey(search));
+  }
+  const hash = location.indexOf('#');
+  const destinationQuery = location.indexOf('?');
+  if (destinationQuery === -1 || (hash !== -1 && hash < destinationQuery)) {
+    return mergeQueryIntoLocation(location, search);
+  }
+  const merged = mergeQueryIntoLocation(location, searchWithoutActionKey(search));
+  // On the same page, a key the destination starts with picks the action itself.
+  const destinationKey = actionKeySegment(
+    location.slice(destinationQuery, hash === -1 ? location.length : hash),
+  );
+  if (destinationKey && new URL(location, url).pathname === url.pathname) {
+    return merged;
+  }
+  // Elsewhere the key goes first again, ahead of the destination parameters; a
+  // value the destination gives the same key wins. A bare "?" still drops the
+  // rest of the request query.
+  const mergedHash = merged.indexOf('#');
+  const base = mergedHash === -1 ? merged : merged.slice(0, mergedHash);
+  const fragment = mergedHash === -1 ? '' : merged.slice(mergedHash);
+  const q = base.indexOf('?');
+  const segments = q === -1 ? [] : base.slice(q + 1).split('&');
+  const key = actionKeySegment(search);
+  const name = queryKey(key);
+  const hasName = (segment: string) => segment !== '' && queryKey(segment) === name;
+  // Only the destination's own value replaces the key. The merge then left out
+  // the request's values for that name and put the destination's first.
+  const own = location
+    .slice(destinationQuery + 1, hash === -1 ? location.length : hash)
+    .split('&')
+    .some(hasName)
+    ? segments.findIndex(hasName)
+    : -1;
+  const first = own === -1 ? key : segments.splice(own, 1)[0];
+  const rest = segments.join('&');
+  return (
+    base.slice(0, q === -1 ? base.length : q) + '?' + first + (rest ? '&' + rest : '') + fragment
+  );
+}
+
+function queryKey(segment: string): string | undefined {
+  return new URLSearchParams(segment).keys().next().value;
+}
+
+/** A rewrite that keeps the query keeps the action key in it too. */
+function keepActionKey(from: Request, to: Request, destinationSearch: string): void {
+  if (!destinationSearch && hasActionKey(from)) {
+    markActionKey(to);
+  }
+}
+
 export function markNoMatch(request: Request, response: Response): Response {
   const url = new URL(request.url);
   if (
@@ -269,13 +356,17 @@ export function createHttpRouteHandler(
   load: () => Promise<Record<string, (c: Context) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
-  return async (c) => convertReturnValue(await (await load())[method](c));
+  return markRouteHandler(async (c: Context) =>
+    convertReturnValue(await (await load())[method](c)),
+  );
 }
 
 export {
   createPageGetHandler,
   createPageMutationHandler,
   createPagesFallback,
+  createNamedActionMarker,
+  markRouteHandler,
 } from './routing-pages.ts';
 
 export function createModuleLoader<T>(load: () => Promise<T>, cache = true): () => Promise<T> {

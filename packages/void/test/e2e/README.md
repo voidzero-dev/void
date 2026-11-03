@@ -1,89 +1,69 @@
 # `packages/void/test/e2e`
 
-Gated live-account end-to-end tests. These run REAL Cloudflare operations against a REAL account, so
-they **skip unless credentials are present**. Locally that means exporting the env vars below; in CI
-they run on **pushes to `main`** (see [In CI](#in-ci)).
+Gated live-account end-to-end tests. These run real Cloudflare operations against the selected
+account and skip when credentials are absent. They never delete remote resources.
 
 ## `cloudflare-deploy-live.test.ts`
 
-Deploys `playground/spa` (D1 + KV + cron) to the target account via `void deploy --platform cloudflare`,
-verifies the live worker answers HTTP 200, then deletes the worker and every resource it created.
+Deploys an isolated copy of `playground/spa` (D1 + KV + cron) through
+`void deploy --platform cloudflare`. It checks HTTP responses, D1 and KV reads/writes, the registered
+cron, and a second deployment that preserves resource IDs and test data.
 
-The test starts with an intentionally incomplete root config and runs only
-`void deploy --platform cloudflare`. The deploy automatically creates D1 + KV, persists their real
-ids, builds, applies the checked migration, and uploads the worker. This exercises the complete
-one-command path in the same non-interactive environment used by CI.
+The first run creates missing D1 and KV resources. Later runs reuse the same Worker and the actual
+IDs of its named test database and namespace. The generated config, lockfile, and build output stay
+in the ignored fixture directory printed by the test. The tracked playground is not modified.
 
 ### Prerequisites
 
-The suite is skipped unless BOTH env vars are set:
+The suite skips unless both credential variables are set. Credentialed runs also require an explicit,
+stable namespace reserved for this suite in the selected test account.
 
-| Env var                  | Purpose                                                                    |
-| ------------------------ | -------------------------------------------------------------------------- |
-| `VOID_E2E_CF_TOKEN`      | Cloudflare API token that can create + delete Workers Scripts, D1, and KV. |
-| `VOID_E2E_CF_ACCOUNT_ID` | Cloudflare account id to deploy into.                                      |
+| Environment variable     | Purpose                                                                                         |
+| ------------------------ | ----------------------------------------------------------------------------------------------- |
+| `VOID_E2E_CF_TOKEN`      | Cloudflare API token with Workers Scripts: Edit, D1: Edit, and Workers KV Storage: Edit.        |
+| `VOID_E2E_CF_ACCOUNT_ID` | Test account ID.                                                                                |
+| `VOID_E2E_NAMESPACE`     | Short lowercase account-local namespace, such as a team or operator name. Reuse it across runs. |
 
-The token needs, on that account, **Workers Scripts: Edit**, **D1: Edit**, and **Workers KV Storage:
-Edit** (Edit implies read, covering the ownership/teardown list calls). Cron triggers ride along with
-the worker deploy — no extra permission.
+The token's Edit permissions include the reads needed to discover existing resources. Cron triggers
+are published with the Worker. This fixture does not require paid-only services.
 
-The account must also have a **workers.dev subdomain** already registered (with its wildcard TLS cert
-provisioned). Without one, `void deploy` uploads the worker but cannot publish a public URL, and
-the HTTP-200 assertion has nothing to hit. Opening the Workers & Pages dashboard once registers a
-subdomain automatically; a freshly-registered subdomain takes a few minutes for its cert to go live,
-during which the first run may see a TLS handshake failure — rerun once the cert is ready.
-
-If Zero Trust **Block traffic to all domains in this account** is enabled, add an Access application
-with a **Bypass + Everyone** policy for
-`void-e2e-cf-deploy-*.<account-subdomain>.workers.dev`. The suite uses a new Worker name for every run,
-so a rule for one hostname is insufficient. Without this Access application, Cloudflare returns error
-1050 and Void cannot verify the deployment. Keep the account-wide block enabled.
-
-With no env vars the suite SKIPS cleanly (0 run, N skipped).
+The account needs an existing workers.dev subdomain with its TLS certificate ready. If Cloudflare
+Access blocks the test hostname, configure a public test hostname or an explicit **Bypass + Everyone**
+policy for `void-e2e-cf-deploy-<namespace>.<account-subdomain>.workers.dev`. **Allow + Everyone** still
+requires authentication. Keep unrelated account policies unchanged.
 
 ### Running it
 
+Build the CLI, then supply credentials through the environment:
+
 ```sh
-# Ensure the CLI is built first (dist/cli/cli.mjs):
 vp run build:core
 
-VOID_E2E_CF_TOKEN=... VOID_E2E_CF_ACCOUNT_ID=... vp test run packages/void/test/e2e
+VOID_E2E_CF_TOKEN=... VOID_E2E_CF_ACCOUNT_ID=... VOID_E2E_NAMESPACE=my-team \
+  vp test run packages/void/test/e2e
 ```
+
+Use a short namespace so the Worker and its derived names fit Cloudflare's naming limits. Never
+select production resource names. The suite reserves:
+
+- Worker: `void-e2e-cf-deploy-<namespace>`
+- D1: `void-e2e-cf-deploy-<namespace>-db`
+- KV: `void-e2e-cf-deploy-<namespace>-kv`
+
+Runs with the same account and namespace must be serialized, including across local checkouts.
+Different operators should use different stable namespaces. Random values are used only for test
+records and KV keys; resources and test data are retained after successful and failed runs.
+
+Any eventual cleanup is a separate, manually reviewed operation against exact resource IDs. Do not
+add teardown deletion to this suite. See [the live-testing guidance](../../../../TESTING.md#native-cloudflare-live-e2e-tests).
 
 ### In CI
 
-`VOID_E2E_CF_TOKEN` and `VOID_E2E_CF_ACCOUNT_ID` are **environment secrets** on the `cloudflare-e2e`
-GitHub Environment (not repo secrets), and a dedicated `live-e2e` job in `.github/workflows/ci.yml`
-consumes them — the main `test` job carries no creds at all. Two layers keep the account token off
-untrusted code:
+The dedicated `live-e2e` job runs only on direct pushes to `main` in the canonical repository. Its
+`cloudflare-e2e` GitHub Environment supplies `VOID_E2E_CF_TOKEN` and `VOID_E2E_CF_ACCOUNT_ID`; a
+preflight fails if either credential is empty. The job uses the stable `ci` namespace and a concurrency
+group to serialize updates to that account's test resources.
 
-- The `live-e2e` job runs only on a direct push to `main` (`github.event_name == 'push' && github.ref
-  == 'refs/heads/main'`), so `pull_request` runs, tag pushes, and `workflow_call` (release) skip it.
-- The `cloudflare-e2e` environment's deployment branch policy allows `main` **only**, enforced by
-  GitHub server-side on the run's ref. A `pull_request` run's ref is `refs/pull/<n>/merge`, so it can
-  never reach the secret **even if a PR edits this workflow** — the expression-level gate alone would
-  be bypassable that way; the environment ref-check is the real boundary.
-
-So the credentialed live deploy runs on every merge to `main`; everywhere else the creds are empty and
-the suite SKIPS (the `test` job still imports the file and skips it). The `live-e2e` job itself is
-fail-closed — a preflight step errors if either credential is empty (a missing, deleted, or
-not-yet-rotated secret), so a misconfigured gate is loud instead of a silent green skip. Each
-`live-e2e` run also gets `VOID_E2E_RUN_ID = <run-id>-<attempt>` for the unique per-run resource names
-below.
-
-### Resource naming & cleanup
-
-Each run derives a UNIQUE resource name — `void-e2e-cf-deploy-<suffix>` — so overlapping runs never
-collide on remote resources. The suffix is `VOID_E2E_RUN_ID` (CI: `<run-id>-<attempt>`) or, locally, a
-timestamp + random. Derived names mirror the provisioner: `<name>-db` (D1), `<name>-kv` (KV). The
-shared `void-e2e-cf-deploy-` prefix keeps every resource greppable, so an orphan from a hard-killed run
-is easy to find and clean up. A pre-run ownership gate refuses to start if the run's names
-already exist (failing closed on any lookup it cannot confirm), so the test never adopts or deletes a
-resource it does not own. Teardown runs even when the deploy or an assertion fails.
-
-> **Local concurrency:** unique names isolate _remote_ resources, but a run also snapshots and
-> overwrites the shared `playground/spa/wrangler.jsonc` and builds in place. Do **not** run two live
-> e2e invocations against the same checkout at once — they would race that file. CI is unaffected (each
-> runner is an isolated checkout, and only the single `main`-push `live-e2e` job deploys). The deploy
-> test also asserts the returned host's worker label equals this run's `WORKER_NAME`, so a clobbered
-> overlay fails loudly instead of validating another run's worker.
+The GitHub Environment must allow deployments from `main` only. This server-side branch policy
+keeps its credentials away from pull-request code even if a PR changes the workflow. Other test jobs
+receive no Cloudflare credentials and skip the live suite.

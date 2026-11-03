@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { join, relative } from 'pathslash';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import { writeFileIfChanged } from './write-if-changed.ts';
@@ -39,12 +39,14 @@ export function createProjectTsconfig(
   const includeQueues = existsSync(pathsConfig.queuesDir);
   const includeMd = existsSync(join(outDir, 'md.d.ts'));
   const includeEnv = existsSync(join(outDir, 'env.d.ts'));
+  const includeAuth = existsSync(join(outDir, 'auth.d.ts'));
   const files = [
     ...(includeRoutes ? ['routes.d.ts'] : []),
     ...(hasDb ? ['db.d.ts'] : []),
     ...(includeQueues ? ['queues.d.ts'] : []),
     ...(includeMd ? ['md.d.ts'] : []),
     ...(includeEnv ? ['env.d.ts'] : []),
+    ...(includeAuth ? ['auth.d.ts'] : []),
   ];
 
   const tsconfig: ProjectTsconfig = { files };
@@ -107,4 +109,26 @@ export function ensureProjectTsconfig(
     join(root, '.void', 'tsconfig.json'),
     JSON.stringify(tsconfig, null, 2) + '\n',
   );
+}
+
+/**
+ * Add or drop `auth.d.ts` in an existing .void/tsconfig.json to match whether
+ * `.void/auth.d.ts` exists, keeping every other entry as written. The dev/build
+ * routing plugin uses this after it writes or removes auth.d.ts, so it does not
+ * recompute the routes/db choices the Drizzle plugin or `void prepare` made.
+ * A missing or unreadable tsconfig is left for those writers to create.
+ */
+export function syncAuthTypesInProjectTsconfig(root: string): boolean {
+  const outDir = join(root, '.void');
+  const tsconfigPath = join(outDir, 'tsconfig.json');
+  let tsconfig: ProjectTsconfig;
+  try {
+    tsconfig = JSON.parse(readFileSync(tsconfigPath, 'utf8')) as ProjectTsconfig;
+  } catch {
+    return false;
+  }
+  const files = Array.isArray(tsconfig.files) ? tsconfig.files : [];
+  const others = files.filter((file) => file !== 'auth.d.ts');
+  tsconfig.files = existsSync(join(outDir, 'auth.d.ts')) ? [...others, 'auth.d.ts'] : others;
+  return writeFileIfChanged(tsconfigPath, JSON.stringify(tsconfig, null, 2) + '\n');
 }

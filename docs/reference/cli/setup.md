@@ -23,15 +23,32 @@ Resources recorded in `void.lock.json` without a matching definition appear sepa
 
 `void migrate` converts legacy `void.json` and root `wrangler.jsonc` or `wrangler.json` files into `void.config.ts`. It also accepts one root `wrangler*.json(c)` file referenced by a supported framework adapter. Void saves backups in `.void/config-migration/`, records resource IDs in `void.lock.json`, and updates supported adapters to use its generated Cloudflare config.
 
-`.void-wrangler.jsonc` is generated for Cloudflare tooling and belongs in `.gitignore`; migration adds the entry. Review and commit `void.config.ts`, `void.lock.json`, and `.gitignore`. `void init` and `void deploy` migrate legacy files automatically. If the project has conflicting or multiple Cloudflare configs, resolve them first. The project's installed `void` package must match the CLI version before Cloudflare deployment.
+The command adds generated `.cloudflare/` and `.void-wrangler.jsonc` files to `.gitignore` as needed. Review and commit `void.config.ts`, `void.lock.json`, and `.gitignore`. `void init` and `void deploy` migrate legacy files automatically. Resolve conflicting Cloudflare configs first, and keep the project's `void` package and CLI on the same version.
 
 ## `void init` {#void-init}
 
 ```sh
 void init [--tsconfig] [--github] [--git | --no-git]
+          [--toolchain <name>] [--framework <name>] [--starter <name>] [--deploy <target>]
 ```
 
-Set up a new or existing Void project. In an empty directory, choose Vite+ or Vite, a framework, and a D1, PostgreSQL, MySQL, or Static Pages starter.
+Set up a new or existing Void project. In an empty directory, choose Vite+ or Vite, a framework, and a D1, PostgreSQL, MySQL, or Static Pages starter. The new app's `void.config.ts` turns on [`routing.typedRoutes`](../config.md#routing-typedroutes).
+
+Pass your choices as flags to scaffold from a script or coding agent:
+
+| Flag          | Values                                    |
+| ------------- | ----------------------------------------- |
+| `--toolchain` | `vite-plus`, `vite`                       |
+| `--framework` | `react`, `vue`, `svelte`, `solid`         |
+| `--starter`   | `sqlite`, `postgresql`, `mysql`, `static` |
+| `--deploy`    | `cloudflare`, `void`, `none`              |
+
+```sh
+void init --toolchain vite-plus --framework react --starter sqlite --deploy none
+npm create void@latest my-app -- --toolchain vite-plus --framework react --starter sqlite --deploy none
+```
+
+For non-interactive scaffolding, choose `--deploy none` and run `void connect` later to sign in.
 
 Vite+ projects install dependencies through `vp install`; no global Vite+ installation is required. Void preserves existing package-manager versions and lockfiles. New Vite+ projects without a package-manager configuration use pnpm without pinning a version.
 

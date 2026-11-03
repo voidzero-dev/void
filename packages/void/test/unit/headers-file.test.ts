@@ -1,7 +1,8 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, it, expect, afterEach } from 'vite-plus/test';
-import { parseHeadersFile } from '../../src/cli/headers.ts';
+import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
+import { parseHeadersFile, readGeneratedAssetHeadersFile } from '../../src/cli/headers.ts';
 
 const tmpDir = join(import.meta.dirname, '.tmp-headers-file-test');
 
@@ -142,5 +143,20 @@ describe('parseHeadersFile', () => {
         headers: [['Valid-Header', 'yes']],
       },
     ]);
+  });
+});
+
+describe('readGeneratedAssetHeadersFile', () => {
+  it('returns the text of the _headers file Void generated', () => {
+    const content = `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/app.js\n  Cache-Control: immutable\n`;
+    setup(content);
+    expect(readGeneratedAssetHeadersFile(tmpDir)).toBe(content);
+  });
+
+  it('ignores a user-authored or missing file', () => {
+    setup('/*\n  X-Test: yes\n');
+    expect(readGeneratedAssetHeadersFile(tmpDir)).toBeUndefined();
+    setup();
+    expect(readGeneratedAssetHeadersFile(tmpDir)).toBeUndefined();
   });
 });

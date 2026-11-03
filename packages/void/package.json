@@ -1,6 +1,6 @@
 {
   "name": "void",
-  "version": "1.1.11",
+  "version": "1.5.0",
   "description": "Full-stack framework and deployment CLI for Cloudflare Workers, powered by Vite.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -20,6 +20,7 @@
     "docs",
     "schema.json",
     "skills",
+    "templates",
     "AGENTS_TEMPLATE.md",
     "README.md",
     "sandbox.Dockerfile"
@@ -37,6 +38,7 @@
     "#self/sandbox": "./dist/runtime/sandbox.mjs",
     "#self/runtime/live-server": "./dist/runtime/live-server.mjs",
     "#self/runtime/fetch": "./dist/runtime/fetch.mjs",
+    "#self/runtime/fetch-server": "./dist/runtime/fetch-server.mjs",
     "#self/runtime/fetch-stream": "./dist/runtime/fetch-stream.mjs",
     "#self/runtime/route-url": "./dist/runtime/route-url.mjs",
     "#self/runtime/migration-handler": "./dist/runtime/migration-handler.mjs",
@@ -88,7 +90,9 @@
       "require": "./dist/runtime/validator.mjs"
     },
     "./routes": {
-      "types": "./dist/routes-stub.d.mts"
+      "types": "./dist/routes-stub.d.mts",
+      "import": "./dist/routes-stub.mjs",
+      "require": "./dist/routes-stub.mjs"
     },
     "./nitro": {
       "types": "./dist/nitro.d.mts",
@@ -352,17 +356,18 @@
     "@cloudflare/build-output-utils": "catalog:",
     "@cloudflare/codemods": "catalog:",
     "@cloudflare/config": "catalog:",
-    "@cloudflare/sandbox": "^1.0.1",
+    "@cloudflare/sandbox": "catalog:",
     "@cloudflare/vite-plugin": "catalog:",
     "@cloudflare/workers-auth": "catalog:",
     "@cloudflare/workers-types": "catalog:",
-    "@napi-rs/keyring": "^2.1.1",
+    "@cloudflare/workers-utils": "catalog:",
+    "@napi-rs/keyring": "catalog:",
     "@void/deploy-cloudflare": "workspace:*",
     "@void/deploy-core": "workspace:*",
     "@void/edge": "workspace:*",
     "@void/isr": "workspace:*",
     "@void/platform": "workspace:*",
-    "better-auth": "^1.7.7",
+    "better-auth": "catalog:",
     "better-sqlite3": "^13.0.3",
     "blake3-jit": "^1.1.0",
     "cf": "catalog:",
@@ -372,29 +377,30 @@
     "drizzle-valibot": "^0.4.2",
     "drizzle-zod": "^0.8.3",
     "email-validator": "^2.0.4",
-    "hono": "^4.13.13",
-    "ignore": "^7.0.12",
+    "hono": "catalog:",
+    "ignore": "catalog:",
     "jiti": "^2.7.0",
     "jsonc-parser": "^3.3.1",
-    "mime": "^4.1.1",
+    "mime": "catalog:",
     "miniflare": "catalog:",
-    "minimatch": "^10.2.6",
+    "minimatch": "^11.0.3",
     "mysql2": "^3.24.6",
     "pg": "^8.23.1",
     "postal-mime": "catalog:",
     "proper-lockfile": "^4.1.2",
+    "smol-toml": "catalog:",
     "takumi-js": "^2.16.2",
     "terminal-link": "^5.0.0",
     "yaml": "^2.9.1"
   },
   "devDependencies": {
-    "@electric-sql/pglite": "0.5.9",
+    "@electric-sql/pglite": "catalog:",
     "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",
     "@types/pg": "^8.23.1",
     "@types/proper-lockfile": "^4.1.4",
     "@voidzero-dev/vite-plus-prompts": "catalog:",
-    "arktype": "^2.2.8",
+    "arktype": "catalog:",
     "ci-info": "^4.4.0",
     "estree-walker": "^3.0.3",
     "fast-wrap-ansi": "^0.2.2",
@@ -432,6 +438,6 @@
     }
   },
   "engines": {
-    "node": ">=24.21.0"
+    "node": "^24.22.0 || >=26.12.0"
   }
 }

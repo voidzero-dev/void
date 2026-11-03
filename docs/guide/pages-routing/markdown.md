@@ -64,9 +64,9 @@ Add the plugin to your Vite config **after** the framework adapter:
 ::: code-group
 
 ```ts [React]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidReact } from '@void/react/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -76,9 +76,9 @@ export default defineConfig({
 ```
 
 ```ts [Vue]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidVue } from '@void/vue/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -88,9 +88,9 @@ export default defineConfig({
 ```
 
 ```ts [Svelte]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSvelte } from '@void/svelte/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -100,9 +100,9 @@ export default defineConfig({
 ```
 
 ```ts [Solid]
+// vite.config.ts
 import { voidMarkdown } from '@void/md/plugin';
 import { voidSolid } from '@void/solid/plugin';
-// vite.config.ts
 import { defineConfig } from 'vite';
 import { voidPlugin } from 'void';
 
@@ -137,7 +137,7 @@ Welcome to Void. Here's an interactive demo:
 ```
 
 - **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
-- **Frontmatter:** YAML metadata between `---` fences. Layouts can read it through [`useFrontmatter()`](#frontmatter-access).
+- **Frontmatter:** YAML metadata between `---` fences. Layouts and islands can read it through [`useFrontmatter()`](#frontmatter-access).
 - **Body:** standard markdown plus GFM. Uppercase tags such as `<Counter />` reference imported components and render as islands.
 
 ## Client Scripts
@@ -230,6 +230,8 @@ export default function DocsLayout(props) {
 
 :::
 
+Island components can also call `useFrontmatter()`. Keep frontmatter on pages with islands safe to share with the browser.
+
 ## Pages Virtual Module
 
 Import `@void/md/pages` to get metadata for all markdown pages at build time. Use it to build sidebars, navigation, or search indexes:
@@ -238,6 +240,8 @@ Import `@void/md/pages` to get metadata for all markdown pages at build time. Us
 import pages from '@void/md/pages';
 // [{ path: "/docs/getting-started", title: "Getting Started", frontmatter: {...}, headings: [...] }, ...]
 ```
+
+The list follows [page environment suffixes](./overview.md#environment-only-pages): `debug.dev.md` appears as `/debug` during development.
 
 Each entry has this shape:
 

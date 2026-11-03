@@ -109,8 +109,8 @@ Declare variables in `env.ts` and read them with `import { env } from "void/env"
 You can also access raw Cloudflare bindings via the H3 event context or the `cloudflare:workers` module:
 
 ```ts
-import { env } from 'cloudflare:workers';
 // src/server/routes/api/users.ts
+import { env } from 'cloudflare:workers';
 import { eventHandler } from 'h3';
 
 export default eventHandler(async () => {

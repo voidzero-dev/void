@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import { beforeAll, expect, it } from 'vite-plus/test';
+import { beforeAll, describe, expect, it } from 'vite-plus/test';
 
 type TestWindow = Window & {
   __SPA_MARKER?: boolean;
@@ -96,6 +96,39 @@ export function registerSharedClientTests({
   let BASE: string;
   beforeAll(() => {
     BASE = getBase();
+  });
+
+  it('visits typed destinations', async ({ expect }) => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.getByTestId('typed-visit').click();
+      await page.waitForURL(BASE + '/users/2?tab=visit');
+      expect(await page.textContent('body')).toContain('Bob');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('keeps the current path for a query-only Link', async ({ expect }) => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.getByTestId('query-only-link').click();
+      await page.waitForURL(BASE + '/link-behavior?view=compact');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
   });
 
   it('restores scroll after browser Back from an ordinary document link', async ({ expect }) => {
@@ -404,6 +437,150 @@ export function registerSharedClientTests({
     } finally {
       await page.context().close();
     }
+  });
+
+  it('form resets preserve nested snapshots and update dirty state after repeated submits', async ({
+    expect,
+  }) => {
+    const page = await newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    const initial = { profile: { name: '' }, tags: [] };
+    const edited = { profile: { name: 'edited' }, tags: ['edited'] };
+
+    try {
+      await page.goto(BASE + '/form-reset');
+      await waitForHydration(page);
+
+      for (const automatic of [false, true]) {
+        const form = page.getByTestId(automatic ? 'automatic-form' : 'manual-form');
+        async function assertState(data: typeof edited, dirty: boolean) {
+          await expect
+            .poll(async () => ({
+              data: JSON.parse((await form.getByTestId('values').textContent())!),
+              dirty: await form.getByTestId('dirty').textContent(),
+            }))
+            .toEqual({ data, dirty: String(dirty) });
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await form.getByRole('button', { name: 'Edit', exact: true }).click();
+          await assertState(edited, true);
+          await form.getByRole('button', { name: 'Reset current', exact: true }).click();
+          await assertState(initial, false);
+        }
+        for (let attempt = 0; attempt < 2; attempt++) {
+          await form.getByRole('button', { name: 'Edit', exact: true }).click();
+          const response = page.waitForResponse(
+            (response) =>
+              response.url() === BASE + '/form-reset' && response.request().method() === 'POST',
+          );
+          await form.getByRole('button', { name: 'Save', exact: true }).click();
+          expect((await response).ok()).toBe(true);
+          await assertState(automatic ? initial : edited, false);
+          expect(await form.getByTestId('success').textContent()).toBe('true');
+          if (!automatic) {
+            await form.getByRole('button', { name: 'Edit', exact: true }).click();
+            await assertState({ ...edited, tags: ['edited', 'edited'] }, true);
+            await form.getByRole('button', { name: 'Reset current', exact: true }).click();
+            await assertState(edited, false);
+            await form.getByRole('button', { name: 'Reset profile', exact: true }).click();
+            await assertState({ profile: { name: '' }, tags: ['edited'] }, true);
+            await form.getByRole('button', { name: 'Reset initial', exact: true }).click();
+            await assertState(initial, true);
+          }
+        }
+      }
+      expect(errors).toEqual([]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  describe('form field errors', () => {
+    async function openForm() {
+      const page = await newPage();
+      await page.goto(BASE + '/form-errors');
+      await waitForHydration(page);
+      return page;
+    }
+
+    it('preserves new client validation errors and clears only edited fields', async ({
+      expect,
+    }) => {
+      const page = await openForm();
+      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      try {
+        await page.getByRole('button', { name: 'Set errors', exact: true }).click();
+        await expect.poll(readErrors).toEqual({
+          email: 'Email invalid',
+          name: 'Name invalid',
+          profile: 'Profile invalid',
+          tags: 'Tags invalid',
+        });
+        await page.getByLabel('Email', { exact: true }).fill('invalid');
+        await expect.poll(readErrors).toEqual({
+          email: 'Client email invalid',
+          name: 'Name invalid',
+          profile: 'Profile invalid',
+          tags: 'Tags invalid',
+        });
+        await page.getByLabel('Name', { exact: true }).fill('Alice');
+        await page.getByLabel('Email', { exact: true }).fill('alice@example.com');
+        await expect.poll(readErrors).toEqual({ profile: 'Profile invalid', tags: 'Tags invalid' });
+        await page.getByRole('button', { name: 'Clear all', exact: true }).click();
+        await expect.poll(readErrors).toEqual({});
+      } finally {
+        await page.context().close();
+      }
+    });
+
+    it('clears errors after repeated nested object and array edits', async ({ expect }) => {
+      const page = await openForm();
+      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      try {
+        for (let edit = 0; edit < 3; edit++) {
+          await page.getByRole('button', { name: 'Set nested errors', exact: true }).click();
+          await expect
+            .poll(readErrors)
+            .toEqual({ profile: 'Profile invalid', tags: 'Tags invalid' });
+          await page.getByLabel('Profile', { exact: true }).fill('Name ' + edit);
+          await expect.poll(readErrors).toEqual({ tags: 'Tags invalid' });
+          await page.getByRole('button', { name: 'Add tag', exact: true }).click();
+          await expect.poll(readErrors).toEqual({});
+        }
+      } finally {
+        await page.context().close();
+      }
+    });
+
+    it('merges client and server errors without reviving cleared errors', async ({ expect }) => {
+      const page = await openForm();
+      const readErrors = async () => JSON.parse((await page.getByTestId('errors').textContent())!);
+      try {
+        await page.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect
+          .poll(readErrors)
+          .toEqual({ email: 'Email is required', name: 'Name is required' });
+        await page.getByRole('button', { name: 'Set nested errors', exact: true }).click();
+        await expect.poll(readErrors).toEqual({
+          email: 'Email is required',
+          name: 'Name is required',
+          profile: 'Profile invalid',
+          tags: 'Tags invalid',
+        });
+        await page.getByRole('button', { name: 'Clear email', exact: true }).click();
+        await page.getByLabel('Name', { exact: true }).fill('Alice');
+        await expect.poll(readErrors).toEqual({ profile: 'Profile invalid', tags: 'Tags invalid' });
+        await page.getByRole('button', { name: 'Clear all', exact: true }).click();
+        await expect.poll(readErrors).toEqual({});
+        await page.getByRole('button', { name: 'Save', exact: true }).click();
+        await expect.poll(readErrors).toEqual({ email: 'Email is required' });
+        await page.getByLabel('Email', { exact: true }).fill('alice@example.com');
+        await expect.poll(readErrors).toEqual({});
+      } finally {
+        await page.context().close();
+      }
+    });
   });
 
   it('form validation errors display', async () => {

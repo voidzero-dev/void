@@ -10,7 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "hono": "^4.13.13",
+    "hono": "catalog:",
     "valibot": "^1.5.0",
     "vue": "^3.5.44"
   },

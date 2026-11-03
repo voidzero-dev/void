@@ -7,10 +7,10 @@
     "dev": "vp dev"
   },
   "dependencies": {
-    "@tanstack/react-router": "^1.170.44",
-    "@tanstack/react-start": "^1.169.1",
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0"
+    "@tanstack/react-router": "catalog:",
+    "@tanstack/react-start": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

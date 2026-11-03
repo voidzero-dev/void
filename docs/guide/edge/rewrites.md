@@ -56,7 +56,7 @@ Keep access checks on any destination that needs them.
 
 A destination without `?` preserves the incoming query string. `c.rewrite('/search')` keeps `?q=...`, while `c.rewrite('/search?q=all')` replaces it.
 
-Your editor suggests known routes through the [`RewriteDestination`](../../reference/api/rewrites.md#rewritedestination) type. Dynamic strings are also accepted.
+Your editor suggests known routes through the [`RewriteDestination`](../../reference/api/rewrites.md#rewritedestination) type. Dynamic strings are also accepted. With [`routing.typedRoutes`](../../reference/config.md#routing-typedroutes), a string must match one of your routes; add `as RouteUrl` to a path built at runtime, such as ``c.rewrite(`/en${c.req.path}` as RouteUrl)``.
 
 ### Runtime rewrites cannot reach static assets
 

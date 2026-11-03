@@ -13,5 +13,6 @@ export {
   ParamsContext,
   RouterContext,
   NavigationContext,
+  FrontmatterContext,
 } from './context.ts';
 export type { DeferredState as Deferred, InferProps } from 'void';

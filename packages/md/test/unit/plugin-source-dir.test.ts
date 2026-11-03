@@ -65,21 +65,88 @@ describe('voidMarkdown sourceDir support', () => {
     expect(load('\0' + 'virtual:void-md-client')).toContain('virtual:void-md-script:posts/hello');
   });
 
-  it('adds the markdown client entry for sourceDir pages with scripts and islands', () => {
-    const root = createTempRoot();
-    writeFileSync(
-      join(root, 'src', 'pages', 'posts', 'hello.md'),
-      '<script>\ndocument.body.dataset.md = "ready";\n</script>\n\n# Hello\n',
-    );
-    writeFileSync(join(root, 'src', 'pages', 'posts', 'Counter.island.tsx'), 'export default {};');
-
+  async function scanForCommand(root: string, command: 'serve' | 'build') {
     const plugin = createPlugin();
     const config = getHookHandler(plugin.config) as (
       config: { root: string },
-      env: { command: 'build' },
+      env: { command: 'serve' | 'build'; isPreview?: boolean },
     ) => unknown;
+    const configResolved = getHookHandler(plugin.configResolved) as (
+      config: import('vite').ResolvedConfig,
+    ) => void;
+    const buildStart = getHookHandler(plugin.buildStart) as () => Promise<void>;
+    const load = getHookHandler(plugin.load) as (id: string) => string | undefined;
 
-    expect(config({ root }, { command: 'build' })).toEqual({
+    await config({ root }, { command });
+    configResolved({
+      root,
+      plugins: [{ name: 'void-react:pages' }],
+    } as unknown as import('vite').ResolvedConfig);
+    await buildStart.call({} as never);
+
+    const source = load('\0void-md-pages')!;
+    const pages = JSON.parse(source.slice('export default '.length, -1)) as Array<{
+      path: string;
+    }>;
+    return {
+      paths: pages.map((page) => page.path),
+      clientEntry: load('\0' + 'virtual:void-md-client'),
+    };
+  }
+
+  it('lists .dev markdown pages without the suffix only on the dev server', async () => {
+    const root = createTempRoot();
+    const pagesDir = join(root, 'src', 'pages');
+    writeFileSync(
+      join(pagesDir, 'debug.dev.md'),
+      '<script>\ndocument.body.dataset.md = "debug";\n</script>\n\n# Debug\n',
+    );
+    writeFileSync(join(pagesDir, 'index.dev.md'), '# Dev home\n');
+    writeFileSync(join(pagesDir, 'posts', 'hello.md'), '# Hello\n');
+
+    const serve = await scanForCommand(root, 'serve');
+    expect(serve.paths).toEqual(['/', '/debug', '/posts/hello']);
+    expect(serve.clientEntry).toContain('virtual:void-md-script:debug.dev');
+
+    const build = await scanForCommand(root, 'build');
+    expect(build.paths).toEqual(['/posts/hello']);
+    expect(build.clientEntry).not.toContain('debug.dev');
+  });
+
+  it('lists .prod markdown pages only in builds', async () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'src', 'pages', 'posts', 'stats.prod.md'), '# Stats\n');
+
+    expect((await scanForCommand(root, 'serve')).paths).toEqual([]);
+    expect((await scanForCommand(root, 'build')).paths).toEqual(['/posts/stats']);
+  });
+
+  function buildConfigFor(pages: Record<string, string>): Promise<unknown> {
+    const root = createTempRoot();
+    for (const [file, content] of Object.entries(pages)) {
+      writeFileSync(join(root, 'src', 'pages', file), content);
+    }
+    const config = getHookHandler(createPlugin().config) as (
+      config: { root: string },
+      env: { command: 'build' },
+    ) => Promise<unknown>;
+    return config({ root }, { command: 'build' });
+  }
+
+  const CLIENT_CODE = '<script>\ndocument.body.dataset.md = "ready";\n</script>\n\n# Hello\n';
+  const ISLAND_IMPORT = 'import Counter from "./Counter.tsx" with { island: "load" };';
+
+  it.each([
+    ['a page', { 'posts/hello.md': CLIENT_CODE }],
+    ['a build-only page', { 'stats.prod.md': CLIENT_CODE }],
+    [
+      'a page that also imports an island',
+      {
+        'mixed.md': `<script>\n${ISLAND_IMPORT}\nconsole.log("ready");\n</script>\n\n<Counter />\n`,
+      },
+    ],
+  ])('adds the markdown client entry for client code on %s', async (_name, pages) => {
+    expect(await buildConfigFor(pages)).toEqual({
       environments: {
         client: {
           build: {
@@ -90,5 +157,28 @@ describe('voidMarkdown sourceDir support', () => {
         },
       },
     });
+  });
+
+  it.each([
+    ['pages without a script', { 'hello.md': '# Hello\n' }],
+    [
+      'a script with only island imports',
+      { 'hello.md': `<script>\n${ISLAND_IMPORT}\n</script>\n\n<Counter />\n` },
+    ],
+    [
+      'a script tag in a code block',
+      { 'hello.md': '# Hello\n\n```html\n<script>\nconsole.log("example");\n</script>\n```\n' },
+    ],
+    ['client code on a dev-only page', { 'debug.dev.md': CLIENT_CODE, 'hello.md': '# Hello\n' }],
+    [
+      'island files next to pages without client code',
+      {
+        'hello.md': `<script>\n${ISLAND_IMPORT}\n</script>\n\n<Counter />\n`,
+        'Counter.island.tsx': 'export default {};',
+        '_x.island.txt': '',
+      },
+    ],
+  ])('does not add the markdown client entry for %s', async (_name, pages) => {
+    expect(await buildConfigFor(pages)).toBeUndefined();
   });
 });

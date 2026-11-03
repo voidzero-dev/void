@@ -24,6 +24,7 @@ interface CloudEnv extends Env {
     STORAGE: R2Bucket;
     AI: Ai;
     SANDBOX: DurableObjectNamespace<import('void/sandbox').VoidPlatformSandbox>;
+    ASSETS: { fetch(request: Request): Promise<Response> };
     [key: string]: unknown;
   };
   Variables: CloudContextVariables;
@@ -90,3 +91,48 @@ Generated route types used by the typed `fetch` client. Contains each route’s 
 ```ts
 import type { RouteMap } from 'void/routes';
 ```
+
+## `void/routes` {#void-routes}
+
+### `routeUrl(path, options?)` {#routeurl-path-options}
+
+Build a relative URL string from a known page, HTTP, or WebSocket route pattern:
+
+```ts
+import { routeUrl } from 'void/routes';
+
+routeUrl('/users/:id', {
+  params: { id: 42 },
+  query: { tab: 'activity' },
+  hash: 'details',
+});
+// /users/42?tab=activity#details
+```
+
+| Option   | Type           | Description                                                                        |
+| -------- | -------------- | ---------------------------------------------------------------------------------- |
+| `params` | Route-specific | Required for dynamic routes. Each parameter accepts a `string` or `number`.        |
+| `query`  | `RouteQuery`   | Query parameters. Arrays become repeated keys; `null` and `undefined` are omitted. |
+| `hash`   | `string`       | URL fragment, such as `'details'` or `'#details'`.                                 |
+
+Static routes accept optional `query` and `hash` options. Pass raw parameter values for URL encoding. Catch-all parameters preserve `/` separators between segments. Invalid or missing path parameters throw a `TypeError`.
+
+Use the returned [`RouteUrl`](#route-types) with `Link`, `<a>`, and `c.redirect()`. See [Typed URLs and Navigation](../../guide/type-safety.md#typed-urls-and-navigation) for setup and examples.
+
+### Route types {#route-types}
+
+Import these types from `void/routes`:
+
+| Type                  | Description                                                                                       |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| `RoutePathMap`        | Generated map of page, HTTP, and WebSocket route patterns to their parameter names.               |
+| `RoutePath`           | Union of the known route patterns in `RoutePathMap`.                                              |
+| `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`.   |
+| `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
+| `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |
+| `Href`                | A `RouteUrl`, a same-page query or hash, or an external URL. `string` unless `typedRoutes` is on. |
+| `RouteUrlInput`       | `Href`, `URL`, or `RouteDestination`; accepted by router navigation methods.                      |
+| `RouteQuery`          | Query keys mapped to `RouteQueryValue` or readonly arrays of those values.                        |
+| `RouteQueryValue`     | `string`, `number`, `boolean`, `null`, or `undefined`.                                            |
+
+`typedRoutes` is [`routing.typedRoutes`](../config.md#routing-typedroutes). See [Checked URL strings](../../guide/type-safety.md#checked-url-strings).

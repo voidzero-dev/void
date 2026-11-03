@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
+import { RESERVED_SLUGS } from '../../src/project-names.ts';
 import { EMAIL_RESERVED_SLUGS, isReservedEmailSlug } from '../../src/reserved-slugs.ts';
-import { RESERVED_SLUGS } from '../../src/routes/projects.ts';
 
 describe('reserved slugs (real implementation)', () => {
   it('blocks cname slug (CNAME target)', () => {

@@ -59,7 +59,7 @@ export function analyzeApplicationSync(
   const scanDirs = config.inference?.scanDirs ?? (framework ? FRAMEWORK_SCAN_DIRS : undefined);
   const inferred = inferProjectBindings(
     root,
-    { paths, environment, bindings: config.inference?.bindings },
+    { paths, environment, filterPages: !framework, bindings: config.inference?.bindings },
     scanDirs,
   );
   const authConfigPath = findVoidAuthConfig(root, paths);

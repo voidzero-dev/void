@@ -341,10 +341,14 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
       projectId,
       incomingManifest,
     );
+    // Only the slug gates a deploy: an alias rule that fails must not block
+    // a deploy that would pass without the alias, which cannot be removed.
     const readiness = await getSharedEmailRecipientReadiness(
       context.get('db'),
       context.env,
       projectId,
+      false,
+      project.slug,
     );
     if (readiness?.status !== 'ready') {
       return context.json(

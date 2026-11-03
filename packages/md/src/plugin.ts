@@ -1,9 +1,9 @@
 import { createHash } from 'node:crypto';
-import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
-import { resolvePagesDir } from 'void/pages';
+import { pageFileEnvironment, resolvePagesDir } from 'void/pages';
 import type { CompileOptions } from './compile.ts';
 import { emitReactComponent } from './emit-react.ts';
 import { emitSolidComponent } from './emit-solid.ts';
@@ -44,32 +44,35 @@ function stripPageSuffix(file: string): string {
     .replace(/^index$/, '');
 }
 
-function hasMdFilesWithScript(dir: string): boolean {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (entry.isFile() && entry.name.endsWith('.md')) {
-        const fullPath = join(entry.parentPath, entry.name);
-        const content = readFileSync(fullPath, 'utf-8');
-        if (/^<script\b/m.test(content)) {
-          return true;
-        }
-      }
-    }
-  } catch {
-    // ignore
+// The listed path drops the .dev / .prod suffix, like page routes do:
+// debug.dev.md -> debug, index.dev.md -> ''.
+function mdRouteName(file: string, env: 'dev' | 'prod' | null): string {
+  let name = file.slice(0, -'.md'.length);
+  if (env) {
+    name = name.slice(0, -('.' + env).length);
   }
-  return false;
+  if (name === 'index') {
+    return '';
+  }
+  return name.endsWith('/index') ? name.slice(0, -'/index'.length) : name;
 }
 
-function hasIslandFiles(dir: string): boolean {
-  try {
-    for (const entry of readdirSync(dir, { withFileTypes: true, recursive: true })) {
-      if (entry.isFile() && /\.island\./.test(entry.name)) {
-        return true;
-      }
+/** The Markdown files that `environment` keeps, relative to `pagesDir`. */
+async function listMdFiles(pagesDir: string, environment: 'dev' | 'prod'): Promise<Array<string>> {
+  const mdFiles = await glob('**/*.md', { cwd: pagesDir });
+  // Skip pages for the other environment, so their scripts are not added either.
+  return mdFiles.filter((file) => {
+    const fileEnv = pageFileEnvironment(file);
+    return !fileEnv || fileEnv === environment;
+  });
+}
+
+/** Whether any page has client code. Without it, pages would load an empty client entry. */
+async function hasMdClientCode(pagesDir: string, environment: 'dev' | 'prod'): Promise<boolean> {
+  for (const file of await listMdFiles(pagesDir, environment)) {
+    if (extractScript(readFileSync(join(pagesDir, file), 'utf-8')).clientCode) {
+      return true;
     }
-  } catch {
-    // ignore
   }
   return false;
 }
@@ -79,6 +82,8 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
   let mdPages: ReadonlyArray<MdPage> = [];
   let root = '';
   let pagesDir = '';
+  // 'dev' on the dev server, 'prod' for builds and preview.
+  let mdEnvironment: 'dev' | 'prod' = 'prod';
   const svelteModules = new Map<string, string>();
   const solidModules = new Map<string, string>();
   const clientScripts = new Map<string, string>();
@@ -99,22 +104,22 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
       return [];
     }
 
-    const mdFiles = await glob('**/*.md', { cwd: pagesDir });
+    const liveFiles = await listMdFiles(pagesDir, mdEnvironment);
     const pages = await Promise.all(
-      mdFiles.map(async (file) => {
+      liveFiles.map(async (file) => {
         const content = readFileSync(join(pagesDir, file), 'utf-8');
         const { body, clientCode } = extractScript(content);
         const result = extractMetadata(body);
 
-        const routeName = stripPageSuffix(file);
-        const componentId = routeName || 'index';
+        // componentId keeps the suffix so it matches the page id from scanPages.
+        const componentId = stripPageSuffix(file) || 'index';
 
         if (clientCode) {
           clientScripts.set(componentId, clientCode);
         }
 
         return {
-          path: '/' + routeName,
+          path: '/' + mdRouteName(file, pageFileEnvironment(file)),
           title: result.title,
           frontmatter: result.frontmatter,
           headings: result.headings,
@@ -136,7 +141,8 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         },
       },
 
-      config(config, env) {
+      async config(config, env) {
+        mdEnvironment = env.command === 'serve' && !env.isPreview ? 'dev' : 'prod';
         if (env.command === 'serve') {
           return;
         }
@@ -145,7 +151,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         if (!existsSync(pagesDir)) {
           return;
         }
-        if (hasMdFilesWithScript(pagesDir) && hasIslandFiles(pagesDir)) {
+        if (await hasMdClientCode(pagesDir, mdEnvironment)) {
           return {
             environments: {
               client: {
@@ -278,10 +284,13 @@ import { inject } from "vue";
 export function useFrontmatter() { return inject("__void_frontmatter", {}); }
 `;
             }
+            // React and Solid match contexts by identity. The adapter owns the
+            // context so its island renderer can provide it above the layouts.
             if (adapter === 'react') {
               return `
-import { createContext, useContext } from "react";
-export const FrontmatterContext = createContext({});
+import { useContext } from "react";
+import { FrontmatterContext } from "@void/react";
+export { FrontmatterContext };
 export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
 `;
             }
@@ -295,8 +304,9 @@ export function useFrontmatter() { return getContext(FRONTMATTER_KEY) ?? {}; }
             }
             if (adapter === 'solid') {
               return `
-import { createContext, useContext } from "solid-js";
-export const FrontmatterContext = createContext({});
+import { useContext } from "solid-js";
+import { FrontmatterContext } from "@void/solid";
+export { FrontmatterContext };
 export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
 `;
             }

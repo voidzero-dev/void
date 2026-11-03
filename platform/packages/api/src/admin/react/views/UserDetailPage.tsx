@@ -38,7 +38,7 @@ export function UserDetailPage({ path, platformName, username }: AdminPageProps)
       <SectionStack>
         <h1>{user.login}</h1>
 
-        <Table>
+        <Table className="void-admin-detail-table">
           <TableBody>
             <TableRow>
               <TableHeaderCell>ID</TableHeaderCell>

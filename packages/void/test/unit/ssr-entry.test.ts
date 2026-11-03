@@ -15,6 +15,60 @@ function createTempRoot(): string {
 }
 
 describe('ssr entry helpers', () => {
+  it.each([
+    'const handler = () => new Response("ok"); export { handler as "render" };',
+    'export { handler as "render" } from "./renderer";',
+    'const handler = () => new Response("ok"); export { handler as "default" };',
+    'export { handler as "default" } from "./renderer";',
+    'export const { render } = { render: () => new Response("ok") };',
+    'export const { nested: [, { handler: render }] } = handlers;',
+    'export const [render = fallback] = handlers;',
+    'const render = () => new Response("ok"); export default render;',
+    'function render() { return new Response("ok"); } export default render;',
+    'const render = () => new Response("ok"); const alias = render; export default alias;',
+    'const { render } = handlers; export default render;',
+    'import render from "./renderer"; export default render;',
+    'import { render } from "./renderer"; export default render;',
+    'import { defineRender as define } from "void"; const render = define(() => new Response("ok")); export default render;',
+    'const render = (() => new Response("ok")) satisfies Function; export default render;',
+  ])('accepts renderer bindings: %s', (source) => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'src/main.client.ts'), 'console.log("client");');
+    writeFileSync(join(root, 'src/main.ssr.ts'), source);
+    expect(validateSsrEntry(root)).toBe(toSlash(join(root, 'src/main.ssr.ts')));
+  });
+
+  it('resolves long renderer alias chains without overflowing the stack', () => {
+    const root = createTempRoot();
+    const aliases = Array.from(
+      { length: 10_000 },
+      (_, index) => `const alias${index + 1} = alias${index};`,
+    ).join('\n');
+    writeFileSync(join(root, 'src/main.client.ts'), 'console.log("client");');
+    writeFileSync(
+      join(root, 'src/main.ssr.ts'),
+      `const alias0 = () => new Response('ok'); ${aliases} export default alias10000;`,
+    );
+    expect(validateSsrEntry(root)).toBe(toSlash(join(root, 'src/main.ssr.ts')));
+  });
+
+  it.each([
+    'const render = 42; export default render;',
+    'const render = () => new Response("ok"); export { render as "helper" };',
+    'export { type render as "render" } from "./renderer";',
+    'export { type render as "default" } from "./renderer";',
+    'const first = second; const second = first; export default first;',
+    'export default missing;',
+    'export const { render: helper } = handlers;',
+    'export const { helper = render } = handlers;',
+    'import type { render } from "./renderer"; export default render;',
+  ])('rejects missing or non-callable renderer bindings: %s', (source) => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'src/main.client.ts'), 'console.log("client");');
+    writeFileSync(join(root, 'src/main.ssr.ts'), source);
+    expect(() => validateSsrEntry(root)).toThrow('Export `render(c, assetTags)`');
+  });
+
   afterEach(() => {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;

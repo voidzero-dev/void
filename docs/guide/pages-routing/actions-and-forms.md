@@ -11,8 +11,8 @@ Use an action to change server data from a form or button. Define it in the page
 Export `action` from a `.server.ts` file. Use `withValidator()` with a [schema-derived validator](../database.md#schema-derived-validators) to validate the request body:
 
 ```ts
-import { users, insertUserSchema } from '@schema';
 // pages/users/index.server.ts
+import { users, insertUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db } from 'void/db';
 
@@ -147,19 +147,23 @@ The types are inferred from your action's `withValidator()` schema in the compan
 
 `useForm` returns a reactive object with:
 
-| Property / Method                | Purpose                                                                            |
-| -------------------------------- | ---------------------------------------------------------------------------------- |
-| `data` / `setData`               | Current form values, typed to match the action's body schema.                      |
-| `errors`                         | Field-level validation errors, keys typed to body field names.                     |
-| `error`                          | Action error, or `null`.                                                           |
-| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks. |
-| `pending`                        | `true` while the submission is in flight.                                          |
-| `hasChanges`                     | `true` if form data differs from initial values.                                   |
-| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.      |
-| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.     |
-| `reset(...fields)`               | Reset form data to initial values. Field names autocomplete.                       |
-| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                 |
-| `clearError()`                   | Clear `error`.                                                                     |
+| Property / Method                | Purpose                                                                                                                                                                             |
+| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                       |
+| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                      |
+| `error`                          | Action error, or `null`.                                                                                                                                                            |
+| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                  |
+| `pending`                        | `true` while the submission is in flight.                                                                                                                                           |
+| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values so `hasChanges` becomes `false`.                          |
+| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.                                                                                                       |
+| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                      |
+| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`. |
+| `resetOnSuccess` (option)        | When `true`, a successful submit resets both form data and defaults to the mount-time values. Useful for create forms that should clear after save.                                 |
+| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                      |
+| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                  |
+| `clearError()`                   | Clear `error`.                                                                                                                                                                      |
+
+Use `setError()` for client-side validation. Editing a field clears its error automatically.
 
 For a native React form, use `form.post`, `form.put`, `form.patch`, or `form.delete` as a native form action. For an awaitable mutation, use `action()`. In Vue, Svelte, and Solid, form submissions return `Promise<void>`; catch thrown errors or use your framework's error handling.
 
@@ -171,13 +175,38 @@ const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
 <Form form={form} method="put">{/* submits to /users/42 */}</Form>
 ```
 
+To clear a create form after saving, pass `resetOnSuccess: true` in the third argument. Use `form.reset({ initial: true })` to restore the original values manually.
+
+### React submission callbacks
+
+In React, pass `onSuccess` and `onError` to `useForm()` to respond to a submission:
+
+```tsx
+const form = useForm(
+  '/users',
+  { name: '', email: '' },
+  {
+    onSuccess: () => setDialogOpen(false),
+    onError: (error) => {
+      console.error(error);
+    },
+  },
+);
+```
+
+`onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
+
+If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
+
+Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
+
 ## Named Actions
 
 When a page needs multiple mutations, such as updating and deleting a user on the same page, export `actions` (plural) instead of `action`:
 
 ```ts
-import { users, updateUserSchema } from '@schema';
 // pages/users/[id].server.ts
+import { users, updateUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db, eq } from 'void/db';
 
@@ -197,7 +226,7 @@ export const actions = {
 };
 ```
 
-Named actions are dispatched via a `?actionName` suffix on the URL (e.g. `/users/42?update`). The client primitives `useForm` and `action()` handle this automatically.
+Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
 
 Use `action` or `actions` in a file, not both.
 

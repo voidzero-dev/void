@@ -8,8 +8,8 @@
     "typecheck": "void prepare && svelte-kit sync && tsc --noEmit"
   },
   "dependencies": {
-    "@sveltejs/adapter-cloudflare": "^8.0.0",
-    "@sveltejs/kit": "^3.0.1",
+    "@sveltejs/adapter-cloudflare": "catalog:",
+    "@sveltejs/kit": "catalog:",
     "svelte": "catalog:"
   },
   "devDependencies": {

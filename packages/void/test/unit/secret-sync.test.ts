@@ -68,11 +68,49 @@ describe('parseDotenvFile', () => {
     expect(() => parseDotenvFile(file)).toThrow("secret: Invalid secret name '1KEY'");
   });
 
-  it('errors on lines without =', () => {
-    const file = writeTemp('NOTAVALIDLINE');
-    expect(() => parseDotenvFile(file)).toThrow(
-      "secret: Invalid dotenv line 'NOTAVALIDLINE'. Add KEY=value",
+  it('skips lines without =, like .env loading', () => {
+    const file = writeTemp('NOTAVALIDLINE\nAPI_KEY=abc');
+    expect(parseDotenvFile(file)).toEqual([{ name: 'API_KEY', value: 'abc' }]);
+  });
+
+  it('drops inline comments after unquoted and quoted values', () => {
+    const file = writeTemp('STRIPE_KEY=sk_live_abc # live key\nTOKEN="abc" # note\nHASH=\'a#b\'');
+    expect(parseDotenvFile(file)).toEqual([
+      { name: 'HASH', value: 'a#b' },
+      { name: 'STRIPE_KEY', value: 'sk_live_abc' },
+      { name: 'TOKEN', value: 'abc' },
+    ]);
+  });
+
+  it('accepts the export prefix', () => {
+    const file = writeTemp('export API_KEY=abc');
+    expect(parseDotenvFile(file)).toEqual([{ name: 'API_KEY', value: 'abc' }]);
+  });
+
+  it('reads multi-line quoted values and \\n in double quotes', () => {
+    const file = writeTemp(
+      'PEM="-----BEGIN KEY-----\nAAAA\n-----END KEY-----"\nCERT="line1\\nline2"',
     );
+    expect(parseDotenvFile(file)).toEqual([
+      { name: 'CERT', value: 'line1\nline2' },
+      { name: 'PEM', value: '-----BEGIN KEY-----\nAAAA\n-----END KEY-----' },
+    ]);
+  });
+
+  it('keeps $VAR references literal', () => {
+    const file = writeTemp('BASE=x\nPASSWORD=p$BASE${BASE}');
+    expect(parseDotenvFile(file)).toEqual([
+      { name: 'BASE', value: 'x' },
+      { name: 'PASSWORD', value: 'p$BASE${BASE}' },
+    ]);
+  });
+
+  it('ignores a UTF-8 byte order mark at the start of the file', () => {
+    const file = writeTemp('﻿API_KEY=abc\nSECRET=x');
+    expect(parseDotenvFile(file)).toEqual([
+      { name: 'API_KEY', value: 'abc' },
+      { name: 'SECRET', value: 'x' },
+    ]);
   });
 
   it('returns empty array for empty file', () => {

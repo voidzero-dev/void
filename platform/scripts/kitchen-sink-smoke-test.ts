@@ -187,7 +187,7 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
 
       assert.equal(asset.status, 200, `asset GET succeeds (got ${asset.status})`);
       const accessProtected = Object.keys(CF_ACCESS).length > 0;
-      const expectedDirective = accessProtected ? 'no-store' : 'immutable';
+      const expectedDirective = accessProtected ? 'private' : 'immutable';
       const directives = asset.cacheControl
         .toLowerCase()
         .split(',')
@@ -197,11 +197,10 @@ void describe(`kitchen-sink smoke (${BASE})`, { concurrency: true }, () => {
         `Cache-Control includes ${expectedDirective} for ${assetUrl} (got: ${JSON.stringify(asset)})`,
       );
       assert.ok(
-        accessProtected
-          ? !directives.includes('immutable') && !directives.includes('public')
-          : !directives.some((directive) =>
-              ['private', 'no-store', 'no-cache'].includes(directive),
-            ),
+        directives.includes('immutable') &&
+          !directives.some((directive) =>
+            ['no-store', 'no-cache', accessProtected ? 'public' : 'private'].includes(directive),
+          ),
         `Cache-Control has no contradictory directives (got: ${asset.cacheControl})`,
       );
     } finally {

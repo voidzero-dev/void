@@ -29,6 +29,7 @@ import { enableInstallationServices } from './platform-install-activation.ts';
 import { prepareInstallationAuthentication } from './platform-install-preparation.ts';
 import { provisionInstallationServices } from './platform-install-provisioning.ts';
 import { uploadInstallationWorkers } from './platform-install-workers.ts';
+import { workerCutoverUpdatesSecrets } from './platform-installer-cutover.ts';
 import {
   assertVoidCreatedHyperdriveTrustsDatabase,
   claimPlatformDatabase,
@@ -85,6 +86,7 @@ import {
   writeInstallationManifest,
   writePendingInstallationSecrets,
 } from './platform-registry.ts';
+import { assertPlatformRuntimeLogsSupported } from './platform-runtime-logs.ts';
 import { assertPlatformWorkerSecretUpdateAuthority } from './platform-secret-update-authority.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
@@ -101,6 +103,7 @@ async function recoverFailedPlatformInstallation(
     workerTrafficGuarded: boolean;
     workerDeploymentCommitted: boolean;
     workerRollbacks: Array<PlatformWorkerRollback>;
+    workerSecretUpdateIntent: PlatformWorkerSecretUpdateIntent | null;
     authenticationEnforcementActive: boolean;
     authenticationProtocolTransition: boolean;
     workerCutoverGeneration: number;
@@ -145,11 +148,13 @@ async function recoverFailedPlatformInstallation(
       );
     }
   }
-  // With authentication enforced mid-transition, traffic stays closed and a
-  // retry resumes toward a fully compatible Worker set instead of rolling back.
+  // Rotated credentials cannot safely be rolled back to immutable versions
+  // containing the old secrets. Keep traffic closed and roll forward on retry.
+  // Authentication transitions likewise retain the compatible Worker set.
   if (
     !workerDeploymentCommitted &&
     workerRollbacks.length > 0 &&
+    !state.workerSecretUpdateIntent &&
     !(authenticationEnforcementActive && authenticationProtocolTransition)
   ) {
     const rollbackFailures: Array<string> = [];
@@ -235,6 +240,7 @@ export async function installPlatform(
   if (plan.deployment.appAccess && runtime.appAccessSetup !== 1) {
     throw new Error('platform: This runtime does not support the installation’s app access setup.');
   }
+  assertPlatformRuntimeLogsSupported(plan.deployment, runtime);
   const hasEmailGatewayArtifact = runtime.artifacts.emailGateway !== undefined;
   if (
     existing?.steps.some((step) => step.key === 'private-previews-initialized:v1') &&
@@ -357,9 +363,13 @@ export async function installPlatform(
   const workerSecretUpdateIntent: PlatformWorkerSecretUpdateIntent | null =
     hasExplicitWorkerSecretUpdates
       ? {
-          baselineGeneration: latestPlatformWorkerCutoverGeneration(manifest),
-          generation: null,
-          id: randomUUID(),
+          // Keep the recovery authority until the next generation is durably
+          // staged, including a crash after resolving the previous cutover.
+          baselineGeneration:
+            resumedWorkerSecretUpdateIntent?.baselineGeneration ??
+            latestPlatformWorkerCutoverGeneration(manifest),
+          generation: resumedWorkerSecretUpdateIntent?.generation ?? null,
+          id: resumedWorkerSecretUpdateIntent?.id ?? randomUUID(),
           schema: 1,
           updates: {
             ...resumedWorkerSecretUpdateIntent?.updates,
@@ -574,6 +584,9 @@ export async function installPlatform(
       !preserveDisabled && targetSandboxDrainProtocol >= 1 && sandboxDrainState === 'pending';
     const requiresTrafficGuard =
       !previousPublicEndpoints ||
+      (hadPriorWorkers && !!state.workerSecretUpdateIntent) ||
+      (!!interruptedCutover &&
+        workerCutoverUpdatesSecrets(state.manifest, interruptedCutover.generation)) ||
       recoveringUnsafeTraffic ||
       createsWorker ||
       recoveringCreatedWorker ||
@@ -703,6 +716,13 @@ export async function installPlatform(
     }));
     state.workerCutoverGeneration = nextWorkerCutoverGeneration(state.manifest);
     if (state.workerSecretUpdateIntent) {
+      // Keep this authorized intent resumable on either side of the next
+      // manifest checkpoint before binding it to the new generation.
+      state.workerSecretUpdateIntent = { ...state.workerSecretUpdateIntent, generation: null };
+      writePendingInstallationSecrets(
+        state.manifest,
+        secretCheckpoint(state.secrets, state.workerSecretUpdateIntent),
+      );
       state.manifest = recordWorkerSecretUpdateState(
         state.manifest,
         state.workerCutoverGeneration,

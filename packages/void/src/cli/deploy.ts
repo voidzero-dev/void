@@ -8,6 +8,7 @@ import { buildEnv } from '../shared/untrusted-env.ts';
 import { getApiUrl, getToken, getTokenSource } from './auth.ts';
 import { isExpiredTokenError, PlatformClient } from './client.ts';
 import { maybeLinkCloudflareDeploy } from './cloudflare-link.ts';
+import { withRecordedReadinessAccessOrigin } from './cloudflare-readiness.ts';
 import { runCloudflareDeploy } from './deploy-cloudflare.ts';
 import {
   log,
@@ -55,6 +56,8 @@ export function resolveDeploymentPlatform(
 
 /** Run `void deploy`; a failure carries a summary of the deploy log in its message. */
 export async function runDeploy(root: string, options?: RunDeployOptions): Promise<void> {
+  // The Cloudflare link check can evaluate void.config.ts, so record operator input first.
+  options = withRecordedReadinessAccessOrigin(options ?? {});
   console.log();
 
   const cliLog = openDeployLog({

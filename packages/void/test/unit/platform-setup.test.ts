@@ -220,6 +220,7 @@ describe('platform credential setup links', () => {
       zoneName: 'example.com',
       controlPlaneDomain: 'api.example.com',
       dedicatedZone: true,
+      customDomains: true,
       workersDev: false,
       authConfig: './auth config.json',
       dashboardUrl: 'https://dash.example.com:8443',
@@ -229,7 +230,7 @@ describe('platform credential setup links', () => {
     const quotedName =
       process.platform === 'win32' ? "'Team''s Platform'" : "'Team'\\''s Platform'";
     expect(command).toBe(
-      `void-dev platform install --name team --account account --display-name ${quotedName} --application-domain apps.example.com --zone example.com --dedicated-zone --control-plane-domain api.example.com --auth-config './auth config.json' --dashboard-url https://dash.example.com:8443 --runtime './build output' --yes`,
+      `void-dev platform install --name team --account account --display-name ${quotedName} --application-domain apps.example.com --zone example.com --dedicated-zone --custom-domains --control-plane-domain api.example.com --auth-config './auth config.json' --dashboard-url https://dash.example.com:8443 --runtime './build output' --yes`,
     );
   });
 
@@ -448,6 +449,25 @@ describe('platform credential setup links', () => {
     );
     expect(formatPlatformSetupPlan(plan())).not.toContain('management API token');
     expect(formatPlatformSetupPlan(plan())).not.toContain('Access application');
+  });
+  it('does not list DNS changes when the plan only adopts or reuses DNS records', () => {
+    const original = plan('example.com');
+    const record = (action: 'adopt' | 'reuse' | 'create') =>
+      ({
+        kind: 'dns-record',
+        action,
+        name: '*.example.com',
+      }) as unknown as PlatformInstallPlan['actions'][number];
+    const preview = (action: 'adopt' | 'reuse' | 'create') =>
+      formatPlatformSetupPlan(
+        { ...original, actions: [record(action)] },
+        { managementToken: true, managementAccess: true },
+      );
+    expect(preview('adopt')).toContain('Cloudflare management API token for Access setup');
+    expect(preview('reuse')).toContain('Cloudflare management API token for Access setup');
+    expect(preview('create')).toContain(
+      'Cloudflare management API token for DNS changes and Access setup',
+    );
   });
   it('includes zone permissions only for an application domain', () => {
     const page = platformSetupPages(plan('example.com')).runtime;

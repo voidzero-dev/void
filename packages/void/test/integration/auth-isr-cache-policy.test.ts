@@ -1,9 +1,16 @@
 import { handleIsr, type IsrCacheEnv } from '@void/isr/runtime';
 import { memoryAdapter } from 'better-auth/adapters/memory';
-import { Hono } from 'hono';
+import { Hono, type NotFoundHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { describe, expect, it } from 'vite-plus/test';
 import { createVoidAuthRuntime } from '../../src/runtime/better-auth-shared.ts';
+import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import {
+  createAssetNotFound,
+  createPagesFallback,
+  createSsrFallback,
+} from '../../src/runtime/routing-pages.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };
@@ -94,10 +101,19 @@ describe('real anonymous Better Auth lookup cache policy', () => {
 });
 
 describe('real authenticated Better Auth session cache policy', () => {
-  async function signedInApp(routeHeaders: Record<string, string>, { withEtag = false } = {}) {
+  async function signedInApp(
+    routeHeaders: Record<string, string>,
+    {
+      withEtag = false,
+      fallback,
+    }: { withEtag?: boolean; fallback?: (app: Hono) => NotFoundHandler } = {},
+  ) {
     const database = memoryAdapter({ user: [], session: [], account: [], verification: [] });
     const runtime = createVoidAuthRuntime('sqlite', async () => {});
     const app = new Hono();
+    if (fallback) {
+      app.notFound(fallback(app));
+    }
     app.use(async (c, next) => runtime.runVoidAuthMiddleware(c, next, options, database));
     app.on(['GET', 'POST'], '/api/auth/*', (c) =>
       runtime.handleVoidAuthRequest(c, options, database),
@@ -187,5 +203,100 @@ describe('real authenticated Better Auth session cache policy', () => {
     expect(repeat.headers.get('cache-control')).toBe('private, no-cache');
     expect(repeat.headers.has('pragma')).toBe(false);
     expect(repeat.headers.get('etag')).toBe(tag);
+  });
+
+  describe('static assets', () => {
+    const revalidate = 'public, max-age=0, must-revalidate';
+    const assetEnv = {
+      ...env,
+      ASSETS: {
+        async fetch(request: Request) {
+          const path = new URL(request.url).pathname;
+          if (path === '/.vite/manifest.json') {
+            return Response.json({
+              'src/client.ts': {
+                file: 'assets/client-abcdefgh.js',
+                immutableFiles: ['assets/client-abcdefgh.js'],
+              },
+            });
+          }
+          if (!['/assets/client-abcdefgh.js', '/favicon.ico'].includes(path)) {
+            return new Response('Not Found', { status: 404 });
+          }
+          const headers = { 'cache-control': revalidate, etag: '"file"' };
+          return request.headers.get('if-none-match') === '"file"'
+            ? new Response(null, { status: 304, headers })
+            : new Response('file', { headers });
+        },
+      },
+    };
+    const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
+    const fallbacks: Array<[string, (app: Hono) => NotFoundHandler]> = [
+      ['Pages', (app) => createPagesFallback({ routing: createRoutingRuntime(app, {}), errors })],
+      [
+        'SSR',
+        (app) =>
+          createSsrFallback({
+            routing: createRoutingRuntime(app, {}),
+            load: async () => ({ render: async () => new Response('rendered') }),
+            assets: async () => ({ css: '', body: '', preloads: '' }),
+          }),
+      ],
+      ['asset-only', (app) => createAssetNotFound({ routing: createRoutingRuntime(app, {}) })],
+    ];
+
+    async function fetchAsset(
+      app: Hono,
+      path: string,
+      headers: Record<string, string> = {},
+    ): Promise<Response> {
+      return app.request('https://app.test' + path, { headers }, assetEnv);
+    }
+
+    it.each(fallbacks)(
+      'keeps the file policy private from the %s fallback',
+      async (_label, fallback) => {
+        const { app, cookie } = await signedInApp({}, { fallback });
+        const signedIn = await fetchAsset(app, '/assets/client-abcdefgh.js', { cookie });
+        expect(signedIn.status).toBe(200);
+        expect(signedIn.headers.get('cache-control')).toBe('private, max-age=31536000, immutable');
+        expect(signedIn.headers.has('pragma')).toBe(false);
+        expect(signedIn.headers.get('etag')).toBe('"file"');
+        await expect(signedIn.text()).resolves.toBe('file');
+
+        const unrelatedCookie = await fetchAsset(app, '/assets/client-abcdefgh.js', {
+          cookie: '_ga=1',
+        });
+        expect(unrelatedCookie.headers.get('cache-control')).toBe(
+          'private, max-age=31536000, immutable',
+        );
+        expect(unrelatedCookie.headers.has('pragma')).toBe(false);
+
+        const anonymous = await fetchAsset(app, '/assets/client-abcdefgh.js');
+        expect(anonymous.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+
+        const publicFile = await fetchAsset(app, '/favicon.ico', { cookie });
+        expect(publicFile.headers.get('cache-control')).toBe('private, max-age=0, must-revalidate');
+        expect(publicFile.headers.has('pragma')).toBe(false);
+
+        const revalidated = await fetchAsset(app, '/favicon.ico', {
+          cookie,
+          'if-none-match': '"file"',
+        });
+        expect(revalidated.status).toBe(304);
+        expect(revalidated.headers.get('cache-control')).toBe(
+          'private, max-age=0, must-revalidate',
+        );
+        expect(revalidated.headers.has('pragma')).toBe(false);
+      },
+    );
+
+    it('still applies no-store to a signed-in page miss', async () => {
+      const { app, cookie } = await signedInApp({}, { fallback: fallbacks[0]![1] });
+      const response = await fetchAsset(app, '/missing', { cookie });
+      expect(response.status).toBe(404);
+      expect(response.headers.get('cache-control')).toBe('no-store');
+      expect(response.headers.get('pragma')).toBe('no-cache');
+    });
   });
 });

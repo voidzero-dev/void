@@ -1,4 +1,4 @@
-import { isRecord } from '@void/deploy-core';
+import { isRecord, type AssetConfig } from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
 import {
   VOID_AUTH_PROVIDERS,
@@ -18,6 +18,17 @@ export type RedirectDestination = string | { to: string; status?: 301 | 302 | 30
 /** Supported database dialects (internal representation). */
 export type DatabaseDialect = 'sqlite' | 'postgresql' | 'mysql';
 
+/** Drizzle's `casing`: how a column declared without a name is named in the database. */
+export type DatabaseCasing = 'snake_case' | 'camelCase';
+
+/** Object form of `database`, for options next to the dialect. */
+export type DatabaseConfig = {
+  /** Database backend. Defaults to `"sqlite"` (D1). */
+  dialect?: 'sqlite' | 'pg' | 'mysql';
+  /** Column naming for keys without an explicit column name, as in Drizzle's `casing` option. */
+  casing?: DatabaseCasing;
+};
+
 /** Curated Worker fields accepted by the `worker` config field. */
 export type WranglerConfig = {
   compatibility_date?: string;
@@ -34,8 +45,12 @@ export type NotFoundHandling = 'single-page-application' | '404-page' | 'none';
 
 /** Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering. */
 export type RoutingConfig = {
+  /** Redirect HTTP to HTTPS with a 308. Requires the Cloudflare target. Omitted means off. */
+  alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
   isr?: boolean;
+  /** Type-check URL strings in links, navigation, and rewrites against the app's routes. Omitted means off. */
+  typedRoutes?: boolean;
   revalidate?: number | Record<string, number>;
   revalidateQueryAllowlist?: Record<string, Array<string>>;
   prerender?: Array<string>;
@@ -145,6 +160,7 @@ export type CloudflareConfig = Record<string, unknown> & {
     directory?: string;
     binding?: string;
     not_found_handling?: NotFoundHandling;
+    html_handling?: AssetConfig['html_handling'];
     run_worker_first?: boolean | Array<string>;
   }>;
   triggers?: CloudflareField<{ crons?: Array<string> }>;
@@ -173,7 +189,7 @@ export type VoidConfig = {
   worker?: WranglerConfig;
   cloudflare?: CloudflareConfig;
   deploy?: DeployConfig;
-  database?: 'pg' | 'mysql';
+  database?: 'pg' | 'mysql' | DatabaseConfig;
   ai?: AiConfig;
   email?: EmailConfig;
 };
@@ -200,6 +216,8 @@ const VALID_NOT_FOUND_HANDLING: Set<string> = new Set([
  */
 export const VALID_REDIRECT_STATUSES: Set<number> = new Set([301, 302, 303, 307, 308]);
 const VALID_DATABASE_VALUES = new Set(['pg', 'mysql']);
+const VALID_DATABASE_DIALECTS = new Set(['sqlite', 'pg', 'mysql']);
+const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 /** Cloudflare's hard maximum for Workers CPU time per request (5 minutes). */
 const MAX_WORKER_CPU_MS = 300000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
@@ -306,8 +324,8 @@ type ParsedRuleSource = {
 /**
  * Split an optional `https://host` prefix from a rule source. The host is
  * lowercased (dispatch compares `url.hostname`), and a bare `https://host` gets
- * path `/`. Returns `{ error }` for `//` and `http://` sources (only HTTPS
- * requests reach the runtime) and for non-literal hosts.
+ * path `/`. Sources scope rules by hostname and path, without matching the
+ * request scheme. Returns `{ error }` for unsupported schemes and non-literal hosts.
  */
 export function parseHostPrefixedSource(raw: string): ParsedRuleSource | { error: string } {
   if (raw.startsWith('//')) {
@@ -317,7 +335,7 @@ export function parseHostPrefixedSource(raw: string): ParsedRuleSource | { error
   }
   if (raw.startsWith('http://')) {
     return {
-      error: `must not start with "http://" (TLS terminates upstream of the worker; only "https://" requests reach the runtime — use "https://host/path" instead)`,
+      error: `must not start with "http://" (use "https://host/path" to scope a rule by hostname, or "routing.alwaysUseHttps" to redirect HTTP to HTTPS)`,
     };
   }
   if (!raw.startsWith('https://')) {
@@ -544,6 +562,18 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing" in ${CONFIG_FILE} must be an object.`);
     }
     const routing = obj.routing;
+
+    if (routing.alwaysUseHttps !== undefined && typeof routing.alwaysUseHttps !== 'boolean') {
+      throw new Error(`config: "routing.alwaysUseHttps" in ${CONFIG_FILE} must be a boolean.`);
+    }
+    if (routing.alwaysUseHttps === true && isNodeTarget(obj.target as VoidConfig['target'])) {
+      throw new Error(
+        `config: "routing.alwaysUseHttps" in ${CONFIG_FILE} requires target: "cloudflare". It is not available with target: "${obj.target}".`,
+      );
+    }
+    if (routing.typedRoutes !== undefined && typeof routing.typedRoutes !== 'boolean') {
+      throw new Error(`config: "routing.typedRoutes" in ${CONFIG_FILE} must be a boolean.`);
+    }
 
     // Validate routing.notFound
     if (routing.notFound !== undefined) {
@@ -915,8 +945,36 @@ function validateConfigObject(obj: unknown): VoidConfig {
 
   // Validate database
   if (obj.database !== undefined) {
-    if (typeof obj.database !== 'string' || !VALID_DATABASE_VALUES.has(obj.database)) {
-      throw new Error(`config: "database" in ${CONFIG_FILE} must be "pg" or "mysql".`);
+    if (isRecord(obj.database)) {
+      const databaseCfg = obj.database;
+      for (const key of Object.keys(databaseCfg)) {
+        if (key !== 'dialect' && key !== 'casing') {
+          throw new Error(
+            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing.`,
+          );
+        }
+      }
+      if (
+        databaseCfg.dialect !== undefined &&
+        (typeof databaseCfg.dialect !== 'string' ||
+          !VALID_DATABASE_DIALECTS.has(databaseCfg.dialect))
+      ) {
+        throw new Error(
+          `config: "database.dialect" in ${CONFIG_FILE} must be "sqlite", "pg" or "mysql".`,
+        );
+      }
+      if (
+        databaseCfg.casing !== undefined &&
+        (typeof databaseCfg.casing !== 'string' || !VALID_DATABASE_CASINGS.has(databaseCfg.casing))
+      ) {
+        throw new Error(
+          `config: "database.casing" in ${CONFIG_FILE} must be "snake_case" or "camelCase".`,
+        );
+      }
+    } else if (typeof obj.database !== 'string' || !VALID_DATABASE_VALUES.has(obj.database)) {
+      throw new Error(
+        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect" and "casing".`,
+      );
     }
   }
 
@@ -1026,16 +1084,42 @@ export function resolveBindingNames(
 }
 
 /**
- * Get the database dialect from config. Defaults to "sqlite".
+ * Get the database dialect from config, in its string or object form. Defaults to "sqlite".
  */
 export function getDatabaseDialect(config: VoidConfig): DatabaseDialect {
-  if (config.database === 'pg') {
+  const database = config.database;
+  const value = typeof database === 'object' && database !== null ? database.dialect : database;
+  if (value === 'pg') {
     return 'postgresql';
   }
-  if (config.database === 'mysql') {
+  if (value === 'mysql') {
     return 'mysql';
   }
   return 'sqlite';
+}
+
+/**
+ * Get Drizzle's `casing` from config. Undefined when unset: callers then pass no casing,
+ * so Drizzle keeps its default of naming a column after its key.
+ */
+export function getDatabaseCasing(config: VoidConfig): DatabaseCasing | undefined {
+  const database = config.database;
+  return typeof database === 'object' && database !== null ? database.casing : undefined;
+}
+
+/**
+ * The `database` value for a dialect that keeps the configured casing. Without casing it is
+ * the string shorthand, or undefined for the default D1 (SQLite).
+ */
+export function databaseConfigValue(
+  dialect: DatabaseDialect,
+  casing: DatabaseCasing | undefined,
+): VoidConfig['database'] {
+  const shorthand = dialect === 'postgresql' ? 'pg' : dialect === 'mysql' ? 'mysql' : undefined;
+  if (casing === undefined) {
+    return shorthand;
+  }
+  return shorthand ? { dialect: shorthand, casing } : { casing };
 }
 
 /**

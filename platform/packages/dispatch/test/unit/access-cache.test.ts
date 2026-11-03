@@ -51,14 +51,25 @@ function createHarness(mode: 'hashed' | 'isr') {
   vi.stubGlobal('caches', { default: edgeCache });
   const isrEntries = new Map<string, { value: ArrayBuffer; metadata: unknown }>();
   const isrCache = {
-    getWithMetadata: vi.fn(
-      async (key: string) => isrEntries.get(key) ?? { value: null, metadata: null },
-    ),
-    put: vi.fn(async (key: string, value: ArrayBuffer, options?: { metadata?: unknown }) => {
-      isrEntries.set(key, { value, metadata: options?.metadata });
+    get: vi.fn(async (key: string) => {
+      const entry = isrEntries.get(key.slice('isr-cache/'.length));
+      return entry
+        ? {
+            arrayBuffer: async () => entry.value,
+            customMetadata: { isr: JSON.stringify(entry.metadata) },
+          }
+        : null;
     }),
+    put: vi.fn(
+      async (key: string, value: ArrayBuffer, options: { customMetadata: { isr: string } }) => {
+        isrEntries.set(key.slice('isr-cache/'.length), {
+          value,
+          metadata: JSON.parse(options.customMetadata.isr),
+        });
+      },
+    ),
     delete: vi.fn(async () => {}),
-    list: vi.fn(async () => ({ keys: [], list_complete: true, cursor: '' })),
+    list: vi.fn(async () => ({ objects: [], truncated: false })),
   };
   const origin = vi.fn(async (request: Request) => {
     const assertion = request.headers.get('Cf-Access-Jwt-Assertion');
@@ -80,7 +91,8 @@ function createHarness(mode: 'hashed' | 'isr') {
   const env = {
     ROUTING: { get: async () => JSON.stringify(routing) },
     DISPATCH: { get: () => ({ fetch: origin }) },
-    ISR_CACHE: isrCache,
+    STATIC_ASSETS_R2: isrCache,
+    ISR_CACHE: { delete: async () => {} },
     ANALYTICS: { writeDataPoint() {} },
   } as unknown as Env;
   const url = `https://profile.void.app${mode === 'hashed' ? '/assets/profile-a1.json' : '/profile'}`;
@@ -150,7 +162,7 @@ describe.each(['hashed', 'isr'] as const)('Access assertion isolation for %s res
     expect(origin).toHaveBeenCalledOnce();
     expect(edgeCache.match).toHaveBeenCalledTimes(2);
     expect(edgeCache.put).toHaveBeenCalledOnce();
-    expect(isrCache.getWithMetadata).toHaveBeenCalledTimes(mode === 'isr' ? 1 : 0);
+    expect(isrCache.get).toHaveBeenCalledTimes(mode === 'isr' ? 1 : 0);
     expect(isrCache.put).toHaveBeenCalledTimes(mode === 'isr' ? 1 : 0);
   });
 
@@ -181,7 +193,7 @@ describe.each(['hashed', 'isr'] as const)('Access assertion isolation for %s res
   });
 });
 
-it('replaces ISR KV responses admitted before Access assertions bypassed caching', async () => {
+it('replaces ISR storage responses admitted before Access assertions bypassed caching', async () => {
   const { isrEntries, isrCache, origin, request } = createHarness('isr');
   const key = isrCacheKey('project-profile', 'deployment', 'profile.void.app', '/profile');
   isrEntries.set(key, {
@@ -194,7 +206,7 @@ it('replaces ISR KV responses admitted before Access assertions bypassed caching
 
   expect(await (await request()).text()).toBe('profile: anonymous');
   expect(origin).toHaveBeenCalledOnce();
-  expect(isrCache.getWithMetadata).toHaveBeenCalledOnce();
+  expect(isrCache.get).toHaveBeenCalledOnce();
   expect(isrCache.put).toHaveBeenCalledOnce();
   expect(isrEntries.get(key)!.metadata).toMatchObject({ p: SHARED_CACHE_POLICY_VERSION });
 });

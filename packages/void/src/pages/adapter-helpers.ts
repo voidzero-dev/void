@@ -1,4 +1,5 @@
 /// <reference lib="dom" />
+import type { Href } from 'void/routes';
 
 export function getValidationErrors(body: unknown): Record<string, string> | null {
   if (
@@ -38,7 +39,7 @@ function appendQueryValue(params: URLSearchParams, key: string, value: unknown):
   );
 }
 
-export function mergeDataIntoHref(href: string, data?: Record<string, unknown>): string {
+export function mergeDataIntoHref(href: Href, data?: Record<string, unknown>): Href {
   if (!data) {
     return href;
   }
@@ -61,7 +62,8 @@ export function mergeDataIntoHref(href: string, data?: Record<string, unknown>):
   }
 
   const query = params.toString();
-  return `${path}${query ? `?${query}` : ''}${hash}`;
+  // Adding query parameters keeps a route, same-page or external URL valid.
+  return `${path}${query ? `?${query}` : ''}${hash}` as Href;
 }
 
 export function isModifiedEvent(

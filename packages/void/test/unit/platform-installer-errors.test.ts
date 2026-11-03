@@ -6,57 +6,66 @@ const UPLOAD_CONFLICT =
 const OUTSIDE_CHANGE_ADVICE =
   ' This Worker was changed outside Void. Run the same command in a terminal. Void then lists the changes and asks you before it replaces them.';
 
-it('explains the cf upload conflict after a Workers API change without binding values', () => {
-  const result = {
-    status: 1,
-    stderr: '',
-    stdout: [
-      'env.PRIVATE_VALUE: "do-not-echo"',
-      '├  Upload',
-      '▲  You are about to upload a Worker that was last updated via the script API.',
-      '│  Edits that have been made via the script API will be overridden by your local code and config.',
-      `■  ${UPLOAD_CONFLICT}`,
-      '│',
-      '◆  Version upload complete',
-      '',
-    ].join('\n'),
-  };
+// cf 1.0.0-beta.21 and later print upload messages on stderr, earlier releases on stdout.
+it.each(['stdout', 'stderr'] as const)(
+  'explains the cf upload conflict after a Workers API change without binding values (%s)',
+  (stream) => {
+    const result = {
+      status: 1,
+      stdout: '',
+      stderr: '',
+      [stream]: [
+        'env.PRIVATE_VALUE: "do-not-echo"',
+        '├  Upload',
+        '▲  You are about to upload a Worker that was last updated via the script API.',
+        '│  Edits that have been made via the script API will be overridden by your local code and config.',
+        `■  ${UPLOAD_CONFLICT}`,
+        '│',
+        '◆  Version upload complete',
+        '',
+      ].join('\n'),
+    };
 
-  expect(() => assertCleanPlatformWrangler(result, 'upload test-worker')).toThrow(
-    'platform: The Cloudflare CLI did not upload test-worker: ' +
-      'You are about to upload a Worker that was last updated via the script API.' +
-      OUTSIDE_CHANGE_ADVICE,
-  );
-  expect(() => assertCleanPlatformWrangler(result, 'upload test-worker')).not.toThrow(
-    /do-not-echo|--strict|Wrangler/,
-  );
-});
+    expect(() => assertCleanPlatformWrangler(result, 'upload test-worker')).toThrow(
+      'platform: The Cloudflare CLI did not upload test-worker: ' +
+        'You are about to upload a Worker that was last updated via the script API.' +
+        OUTSIDE_CHANGE_ADVICE,
+    );
+    expect(() => assertCleanPlatformWrangler(result, 'upload test-worker')).not.toThrow(
+      /do-not-echo|--strict|Wrangler/,
+    );
+  },
+);
 
-it('explains the cf upload conflict after a dashboard change without its diff', () => {
-  const result = {
-    status: 1,
-    stderr: '',
-    stdout: [
-      '├  Upload',
-      '▲  The local configuration being used (generated from your local configuration file) differs from the remote configuration of your Worker set via the Cloudflare Dashboard:',
-      '│   vars: {',
-      '│ -   EMAIL_FROM: "Team <team@example.com>"',
-      '│   }',
-      '│  Uploading the Worker will override the remote configuration with your local one.',
-      `■  ${UPLOAD_CONFLICT}`,
-      '◆  Version upload complete',
-    ].join('\n'),
-  };
+it.each(['stdout', 'stderr'] as const)(
+  'explains the cf upload conflict after a dashboard change without its diff (%s)',
+  (stream) => {
+    const result = {
+      status: 1,
+      stdout: '',
+      stderr: '',
+      [stream]: [
+        '├  Upload',
+        '▲  The local configuration being used (generated from your local configuration file) differs from the remote configuration of your Worker set via the Cloudflare Dashboard:',
+        '│   vars: {',
+        '│ -   EMAIL_FROM: "Team <team@example.com>"',
+        '│   }',
+        '│  Uploading the Worker will override the remote configuration with your local one.',
+        `■  ${UPLOAD_CONFLICT}`,
+        '◆  Version upload complete',
+      ].join('\n'),
+    };
 
-  expect(() => assertCleanPlatformWrangler(result, 'upload void-team-api')).toThrow(
-    'platform: The Cloudflare CLI did not upload void-team-api: ' +
-      'The local configuration being used (generated from your local configuration file) differs from the remote configuration of your Worker set via the Cloudflare Dashboard.' +
-      OUTSIDE_CHANGE_ADVICE,
-  );
-  expect(() => assertCleanPlatformWrangler(result, 'upload void-team-api')).not.toThrow(
-    /team@example\.com|--strict/,
-  );
-});
+    expect(() => assertCleanPlatformWrangler(result, 'upload void-team-api')).toThrow(
+      'platform: The Cloudflare CLI did not upload void-team-api: ' +
+        'The local configuration being used (generated from your local configuration file) differs from the remote configuration of your Worker set via the Cloudflare Dashboard.' +
+        OUTSIDE_CHANGE_ADVICE,
+    );
+    expect(() => assertCleanPlatformWrangler(result, 'upload void-team-api')).not.toThrow(
+      /team@example\.com|--strict/,
+    );
+  },
+);
 
 describe('cf upload conflicts that do not show a change outside Void', () => {
   const CONFLICT_ADVICE =
@@ -168,21 +177,37 @@ it('reports structured provider errors when stderr is empty using existing crede
       'upload test-worker',
     ),
   ).toThrow(
-    'platform: Wrangler failed to upload test-worker (Invalid Authorization: Bearer [redacted]).',
+    'platform: Cloudflare failed to upload test-worker (Invalid Authorization: Bearer [redacted]).',
   );
 });
 
-it('points to the Analytics Engine setup when Cloudflare refuses its binding', () => {
-  const raw =
-    'You need to enable Analytics Engine. Head to the Cloudflare Dashboard to enable: https://dash.cloudflare.com/account/workers/analytics-engine [code: 10089]';
-  const hint =
-    ' If the Analytics Engine page offers no way to enable it, follow https://void.cloud/guide/platform/installation/prerequisites#if-cloudflare-rejects-analytics-engine, then retry.';
-  expect(() =>
+it('replaces the Analytics Engine APIError token advice with account activation and recovery steps', () => {
+  const accountId = '0123456789abcdef0123456789abcdef';
+  const dashboard = `https://dash.cloudflare.com/${accountId}/workers/analytics-engine`;
+  // The provider appended token advice to this account-activation error on Workers Free.
+  const message = `You need to enable Analytics Engine. Head to the Cloudflare Dashboard to enable: ${dashboard} [code: 10089]`;
+  const upload = () =>
     assertCleanPlatformWrangler(
-      { status: 1, stdout: '', stderr: raw, errorCode: 10089 },
+      {
+        status: 1,
+        stdout: '',
+        stderr: `\n┌ APIError\n│ [code: 10089] ${message}\n│ 403 Forbidden\n└\n\n→ Check your API token permissions\n`,
+        errorCode: 10089,
+        errors: [{ code: 10089, message }],
+      },
       'bootstrap void-team-tail',
-    ),
-  ).toThrow(`platform: Wrangler failed to bootstrap void-team-tail (${raw}).${hint}`);
+      accountId,
+    );
+  expect(upload).toThrow(
+    'platform: Cloudflare could not bootstrap void-team-tail: Analytics Engine is not enabled for this account (code 10089). ' +
+      `Open ${dashboard}, then select Enable. ` +
+      'Analytics Engine is available on Workers Free. After enabling it, use the printed recovery command if one is shown; otherwise retry this command. ' +
+      'If Enable is unavailable, see https://void.cloud/guide/platform/installation/prerequisites#if-cloudflare-rejects-analytics-engine.',
+  );
+  expect(upload).not.toThrow(/API token|403 Forbidden|Wrangler/);
+});
+
+it('explains how to select the account when only a structured Analytics Engine error is available', () => {
   expect(() =>
     assertCleanPlatformWrangler(
       {
@@ -193,21 +218,35 @@ it('points to the Analytics Engine setup when Cloudflare refuses its binding', (
       },
       'bootstrap void-team-tail',
     ),
-  ).toThrow(hint);
-  expect(() =>
-    assertCleanPlatformWrangler(
-      { status: 1, stdout: '', stderr: 'You need to enable Analytics Engine. [10089]' },
-      'bootstrap void-team-tail',
-    ),
-  ).toThrow(hint);
-  expect(() =>
-    assertCleanPlatformWrangler(
-      { status: 1, stdout: '', stderr: 'Authentication error [code: 10000]', errorCode: 10000 },
-      'bootstrap void-team-tail',
-    ),
   ).toThrow(
-    /^platform: Wrangler failed to bootstrap void-team-tail \(Authentication error \[code: 10000\]\)\.$/,
+    'Open https://dash.cloudflare.com/, select your account, and open Analytics Engine, then select Enable.',
   );
+});
+
+it.each(['[code: 10089]', '[10089]'])(
+  'recognizes a legacy Analytics Engine diagnostic with %s when no structured code is available',
+  (code) => {
+    expect(() =>
+      assertCleanPlatformWrangler(
+        { status: 1, stdout: '', stderr: `You need to enable Analytics Engine. ${code}` },
+        'bootstrap void-team-tail',
+      ),
+    ).toThrow('Analytics Engine is not enabled for this account (code 10089).');
+  },
+);
+
+it.each([
+  { errorCode: 10000, errors: undefined },
+  { errorCode: undefined, errors: [{ code: 12345, message: 'Unknown provider failure' }] },
+])('preserves other structured provider errors and their token advice: %j', (codes) => {
+  const diagnostic =
+    'The request failed. Check your API token permissions. Previous attempt: [code: 10089]';
+  expect(() =>
+    assertCleanPlatformWrangler(
+      { status: 1, stdout: '', stderr: diagnostic, ...codes },
+      'upload test-worker',
+    ),
+  ).toThrow(`platform: Cloudflare failed to upload test-worker (${diagnostic}).`);
 });
 
 it('retains the exit status when stdout contains only binding values', () => {
@@ -216,5 +255,5 @@ it('retains the exit status when stdout contains only binding values', () => {
       { status: 1, stdout: 'env.PRIVATE_VALUE: "do-not-echo"', stderr: '' },
       'upload test-worker',
     ),
-  ).toThrow('platform: Wrangler failed to upload test-worker (exit 1).');
+  ).toThrow('platform: Cloudflare failed to upload test-worker (exit 1).');
 });

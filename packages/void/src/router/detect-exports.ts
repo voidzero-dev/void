@@ -1,8 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { basename } from 'pathslash';
 import { parseSync } from 'vite';
+import { bindingNames } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
+  moduleExportName,
   type AstExportNamedDeclaration,
   type AstFunctionDeclaration,
   type AstProgram,
@@ -35,14 +37,12 @@ export function detectHttpExports(absPath: string): Array<string> {
       if (declarationNode.exportKind === 'type') {
         continue;
       }
-      // export const GET = ...; export function POST() { ... }
+      // export const GET = ...; export const { GET, POST } = ...; export function POST() { ... }
       const decl = declarationNode.declaration;
       if (decl) {
         if (decl.type === 'VariableDeclaration') {
           for (const declarator of (decl as AstVariableDeclaration).declarations ?? []) {
-            if (isIdentifier(declarator.id) && HTTP_METHODS.has(declarator.id.name)) {
-              methods.push(declarator.id.name);
-            }
+            methods.push(...bindingNames(declarator.id).filter((name) => HTTP_METHODS.has(name)));
           }
         } else if (decl.type === 'FunctionDeclaration') {
           const fn = decl as AstFunctionDeclaration;
@@ -58,11 +58,7 @@ export function detectHttpExports(absPath: string): Array<string> {
           if (spec.exportKind === 'type') {
             continue;
           }
-          const exported = isIdentifier(spec.exported)
-            ? spec.exported.name
-            : isIdentifier(spec.local)
-              ? spec.local.name
-              : undefined;
+          const exported = moduleExportName(spec.exported);
           if (exported && HTTP_METHODS.has(exported)) {
             methods.push(exported);
           }

@@ -36,6 +36,12 @@ export function loadLocalEnv(
 export const CLOUDFLARE_DEPLOY_BUILD_ENV = 'VOID_CLOUDFLARE_DEPLOY_BUILD';
 
 /**
+ * JSON map from each `queues/` name to the Cloudflare queue name that
+ * `void deploy --platform cloudflare` chose. Set only for its Vite build.
+ */
+export const CLOUDFLARE_QUEUE_NAMES_BUILD_ENV = 'VOID_CLOUDFLARE_QUEUE_NAMES';
+
+/**
  * Find legacy Vite dotenv variants. Void intentionally supports only `.env`;
  * production configuration is project-scoped remote state instead of a file.
  */

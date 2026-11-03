@@ -94,13 +94,16 @@ export function createScrollRestoration(): ScrollRestoration {
     save,
 
     writeHistory(url: string, replace: boolean): void {
-      renderedKey = newKey();
-      const state = { ...(replace ? history.state : {}), __voidScrollKey: renderedKey };
+      // A replaced entry keeps its key: its position is saved again when it is left.
+      const key = (replace ? readKey(history.state) : null) ?? newKey();
+      const state = { ...(replace ? history.state : {}), __voidScrollKey: key };
       if (replace) {
         history.replaceState(state, '', url);
       } else {
         history.pushState(state, '', url);
       }
+      // Only once the entry exists: if the write throws, positions keep the current entry's key.
+      renderedKey = key;
     },
 
     commit(): void {

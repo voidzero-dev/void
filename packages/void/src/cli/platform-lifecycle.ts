@@ -72,6 +72,11 @@ import {
   writePendingInstallationSecrets,
 } from './platform-registry.ts';
 import {
+  assertPlatformRuntimeLogsSupported,
+  shouldUpdateProjectWorkerRuntimeLogs,
+  updateProjectWorkerRuntimeLogs,
+} from './platform-runtime-logs.ts';
+import {
   listSavedPlatformInstallPlans,
   savePlatformInstallChoices,
   removeSavedPlatformInstallPlan,
@@ -239,7 +244,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           args.accessProtection === undefined &&
           args.appAccess === undefined &&
           !args.dedicatedZoneSpecified &&
-          args.dashboardUrl === undefined
+          args.dashboardUrl === undefined &&
+          !args.customDomains &&
+          args.runtimeLogs === undefined
             ? listSavedPlatformInstallPlans().filter(
                 (saved) =>
                   (!args.name || saved.args.name === normalizeInstallationSlug(args.name)) &&
@@ -731,6 +738,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       applicationDomain,
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
+      ...(args.customDomains ? { customDomains: true } : {}),
       dedicatedZone,
       displayName,
       ...(externalHyperdrive ? { externalHyperdrive } : {}),
@@ -741,6 +749,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         ? { emailSenderDomain: process.env.VOID_EMAIL_SENDER_DOMAIN }
         : {}),
       installationSlug,
+      ...(args.runtimeLogs !== undefined ? { runtimeLogs: args.runtimeLogs } : {}),
       zoneName,
       ...(workersDev ? { workersDev: true } : {}),
     };
@@ -752,6 +761,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       deploymentExecution: runtime.manifest.deploymentExecution === 1,
     };
     let plan = await createPlatformInstallPlan(client, planInput, existing, planOptions);
+    assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
       accountId,
@@ -761,6 +771,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       zoneName,
       controlPlaneDomain,
       ...(args.dashboardUrl !== undefined ? { dashboardUrl: args.dashboardUrl } : {}),
+      ...(args.customDomains ? { customDomains: true } : {}),
       dedicatedZone,
       workersDev,
       authConfig: args.authConfig,
@@ -771,6 +782,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           ? (externalHyperdrive?.id ?? 'create')
           : undefined,
       runtime: args.runtime,
+      // A resume keeps the recorded value, so only a new install repeats it.
+      ...(!existing && plan.deployment.runtimeLogs ? { runtimeLogs: 'minimal' as const } : {}),
       ...(existing ? { resumeId: existing.id } : {}),
       yes: args.yes || process.stdin.isTTY !== true,
     };
@@ -930,8 +943,11 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         writePendingInstallationSecrets(setupManifest, values);
       }
     };
+    // After the draft stage, a resume keeps the saved values. The runtime token
+    // is the exception: an explicit replacement wins, and is sent to Workers
+    // that are already deployed (see `updateExistingWorkers` below).
     const configured = (key: string, environment: string) =>
-      credentialSetup
+      credentialSetup || key === 'cloudflareApiToken'
         ? process.env[environment] || values[key] || ''
         : values[key] || process.env[environment] || '';
     const collect = async (
@@ -964,10 +980,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       openPlatformSetupPage(pages.runtime);
     }
 
+    const savedRuntimeToken = checkpoint?.cloudflareApiToken ?? '';
     const usingSavedRuntimeToken =
-      credentialSetup &&
-      !process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN &&
-      Boolean(values.cloudflareApiToken);
+      !process.env.VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN && Boolean(values.cloudflareApiToken);
     let runtimeCloudflareApiToken = await collect(
       'cloudflareApiToken',
       'VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN',
@@ -1001,7 +1016,6 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         }
       } catch (error) {
         if (
-          credentialSetup &&
           token === values.cloudflareApiToken &&
           // The operator adds a missing email permission to the same token.
           !(error instanceof PlatformRuntimeTokenEmailPermissionError) &&
@@ -1011,7 +1025,11 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           )
         ) {
           delete values.cloudflareApiToken;
-          writePendingInstallationSecrets(setupManifest, values);
+          // After the draft stage the installer saves the replacement, so a
+          // cancelled prompt keeps the token the deployed Workers still hold.
+          if (credentialSetup) {
+            writePendingInstallationSecrets(setupManifest, values);
+          }
           rejectedSavedRuntimeToken = true;
         }
         throw error;
@@ -1148,22 +1166,38 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             : 'project encryption key',
         ].filter(Boolean)
       : [];
+    // A replaced runtime token must also reach the Workers already deployed,
+    // and a saved update must finish after a crash. Only the token is sent as
+    // an update: every other value comes from the checkpoint. Without a saved
+    // token (another machine) there is nothing to compare, so nothing is sent.
+    const replacingRuntimeToken =
+      !credentialSetup && !!savedRuntimeToken && runtimeCloudflareApiToken !== savedRuntimeToken;
+    const updateExistingWorkers =
+      replacingRuntimeToken || (!credentialSetup && Boolean(checkpoint?.workerSecretUpdatesJson));
+    const checkpointValue = (value: string) => (updateExistingWorkers ? '' : value);
     const secrets = createPlatformInstallationSecrets({
       configurableAuthentication: !!authenticationSelection.authentication.configurable,
       ...authenticationSecrets,
       bootstrapGitHubId,
       bootstrapGitHubLogin,
-      cloudflareApiToken: runtimeCloudflareApiToken,
+      cloudflareApiToken: replacingRuntimeToken
+        ? runtimeCloudflareApiToken
+        : checkpointValue(runtimeCloudflareApiToken),
       checkpoint: values,
       databaseUrl: installationDatabaseUrl,
       emailEnabled: plan.deployment.capabilities.email,
-      emailSigningSecret: process.env.VOID_PLATFORM_EMAIL_SIGNING_SECRET || '',
+      // A saved email key wins on resume, so the variable would only add an update.
+      emailSigningSecret:
+        updateExistingWorkers && values.emailSigningSecret
+          ? ''
+          : process.env.VOID_PLATFORM_EMAIL_SIGNING_SECRET || '',
       existingEmailEnabled: existing.deployment.capabilities.email,
-      githubClientId,
-      githubClientSecret,
-      r2AccessKeyId,
-      r2SecretAccessKey,
+      githubClientId: checkpointValue(githubClientId),
+      githubClientSecret: checkpointValue(githubClientSecret),
+      r2AccessKeyId: checkpointValue(r2AccessKeyId),
+      r2SecretAccessKey: checkpointValue(r2SecretAccessKey),
       existingInstallation: !credentialSetup,
+      updateExistingWorkers,
       generateIdentityKeys,
       jwtSecret: generateIdentityKeys
         ? configured('jwtSecret', 'VOID_PLATFORM_JWT_SECRET')
@@ -1329,11 +1363,29 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         });
       },
     });
+    const runtimeLogsWarning =
+      !result.waitingForDns &&
+      !result.waitingForSandboxDrain &&
+      shouldUpdateProjectWorkerRuntimeLogs({
+        previous: setupManifest.deployment,
+        next: result.manifest.deployment,
+        explicit: args.runtimeLogs !== undefined,
+      })
+        ? await updateProjectWorkerRuntimeLogs(client, {
+            accountId,
+            namespace: result.manifest.deployment.resources.dispatchNamespace,
+            minimal: !!result.manifest.deployment.runtimeLogs,
+            installationId: result.manifest.id,
+          })
+        : undefined;
     progress?.stop(
       result.waitingForDns || result.waitingForSandboxDrain
         ? 'Installation paused. Progress is saved.'
         : 'Platform installed.',
     );
+    if (runtimeLogsWarning) {
+      log.warn(runtimeLogsWarning);
+    }
     progress = undefined;
     if (result.waitingForDns) {
       note(

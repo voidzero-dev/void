@@ -52,6 +52,42 @@ describe('platform args', () => {
       ).toThrow();
     }
   });
+  it('accepts --runtime-logs only in install and upgrade', () => {
+    for (const command of ['install', 'upgrade']) {
+      expect(parsePlatformArgs([command, '--runtime-logs', 'minimal'])).toMatchObject({
+        runtimeLogs: 'minimal',
+      });
+      expect(parsePlatformArgs([command, '--runtime-logs', 'full'])).toMatchObject({
+        runtimeLogs: 'full',
+      });
+      expect(parsePlatformArgs([command])).not.toHaveProperty('runtimeLogs');
+      expect(() => parsePlatformArgs([command, '--runtime-logs', 'none'])).toThrow(
+        'platform: --runtime-logs must be full or minimal.',
+      );
+      expect(() => parsePlatformArgs([command, '--runtime-logs'])).toThrow('requires a value');
+    }
+    for (const command of ['repair', 'rollback', 'enable', 'disable', 'uninstall']) {
+      expect(() =>
+        parsePlatformArgs([command, '--runtime', 'dir', '--runtime-logs', 'minimal']),
+      ).toThrow();
+    }
+  });
+  it('turns on custom domains only in install, upgrade, and repair', () => {
+    for (const command of ['install', 'upgrade', 'repair']) {
+      expect(parsePlatformArgs([command, '--custom-domains'])).toMatchObject({
+        customDomains: true,
+      });
+      expect(parsePlatformArgs([command])).not.toHaveProperty('customDomains');
+    }
+    for (const command of ['enable', 'disable', 'rollback', 'uninstall']) {
+      expect(() => parsePlatformArgs([command, '--custom-domains'])).toThrow();
+    }
+    for (const flag of ['--workers-dev', '--no-dedicated-zone']) {
+      expect(() => parsePlatformArgs(['install', '--custom-domains', flag])).toThrow(
+        'dedicated application zone',
+      );
+    }
+  });
   it('accepts replacement login settings only in repair', () => {
     expect(parsePlatformArgs(['repair', 'team', '--auth-config', 'auth.json'])).toEqual({
       subcommand: 'repair',

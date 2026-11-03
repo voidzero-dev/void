@@ -9,8 +9,8 @@ import {
 } from '../asset-routing.ts';
 import { type VoidConfig, isNodeTarget } from '../config.ts';
 import { collectRevalidate } from '../isr-config.ts';
-import { voidWarn } from '../log.ts';
 import { type DetectedFramework } from '../plugin-inference.ts';
+import { assertNoPrerenderFailures } from '../prerender-render.ts';
 import {
   collectPrerenderPaths,
   collectPrerenderPathsNode,
@@ -164,8 +164,8 @@ export async function runFullDeploy(
 
     if (result.paths.length === 0) {
       log.info('No pages to prerender');
-    } else if (result.failed.length > 0) {
-      voidWarn(`${formatCount(result.failed.length, 'page')} failed to prerender`);
+    } else {
+      assertNoPrerenderFailures(result.failed);
     }
   }
 
@@ -287,10 +287,11 @@ export async function runFullDeploy(
         headerRules,
         redirectRules,
         fallbackRules,
-        // Rules were already merged above — pass only the notFound override.
+        // Rules were already merged above.
         undefined,
         cliLog,
         voidConfig.routing?.notFound,
+        voidConfig.routing?.alwaysUseHttps,
       );
     }
   }
@@ -418,6 +419,7 @@ export async function runFullDeploy(
     isFrameworkMode,
     {
       bindings: liveConfig ? { ...bindings, needsLive: true } : bindings,
+      alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
       hasEmailHandlers:
         !isFrameworkMode && routeScan.email !== undefined && hasEmailHandlers(routeScan.email),
       migrations: validatedMigrations,

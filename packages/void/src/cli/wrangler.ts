@@ -18,13 +18,15 @@ import {
   type Node,
   type ParseError,
 } from 'jsonc-parser';
-import { basename, dirname, join, normalize } from 'pathslash';
+import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import {
+  ignoreMaterializedCloudflareConfig,
   materializeCloudflareConfig,
   MATERIALIZED_CLOUDFLARE_FILE,
   persistCloudflareConfig,
 } from '../cloudflare-config.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
+import { writeVoidProjectConfig } from '../config-write.ts';
 import { readConfig, type VoidConfig } from '../config.ts';
 import type { DurableObjectModule } from '../durable/scan.ts';
 import type { InferredBindings } from '../inference/walk.ts';
@@ -209,7 +211,6 @@ export type WranglerCompat = {
 };
 
 type WranglerCompatFields = {
-  voidConfig: VoidConfig | undefined;
   voidDate: string | undefined;
   voidFlags: Array<string> | undefined;
   wranglerDate: string | undefined;
@@ -372,17 +373,23 @@ export function readWranglerCompat(
   return resolveWranglerCompat(readWranglerCompatFields(root, config, buildOutputDir));
 }
 
-/** Like `readWranglerCompat()`, but pins the default date when no source sets one. */
+/**
+ * Like `readWranglerCompat()`, but pins the default date when no source sets one.
+ * With `rootWrangler`, a project with no config gets the date in a root wrangler.jsonc
+ * instead of a new void.config.ts, so a framework adapter that reads the root file by
+ * default still finds it.
+ */
 export function ensureWranglerCompat(
   root: string,
   config?: VoidConfig,
   buildOutputDir?: string,
+  options?: { rootWrangler?: boolean },
 ): WranglerCompat {
   const fields = readWranglerCompatFields(root, config, buildOutputDir);
   const hasExplicitDate = fields.voidDate ?? fields.wranglerDate ?? fields.buildDate;
   const defaultDate = hasExplicitDate
     ? undefined
-    : ensureVoidCompatibilityDate(root, fields.voidConfig);
+    : ensureVoidCompatibilityDate(root, options?.rootWrangler === true);
   return resolveWranglerCompat(fields, defaultDate ? { defaultDate } : undefined);
 }
 
@@ -442,7 +449,6 @@ function readWranglerCompatFields(
   }
 
   return {
-    voidConfig,
     voidDate: voidConfig?.worker?.compatibility_date,
     voidFlags: voidConfig?.worker?.compatibility_flags,
     wranglerDate,
@@ -489,29 +495,41 @@ function readVoidConfigIfExists(root: string): VoidConfig | undefined {
     : undefined;
 }
 
-function ensureVoidCompatibilityDate(root: string, config?: VoidConfig): string {
+function ensureVoidCompatibilityDate(root: string, rootWrangler: boolean): string {
   if (existsSync(join(root, TYPED_CONFIG_FILE))) {
     writeProvisionedWranglerConfig(root, { compatibilityDate: LATEST_KNOWN_COMPAT_DATE });
     return LATEST_KNOWN_COMPAT_DATE;
   }
   const filePath = join(root, VOID_CONFIG_FILE);
-  let nextConfig: VoidConfig = {};
-
-  if (existsSync(filePath)) {
-    try {
-      const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
-      if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-        throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
-      }
-      nextConfig = parsed as VoidConfig;
-    } catch (error) {
-      if (error instanceof SyntaxError) {
-        throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
-      }
-      throw error;
+  if (!existsSync(filePath)) {
+    if (existsSync(join(root, 'wrangler.toml'))) {
+      // void.config.ts would point the Cloudflare plugin away from wrangler.toml and drop
+      // its bindings, so keep the date in void.json.
+      const pinned: VoidConfig = { worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE } };
+      writeFileSync(filePath, `${JSON.stringify(pinned, null, 2)}\n`);
+    } else if (rootWrangler || projectWranglerPaths(root).some((path) => existsSync(path))) {
+      // A root Wrangler config cannot sit next to void.config.ts, so pin the date in it.
+      writeProvisionedWranglerConfig(root, { compatibilityDate: LATEST_KNOWN_COMPAT_DATE });
+    } else {
+      // New projects get the date in void.config.ts, as `void init` writes it.
+      writeVoidProjectConfig(root, { worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE } });
+      ignoreMaterializedCloudflareConfig(root);
     }
-  } else if (config) {
-    nextConfig = { ...config };
+    return LATEST_KNOWN_COMPAT_DATE;
+  }
+
+  let nextConfig: VoidConfig;
+  try {
+    const parsed = JSON.parse(readFileSync(filePath, 'utf-8'));
+    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
+      throw new Error(`config: ${VOID_CONFIG_FILE} must be a JSON object.`);
+    }
+    nextConfig = parsed as VoidConfig;
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      throw new Error(`config: Invalid JSON in ${VOID_CONFIG_FILE}.`);
+    }
+    throw error;
   }
 
   nextConfig.worker = {
@@ -1297,10 +1315,7 @@ export function writeProvisionedWranglerConfig(
         );
       }
       if (typeof existingDir === 'string') {
-        if (
-          normalizeMigrationsPath(existingDir) !==
-          normalizeMigrationsPath(patch.d1MigrationsDir.dir)
-        ) {
+        if (!sameMigrationsDir(configPath, existingDir, patch.d1MigrationsDir.dir)) {
           throw new Error(
             `deploy: cannot update "${configPath}" — the D1 entry for binding ` +
               `${JSON.stringify(patch.d1MigrationsDir.binding)} already sets "migrations_dir": ` +
@@ -1311,7 +1326,8 @@ export function writeProvisionedWranglerConfig(
               `move the migrations and keep your directory, then retry.`,
           );
         }
-        // An equivalent spelling (`./db/migrations`, a trailing slash) is kept as written.
+        // An equivalent spelling (`./db/migrations`, a trailing slash, an absolute path) is
+        // kept as written.
       } else {
         if (
           existingPattern !== undefined &&
@@ -1373,9 +1389,13 @@ export function writeProvisionedWranglerConfig(
               `this config. Remove the duplicate producers and retry.`,
           );
         }
+        // A producer Void wrote earlier may move to the queue's new name; the update below
+        // rewrites its `queue` in place.
+        const voidOwned =
+          reconcileManagedQueues && managedProducerBindings.has(String(entry.binding));
         if (matches.length === 1) {
           const existing = currentList[matches[0]];
-          if (existing.queue !== entry.queue) {
+          if (existing.queue !== entry.queue && !voidOwned) {
             throw new Error(
               `deploy: cannot update "${configPath}" — queue producer binding ` +
                 `${JSON.stringify(entry.binding)} is already bound to queue ` +
@@ -2516,6 +2536,15 @@ function bindingSetError(problem: string, hidden: string): Error {
       `partially-readable binding set (a ${hidden} could hide a real collision). Fix the ` +
       `wrangler config and retry.`,
   );
+}
+
+/**
+ * Whether two `migrations_dir` values name the same folder. Wrangler resolves the value
+ * against the config file's directory and accepts either slash.
+ */
+export function sameMigrationsDir(configPath: string, a: string, b: string): boolean {
+  const base = dirname(configPath);
+  return resolve(base, a.replaceAll('\\', '/')) === resolve(base, b.replaceAll('\\', '/'));
 }
 
 /** Wrangler's rule: the normalized pattern starts with `<dir>/`, unless the dir is ".". */

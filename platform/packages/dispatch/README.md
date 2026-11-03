@@ -11,7 +11,7 @@ Edge router for deployed Void apps. It routes requests to user workers, serves s
 5. Serve hashed assets from edge cache when possible.
 6. For static/SPA projects, serve current direct-upload assets from `STATIC_ASSETS_R2`; preserve `STATIC_ASSETS` KV reads for assets carried forward from legacy deploys. Storage reads get one delayed hedge within the existing 10-second request budget, then use `assetConfig` path resolution.
 7. Apply `fallbackRules` (post-asset) only when static asset resolution misses — instead of returning 404, match the pathname against fallback rules (status=200 only) and rewrite. Intended for SPA shells (`/* → /index.html`) and default-locale catch-alls. On static deployments, a matched fallback serves the resolved asset directly without dispatching to a user worker, so `X-Void-Original-URL` is never set, `c.originalUrl()` is unavailable, and the response is not ISR-cached (see `packages/dispatch/test/unit/fallback-rules.test.ts`).
-8. For `/api/*`, forward to the user worker in the dispatch namespace with plan-specific CPU/subrequest limits.
+8. For `/api/*`, forward to the user worker in the dispatch namespace with plan-specific CPU/subrequest limits. Foreground worker responses, including SSR and ISR cache misses, have no default wall-time deadline while the client remains connected.
 9. For SSR with ISR enabled, use `caches.default` plus `ISR_CACHE` KV for stale-while-revalidate behavior.
 10. For WfP deploys, inspect worker and cache responses for the Cloudflare asset-dedupe-poisoning stub (`Assets have not yet been deployed to this script.`). On detection, purge any poisoned cache entry and re-serve from the platform-owned mirror (`STATIC_ASSETS`/`STATIC_ASSETS_R2`). If the mirror is unavailable or incomplete, return an attributed `503` instead of passing through and caching the known-bad `200` stub. See the [asset fallback design](../../meta/design-docs/0066-wfp-asset-r2-fallback.md).
 11. Apply header rules and record usage in Analytics Engine. If `userId` is present on the routing entry, enqueue usage events as well. Platform-owned static storage failures carry a `failureKind`: they remain metered and queryable but are excluded from customer application-error emails.
@@ -89,7 +89,9 @@ applying a valid event.
 
 ### Explaining a dispatch-generated 503
 
-A user worker cut at the dispatch budget (`DISPATCH_TIMEOUT_MS`, default 10s) never returns, so it emits no log of its own and its tail event records only `canceled` — the same outcome a real client hang-up produces. Dispatch is the only party that knows it was the one that hung up.
+`DISPATCH_TIMEOUT_MS` optionally imposes a foreground worker response deadline. Without it, requests follow Cloudflare's client-connected lifetime; platform storage and background ISR revalidation retain their 10-second budgets. An explicitly configured deadline can cancel a worker after an external side effect has completed, so a timeout does not establish that a mutation failed.
+
+A user worker cut at that configured budget never returns, so it emits no log of its own and its tail event records only `canceled` — the same outcome a real client hang-up produces. Dispatch is the only party that knows it was the one that hung up.
 
 On those three worker-timeout paths, `recordPlatformLog` (`metering.ts`) writes one row into the `void_logs` dataset through the `LOGS` binding, so `void project logs` explains the 503 instead of showing nothing. The row uses the same seven-blob/two-double shape `packages/tail` writes, and is keyed by splitting `RoutingEntry.workerName` (`user-<slug>-dpl_<id>`) into `index1` and `blob7` exactly as the tail worker does — the read path in `GET /projects/:id/logs` selects on `index1`, so a differently-keyed row would be unreadable. Do not key it off the metering `slug`, which falls back to the hostname on a custom domain.
 

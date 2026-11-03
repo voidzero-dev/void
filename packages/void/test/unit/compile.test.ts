@@ -1,6 +1,7 @@
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
+import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   compileRouteTable,
@@ -29,6 +30,7 @@ import {
 
 const testOptions = {
   honoPath: '/resolved/hono/index.mjs',
+  honoRoutePath: '/resolved/hono/route.mjs',
 
   runtimeEnvPath: '/resolved/void/runtime/env.mjs',
   projectRoot: '/project',
@@ -171,7 +173,7 @@ describe('compileRouteTable', () => {
     expect(code.indexOf('app.use(middleware0)')).toBeLessThan(
       code.indexOf('app.all("/chat/:room"'),
     );
-    const fallback = 'app.all("/chat/:room", (c) => __forwardWebSocketRequest';
+    const fallback = 'app.all("/chat/:room", __markRouteHandler((c) => __forwardWebSocketRequest';
     expect(code.indexOf('app.get("/chat/:room"')).toBeGreaterThan(
       code.indexOf('app.all("/chat/:room"'),
     );
@@ -831,6 +833,11 @@ describe('default-target dev parity', () => {
 });
 
 describe('compileWorkerEntry', () => {
+  it('passes the HTTPS redirect to the worker fetch only when enabled', () => {
+    expect(compileWorkerEntry({ alwaysUseHttps: true })).toContain('alwaysUseHttps: true');
+    expect(compileWorkerEntry()).not.toContain('alwaysUseHttps');
+  });
+
   it('passes the version metadata binding name to the worker fetch', () => {
     expect(compileWorkerEntry({ versionMetadataBinding: 'AUTHORED_VERSION' })).toContain(
       'versionMetadataBinding: "AUTHORED_VERSION"',
@@ -1382,6 +1389,37 @@ describe('typed runtime metadata wiring', () => {
     expect(dev).not.toContain('function __voidAnnotateRouting');
     expect(dev).not.toContain('c.rewrite =');
   });
+  it('gives route files that differ only in punctuation their own loaders', () => {
+    const route = (filePath: string, pattern: string) => ({
+      pattern,
+      filePath,
+      params: [],
+      catchAll: false,
+      env: null,
+      methods: ['GET'],
+    });
+    const code = compile(
+      { dev: true },
+      {
+        ...emptyScan,
+        routes: [
+          route('api/user-list.ts', '/api/user-list'),
+          route('api/user_list.ts', '/api/user_list'),
+        ],
+      },
+    );
+    const parsed = parseSync('routes.js', code, { sourceType: 'module', showSemanticErrors: true });
+    expect(parsed.errors.map((error) => error.message)).toEqual([]);
+    expect(code).toContain(
+      'const _load_api_user_list_ts = __createModuleLoader(() => import("/routes/api/user-list.ts"), false)',
+    );
+    expect(code).toContain(
+      'const _load_api_user_list_ts_2 = __createModuleLoader(() => import("/routes/api/user_list.ts"), false)',
+    );
+    expect(code).toContain(
+      'app.get("/api/user_list", __createHttpRouteHandler(_load_api_user_list_ts_2, "GET"))',
+    );
+  });
   it('keeps authored rule origins in dev and omits them in production and managed dispatch', () => {
     const rules = [{ source: '/old', destination: '/new', status: 301, origin: 'config' }];
     const dev = compile({ dev: true, redirectRules: rules, fallbackRules: rules });
@@ -1393,6 +1431,12 @@ describe('typed runtime metadata wiring', () => {
     const managed = compile({ managedDispatch: true, redirectRules: rules, fallbackRules: rules });
     expect(managed).not.toContain('const __routingRules');
     expect(managed).not.toContain('app.notFound');
+  });
+  it('looks rewrite destinations up in static assets', () => {
+    const rewrite = [{ source: '/', destination: '/index.html', status: 200, force: true }];
+    expect(compile({ dev: false, redirectRules: rewrite })).toContain(
+      'app.notFound(__createAssetNotFound',
+    );
   });
   it('wires fetch validation, opaque internal routes and optional ISR through runtime callbacks', () => {
     const code = compileWorkerEntry({

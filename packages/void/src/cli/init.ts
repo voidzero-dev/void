@@ -11,11 +11,19 @@ import { materializeCloudflareConfig } from '../cloudflare-config.ts';
 import { createProjectTsconfig, ensureProjectTsconfig } from '../codegen/project-tsconfig.ts';
 import { TYPED_CONFIG_FILE } from '../config-loader.ts';
 import { canRewriteVoidProjectConfig, writeVoidProjectConfig } from '../config-write.ts';
-import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.ts';
+import {
+  databaseConfigValue,
+  getDatabaseCasing,
+  getDatabaseDialect,
+  readConfig,
+  type DatabaseDialect,
+  type VoidConfig,
+} from '../config.ts';
 import { PLACEHOLDER_DB_URL, writeDrizzleConfig } from '../drizzle/config.ts';
 import { snapshotDrizzleOutputs } from '../drizzle/generate.ts';
 import { detectFramework, type DetectedFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
+import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
   hasPackageDependency,
   readPackageJson,
@@ -65,7 +73,33 @@ export type InitArgs = {
   tsconfig: boolean;
   github: boolean;
   git?: boolean;
+  toolchain?: ScaffoldToolchain;
+  framework?: ScaffoldFramework;
+  starter?: ScaffoldStarterMode;
+  deploy?: DeploymentPlatform;
 };
+
+const SCAFFOLD_STARTER_MODES: ReadonlyArray<ScaffoldStarterMode> = [
+  'sqlite',
+  'postgresql',
+  'mysql',
+  'static',
+];
+const DEPLOYMENT_PLATFORMS: ReadonlyArray<DeploymentPlatform> = ['cloudflare', 'void', 'none'];
+
+function parseChoice<T extends string>(
+  flag: string,
+  value: unknown,
+  choices: ReadonlyArray<T>,
+): T | undefined {
+  if (value === undefined) {
+    return undefined;
+  }
+  if (typeof value !== 'string' || !choices.includes(value as T)) {
+    throw new Error(`init: --${flag} must be one of ${choices.join(', ')}.`);
+  }
+  return value as T;
+}
 
 export function parseInitArgs(args: Array<string>): InitArgs {
   let parsed: ReturnType<typeof parseArgs>;
@@ -76,6 +110,10 @@ export function parseInitArgs(args: Array<string>): InitArgs {
         tsconfig: { type: 'boolean' },
         github: { type: 'boolean' },
         git: { type: 'boolean' },
+        toolchain: { type: 'string' },
+        framework: { type: 'string' },
+        starter: { type: 'string' },
+        deploy: { type: 'string' },
       },
       allowNegative: true,
       strict: true,
@@ -89,6 +127,18 @@ export function parseInitArgs(args: Array<string>): InitArgs {
     tsconfig: parsed.values.tsconfig === true,
     github: parsed.values.github === true,
     git: parsed.values.git as boolean | undefined,
+    toolchain: parseChoice(
+      'toolchain',
+      parsed.values.toolchain,
+      SCAFFOLD_TOOLCHAIN_OPTIONS.map((option) => option.value),
+    ),
+    framework: parseChoice(
+      'framework',
+      parsed.values.framework,
+      SCAFFOLD_FRAMEWORK_OPTIONS.map((option) => option.value),
+    ),
+    starter: parseChoice('starter', parsed.values.starter, SCAFFOLD_STARTER_MODES),
+    deploy: parseChoice('deploy', parsed.values.deploy, DEPLOYMENT_PLATFORMS),
   };
 }
 
@@ -107,6 +157,7 @@ const EMPTY_PROJECT_ALLOWED_ENTRIES = new Set([
   '.DS_Store',
   '.void',
   '.wrangler',
+  '.cloudflare',
   'node_modules',
   'package.json',
   'package-lock.json',
@@ -192,6 +243,7 @@ const EMPTY_PROJECT_ALLOWED_SCRIPTS: Record<string, Set<string> | undefined> = {
   dev: new Set(['vite', 'vp dev']),
   build: new Set(['vite build', 'vp build']),
   preview: new Set(['vite preview', 'vp preview']),
+  postinstall: new Set(['void prepare']),
 };
 const EMPTY_PROJECT_STARTER_SCRIPT_COMMANDS = new Set(
   Object.values(EMPTY_PROJECT_ALLOWED_SCRIPTS).flatMap((commands) =>
@@ -1361,46 +1413,67 @@ export function ensureVoidWorkerCompatibilityDate(root: string): void {
   log.step('Pinned worker compatibility_date in void.config.ts');
 }
 
+/** Write `dialect` to the config's `database`, keeping its casing. */
+function writeDatabaseDialect(root: string, config: VoidConfig, dialect: DatabaseDialect): void {
+  const next: VoidConfig = { ...config };
+  const database = databaseConfigValue(dialect, getDatabaseCasing(config));
+  if (database === undefined) {
+    delete next.database;
+  } else {
+    next.database = database;
+  }
+  writeVoidProjectConfig(root, next);
+}
+
 function clearConfiguredDatabase(
   root: string,
   messages: { unchanged: string; updated: string },
 ): void {
-  const config = readConfig(root) as Record<string, unknown>;
+  const config = readConfig(root);
 
-  if (config.database !== 'pg' && config.database !== 'mysql') {
+  if (getDatabaseDialect(config) === 'sqlite') {
     log.info(messages.unchanged);
     return;
   }
 
-  delete config.database;
-
-  writeVoidProjectConfig(root, config);
+  writeDatabaseDialect(root, config, 'sqlite');
   log.step(messages.updated);
 }
 
+/** Remove `database` entirely: its casing alone still makes Void serve `void/db`. */
+function removeDatabaseConfig(root: string): void {
+  const config = readConfig(root);
+  if (config.database === undefined) {
+    log.info('No database configured yet');
+    return;
+  }
+  const next: VoidConfig = { ...config };
+  delete next.database;
+  writeVoidProjectConfig(root, next);
+  log.step('Removed database config from void.config.ts');
+}
+
 function applyDatabaseDialect(root: string, dialect: DatabaseDialect): void {
-  const config = readConfig(root) as Record<string, unknown>;
+  const config = readConfig(root);
 
   if (dialect === 'postgresql') {
-    if (config.database === 'pg') {
+    if (getDatabaseDialect(config) === 'postgresql') {
       log.info('PostgreSQL already configured in void.config.ts');
       return;
     }
 
-    config.database = 'pg';
-    writeVoidProjectConfig(root, config);
+    writeDatabaseDialect(root, config, 'postgresql');
     log.step('Configured PostgreSQL in void.config.ts');
     return;
   }
 
   if (dialect === 'mysql') {
-    if (config.database === 'mysql') {
+    if (getDatabaseDialect(config) === 'mysql') {
       log.info('MySQL already configured in void.config.ts');
       return;
     }
 
-    config.database = 'mysql';
-    writeVoidProjectConfig(root, config);
+    writeDatabaseDialect(root, config, 'mysql');
     log.step('Configured MySQL in void.config.ts');
     return;
   }
@@ -1428,17 +1501,30 @@ function detectDatabaseSetup(root: string): DatabaseSetupChoice {
 
 function applyDatabaseSetup(root: string, choice: DatabaseSetupChoice): void {
   if (choice === 'none') {
-    clearConfiguredDatabase(root, {
-      unchanged: 'No database configured yet',
-      updated: 'Removed database config from void.config.ts',
-    });
+    removeDatabaseConfig(root);
     return;
   }
 
   applyDatabaseDialect(root, choice);
 }
 
-async function promptStarterMode(): Promise<ScaffoldStarterMode> {
+/**
+ * A prompt cannot be answered when stdin is not a terminal, so fail with the
+ * flag that answers it instead of exiting as if init succeeded.
+ */
+function assertInteractive(flag: string, choices: ReadonlyArray<string>): void {
+  if (!process.stdin.isTTY) {
+    throw new Error(
+      `init: Pass --${flag} (${choices.join(', ')}) when running without an interactive terminal.`,
+    );
+  }
+}
+
+async function promptStarterMode(starter?: ScaffoldStarterMode): Promise<ScaffoldStarterMode> {
+  if (starter) {
+    return starter;
+  }
+  assertInteractive('starter', SCAFFOLD_STARTER_MODES);
   const choice = await select({
     message: 'Choose a Pages starter:',
     options: [
@@ -1473,7 +1559,14 @@ async function promptStarterMode(): Promise<ScaffoldStarterMode> {
   return choice as ScaffoldStarterMode;
 }
 
-async function promptScaffoldToolchain(): Promise<ScaffoldToolchain> {
+async function promptScaffoldToolchain(toolchain?: ScaffoldToolchain): Promise<ScaffoldToolchain> {
+  if (toolchain) {
+    return toolchain;
+  }
+  assertInteractive(
+    'toolchain',
+    SCAFFOLD_TOOLCHAIN_OPTIONS.map((option) => option.value),
+  );
   const choice = await select({
     message: 'Choose a Pages scaffold toolchain:',
     initialValue: 'vite-plus',
@@ -1488,7 +1581,14 @@ async function promptScaffoldToolchain(): Promise<ScaffoldToolchain> {
   return choice as ScaffoldToolchain;
 }
 
-async function promptScaffoldFramework(): Promise<ScaffoldFramework> {
+async function promptScaffoldFramework(framework?: ScaffoldFramework): Promise<ScaffoldFramework> {
+  if (framework) {
+    return framework;
+  }
+  assertInteractive(
+    'framework',
+    SCAFFOLD_FRAMEWORK_OPTIONS.map((option) => option.value),
+  );
   const choice = await select({
     message: 'Choose a Pages framework to scaffold:',
     options: [...SCAFFOLD_FRAMEWORK_OPTIONS],
@@ -1541,7 +1641,15 @@ async function promptDatabaseSetup(root: string): Promise<DatabaseSetupChoice> {
   return choice as DatabaseSetupChoice;
 }
 
-async function promptDeploymentPlatform(root: string): Promise<DeploymentPlatform> {
+async function promptDeploymentPlatform(
+  root: string,
+  deploy?: DeploymentPlatform,
+): Promise<DeploymentPlatform> {
+  if (deploy) {
+    writeDeploymentPlatform(root, deploy);
+    return deploy;
+  }
+  assertInteractive('deploy', DEPLOYMENT_PLATFORMS);
   const current = readDeploymentPlatform(root);
   const choice = await select({
     message: 'Where should this project deploy?',
@@ -1868,28 +1976,10 @@ function writeFileIfMissing(root: string, filePath: string, content: string): vo
 }
 
 function ensureGitignore(root: string): void {
-  const gitignorePath = join(root, '.gitignore');
-  if (!existsSync(gitignorePath)) {
-    writeFileSync(gitignorePath, SCAFFOLD_GITIGNORE_LINES.join('\n') + '\n');
-    log.step('Created .gitignore');
-    return;
+  const existed = existsSync(join(root, '.gitignore'));
+  if (ensureGitignoreLines(root, SCAFFOLD_GITIGNORE_LINES).length > 0) {
+    log.step(existed ? 'Updated .gitignore with Void defaults' : 'Created .gitignore');
   }
-
-  const content = readFileSync(gitignorePath, 'utf-8');
-  const existing = new Set(
-    content
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter(Boolean),
-  );
-  const missing = SCAFFOLD_GITIGNORE_LINES.filter((line) => !existing.has(line));
-  if (missing.length === 0) {
-    return;
-  }
-
-  const separator = content.endsWith('\n') ? '' : '\n';
-  writeFileSync(gitignorePath, content + separator + missing.join('\n') + '\n');
-  log.step('Updated .gitignore with Void defaults');
 }
 
 /** Removes each block-style top-level `key:` block; `removed` holds its non-blank lines. */
@@ -2507,22 +2597,33 @@ export const posts = sqliteTable("posts", {
 `;
 }
 
+function demoFiles(root: string): { schema: string; route: string; client: string } {
+  const paths = readProjectPaths(root);
+  return {
+    schema: paths.schemaFile,
+    route: join(paths.routesDir, 'api', 'posts.ts'),
+    client: join(paths.ssrDir, 'demo.ts'),
+  };
+}
+
 /**
  * Scaffolds the "SQL → types → handler → fetch" demo into an existing project.
  * `setupExistingProject` has already declared `void` in `package.json`.
+ * The caller skips the demo when any of its files exists, so these writes never replace user code.
  */
 function scaffoldDemo(root: string, dialect: DatabaseDialect): void {
   const devCommand = getDevCommand(root);
   const paths = readProjectPaths(root);
+  const files = demoFiles(root);
 
   mkdirSync(paths.dbDir, { recursive: true });
-  writeFileSync(paths.schemaFile, demoSchemaSource(dialect));
+  writeFileSync(files.schema, demoSchemaSource(dialect));
   log.step('Created db/schema.ts');
 
   // API route
   mkdirSync(join(paths.routesDir, 'api'), { recursive: true });
   writeFileSync(
-    join(paths.routesDir, 'api', 'posts.ts'),
+    files.route,
     `import { defineHandler } from "void";
 import { db } from "void/db";
 import { posts } from "@schema";
@@ -2539,7 +2640,7 @@ export const GET = defineHandler(async () => {
   // Frontend demo
   mkdirSync(paths.ssrDir, { recursive: true });
   writeFileSync(
-    join(paths.ssrDir, 'demo.ts'),
+    files.client,
     `import { fetch } from "void/client";
 
 // Fully typed: response type is inferred from the GET handler's return type,
@@ -2665,16 +2766,21 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 
   if (!targeted && !framework && isScaffoldableEmptyProject(root)) {
     log.info('Empty project detected. Scaffolding a Pages starter...');
-    const scaffoldToolchain = await promptScaffoldToolchain();
+    const scaffoldToolchain = await promptScaffoldToolchain(initArgs?.toolchain);
     if (detectedPagesFramework) {
       scaffoldedPagesFramework = detectedPagesFramework;
       log.info(
         `Detected ${SCAFFOLD_FRAMEWORKS[detectedPagesFramework].label} adapter in package.json`,
       );
     } else {
-      scaffoldedPagesFramework = await promptScaffoldFramework();
+      scaffoldedPagesFramework = await promptScaffoldFramework(initArgs?.framework);
     }
-    const starterMode = await promptStarterMode();
+    const starterMode = await promptStarterMode(initArgs?.starter);
+    // A partial starter takes the existing-project path on retry, so check
+    // the last required flag before creating its files.
+    if (initArgs?.deploy === undefined) {
+      assertInteractive('deploy', DEPLOYMENT_PLATFORMS);
+    }
     const existingPackageJson = readPackageJson(root);
     const hasPackageManager =
       hasLocalLockfile(root) ||
@@ -2784,8 +2890,14 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 
   // Demo code only in the full flow, and not for meta-frameworks.
   if (!targeted && !framework) {
+    const existingDemoFiles = Object.values(demoFiles(root)).filter((file) => existsSync(file));
     if (didScaffoldStarter || state.hasRoutes || state.hasMigrations || state.hasPages) {
       log.info('Project already has pages, routes, or migrations, skipping demo');
+    } else if (hasDrizzleSchema(root)) {
+      log.info('Project already has a database schema, skipping demo');
+    } else if (existingDemoFiles.length > 0) {
+      const names = existingDemoFiles.map((file) => relative(root, file)).join(', ');
+      log.info(`Project already has ${names}, skipping demo`);
     } else {
       const scaffold = await confirm({
         message: 'Scaffold demo code? (migration + API route + frontend fetch)',
@@ -2817,7 +2929,7 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
 
   // Targeted runs keep the saved deployment preference without prompting.
   const deploymentPlatform = !targeted
-    ? await promptDeploymentPlatform(root)
+    ? await promptDeploymentPlatform(root, initArgs?.deploy)
     : readDeploymentPlatform(root);
   let voidPlatformDiscovery: PlatformDiscoveryDocument | null = null;
 

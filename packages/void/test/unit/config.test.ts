@@ -16,6 +16,8 @@ import {
   convertRewritesConfig,
   resolveBindingNames,
   isNodeTarget,
+  databaseConfigValue,
+  getDatabaseCasing,
   getDatabaseDialect,
   VALID_REDIRECT_STATUSES,
   countSplats,
@@ -38,6 +40,67 @@ function setup(content?: string) {
 function cleanup() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
+
+describe('routing.alwaysUseHttps', () => {
+  it.each([true, false, undefined])('preserves %s without applying a default', (alwaysUseHttps) => {
+    setup(JSON.stringify({ routing: { alwaysUseHttps } }));
+    try {
+      expect(readConfig(tmpDir).routing?.alwaysUseHttps).toBe(alwaysUseHttps);
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (alwaysUseHttps) => {
+    setup(JSON.stringify({ routing: { alwaysUseHttps } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('routing.alwaysUseHttps');
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['node', 'bun', 'deno'])('rejects true with target %s', (target) => {
+    setup(JSON.stringify({ target, routing: { alwaysUseHttps: true } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow(
+        `"routing.alwaysUseHttps" in void.json requires target: "cloudflare". It is not available with target: "${target}".`,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+  it.each([
+    { target: 'node', routing: { alwaysUseHttps: false } },
+    { target: 'cloudflare', routing: { alwaysUseHttps: true } },
+  ])('accepts %j', (config) => {
+    setup(JSON.stringify(config));
+    try {
+      expect(readConfig(tmpDir).routing?.alwaysUseHttps).toBe(config.routing.alwaysUseHttps);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+describe('routing.typedRoutes', () => {
+  it.each([true, false, undefined])('preserves %s', (typedRoutes) => {
+    setup(JSON.stringify({ routing: { typedRoutes } }));
+    try {
+      expect(readConfig(tmpDir).routing?.typedRoutes).toBe(typedRoutes);
+    } finally {
+      cleanup();
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (typedRoutes) => {
+    setup(JSON.stringify({ routing: { typedRoutes } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow(
+        '"routing.typedRoutes" in void.json must be a boolean.',
+      );
+    } finally {
+      cleanup();
+    }
+  });
+});
 
 describe('readConfig', () => {
   it('loads and re-reads a typed Void config', () => {
@@ -1430,16 +1493,68 @@ describe('database config', () => {
     cleanup();
   });
 
-  it('rejects invalid value', () => {
-    setup(JSON.stringify({ database: 'mariadb' }));
-    expect(() => readConfig(tmpDir)).toThrow('"database" in void.json must be "pg" or "mysql"');
+  it('has no casing in the string form', () => {
+    setup(JSON.stringify({ database: 'pg' }));
+    expect(getDatabaseCasing(readConfig(tmpDir))).toBeUndefined();
     cleanup();
   });
 
-  it('rejects object value', () => {
-    setup(JSON.stringify({ database: { dialect: 'pg' } }));
-    expect(() => readConfig(tmpDir)).toThrow('"database" in void.json must be "pg" or "mysql"');
+  it.each([
+    [{ dialect: 'pg', casing: 'snake_case' }, 'postgresql', 'snake_case'],
+    [{ dialect: 'mysql', casing: 'camelCase' }, 'mysql', 'camelCase'],
+    [{ dialect: 'sqlite', casing: 'snake_case' }, 'sqlite', 'snake_case'],
+    [{ casing: 'snake_case' }, 'sqlite', 'snake_case'],
+    [{ dialect: 'pg' }, 'postgresql', undefined],
+    [{}, 'sqlite', undefined],
+  ])('accepts the object form %j', (database, dialect, casing) => {
+    setup(JSON.stringify({ database }));
+    const config = readConfig(tmpDir);
+    expect(config.database).toEqual(database);
+    expect(getDatabaseDialect(config)).toBe(dialect);
+    expect(getDatabaseCasing(config)).toBe(casing);
     cleanup();
+  });
+
+  it.each([
+    ['mariadb', '"database" in void.json must be "pg", "mysql" or an object'],
+    [1, '"database" in void.json must be "pg", "mysql" or an object'],
+    [['pg'], '"database" in void.json must be "pg", "mysql" or an object'],
+    [{ dialect: 'mariadb' }, '"database.dialect" in void.json must be "sqlite", "pg" or "mysql"'],
+    [
+      { dialect: 'postgresql' },
+      '"database.dialect" in void.json must be "sqlite", "pg" or "mysql"',
+    ],
+    [{ casing: 'snake' }, '"database.casing" in void.json must be "snake_case" or "camelCase"'],
+    [{ casing: 'preserve' }, '"database.casing" in void.json must be "snake_case" or "camelCase"'],
+    [
+      { dialect: 'pg', url: 'x' },
+      "Unknown key 'database.url' in void.json. Valid: dialect, casing.",
+    ],
+  ])('rejects %j', (database, message) => {
+    setup(JSON.stringify({ database }));
+    expect(() => readConfig(tmpDir)).toThrow(message);
+    cleanup();
+  });
+
+  it('writes the string form unless a casing is set', () => {
+    expect(databaseConfigValue('sqlite', undefined)).toBeUndefined();
+    expect(databaseConfigValue('postgresql', undefined)).toBe('pg');
+    expect(databaseConfigValue('mysql', undefined)).toBe('mysql');
+    expect(databaseConfigValue('sqlite', 'snake_case')).toEqual({ casing: 'snake_case' });
+    expect(databaseConfigValue('postgresql', 'snake_case')).toEqual({
+      dialect: 'pg',
+      casing: 'snake_case',
+    });
+  });
+
+  it('schema.json database matches runtime validation', () => {
+    const schema = JSON.parse(readFileSync(join(import.meta.dirname, '../../schema.json'), 'utf8'));
+    const [shorthand, object] = schema.properties.database.oneOf;
+    expect(shorthand.enum).toEqual(['pg', 'mysql']);
+    expect(Object.keys(object.properties)).toEqual(['dialect', 'casing']);
+    expect(object.properties.dialect.enum).toEqual(['sqlite', 'pg', 'mysql']);
+    expect(object.properties.casing.enum).toEqual(['snake_case', 'camelCase']);
+    expect(object.additionalProperties).toBe(false);
   });
 });
 

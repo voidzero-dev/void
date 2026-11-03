@@ -41,6 +41,7 @@ import {
   platformAuthSettings,
 } from '../../src/schema.ts';
 import type { DeployEvent } from '../../src/types.ts';
+import { WORKER_UPLOAD_OUT_OF_TIME } from '../../src/worker-upload.ts';
 import {
   createTestBuild,
   clearTables,
@@ -1042,6 +1043,53 @@ describe('durable execution claim and revocation', () => {
       events: [],
     });
   });
+
+  it.each([
+    { elapsedMs: 500_000, uploads: 1 },
+    { elapsedMs: 560_000, uploads: 0 },
+  ])(
+    'ends the Worker upload at the run deadline after $elapsedMs ms of the run',
+    async ({ elapsedMs, uploads }) => {
+      queuedEnv.DISPATCH = {
+        get: () => ({ fetch: async () => Response.json({ ready: true }) }),
+      } as unknown as DispatchNamespace;
+      const now = Date.now.bind(Date);
+      let offset = 0;
+      let uploadCalls = 0;
+      mockCfApi({
+        uploadWorker: () => {
+          uploadCalls++;
+          // The attempt fails after 45 seconds, leaving less than one more
+          // attempt before the run deadline.
+          offset += 45_000;
+          throw new TypeError('fetch failed');
+        },
+      });
+      const response = await post(crypto.randomUUID(), {
+        ...payload(),
+        manifest: { version: 3, assetManifestVersion: 2, bindings: {}, type: 'void' },
+        workerFiles: { 'index.js': btoa('export default {};') },
+      });
+      const id = response.headers.get('x-void-deployment-id')!;
+      const list = env.STATIC_ASSETS_R2.list.bind(env.STATIC_ASSETS_R2);
+      vi.spyOn(env.STATIC_ASSETS_R2, 'list').mockImplementation(async (options) => {
+        // The run spent this long before it read its staged modules.
+        offset ||= elapsedMs;
+        return list(options);
+      });
+      vi.spyOn(Date, 'now').mockImplementation(() => now() + offset);
+
+      await run(id);
+
+      expect(uploadCalls).toBe(uploads);
+      expect(await env.db.select().from(deployments)).toMatchObject([{ id, status: 'failed' }]);
+      expect((await getDeploymentOperation(env.db, id))?.events.at(-1)?.event).toMatchObject({
+        event: 'error',
+        step: 'worker_upload',
+        ...(uploads === 0 ? { message: WORKER_UPLOAD_OUT_OF_TIME } : {}),
+      });
+    },
+  );
 
   it('claims concurrent duplicate Queue messages once and acknowledges later duplicates', async () => {
     const id = await admit();

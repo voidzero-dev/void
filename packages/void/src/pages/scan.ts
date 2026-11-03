@@ -1,22 +1,31 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join, dirname, basename, extname } from 'pathslash';
+import { existsSync } from 'node:fs';
+import { join, dirname, basename, extname, toSlash } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
 import { voidWarn } from '../log.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import { parseRouteFilename } from '../router/parse-filename.ts';
+import {
+  isRouteEnabledForEnvironment,
+  parseRouteFilename,
+  type RouteEnvironment,
+} from '../router/parse-filename.ts';
+import { bindingNames } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
   isLiteral,
+  moduleExportName,
   type AstExportNamedDeclaration,
   type AstFunctionDeclaration,
   type AstNode,
   type AstProgram,
   type AstVariableDeclaration,
 } from '../shared/ast.ts';
+import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
+import { deriveFromSource } from '../shared/source-analysis-cache.ts';
 import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
-import { scriptBlocks } from './island-imports.ts';
+import { MARKDOWN_SCRIPT_RE, scriptBlocks } from './island-imports.ts';
 import { resolveNamedLayout } from './layout-resolution.ts';
+import { patternToRegex } from './manifest.ts';
 import type {
   ExplicitBoolean,
   PageDefinition,
@@ -29,12 +38,13 @@ import type {
 } from './types.ts';
 
 const COMPONENT_EXTENSIONS = ['vue', 'tsx', 'jsx', 'svelte', 'md'];
-const SERVER_EXTENSIONS = ['ts', 'tsx', 'js', 'mjs', 'mts'];
 const PAGE_METHODS = new Set(['loader', 'action', 'actions']);
 export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 
 /** Layout paths already reported; a dev server rescans pages on every file change. */
 const warnedLayoutPaths = new Set<string>();
+/** Unreachable pages already reported, for the same reason. */
+const warnedShadowedPages = new Set<string>();
 
 type PageRenderingSource = {
   componentPath: string;
@@ -47,7 +57,15 @@ type PageRenderingSource = {
   hasGetPrerenderPaths?: boolean;
 };
 
-type PageScanOptions = { output?: 'server' | 'static'; paths?: ProjectPaths; pagesDir?: string };
+type PageScanOptions = {
+  output?: 'server' | 'static';
+  paths?: ProjectPaths;
+  pagesDir?: string;
+  /** Report pages that share a route. Off when another framework owns pages/ (Nuxt nests users.vue and users/index.vue). */
+  checkRoutes?: boolean;
+  /** Keep only pages for this environment (`.dev` / `.prod` suffix). Unset keeps every page. */
+  environment?: RouteEnvironment;
+};
 
 type ResolvedPageRendering = {
   ssrMode: SsrMode;
@@ -122,15 +140,15 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
     if (declaration?.type === 'VariableDeclaration') {
       const variables = declaration as AstVariableDeclaration;
       for (const variable of variables.declarations ?? []) {
-        if (!isIdentifier(variable.id)) {
-          continue;
+        for (const name of bindingNames(variable.id)) {
+          if (PAGE_METHODS.has(name)) {
+            metadata.methods.push(name);
+          } else if (name === 'getPrerenderPaths') {
+            metadata.hasGetPrerenderPaths = true;
+          }
         }
-        const name = variable.id.name;
-        if (PAGE_METHODS.has(name)) {
-          metadata.methods.push(name);
-        } else if (name === 'getPrerenderPaths') {
-          metadata.hasGetPrerenderPaths = true;
-        } else if (variables.kind === 'const') {
+        if (isIdentifier(variable.id) && variables.kind === 'const') {
+          const name = variable.id.name;
           if (name === 'revalidate') {
             const value = readLiteral(variable.init);
             if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
@@ -155,12 +173,13 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
       }
     }
     for (const specifier of exported.specifiers ?? []) {
-      if (specifier.exportKind === 'type' || !isIdentifier(specifier.exported)) {
+      const name = moduleExportName(specifier.exported);
+      if (specifier.exportKind === 'type' || name === undefined) {
         continue;
       }
-      if (PAGE_METHODS.has(specifier.exported.name)) {
-        metadata.methods.push(specifier.exported.name);
-      } else if (specifier.exported.name === 'getPrerenderPaths') {
+      if (PAGE_METHODS.has(name)) {
+        metadata.methods.push(name);
+      } else if (name === 'getPrerenderPaths') {
         metadata.hasGetPrerenderPaths = true;
       }
     }
@@ -197,6 +216,31 @@ function resolvePageRendering(
   return { ssrMode, prerenderMode, renderMode, shouldPrerender };
 }
 
+/**
+ * The environment a file under pages/ is limited to, read from its name the way
+ * scanPages does: `home.dev.tsx`, `home.dev.island.vue` and `home.dev.server.ts`
+ * give 'dev'. Files the scanner skips (`_` segments, other extensions) give null.
+ */
+export function pageFileEnvironment(relativePath: string): RouteEnvironment | null {
+  const segments = toSlash(relativePath).split('/');
+  if (segments.some((segment) => segment.startsWith('_'))) {
+    return null;
+  }
+  const file = segments[segments.length - 1];
+  const ext = extname(file);
+  let base = basename(file, ext);
+  if (ROUTE_EXTENSIONS_SET.has(ext) && base.endsWith('.server')) {
+    base = base.slice(0, -'.server'.length);
+  } else if (COMPONENT_EXTENSIONS.includes(ext.slice(1))) {
+    if (base.endsWith('.island')) {
+      base = base.slice(0, -'.island'.length);
+    }
+  } else {
+    return null;
+  }
+  return base.endsWith('.dev') ? 'dev' : base.endsWith('.prod') ? 'prod' : null;
+}
+
 export async function scanPages(root: string, options?: PageScanOptions): Promise<PageScanResult> {
   const pagesDir = options?.pagesDir ?? options?.paths?.pagesDir ?? readProjectPaths(root).pagesDir;
   if (!existsSync(pagesDir)) {
@@ -210,7 +254,8 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   const layouts: Array<LayoutDefinition> = [];
   const namedLayouts: Array<NamedLayoutDefinition> = [];
 
-  for (const file of files) {
+  // Glob traversal order can vary between identical scans. Keep layout inventories stable too.
+  for (const file of files.sort()) {
     const segments = file.split('/');
     // Skip files starting with _ in any segment (except _layouts/)
     if (segments.some((s) => s.startsWith('_') && s !== '_layouts')) {
@@ -219,6 +264,9 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
 
     const ext = extname(file);
     let base = basename(file, ext);
+    if (base.endsWith('.server') && ROUTE_EXTENSIONS_SET.has(ext)) {
+      continue;
+    }
 
     // Detect island suffix (.island.tsx, .island.vue, etc.)
     let island: boolean | undefined;
@@ -260,13 +308,16 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
 
     // Page files — parse as route
-    // parseRouteFilename only strips .ts/.js/.mts/.mjs — convert component
-    // extension to .ts so the parser handles it correctly.
+    // Convert component extensions to .ts so the route parser handles them uniformly.
     // Strip .island suffix before parsing so route patterns are clean.
     const parseName = hasIslandSuffix
       ? file.replace(`.island${ext}`, '.ts')
       : file.replace(ext, '.ts');
     const route = parseRouteFilename(parseName);
+    // Skip pages for the other environment before reading their companion.
+    if (!isRouteEnabledForEnvironment(route, options?.environment)) {
+      continue;
+    }
     const componentId =
       file
         .replace(ext, '')
@@ -274,7 +325,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         .replace(/\/index$/, '')
         .replace(/^index$/, '') || 'index';
 
-    // Check for companion .server.ts — server files never have .island suffix
+    // Check for a server companion — server files never have .island suffix
     let serverPath: string | null = null;
     const methods: Array<string> = [];
     let revalidate: number | undefined;
@@ -282,12 +333,15 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     let ssr: ExplicitBoolean;
     let hasGetPrerenderPaths: boolean | undefined;
     const serverBase = hasIslandSuffix ? file.replace(`.island${ext}`, '') : file.replace(ext, '');
-    for (const serverExt of SERVER_EXTENSIONS) {
+    for (const serverExt of ROUTE_EXTENSIONS) {
       const candidate = `${serverBase}.server.${serverExt}`;
       if (existsSync(join(pagesDir, candidate))) {
         serverPath = candidate;
-        const content = readFileSync(join(pagesDir, candidate), 'utf-8');
-        const metadata = detectPageServerMetadata(content, candidate);
+
+        const metadata = deriveFromSource(join(pagesDir, candidate), 'page-server', (source) =>
+          detectPageServerMetadata(source, candidate),
+        );
+
         methods.push(...metadata.methods);
         revalidate = metadata.revalidate;
         prerender = metadata.prerender;
@@ -319,13 +373,16 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     // Extract frontmatter metadata and layout from .md files, or layout from component files
     let metadata: { title?: string; description?: string } | undefined;
     let layout: string | false | undefined;
+
     if (ext === '.md') {
-      const mdContent = readFileSync(join(pagesDir, file), 'utf-8');
-      metadata = extractFrontmatterMeta(mdContent);
-      layout = extractFrontmatterLayout(mdContent);
+      ({ metadata, layout } = deriveFromSource(join(pagesDir, file), 'page-markdown', (source) => ({
+        metadata: extractFrontmatterMeta(source),
+        layout: extractFrontmatterLayout(source),
+      })));
     } else {
-      const componentContent = readFileSync(join(pagesDir, file), 'utf-8');
-      layout = componentLayout(componentContent, file);
+      layout = deriveFromSource(join(pagesDir, file), 'page-layout', (source) =>
+        componentLayout(source, file),
+      );
     }
 
     pages.push({
@@ -342,8 +399,9 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       ...rendering,
       hasGetPrerenderPaths,
       island,
-      metadata,
+      metadata: metadata ? { ...metadata } : undefined,
       layout,
+      ...(route.env ? { env: route.env } : {}),
     });
   }
 
@@ -359,6 +417,19 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
     return a.pattern.localeCompare(b.pattern);
   });
+
+  if (options?.checkRoutes !== false) {
+    // At most one page per route in each environment. A scan for every
+    // environment checks dev and prod on their own, so a .dev + .prod pair is fine.
+    const environments = options?.environment ? [options.environment] : (['dev', 'prod'] as const);
+    for (const environment of environments) {
+      const live = pages.filter((page) =>
+        isRouteEnabledForEnvironment({ env: page.env ?? null }, environment),
+      );
+      assertOnePagePerRoute(live);
+      warnShadowedPages(pagesDir, live);
+    }
+  }
 
   // Validate: throw when regular pages are under island layouts
   for (const page of pages) {
@@ -402,13 +473,87 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   return { pages, layouts, namedLayouts };
 }
 
-// Same leading-script rule as @void/md's extractScript: a markdown page may open
-// with a <script> block, and its frontmatter starts right after that block.
-const LEADING_SCRIPT_RE = /^<script\b[^>]*>[\s\S]*?<\/script>\s*\n?/;
+function compareText(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
+}
+
+/** Group sorted pages by `key`, keeping only groups with more than one page. */
+function pagesSharing(
+  pages: Array<PageDefinition>,
+  key: (page: PageDefinition) => string,
+): Array<Array<PageDefinition>> {
+  const groups = new Map<string, Array<PageDefinition>>();
+  for (const page of pages) {
+    const group = groups.get(key(page));
+    if (group) {
+      group.push(page);
+    } else {
+      groups.set(key(page), [page]);
+    }
+  }
+  return [...groups.values()].filter((group) => group.length > 1);
+}
+
+/**
+ * Two files for one path have no stable winner: the server and the client can
+ * each pick a different one, and the order can change between runs.
+ */
+function assertOnePagePerRoute(pages: Array<PageDefinition>): void {
+  assertNoneShare(
+    pages,
+    (page) => page.pattern,
+    'pages: Multiple page files resolve to the same route:',
+    'Keep one page file per route and rename or remove the others.',
+  );
+  // index.tsx and index/index.tsx have different routes but the same page id.
+  assertNoneShare(
+    pages,
+    (page) => page.componentId,
+    'pages: Multiple page files resolve to the same page id:',
+    'Rename or remove one of them.',
+  );
+}
+
+function assertNoneShare(
+  pages: Array<PageDefinition>,
+  key: (page: PageDefinition) => string,
+  title: string,
+  hint: string,
+): void {
+  const clashes = pagesSharing(pages, key)
+    .map((group) => ({
+      key: key(group[0]),
+      files: group.map((page) => page.componentPath).sort(compareText),
+    }))
+    .sort((left, right) => compareText(left.key, right.key))
+    .map(
+      (clash) =>
+        `  ${JSON.stringify(clash.key)}: ${clash.files.map((file) => JSON.stringify(file)).join(', ')}`,
+    );
+  if (clashes.length > 0) {
+    throw new Error([title, ...clashes, hint].join('\n'));
+  }
+}
+
+/** Dynamic routes that match the same URLs, such as [id] and [slug]: only the first is ever used. */
+function warnShadowedPages(pagesDir: string, pages: Array<PageDefinition>): void {
+  for (const [used, ...shadowed] of pagesSharing(pages, (page) => patternToRegex(page.pattern))) {
+    for (const page of shadowed) {
+      const key = `${pagesDir}\0${used.componentPath}\0${page.componentPath}`;
+      if (warnedShadowedPages.has(key)) {
+        continue;
+      }
+      warnedShadowedPages.add(key);
+      voidWarn(
+        `pages: Page '${page.componentPath}' (${page.pattern}) is never used: '${used.componentPath}' (${used.pattern}) matches the same URLs first. Remove one of them.`,
+      );
+    }
+  }
+}
 
 /** Return the raw YAML frontmatter of markdown source, after any leading <script> block. */
 function markdownFrontmatter(source: string): string | undefined {
-  const body = source.replace(LEADING_SCRIPT_RE, '');
+  const body = source.replace(MARKDOWN_SCRIPT_RE, '');
   return body.match(/^---\r?\n([\s\S]*?)\r?\n---/)?.[1];
 }
 

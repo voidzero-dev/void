@@ -2,7 +2,9 @@ import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { analyzeApplicationSync } from '../../src/application-analysis.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
+import { readConfig } from '../../src/config.ts';
 import { voidPlugin } from '../../src/index.ts';
 import { inferProjectBindings, detectFramework } from '../../src/plugin-inference.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
@@ -24,6 +26,36 @@ function writeCompatConfig(root: string): void {
 }
 
 describe('inferProjectBindings', () => {
+  it('infers namespace auth use across the project without mistaking fetch aliases for auth', () => {
+    const root = createTempRoot();
+    const file = join(root, 'src/client.ts');
+    writeFileSync(file, 'import { type auth, fetch as authFetch } from "void/client";');
+    expect(inferProjectBindings(root).needsAuth).toBe(false);
+    writeFileSync(file, 'import * as client from "void/client"; client.auth.signOut();');
+    expect(inferProjectBindings(root).needsAuth).toBe(true);
+  });
+
+  it('retains resources used only through destructuring and bracket access', () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'src/handler.ts'),
+      `
+      export const handler = ({ env: { DB, KV } }) => [DB, KV];
+      export const storage = (c) => c.env['STORAGE'];
+    `,
+    );
+    expect(inferProjectBindings(root)).toMatchObject({
+      needsD1: true,
+      needsKV: true,
+      needsR2: true,
+    });
+    expect(inferProjectBindings(root, { bindings: { db: false, kv: false } })).toMatchObject({
+      needsD1: false,
+      needsKV: false,
+      needsR2: true,
+    });
+  });
+
   afterEach(() => {
     while (tempDirs.length > 0) {
       const dir = tempDirs.pop()!;
@@ -56,26 +88,160 @@ describe('inferProjectBindings', () => {
     });
   });
 
-  it('filters route-only bindings for the selected environment', () => {
-    const root = createTempRoot();
-    mkdirSync(join(root, 'routes', 'api'), { recursive: true });
-    writeFileSync(
-      join(root, 'routes', 'api', 'debug.dev.ts'),
-      `
+  it.each(['ts', 'tsx', 'jsx'])(
+    'filters route-only bindings in .%s for the selected environment',
+    (ext) => {
+      const root = createTempRoot();
+      mkdirSync(join(root, 'routes', 'api'), { recursive: true });
+      writeFileSync(
+        join(root, 'routes', 'api', `debug.dev.${ext}`),
+        `
       import { storage } from "void/storage";
       export const GET = async () => Response.json(await storage.list());
       `,
+      );
+      writeFileSync(
+        join(root, 'routes', 'api', `events.dev.ws.${ext}`),
+        "import { defineLiveStream } from 'void/live';",
+      );
+
+      expect(inferProjectBindings(root, undefined, ['routes']).needsR2).toBe(true);
+      expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsR2).toBe(true);
+      expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsLive).toBe(true);
+      const production = inferProjectBindings(root, { environment: 'prod' }, ['routes']);
+      expect(production.needsR2).toBe(false);
+      expect(production.needsLive).toBe(false);
+    },
+  );
+
+  it.each(['tsx', 'jsx'])(
+    'infers JSX bindings from .server.%s companions under sourceDir',
+    (serverExt) => {
+      const root = createTempRoot();
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'src' }));
+      mkdirSync(join(root, 'src/routes'), { recursive: true });
+      mkdirSync(join(root, 'src/pages'), { recursive: true });
+      writeFileSync(
+        join(root, `src/routes/report.prod.${serverExt}`),
+        `import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('report')}</p>;`,
+      );
+      writeFileSync(
+        join(root, `src/pages/report.server.${serverExt}`),
+        `import { storage } from 'void/storage'; export const loader = () => <p>{storage.list()}</p>;`,
+      );
+
+      expect(inferProjectBindings(root, { environment: 'dev' })).toMatchObject({
+        needsKV: false,
+        needsR2: true,
+      });
+      expect(inferProjectBindings(root, { environment: 'prod' })).toMatchObject({
+        needsKV: true,
+        needsR2: true,
+      });
+    },
+  );
+
+  it.each(['', 'src', 'app'])('infers .well-known bindings under sourceDir=%s', (sourceDir) => {
+    const root = createTempRoot();
+    if (sourceDir) {
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir }));
+    }
+    const routesDir = join(root, sourceDir, 'routes', '.well-known');
+    mkdirSync(join(routesDir, '_helpers'), { recursive: true });
+    writeFileSync(
+      join(routesDir, 'status.dev.tsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>{kv.get('status')}</p>;",
     );
     writeFileSync(
-      join(root, 'routes', 'api', 'events.dev.ws.ts'),
-      "import { defineLiveStream } from 'void/live';",
+      join(routesDir, 'status.prod.jsx'),
+      "import { storage } from 'void/storage'; export const GET = () => <p>{storage.list()}</p>;",
+    );
+    writeFileSync(
+      join(routesDir, 'events.dev.ws.jsx'),
+      "import { db } from 'void/db'; export default defineWebSocket({ onMessage: () => <p>{db.select()}</p> });",
+    );
+    writeFileSync(
+      join(routesDir, '_helpers', 'stream.prod.tsx'),
+      "import { defineLiveStream } from 'void/live'; export const Stream = () => <p>Stream</p>;",
     );
 
-    expect(inferProjectBindings(root, undefined, ['routes']).needsR2).toBe(true);
-    expect(inferProjectBindings(root, { environment: 'dev' }, ['routes']).needsR2).toBe(true);
-    const production = inferProjectBindings(root, { environment: 'prod' }, ['routes']);
-    expect(production.needsR2).toBe(false);
-    expect(production.needsLive).toBe(false);
+    expect(inferProjectBindings(root, { environment: 'dev' })).toMatchObject({
+      needsKV: true,
+      needsR2: false,
+      needsD1: true,
+      needsLive: true,
+    });
+    expect(inferProjectBindings(root, { environment: 'prod' })).toMatchObject({
+      needsKV: false,
+      needsR2: true,
+      needsD1: false,
+      needsLive: true,
+    });
+    expect(inferProjectBindings(root)).toMatchObject({
+      needsKV: true,
+      needsR2: true,
+      needsD1: true,
+      needsLive: true,
+    });
+  });
+
+  it('keeps unrelated hidden directories out of .well-known inference', () => {
+    const root = createTempRoot();
+    for (const directory of [
+      'routes/.cache',
+      'routes/.well-known/.cache',
+      'routes/nested/.well-known',
+      'pages/.well-known',
+    ]) {
+      mkdirSync(join(root, directory), { recursive: true });
+      writeFileSync(join(root, directory, 'hidden.tsx'), "import { storage } from 'void/storage';");
+    }
+    writeFileSync(
+      join(root, 'routes/.well-known/status.tsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>Status</p>;",
+    );
+
+    expect(inferProjectBindings(root)).toMatchObject({ needsKV: true, needsR2: false });
+    expect(inferProjectBindings(root, undefined, ['pages']).needsKV).toBe(false);
+  });
+
+  it('infers .well-known bindings in the configured source fallback with custom scan directories', () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ sourceDir: 'app' }));
+    mkdirSync(join(root, 'app/routes/.well-known'), { recursive: true });
+    writeFileSync(
+      join(root, 'app/routes/.well-known/status.prod.jsx'),
+      "import { kv } from 'void/kv'; export const GET = () => <p>Status</p>;",
+    );
+
+    expect(inferProjectBindings(root, { environment: 'prod' }, ['server']).needsKV).toBe(true);
+    expect(inferProjectBindings(root, { environment: 'dev' }, ['server']).needsKV).toBe(false);
+  });
+
+  it.each(['tsx', 'jsx'])('keeps bindings from underscored route helpers in .%s', (ext) => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'routes/_components'), { recursive: true });
+    mkdirSync(join(root, 'routes/components'), { recursive: true });
+    writeFileSync(
+      join(root, `routes/_components/Toolbar.prod.${ext}`),
+      "import { kv } from 'void/kv'; export const Toolbar = () => <p>Toolbar</p>;",
+    );
+    writeFileSync(
+      join(root, `routes/components/_Toolbar.dev.${ext}`),
+      "import { storage } from 'void/storage'; export const Toolbar = () => <p>Toolbar</p>;",
+    );
+    writeFileSync(
+      join(root, `routes/_helper.prod.ws.${ext}`),
+      "import { db } from 'void/db'; export const helper = () => <p>Helper</p>;",
+    );
+
+    for (const environment of ['dev', 'prod'] as const) {
+      expect(inferProjectBindings(root, { environment })).toMatchObject({
+        needsKV: true,
+        needsR2: true,
+        needsD1: true,
+      });
+    }
   });
 
   it('keeps bindings from non-route files with environment-like suffixes', () => {
@@ -83,11 +249,55 @@ describe('inferProjectBindings', () => {
     mkdirSync(join(root, 'routes'), { recursive: true });
     mkdirSync(join(root, 'queues'), { recursive: true });
     writeFileSync(join(root, 'queues', 'sync.dev.ts'), "import { storage } from 'void/storage';");
-    writeFileSync(join(root, 'routes', 'helper.dev.tsx'), "import { kv } from 'void/kv';");
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    writeFileSync(join(root, 'pages', 'helper.dev.server.tsx'), "import { kv } from 'void/kv';");
 
     const result = inferProjectBindings(root, { environment: 'prod' });
     expect(result.needsR2).toBe(true);
     expect(result.needsKV).toBe(true);
+  });
+
+  it('filters Void page files and companions by environment with filterPages', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages/_lib'), { recursive: true });
+    writeFileSync(join(root, 'pages/debug.dev.tsx'), 'export default () => null;');
+    writeFileSync(
+      join(root, 'pages/debug.dev.server.ts'),
+      "import { db } from 'void/db'; export const loader = () => db.select();",
+    );
+    writeFileSync(join(root, 'pages/_lib/x.dev.ts'), "import { kv } from 'void/kv';");
+    const infer = (environment?: 'dev' | 'prod', filterPages = true) =>
+      inferProjectBindings(root, { environment, filterPages }, ['pages']);
+
+    expect(infer('dev').needsD1).toBe(true);
+    expect(infer(undefined).needsD1).toBe(true);
+    // No binding for a feature only a .dev page uses.
+    expect(infer('prod')).toMatchObject({ needsD1: false, needsKV: true });
+    // Framework apps own pages/, so their files are not filtered.
+    expect(infer('prod', false).needsD1).toBe(true);
+
+    const analyze = (environment: 'dev' | 'prod') =>
+      analyzeApplicationSync(root, { config: readConfig(root), environment }).bindings.needsD1;
+    expect(analyze('dev')).toBe(true);
+    expect(analyze('prod')).toBe(false);
+  });
+
+  it('keeps the bindings of .dev page files in a framework app', () => {
+    const root = createTempRoot();
+    mkdirSync(join(root, 'pages'), { recursive: true });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { nuxt: '1.0.0' } }));
+    writeFileSync(join(root, 'pages/debug.dev.vue'), '<template><div /></template>');
+    writeFileSync(
+      join(root, 'pages/debug.dev.server.ts'),
+      "import { db } from 'void/db'; export const loader = () => db.select();",
+    );
+
+    expect(detectFramework(root)?.name).toBe('nuxt');
+    // Nuxt owns pages/, so a .dev file there is not a Void page and is not filtered.
+    expect(
+      analyzeApplicationSync(root, { config: readConfig(root), environment: 'prod' }).bindings
+        .needsD1,
+    ).toBe(true);
   });
 
   it('detects auth from void/client import with auth specifier in src/', () => {
@@ -368,6 +578,7 @@ describe('detectFramework', () => {
     try {
       voidPlugin();
       expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
     } finally {
       cwd.mockRestore();
     }
@@ -391,16 +602,24 @@ describe('detectFramework', () => {
       ) => void;
 
       expect(compatPlugin).toBeTruthy();
-      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
 
       config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
 
-      expect(JSON.parse(readFileSync(join(root, 'void.json'), 'utf-8'))).toEqual({
-        worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE },
-      });
+      // The adapter reads the root Wrangler file by default, so the date and the dev
+      // flags land there, not in a new void.config.ts.
+      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
+      expect(existsSync(join(root, '.void-wrangler.jsonc'))).toBe(false);
       expect(JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8'))).toMatchObject({
         compatibility_date: LATEST_KNOWN_COMPAT_DATE,
+        compatibility_flags: ['nodejs_als'],
       });
+
+      // A second run reads the pinned date and leaves the root file alone.
+      const written = readFileSync(join(root, 'wrangler.jsonc'), 'utf-8');
+      config.call({}, {}, { command: 'serve', mode: 'development' } as import('vite').ConfigEnv);
+      expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toBe(written);
     } finally {
       cwd.mockRestore();
     }
@@ -440,7 +659,7 @@ describe('detectFramework', () => {
     }
   });
 
-  it('persists default void.json compatibility during build startup', () => {
+  it('persists default compatibility in void.config.ts during build startup', () => {
     const root = createTempRoot();
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
@@ -454,7 +673,9 @@ describe('detectFramework', () => {
 
       expect(persistPlugin).toBeTruthy();
       buildStart.call({});
-      expect(JSON.parse(readFileSync(join(root, 'void.json'), 'utf-8'))).toEqual({
+      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
+      expect(readConfig(root)).toEqual({
         worker: { compatibility_date: LATEST_KNOWN_COMPAT_DATE },
       });
     } finally {

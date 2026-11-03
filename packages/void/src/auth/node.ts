@@ -11,7 +11,12 @@ import {
 } from '../runtime/auth-migrations.ts';
 import type { VoidAuthDialect, VoidAuthEnv } from '../runtime/better-auth-shared.ts';
 import { loadLocalEnv } from '../shared/env.ts';
-import { findVoidAuthConfig, loadVoidAuthConfig } from './config.ts';
+import {
+  findVoidAuthConfig,
+  loadVoidAuthConfig,
+  projectAuthConfigImporter,
+  type ModuleImporter,
+} from './config.ts';
 import { resolveVoidAuthMigrationSchema } from './drizzle.ts';
 
 export async function runLocalVoidAuthMigrations(
@@ -25,8 +30,13 @@ export async function runLocalVoidAuthMigrations(
    * shell value counts as unset.
    */
   databaseUrl?: string,
+  /** The dev server's runner, so a restarted server sees the current config. */
+  importModule?: ModuleImporter,
 ): Promise<void> {
-  const authConfig = await loadVoidAuthConfig(configPath);
+  const authConfig = await loadVoidAuthConfig(
+    configPath,
+    importModule ?? projectAuthConfigImporter(root),
+  );
   const runtime = {
     dialect,
     providers: readConfig(root).auth?.providers ?? null,

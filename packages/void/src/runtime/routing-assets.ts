@@ -54,6 +54,7 @@ export type ManifestLoader = (
 ) => Promise<ClientManifest | null>;
 export function createManifestLoader(): ManifestLoader {
   let cached: ClientManifest | null = null;
+  let pending: Promise<ClientManifest | null> | null = null;
   return async (request, env) => {
     if (cached) {
       return cached;
@@ -68,14 +69,21 @@ export function createManifestLoader(): ManifestLoader {
     if (!assets || typeof assets.fetch !== 'function') {
       return null;
     }
-    const response = await assets.fetch(
-      new Request(new URL('/.vite/manifest.json', request.url).toString()),
-    );
-    if (!response.ok) {
-      return null;
-    }
-    cached = (await response.json()) as ClientManifest;
-    return cached;
+    // Concurrent cold requests share one fetch and parse. A missing or failed
+    // manifest is not cached, so a later request retries.
+    pending ??= (async () => {
+      const response = await assets.fetch(
+        new Request(new URL('/.vite/manifest.json', request.url).toString()),
+      );
+      if (!response.ok) {
+        return null;
+      }
+      cached = (await response.json()) as ClientManifest;
+      return cached;
+    })().finally(() => {
+      pending = null;
+    });
+    return pending;
   };
 }
 export type ClientAssetOptions = {

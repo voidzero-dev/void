@@ -100,7 +100,9 @@ Repair recreates missing infrastructure that the installer owns. It does not res
 
 ### Upgrade the platform
 
-Keep the platform runtime current when updating the Void CLI.
+Upgrade the platform before your team updates its CLI. Install the new CLI on the administrator's machine, run the upgrade below, then have the team update.
+
+For apps using `void/sandbox`, add **Account → Containers → Edit** and **Account → Cloudchamber → Edit** to the runtime token. Edit its permissions in Cloudflare, or supply a replacement with `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`. See [Cloudflare API Tokens](/guide/platform/installation/credentials#runtime-token-permissions).
 
 Use the installed CLI's packaged runtime to upgrade:
 
@@ -113,11 +115,11 @@ An upgrade validates the runtime, applies supported pending migrations, deploys 
 
 Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. If credentials are rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
 
-Some upgrades pause application traffic during the cutover to the new version. Traffic resumes after the new version passes its health checks. If an upgrade or another lifecycle command fails after it paused traffic, traffic stays paused until a later run succeeds. To resume:
+Some upgrades pause application traffic until the new version passes health checks. If a command fails while traffic is paused:
 
 1. Run `void platform status <id>` to see the saved progress.
-2. Fix the problem that the error names.
-3. Run the resume command that the CLI printed. It is the same command, with the same runtime.
+2. Fix the reported problem.
+3. Run the printed resume command with the same runtime. Traffic resumes when it succeeds.
 
 ::: details Migration safety, credential rotation, and rollback
 
@@ -145,31 +147,28 @@ Let running rotations finish before you roll back. If an older proxy runs next t
 
 :::
 
+### Change runtime logs {#runtime-logs}
+
+Switch an installed platform between [full and minimal runtime logs](/guide/platform/installation/setup#runtime-logs) with an upgrade:
+
+```sh
+void platform upgrade [id] --runtime-logs minimal
+void platform upgrade [id] --runtime-logs full
+```
+
+Later upgrades keep the setting. The upgrade also changes Workers Logs on the projects' existing deployments. If that step fails, the upgrade still finishes and prints what to run next: `void platform repair [id]` after switching to minimal, or the same upgrade again after switching to full. Records stored before the change are not removed; they expire with Cloudflare's retention.
+
+While runtime logs are minimal, `void platform rollback` refuses a runtime that does not support the setting. Run `void platform upgrade [id] --runtime-logs full` first.
+
 ### Platform Workers changed outside Void {#workers-changed-outside-void}
 
-Void manages the platform's own Workers. Do not change them in the Cloudflare dashboard or with the Cloudflare API. To change the platform, use the Void commands on this page.
+Use Void commands to manage the platform's Workers. If their configuration was changed in Cloudflare, or Void cannot identify the active version, maintenance asks you to approve replacing it. Preview the affected Workers with `--plan`.
 
-`upgrade`, `repair`, `enable`, `rollback`, and `install --resume` deploy the platform Workers again. Before they change a platform Worker or pause traffic, Void finds each platform Worker that:
+Run the printed command in a terminal and review **Replace the configuration of these Workers?** The default is No. Accepting restores Void's configuration, including removing manually added variables. You may see another confirmation with the configuration differences before deployment. Declining that later prompt leaves any resource and database preparation in place.
 
-- was changed in the Cloudflare dashboard or with the Cloudflare API.
-- has an active version without a Void deployment record. This can occur when an earlier run replaced a change made outside Void, and then stopped or failed. If that run stopped during the cutover to the new version, the command first makes the earlier versions active again. Void checks those earlier versions too. A version that an older Void release deployed can also have no record.
+CI and `--yes` runs stop when this approval is needed. Complete the interactive command once, then resume automation. If a Worker uses a gradual deployment, first select one version for 100% of traffic in Cloudflare.
 
-The `--plan` preview of `upgrade`, `repair`, `enable`, and `rollback` shows the same list as a warning.
-
-In a terminal, Void lists these Workers and asks **Replace the configuration of these Workers?** The default answer is No.
-
-- If you answer No, the command stops. No platform Worker changed, and the command did not pause traffic.
-- If you answer Yes, the command continues. First, Void prepares the platform resources and the database. Then, before it pauses traffic or deploys a Worker, the Cloudflare CLI asks you again for each Worker changed in the dashboard or with the API. For a dashboard change, it shows the differences. Void uploads a new version of each of these Workers and does not deploy it yet. For a Worker that has an active version without a Void deployment record, the Cloudflare CLI does not ask again.
-
-If you refuse in the Cloudflare CLI, the command stops. Void does not undo the resource and database changes. No deployment changed, and the command did not pause traffic.
-
-The replacement removes values that Void does not set, for example an `EMAIL_FROM` variable that you added. It also resets values that Void sets, for example `AUTH_REDIRECT_URI`.
-
-Without a terminal, for example in CI, or with `--yes`, the command stops before it changes a platform Worker, and it does not pause traffic. Run the command that Void prints once in a terminal, and answer the questions there. After that run completes, the command works in CI again.
-
-If Void cannot read a platform Worker, the command also stops before it changes a platform Worker or pauses traffic. Run the command again. If a platform Worker has no single version that gets 100% of traffic, for example after a gradual deployment, deploy one version of it to 100% of traffic in the Cloudflare dashboard. Then run the command once in a terminal, so that you can approve the dashboard change.
-
-If an earlier run failed after it paused traffic, traffic stays paused after these stops. To resume traffic, see [Upgrade the platform](#upgrade-the-platform).
+If traffic was already paused by an earlier failed run, follow [Upgrade the platform](#upgrade-the-platform) to resume it.
 
 ### Follow upgrade and rollback progress
 

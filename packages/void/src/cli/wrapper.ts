@@ -17,7 +17,9 @@ import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { voidDbBundlerPlugin } from '../plugin-drizzle.ts';
 import { readProjectPaths } from '../project-paths.ts';
+import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
+import { WORKER_CONDITIONS } from './worker-conditions.ts';
 import { transformWorkerRequireBundle } from './worker-require-transform.ts';
 
 export type WrapperFeatures = {
@@ -25,6 +27,8 @@ export type WrapperFeatures = {
   crons: Array<{ name: string; filePath: string; crons: Array<string> }>;
   /** Queue consumer definitions (from scanQueuesSync). */
   queues: Array<{ name: string; filePath: string; bindingName: string }>;
+  /** Cloudflare queue names chosen by `void deploy --platform cloudflare`. */
+  cloudflareQueueNames?: CloudflareQueueNames;
   /** Whether migrations are present (framework deploys need a /__void/migrate endpoint). */
   hasMigrations?: boolean;
   /** Expose the readiness endpoint used by direct version activation. */
@@ -312,8 +316,6 @@ async function bundleMigrationHandler(
   }
 }
 
-// workerd's conditions, then a browser build's, so packages pick their Worker builds.
-const WORKER_CONDITIONS = ['workerd', 'worker', 'browser', 'module', 'import', 'default'];
 const SQL_WORKER_EXTERNAL = [/^cloudflare:/, /^node:/, /^pgpass$/];
 
 /** pg's workerd socket and its CommonJS pool, resolved from the pg that `fromPath` loads. */
@@ -524,6 +526,9 @@ export async function bundleEntry(root: string, entry: string): Promise<WrapperR
   await build({
     root: tmpDir,
     logLevel: 'silent',
+    // Like prepareBundledBuildOutput: Worker conditions plus the build mode. A deploy
+    // bundle is always a production build, whatever NODE_ENV says.
+    resolve: { conditions: [...WORKER_CONDITIONS, 'production'] },
     build: {
       outDir,
       emptyOutDir: true,
@@ -580,6 +585,8 @@ function generateWrapperSource(
   const lines: Array<string> = [];
   lines.push(WRAPPER_MARKER);
   lines.push(`import original from "./${renamedEntry}";`);
+  // Durable Object, Workflow and entrypoint classes must stay exported from the uploaded module.
+  lines.push(`export * from "./${renamedEntry}";`);
 
   if (features.isr) {
     lines.push('import { handleFrameworkIsr } from "./__void_isr.mjs";');
@@ -739,6 +746,8 @@ function generateWrapperSource(
   }
 
   lines.push('export default {');
+  // Keep the entry's own handlers, such as email or tail; Void's handlers below take precedence.
+  lines.push('  ...original,');
 
   if (needsFetchWrap) {
     lines.push('  fetch: wrappedFetch,');
@@ -832,7 +841,14 @@ function generateHandlersSource(
     }
 
     lines.push('');
-    lines.push(generateQueueResolverSource(features.queues.map((queue) => queue.name)));
+    const queueNames = features.queues.map((queue) => queue.name);
+    const cloudflareNames = features.cloudflareQueueNames;
+    lines.push(
+      generateQueueResolverSource(
+        queueNames,
+        cloudflareNames && queueNames.map((name) => cloudflareQueueName(name, cloudflareNames)),
+      ),
+    );
     lines.push('');
     lines.push(
       scoped
@@ -887,7 +903,12 @@ export async function handleQueueRelay(payload, env, ctx) {
     retryAll(options) { for (const message of messages) message.retry(options); },
   };
   let ok = true;
-  try { await handleQueue(batch, env, ctx); } catch { ok = false; }
+  try {
+    await handleQueue(batch, env, ctx);
+  } catch (error) {
+    console.error(\`[void] Queue handler failed for queue "\${payload.queue}":\`, error);
+    ok = false;
+  }
   return { ok, ...(decisions.size ? { decisions: Object.fromEntries(decisions) } : {}) };
 }`);
   }

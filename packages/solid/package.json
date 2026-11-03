@@ -1,6 +1,6 @@
 {
   "name": "@void/solid",
-  "version": "1.1.11",
+  "version": "1.5.0",
   "description": "SolidJS pages, server rendering, forms, and navigation for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -36,7 +36,7 @@
     "typecheck": "tsc --noEmit --rootDir ../.."
   },
   "dependencies": {
-    "vite-plugin-solid": "^2.11.14"
+    "vite-plugin-solid": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",

@@ -34,12 +34,13 @@ export const PROJECT_PERMISSION_MESSAGES = {
     'Only the project owner can manage deploy tokens. Ask the owner to create or manage a token.',
   'database-url':
     'Only the project owner can view the database connection URL. Ask the owner to share the connection details you need.',
+  'email-alias': 'Only the project owner can set the project email alias. Ask the owner to set it.',
   'owner-suspended':
     "This project's owner account is suspended. Ask the owner to contact the platform administrator to restore access.",
   'not-found':
     'This project could not be found. Check the project ID or refresh your project list.',
 } as const satisfies Record<
-  ProjectCapability | 'tokens' | 'database-url' | 'owner-suspended' | 'not-found',
+  ProjectCapability | 'tokens' | 'database-url' | 'email-alias' | 'owner-suspended' | 'not-found',
   string
 >;
 

@@ -7,9 +7,9 @@
     "dev": "vp dev"
   },
   "dependencies": {
-    "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "vinext": "1.1.0"
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "vinext": "catalog:"
   },
   "devDependencies": {
     "@types/react": "^19.3.0",

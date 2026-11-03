@@ -22,6 +22,10 @@ Void automatically detects which Cloudflare resources your project uses by scann
 
 Auth detection also triggers when importing the `auth` specifier from `void/client` or a framework-specific client subpath such as `void/client/react` (but not when importing only `fetch`).
 
+Static bracket access such as `c.env['KV']` and destructured properties such as
+`const { DB, KV: cache } = c.env` are also detected. For keys chosen at runtime,
+use [explicit binding overrides](#explicit-binding-overrides).
+
 Durable state is inferred from files in `durable-objects/`. For example, `durable-objects/shopping-cart.ts` creates the `SHOPPING_CART` binding, exports `ShoppingCartDurableObject`, and records its migration. See [Durable State](../guide/durable-state.md).
 
 ## Scanned Directories

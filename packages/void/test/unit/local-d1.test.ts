@@ -41,7 +41,7 @@ async function runGeneratedMigrationPlugin(plugins: ReturnType<typeof voidPlugin
   const plugin = plugins.find(({ name }) => name === 'void:migrations');
   expect(plugin).toBeTruthy();
   const configureServer = hookHandler(plugin?.configureServer);
-  await (configureServer as (server: unknown) => Promise<void>).call({}, {});
+  await (configureServer as (server: unknown) => Promise<void>).call({}, { environments: {} });
 }
 
 afterEach(() => {

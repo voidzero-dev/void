@@ -25,8 +25,9 @@ export default defineConfig({
   vite: {
     // These server imports are discovered on the first request. Optimize them
     // up front to avoid serial worker reloads while the smoke server warms up.
+    // drizzle-orm is Void's dependency, not this app's, so name it through void.
     optimizeDeps: {
-      include: ['astro/logger/console', 'drizzle-orm/sqlite-core'],
+      include: ['astro/logger/console', 'void > drizzle-orm/sqlite-core'],
     },
     plugins: [voidPlugin(), vite8AstroDevToolbarCompat()],
   },

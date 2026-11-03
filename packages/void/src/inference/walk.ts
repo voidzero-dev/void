@@ -2,7 +2,8 @@ import { walk } from 'estree-walker';
 import { parseSync } from 'vite';
 import { isIdentifier, isMemberExpression, type AstNode } from '../shared/ast.ts';
 import { staticModuleReferences } from '../shared/module-references.ts';
-import { staticLiteral } from '../shared/static-exports.ts';
+import { staticLiteral, unwrapStaticExpression } from '../shared/static-exports.ts';
+import { CLIENT_MODULES, inferClientAuth } from './client-auth.ts';
 
 export type InferredBindings = {
   needsD1: boolean;
@@ -16,11 +17,17 @@ export type InferredBindings = {
   needsEmail?: boolean;
 };
 
-// SEND_EMAIL is intentionally absent from this regex: Void owns that binding
+// SEND_EMAIL is intentionally absent from inferred bindings: Void owns that binding
 // (managed sends go through __VOID_PROXY/email/send; native Cloudflare deploys
 // add SEND_EMAIL themselves), so the `void/email` import (below) is the
 // sole driver of `needsEmail`.
-const ENV_BINDING_RE = /\benv\s*\.\s*(DB|KV|STORAGE|QUEUE_\w+|AI|SANDBOX)\b/;
+// Comments, bracket access and destructuring can separate env from a binding name.
+// Unicode/hex/octal escapes and string line continuations can also spell these names.
+// Resource keys additionally allow identity escapes such as "D\\B". Ordinary
+// regex escapes like \\s should not force otherwise unrelated files through the AST.
+const ENV_BINDING_RE = /\benv\b|\\(?:u|x|[0-7\r\n\u2028\u2029])/;
+const RESOURCE_BINDING_RE =
+  /\b(?:DB\b|KV\b|STORAGE\b|AI\b|SANDBOX\b|QUEUE_)|\\(?:u|x|[0-7A-Z_\r\n\u2028\u2029])/;
 
 /**
  * Infer which Cloudflare bindings a source file uses.
@@ -50,7 +57,11 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
     return result;
   }
 
-  function recordModuleReference(source: string, statement: string): void {
+  let hasClientModule = false;
+  function recordModuleReference(source: string): void {
+    if (CLIENT_MODULES.has(source)) {
+      hasClientModule = true;
+    }
     switch (source) {
       case 'void/db':
         result.needsD1 = true;
@@ -79,22 +90,11 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
       case 'void/live':
         result.needsLive = true;
         break;
-      case 'void/client':
-      case 'void/client/react':
-      case 'void/client/vue':
-      case 'void/client/svelte':
-      case 'void/client/solid': {
-        // Check if the `auth` specifier is imported (not just `fetch`)
-        if (/\bauth\b/.test(statement)) {
-          result.needsAuth = true;
-        }
-        break;
-      }
     }
   }
 
   for (const reference of staticModuleReferences(parsed, code)) {
-    recordModuleReference(reference.source, code.slice(reference.start, reference.end));
+    recordModuleReference(reference.source);
   }
 
   for (const reference of parsed.module.dynamicImports) {
@@ -106,59 +106,95 @@ export function inferBindingsFromSource(code: string, filename: string): Inferre
         ? staticLiteral(expression.expression as AstNode)
         : undefined;
     if (typeof source === 'string') {
-      recordModuleReference(source, code.slice(reference.start, reference.end));
+      recordModuleReference(source);
     }
   }
 
-  if (!ENV_BINDING_RE.test(code)) {
+  if (hasClientModule) {
+    result.needsAuth ||= inferClientAuth(parsed, code);
+  }
+
+  if (!ENV_BINDING_RE.test(code) || !RESOURCE_BINDING_RE.test(code)) {
     return result;
+  }
+
+  function propertyName(node: AstNode): string | undefined {
+    const key = (node.property ?? node.key) as AstNode | undefined;
+    const name = !node.computed && isIdentifier(key) ? key.name : staticLiteral(key);
+    return typeof name === 'string' ? name : undefined;
+  }
+
+  function isEnv(node: AstNode | undefined): boolean {
+    node = unwrapStaticExpression(node);
+    return (
+      (isIdentifier(node) && node.name === 'env') ||
+      (isMemberExpression(node) && propertyName(node) === 'env')
+    );
+  }
+
+  function recordBinding(name: string | undefined): void {
+    switch (name) {
+      case 'DB':
+        result.needsD1 = true;
+        break;
+      case 'KV':
+        result.needsKV = true;
+        break;
+      case 'STORAGE':
+        result.needsR2 = true;
+        break;
+      case 'AI':
+        result.needsAI = true;
+        break;
+      case 'SANDBOX':
+        result.needsSandbox = true;
+        break;
+      default:
+        if (name?.startsWith('QUEUE_')) {
+          result.needsQueues = true;
+        }
+    }
+  }
+
+  function inspectPattern(pattern: AstNode | undefined, fromEnv = false): void {
+    if (pattern?.type === 'AssignmentPattern') {
+      inspectPattern(pattern.left as AstNode, fromEnv || isEnv(pattern.right as AstNode));
+    } else if (pattern?.type === 'ObjectPattern') {
+      for (const property of (pattern.properties as Array<AstNode> | undefined) ?? []) {
+        if (property.type !== 'Property') {
+          continue;
+        }
+        const name = propertyName(property);
+        if (fromEnv) {
+          recordBinding(name);
+        }
+        inspectPattern(property.value as AstNode, name === 'env');
+      }
+    } else if (pattern?.type === 'ArrayPattern') {
+      for (const element of (pattern.elements as Array<AstNode | undefined> | undefined) ?? []) {
+        inspectPattern(element);
+      }
+    }
   }
 
   walk(parsed.program as unknown as Parameters<typeof walk>[0], {
     enter(node) {
       const current = node as AstNode;
-      if (!isMemberExpression(current)) {
-        return;
-      }
-      if (current.computed) {
-        return;
-      }
-
-      const property = current.property;
-      if (!isIdentifier(property)) {
-        return;
-      }
-
-      // Check if the object is *.env (i.e., a MemberExpression with .env)
-      const obj = current.object;
-      const isViaContextEnv =
-        isMemberExpression(obj) && isIdentifier(obj.property) && obj.property.name === 'env';
-      const isDirectEnv = isIdentifier(obj) && obj.name === 'env';
-      if (!isViaContextEnv && !isDirectEnv) {
-        return;
-      }
-
-      switch (property.name) {
-        case 'DB':
-          result.needsD1 = true;
-          break;
-        case 'KV':
-          result.needsKV = true;
-          break;
-        case 'STORAGE':
-          result.needsR2 = true;
-          break;
-        case 'AI':
-          result.needsAI = true;
-          break;
-        case 'SANDBOX':
-          result.needsSandbox = true;
-          break;
-        default:
-          if (property.name.startsWith('QUEUE_')) {
-            result.needsQueues = true;
-          }
-          break;
+      if (isMemberExpression(current) && isEnv(current.object)) {
+        recordBinding(propertyName(current));
+      } else if (current.type === 'VariableDeclarator' || current.type === 'AssignmentExpression') {
+        inspectPattern(
+          (current.id ?? current.left) as AstNode,
+          isEnv((current.init ?? current.right) as AstNode),
+        );
+      } else if (
+        ['FunctionDeclaration', 'FunctionExpression', 'ArrowFunctionExpression'].includes(
+          current.type,
+        )
+      ) {
+        for (const parameter of (current.params as Array<AstNode> | undefined) ?? []) {
+          inspectPattern(parameter);
+        }
       }
     },
   });

@@ -4,7 +4,7 @@ Create a full-stack Vite app with [Void](https://void.cloud), ready for local de
 
 ## Getting Started
 
-Use Node.js 24.21.0 or later:
+Use Node.js 24.22+ or 26.12+:
 
 ```sh
 npm create void@latest my-app

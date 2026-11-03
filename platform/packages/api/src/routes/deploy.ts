@@ -163,18 +163,19 @@ app.post('/:id/deploy/upload-urls', async (context) => {
           context.get('companyIdentity'),
           true,
         );
-        const approved = Object.values(approval.data.artifact!.assetManifest);
+        // JSON preserves tuple boundaries and field types, including malformed
+        // approval metadata that must not match a valid upload through coercion.
+        function assetApprovalKey(
+          asset: Pick<UploadUrlsRequestAsset, 'blake3' | 'md5' | 'size'>,
+        ): string {
+          return JSON.stringify([asset.blake3, asset.md5, asset.size]);
+        }
+        const approved = new Set(
+          Object.values(approval.data.artifact!.assetManifest).map(assetApprovalKey),
+        );
         if (
           approval.data.projectId !== projectId ||
-          assets.some(
-            (asset) =>
-              !approved.some(
-                (entry) =>
-                  entry.blake3 === asset.blake3 &&
-                  entry.md5 === asset.md5 &&
-                  entry.size === asset.size,
-              ),
-          )
+          assets.some((asset) => !approved.has(assetApprovalKey(asset)))
         ) {
           throw new OAuthError(
             'access_denied',
@@ -486,6 +487,7 @@ export async function executeQueuedDeployment(
   env: ApiEnv['Bindings'],
   db: Db,
   operation: DeploymentOperation,
+  deadline: number,
 ): Promise<void> {
   const actor = await getUser(db, operation.actor_id);
   if (!actor) {
@@ -565,7 +567,7 @@ export async function executeQueuedDeployment(
       if (operation.build_id) {
         context.set('deployBuild', operation.build_id);
       }
-      context.set('deploymentExecution', { operation, workerFiles });
+      context.set('deploymentExecution', { operation, workerFiles, deadline });
       await next();
     })
     .post('/:id/deploy', handleManifestOnlyDeploy);
