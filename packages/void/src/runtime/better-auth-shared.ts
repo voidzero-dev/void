@@ -333,6 +333,36 @@ function bareCacheDirectives(policy: string | null): Set<string> {
  * `s-maxage` and a field-scoped `private` give way to a leading `private`.
  * A policy that is already private or no-store stays as it is.
  */
+/**
+ * True when the response sets a Better Auth cookie, such as the session from a
+ * sign-in reached through a rewrite or fallback. A cookie the app sets itself
+ * keeps the route's own cache policy.
+ */
+function setsAuthCookie(
+  headers: Headers,
+  advanced:
+    | { cookiePrefix?: string; cookies?: Record<string, { name?: string } | undefined> }
+    | undefined,
+): boolean {
+  const prefix = `${advanced?.cookiePrefix || 'better-auth'}.`;
+  const custom = new Set<string>();
+  for (const cookie of Object.values(advanced?.cookies ?? {})) {
+    if (cookie?.name) {
+      custom.add(cookie.name);
+    }
+  }
+  return headers.getSetCookie().some((value) => {
+    const equals = value.indexOf('=');
+    let name = (equals === -1 ? value : value.slice(0, equals)).trim();
+    for (const secure of ['__Secure-', '__Host-']) {
+      if (name.startsWith(secure)) {
+        name = name.slice(secure.length);
+      }
+    }
+    return name.startsWith(prefix) || custom.has(name);
+  });
+}
+
 export function privateCachePolicy(policy: string | null): string {
   const directives = splitCacheDirectives(policy ?? '');
   if (directives.length === 0) {
@@ -632,7 +662,7 @@ export function createVoidAuthRuntime(
       state !== null ||
         credentialed ||
         result.headers?.has('set-cookie') === true ||
-        c.res.headers.has('set-cookie') ||
+        setsAuthCookie(c.res.headers, auth.options.advanced) ||
         c.req.path === '/api/auth' ||
         c.req.path.startsWith('/api/auth/'),
       isUnchangedStaticAsset(c),

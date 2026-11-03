@@ -21,6 +21,7 @@ import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
+import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -64,6 +65,9 @@ export function createRoutingRuntime(
 ): RoutingRuntime {
   const originalUrls = new WeakMap<Request, URL>();
   const fallbackHandled = new WeakSet<Request>();
+  // Outer requests a fallback answered. The fallback already applied the
+  // destination's header rules, as edge routing and platform dispatch do.
+  const fallbackServed = new WeakSet<Request>();
   const warnedPatterns = new Set<string>();
   const requestContext = new AsyncLocalStorage<RequestContextStore>();
   const assetExtensions = options.blockedAssetExtensions ?? ASSET_EXTENSIONS;
@@ -135,6 +139,7 @@ export function createRoutingRuntime(
         keepActionKey(c.req.raw, request, search);
         if (fallback) {
           fallbackHandled.add(request);
+          fallbackServed.add(c.req.raw);
         }
         const response = await dispatch(request, c);
         const kind = rule.force === true ? 'rewrite' : 'fallback';
@@ -231,6 +236,9 @@ export function createRoutingRuntime(
     },
     headerMiddleware: (rules) => async (c, next) => {
       await next();
+      if (fallbackServed.has(c.req.raw)) {
+        return;
+      }
       const pathname = new URL(c.req.url).pathname;
       const matched: Array<[string, string]> = [];
       for (const rule of rules) {
@@ -247,8 +255,15 @@ export function createRoutingRuntime(
       if (!matched.length) {
         return;
       }
+      const asset = isUnchangedStaticAsset(c);
       for (const [name, value] of matched) {
-        c.header(name, value);
+        // A Set-Cookie rule adds its cookie and keeps the response's own cookies.
+        c.header(name, value, { append: name.toLowerCase() === 'set-cookie' });
+      }
+      if (asset) {
+        // A configured Cache-Control is the file's policy from here on, so auth
+        // still treats the response as a static file and only makes it private.
+        markStaticAsset(c, c.res);
       }
     },
     applyFallback: (c, rules) =>

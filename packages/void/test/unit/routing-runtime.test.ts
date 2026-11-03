@@ -251,6 +251,48 @@ describe('typed HTTP execution', () => {
     expect(other.headers.get('cache-control')).toBe('private, no-store');
     expect(other.headers.has('x-robots-tag')).toBe(false);
   });
+  it('adds a Set-Cookie rule next to the response cookies', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(
+      runtime.headerMiddleware([{ pattern: '/*', headers: [['Set-Cookie', 'consent=1; Path=/']] }]),
+    );
+    app.get('/sign-in', (c) => {
+      c.header('Set-Cookie', 'session=abc; Path=/; HttpOnly', { append: true });
+      return c.text('ok');
+    });
+    const response = await app.request('https://app.test/sign-in');
+    expect(response.headers.getSetCookie()).toEqual([
+      'session=abc; Path=/; HttpOnly',
+      'consent=1; Path=/',
+    ]);
+  });
+  it('does not give a fallback page the rules of the missing path', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([
+        {
+          pattern: '/assets/*',
+          headers: [['Cache-Control', 'public, max-age=31536000, immutable']],
+        },
+      ]),
+    );
+    app.get(
+      '/index.html',
+      (c) => new Response('<html></html>', { headers: { 'Cache-Control': 'no-cache' } }),
+    );
+    app.notFound(
+      async (c) =>
+        (await runtime.applyFallback(c, [
+          { source: '/*', destination: '/index.html', status: 200 },
+        ])) ?? c.text('missing', 404),
+    );
+    const response = await app.fetch(new Request('https://app.test/assets/old-chunk.js'));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-cache');
+  });
   it('merges header rules in order after recursive fallback and stops fallback cycles', async () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
@@ -270,7 +312,8 @@ describe('typed HTTP execution', () => {
     );
     const response = await app.fetch(new Request('https://app.test/a'));
     expect(response.status).toBe(404);
-    expect(response.headers.get('x-rule')).toBe('two');
+    // Only the destination's rules apply, as in edge routing and platform dispatch.
+    expect(response.headers.get('x-rule')).toBe('one');
     expect(response.headers.get('X-Void-Routing')).toBe('fallback[/a] -> /b (unknown)');
     expect(response.headers.get('X-Void-No-Match')).toBe('1');
   });

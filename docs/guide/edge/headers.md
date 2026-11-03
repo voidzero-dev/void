@@ -23,7 +23,8 @@ Define custom response headers in [`void.config.ts`](../../reference/config) usi
 - **Pattern keys** start with `/`. `*` matches any characters including `/`.
 - **Header values** use `Name: value` format. The value may contain colons.
 - All matching rules are merged. When multiple rules set the same header name, the **last match wins**.
-- User-defined `Cache-Control` overrides the built-in default. The default still applies when no rule matches. Authentication can still require private or no-store caching for credentialed responses, auth endpoints, and responses that set cookies.
+- User-defined `Cache-Control` overrides the built-in default. The default still applies when no rule matches.
+- With [authentication](../auth.md), responses to requests that send cookies or credentials stay private, and auth endpoints stay uncached, during local development, with `void deploy --platform cloudflare`, and on [other runtimes](../deployment.md#other-runtimes). On a [Void platform](../deployment.md#deploy-to-a-team-platform), a `Cache-Control` rule replaces the app's value, so do not match signed-in pages or `/api/auth/*` with a public cache rule.
 - Rules apply to matching error responses too, including 404 responses. An immutable cache rule can therefore cache a missing file. Use immutable caching only for URLs that change when their content changes.
 
 ## Scope

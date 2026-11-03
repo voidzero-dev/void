@@ -30,6 +30,7 @@ function createApp(sessionResult: { response: AuthState | null; headers: Headers
   mocks.getSession.mockResolvedValue(sessionResult);
   mocks.betterAuth.mockReturnValue({
     api: { getSession: mocks.getSession },
+    options: {},
   });
 
   const app = new Hono();
@@ -457,7 +458,7 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
       cookie: true,
       policy: 'public, max-age=60',
       refresh: false,
-      expected: 'no-store',
+      expected: 'private, max-age=60',
     },
     {
       name: 'unchanged credentialed policy',
@@ -504,11 +505,36 @@ describe('runVoidAuthMiddleware static asset cache policy', () => {
         env,
       );
       expect(response.headers.get('cache-control')).toBe(expected);
+      expect(response.headers.get('pragma')).toBeNull();
       expect(response.headers.get('x-frame-options')).toBe('DENY');
       expect(response.headers.getSetCookie()).toEqual(
         refresh ? ['session=rotated; Path=/; HttpOnly'] : [],
       );
       await expect(response.text()).resolves.toBe('export {}');
+    },
+  );
+
+  it.each([
+    { name: 'an app cookie', cookie: 'theme=dark; Path=/', expected: 'private, max-age=300' },
+    {
+      name: 'a Better Auth cookie',
+      cookie: '__Secure-better-auth.session_token=abc; Path=/; HttpOnly',
+      expected: 'no-store',
+    },
+  ])(
+    'decides the cache policy of an anonymous response that sets $name',
+    async ({ cookie, expected }) => {
+      const app = createApp({ response: null, headers: sessionLookup() });
+      app.get(
+        '/prefs',
+        () =>
+          new Response('ok', {
+            headers: { 'cache-control': 'private, max-age=300', 'set-cookie': cookie },
+          }),
+      );
+      const response = await app.request('http://localhost/prefs', {}, env);
+      expect(response.headers.get('cache-control')).toBe(expected);
+      expect(response.headers.getSetCookie()).toEqual([cookie]);
     },
   );
 
