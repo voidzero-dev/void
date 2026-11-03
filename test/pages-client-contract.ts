@@ -131,6 +131,54 @@ export function registerSharedClientTests({
     }
   });
 
+  it('Link marks the link to the current page', async ({ expect }) => {
+    const page = await newPage();
+    // Users uses activeMatch="prefix" in every playground layout; Home matches exactly.
+    const state = (html: string, href: string) =>
+      page.evaluate(
+        ({ html, href }) => {
+          const root = html ? new DOMParser().parseFromString(html, 'text/html') : document;
+          const link = root.querySelector(`nav a[href="${href}"]`);
+          if (!link) {
+            throw new Error(`No nav link to ${href}`);
+          }
+          return [link.getAttribute('aria-current'), link.getAttribute('data-void-active')];
+        },
+        { html, href },
+      );
+    const navLinks = (html = '') => Promise.all([state(html, '/'), state(html, '/users')]);
+    try {
+      await page.goto(BASE + '/users');
+      const serverHtml = await (await page.request.get(BASE + '/users/1')).text();
+      expect(await navLinks(serverHtml)).toEqual([
+        [null, null],
+        [null, ''],
+      ]);
+
+      await waitForHydration(page);
+      expect(await navLinks()).toEqual([
+        [null, null],
+        ['page', ''],
+      ]);
+
+      await page.click('a[href="/users/1"]');
+      await page.waitForSelector('nav a[href="/users"][data-void-active]:not([aria-current])');
+      expect(await navLinks()).toEqual([
+        [null, null],
+        [null, ''],
+      ]);
+
+      await page.click('nav a[href="/"]');
+      await page.waitForSelector('nav a[href="/"][aria-current="page"]');
+      expect(await navLinks()).toEqual([
+        ['page', ''],
+        [null, null],
+      ]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('restores scroll after browser Back from an ordinary document link', async ({ expect }) => {
     const page = await newPage();
     const errors: Array<string> = [];

@@ -9,7 +9,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           Home
         </Link>{' '}
         |{' '}
-        <Link href="/users" prefetch>
+        <Link href="/users" activeMatch="prefix" prefetch>
           Users
         </Link>{' '}
         |{' '}

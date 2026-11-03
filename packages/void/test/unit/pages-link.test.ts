@@ -2,10 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import type { VoidRouter } from '../../src/pages/client.ts';
 import {
   handleLinkClick,
+  linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
+  type BaseLinkProps,
+  type LinkActiveMatch,
 } from '../../src/pages/link.ts';
 
 function createRouter() {
@@ -94,6 +97,69 @@ describe('linkPrefetchStrategies', () => {
 
   it('disables prefetch for document reloads', () => {
     expect(linkPrefetchStrategies({ prefetch: 'mount', reloadDocument: true })).toEqual([]);
+  });
+});
+
+describe('linkActiveAttributes', () => {
+  const page = { 'aria-current': 'page', 'data-void-active': '' };
+  const nested = { 'data-void-active': '' };
+
+  function attributes(
+    url: string,
+    props: Pick<BaseLinkProps, 'href' | 'method' | 'data'>,
+    match?: LinkActiveMatch,
+  ) {
+    const router = { url: new URL(url, 'https://app.test') } as VoidRouter;
+    return linkActiveAttributes(router, resolveLink(props), match);
+  }
+
+  it('marks only the current page by default', () => {
+    expect(attributes('/admin/users', { href: '/admin/users' })).toEqual(page);
+    expect(attributes('/admin/users/42', { href: '/admin/users' })).toEqual({});
+    expect(attributes('/admin', { href: '/admin/users' })).toEqual({});
+  });
+
+  it('also marks nested pages by whole segment with prefix', () => {
+    expect(attributes('/admin/users', { href: '/admin/users' }, 'prefix')).toEqual(page);
+    expect(attributes('/admin/users/42', { href: '/admin/users' }, 'prefix')).toEqual(nested);
+    expect(attributes('/admin/users/42/edit', { href: '/admin/users' }, 'prefix')).toEqual(nested);
+    expect(attributes('/admin/users', { href: '/admin/' }, 'prefix')).toEqual(nested);
+    expect(attributes('/admin/users-archive', { href: '/admin/users' }, 'prefix')).toEqual({});
+    expect(attributes('/admin', { href: '/admin/users' }, 'prefix')).toEqual({});
+  });
+
+  it('only matches / on the home page', () => {
+    expect(attributes('/', { href: '/' }, 'prefix')).toEqual(page);
+    expect(attributes('/admin/users', { href: '/' }, 'prefix')).toEqual({});
+  });
+
+  it('ignores the query and hash', () => {
+    expect(attributes('/inbox?page=2', { href: '/inbox' })).toEqual(page);
+    expect(attributes('/settings?tab=billing', { href: '/settings?tab=profile' })).toEqual(page);
+    expect(attributes('/search', { href: '/search', data: { q: 'void' } })).toEqual(page);
+    expect(attributes('/docs', { href: '/docs#install' })).toEqual(page);
+    expect(attributes('/docs#install', { href: '#usage' })).toEqual(page);
+  });
+
+  it('compares paths the way the router matches them', () => {
+    expect(attributes('/admin', { href: '/Admin' })).toEqual({});
+    expect(attributes('/admin', { href: '/admin/' })).toEqual({});
+    expect(attributes('/admin/', { href: '/admin' })).toEqual({});
+    expect(attributes('/caf%C3%A9', { href: '/café' })).toEqual(page);
+    expect(attributes('/caf%c3%a9', { href: '/caf%C3%A9' })).toEqual(page);
+  });
+
+  it('resolves relative and absolute hrefs against the current URL', () => {
+    expect(attributes('/admin/users/42', { href: '42' })).toEqual(page);
+    expect(attributes('/admin/users/42', { href: '../users' }, 'prefix')).toEqual(nested);
+    expect(attributes('/admin', { href: 'https://app.test/admin' })).toEqual(page);
+    expect(attributes('/', { href: 'https://example.com/' })).toEqual({});
+    expect(attributes('/', { href: 'http://app.test/' })).toEqual({});
+  });
+
+  it('never marks links that are not GET or have no router', () => {
+    expect(attributes('/logout', { href: '/logout', method: 'post' })).toEqual({});
+    expect(linkActiveAttributes(null, resolveLink({ href: '/' }))).toEqual({});
   });
 });
 
