@@ -3,9 +3,7 @@ import type { FormResetOptions } from './form-reset.ts';
 import type { VisitOptions } from './navigation-engine.ts';
 
 export type FormMethod = 'post' | 'put' | 'patch' | 'delete';
-export type FormModel<Args extends Array<unknown> = []> = {
-  readonly pending: boolean;
-  readonly error: VoidActionError | null;
+export type FormModel<Args extends Array<unknown> = []> = Pick<FormStatus, 'pending' | 'error'> & {
   readonly errors: Readonly<Record<string, string | undefined>>;
 } & { [K in FormMethod]: (...args: Args) => void | Promise<void> };
 
@@ -24,27 +22,34 @@ export type FormStatus = {
 /** Field-keyed validation messages; a field without an error is absent. */
 export type FormErrors<TData> = Partial<Record<keyof TData & string, string>>;
 /**
- * The `useForm()` contract every adapter shares. Field names are typed from the action body.
- * `data` and `errors` default to editable in place, as reactive frameworks expect; adapters
- * whose state changes go through setters pass read-only types. Adapters add submit methods.
+ * How an adapter's apps change `data` and `errors`, following its framework's idiom.
+ * `'in-place'`: apps edit them directly (Vue, Svelte).
+ * `'setters'`: they are read-only and change through adapter setters such as `setData` (React, Solid).
  */
-export type FormState<TData, TErrors = FormErrors<TData>> = FormStatus & {
-  readonly data: TData;
-  readonly errors: TErrors;
-  reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
-  reset(...fields: ReadonlyArray<keyof TData & string>): void;
-  setError(field: keyof TData & string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<keyof TData & string>): void;
-  clearError(): void;
-};
+type FormEditing = 'in-place' | 'setters';
+type FormFields<TData, TErrors, TEditing extends FormEditing> = [TEditing] extends ['setters']
+  ? { readonly data: Readonly<TData>; readonly errors: Readonly<TErrors> }
+  : { readonly data: TData; readonly errors: TErrors };
 /**
- * The `useIslandForm()` contract every adapter shares. Submit methods take the action URL.
- * As with `FormState`, `data` and `errors` default to editable in place.
+ * The `useForm()` contract every adapter shares. Field names are typed from the action body.
+ * Adapters add their submit methods.
  */
-export type IslandFormState<TData, TErrors = FormErrors<Record<string, unknown>>> = FormStatus &
+export type FormState<TData, TEditing extends FormEditing> = FormStatus &
+  FormFields<TData, FormErrors<TData>, TEditing> &
   Readonly<{
-    data: TData;
-    errors: TErrors;
+    reset(options: FormResetOptions, ...fields: ReadonlyArray<keyof TData & string>): void;
+    reset(...fields: ReadonlyArray<keyof TData & string>): void;
+    setError(field: keyof TData & string, message: string): void;
+    clearErrors(...fields: ReadonlyArray<keyof TData & string>): void;
+    clearError(): void;
+  }>;
+/**
+ * The `useIslandForm()` contract every adapter shares. Errors are keyed by whatever names the
+ * action returns, not only the default fields. Submit methods take the action URL.
+ */
+export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
+  FormFields<TData, Partial<Record<string, string>>, TEditing> &
+  Readonly<{
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
     clearErrors(...fields: ReadonlyArray<string>): void;
     clearError(): void;

@@ -2,16 +2,11 @@ import { useState, useRef, useCallback, useMemo } from 'react';
 import {
   isEqualFormValue,
   submitIslandAction,
-  type FormErrors,
   type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
 
-// React state changes go through setters, so data and errors are read-only.
-export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<
-  Readonly<T>,
-  Readonly<FormErrors<Record<string, unknown>>>
-> &
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'setters'> &
   Readonly<{ setData: <K extends keyof T & string>(field: K, value: T[K]) => void }>;
 
 /**

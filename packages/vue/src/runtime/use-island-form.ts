@@ -6,15 +6,20 @@ import {
 } from 'void/pages-client';
 import { reactive, ref, watch } from 'vue';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
   Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
  * Void Router (which is not available in island mode).
  */
-export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T> {
-  const data = reactive({ ...defaults }) as T;
+export function useIslandForm<T extends Record<string, unknown>>(defaults: T): IslandFormReturn<T>;
+
+// Untyped implementation, so the returned object is checked against the island contract.
+export function useIslandForm(
+  defaults: Record<string, unknown>,
+): IslandFormReturn<Record<string, unknown>> {
+  const data = reactive({ ...defaults }) as Record<string, unknown>;
   const errors = reactive<Record<string, string>>({});
   const error = ref<VoidActionError | null>(null);
   const pending = ref(false);
@@ -35,7 +40,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     { deep: true },
   );
 
-  function reset(...fields: ReadonlyArray<keyof T & string>) {
+  function reset(...fields: ReadonlyArray<string>) {
     if (fields.length === 0) {
       Object.assign(data, { ...defaults_ });
     } else {
@@ -113,5 +118,5 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     put: (url: string) => submit(url, 'PUT'),
     patch: (url: string) => submit(url, 'PATCH'),
     delete: (url: string) => submit(url, 'DELETE'),
-  }) as IslandFormReturn<T>;
+  });
 }

@@ -9,7 +9,6 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormErrors,
   type FormResetOptions,
   type FormState,
   type FormSubmitOptions,
@@ -17,14 +16,14 @@ import {
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
 
-// Solid state changes go through setters, so data and errors are read-only.
-type FormReturn<TData> = FormState<Readonly<TData>, Readonly<FormErrors<TData>>> & {
-  setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-};
+type FormReturn<TData> = FormState<TData, 'setters'> &
+  Readonly<{
+    setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(

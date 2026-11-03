@@ -1,3 +1,4 @@
+import type { FormModel } from 'void/pages-client';
 import { useForm } from '../../src/runtime/use-form.ts';
 
 declare module 'void/routes' {
@@ -31,4 +32,10 @@ export function checkFieldErrors(): void {
   form.errors.email = 'Invalid';
   // @ts-expect-error Fields change through setData.
   form.data.email = '';
+  // @ts-expect-error Form methods are read-only.
+  form.clearError = () => {};
+  // @ts-expect-error Submit methods are form actions that take FormData.
+  form.post();
+  const model: FormModel<[FormData]> = form;
+  void model;
 }

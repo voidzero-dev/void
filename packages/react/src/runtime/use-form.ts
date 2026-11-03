@@ -16,7 +16,6 @@ import {
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
-  type FormErrors,
   type FormResetOptions,
   type FormState,
 } from 'void/pages-client';
@@ -24,15 +23,15 @@ import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/route
 import { RouterContext } from './context.ts';
 
 type SubmitPayload = FormData | { method: string };
-// React state changes go through setters, so data and errors are read-only.
 // Submit methods are native form actions that take FormData.
-type FormReturn<TData> = FormState<Readonly<TData>, Readonly<FormErrors<TData>>> & {
-  setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
-  post(formData: FormData): void;
-  put(formData: FormData): void;
-  patch(formData: FormData): void;
-  delete(formData: FormData): void;
-};
+type FormReturn<TData> = FormState<TData, 'setters'> &
+  Readonly<{
+    setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
+    post(formData: FormData): void;
+    put(formData: FormData): void;
+    patch(formData: FormData): void;
+    delete(formData: FormData): void;
+  }>;
 
 type FormOptions = {
   params?: Record<string, string>;

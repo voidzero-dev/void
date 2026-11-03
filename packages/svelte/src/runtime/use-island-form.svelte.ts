@@ -5,7 +5,7 @@ import {
   type VoidActionError,
 } from 'void/pages-client';
 
-export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T> &
+export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
   Readonly<{ submit(url: string, method: string): Promise<void> }>;
 
 /**

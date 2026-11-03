@@ -15,12 +15,13 @@ import {
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 
-type FormReturn<TData> = FormState<TData> & {
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-};
+type FormReturn<TData> = FormState<TData, 'in-place'> &
+  Readonly<{
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(

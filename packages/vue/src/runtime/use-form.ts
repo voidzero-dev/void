@@ -15,12 +15,13 @@ import {
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { computed, reactive, ref, shallowRef, inject, watch } from 'vue';
 
-type FormReturn<TData> = FormState<TData> & {
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-};
+type FormReturn<TData> = FormState<TData, 'in-place'> &
+  Readonly<{
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 export function useForm<U extends ActionUrl & string>(
   url: U,
