@@ -162,8 +162,10 @@ Fonts by the scripts in the text, under private family names, with Latin-1
 taken out so Latin text keeps Takumi's built-in Geist. takumi-js stays on
 `~2.18`: 2.19.0 loads only the first font whose `unicode-range` covers a
 character, and draws the whole word as boxes when that font lacks the glyph
-(Noto Sans JP's latin-ext subset has no Ł). Raise the range, and the install
-command in `docs/guide/og-images.md`, once Takumi fixes it.
+(Noto Sans JP's latin-ext subset has no Ł). Reordering the families or dropping
+`unicode-range` does not avoid it. Check a fix in a fresh process, as 2.19.0
+falls back to faces an earlier render loaded, then raise the range and the
+install command in `docs/guide/og-images.md`.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 

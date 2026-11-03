@@ -96,7 +96,7 @@ Cache-Control: public, max-age=0, must-revalidate
 
 During local development, `Cache-Control` is `no-cache, no-store`. Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
 
-Emoji and remote images are downloaded while the image renders. An emoji that the chosen style does not have, or an image that fails to download, fails the image unless you pass `images: { throwOnError: false }`; `noto` has no flags.
+Emoji and remote images are downloaded while the image renders. An emoji that the chosen style does not have, or an image that fails to download, fails the image unless you pass `images: { throwOnError: false }`, which leaves it out; `noto` has no flags.
 
 ## Fonts
 
