@@ -170,7 +170,8 @@ describe('Cloudflare v2 compatibility', () => {
     const metadataPath = join(root, '.cloudflare/output/v0/void-containers.json');
     writeFileSync(metadataPath, JSON.stringify({ workerDirectory: '../outside' }));
     await expect(prepareCfBuildOutput(root)).rejects.toThrow('Invalid Void Container');
-  });
+    // Two real Vite builds take about four seconds, near the default timeout.
+  }, 15_000);
 
   it('preserves resource identities, required secrets and compatibility settings', () => {
     const root = project();
