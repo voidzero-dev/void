@@ -95,6 +95,26 @@ export function useForm(
     });
   });
 
+  // An input handler may validate its new value before the change effect runs.
+  function snapshotField(field: string) {
+    untrack(() => {
+      dataSnapshot = { ...dataSnapshot, [field]: cloneFormValue(data[field]) };
+    });
+  }
+
+  // Handlers may also write `form.errors.field` directly, which needs the same snapshot.
+  // The view is derived because setError and clearErrors replace `errors`.
+  const errorsView = $derived(
+    new Proxy(errors, {
+      set(target, field, message) {
+        if (typeof field === 'string') {
+          snapshotField(field);
+        }
+        return Reflect.set(target, field, message);
+      },
+    }),
+  );
+
   const hasChanges = $derived(
     Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key])),
   );
@@ -123,8 +143,7 @@ export function useForm(
   }
 
   function setError(field: string, message: string) {
-    // An input handler may validate its new value before the change effect runs.
-    dataSnapshot = { ...dataSnapshot, [field]: cloneFormValue(data[field]) };
+    snapshotField(field);
     errors = { ...errors, [field]: message };
   }
 
@@ -189,7 +208,7 @@ export function useForm(
       return data;
     },
     get errors() {
-      return errors;
+      return errorsView;
     },
     get error() {
       return error;
