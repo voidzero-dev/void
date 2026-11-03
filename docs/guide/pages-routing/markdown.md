@@ -190,7 +190,7 @@ export default function DocsLayout({ children }) {
 ```
 
 ```vue [Vue]
-<script setup>
+<script setup lang="ts">
 import { useFrontmatter } from '@void/md';
 
 const fm = useFrontmatter();

@@ -96,11 +96,11 @@ export default function BlogIndex({ posts }) {
 
 ```vue [Vue]
 <!-- pages/blog/index.island.vue -->
-<script setup>
+<script setup lang="ts">
 import Counter from './_Counter.vue' with { island: 'load' };
 import PostForm from './_PostForm.vue' with { island: 'visible' };
 
-defineProps({ posts: Array });
+const { posts } = defineProps<{ posts: { slug: string; title: string }[] }>();
 </script>
 
 <template>
@@ -249,7 +249,7 @@ export default function PostForm() {
 ```
 
 ```vue [Vue]
-<script setup>
+<script setup lang="ts">
 import { useIslandForm } from '@void/vue';
 
 const form = useIslandForm({ title: '', body: '' });
