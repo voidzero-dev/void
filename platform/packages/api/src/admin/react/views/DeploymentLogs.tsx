@@ -36,6 +36,36 @@ function formatMessage(message: unknown): string {
   return JSON.stringify(message ?? null).slice(0, 500);
 }
 
+/**
+ * Entries in a tail poll that earlier polls did not show. `seen` counts each
+ * row shape: with minimal runtime logs two requests in the same millisecond
+ * can look the same, and the server still returns one row for each.
+ */
+export function takeFreshTailEntries<T extends LogEntry>(
+  latest: ReadonlyArray<T>,
+  seen: Map<string, number>,
+): Array<T> {
+  const counts = new Map<string, number>();
+  const fresh = latest.filter((entry) => {
+    const key = JSON.stringify([
+      entry.timestamp,
+      entry.method,
+      entry.url,
+      entry.status,
+      entry.outcome,
+      entry.logs,
+      entry.exceptions,
+    ]);
+    const count = (counts.get(key) ?? 0) + 1;
+    counts.set(key, count);
+    return count > (seen.get(key) ?? 0);
+  });
+  for (const [key, count] of counts) {
+    seen.set(key, Math.max(seen.get(key) ?? 0, count));
+  }
+  return fresh;
+}
+
 export const MINIMAL_RUNTIME_LOGS_NOTICE =
   'Log messages, exception messages and URLs are not recorded on this platform.';
 
@@ -149,30 +179,14 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
       return;
     }
     let active = true;
-    const seen = new Set<string>();
+    const seen = new Map<string, number>();
     const poll = async () => {
       try {
         const latest = await fetchEntries('1m', 50);
         if (!latest || !active) {
           return;
         }
-        const fresh = latest.filter((entry) => {
-          // Minimal runtime logs leave url empty, so the rest of the row tells requests apart.
-          const key = JSON.stringify([
-            entry.timestamp,
-            entry.method,
-            entry.url,
-            entry.status,
-            entry.outcome,
-            entry.logs,
-            entry.exceptions,
-          ]);
-          if (seen.has(key)) {
-            return false;
-          }
-          seen.add(key);
-          return true;
-        });
+        const fresh = takeFreshTailEntries(latest, seen);
         if (fresh.length > 0) {
           setEntries((current) => [...fresh, ...(current ?? [])]);
         }
