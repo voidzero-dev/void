@@ -63,6 +63,7 @@ import {
   DEFAULT_TAIL_SERVICE_NAME,
   CF_RETRY,
   DEFAULT_WORKER_MAIN_MODULE,
+  projectObservability,
 } from './shared.ts';
 import { platformAppUploadUserAgent } from './user-agent.ts';
 
@@ -487,10 +488,7 @@ export async function uploadDeploymentWorker(input: {
     bindings: allBindings,
     ...(durableObjectMigrations ? { migrations: durableObjectMigrations } : {}),
     ...(completionJwt ? { assets: buildAssetMetadata(completionJwt, assetConfig) } : {}),
-    observability: {
-      enabled: true,
-      logs: { invocation_logs: true, head_sampling_rate: 1 },
-    },
+    observability: projectObservability(context.env),
     tail_consumers: [{ service: tailServiceName }],
   };
   if (manifest.durableObjects?.bindings.length) {

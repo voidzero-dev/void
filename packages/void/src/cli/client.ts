@@ -353,6 +353,12 @@ export type LogEntry = {
   status: string;
 };
 
+export type LogsResult = {
+  entries: Array<LogEntry>;
+  /** Set when the platform keeps messages and URLs out of its logs. */
+  runtimeLogs?: 'minimal';
+};
+
 export type RequestEntry = {
   timestamp: string;
   type: string;
@@ -1693,7 +1699,7 @@ export class PlatformClient {
     limit = 200,
     deploymentId?: string,
     level?: string,
-  ): Promise<Array<LogEntry>> {
+  ): Promise<LogsResult> {
     const params = new URLSearchParams({
       since,
       limit: String(limit),
@@ -1704,12 +1710,15 @@ export class PlatformClient {
     if (level && level !== 'all') {
       params.set('level', level);
     }
-    const json = await this.json<{ data: Array<LogEntry> }>(
+    const json = await this.json<{ data: Array<LogEntry>; runtimeLogs?: unknown }>(
       `${this.baseUrl}/projects/${projectId}/logs?${params}`,
       'Failed to fetch logs',
       { permission: 'read' },
     );
-    return json.data;
+    return {
+      entries: json.data,
+      ...(json.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
+    };
   }
 
   async getRequests(

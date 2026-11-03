@@ -268,6 +268,9 @@ export async function runPlatformCommand(_root: string, args: PlatformArgs): Pro
 function showSavedInstallationStatus(manifest: PlatformInstallationManifest): void {
   console.log(`Saved installation: ${manifest.id} (${manifest.status})`);
   console.log(`Checkpoint: ${manifest.updatedAt}`);
+  if (manifest.deployment.runtimeLogs) {
+    console.log(`Runtime logs: ${manifest.deployment.runtimeLogs}`);
+  }
   if (manifest.operation) {
     const operation = manifest.operation;
     console.log(`Saved operation: ${operation.action} — ${operation.phase}`);

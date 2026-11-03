@@ -1,7 +1,8 @@
 import { outro, log, wrapTextWithPrefix } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
-import { PlatformClient, type LogEntry } from './client.ts';
+import { PlatformClient, type LogEntry, type LogsResult } from './client.ts';
 import { dim, errorStackFrames, formatCount, pc } from './output.ts';
+import { MINIMAL_RUNTIME_LOGS_NOTE } from './platform-runtime-logs.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
@@ -56,9 +57,9 @@ export async function runLogsCommand(
 
   const client = new PlatformClient(token, { root });
 
-  let entries: Array<LogEntry>;
+  let result: LogsResult;
   try {
-    entries = await client.getLogs(
+    result = await client.getLogs(
       linked.projectId,
       range,
       200,
@@ -70,7 +71,10 @@ export async function runLogsCommand(
     process.exit(1);
   }
 
-  entries = filterLogEntries(entries, level, filter);
+  const entries = filterLogEntries(result.entries, level, filter);
+  if (result.runtimeLogs === 'minimal') {
+    console.log(dim(MINIMAL_RUNTIME_LOGS_NOTE));
+  }
 
   if (entries.length === 0) {
     outro(`No logs found in the last ${range}.`);
@@ -78,17 +82,18 @@ export async function runLogsCommand(
   }
 
   for (const entry of entries) {
-    printEntry(entry);
+    printEntry(entry, result.runtimeLogs === 'minimal');
   }
 
   outro(dim(formatCount(entries.length, 'log entry', 'log entries')));
 }
 
 // Logs carry data from app visitors, so terminal control sequences are dropped before printing.
-function printEntry(entry: LogEntry): void {
+function printEntry(entry: LogEntry, minimal: boolean): void {
   const time = formatTime(entry.timestamp);
   const method = sanitizeTerminalLogText(entry.method || '-');
-  const url = sanitizeTerminalLogText(entry.url || '-');
+  // Minimal runtime logs record no URL or messages; their lines skip them.
+  const url = minimal ? '' : sanitizeTerminalLogText(entry.url || '-');
   const status = sanitizeTerminalLogText(entry.status || '-');
 
   const statusNum = parseInt(status, 10);
@@ -102,7 +107,7 @@ function printEntry(entry: LogEntry): void {
   console.log(
     wrapTextWithPrefix(
       process.stdout,
-      `${method} ${url} ${coloredStatus}`,
+      url ? `${method} ${url} ${coloredStatus}` : `${method} ${coloredStatus}`,
       ' '.repeat(time.length + 1),
       `${dim(time)} `,
     ),
@@ -118,7 +123,9 @@ function printEntry(entry: LogEntry): void {
           ? pc.yellow(`[${level}]`)
           : dim(`[${level}]`);
     console.log(
-      wrapTextWithPrefix(process.stdout, text, ' '.repeat(level.length + 5), `  ${marker} `),
+      text || !minimal
+        ? wrapTextWithPrefix(process.stdout, text, ' '.repeat(level.length + 5), `  ${marker} `)
+        : `  ${marker}`,
     );
   }
 
@@ -127,7 +134,7 @@ function printEntry(entry: LogEntry): void {
       wrapTextWithPrefix(
         process.stdout,
         [
-          sanitizeTerminalLogText(`${ex.name}: ${ex.message}`),
+          sanitizeTerminalLogText(minimal && !ex.message ? ex.name : `${ex.name}: ${ex.message}`),
           ...errorStackFrames(ex).map((frame) => dim(sanitizeTerminalLogText(frame))),
         ].join('\n'),
         ' '.repeat(14),

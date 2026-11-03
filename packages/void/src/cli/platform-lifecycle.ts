@@ -72,6 +72,11 @@ import {
   writePendingInstallationSecrets,
 } from './platform-registry.ts';
 import {
+  assertPlatformRuntimeLogsSupported,
+  shouldUpdateProjectWorkerRuntimeLogs,
+  updateProjectWorkerRuntimeLogs,
+} from './platform-runtime-logs.ts';
+import {
   listSavedPlatformInstallPlans,
   savePlatformInstallChoices,
   removeSavedPlatformInstallPlan,
@@ -240,7 +245,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           args.appAccess === undefined &&
           !args.dedicatedZoneSpecified &&
           args.dashboardUrl === undefined &&
-          !args.customDomains
+          !args.customDomains &&
+          args.runtimeLogs === undefined
             ? listSavedPlatformInstallPlans().filter(
                 (saved) =>
                   (!args.name || saved.args.name === normalizeInstallationSlug(args.name)) &&
@@ -743,6 +749,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         ? { emailSenderDomain: process.env.VOID_EMAIL_SENDER_DOMAIN }
         : {}),
       installationSlug,
+      ...(args.runtimeLogs !== undefined ? { runtimeLogs: args.runtimeLogs } : {}),
       zoneName,
       ...(workersDev ? { workersDev: true } : {}),
     };
@@ -754,6 +761,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       deploymentExecution: runtime.manifest.deploymentExecution === 1,
     };
     let plan = await createPlatformInstallPlan(client, planInput, existing, planOptions);
+    assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
       accountId,
@@ -774,6 +782,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           ? (externalHyperdrive?.id ?? 'create')
           : undefined,
       runtime: args.runtime,
+      // A resume keeps the recorded value, so only a new install repeats it.
+      ...(!existing && plan.deployment.runtimeLogs ? { runtimeLogs: 'minimal' as const } : {}),
       ...(existing ? { resumeId: existing.id } : {}),
       yes: args.yes || process.stdin.isTTY !== true,
     };
@@ -1353,11 +1363,29 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         });
       },
     });
+    const runtimeLogsWarning =
+      !result.waitingForDns &&
+      !result.waitingForSandboxDrain &&
+      shouldUpdateProjectWorkerRuntimeLogs({
+        previous: setupManifest.deployment,
+        next: result.manifest.deployment,
+        explicit: args.runtimeLogs !== undefined,
+      })
+        ? await updateProjectWorkerRuntimeLogs(client, {
+            accountId,
+            namespace: result.manifest.deployment.resources.dispatchNamespace,
+            minimal: !!result.manifest.deployment.runtimeLogs,
+            installationId: result.manifest.id,
+          })
+        : undefined;
     progress?.stop(
       result.waitingForDns || result.waitingForSandboxDrain
         ? 'Installation paused. Progress is saved.'
         : 'Platform installed.',
     );
+    if (runtimeLogsWarning) {
+      log.warn(runtimeLogsWarning);
+    }
     progress = undefined;
     if (result.waitingForDns) {
       note(
