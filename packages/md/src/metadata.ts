@@ -51,8 +51,23 @@ export type MetadataResult = Readonly<{
   title: string;
 }>;
 
+export function parseFrontmatter(
+  source: string,
+): Readonly<{ frontmatter: Record<string, unknown>; content: string }> {
+  try {
+    // Passing options skips gray-matter's cache. It stores a source before parsing it,
+    // so without them a second read of invalid frontmatter returns empty data and
+    // leaves the fences in the content instead of throwing again.
+    const { data: frontmatter, content } = matter(source, {});
+    return { frontmatter, content };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Invalid frontmatter: ${message}`, { cause: error });
+  }
+}
+
 export function extractMetadata(source: string): MetadataResult {
-  const { data: frontmatter, content } = matter(source);
+  const { frontmatter, content } = parseFrontmatter(source);
   const compiler = getMetadataCompiler();
 
   const env: Record<string, unknown> = {};

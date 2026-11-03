@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'pathslash';
 import { glob } from 'tinyglobby';
-import { normalizePath, type Plugin, type ResolvedConfig, type ViteDevServer } from 'vite';
+import {
+  normalizePath,
+  type Logger,
+  type Plugin,
+  type ResolvedConfig,
+  type ViteDevServer,
+} from 'vite';
 import { pageFileEnvironment, resolvePagesDir } from 'void/pages';
 import type { CompileOptions } from './compile.ts';
 import { emitReactComponent } from './emit-react.ts';
@@ -82,11 +88,14 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
   let mdPages: ReadonlyArray<MdPage> = [];
   let root = '';
   let pagesDir = '';
+  let logger: Logger | undefined;
   // 'dev' on the dev server, 'prod' for builds and preview.
   let mdEnvironment: 'dev' | 'prod' = 'prod';
   const svelteModules = new Map<string, string>();
   const solidModules = new Map<string, string>();
   const clientScripts = new Map<string, string>();
+  // The last error logged per page, so that rescans don't repeat it.
+  const loggedPageErrors = new Map<string, string>();
 
   function createVirtualModuleId(
     prefix: string,
@@ -99,6 +108,13 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
     return `${prefix}${encoded}.${hash}.${extension}`;
   }
 
+  // The name has to be in the message: Vite's error metadata does not cross the
+  // worker boundary, so the dev error page and the worker log would not show it.
+  function createPageError(file: string, error: unknown): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    return new Error(`void-md: ${relative(root, file)}: ${message}`, { cause: error });
+  }
+
   async function scanMdPages(): Promise<ReadonlyArray<MdPage>> {
     if (!existsSync(pagesDir)) {
       return [];
@@ -106,27 +122,51 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
 
     const liveFiles = await listMdFiles(pagesDir, mdEnvironment);
     const pages = await Promise.all(
-      liveFiles.map(async (file) => {
-        const content = readFileSync(join(pagesDir, file), 'utf-8');
-        const { body, clientCode } = extractScript(content);
-        const result = extractMetadata(body);
+      liveFiles.map(async (file): Promise<MdPage | undefined> => {
+        const path = '/' + mdRouteName(file, pageFileEnvironment(file));
+        const filePath = join(pagesDir, file);
+        try {
+          const content = readFileSync(filePath, 'utf-8');
+          const { body, clientCode } = extractScript(content);
+          const result = extractMetadata(body);
 
-        // componentId keeps the suffix so it matches the page id from scanPages.
-        const componentId = stripPageSuffix(file) || 'index';
+          // componentId keeps the suffix so it matches the page id from scanPages.
+          const componentId = stripPageSuffix(file) || 'index';
 
-        if (clientCode) {
-          clientScripts.set(componentId, clientCode);
+          if (clientCode) {
+            clientScripts.set(componentId, clientCode);
+          }
+          loggedPageErrors.delete(file);
+
+          return {
+            path,
+            title: result.title,
+            frontmatter: result.frontmatter,
+            headings: result.headings,
+          };
+        } catch (error) {
+          const pageError = createPageError(filePath, error);
+          // A build must not ship without the page.
+          if (mdEnvironment === 'prod') {
+            throw pageError;
+          }
+          // Removed since the glob, as when switching branches. Not an error to report.
+          if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+            return undefined;
+          }
+          if (loggedPageErrors.get(file) !== pageError.message) {
+            loggedPageErrors.set(file, pageError.message);
+            logger?.error(pageError.message, { error: pageError, timestamp: true });
+          }
+          // A page being edited is often invalid for a moment. Keep its last good
+          // entry so that lists built from the pages don't change on every save.
+          return mdPages.find((page) => page.path === path);
         }
-
-        return {
-          path: '/' + mdRouteName(file, pageFileEnvironment(file)),
-          title: result.title,
-          frontmatter: result.frontmatter,
-          headings: result.headings,
-        };
       }),
     );
-    return pages.sort((leftPage, rightPage) => leftPage.path.localeCompare(rightPage.path));
+    return pages
+      .filter((page) => page !== undefined)
+      .sort((leftPage, rightPage) => leftPage.path.localeCompare(rightPage.path));
   }
 
   return [
@@ -168,6 +208,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
 
       configResolved(config: ResolvedConfig) {
         root = config.root;
+        logger = config.logger;
         pagesDir = resolvePagesDir(root);
         for (const plugin of config.plugins) {
           const match = ADAPTER_PLUGIN_NAMES[plugin.name];
@@ -198,7 +239,16 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
           if (!file.endsWith('.md') || !isInPagesDir(normalizePath(file))) {
             return;
           }
-          mdPages = await scanMdPages();
+          try {
+            mdPages = await scanMdPages();
+          } catch (error) {
+            // Keep the last good scan; the next change rescans.
+            server.config.logger.error(error instanceof Error ? error.message : String(error), {
+              error: error instanceof Error ? error : undefined,
+              timestamp: true,
+            });
+            return;
+          }
           const mod = server.moduleGraph.getModuleById('\0void-md-pages');
           if (mod) {
             server.moduleGraph.invalidateModule(mod);
@@ -335,7 +385,9 @@ export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; 
           });
 
           const { compile } = await import('./compile.ts');
-          const result = await compile(body, { shiki: options?.shiki });
+          const result = await compile(body, { shiki: options?.shiki }).catch((error: unknown) => {
+            throw createPageError(_id, error);
+          });
 
           if (adapter === 'vue') {
             return { code: emitVueComponent(result, islands), map: null };

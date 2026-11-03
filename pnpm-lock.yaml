@@ -804,6 +804,9 @@ importers:
       email-validator:
         specifier: ^2.0.4
         version: 2.0.4
+      gray-matter:
+        specifier: ^4.0.3
+        version: 4.0.3
       hono:
         specifier: 'catalog:'
         version: 4.13.16

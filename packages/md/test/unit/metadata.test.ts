@@ -13,6 +13,16 @@ describe('extractMetadata', () => {
     ]);
   });
 
+  it('keeps rejecting invalid frontmatter after the first read', async () => {
+    const source = '---\ntitle\ndescription: Missing colon above\n---\n\n# Heading\n';
+
+    // Dev reads a page for navigation metadata before rendering it. Every
+    // read must report the error instead of treating the YAML fences as content.
+    expect(() => extractMetadata(source)).toThrow('Invalid frontmatter');
+    expect(() => extractMetadata(source)).toThrow('Invalid frontmatter');
+    await expect(compile(source)).rejects.toThrow('Invalid frontmatter');
+  });
+
   it('strips footnote refs from heading text/slug to match rendered anchor ids', async () => {
     const source = '## API[^1]\n\nBody[^1].\n\n[^1]: note';
 
