@@ -65,7 +65,7 @@ describe('stampClientAssetCachePolicy with ?image sources', () => {
 
   it('stamps emitted ?image assets under a proven [hash] template only', () => {
     const output = bundle(manifest);
-    stampClientAssetCachePolicy(
+    const returned = stampClientAssetCachePolicy(
       output,
       MANIFEST,
       [{ pattern: '/assets/private-*', headers: [['Cache-Control', 'private, no-store']] }],
@@ -90,6 +90,8 @@ describe('stampClientAssetCachePolicy with ?image sources', () => {
       // Inlined or otherwise not emitted under that name.
       'src/inlined.png': undefined,
     });
+    // Only chunks feed the Worker bypass, whatever images the app imports.
+    expect(returned).toEqual(['assets/main-abc123.js']);
   });
 });
 

@@ -29,7 +29,9 @@ export function hasHashedAssetFileNames(output: unknown): boolean {
 
 /**
  * Attach cache provenance to the existing manifest without changing its entry inventory.
- * Returns the stamped immutable files, sorted, relative to the client root.
+ * Returns the stamped immutable files, sorted, relative to the client root. Stamped
+ * `?image` files are left out: the return value feeds the Worker bypass
+ * (`asset-worker-bypass.ts`), whose rule limits must not depend on an app's images.
  */
 export function stampClientAssetCachePolicy(
   bundle: Rolldown.OutputBundle,
@@ -64,6 +66,7 @@ export function stampClientAssetCachePolicy(
     }
   }
   const manifest = JSON.parse(String(asset.source)) as ClientManifest;
+  const chunkFiles = new Set(fingerprinted);
   if (images?.hashedAssetFileNames) {
     // Images imported with `?image` are emitted by Vite's asset pipeline under
     // the proven [hash] template, so their manifest files are fingerprinted.
@@ -89,5 +92,5 @@ export function stampClientAssetCachePolicy(
     }
   }
   asset.source = JSON.stringify(manifest, null, 2);
-  return [...stamped].sort();
+  return [...stamped].filter((file) => chunkFiles.has(file)).sort();
 }
