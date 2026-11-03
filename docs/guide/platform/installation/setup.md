@@ -262,4 +262,6 @@ Resume restores your selected Hyperdrive. If that selection is missing from the 
 
 If Cloudflare rejects a saved runtime token, Void opens the token page and asks for a replacement. For a missing [email permission](/guide/platform/installation/credentials#enable-email), update the existing token's permissions and resume. If you supplied a token through an environment variable, update that variable.
 
+To replace the runtime token, for example after revoking it, resume with the new token in `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`. Void checks it, saves it, and updates the platform Workers that the interrupted run already deployed.
+
 :::
