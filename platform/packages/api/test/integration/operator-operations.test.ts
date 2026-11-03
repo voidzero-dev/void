@@ -372,7 +372,7 @@ describe('operator deployment operations', () => {
     expect(last).toMatchObject({ nextCursor: null, watermark: page.watermark });
     expect(last.data).toHaveLength(1);
     expect(fetch.mock.calls[0][1]?.body).toContain(
-      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1',
+      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
     );
     expect(fetch.mock.calls[0][1]?.body).toContain('ORDER BY ts ASC, ingestedAt ASC');
     expect(fetch.mock.calls[0][1]?.body).toMatch(/double1 >= \d+ AND double1 < \d+/);
@@ -447,7 +447,9 @@ describe('operator deployment operations', () => {
     expect(query).toContain(
       "timestamp >= toDateTime('1970-01-01 00:03:00') AND timestamp < toDateTime('1970-01-01 00:10:00')",
     );
-    expect(query).toContain('GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1');
+    expect(query).toContain(
+      'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
+    );
     expect(query).toContain('ORDER BY ingestedAt ASC, ts ASC');
     expect(query).not.toContain('double1 >= 480000');
     expect((await req(`/deployments/${deployment.id}/logs?after=garbage`)).status).toBe(400);

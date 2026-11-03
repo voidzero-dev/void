@@ -56,7 +56,8 @@ export function parseScriptName(
  * Build the `void_logs` row for one trace event.
  *
  * Minimal mode drops the request URL and all message text. It keeps each log
- * level and exception name, so `--level` filters still match.
+ * level and exception name, so `--level` filters still match, and adds the
+ * Ray ID so readers do not merge two requests that now look the same.
  */
 export function buildLogDataPoint(
   event: TraceItem,
@@ -75,6 +76,7 @@ export function buildLogDataPoint(
       fetchEvent?.request.method ?? '',
       String(fetchEvent?.response?.status ?? ''),
       parsed.deployId,
+      ...(minimal ? [fetchEvent?.request.headers['cf-ray'] ?? ''] : []),
     ],
     doubles: [event.eventTimestamp ?? Date.now(), fetchEvent?.response?.status ?? 0],
   };

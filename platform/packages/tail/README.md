@@ -33,7 +33,9 @@ Versioned deploys use script names like `user-my-app-dpl_abc123`. Legacy unversi
 
 With `PLATFORM_RUNTIME_LOGS=minimal` (set by `--runtime-logs minimal`),
 `blobs[3]` is `""`, each log is `{ level, timestamp, message: [] }` and each
-exception is `{ name, timestamp, message: "" }`. Other slots are unchanged.
+exception is `{ name, timestamp, message: "" }`, and `blobs[7]` holds the
+request Ray ID (or `""`) so distinct requests stay distinct rows. Other slots
+are unchanged.
 
 ## Source Layout
 

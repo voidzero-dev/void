@@ -3402,7 +3402,7 @@ describe('GET /admin/deployments/:id/logs', () => {
         );
         expect(query).not.toMatch(/AND double1 >= \d+/);
         expect(query).toContain(
-          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1',
+          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
         );
         expect(query).toContain('ORDER BY ingestedAt DESC, ts DESC');
         return Response.json({

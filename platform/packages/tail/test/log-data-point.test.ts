@@ -12,7 +12,7 @@ function fetchTrace(): TraceItem {
       request: {
         url: 'https://my-app.void.app/account?token=secret',
         method: 'POST',
-        headers: {},
+        headers: { 'cf-ray': '8f1d2c3b4a5e6f70-SJC' },
       },
       response: { status: 500 },
     },
@@ -51,7 +51,7 @@ describe('buildLogDataPoint', () => {
     expect(dp.indexes).toEqual(['user-my-app']);
     expect(blobs[0]).toBe('exception');
     expect(blobs[3]).toBe('');
-    expect(blobs.slice(4)).toEqual(['POST', '500', 'dpl_abc123']);
+    expect(blobs.slice(4)).toEqual(['POST', '500', 'dpl_abc123', '8f1d2c3b4a5e6f70-SJC']);
     expect(dp.doubles).toEqual([1_700_000_000_000, 500]);
     expect(JSON.parse(blobs[1])).toEqual([
       { level: 'log', timestamp: 1, message: [] },
@@ -82,6 +82,18 @@ describe('buildLogDataPoint', () => {
     expect(JSON.parse(blobs[1])).toEqual([]);
     expect(JSON.parse(blobs[2])).toEqual([]);
     expect(blobs[3]).toBe('');
+    expect(blobs[7]).toBe('');
+  });
+
+  it('keeps two requests in the same millisecond apart in minimal mode', () => {
+    const other = fetchTrace() as unknown as {
+      event: { request: { url: string; headers: Record<string, string> } };
+    };
+    other.event.request.url = 'https://my-app.void.app/other';
+    other.event.request.headers = { 'cf-ray': '8f1d2c3b4a5e6f71-SJC' };
+    expect(buildLogDataPoint(other as unknown as TraceItem, parsed, 'minimal')).not.toEqual(
+      buildLogDataPoint(fetchTrace(), parsed, 'minimal'),
+    );
   });
 });
 

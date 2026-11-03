@@ -3403,7 +3403,9 @@ describe('GET /projects/:id/logs', () => {
         expect(body).toContain('user-my-app');
         // The dispatch Worker's tail consumer and the user Worker's own consumer
         // each deliver a dispatched request, so identical rows are collapsed.
-        expect(body).toContain('GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, double1');
+        expect(body).toContain(
+          'GROUP BY blob1, blob2, blob3, blob4, blob5, blob6, blob7, blob8, double1',
+        );
         expect(body).toContain('min(timestamp) as ingestedAt');
         expect(body).toContain('ORDER BY ingestedAt DESC');
         return Response.json(mockData);

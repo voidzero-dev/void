@@ -410,6 +410,29 @@ describe('managed native Durable Objects', () => {
     }
   });
 
+  it('turns Workers Logs back on when full runtime logs replay a minimal release', async () => {
+    await deploy();
+    const worker = await durableObjectWorkerName(project.id, binding.className);
+    env.PLATFORM_RUNTIME_LOGS = 'minimal';
+    let minimal: Awaited<ReturnType<typeof deploy>>;
+    try {
+      minimal = await deploy('two');
+      expect(
+        writes.filter((write) => write.name === worker).at(-1)!.metadata.observability,
+      ).toEqual({ enabled: false });
+    } finally {
+      delete env.PLATFORM_RUNTIME_LOGS;
+    }
+    await deploy('three');
+    // The second release was saved with Workers Logs off.
+    expect((await rollback(minimal.id!)).status).toBe(200);
+    expect(currentRelease(worker)).toBe(minimal.id);
+    expect(writes.filter((write) => write.name === worker).at(-1)!.metadata.observability).toEqual({
+      enabled: true,
+      logs: { invocation_logs: true, head_sampling_rate: 1 },
+    });
+  });
+
   it('restores committed code after a provider write succeeds but loses its acknowledgement', async () => {
     const first = await deploy();
     failPublication = true;

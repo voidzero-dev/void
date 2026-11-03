@@ -589,10 +589,9 @@ async function restoreObject(
       resource.cf_id,
       {
         ...base,
-        // A release saved before minimal runtime logs still holds Workers Logs on.
-        ...(env.PLATFORM_RUNTIME_LOGS === 'minimal'
-          ? { observability: projectObservability(env) }
-          : {}),
+        // A saved release keeps the Workers Logs setting it was deployed with;
+        // the installation's current setting wins.
+        observability: projectObservability(env),
         ...(assets ? { assets } : {}),
         main_module: ENTRY,
         tags: [`void-project:${snapshot.metadata.logProject}`, `void-deployment:${deploymentId}`],
