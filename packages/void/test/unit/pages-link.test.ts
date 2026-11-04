@@ -329,6 +329,45 @@ describe('prefetchLink', () => {
 
     expect(router.prefetch.mock.calls).toEqual([['https://app.test/users/42', {}]]);
   });
+
+  it('skips while data saver is on or the connection is 2G-class', () => {
+    const router = createRouter();
+    for (const connection of [
+      { saveData: true, effectiveType: '4g' },
+      { effectiveType: '2g' },
+      { effectiveType: 'slow-2g' },
+    ]) {
+      vi.stubGlobal('navigator', { connection });
+      prefetchLink(router, '/users/42', undefined);
+    }
+
+    expect(router.prefetch).not.toHaveBeenCalled();
+  });
+
+  it('prefetches on faster connections and when the browser reports none', () => {
+    const router = createRouter();
+    for (const stub of [
+      { connection: { saveData: false, effectiveType: '3g' } },
+      { connection: { effectiveType: '4g' } },
+      {},
+    ]) {
+      vi.stubGlobal('navigator', stub);
+      prefetchLink(router, '/users/42', undefined);
+    }
+
+    expect(router.prefetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('reads the connection on each prefetch', () => {
+    const router = createRouter();
+    const connection = { saveData: true };
+    vi.stubGlobal('navigator', { connection });
+    prefetchLink(router, '/users/42', undefined);
+    connection.saveData = false;
+    prefetchLink(router, '/users/43', undefined);
+
+    expect(router.prefetch.mock.calls).toEqual([['/users/43', {}]]);
+  });
 });
 
 describe('handleLinkClick', () => {
