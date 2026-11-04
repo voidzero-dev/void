@@ -22,6 +22,7 @@ export type ReactPagesServerConfig = Readonly<{
   assetTags: { css: string; preloads: string; body: string };
   components: Record<string, () => Promise<ComponentModule>>;
   layoutTree: Record<string, Array<string>>;
+  requestUrl?: string;
   preambleScript?: string;
 }>;
 
@@ -55,6 +56,7 @@ export async function renderReactPage({
   assetTags,
   components,
   layoutTree,
+  requestUrl,
   preambleScript = '',
 }: ReactPagesServerConfig): Promise<ReadableStream<Uint8Array>> {
   const PageComponent = (await components[pageObj.component]()).default;
@@ -71,7 +73,7 @@ export async function renderReactPage({
 
   element = React.createElement(
     RouterContext.Provider,
-    { value: createSsrRouter(pageObj.url || '/', pageObj.params ?? {}) },
+    { value: createSsrRouter(pageObj.url || '/', pageObj.params ?? {}, requestUrl) },
     React.createElement(
       NavigationContext.Provider,
       { value: idleNavigationState() },

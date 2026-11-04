@@ -2,6 +2,7 @@
   import { getContext, onDestroy, onMount } from "svelte";
   import {
     handleLinkClick,
+    linkActiveAttributes,
     linkPrefetchStrategies,
     observeLinkVisible,
     prefetchLink,
@@ -21,6 +22,7 @@
     viewTransition = undefined,
     prefetch: prefetchProp = false,
     cacheFor = undefined,
+    activeMatch = undefined,
     onNavigate = undefined,
     children,
     onclick: onclickProp = undefined,
@@ -116,6 +118,8 @@
     resolveLink({ href, method, data, prefetch: prefetchProp, reloadDocument }),
   );
   const strategies = $derived(linkPrefetchStrategies({ prefetch: prefetchProp, reloadDocument }));
+  // Reading router.url tracks the route URL, so this follows navigations.
+  const activeAttributes = $derived(linkActiveAttributes(router, link, activeMatch));
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
   );
@@ -125,6 +129,7 @@
   <a
     bind:this={el}
     href={link.href}
+    {...activeAttributes}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}

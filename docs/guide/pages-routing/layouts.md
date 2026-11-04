@@ -167,7 +167,7 @@ export default function Page() {
 ```
 
 ```vue [Vue]
-<script>
+<script lang="ts">
 export const layout = 'landing';
 </script>
 
