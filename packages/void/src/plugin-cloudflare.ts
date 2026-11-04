@@ -12,6 +12,7 @@ import { readGeneratedWranglerConfigFile } from './cli/generated-wrangler-config
 import {
   mergeCloudflareConfig,
   nativeAuxiliaryWorkers,
+  restoreLocalContainerBindings,
   toNativeCloudflareConfig,
   type AuxiliaryWorkerConfig,
   type WorkerConfig,
@@ -79,6 +80,8 @@ export function cloudflare(options: {
             delete declaration.container;
           }
         }
+      } else if (environment.command === 'serve') {
+        restoreLocalContainerBindings(pluginNative.worker);
       }
     },
   };
