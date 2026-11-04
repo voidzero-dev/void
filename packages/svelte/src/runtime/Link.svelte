@@ -20,7 +20,7 @@
     replace = false,
     reloadDocument = false,
     viewTransition = undefined,
-    prefetch: prefetchProp = false,
+    prefetch: prefetchProp = undefined,
     cacheFor = undefined,
     activeMatch = undefined,
     onNavigate = undefined,
@@ -117,7 +117,13 @@
   const link = $derived(
     resolveLink({ href, method, data, prefetch: prefetchProp, reloadDocument }),
   );
-  const strategies = $derived(linkPrefetchStrategies({ prefetch: prefetchProp, reloadDocument }));
+  const strategies = $derived(
+    linkPrefetchStrategies(
+      { prefetch: prefetchProp, reloadDocument },
+      link,
+      router?._prefetchDefaultStrategy,
+    ),
+  );
   // Reading router.url tracks the route URL, so this follows navigations.
   const activeAttributes = $derived(linkActiveAttributes(router, link, activeMatch));
   const resolvedStyle = $derived(

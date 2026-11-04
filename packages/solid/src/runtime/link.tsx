@@ -66,7 +66,9 @@ export function Link(props: LinkProps): JSX.Element {
   const router = useContext(RouterContext);
 
   const link = createMemo(() => resolveLink(local));
-  const strategies = createMemo(() => linkPrefetchStrategies(local));
+  const strategies = createMemo(() =>
+    linkPrefetchStrategies(local, link(), router?._prefetchDefaultStrategy),
+  );
   const resolvedStyle = createMemo(() => mergeStyle(local.style));
   // Reading router.url tracks the route URL, so this follows navigations.
   const activeAttributes = createMemo(() =>

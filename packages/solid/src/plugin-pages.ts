@@ -137,7 +137,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
-  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
+  const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { createSignal, createComponent, createMemo, mergeProps, untrack, batch } from "solid-js";
 import { createMutable } from "solid-js/store";
@@ -201,6 +201,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     viewTransitions: ${!!viewTransitions},
     prefetchHoverDelay: ${hoverDelay},
     prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
+    prefetchDefaultStrategy: ${JSON.stringify(defaultStrategy)},
     onRouteChange(url) {
       setRouteUrl(url);
     },

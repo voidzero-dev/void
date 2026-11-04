@@ -18,6 +18,7 @@ import {
   type VoidRouterAdapter as PageNavigationAdapter,
   type PrefetchOptions,
 } from './navigation-engine.ts';
+import type { LinkPrefetchValue } from './prefetch.ts';
 import { ISLAND_FRONTMATTER_ID } from './serialize.ts';
 import { isSameOrigin } from './url.ts';
 
@@ -33,6 +34,7 @@ export {
   type LinkActiveAttributes,
   type LinkActiveMatch,
   type LinkNavigateEvent,
+  type LinkPrefetchValue,
   type LinkPrefetchStrategy,
   type ResolvedLink,
 } from './link.ts';
@@ -80,6 +82,8 @@ export type NavigationState = {
 
 export type VoidRouter = {
   _hoverDelay: number;
+  /** How Links without a `prefetch` prop prefetch. Absent during SSR. */
+  _prefetchDefaultStrategy?: LinkPrefetchValue;
   readonly url: URL;
   readonly path: string;
   readonly query: URLSearchParams;
@@ -170,6 +174,10 @@ export function createRouterFacade(
   return {
     get _hoverDelay() {
       return router._hoverDelay;
+    },
+
+    get _prefetchDefaultStrategy() {
+      return router._prefetchDefaultStrategy;
     },
 
     get url() {
@@ -491,6 +499,7 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
 
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
+    _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
 
     get url() {
       return toUrl(routeUrl);
