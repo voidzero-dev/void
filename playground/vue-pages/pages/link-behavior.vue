@@ -80,6 +80,10 @@ function preventNavigate(event: { preventDefault(): void }) {
     </p>
 
     <p>
+      <Link href="/link-behavior" method="post" data-testid="post-link">Post to this page</Link>
+    </p>
+
+    <p>
       <Link href="/users" data-testid="reload-link" reload-document>Reload document</Link>
     </p>
 

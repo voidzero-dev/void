@@ -3,13 +3,14 @@ import type { JSX } from 'solid-js';
 import {
   handleLinkClick,
   linkActiveAttributes,
+  linkPendingAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
   type BaseLinkProps,
 } from 'void/pages-client';
-import { RouterContext } from './context.ts';
+import { NavigationContext, RouterContext } from './context.ts';
 
 type CommonProps = BaseLinkProps & {
   children?: JSX.Element;
@@ -64,6 +65,7 @@ export function Link(props: LinkProps): JSX.Element {
     'onTouchStart',
   ]);
   const router = useContext(RouterContext);
+  const navigation = useContext(NavigationContext);
 
   const link = createMemo(() => resolveLink(local));
   const strategies = createMemo(() =>
@@ -74,6 +76,8 @@ export function Link(props: LinkProps): JSX.Element {
   const activeAttributes = createMemo(() =>
     linkActiveAttributes(router, link(), local.activeMatch),
   );
+  // Calling navigation() tracks visits as they start and end.
+  const pendingAttributes = createMemo(() => linkPendingAttributes(router, navigation?.(), link()));
 
   function doPrefetch() {
     prefetchLink(router, link().href, local.cacheFor);
@@ -178,6 +182,7 @@ export function Link(props: LinkProps): JSX.Element {
           }}
           href={link().href}
           {...activeAttributes()}
+          {...pendingAttributes()}
           {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}
@@ -190,6 +195,7 @@ export function Link(props: LinkProps): JSX.Element {
             el = r;
           }}
           type="button"
+          {...pendingAttributes()}
           {...(rest as JSX.ButtonHTMLAttributes<HTMLButtonElement>)}
           style={resolvedStyle()}
           {...eventHandlers()}

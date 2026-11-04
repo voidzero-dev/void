@@ -108,6 +108,12 @@ export default function LinkBehaviorPage(props: Props) {
       </p>
 
       <p>
+        <Link href="/link-behavior" method="post" data-testid="post-link">
+          Post to this page
+        </Link>
+      </p>
+
+      <p>
         <Link href="/users" data-testid="reload-link" reloadDocument>
           Reload document
         </Link>

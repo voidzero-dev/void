@@ -26,6 +26,7 @@ export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapt
 export {
   handleLinkClick,
   linkActiveAttributes,
+  linkPendingAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -34,6 +35,7 @@ export {
   type LinkActiveAttributes,
   type LinkActiveMatch,
   type LinkNavigateEvent,
+  type LinkPendingAttributes,
   type LinkPrefetchValue,
   type LinkPrefetchStrategy,
   type ResolvedLink,

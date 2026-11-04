@@ -40,3 +40,6 @@ export const head = defineHead<Props>((c, props) => {
     ],
   };
 });
+
+// The POST Link on this page submits here; the page then shows its data again.
+export const action = defineHandler(() => {});

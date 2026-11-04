@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page, Request } from 'playwright';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 
 type TestWindow = Window & {
@@ -225,6 +225,51 @@ export function registerSharedClientTests({
         [null, null],
       ]);
     } finally {
+      await page.context().close();
+    }
+  });
+
+  it('Link marks links to the page that is loading', async ({ expect }) => {
+    const page = await newPage();
+    // Holds the matching requests, keeping the visit in flight until release().
+    let release = () => {};
+    const hold = (matches: (request: Request) => boolean) => {
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return page.route('**/*', async (route) => {
+        if (matches(route.request())) {
+          await released;
+        }
+        await route.continue();
+      });
+    };
+    const pending = (selector: string) =>
+      page.locator(selector).first().getAttribute('data-void-pending');
+    try {
+      // The home page prefetches /users as it renders; this page doesn't.
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+
+      await hold((request) => request.method() === 'POST');
+      await page.click('[data-testid="post-link"]');
+      await page.waitForSelector('[data-testid="post-link"][data-void-pending]');
+      // A GET link to the same page isn't pending while it is submitting.
+      expect(await pending('[data-testid="absolute-current-link"]')).toBeNull();
+      release();
+      await page.waitForSelector('[data-testid="post-link"]:not([data-void-pending])');
+      await page.unrouteAll();
+
+      // Page data, prefetched or not, comes from a JSON request.
+      await hold((request) => request.headers().accept === 'application/json');
+      await page.click('nav a[href="/users"]');
+      await page.waitForSelector('nav a[href="/users"][data-void-pending]');
+      expect(await pending('nav a[href="/"]')).toBeNull();
+      release();
+      await page.waitForSelector('nav a[href="/users"][aria-current="page"]');
+      expect(await pending('nav a[href="/users"]')).toBeNull();
+    } finally {
+      release();
       await page.context().close();
     }
   });

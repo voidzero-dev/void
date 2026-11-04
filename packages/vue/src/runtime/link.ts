@@ -1,6 +1,7 @@
 import {
   handleLinkClick,
   linkActiveAttributes,
+  linkPendingAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -9,6 +10,7 @@ import {
   type LinkActiveMatch,
   type LinkNavigateEvent,
   type LinkPrefetchValue,
+  type NavigationState,
   type VoidRouter,
 } from 'void/pages-client';
 import type { Href } from 'void/routes';
@@ -85,6 +87,7 @@ const LinkComponent = defineComponent({
   props: linkPropOptions,
   setup(props, { slots, attrs }) {
     const router = inject<VoidRouter | null>('__void_router', null);
+    const navigation = inject<NavigationState | null>('__void_navigation', null);
     const elRef = ref<HTMLElement | null>(null);
     const link = computed(() => resolveLink(props));
     const strategies = computed(() =>
@@ -94,6 +97,8 @@ const LinkComponent = defineComponent({
     const activeAttributes = computed(() =>
       linkActiveAttributes(router, link.value, props.activeMatch),
     );
+    // The injected navigation state is reactive, so this follows visits as they start and end.
+    const pendingAttributes = computed(() => linkPendingAttributes(router, navigation, link.value));
 
     function doPrefetch() {
       prefetchLink(router, link.value.href, props.cacheFor);
@@ -185,6 +190,7 @@ const LinkComponent = defineComponent({
         tag,
         {
           ...activeAttributes.value,
+          ...pendingAttributes.value,
           ...attrs,
           ref: elRef,
           ...(isGet ? { href } : { type: 'button' }),

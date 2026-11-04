@@ -86,7 +86,9 @@ the app's existing saved destination, including when the target project is new.
   `void/env`; follow `docs/guide/env-vars.md` for local and production values.
 - In Pages navigation, style the current link with `Link`'s `aria-current` and `data-void-active`
   attributes (`activeMatch="prefix"` for sections) instead of comparing `useRouter().path`; see
-  `docs/guide/pages-routing/overview.md#active-links`.
+  `docs/guide/pages-routing/overview.md#active-links`. Show a loading state on
+  the clicked link with `data-void-pending` instead of matching `useNavigation().location`
+  yourself; see `docs/guide/pages-routing/overview.md#pending-links`.
 - For platform setup, follow the pages linked from
   `docs/guide/self-hosted-platform.md`. Use `void platform list` to find the
   installation slug for maintenance. For recovery, use its documented resume

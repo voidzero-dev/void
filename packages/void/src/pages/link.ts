@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 import type { Href } from 'void/routes';
 import { isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
-import type { NavigationMethod, VoidRouter } from './client.ts';
+import type { NavigationMethod, NavigationState, VoidRouter } from './client.ts';
 import type { PrefetchOptions } from './navigation-engine.ts';
 import type { CacheForInput, LinkPrefetchValue, LinkPrefetchStrategy } from './prefetch.ts';
 import { decodePagePath } from './url.ts';
@@ -14,6 +14,11 @@ export type LinkActiveMatch = 'exact' | 'prefix';
 export type LinkActiveAttributes = {
   'aria-current'?: 'page';
   'data-void-active'?: '';
+};
+
+/** Present only while a visit to the link's destination is loading. */
+export type LinkPendingAttributes = {
+  'data-void-pending'?: '';
 };
 
 /** Props every adapter's Link accepts. Adapters add element attributes and children. */
@@ -132,15 +137,8 @@ export function linkActiveAttributes(
   }
 
   const current = router.url;
-  let target: URL;
-  try {
-    target = new URL(link.href, current);
-  } catch {
-    // A malformed href still renders; it just never matches.
-    return {};
-  }
-  // Protocol and host rather than `origin`, which is opaque for custom schemes such as capacitor:.
-  if (target.protocol !== current.protocol || target.host !== current.host) {
+  const target = resolveSameOrigin(link.href, current);
+  if (!target) {
     return {};
   }
 
@@ -158,6 +156,59 @@ export function linkActiveAttributes(
   }
 
   return {};
+}
+
+/**
+ * Marks a link while a visit to its destination is loading: the visit uses the link's
+ * method and goes to its path, query and hash. Unlike active links, the query counts,
+ * so `?page=2` isn't pending during a visit to `?page=3`. Every link to the destination
+ * is marked, not only the one that was clicked.
+ * Spread the result before the user's attributes so theirs win.
+ */
+export function linkPendingAttributes(
+  router: VoidRouter | null | undefined,
+  navigation: NavigationState | null | undefined,
+  link: ResolvedLink,
+): LinkPendingAttributes {
+  if (
+    !router ||
+    !navigation?.location ||
+    navigation.state === 'idle' ||
+    navigation.method !== link.method
+  ) {
+    return {};
+  }
+
+  const destination = navigation.location;
+  const target = resolveSameOrigin(link.href, router.url);
+  if (
+    target &&
+    target.host === destination.host &&
+    target.protocol === destination.protocol &&
+    decodePagePath(target.pathname) === decodePagePath(destination.pathname) &&
+    target.search === destination.search &&
+    target.hash === destination.hash
+  ) {
+    return { 'data-void-pending': '' };
+  }
+
+  return {};
+}
+
+/** Resolves `href` against `base`, or returns `null` for a malformed or other-origin href. */
+function resolveSameOrigin(href: string, base: URL): URL | null {
+  let target: URL;
+  try {
+    target = new URL(href, base);
+  } catch {
+    // A malformed href still renders; it just never matches.
+    return null;
+  }
+  // Protocol and host rather than `origin`, which is opaque for custom schemes such as capacitor:.
+  if (target.protocol !== base.protocol || target.host !== base.host) {
+    return null;
+  }
+  return target;
 }
 
 export function prefetchLink(
