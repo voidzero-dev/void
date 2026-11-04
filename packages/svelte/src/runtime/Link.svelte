@@ -3,10 +3,12 @@
   import {
     handleLinkClick,
     linkActiveAttributes,
+    linkPendingAttributes,
     linkPrefetchStrategies,
     observeLinkVisible,
     prefetchLink,
     resolveLink,
+    type NavigationState,
     type VoidRouter,
   } from "void/pages-client";
   import type { LinkProps } from "./link-props.ts";
@@ -36,6 +38,7 @@
   }: LinkProps = $props();
 
   const router = getContext<VoidRouter>("__void_router");
+  const navigation = getContext<{ value: NavigationState } | undefined>("__void_navigation");
 
   function doPrefetch() {
     prefetchLink(router, link.href, cacheFor);
@@ -126,6 +129,8 @@
   );
   // Reading router.url tracks the route URL, so this follows navigations.
   const activeAttributes = $derived(linkActiveAttributes(router, link, activeMatch));
+  // Reading navigation.value tracks visits as they start and end.
+  const pendingAttributes = $derived(linkPendingAttributes(router, navigation?.value, link));
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
   );
@@ -136,6 +141,7 @@
     bind:this={el}
     href={link.href}
     {...activeAttributes}
+    {...pendingAttributes}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}
@@ -153,6 +159,7 @@
   <button
     bind:this={el}
     type="button"
+    {...pendingAttributes}
     {...rest}
     style={resolvedStyle}
     onclick={onClick}

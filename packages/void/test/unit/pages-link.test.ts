@@ -1,8 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createRouterFacade, createSsrRouter, type VoidRouter } from '../../src/pages/client.ts';
+import {
+  createRouterFacade,
+  createSsrRouter,
+  idleNavigationState,
+  type NavigationMethod,
+  type VoidRouter,
+} from '../../src/pages/client.ts';
 import {
   handleLinkClick,
   linkActiveAttributes,
+  linkPendingAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -211,6 +218,86 @@ describe('linkActiveAttributes', () => {
   it('never marks links that are not GET or have no router', () => {
     expect(attributes('/logout', { href: '/logout', method: 'post' })).toEqual({});
     expect(linkActiveAttributes(null, resolveLink({ href: '/' }))).toEqual({});
+  });
+});
+
+describe('linkPendingAttributes', () => {
+  const pending = { 'data-void-pending': '' };
+  const router = { url: new URL('/admin/users?page=1', 'https://app.test') } as VoidRouter;
+
+  /** A visit in flight to `destination`, as the router reports it. */
+  function visiting(destination: string, method: NavigationMethod = 'GET') {
+    return {
+      state: method === 'GET' ? ('loading' as const) : ('submitting' as const),
+      location: new URL(destination, 'https://app.test'),
+      method,
+    };
+  }
+
+  function attributes(destination: string, props: Pick<BaseLinkProps, 'href' | 'method' | 'data'>) {
+    return linkPendingAttributes(
+      router,
+      visiting(destination, props.method?.toUpperCase() as NavigationMethod),
+      resolveLink(props),
+    );
+  }
+
+  it('marks a link while a visit to its destination loads', () => {
+    expect(attributes('/admin/users/42', { href: '/admin/users/42' })).toEqual(pending);
+    expect(attributes('/admin/users/42', { href: '/admin/users' })).toEqual({});
+    expect(attributes('/admin', { href: '/admin/users' })).toEqual({});
+  });
+
+  it('compares the query and hash', () => {
+    expect(attributes('/inbox?page=3', { href: '/inbox?page=3' })).toEqual(pending);
+    expect(attributes('/inbox?page=3', { href: '/inbox?page=2' })).toEqual({});
+    expect(attributes('/inbox?page=3', { href: '/inbox' })).toEqual({});
+    expect(attributes('/search?q=void', { href: '/search', data: { q: 'void' } })).toEqual(pending);
+    expect(attributes('/docs#install', { href: '/docs#install' })).toEqual(pending);
+    expect(attributes('/docs#install', { href: '/docs' })).toEqual({});
+  });
+
+  it('compares paths the way the router matches them', () => {
+    expect(attributes('/admin', { href: '/Admin' })).toEqual({});
+    expect(attributes('/admin', { href: '/admin/' })).toEqual({});
+    expect(attributes('/caf%C3%A9', { href: '/café' })).toEqual(pending);
+    expect(attributes('/caf%c3%a9', { href: '/caf%C3%A9' })).toEqual(pending);
+  });
+
+  it('resolves relative and absolute hrefs against the current URL', () => {
+    expect(attributes('/admin/users?page=2', { href: '?page=2' })).toEqual(pending);
+    expect(attributes('/admin/users/42', { href: 'users/42' })).toEqual(pending);
+    expect(attributes('/admin/users/42', { href: 'https://app.test/admin/users/42' })).toEqual(
+      pending,
+    );
+    expect(attributes('/admin/users/42', { href: 'https://example.com/admin/users/42' })).toEqual(
+      {},
+    );
+  });
+
+  it('marks a non-GET link only during a visit with its method', () => {
+    expect(attributes('/logout', { href: '/logout', method: 'post' })).toEqual(pending);
+    expect(attributes('/users/1', { href: '/users/1', method: 'DELETE' })).toEqual(pending);
+    expect(
+      linkPendingAttributes(
+        router,
+        visiting('/logout', 'GET'),
+        resolveLink({ href: '/logout', method: 'post' }),
+      ),
+    ).toEqual({});
+    expect(
+      linkPendingAttributes(router, visiting('/users', 'POST'), resolveLink({ href: '/users' })),
+    ).toEqual({});
+  });
+
+  it('marks nothing when no visit is loading or there is no router', () => {
+    const link = resolveLink({ href: '/admin/users/42' });
+    expect(linkPendingAttributes(router, idleNavigationState(), link)).toEqual({});
+    expect(
+      linkPendingAttributes(router, { state: 'loading', location: null, method: 'GET' }, link),
+    ).toEqual({});
+    expect(linkPendingAttributes(router, null, link)).toEqual({});
+    expect(linkPendingAttributes(null, visiting('/admin/users/42'), link)).toEqual({});
   });
 });
 

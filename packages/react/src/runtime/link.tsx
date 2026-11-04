@@ -11,13 +11,14 @@ import type {
 import {
   handleLinkClick,
   linkActiveAttributes,
+  linkPendingAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
   type BaseLinkProps,
 } from 'void/pages-client';
-import { RouterContext } from './context.ts';
+import { NavigationContext, RouterContext } from './context.ts';
 
 export type LinkProps = BaseLinkProps &
   Omit<AnchorHTMLAttributes<HTMLAnchorElement>, keyof BaseLinkProps> &
@@ -47,6 +48,7 @@ export function Link({
   ...rest
 }: LinkProps): JSX.Element {
   const router = useContext(RouterContext);
+  const navigation = useContext(NavigationContext);
   const elementRef = useRef<HTMLElement | null>(null);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const link = useMemo(
@@ -63,6 +65,10 @@ export function Link({
   const activeAttributes = useMemo(
     () => linkActiveAttributes(router, link, activeMatch),
     [activeMatch, link, router],
+  );
+  const pendingAttributes = useMemo(
+    () => linkPendingAttributes(router, navigation, link),
+    [link, navigation, router],
   );
   const hoverDelay = router?._hoverDelay ?? 75;
 
@@ -237,6 +243,7 @@ export function Link({
         href={link.href}
         style={resolvedStyle}
         {...activeAttributes}
+        {...pendingAttributes}
         {...rest}
         {...eventHandlers}
       >
@@ -250,6 +257,7 @@ export function Link({
       ref={elementRef as RefObject<HTMLButtonElement>}
       type="button"
       style={resolvedStyle}
+      {...pendingAttributes}
       {...(rest as ButtonHTMLAttributes<HTMLButtonElement>)}
       {...eventHandlers}
     >

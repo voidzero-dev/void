@@ -324,6 +324,22 @@ A link is active only on its own path by default. Set `activeMatch="prefix"` to 
 
 Paths match the way pages are routed: letter case and trailing slashes count, while the query string and hash are ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value.
 
+### Pending links
+
+While a page loads, `Link` adds `data-void-pending` to every link to it. Use it to show that a click is being handled:
+
+```css
+a[data-void-pending] {
+  opacity: 0.6;
+  /* Skip visits that finish quickly, such as to a prefetched page */
+  transition: opacity 0.15s 0.1s;
+}
+```
+
+A link is pending only while its exact destination loads. The path, query and hash must all match, so a link to `/users?page=2` isn't pending while `/users?page=3` loads. A non-GET link, which renders a `<button>`, is pending while a request with its method to its `href` runs. `router.refresh()` reloads the current page, so links to it are pending during a refresh.
+
+A `data-void-pending` you pass to `Link` replaces the computed value. For a loading indicator that covers the whole page, use [`useNavigation()`](../../reference/api/pages.md).
+
 ### Prefetching
 
 Add `prefetch` to a `Link` to load its page before the user clicks, so the visit doesn't wait for the server:

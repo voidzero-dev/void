@@ -20,3 +20,6 @@ export const loader = defineHandler<Props>((c) => {
 export const head = defineHead<Props>((c, props) => {
   return { title: props.title };
 });
+
+// The POST Link on this page submits here; the page then shows its data again.
+export const action = defineHandler(() => {});
