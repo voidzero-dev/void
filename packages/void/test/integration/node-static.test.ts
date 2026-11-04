@@ -4,6 +4,11 @@ import { createServer, type Server } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  killChild,
+  spawnPlaygroundServer,
+  startServer,
+} from '../../../../test/integration-helpers.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
 import { collectPrerenderPathsNode } from '../../src/prerender.ts';
@@ -60,6 +65,52 @@ function resolveStaticFile(clientDir: string, requestUrl: string): string | null
   }
   return null;
 }
+
+it('uses server page data for navigation and prefetch in static-output dev', async () => {
+  const browser = await chromium.launch();
+  let server: Awaited<ReturnType<typeof startServer>> | undefined;
+  try {
+    server = await startServer(
+      (port) => spawnPlaygroundServer(ROOT, 'node-static', 'dev', port),
+      20_000,
+    );
+    const page = await browser.newPage();
+    page.setDefaultTimeout(10_000);
+    await page.goto(server.base);
+    await page.waitForSelector('#app[data-hydrated="true"]');
+    await page.evaluate(() => {
+      window.__SPA_MARKER = true;
+    });
+    const requests: Array<string> = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'fetch') {
+        requests.push(new URL(request.url()).pathname);
+      }
+    });
+
+    await page.locator('a[href="/legacy"]').click();
+    await page.waitForSelector('[data-testid="legacy-title"]');
+
+    await Promise.all([
+      page.waitForResponse(
+        (response) =>
+          new URL(response.url()).pathname === '/about' &&
+          response.request().headers().purpose === 'prefetch',
+      ),
+      page.locator('a[href="/about"]').hover(),
+    ]);
+    await page.locator('a[href="/about"]').click();
+    await page.waitForSelector('[data-testid="about-title"]');
+
+    expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
+    expect(requests).toEqual(['/legacy', '/about']);
+  } finally {
+    await browser.close();
+    if (server) {
+      await killChild(server.child);
+    }
+  }
+}, 30_000);
 
 describe('playground/node-static build (target: node, output: static)', () => {
   beforeAll(async () => {
