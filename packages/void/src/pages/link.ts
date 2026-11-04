@@ -284,18 +284,51 @@ export function handleLinkClick(
   });
 }
 
-/** Calls `onVisible` once, the first time `element` enters the viewport. Returns a cleanup. */
+/**
+ * How long a `'visible'` link must stay in the viewport before it prefetches. Long enough
+ * that a link scrolled past during a quick scroll or fling is skipped, short enough that
+ * the prefetch still lands well before the user reads the link and clicks. Astro's
+ * viewport prefetch uses the same dwell. Separate from `prefetch.hoverDelay`, whose 75 ms
+ * would only filter the fastest flings.
+ */
+export const LINK_VISIBLE_PREFETCH_DELAY = 300;
+
+/**
+ * Calls `onVisible` once, after `element` has stayed in the viewport for
+ * `LINK_VISIBLE_PREFETCH_DELAY` ms. Leaving the viewport cancels the wait and entering
+ * again restarts it. Returns a cleanup that also cancels a pending wait.
+ */
 export function observeLinkVisible(element: Element, onVisible: () => void): () => void {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  // Set once the callback has run or the caller cleaned up. Entries queued before
+  // `disconnect()` can still be delivered, and must not start another wait.
+  let done = false;
+  const stop = () => {
+    done = true;
+    clearTimeout(timer);
+    timer = undefined;
+    observer.disconnect();
+  };
+
   const observer = new IntersectionObserver(
     (entries) => {
-      if (entries.some((entry) => entry.isIntersecting)) {
-        onVisible();
-        observer.disconnect();
+      if (done) {
+        return;
       }
+      // Entries are in time order, so the last one is the element's current state.
+      if (!entries.at(-1)?.isIntersecting) {
+        clearTimeout(timer);
+        timer = undefined;
+        return;
+      }
+      timer ??= setTimeout(() => {
+        stop();
+        onVisible();
+      }, LINK_VISIBLE_PREFETCH_DELAY);
     },
     { rootMargin: '0px' },
   );
   observer.observe(element);
 
-  return () => observer.disconnect();
+  return stop;
 }
