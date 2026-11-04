@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { inspect } from 'node:util';
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 vi.mock('../../src/log', () => ({
@@ -127,6 +128,21 @@ describe('readConfig', () => {
     setup();
     writeFileSync(join(tmpDir, 'void.config.ts'), 'export default { routing: { isr: 1 } };\n');
     expect(() => readConfig(tmpDir)).toThrow('"routing.isr" in void.config.ts must be a boolean');
+    cleanup();
+  });
+
+  it('prints only void.config.ts when a typed config is invalid', () => {
+    setup();
+    writeFileSync(join(tmpDir, 'void.config.ts'), 'export default { routing: { isr: 1 } };\n');
+    let error: unknown;
+    try {
+      readConfig(tmpDir);
+    } catch (caught) {
+      error = caught;
+    }
+    // inspect() is what prints the `[cause]` line under an uncaught error.
+    expect(inspect(error)).toContain('"routing.isr" in void.config.ts must be a boolean');
+    expect(inspect(error)).not.toContain('void.json');
     cleanup();
   });
 
@@ -971,7 +987,7 @@ describe('routing rules: host-prefixed sources', () => {
         destination: 'https://foo.com/:splat',
         status: 302,
         host: 'www.foo.com',
-        origin: 'void.json#routing.redirects',
+        origin: 'void.config.ts#routing.redirects',
       },
     ]);
     cleanup();
@@ -1294,14 +1310,24 @@ describe('convertRedirectsConfig', () => {
   it('converts string destinations with default 302', () => {
     const result = convertRedirectsConfig({ '/old': '/new' });
     expect(result).toEqual([
-      { source: '/old', destination: '/new', status: 302, origin: 'void.json#routing.redirects' },
+      {
+        source: '/old',
+        destination: '/new',
+        status: 302,
+        origin: 'void.config.ts#routing.redirects',
+      },
     ]);
   });
 
   it('converts object destinations with explicit status', () => {
     const result = convertRedirectsConfig({ '/old': { to: '/new', status: 301 } });
     expect(result).toEqual([
-      { source: '/old', destination: '/new', status: 301, origin: 'void.json#routing.redirects' },
+      {
+        source: '/old',
+        destination: '/new',
+        status: 301,
+        origin: 'void.config.ts#routing.redirects',
+      },
     ]);
   });
 
@@ -1311,12 +1337,12 @@ describe('convertRedirectsConfig', () => {
       '/c/*': { to: '/d/:splat', status: 308 },
     });
     expect(result).toEqual([
-      { source: '/a', destination: '/b', status: 302, origin: 'void.json#routing.redirects' },
+      { source: '/a', destination: '/b', status: 302, origin: 'void.config.ts#routing.redirects' },
       {
         source: '/c/*',
         destination: '/d/:splat',
         status: 308,
-        origin: 'void.json#routing.redirects',
+        origin: 'void.config.ts#routing.redirects',
       },
     ]);
   });
@@ -1339,7 +1365,7 @@ describe('convertRewritesConfig', () => {
         destination: '/en/docs',
         status: 200,
         force: true,
-        origin: 'void.json#routing.rewrites',
+        origin: 'void.config.ts#routing.rewrites',
       },
     ]);
   });
@@ -1355,14 +1381,14 @@ describe('convertRewritesConfig', () => {
         destination: '/en',
         status: 200,
         force: true,
-        origin: 'void.json#routing.rewrites',
+        origin: 'void.config.ts#routing.rewrites',
       },
       {
         source: '/docs/*',
         destination: '/en/docs/:splat',
         status: 200,
         force: true,
-        origin: 'void.json#routing.rewrites',
+        origin: 'void.config.ts#routing.rewrites',
       },
     ]);
   });
@@ -1385,7 +1411,7 @@ describe('convertFallbacksConfig', () => {
         destination: '/index.html',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
     ]);
   });
@@ -1401,14 +1427,14 @@ describe('convertFallbacksConfig', () => {
         destination: '/api/fallback',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
       {
         source: '/*',
         destination: '/index.html',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
     ]);
   });
@@ -1441,7 +1467,7 @@ describe('lintDestinationSplats', () => {
     const msg = warnMock.mock.calls[0][0];
     expect(msg).toContain('/old/*');
     expect(msg).toContain('/new/*');
-    expect(msg).toContain('void.json#routing.redirects');
+    expect(msg).toContain('void.config.ts#routing.redirects');
   });
 
   it('emits a single aggregated warning covering all affected rules', async () => {
@@ -1467,7 +1493,7 @@ describe('lintDestinationSplats', () => {
     const rules = convertFallbacksConfig({ '/docs/*': '/docs/*' });
     lintDestinationSplats(rules, 'fallbacks (post-asset)');
     expect(warnMock).toHaveBeenCalledOnce();
-    expect(warnMock.mock.calls[0][0]).toContain('void.json#routing.fallbacks');
+    expect(warnMock.mock.calls[0][0]).toContain('void.config.ts#routing.fallbacks');
   });
 });
 

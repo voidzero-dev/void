@@ -95,7 +95,7 @@ describe('mergeRoutingRules', () => {
     });
 
     expect(result.redirectRules).toHaveLength(2);
-    expect(result.redirectRules[0].origin).toBe('void.json#routing.rewrites');
+    expect(result.redirectRules[0].origin).toBe('void.config.ts#routing.rewrites');
     expect(result.redirectRules[0].destination).toBe('/handbook/:splat');
     expect(result.redirectRules[1].origin).toMatch(/^_redirects:/);
     expect(result.redirectRules[1].destination).toBe('/en/docs/:splat');
@@ -160,12 +160,12 @@ describe('mergeRoutingRules', () => {
     expect(result.redirectRules[0]).toMatchObject({
       source: '/x',
       destination: '/from-redirect',
-      origin: 'void.json#routing.redirects',
+      origin: 'void.config.ts#routing.redirects',
     });
     expect(result.redirectRules[1]).toMatchObject({
       source: '/x',
       destination: '/from-rewrite',
-      origin: 'void.json#routing.rewrites',
+      origin: 'void.config.ts#routing.rewrites',
     });
   });
 
