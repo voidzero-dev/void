@@ -211,12 +211,26 @@ function resolveSameOrigin(href: string, base: URL): URL | null {
   return target;
 }
 
+/** The Network Information API fields Link reads. Only Chromium implements them. */
+type NetworkConnection = { saveData?: boolean; effectiveType?: string };
+
+/** Data saver is on, or the connection is 2G-class. Read per call: both change while the page is open. */
+function isConstrainedConnection(): boolean {
+  const connection = (navigator as Navigator & { connection?: NetworkConnection }).connection;
+  return (
+    connection?.saveData === true ||
+    connection?.effectiveType === '2g' ||
+    connection?.effectiveType === 'slow-2g'
+  );
+}
+
+/** Link's automatic prefetch. `router.prefetch()` called directly is not limited by the connection. */
 export function prefetchLink(
   router: VoidRouter | null | undefined,
   href: Href,
   cacheFor: CacheForInput | undefined,
 ): void {
-  if (!router?.prefetch) {
+  if (!router?.prefetch || isConstrainedConnection()) {
     return;
   }
 

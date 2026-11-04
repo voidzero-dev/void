@@ -361,6 +361,8 @@ voidReact({ prefetch: { defaultStrategy: 'hover' } });
 
 Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page once it renders or stays in view, which adds up in long lists.
 
+`Link` doesn't prefetch while the browser reports that data saver is on or the connection is 2G, which only Chromium-based browsers report.
+
 Prefetching runs the destination's loader, so keep loaders free of side effects such as counting views.
 
 ## Scroll Restoration
