@@ -29,6 +29,8 @@ export const action = defineHandler.withValidator({
 | Nothing (void)        | Re-runs the loader, page re-renders with fresh props. |
 | `c.redirect('/path')` | Navigates to another page.                            |
 
+Middleware does not run again after the action. To change [shared data](./layouts.md#shared-data), update it in the action or redirect.
+
 ## Form
 
 Pair `Form` with `useForm` to submit values and display validation and action errors. Inputs stay editable when a submission fails.
