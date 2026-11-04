@@ -364,6 +364,39 @@ export { handler as action, type actions };`,
     expect(patterns.indexOf('/:id')).toBeLessThan(patterns.indexOf('/:slug{.+}'));
   });
 
+  it('matches overlapping dynamic pages by their first differing segment', async () => {
+    for (const file of [
+      '[lang]/about.tsx',
+      '[lang]/[slug].tsx',
+      'users/[id].tsx',
+      'users/[id]/edit.tsx',
+      'users/new/[tab].tsx',
+      'docs/[...path].tsx',
+      '[lang]/[...path].tsx',
+    ]) {
+      writeFile(file, 'export default function Page() { return null; }');
+    }
+
+    const scan = await scanPages(TMP);
+    // The server registers pages in this order, and the client matcher keeps it.
+    const { matchRoute } = new Function(
+      `${generateComponentManifest(scan, '/project/pages')}\nreturn { matchRoute };`,
+    )() as { matchRoute: (path: string) => string | null };
+    expect(
+      Object.fromEntries(
+        ['/users/about', '/users/new/edit', '/fr/about', '/docs/a/b', '/fr/team/jobs'].map(
+          (url) => [url, matchRoute(url)],
+        ),
+      ),
+    ).toEqual({
+      '/users/about': 'users/[id]',
+      '/users/new/edit': 'users/new/[tab]',
+      '/fr/about': '[lang]/about',
+      '/docs/a/b': 'docs/[...path]',
+      '/fr/team/jobs': '[lang]/[...path]',
+    });
+  });
+
   it('handles .tsx components', async () => {
     writeFile('dashboard.tsx', 'export default function Dashboard() { return <div />; }');
     const result = await scanPages(TMP);

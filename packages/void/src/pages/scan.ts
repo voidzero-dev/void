@@ -9,6 +9,7 @@ import {
   parseRouteFilename,
   type RouteEnvironment,
 } from '../router/parse-filename.ts';
+import { compareRouteSpecificity } from '../router/route-order.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
@@ -407,18 +408,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     });
   }
 
-  // Sort: static before dynamic, catch-all last
-  pages.sort((a, b) => {
-    if (a.catchAll !== b.catchAll) {
-      return a.catchAll ? 1 : -1;
-    }
-    const aDynamic = a.pattern.includes(':');
-    const bDynamic = b.pattern.includes(':');
-    if (aDynamic !== bDynamic) {
-      return aDynamic ? 1 : -1;
-    }
-    return a.pattern.localeCompare(b.pattern);
-  });
+  pages.sort(compareRouteSpecificity);
 
   if (options?.checkRoutes !== false) {
     // At most one page per route in each environment. A scan for every

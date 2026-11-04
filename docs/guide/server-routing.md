@@ -14,6 +14,20 @@ Create route handlers in `routes/` using `.ts`, `.tsx`, `.js`, `.jsx`, `.mts`, o
 
 Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` becomes a catch-all. Prefix files or directories with `_` or `.` to exclude them from routing; `.well-known` remains available for standard discovery endpoints. Directories wrapped in parentheses like `(admin)` are route groups. They help organize files without changing the URL.
 
+### Overlapping routes
+
+When several routes match a URL, the most specific one handles it. Void compares routes segment by segment, from the left, and the first segment that differs decides: a static segment beats `[param]`, and `[param]` beats `[...slug]`. Catch-all routes rank after all other routes.
+
+```
+routes/
+  users/[id].ts        →  handles /users/about (users beats [lang])
+  [lang]/about.ts      →  handles /fr/about (about beats [slug])
+  [lang]/[slug].ts     →  handles /fr/contact
+  [...path].ts         →  handles URLs no other route matches
+```
+
+Parameter names don't affect the order. Routes that differ only in their parameter names, such as `[id].ts` and `[slug].ts`, match the same URLs, so keep only one of them.
+
 ### Environment-only routes
 
 Add a `.dev` or `.prod` suffix before the extension to include a route in only one environment:
