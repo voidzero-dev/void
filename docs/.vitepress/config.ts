@@ -154,7 +154,7 @@ const socialLinks = [
   { icon: 'discord', link: 'https://discord.gg/cC6TEVFKSx' },
   { icon: 'x', link: 'https://x.com/voidzerodev' },
   { icon: 'bluesky', link: 'https://bsky.app/profile/voidzero.dev' },
-  { icon: 'github', link: 'https://github.com/voidzero-dev' },
+  { icon: 'github', link: 'https://github.com/voidzero-dev/void' },
 ];
 
 const companyLinks = {
