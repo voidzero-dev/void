@@ -106,6 +106,29 @@ export function toNativeCloudflareConfig(
   return { ...config, worker: config.worker };
 }
 
+/**
+ * Give Container Durable Objects a regular binding in the dev server. Their unsafe
+ * binding from `migrateBuiltWranglerConfig()` exists only for the Worker upload, and
+ * Miniflare skips unsafe bindings without a dev plugin. Match only that generated form:
+ * any other unsafe binding comes from the user's config and may name another Worker,
+ * even one with a class of the same name, so it stays as written.
+ */
+export function restoreLocalContainerBindings(worker: ParsedInputConfigWithWorker['worker']): void {
+  for (const [name, binding] of Object.entries(worker.env ?? {})) {
+    if (
+      binding.type !== 'unsafe:durable_object_namespace' ||
+      Object.keys(binding).some((key) => !['type', 'class_name'].includes(key))
+    ) {
+      continue;
+    }
+    const className = binding.class_name as string;
+    const declaration = worker.exports?.[className];
+    if (declaration && 'container' in declaration) {
+      worker.env![name] = { type: 'durable-object', worker: worker.name, exportName: className };
+    }
+  }
+}
+
 export function nativeAuxiliaryWorkers(
   workers: Array<AuxiliaryWorkerConfig> | undefined,
   root: string,
