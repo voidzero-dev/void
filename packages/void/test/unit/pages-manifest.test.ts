@@ -49,7 +49,7 @@ describe('generated Pages client route manifest', () => {
 type GeneratedManifest = {
   components: Record<string, () => Promise<unknown>>;
   layoutTree: Record<string, Array<string>>;
-  routeMeta: Record<string, { island?: boolean }>;
+  routeMeta: Record<string, { island?: boolean; prerender?: boolean }>;
   matchRoute(url: string): string | null;
 };
 
@@ -82,6 +82,31 @@ function definePage(
     ...extra,
   };
 }
+
+it('preserves explicit prerender opt-outs alongside island metadata', () => {
+  const manifest = evaluateManifest({
+    pages: [
+      definePage('static', '/static', 'static.tsx', { prerender: true, shouldPrerender: true }),
+      definePage('auto', '/auto', 'auto.tsx'),
+      definePage('server', '/server', 'server.tsx', {
+        prerender: false,
+        prerenderMode: 'disabled',
+      }),
+      definePage('island', '/island', 'island.island.tsx', {
+        island: true,
+        prerender: false,
+        prerenderMode: 'disabled',
+      }),
+    ],
+    layouts: [],
+    namedLayouts: [],
+  });
+
+  expect(manifest.routeMeta).toEqual({
+    server: { prerender: false },
+    island: { island: true, prerender: false },
+  });
+});
 
 /**
  * The ordered RegExp scan alone: a dynamic route placed first leaves no static
