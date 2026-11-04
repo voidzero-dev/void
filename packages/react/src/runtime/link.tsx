@@ -31,7 +31,7 @@ export function Link({
   replace = false,
   reloadDocument = false,
   viewTransition,
-  prefetch = false,
+  prefetch,
   cacheFor,
   onNavigate,
   children,
@@ -51,9 +51,11 @@ export function Link({
     () => resolveLink({ href, method, data, prefetch, reloadDocument }),
     [data, href, method, prefetch, reloadDocument],
   );
+  const { isGet } = link;
+  const defaultStrategy = router?._prefetchDefaultStrategy;
   const strategies = useMemo(
-    () => linkPrefetchStrategies({ prefetch, reloadDocument }),
-    [prefetch, reloadDocument],
+    () => linkPrefetchStrategies({ prefetch, reloadDocument }, { isGet }, defaultStrategy),
+    [defaultStrategy, isGet, prefetch, reloadDocument],
   );
   const hoverDelay = router?._hoverDelay ?? 75;
 

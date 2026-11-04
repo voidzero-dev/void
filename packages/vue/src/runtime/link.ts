@@ -6,7 +6,7 @@ import {
   resolveLink,
   type BaseLinkProps,
   type LinkNavigateEvent,
-  type LinkPrefetchStrategy,
+  type LinkPrefetchValue,
   type VoidRouter,
 } from 'void/pages-client';
 import type { Href } from 'void/routes';
@@ -45,11 +45,10 @@ const linkPropOptions = {
     type: Function as PropType<(event: LinkNavigateEvent) => void>,
     default: undefined,
   },
+  // undefined, not false: an omitted prop uses the app default.
   prefetch: {
-    type: [Boolean, String, Array] as PropType<
-      boolean | LinkPrefetchStrategy | ReadonlyArray<LinkPrefetchStrategy>
-    >,
-    default: false,
+    type: [Boolean, String, Array] as PropType<LinkPrefetchValue>,
+    default: undefined,
   },
   cacheFor: {
     type: [Number, String, Array] as PropType<number | string | [string, string]>,
@@ -85,7 +84,9 @@ const LinkComponent = defineComponent({
     const router = inject<VoidRouter | null>('__void_router', null);
     const elRef = ref<HTMLElement | null>(null);
     const link = computed(() => resolveLink(props));
-    const strategies = computed(() => linkPrefetchStrategies(props));
+    const strategies = computed(() =>
+      linkPrefetchStrategies(props, link.value, router?._prefetchDefaultStrategy),
+    );
 
     function doPrefetch() {
       prefetchLink(router, link.value.href, props.cacheFor);

@@ -27,7 +27,7 @@ import {
   type VisitOptions,
   type VoidRouter,
 } from 'void/pages-client';
-import type { CacheForResult } from 'void/pages-prefetch';
+import type { CacheForResult, LinkPrefetchValue } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
 import type { RouteUrlInput } from 'void/routes';
 import { setActionRouter } from './action.ts';
@@ -57,6 +57,7 @@ export type ReactPagesConfig = Readonly<{
   viewTransitions: boolean;
   prefetchHoverDelay: number;
   prefetchDefaultCacheFor: CacheForResult;
+  prefetchDefaultStrategy?: LinkPrefetchValue;
   cacheVisitedPageData?: boolean;
   /** Show this fallback for client visits whose destination remains pending at the next paint. */
   navigationFallback?: ComponentType<{ initialPageData: PageObject }>;
@@ -282,6 +283,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
 function createRouter(engine: Awaited<ReturnType<typeof createPageNavigationEngine>>): VoidRouter {
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
+    _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
     get url() {
       return new URL(currentUrl(), window.location.origin);
     },
@@ -746,6 +748,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     viewTransitions: config.viewTransitions,
     prefetchHoverDelay: config.prefetchHoverDelay,
     prefetchDefaultCacheFor: config.prefetchDefaultCacheFor,
+    prefetchDefaultStrategy: config.prefetchDefaultStrategy,
     cacheVisitedPageData: config.cacheVisitedPageData,
   });
   const router = createRouter(engine);

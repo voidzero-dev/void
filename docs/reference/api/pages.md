@@ -16,6 +16,34 @@ With [`routing.typedRoutes`](../config.md#routing-typedroutes), `href` and route
 
 See [Typed navigation](../../guide/pages-routing/overview.md#typed-navigation) for framework examples.
 
+## Prefetching {#prefetching}
+
+`Link`'s `prefetch` prop takes `true`, `false`, a strategy, or an array of strategies:
+
+```ts
+type LinkPrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
+```
+
+| Value               | Loads the page                                                                                |
+| ------------------- | --------------------------------------------------------------------------------------------- |
+| `'hover'` or `true` | When the pointer rests on the link for `hoverDelay`, when it gets keyboard focus, or on touch |
+| `'click'`           | When the mouse button or finger goes down, just before the click                              |
+| `'mount'`           | As soon as the link renders                                                                   |
+| `'visible'`         | The first time the link scrolls into view                                                     |
+| `false`             | Never                                                                                         |
+
+With an array such as `['visible', 'hover']`, the first strategy to happen loads the page, and later ones reuse it. `prefetch` works only on GET links, and links to other sites are never prefetched.
+
+`cacheFor` sets how long a prefetched page is reused, in milliseconds or as a duration such as `'5m'`. A pair such as `['30s', '5m']` treats the page as fresh for 30 seconds, then still shows it for up to 5 minutes while loading a fresh copy in the background.
+
+Each adapter plugin's `prefetch` option sets app-wide values:
+
+| Option            | Default | Description                                                                                                                                                                                                 |
+| ----------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `defaultStrategy` | `false` | The `prefetch` value for every `Link` that doesn't set its own. A `Link`'s own `prefetch` replaces it, and `prefetch={false}` turns it off. Links with a non-GET `method` or `reloadDocument` don't use it. |
+| `hoverDelay`      | `75`    | Milliseconds the pointer rests on a link before `'hover'` prefetches.                                                                                                                                       |
+| `cacheFor`        | `'30s'` | The `cacheFor` value for every `Link` that doesn't set its own.                                                                                                                                             |
+
 ## `@void/vue` {#void-vue}
 
 ### `voidVue(options?)` {#voidvue-options}
@@ -43,8 +71,9 @@ interface VoidVueOptions {
   vue?: VuePluginOptions; // passed through to @vitejs/plugin-vue
   viewTransitions?: boolean; // enable View Transitions API for navigations
   prefetch?: {
-    hoverDelay?: number;
-    cacheFor?: number | string | [string, string];
+    defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
+    hoverDelay?: number; // default: 75 (ms)
+    cacheFor?: number | string | [string, string]; // default: '30s'
   };
 }
 ```
@@ -95,8 +124,9 @@ interface VoidReactOptions {
   react?: ReactPluginOptions; // passed through to @vitejs/plugin-react
   viewTransitions?: boolean; // enable View Transitions API for navigations
   prefetch?: {
-    hoverDelay?: number;
-    cacheFor?: number | string | [string, string];
+    defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
+    hoverDelay?: number; // default: 75 (ms)
+    cacheFor?: number | string | [string, string]; // default: '30s'
   };
 }
 ```
@@ -174,8 +204,9 @@ interface VoidSvelteOptions {
   svelte?: SveltePluginOptions; // passed through to @sveltejs/vite-plugin-svelte
   viewTransitions?: boolean; // enable View Transitions API
   prefetch?: {
-    hoverDelay?: number;
-    cacheFor?: number | string | [string, string];
+    defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
+    hoverDelay?: number; // default: 75 (ms)
+    cacheFor?: number | string | [string, string]; // default: '30s'
   };
 }
 ```
@@ -224,8 +255,9 @@ interface VoidSolidOptions {
   solid?: SolidPluginOptions; // passed through to vite-plugin-solid
   viewTransitions?: boolean; // enable View Transitions API
   prefetch?: {
-    hoverDelay?: number;
-    cacheFor?: number | string | [string, string];
+    defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
+    hoverDelay?: number; // default: 75 (ms)
+    cacheFor?: number | string | [string, string]; // default: '30s'
   };
 }
 ```

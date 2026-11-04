@@ -190,7 +190,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
-  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
+  const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 	import { startReactPages } from "@void/react/pages-client";
 	import { parseCacheFor } from "void/pages-prefetch";
@@ -207,6 +207,7 @@ function generateClientEntry(
 	  viewTransitions: ${!!viewTransitions},
 	  prefetchHoverDelay: ${hoverDelay},
 	  prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
+	  prefetchDefaultStrategy: ${JSON.stringify(defaultStrategy)},
 	});
 	export { router };
 	`;

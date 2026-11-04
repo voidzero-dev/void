@@ -19,7 +19,7 @@
     replace = false,
     reloadDocument = false,
     viewTransition = undefined,
-    prefetch: prefetchProp = false,
+    prefetch: prefetchProp = undefined,
     cacheFor = undefined,
     onNavigate = undefined,
     children,
@@ -115,7 +115,13 @@
   const link = $derived(
     resolveLink({ href, method, data, prefetch: prefetchProp, reloadDocument }),
   );
-  const strategies = $derived(linkPrefetchStrategies({ prefetch: prefetchProp, reloadDocument }));
+  const strategies = $derived(
+    linkPrefetchStrategies(
+      { prefetch: prefetchProp, reloadDocument },
+      link,
+      router?._prefetchDefaultStrategy,
+    ),
+  );
   const resolvedStyle = $derived(
     style ? `touch-action: manipulation; ${style}` : "touch-action: manipulation",
   );

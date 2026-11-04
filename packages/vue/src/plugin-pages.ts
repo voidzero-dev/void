@@ -257,7 +257,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
-  const { hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
+  const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { createApp, createSSRApp, h, reactive, provide, shallowRef, nextTick, ref } from "vue";
 import { createDeferred, resolveDeferred, rejectDeferred } from "@void/vue/deferred";
@@ -306,6 +306,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     viewTransitions: ${!!viewTransitions},
     prefetchHoverDelay: ${hoverDelay},
     prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
+    prefetchDefaultStrategy: ${JSON.stringify(defaultStrategy)},
     onRouteChange(url) {
       routeUrl.value = url;
     },

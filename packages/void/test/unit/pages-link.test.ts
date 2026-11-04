@@ -82,6 +82,9 @@ describe('resolveLink', () => {
 });
 
 describe('linkPrefetchStrategies', () => {
+  const get = { isGet: true };
+  const post = { isGet: false };
+
   it.each([
     [undefined, []],
     [false, []],
@@ -89,11 +92,36 @@ describe('linkPrefetchStrategies', () => {
     ['visible', ['visible']],
     [['mount', 'click'] as const, ['mount', 'click']],
   ] as const)('maps prefetch=%j to %j', (prefetch, expected) => {
-    expect(linkPrefetchStrategies({ prefetch })).toEqual(expected);
+    expect(linkPrefetchStrategies({ prefetch }, get)).toEqual(expected);
   });
 
   it('disables prefetch for document reloads', () => {
-    expect(linkPrefetchStrategies({ prefetch: 'mount', reloadDocument: true })).toEqual([]);
+    expect(linkPrefetchStrategies({ prefetch: 'mount', reloadDocument: true }, get)).toEqual([]);
+    expect(linkPrefetchStrategies({ reloadDocument: true }, get, 'hover')).toEqual([]);
+  });
+
+  it.each([
+    [true, ['hover']],
+    ['visible', ['visible']],
+    [['hover', 'click'] as const, ['hover', 'click']],
+    [false, []],
+  ] as const)(
+    'uses defaultStrategy=%j for a Link without a prefetch prop',
+    (fallback, expected) => {
+      expect(linkPrefetchStrategies({}, get, fallback)).toEqual(expected);
+    },
+  );
+
+  it('replaces the default with the Link prop', () => {
+    expect(linkPrefetchStrategies({ prefetch: 'visible' }, get, ['hover', 'click'])).toEqual([
+      'visible',
+    ]);
+    expect(linkPrefetchStrategies({ prefetch: true }, get, 'mount')).toEqual(['hover']);
+    expect(linkPrefetchStrategies({ prefetch: false }, get, 'hover')).toEqual([]);
+  });
+
+  it('applies the default only to GET links', () => {
+    expect(linkPrefetchStrategies({}, post, 'hover')).toEqual([]);
   });
 });
 
@@ -115,6 +143,15 @@ describe('prefetchLink', () => {
     prefetchLink(null, '/users/42', undefined);
 
     expect(router.prefetch).not.toHaveBeenCalled();
+  });
+
+  it('prefetches same-origin URLs and skips other sites and schemes', () => {
+    const router = createRouter();
+    prefetchLink(router, 'https://app.test/users/42', undefined);
+    prefetchLink(router, 'https://example.com/users/42', undefined);
+    prefetchLink(router, 'mailto:ada@example.com', undefined);
+
+    expect(router.prefetch.mock.calls).toEqual([['https://app.test/users/42', {}]]);
   });
 });
 

@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname } from 'pathslash';
 import { normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from 'vite';
-import type { CacheForInput } from './prefetch.ts';
+import { assertLinkPrefetchValue, type CacheForInput, type LinkPrefetchValue } from './prefetch.ts';
 import { scanPages } from './scan.ts';
 import {
   resolveStaticPageDataBuildOptions,
@@ -19,6 +19,8 @@ type PagesPluginContext = {
 
 /** The `prefetch` option of a framework adapter plugin. */
 export type PrefetchConfig = {
+  /** How a Link without its own `prefetch` prop prefetches. Accepts the same values. */
+  defaultStrategy?: LinkPrefetchValue;
   hoverDelay?: number;
   cacheFor?: CacheForInput;
 };
@@ -30,11 +32,20 @@ export type PagesPluginOptions = {
   prefetch?: PrefetchConfig;
 };
 
-/** `prefetch` with its defaults: a 75 ms hover delay and a 30 second cache. */
+/**
+ * `prefetch` with its defaults: Links prefetch only when they ask to, with a 75 ms
+ * hover delay and a 30 second cache.
+ */
 export function resolvePrefetchConfig(
   prefetch: PrefetchConfig | undefined,
 ): Required<PrefetchConfig> {
-  return { hoverDelay: prefetch?.hoverDelay ?? 75, cacheFor: prefetch?.cacheFor ?? '30s' };
+  const defaultStrategy = prefetch?.defaultStrategy ?? false;
+  assertLinkPrefetchValue(defaultStrategy, 'prefetch.defaultStrategy');
+  return {
+    defaultStrategy,
+    hoverDelay: prefetch?.hoverDelay ?? 75,
+    cacheFor: prefetch?.cacheFor ?? '30s',
+  };
 }
 
 type CreatePagesPluginOptions = {
