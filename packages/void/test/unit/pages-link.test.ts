@@ -529,6 +529,21 @@ describe('observeLinkVisible', () => {
     expect(onVisible).toHaveBeenCalledOnce();
   });
 
+  it('restarts a pending delay after a batched exit and re-entry', () => {
+    const { onVisible, show, notify } = observeStub();
+
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 50);
+    notify(false, true);
+    vi.advanceTimersByTime(50);
+    expect(onVisible).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 51);
+    expect(onVisible).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(onVisible).toHaveBeenCalledOnce();
+  });
+
   it('calls back only once', () => {
     const { onVisible, show } = observeStub();
 

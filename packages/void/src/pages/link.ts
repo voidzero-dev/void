@@ -302,7 +302,7 @@ export function handleLinkClick(
  * How long a `'visible'` link must stay in the viewport before it prefetches. Long enough
  * that a link scrolled past during a quick scroll or fling is skipped, short enough that
  * the prefetch still lands well before the user reads the link and clicks. Astro's
- * viewport prefetch uses the same dwell. Separate from `prefetch.hoverDelay`, whose 75 ms
+ * viewport prefetch uses the same delay. Separate from `prefetch.hoverDelay`, whose 75 ms
  * would only filter the fastest flings.
  */
 export const LINK_VISIBLE_PREFETCH_DELAY = 300;
@@ -329,10 +329,13 @@ export function observeLinkVisible(element: Element, onVisible: () => void): () 
       if (done) {
         return;
       }
-      // Entries are in time order, so the last one is the element's current state.
-      if (!entries.at(-1)?.isIntersecting) {
+      // Leaving the viewport resets the visibility delay even if a later entry is visible again.
+      if (entries.some((entry) => !entry.isIntersecting)) {
         clearTimeout(timer);
         timer = undefined;
+      }
+      // Entries are in time order, so the last one is the element's current state.
+      if (!entries.at(-1)?.isIntersecting) {
         return;
       }
       timer ??= setTimeout(() => {
