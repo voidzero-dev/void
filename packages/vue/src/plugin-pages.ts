@@ -206,7 +206,7 @@ ${generateComponentManifest(scan, pagesDir)}
 
 ${PATCH_PROPS_RUNTIME}
 
-export async function renderPage(pageObj, assetTags) {
+export async function renderPage(pageObj, assetTags, requestUrl) {
   const PageComponent = (await components[pageObj.component]()).default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
@@ -217,7 +217,7 @@ export async function renderPage(pageObj, assetTags) {
     setup() {
       provide("__void_shared", reactive(pageObj.shared || {}));
       provide("__void_params", reactive(pageObj.params || {}));
-      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}));
+      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl));
       provide("__void_navigation", idleNavigationState());
       return () => {
         patchProps(PageComponent, pageObj.props);

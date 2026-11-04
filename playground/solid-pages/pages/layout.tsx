@@ -10,7 +10,7 @@ export default function Layout(props: { children: JSX.Element }) {
           Home
         </Link>{' '}
         |{' '}
-        <Link href="/users" prefetch>
+        <Link href="/users" activeMatch="prefix" prefetch>
           Users
         </Link>{' '}
         |{' '}

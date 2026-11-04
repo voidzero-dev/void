@@ -170,12 +170,13 @@ ${generateComponentManifest(scan, pagesDir)}
 
 	const PREAMBLE_SCRIPT = ${JSON.stringify(preambleScript)};
 	
-	export async function renderPage(pageObj, assetTags) {
+	export async function renderPage(pageObj, assetTags, requestUrl) {
 	  return renderReactPage({
 	    pageObj,
 	    assetTags,
 	    components,
 	    layoutTree,
+	    requestUrl,
 	    preambleScript: PREAMBLE_SCRIPT,
 	  });
 }

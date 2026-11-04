@@ -10,6 +10,7 @@ import type {
 } from 'react';
 import {
   handleLinkClick,
+  linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -33,6 +34,7 @@ export function Link({
   viewTransition,
   prefetch,
   cacheFor,
+  activeMatch,
   onNavigate,
   children,
   style,
@@ -56,6 +58,11 @@ export function Link({
   const strategies = useMemo(
     () => linkPrefetchStrategies({ prefetch, reloadDocument }, { isGet }, defaultStrategy),
     [defaultStrategy, isGet, prefetch, reloadDocument],
+  );
+  // The router context changes with the route URL, so this follows navigations.
+  const activeAttributes = useMemo(
+    () => linkActiveAttributes(router, link, activeMatch),
+    [activeMatch, link, router],
   );
   const hoverDelay = router?._hoverDelay ?? 75;
 
@@ -229,6 +236,7 @@ export function Link({
         ref={elementRef as RefObject<HTMLAnchorElement>}
         href={link.href}
         style={resolvedStyle}
+        {...activeAttributes}
         {...rest}
         {...eventHandlers}
       >

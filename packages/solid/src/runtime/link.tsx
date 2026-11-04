@@ -2,6 +2,7 @@ import { createMemo, onCleanup, onMount, splitProps, useContext } from 'solid-js
 import type { JSX } from 'solid-js';
 import {
   handleLinkClick,
+  linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
@@ -51,6 +52,7 @@ export function Link(props: LinkProps): JSX.Element {
     'viewTransition',
     'prefetch',
     'cacheFor',
+    'activeMatch',
     'onNavigate',
     'children',
     'style',
@@ -68,6 +70,10 @@ export function Link(props: LinkProps): JSX.Element {
     linkPrefetchStrategies(local, link(), router?._prefetchDefaultStrategy),
   );
   const resolvedStyle = createMemo(() => mergeStyle(local.style));
+  // Reading router.url tracks the route URL, so this follows navigations.
+  const activeAttributes = createMemo(() =>
+    linkActiveAttributes(router, link(), local.activeMatch),
+  );
 
   function doPrefetch() {
     prefetchLink(router, link().href, local.cacheFor);
@@ -171,6 +177,7 @@ export function Link(props: LinkProps): JSX.Element {
             el = r;
           }}
           href={link().href}
+          {...activeAttributes()}
           {...rest}
           style={resolvedStyle()}
           {...eventHandlers()}

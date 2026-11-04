@@ -1,10 +1,12 @@
 import {
   handleLinkClick,
+  linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
   type BaseLinkProps,
+  type LinkActiveMatch,
   type LinkNavigateEvent,
   type LinkPrefetchValue,
   type VoidRouter,
@@ -54,6 +56,7 @@ const linkPropOptions = {
     type: [Number, String, Array] as PropType<number | string | [string, string]>,
     default: undefined,
   },
+  activeMatch: { type: String as PropType<LinkActiveMatch>, default: undefined },
 } as const;
 
 // isolatedDeclarations needs the public props written out. This fails to compile if
@@ -86,6 +89,10 @@ const LinkComponent = defineComponent({
     const link = computed(() => resolveLink(props));
     const strategies = computed(() =>
       linkPrefetchStrategies(props, link.value, router?._prefetchDefaultStrategy),
+    );
+    // Reading router.url tracks the route URL, so this follows navigations.
+    const activeAttributes = computed(() =>
+      linkActiveAttributes(router, link.value, props.activeMatch),
     );
 
     function doPrefetch() {
@@ -177,6 +184,7 @@ const LinkComponent = defineComponent({
       return h(
         tag,
         {
+          ...activeAttributes.value,
           ...attrs,
           ref: elRef,
           ...(isGet ? { href } : { type: 'button' }),

@@ -65,7 +65,7 @@ export const loader = defineHandler(async (c) => {
 <!-- pages/users/index.vue -->
 <script setup lang="ts">
 import type { Props } from './index.server';
-defineProps<Props>(); // ← { users: { id: number; name: string; ... }[] }
+const { users } = defineProps<Props>(); // ← users: { id: number; name: string; ... }[]
 </script>
 ```
 

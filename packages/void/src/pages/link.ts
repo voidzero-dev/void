@@ -4,9 +4,17 @@ import { isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 import type { NavigationMethod, VoidRouter } from './client.ts';
 import type { PrefetchOptions } from './navigation-engine.ts';
 import type { CacheForInput, LinkPrefetchValue, LinkPrefetchStrategy } from './prefetch.ts';
+import { decodePagePath } from './url.ts';
 
 export type { LinkPrefetchValue, LinkPrefetchStrategy };
 export type LinkNavigateEvent = { preventDefault(): void };
+export type LinkActiveMatch = 'exact' | 'prefix';
+
+/** Present only when the link matches the current URL. */
+export type LinkActiveAttributes = {
+  'aria-current'?: 'page';
+  'data-void-active'?: '';
+};
 
 /** Props every adapter's Link accepts. Adapters add element attributes and children. */
 export type BaseLinkProps = {
@@ -21,6 +29,7 @@ export type BaseLinkProps = {
   /** If omitted, the Link uses the app's `prefetch.defaultStrategy`. */
   prefetch?: LinkPrefetchValue;
   cacheFor?: CacheForInput;
+  activeMatch?: LinkActiveMatch;
   onNavigate?: (event: LinkNavigateEvent) => void;
 };
 
@@ -104,6 +113,51 @@ export function linkPrefetchStrategies(
   }
 
   return prefetch;
+}
+
+/**
+ * Marks a GET link to the current page. Pathnames compare the way the server
+ * matches pages: case-sensitive, trailing slash significant, decoded like Hono's
+ * getPath. The query and hash are ignored. `prefix` also matches nested pages by
+ * whole segment, except for `/`, but only an exact match is `aria-current`.
+ * Spread the result before the user's attributes so theirs win.
+ */
+export function linkActiveAttributes(
+  router: VoidRouter | null | undefined,
+  link: ResolvedLink,
+  match: LinkActiveMatch = 'exact',
+): LinkActiveAttributes {
+  if (!router || !link.isGet) {
+    return {};
+  }
+
+  const current = router.url;
+  let target: URL;
+  try {
+    target = new URL(link.href, current);
+  } catch {
+    // A malformed href still renders; it just never matches.
+    return {};
+  }
+  // Protocol and host rather than `origin`, which is opaque for custom schemes such as capacitor:.
+  if (target.protocol !== current.protocol || target.host !== current.host) {
+    return {};
+  }
+
+  const currentPath = decodePagePath(current.pathname);
+  const linkPath = decodePagePath(target.pathname);
+  if (linkPath === currentPath) {
+    return { 'aria-current': 'page', 'data-void-active': '' };
+  }
+
+  if (match === 'prefix' && linkPath !== '/') {
+    const parent = linkPath.endsWith('/') ? linkPath : `${linkPath}/`;
+    if (currentPath.startsWith(parent)) {
+      return { 'data-void-active': '' };
+    }
+  }
+
+  return {};
 }
 
 export function prefetchLink(

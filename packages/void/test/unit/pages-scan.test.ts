@@ -848,6 +848,62 @@ const example = 'export const layout = "home"';
       expect(page!.layout).toBe('post');
     });
 
+    it.each([
+      ['layout: post # comment', 'post'],
+      ['layout: "post"', 'post'],
+      ["layout: '!post'", '!post'],
+      ['layout: false # comment', false],
+      ['layout: "false"', false],
+      ['layout:', undefined],
+      ['layout: ""', undefined],
+      ['layout:\ntitle: Hi', undefined],
+      ['title: Hi', undefined],
+      ['a scalar, not a mapping', undefined],
+      ['seo:\n\ttitle: Tab indent\nlayout: post', 'post'],
+      ['title: "Across\nlines"\nlayout: post', 'post'],
+      ['base: &base {layout: post}\n<<: *base', 'post'],
+    ])('reads markdown frontmatter %s as YAML', async (frontmatter, layout) => {
+      writeFile('_layouts/post.vue', '<template><slot /></template>');
+      writeFile('post.md', `---\n${frontmatter}\n---\n# Hi`);
+      const result = await scanPages(TMP);
+      const page = result.pages.find((p) => p.componentId === 'post');
+      expect(page!.layout).toBe(layout);
+    });
+
+    // @void/md reports invalid frontmatter on the page, so the scan must not stop at it.
+    it.each([
+      ['an unclosed sequence', 'layout: [unclosed'],
+      ['an unclosed mapping', 'layout: {unclosed'],
+      ['an unclosed quote', 'layout: "unclosed'],
+      ['an invalid line before the layout', 'title\nlayout: missing'],
+      ['an unknown tag without a value', 'layout: !unknown'],
+      ['an unknown tag on the value', 'layout: !unknown missing'],
+      ['an unknown tag on another key', 'other: !unknown value\nlayout: missing'],
+      ['a core tag that does not fit the value', 'layout: !!int missing'],
+      ['a merge key that is not a mapping', '<<: value\nlayout: missing'],
+      ['an empty key', ': value\nlayout: missing'],
+      ['a control character', 'layout: mis\x01sing'],
+    ])('reads no layout from frontmatter with %s', async (_name, frontmatter) => {
+      writeFile('post.md', `---\n${frontmatter}\n---\n# Hi`);
+      const result = await scanPages(TMP);
+      expect(result.pages.find((p) => p.componentId === 'post')!.layout).toBeUndefined();
+    });
+
+    it.each([
+      ['layout: missing', '_layouts/missing.vue'],
+      ['layout: "!missing"', '_layouts/missing.vue'],
+      ['layout: [a, b]', 'specifies layout \'["a","b"]\''],
+      ['layout: {a: 1}', 'specifies layout \'{"a":1}\''],
+      ['layout: 123', "specifies layout '123'"],
+      ['layout: true', "specifies layout 'true'"],
+    ])(
+      'throws when valid markdown frontmatter %s names no layout',
+      async (frontmatter, message) => {
+        writeFile('post.md', `---\n${frontmatter}\n---\n# Hi`);
+        await expect(scanPages(TMP)).rejects.toThrow(message);
+      },
+    );
+
     it('throws when named layout reference is not found', async () => {
       writeFile(
         'index.vue',

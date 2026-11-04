@@ -66,7 +66,7 @@ import { serializePageData } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 
-export async function renderPage(pageObj, assetTags) {
+export async function renderPage(pageObj, assetTags, requestUrl) {
   const PageComponent = (await components[pageObj.component]()).default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
@@ -81,7 +81,7 @@ export async function renderPage(pageObj, assetTags) {
           value: pageObj.errors || {},
           get children() {
             return createComponent(RouterContext.Provider, {
-              value: createSsrRouter(pageObj.url || "/", pageObj.params || {}),
+              value: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl),
               get children() {
                 return createComponent(NavigationContext.Provider, {
                   value: () => idleNavigationState(),

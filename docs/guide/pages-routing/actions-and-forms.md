@@ -272,7 +272,7 @@ if (!result.ok) {
 
 `action()` defaults to `POST`. Pass `data`, `params`, and `method` to set the body, route parameters, or HTTP method.
 
-A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`.
+A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`. `error.message` is the message of an [`HTTPException`](../../integrations/hono.md#utilities) with a `4xx` status, or the body of another plain-text `4xx` response. For other errors, it is a status summary such as `Action failed with 404 Not Found`.
 
 ## Validation Errors
 

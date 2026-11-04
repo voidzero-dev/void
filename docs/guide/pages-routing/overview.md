@@ -265,6 +265,65 @@ export default function PostPage() {
 }
 ```
 
+### Active links
+
+`Link` marks the link to the current page with `aria-current="page"` and `data-void-active`. Use them to style navigation:
+
+```css
+nav a[data-void-active] {
+  font-weight: 600;
+}
+```
+
+A link is active only on its own path by default. Set `activeMatch="prefix"` to keep it active on nested pages:
+
+::: code-group
+
+```tsx [React]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+```vue [Vue]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" active-match="prefix">Users</Link>
+</nav>
+```
+
+```svelte [Svelte]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">Users</Link>
+</nav>
+```
+
+```tsx [Solid]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+:::
+
+| Current URL     | `href="/users"` | `href="/users" activeMatch="prefix"` |
+| --------------- | --------------- | ------------------------------------ |
+| `/users`        | both attributes | both attributes                      |
+| `/users?page=2` | both attributes | both attributes                      |
+| `/users/42`     | none            | `data-void-active`                   |
+| `/users-admin`  | none            | none                                 |
+
+`aria-current="page"` marks only the exact page, so select `[aria-current="page"]` to style it differently from its section. A link to `/` is active only on the home page.
+
+Paths match the way pages are routed: letter case and trailing slashes count, while the query string and hash are ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value.
+
 ### Prefetching
 
 Add `prefetch` to a `Link` to load its page before the user clicks, so the visit doesn't wait for the server:

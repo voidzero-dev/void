@@ -25,11 +25,14 @@ import { isSameOrigin } from './url.ts';
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
   handleLinkClick,
+  linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
   prefetchLink,
   resolveLink,
   type BaseLinkProps,
+  type LinkActiveAttributes,
+  type LinkActiveMatch,
   type LinkNavigateEvent,
   type LinkPrefetchValue,
   type LinkPrefetchStrategy,
@@ -178,7 +181,7 @@ export function createRouterFacade(
     },
 
     get url() {
-      return toUrl(getCurrentUrl());
+      return new URL(getCurrentUrl() || '/', router.url);
     },
 
     get path() {
@@ -215,11 +218,15 @@ export function createRouterFacade(
   };
 }
 
-export function createSsrRouter(url = '/', params: Record<string, string> = {}): VoidRouter {
+export function createSsrRouter(
+  url = '/',
+  params: Record<string, string> = {},
+  requestUrl?: string,
+): VoidRouter {
   const router = {
     _hoverDelay: 75,
     get url() {
-      return toUrl(url);
+      return new URL(url || '/', requestUrl ?? getUrlBase());
     },
     get path() {
       return this.url.pathname;

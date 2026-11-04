@@ -44,6 +44,19 @@ function registerIslandTests(
     return page;
   }
 
+  it('island layouts leave links inactive without a router', async () => {
+    const page = await newPage();
+    try {
+      const response = await page.goto(BASE + '/blog');
+      expect(response!.status()).toBe(200);
+      await waitForIslandsHydrated(page, 2);
+      expect(await page.locator('nav a').count()).toBeGreaterThan(0);
+      expect(await page.locator('nav a[aria-current], nav a[data-void-active]').count()).toBe(0);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('island hydration and interaction: counter increments on click', async () => {
     const page = await newPage();
     try {
