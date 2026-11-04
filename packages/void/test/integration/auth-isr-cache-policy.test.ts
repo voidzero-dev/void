@@ -202,6 +202,24 @@ describe('auth cache policy with authored headers', () => {
     }
   });
 
+  it('keeps authored headers when notFound throws past the inner header pass', async () => {
+    const { app } = headerFixture();
+    app.onError(
+      createErrorRenderer({ dev: false, projectRoot: process.cwd(), homeDir: process.cwd() })
+        .onError,
+    );
+    app.notFound(() => {
+      throw new Error('not found failed');
+    });
+
+    const response = await app.request('https://app.test/missing', undefined, env);
+
+    expect(response.status).toBe(500);
+    expect(response.headers.get('x-frame-options')).toBe('DENY');
+    expect(response.headers.get('access-control-allow-origin')).toBe('https://client.test');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+  });
+
   it.each(['/api/auth/sign-in/email', '/login', '/fallback-login'])(
     'keeps an anonymous body-credential sign-in private through %s',
     async (path) => {

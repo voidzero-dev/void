@@ -76,7 +76,9 @@ export function createRoutingRuntime(
   // Outer requests a fallback answered. The fallback already applied the
   // destination's header rules, as edge routing and platform dispatch do.
   const fallbackServed = new WeakSet<Request>();
-  const headerEntered = new WeakSet<Context>();
+  // Contexts whose inner header pass ran after next(). A handler that throws
+  // past it, such as notFound, leaves the context out.
+  const headerApplied = new WeakSet<Context>();
   const warnedPatterns = new Set<string>();
   const requestContext = new AsyncLocalStorage<RequestContextStore>();
   const assetExtensions = options.blockedAssetExtensions ?? ASSET_EXTENSIONS;
@@ -252,12 +254,12 @@ export function createRoutingRuntime(
     },
     headerMiddleware: (rules, phase) => async (c, next) => {
       const authErrorsOnly = phase === 'auth-error';
-      if (!authErrorsOnly) {
-        headerEntered.add(c);
-      }
       await next();
-      if (authErrorsOnly && (!c.error || headerEntered.has(c))) {
+      if (authErrorsOnly && (!c.error || headerApplied.has(c))) {
         return;
+      }
+      if (!authErrorsOnly) {
+        headerApplied.add(c);
       }
       const protectCache = authErrorsOnly || authDependentRequests.has(c.req.raw);
       if (protectCache) {
@@ -299,6 +301,10 @@ export function createRoutingRuntime(
           continue;
         }
         // A Set-Cookie rule adds its cookie and keeps the response's own cookies.
+        // After a rewrite the destination's pass may already have added it.
+        if (key === 'set-cookie' && c.res.headers.getSetCookie().includes(value)) {
+          continue;
+        }
         c.header(name, value, { append: key === 'set-cookie' });
       }
       if (asset) {

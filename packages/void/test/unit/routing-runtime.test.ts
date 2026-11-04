@@ -267,6 +267,18 @@ describe('typed HTTP execution', () => {
       'consent=1; Path=/',
     ]);
   });
+  it('adds a Set-Cookie rule once when a rewrite source and destination both match', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([{ pattern: '/*', headers: [['Set-Cookie', 'consent=1; Path=/']] }]),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new'));
+    const response = await app.request('https://app.test/old');
+    expect(response.headers.getSetCookie()).toEqual(['consent=1; Path=/']);
+  });
   it('does not give a fallback page the rules of the missing path', async () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
