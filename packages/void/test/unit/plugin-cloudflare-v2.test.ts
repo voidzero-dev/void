@@ -199,8 +199,12 @@ export default {
       writeFileSync(join(root, 'Dockerfile'), 'FROM scratch\n');
       // The dev server prepares images at startup but starts no Container until one is
       // used, so a stub lets this test run the real plugin and Miniflare without Docker.
+      // `docker build -f -` receives the Dockerfile on stdin. The stub reads it, because
+      // a stub that exits first makes that write fail with an uncaught EPIPE.
       const docker = join(root, 'docker-stub');
-      writeFileSync(docker, '#!/bin/sh\nexit 0\n', { mode: 0o755 });
+      writeFileSync(docker, '#!/bin/sh\nif [ "$1" = build ]; then cat >/dev/null; fi\nexit 0\n', {
+        mode: 0o755,
+      });
       vi.stubEnv('WRANGLER_DOCKER_BIN', docker);
       const plugins = () =>
         cloudflare({
