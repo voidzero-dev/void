@@ -8,6 +8,11 @@ export const TYPED_CONFIG_FILE = 'void.config.ts';
 
 export type LoadedVoidConfig = { source: string; value: unknown };
 
+/** The file to name in messages about a project's settings. Only legacy projects use JSON. */
+export function getConfigFileName(root: string): string {
+  return existsSync(join(root, LEGACY_CONFIG_FILE)) ? LEGACY_CONFIG_FILE : TYPED_CONFIG_FILE;
+}
+
 /** Evaluate a TypeScript config without requiring Void to be installed in the target project. */
 export function loadTypedVoidConfigFile(path: string): unknown {
   const sourceEntry = fileURLToPath(new URL('./config-entry.ts', import.meta.url));

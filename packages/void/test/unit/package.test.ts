@@ -221,7 +221,7 @@ describe('resolveSpaFallbackChain', () => {
         destination: '/index.html',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
     ];
     const result = resolveSpaFallbackChain('spa', userRules);
@@ -242,7 +242,7 @@ describe('resolveSpaFallbackChain', () => {
         destination: '/index.html',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
     ];
     const result = resolveSpaFallbackChain('spa', userRules);
