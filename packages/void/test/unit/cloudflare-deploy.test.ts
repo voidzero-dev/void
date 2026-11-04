@@ -278,6 +278,52 @@ describe('Cloudflare activation diagnostics', () => {
     },
   );
 
+  it('does not suggest an account subdomain when workers.dev is off', () => {
+    const versionId = '22222222-2222-4222-8222-222222222222';
+    for (const reason of [
+      'preview-unavailable',
+      'bootstrap-output-invalid',
+      'atomic-output-invalid',
+    ] as const) {
+      const message = formatCloudflareActivationError({
+        ok: false,
+        reason,
+        versionId,
+        workersDev: false,
+      });
+      expect(message).not.toContain('CLOUDFLARE_WORKERS_SUBDOMAIN');
+      expect(message).not.toContain('enable workers.dev');
+    }
+  });
+
+  it('keeps the workers.dev subdomain hint when workers.dev is on', () => {
+    const versionId = '22222222-2222-4222-8222-222222222222';
+    const preview = formatCloudflareActivationError({
+      ok: false,
+      reason: 'preview-unavailable',
+      versionId,
+      workersDev: true,
+    });
+    expect(preview).toContain('Set CLOUDFLARE_WORKERS_SUBDOMAIN');
+    expect(preview).toContain('production traffic is unchanged');
+    const bootstrap = formatCloudflareActivationError({
+      ok: false,
+      reason: 'bootstrap-output-invalid',
+      versionId,
+      workersDev: true,
+    });
+    expect(bootstrap).toContain('CLOUDFLARE_WORKERS_SUBDOMAIN');
+    expect(bootstrap).toContain('enable workers.dev for this Worker');
+    const atomic = formatCloudflareActivationError({
+      ok: false,
+      reason: 'atomic-output-invalid',
+      versionId,
+      workersDev: true,
+    });
+    expect(atomic).toContain('CLOUDFLARE_WORKERS_SUBDOMAIN');
+    expect(atomic).not.toContain('enable workers.dev');
+  });
+
   /** A project whose root and upload configs are separate files. */
   function lookupProject(rootRegion: string | undefined) {
     const root = makeProject({
@@ -1201,6 +1247,32 @@ describe('existing Cloudflare site handoff', () => {
       vi.unstubAllGlobals();
     }
     expect(lookups).toEqual([{ ok: true, subdomain: 'team.fed' }]);
+  });
+
+  it('refuses an atomic deploy when the Worker has no Durable Object migration history', async () => {
+    const root = site();
+    const activateVersion = vi.fn();
+    const assertDurableObjectLifecycle = vi.fn();
+    const { deps } = harness({
+      runBuild: () => build(root),
+      activateVersion,
+      assertDurableObjectLifecycle,
+    });
+    const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+    try {
+      await expect(
+        runCloudflareDeploy(root, { platform: 'cloudflare', atomic: true }, silentCliLog, deps),
+      ).rejects.toBeInstanceOf(ExitError);
+      expect(output).toHaveBeenCalledWith(
+        expect.stringContaining(
+          'atomic deployment is only for Workers with Durable Object migration history',
+        ),
+      );
+      expect(activateVersion).not.toHaveBeenCalled();
+      expect(assertDurableObjectLifecycle).not.toHaveBeenCalled();
+    } finally {
+      output.mockRestore();
+    }
   });
 
   it('allows an explicit atomic deploy after the Durable Object migration preflight', async () => {

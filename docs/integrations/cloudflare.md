@@ -138,7 +138,7 @@ Set these CI secrets and variables as needed:
 | `CLOUDFLARE_API_TOKEN`                           | Required. Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions.            |
 | `CLOUDFLARE_ACCOUNT_ID`                          | When the token can access several accounts.                                                                              |
 | `DATABASE_URL`                                   | PostgreSQL and MySQL provisioning and migrations.                                                                        |
-| `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When the Worker has no version preview URL. Use `my-team` or `my-team.workers.dev`.                                      |
+| `CLOUDFLARE_WORKERS_SUBDOMAIN`                   | When workers.dev is enabled and the version has no preview URL. Use `my-team` or `my-team.workers.dev`. An account subdomain does not create a readiness URL when `workers_dev` is false. |
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                                       |
 | `CF_ACCESS_READINESS_ORIGIN`                     | When Access protects a route or Custom Domain and `workers_dev` is `false`. See [Cloudflare Access](#cloudflare-access). |
 
@@ -174,7 +174,7 @@ Set production server values with `void secret put <NAME>`. Void preserves exist
 
 ### Readiness and rollback
 
-Void normally verifies an uploaded version before sending it traffic. If readiness or trigger updates fail, it restores the previous deployment. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
+Void normally verifies an uploaded version before sending it traffic. A Worker with workers.dev turned off and no route or Custom Domain has no URL Void can check, so that deploy skips the readiness check and activates the uploaded version. If readiness or trigger updates fail, it restores the previous deployment. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
 
 For an existing Durable Object Worker that Cloudflare cannot stage, review the changes and use:
 

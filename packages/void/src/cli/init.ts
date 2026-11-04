@@ -1836,7 +1836,7 @@ ${install}
           CLOUDFLARE_API_TOKEN: \${{ secrets.CLOUDFLARE_API_TOKEN }}
           # Required only for PostgreSQL/MySQL provisioning and migrations.
           DATABASE_URL: \${{ secrets.DATABASE_URL }}
-          # Required in fresh checkouts when a Worker Version has no preview URL.
+          # Account subdomain for workers.dev readiness when a version has no preview URL.
           CLOUDFLARE_WORKERS_SUBDOMAIN: \${{ vars.CLOUDFLARE_WORKERS_SUBDOMAIN }}
           # Required only when Cloudflare Access protects Worker readiness.
           CF_ACCESS_CLIENT_ID: \${{ secrets.CF_ACCESS_CLIENT_ID }}

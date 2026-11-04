@@ -92,7 +92,7 @@ Void signs you in through your browser when needed and saves the selected accoun
 | `--skip-build`                 | Reuse existing static, SPA, or SSG output; unavailable for Worker apps                                               |
 | `--project`                    | Unavailable; the Worker and account come from `void.config.ts` and `void.lock.json`                                  |
 | Named environments             | Unavailable; use the top-level `cloudflare` config                                                                   |
-| `CLOUDFLARE_WORKERS_SUBDOMAIN` | Needed in fresh CI when versions have no preview URL; cached locally after a deploy                                  |
+| `CLOUDFLARE_WORKERS_SUBDOMAIN` | Needed in fresh CI when a workers.dev Worker has no preview URL; cached locally after a deploy. It does not apply when `workers_dev` is false |
 | `CF_ACCESS_READINESS_ORIGIN`   | Lets Access credentials reach the readiness check on a route or Custom Domain, for example `https://app.example.com` |
 | `--require-email`              | Fail instead of deploying without email when the email step cannot run, as in CI                                     |
 | `DATABASE_URL`                 | Required in the deploy environment for PostgreSQL or MySQL provisioning and migrations                               |
