@@ -1,6 +1,6 @@
 {
   "name": "@void/edge",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Routing, headers, and static asset helpers for Void runtimes.",
   "homepage": "https://void.cloud",
   "bugs": {

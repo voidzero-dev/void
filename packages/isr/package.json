@@ -1,6 +1,6 @@
 {
   "name": "@void/isr",
-  "version": "1.6.0",
+  "version": "1.6.1",
   "description": "Incremental revalidation and cache helpers for Void runtimes.",
   "homepage": "https://void.cloud",
   "bugs": {
