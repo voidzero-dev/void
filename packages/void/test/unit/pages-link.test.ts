@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { createRouterFacade, createSsrRouter, type VoidRouter } from '../../src/pages/client.ts';
 import {
   handleLinkClick,
+  LINK_VISIBLE_PREFETCH_DELAY,
   linkActiveAttributes,
   linkPrefetchStrategies,
   observeLinkVisible,
@@ -307,7 +308,7 @@ describe('handleLinkClick', () => {
 });
 
 describe('observeLinkVisible', () => {
-  it('calls back once when the element becomes visible', () => {
+  function observeStub() {
     let notify: (entries: Array<{ isIntersecting: boolean }>) => void = () => {};
     const disconnect = vi.fn();
     const observe = vi.fn();
@@ -324,15 +325,108 @@ describe('observeLinkVisible', () => {
     const element = {} as Element;
     const onVisible = vi.fn();
     const stop = observeLinkVisible(element, onVisible);
+    const show = (isIntersecting: boolean) => notify([{ isIntersecting }]);
+    return {
+      element,
+      observe,
+      disconnect,
+      onVisible,
+      stop,
+      show,
+      notify: (...entries: Array<boolean>) =>
+        notify(entries.map((isIntersecting) => ({ isIntersecting }))),
+    };
+  }
 
-    notify([{ isIntersecting: false }]);
-    expect(onVisible).not.toHaveBeenCalled();
-    notify([{ isIntersecting: true }]);
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('calls back once the element has stayed visible for the delay', () => {
+    const { element, observe, disconnect, onVisible, stop, show } = observeStub();
 
     expect(observe).toHaveBeenCalledWith(element);
+    show(false);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY);
+    expect(onVisible).not.toHaveBeenCalled();
+
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 1);
+    expect(onVisible).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
     expect(onVisible).toHaveBeenCalledOnce();
     expect(disconnect).toHaveBeenCalledOnce();
     stop();
     expect(disconnect).toHaveBeenCalledTimes(2);
+  });
+
+  it('skips an element that leaves before the delay', () => {
+    const { onVisible, disconnect, show } = observeStub();
+
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 1);
+    show(false);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY * 2);
+
+    expect(onVisible).not.toHaveBeenCalled();
+    expect(disconnect).not.toHaveBeenCalled();
+  });
+
+  it('restarts the delay when the element becomes visible again', () => {
+    const { onVisible, show } = observeStub();
+
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 1);
+    show(false);
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY - 1);
+    expect(onVisible).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1);
+
+    expect(onVisible).toHaveBeenCalledOnce();
+  });
+
+  it('uses the latest entry when one callback reports several changes', () => {
+    const { onVisible, notify } = observeStub();
+
+    notify(false, true, false);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY);
+    expect(onVisible).not.toHaveBeenCalled();
+
+    notify(true, false, true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY);
+    expect(onVisible).toHaveBeenCalledOnce();
+  });
+
+  it('calls back only once', () => {
+    const { onVisible, show } = observeStub();
+
+    show(true);
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY);
+    show(false);
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY * 2);
+
+    expect(onVisible).toHaveBeenCalledOnce();
+  });
+
+  it('cancels a pending callback on cleanup', () => {
+    const { onVisible, disconnect, stop, show } = observeStub();
+
+    show(true);
+    stop();
+    expect(vi.getTimerCount()).toBe(0);
+    // An entry queued before the cleanup can still arrive.
+    show(true);
+    vi.advanceTimersByTime(LINK_VISIBLE_PREFETCH_DELAY);
+
+    expect(onVisible).not.toHaveBeenCalled();
+    expect(disconnect).toHaveBeenCalledOnce();
   });
 });

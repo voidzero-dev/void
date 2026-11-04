@@ -29,7 +29,7 @@ type LinkPrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
 | `'hover'` or `true` | When the pointer rests on the link for `hoverDelay`, when it gets keyboard focus, or on touch |
 | `'click'`           | When the mouse button or finger goes down, just before the click                              |
 | `'mount'`           | As soon as the link renders                                                                   |
-| `'visible'`         | The first time the link scrolls into view                                                     |
+| `'visible'`         | Once the link has stayed in view for 300 ms. Links scrolled quickly past are skipped          |
 | `false`             | Never                                                                                         |
 
 With an array such as `['visible', 'hover']`, the first strategy to happen loads the page, and later ones reuse it. `prefetch` works only on GET links, and links to other sites are never prefetched.

@@ -334,7 +334,7 @@ Add `prefetch` to a `Link` to load its page before the user clicks, so the visit
 </Link>
 ```
 
-`prefetch` on its own loads the page on hover, keyboard focus, or touch. A `Link` can also prefetch on click, as soon as it renders, or when it scrolls into view, and `cacheFor` sets how long a prefetched page is reused. See [Prefetching](../../reference/api/pages.md#prefetching) for every option.
+`prefetch` on its own loads the page on hover, keyboard focus, or touch. A `Link` can also prefetch on click, as soon as it renders, or once it stays in view, and `cacheFor` sets how long a prefetched page is reused. See [Prefetching](../../reference/api/pages.md#prefetching) for every option.
 
 To give every `Link` a prefetch strategy, set `prefetch.defaultStrategy` in the adapter plugin. A `Link` that sets its own `prefetch` keeps it:
 
@@ -343,7 +343,7 @@ To give every `Link` a prefetch strategy, set `prefetch.defaultStrategy` in the 
 voidReact({ prefetch: { defaultStrategy: 'hover' } });
 ```
 
-Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page as soon as it renders or scrolls into view, including links in long lists.
+Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page once it renders or stays in view, which adds up in long lists.
 
 Prefetching runs the destination's loader, so keep loaders free of side effects such as counting views.
 
