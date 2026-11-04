@@ -7,7 +7,8 @@ const shared = useShared();
 <template>
   <div>
     <nav>
-      <Link href="/" prefetch>Home</Link> | <Link href="/users" prefetch>Users</Link> |
+      <Link href="/" prefetch>Home</Link> |
+      <Link href="/users" active-match="prefix" prefetch>Users</Link> |
       <Link href="/blog" prefetch>Blog</Link> | <Link href="/deferred" prefetch>Deferred</Link> |
       <span>{{ shared.appName }}</span>
     </nav>

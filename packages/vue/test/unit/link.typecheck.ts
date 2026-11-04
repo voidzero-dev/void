@@ -12,11 +12,14 @@ export function checkLinkPassThroughAttributes(): void {
     rel: 'noopener',
     onClick: track,
     onMouseenter: () => {},
+    activeMatch: 'prefix',
   };
   void h(Link, props);
   // @ts-expect-error href is required
   const missingHref: LinkProps = { target: '_blank' };
   // @ts-expect-error Void props keep their own types
   const badPrefetch: LinkProps = { href: '/users', prefetch: 'sometimes' };
-  void [missingHref, badPrefetch];
+  // @ts-expect-error activeMatch is exact or prefix
+  const badActiveMatch: LinkProps = { href: '/users', activeMatch: 'nested' };
+  void [missingHref, badPrefetch, badActiveMatch];
 }

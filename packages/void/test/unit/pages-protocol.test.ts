@@ -172,6 +172,7 @@ describe('handlePageGet', () => {
         url: '/posts/abc-123',
       }),
       expect.anything(),
+      'http://localhost/posts/abc-123',
     );
   });
 

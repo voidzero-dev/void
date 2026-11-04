@@ -1,7 +1,10 @@
 import { defineHandler, defineHead } from 'void';
+import type { Href } from 'void/routes';
 
 export type Props = Readonly<{
   title: string;
+  absoluteUrl: Href;
+  protocolRelativeUrl: Href;
 }>;
 
 function sleep(ms: number): Promise<void> {
@@ -13,7 +16,13 @@ export const loader = defineHandler<Props>(async (c) => {
     await sleep(1000);
   }
 
-  return { title: 'Link Behavior' };
+  const url = new URL(c.req.url);
+  // Exercise browser URL forms independently of the typed route inventory.
+  return {
+    title: 'Link Behavior',
+    absoluteUrl: `${url.origin}/link-behavior` as Href,
+    protocolRelativeUrl: `//${url.host}/link-behavior` as Href,
+  };
 });
 
 export const head = defineHead<Props>((c, props) => {

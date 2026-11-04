@@ -43,6 +43,8 @@ Production non-CF Pages pass a filesystem-backed `ASSETS` provider to the genera
 
 ### Runtime Framework
 
+Pages navigation payloads keep `url` as a path and query string. The render callback receives the full request URL separately; preserve its origin through each adapter's SSR router and router facade.
+
 **Hono** is used as the runtime framework. The generated virtual module creates a Hono app with file-based routes and middleware. Route handlers receive a Hono `Context` object (`c`) and can use the full Hono API (`c.json()`, `c.text()`, `c.req.param()`, etc.) plus the Hono middleware ecosystem.
 
 - `defineHandler(fn)` — wraps a route handler `(c: CloudContext) => R`, returns `TypedHandler<{}, R>`

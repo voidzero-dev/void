@@ -11,7 +11,7 @@ type LinkBehaviorWindow = Window & {
   __preventedNavigate?: boolean;
 };
 
-export default function LinkBehaviorPage({ title }: Props) {
+export default function LinkBehaviorPage({ title, absoluteUrl, protocolRelativeUrl }: Props) {
   const [abortTestStatus, setAbortTestStatus] = useState('Not run');
 
   useEffect(() => {
@@ -81,6 +81,17 @@ export default function LinkBehaviorPage({ title }: Props) {
   return (
     <div>
       <h1>{title}</h1>
+      <p>
+        <Link href={absoluteUrl} data-testid="absolute-current-link">
+          Current page (absolute)
+        </Link>
+        <Link href={protocolRelativeUrl} data-testid="protocol-relative-current-link">
+          Current page (protocol-relative)
+        </Link>
+        <Link href="http://localhost/link-behavior" data-testid="external-localhost-link">
+          External localhost
+        </Link>
+      </p>
       <p>
         <button
           data-testid="typed-visit"
