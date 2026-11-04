@@ -31,6 +31,7 @@ import {
   createModuleLoader,
   createRoutingRuntime,
   type RoutingContext,
+  type RoutingHeaderRule,
 } from '../../src/runtime/routing.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
@@ -180,6 +181,164 @@ describe('typed HTTP execution', () => {
       dev ? 'c.rewrite -> /new (middleware)' : null,
     );
   });
+  it.each([200, 404])(
+    'overrides an existing response header with the last matching rule on %s',
+    async (status) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(
+        runtime.headerMiddleware([
+          { pattern: '/assets/*', headers: [['Cache-Control', 'no-cache']] },
+          {
+            pattern: '/assets/*',
+            headers: [['Cache-Control', 'public, max-age=31536000, immutable']],
+          },
+        ]),
+      );
+      app.get(
+        '/assets/app.css',
+        () =>
+          new Response('body{}', {
+            status,
+            headers: {
+              'Content-Type': 'text/css',
+              'Cache-Control': 'public, max-age=0, must-revalidate',
+            },
+          }),
+      );
+      const response = await app.request('https://app.test/assets/app.css');
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(response.status).toBe(status);
+      expect(response.headers.get('content-type')).toBe('text/css');
+      expect(await response.text()).toBe('body{}');
+    },
+  );
+  it('updates immutable response headers and preserves unrelated cookies and metadata', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(
+      runtime.headerMiddleware([
+        {
+          pattern: '/assets/*',
+          headers: [
+            ['Location', '/new'],
+            ['X-Robots-Tag', 'noindex'],
+          ],
+        },
+      ]),
+    );
+    app.get('/assets/redirect', () => Response.redirect('https://old.test/', 302));
+    app.get('/assets/cookies', () => {
+      const headers = new Headers({ 'Content-Type': 'text/css' });
+      headers.append('Set-Cookie', 'one=1; Path=/');
+      headers.append('Set-Cookie', 'two=2; Path=/');
+      return new Response('body{}', { status: 202, statusText: 'Queued', headers });
+    });
+    app.get(
+      '/other',
+      () => new Response('other', { headers: { 'Cache-Control': 'private, no-store' } }),
+    );
+    const redirect = await app.request('https://app.test/assets/redirect');
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get('location')).toBe('/new');
+    const response = await app.request('https://app.test/assets/cookies');
+    expect(response.status).toBe(202);
+    expect(response.statusText).toBe('Queued');
+    expect(response.headers.get('content-type')).toBe('text/css');
+    expect(response.headers.get('x-robots-tag')).toBe('noindex');
+    expect(response.headers.getSetCookie()).toEqual(['one=1; Path=/', 'two=2; Path=/']);
+    expect(await response.text()).toBe('body{}');
+    const other = await app.request('https://app.test/other');
+    expect(other.headers.get('cache-control')).toBe('private, no-store');
+    expect(other.headers.has('x-robots-tag')).toBe(false);
+  });
+  it('adds a Set-Cookie rule next to the response cookies', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(
+      runtime.headerMiddleware([{ pattern: '/*', headers: [['Set-Cookie', 'consent=1; Path=/']] }]),
+    );
+    app.get('/sign-in', (c) => {
+      c.header('Set-Cookie', 'session=abc; Path=/; HttpOnly', { append: true });
+      return c.text('ok');
+    });
+    const response = await app.request('https://app.test/sign-in');
+    expect(response.headers.getSetCookie()).toEqual([
+      'session=abc; Path=/; HttpOnly',
+      'consent=1; Path=/',
+    ]);
+  });
+  it('uses the last matching Set-Cookie rule value', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware(
+        ['theme=light; Path=/', 'theme=dark; Path=/', 'theme=light; Path=/'].map(
+          (cookie): RoutingHeaderRule => ({ pattern: '/*', headers: [['Set-Cookie', cookie]] }),
+        ),
+      ),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new'));
+    for (const path of ['/new', '/old']) {
+      const response = await app.request(`https://app.test${path}`);
+      expect(response.headers.getSetCookie()).toEqual(['theme=light; Path=/']);
+    }
+  });
+  it('ends with the source rule cookie after a rewrite', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([
+        { pattern: '/new', headers: [['Set-Cookie', 'theme=dark; Path=/']] },
+        { pattern: '/old', headers: [['Set-Cookie', 'theme=light; Path=/']] },
+      ]),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new', 200, { 'set-cookie': 'theme=light; Path=/' }));
+    const response = await app.request('https://app.test/old');
+    expect(response.headers.getSetCookie().at(-1)).toBe('theme=light; Path=/');
+  });
+  it('adds a Set-Cookie rule once when a rewrite source and destination both match', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([{ pattern: '/*', headers: [['Set-Cookie', 'consent=1; Path=/']] }]),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new'));
+    const response = await app.request('https://app.test/old');
+    expect(response.headers.getSetCookie()).toEqual(['consent=1; Path=/']);
+  });
+  it('does not give a fallback page the rules of the missing path', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([
+        {
+          pattern: '/assets/*',
+          headers: [['Cache-Control', 'public, max-age=31536000, immutable']],
+        },
+      ]),
+    );
+    app.get(
+      '/index.html',
+      (c) => new Response('<html></html>', { headers: { 'Cache-Control': 'no-cache' } }),
+    );
+    app.notFound(
+      async (c) =>
+        (await runtime.applyFallback(c, [
+          { source: '/*', destination: '/index.html', status: 200 },
+        ])) ?? c.text('missing', 404),
+    );
+    const response = await app.fetch(new Request('https://app.test/assets/old-chunk.js'));
+    expect(response.status).toBe(200);
+    expect(response.headers.get('cache-control')).toBe('no-cache');
+  });
   it('merges header rules in order after recursive fallback and stops fallback cycles', async () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
@@ -199,6 +358,7 @@ describe('typed HTTP execution', () => {
     );
     const response = await app.fetch(new Request('https://app.test/a'));
     expect(response.status).toBe(404);
+    // Only the destination's rules apply, as in edge routing and platform dispatch.
     expect(response.headers.get('x-rule')).toBe('one');
     expect(response.headers.get('X-Void-Routing')).toBe('fallback[/a] -> /b (unknown)');
     expect(response.headers.get('X-Void-No-Match')).toBe('1');
