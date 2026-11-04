@@ -45,6 +45,7 @@ export {
   categorizeActionError,
   isAbortError,
   isCallSiteActionError,
+  isVoidActionError,
 } from './action-result.ts';
 export type { ActionErrorHandlingScope, ActionResult } from './action-result.ts';
 export { submitIslandAction, type IslandActionResult } from './island-action.ts';

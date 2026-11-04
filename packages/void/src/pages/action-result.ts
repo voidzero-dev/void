@@ -73,16 +73,20 @@ export function categorizeActionError(status: number): ActionErrorHandlingScope 
   }
 }
 
-export function isCallSiteActionError(error: unknown): error is VoidActionError {
+// Checks the name, not `instanceof`: an app can bundle more than one copy of this class.
+export function isVoidActionError(error: unknown): error is VoidActionError {
   return (
     typeof error === 'object' &&
     error !== null &&
     'name' in error &&
     error.name === 'VoidActionError' &&
     'status' in error &&
-    typeof error.status === 'number' &&
-    categorizeActionError(error.status) === 'callSite'
+    typeof error.status === 'number'
   );
+}
+
+export function isCallSiteActionError(error: unknown): error is VoidActionError {
+  return isVoidActionError(error) && categorizeActionError(error.status) === 'callSite';
 }
 
 export function isAbortError(error: unknown): boolean {

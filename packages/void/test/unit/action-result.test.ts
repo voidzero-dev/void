@@ -6,6 +6,8 @@ import {
   categorizeActionError,
   createActionClient,
   isAbortError,
+  isCallSiteActionError,
+  isVoidActionError,
   submitAction,
   type VoidRouter,
 } from '../../src/pages/client.ts';
@@ -120,6 +122,35 @@ describe('action result handling', () => {
     );
 
     await expect(submitAction(router, '/users', { method: 'POST' })).rejects.toBe(error);
+  });
+
+  it('recognizes action errors at every status', () => {
+    for (const status of [401, 403, 409, 422, 500]) {
+      const error = new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+      expect(isVoidActionError(error)).toBe(true);
+    }
+    // Another bundled copy of the class
+    expect(isVoidActionError({ name: 'VoidActionError', status: 403 })).toBe(true);
+  });
+
+  it('rejects values that are not action errors', () => {
+    expect(isVoidActionError(new Error('Boom'))).toBe(false);
+    expect(isVoidActionError({ name: 'VoidActionError' })).toBe(false);
+    expect(isVoidActionError({ name: 'VoidActionError', status: '403' })).toBe(false);
+    expect(isVoidActionError(null)).toBe(false);
+    expect(isVoidActionError('VoidActionError')).toBe(false);
+  });
+
+  it('recognizes call-site action errors by status', () => {
+    const error = (status: number) =>
+      new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+
+    expect(isCallSiteActionError(error(409))).toBe(true);
+    expect(isCallSiteActionError(error(422))).toBe(true);
+    expect(isCallSiteActionError(error(401))).toBe(false);
+    expect(isCallSiteActionError(error(403))).toBe(false);
+    expect(isCallSiteActionError(error(500))).toBe(false);
+    expect(isCallSiteActionError(new Error('Boom'))).toBe(false);
   });
 
   it('detects abort errors', () => {
