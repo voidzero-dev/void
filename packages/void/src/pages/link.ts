@@ -3,10 +3,10 @@ import type { Href } from 'void/routes';
 import { isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 import type { NavigationMethod, VoidRouter } from './client.ts';
 import type { PrefetchOptions } from './navigation-engine.ts';
-import type { CacheForInput } from './prefetch.ts';
+import type { CacheForInput, LinkPrefetchValue, LinkPrefetchStrategy } from './prefetch.ts';
 import { decodePagePath } from './url.ts';
 
-export type LinkPrefetchStrategy = 'hover' | 'click' | 'mount' | 'visible';
+export type { LinkPrefetchValue, LinkPrefetchStrategy };
 export type LinkNavigateEvent = { preventDefault(): void };
 export type LinkActiveMatch = 'exact' | 'prefix';
 
@@ -26,7 +26,8 @@ export type BaseLinkProps = {
   replace?: boolean;
   reloadDocument?: boolean;
   viewTransition?: boolean;
-  prefetch?: boolean | LinkPrefetchStrategy | ReadonlyArray<LinkPrefetchStrategy>;
+  /** If omitted, the Link uses the app's `prefetch.defaultStrategy`. */
+  prefetch?: LinkPrefetchValue;
   cacheFor?: CacheForInput;
   activeMatch?: LinkActiveMatch;
   onNavigate?: (event: LinkNavigateEvent) => void;
@@ -85,11 +86,21 @@ export function resolveLink(
   };
 }
 
+/**
+ * The events that prefetch a Link. A Link without a `prefetch` prop uses the app's
+ * `defaultStrategy`, but only when it is a GET link, the only kind that can prefetch.
+ */
 export function linkPrefetchStrategies(
   props: Pick<BaseLinkProps, 'prefetch' | 'reloadDocument'>,
+  link: Pick<ResolvedLink, 'isGet'>,
+  defaultStrategy: LinkPrefetchValue = false,
 ): ReadonlyArray<LinkPrefetchStrategy> {
-  const { prefetch } = props;
-  if (prefetch === undefined || prefetch === false || props.reloadDocument) {
+  if (props.reloadDocument) {
+    return [];
+  }
+
+  const prefetch = props.prefetch ?? (link.isGet ? defaultStrategy : false);
+  if (prefetch === false) {
     return [];
   }
 
@@ -155,6 +166,11 @@ export function prefetchLink(
   cacheFor: CacheForInput | undefined,
 ): void {
   if (!router?.prefetch) {
+    return;
+  }
+
+  // The router matches only the path, which on another site names a different page.
+  if (new URL(href, window.location.href).origin !== window.location.origin) {
     return;
   }
 

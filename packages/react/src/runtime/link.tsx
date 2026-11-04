@@ -32,7 +32,7 @@ export function Link({
   replace = false,
   reloadDocument = false,
   viewTransition,
-  prefetch = false,
+  prefetch,
   cacheFor,
   activeMatch,
   onNavigate,
@@ -53,9 +53,11 @@ export function Link({
     () => resolveLink({ href, method, data, prefetch, reloadDocument }),
     [data, href, method, prefetch, reloadDocument],
   );
+  const { isGet } = link;
+  const defaultStrategy = router?._prefetchDefaultStrategy;
   const strategies = useMemo(
-    () => linkPrefetchStrategies({ prefetch, reloadDocument }),
-    [prefetch, reloadDocument],
+    () => linkPrefetchStrategies({ prefetch, reloadDocument }, { isGet }, defaultStrategy),
+    [defaultStrategy, isGet, prefetch, reloadDocument],
   );
   // The router context changes with the route URL, so this follows navigations.
   const activeAttributes = useMemo(

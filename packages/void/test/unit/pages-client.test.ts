@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
 import {
+  createRouterFacade,
   createVoidRouter,
   mergeDataIntoHref,
   ssrProxy,
@@ -124,6 +125,19 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  it('exposes the default prefetch strategy to Links', async () => {
+    stubClientGlobals();
+    const { router } = await createTestRouter({ prefetchDefaultStrategy: ['hover', 'click'] });
+    expect(router._prefetchDefaultStrategy).toEqual(['hover', 'click']);
+    expect(createRouterFacade(router, () => '/')._prefetchDefaultStrategy).toEqual([
+      'hover',
+      'click',
+    ]);
+
+    const { router: plain } = await createTestRouter();
+    expect(plain._prefetchDefaultStrategy).toBe(false);
+  });
+
   it('uses the same typed destination for visits, prefetching and cache invalidation', async () => {
     stubClientGlobals();
     const pageData = { component: 'home', props: { title: 'Typed destination' } };
