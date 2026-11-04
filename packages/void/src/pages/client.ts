@@ -251,7 +251,10 @@ export async function submitAction(
   options: VisitOptions,
 ): Promise<ActionResult> {
   try {
-    const pageData = await router.visit(url, options);
+    const pageData = await router.visit(url, {
+      preserveScroll: true,
+      ...options,
+    });
     if (
       typeof pageData === 'object' &&
       pageData !== null &&

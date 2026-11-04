@@ -124,6 +124,37 @@ describe('action result handling', () => {
     expect(isAbortError(new DOMException('Navigation aborted', 'AbortError'))).toBe(true);
     expect(isAbortError(new Error('Boom'))).toBe(false);
   });
+
+  it('preserves scroll by default when submitting an action', async () => {
+    const visit = vi.fn(async () => ({ props: {} }));
+    const router = routerWithVisit(visit);
+
+    await submitAction(router, '/users', {
+      method: 'POST',
+      data: { name: 'Alice' },
+    });
+
+    expect(visit).toHaveBeenCalledWith('/users', {
+      preserveScroll: true,
+      method: 'POST',
+      data: { name: 'Alice' },
+    });
+  });
+
+  it('allows explicitly disabling scroll preservation', async () => {
+    const visit = vi.fn(async () => ({ props: {} }));
+    const router = routerWithVisit(visit);
+
+    await submitAction(router, '/users', {
+      method: 'POST',
+      preserveScroll: false,
+    });
+
+    expect(visit).toHaveBeenCalledWith('/users', {
+      preserveScroll: false,
+      method: 'POST',
+    });
+  });
 });
 
 describe('action clients', () => {
@@ -136,6 +167,7 @@ describe('action clients', () => {
       method: 'POST',
       data: undefined,
       _resolveOnShell: true,
+      preserveScroll: true,
     });
   });
 
@@ -167,6 +199,7 @@ describe('action clients', () => {
     expect(firstVisit).toHaveBeenCalledWith('/__action-test/static', {
       method: 'POST',
       data: undefined,
+      preserveScroll: true,
     });
   });
 
@@ -184,6 +217,7 @@ describe('action clients', () => {
     expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
       method: 'PATCH',
       data: { name: 'Alice' },
+      preserveScroll: true,
     });
   });
 
