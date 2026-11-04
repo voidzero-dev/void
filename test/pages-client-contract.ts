@@ -122,10 +122,15 @@ export function registerSharedClientTests({
         const request = page.getByTestId('scroll-request');
         const previousRequest = await request.textContent();
         await row.getByRole('button', { name: button, exact: true }).click();
-        await expect.poll(() => request.textContent()).not.toBe(previousRequest);
-        await expect
-          .poll(() => page.evaluate(() => window.scrollY))
-          .toBeCloseTo(preserved ? before : 0, 0);
+        // Use the browser timeout for the real action request and its UI commit.
+        await page.waitForFunction((previous) => {
+          const request = document.querySelector('[data-testid="scroll-request"]');
+          return request !== null && request.textContent !== previous;
+        }, previousRequest);
+        await page.waitForFunction(
+          (scrollY) => Math.abs(window.scrollY - scrollY) < 0.5,
+          preserved ? before : 0,
+        );
       }
       expect(page.url()).toBe(BASE + '/scroll-restoration?redirected=1');
       expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
