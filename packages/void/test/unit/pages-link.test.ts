@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import type { VoidRouter } from '../../src/pages/client.ts';
+import { createRouterFacade, createSsrRouter, type VoidRouter } from '../../src/pages/client.ts';
 import {
   handleLinkClick,
   linkActiveAttributes,
@@ -155,6 +155,29 @@ describe('linkActiveAttributes', () => {
     expect(attributes('/admin', { href: 'https://app.test/admin' })).toEqual(page);
     expect(attributes('/', { href: 'https://example.com/' })).toEqual({});
     expect(attributes('/', { href: 'http://app.test/' })).toEqual({});
+  });
+
+  it('uses the request origin when the SSR page URL is relative', () => {
+    vi.stubGlobal('window', undefined);
+    const router = createSsrRouter('/users?view=all', {}, 'https://app.test/users?view=all');
+    expect(router.url.href).toBe('https://app.test/users?view=all');
+    expect(linkActiveAttributes(router, resolveLink({ href: 'https://app.test/users' }))).toEqual(
+      page,
+    );
+    expect(linkActiveAttributes(router, resolveLink({ href: '//app.test/users' }))).toEqual(page);
+    expect(linkActiveAttributes(router, resolveLink({ href: 'http://localhost/users' }))).toEqual(
+      {},
+    );
+  });
+
+  it('preserves the router origin in a server-side facade', () => {
+    vi.stubGlobal('window', undefined);
+    const router = createRouterFacade(createSsrRouter('https://app.test/previous'), () => '/users');
+    expect(router.url.href).toBe('https://app.test/users');
+    expect(linkActiveAttributes(router, resolveLink({ href: '//app.test/users' }))).toEqual(page);
+    expect(linkActiveAttributes(router, resolveLink({ href: 'http://localhost/users' }))).toEqual(
+      {},
+    );
   });
 
   it('never marks links that are not GET or have no router', () => {

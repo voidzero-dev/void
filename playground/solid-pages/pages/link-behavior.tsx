@@ -26,6 +26,17 @@ export default function LinkBehaviorPage(props: Props) {
     <div>
       <h1>{props.title}</h1>
       <p>
+        <Link href={props.absoluteUrl} data-testid="absolute-current-link">
+          Current page (absolute)
+        </Link>
+        <Link href={props.protocolRelativeUrl} data-testid="protocol-relative-current-link">
+          Current page (protocol-relative)
+        </Link>
+        <Link href="http://localhost/link-behavior" data-testid="external-localhost-link">
+          External localhost
+        </Link>
+      </p>
+      <p>
         <button
           data-testid="typed-visit"
           onClick={() =>

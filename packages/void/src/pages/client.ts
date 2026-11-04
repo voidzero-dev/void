@@ -173,7 +173,7 @@ export function createRouterFacade(
     },
 
     get url() {
-      return toUrl(getCurrentUrl());
+      return new URL(getCurrentUrl() || '/', router.url);
     },
 
     get path() {
@@ -210,11 +210,15 @@ export function createRouterFacade(
   };
 }
 
-export function createSsrRouter(url = '/', params: Record<string, string> = {}): VoidRouter {
+export function createSsrRouter(
+  url = '/',
+  params: Record<string, string> = {},
+  requestUrl?: string,
+): VoidRouter {
   const router = {
     _hoverDelay: 75,
     get url() {
-      return toUrl(url);
+      return new URL(url || '/', requestUrl ?? getUrlBase());
     },
     get path() {
       return this.url.pathname;

@@ -131,6 +131,56 @@ export function registerSharedClientTests({
     }
   });
 
+  it('Link matches absolute URLs consistently during SSR and hydration', async ({ expect }) => {
+    const page = await newPage();
+    const hydrationErrors: Array<string> = [];
+    page.on('console', (message) => {
+      if (/hydrat/i.test(message.text()) && ['warning', 'error'].includes(message.type())) {
+        hydrationErrors.push(message.text());
+      }
+    });
+    const links = (html = '') =>
+      page.evaluate((html) => {
+        const root = html ? new DOMParser().parseFromString(html, 'text/html') : document;
+        return [
+          'absolute-current-link',
+          'protocol-relative-current-link',
+          'external-localhost-link',
+        ].map((id) => {
+          const link = root.querySelector(`[data-testid="${id}"]`)!;
+          return [
+            link.getAttribute('href'),
+            link.getAttribute('aria-current'),
+            link.getAttribute('data-void-active'),
+          ];
+        });
+      }, html);
+    const expected = [
+      [`${BASE}/link-behavior`, 'page', ''],
+      [`//${new URL(BASE).host}/link-behavior`, 'page', ''],
+      ['http://localhost/link-behavior', null, null],
+    ];
+    try {
+      const response = await page.goto(BASE + '/link-behavior');
+      const html = await response!.text();
+      expect(await links(html)).toEqual(expected);
+      await waitForHydration(page);
+      expect(await links()).toEqual(expected);
+      expect(hydrationErrors).toEqual([]);
+
+      // The request origin is render context; serialized navigation URLs stay relative.
+      const pageUrl = await page.evaluate(
+        () => JSON.parse(document.getElementById('__VOID_PAGE_DATA__')!.textContent!).url,
+      );
+      expect(pageUrl).toBe('/link-behavior');
+      await page.getByTestId('query-only-link').click();
+      await page.waitForURL(BASE + '/link-behavior?view=compact');
+      expect(await links()).toEqual(expected);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('Link marks the link to the current page', async ({ expect }) => {
     const page = await newPage();
     // Users uses activeMatch="prefix" in every playground layout; Home matches exactly.
