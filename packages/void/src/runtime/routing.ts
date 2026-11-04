@@ -208,7 +208,10 @@ export function createRoutingRuntime(
     const redirect = context.redirect.bind(context);
     c.redirect = (destination, status) => {
       const location = toUrlString(destination);
-      if (location.startsWith('/') && !location.startsWith('//')) {
+      // A named action still places its key and keeps the page query. Every
+      // other code redirect sends the location it was given. routing.redirects
+      // merge the request query before they call this.
+      if (location.startsWith('/') && !location.startsWith('//') && hasActionKey(c.req.raw)) {
         return redirect(redirectLocation(c.req.raw, location, status), status);
       }
       return redirect(location, status);

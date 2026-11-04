@@ -32,6 +32,7 @@ import {
   createRoutingRuntime,
   type RoutingContext,
   type RoutingHeaderRule,
+  type RoutingRuntime,
 } from '../../src/runtime/routing.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
@@ -167,6 +168,107 @@ describe('typed HTTP execution', () => {
     const response = await app.fetch(new Request('https://app.test/en//evil.com'));
     expect(response.status).toBe(301);
     expect(response.headers.get('location')).toBe('/evil.com');
+  });
+  describe('code redirects and routing.redirects', () => {
+    function redirectApp(setup: (app: Hono, runtime: RoutingRuntime) => void): Hono {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      setup(app, runtime);
+      return app;
+    }
+
+    it.each([
+      ['/sign-in?redirectTo=/notes', '/notes', '/notes'],
+      ['/notes?x=1', '/sign-in?redirectTo=%2Fnotes', '/sign-in?redirectTo=%2Fnotes'],
+      ['/notes?x=1&y=2', '/notes#saved', '/notes#saved'],
+      ['/old?x=1&y=2', 'https://example.com/next?ok=1', 'https://example.com/next?ok=1'],
+      ['/old?x=1&y=2', '//partner.example.com/landing', '//partner.example.com/landing'],
+    ])('c.redirect from %s to %s sends %s', async (requestPath, destination, location) => {
+      const app = redirectApp((app) => {
+        app.get('/*', (c) => c.redirect(destination));
+      });
+      const response = await app.fetch(new Request('https://app.test' + requestPath));
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe(location);
+    });
+
+    it('does not carry redirectTo out of a page loader', async () => {
+      const app = redirectApp((app) => {
+        app.get(
+          '/sign-in',
+          createPageGetHandler({
+            componentId: 'sign-in',
+            render: async () => '<html></html>',
+            assets: async () => ({ css: '', body: '', preloads: '' }),
+            headConfig: undefined,
+            renderOptions: { renderMode: 'server' },
+            load: async () => ({ loader: (c: Context) => c.redirect('/notes') }),
+          }),
+        );
+      });
+      const response = await app.fetch(new Request('https://app.test/sign-in?redirectTo=/notes'));
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('/notes');
+    });
+
+    it('does not carry a single action query into c.redirect()', async () => {
+      const app = redirectApp((app) => {
+        app.post(
+          '/single',
+          createPageMutationHandler({
+            componentId: 'page',
+            render: async () => '<html></html>',
+            assets: async () => ({ css: '', body: '', preloads: '' }),
+            headConfig: undefined,
+            renderOptions: { renderMode: 'server' },
+            load: async () => ({ action: (c: Context) => c.redirect('/done') }),
+          }),
+        );
+      });
+      const response = await app.fetch(
+        new Request('https://app.test/single?page=2', { method: 'POST' }),
+      );
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('/done');
+    });
+
+    it('does not leak a request token through middleware', async () => {
+      const app = redirectApp((app) => {
+        app.use('/any', async (c) => c.redirect('/banned'));
+        app.get('/any', (c) => c.text('ok'));
+      });
+      const response = await app.fetch(new Request('https://app.test/any?token=abc'));
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe('/banned');
+    });
+
+    it('does not append the request query to a routeUrl redirect', async () => {
+      const destination = routeUrl('/typed-rewrite/:id', {
+        params: { id: 'a/b' },
+        query: { tab: 'activity' },
+        hash: 'details',
+      });
+      const app = redirectApp((app) => {
+        app.get('/redirect', (c) => c.redirect(destination));
+      });
+      const response = await app.fetch(new Request('https://app.test/redirect?extra=1'));
+      expect(response.headers.get('location')).toBe('/typed-rewrite/a%2Fb?tab=activity#details');
+    });
+
+    it.each([
+      ['/old?redirectTo=/notes', '/new', '/new?redirectTo=/notes'],
+      ['/old?token=abc&keep=1', '/new?ref=1', '/new?ref=1&token=abc&keep=1'],
+      ['/old?token=abc', '/new?', '/new'],
+      ['/old?utm=x', '/new#faq', '/new?utm=x#faq'],
+    ])('a routing redirect from %s to %s sends %s', async (requestPath, destination, location) => {
+      const app = redirectApp((app, runtime) => {
+        app.use(runtime.routingMiddleware([{ source: '/old', destination, status: 302 }]));
+      });
+      const response = await app.fetch(new Request('https://app.test' + requestPath));
+      expect(response.status).toBe(302);
+      expect(response.headers.get('location')).toBe(location);
+    });
   });
   it.each([true, false])('gates dynamic rewrite tracing on dev=%s', async (dev) => {
     const app = new Hono();
@@ -687,7 +789,6 @@ describe('typed Pages and SSR execution', () => {
     ['/named?&delete&page=2', '/named?page=2'],
     ['/named?delete&delete=x&page=2', '/named?delete=x&page=2'],
     ['/named?delete&q=a%20b&flag', '/named?q=a%20b&flag'],
-    ['/single?page=2', '/done?page=2'],
   ])('drops only the named action key when c.redirect() carries %s', async (path, location) => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
@@ -699,13 +800,6 @@ describe('typed Pages and SSR execution', () => {
         ...pageOptions,
         load: async () => ({ actions: { delete: redirectTo('/named') } }),
         namedActions: true,
-      }),
-    );
-    app.post(
-      '/single',
-      createPageMutationHandler({
-        ...pageOptions,
-        load: async () => ({ action: redirectTo('/done') }),
       }),
     );
     const response = await app.fetch(new Request('https://app.test' + path, { method: 'POST' }));
@@ -783,7 +877,7 @@ describe('typed Pages and SSR execution', () => {
       ['PUT', '/named?delete&page=2', 'a 302 redirect', '/named?delete&page=2'],
       ['PUT', '/named?update&page=2', 'a 303 redirect', '/named?page=2'],
       ['POST', '/named?go&page=2', 'a rewrite', '/done?page=2'],
-      ['POST', '/named?goWithQuery&page=2', 'a rewrite with its own query', '/done?q=1'],
+      ['POST', '/named?goWithQuery&page=2', 'a rewrite with its own query', '/done'],
     ])('%s %s through %s redirects to %s', async (method, path, through, location) => {
       const response = await createNamedActionApp().fetch(
         new Request('https://app.test' + path, {
@@ -807,14 +901,14 @@ describe('typed Pages and SSR execution', () => {
       expect(response.headers.get('location')).toBe('/maintenance?page=2');
     });
 
-    it('leaves the query alone when another route answers a catch-all page pattern', async () => {
+    it('sends the given location when another route answers a catch-all page pattern', async () => {
       const response = await createNamedActionApp('/*').fetch(
         new Request('https://app.test/api/x?return=/a&page=2', { method: 'POST' }),
       );
-      expect(response.headers.get('location')).toBe('/done?return=/a&page=2');
+      expect(response.headers.get('location')).toBe('/done');
     });
 
-    it('leaves the query alone when a tagged Void route answers before a catch-all page', async () => {
+    it('sends the given location when a tagged Void route answers before a catch-all page', async () => {
       const app = new Hono();
       const runtime = createRoutingRuntime(app, { nodeTarget: true });
       app.use(runtime.contextMiddleware);
@@ -831,7 +925,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-anon': '1' },
         }),
       );
-      expect(response.headers.get('location')).toBe('/login?code=1&state=2');
+      expect(response.headers.get('location')).toBe('/login');
     });
 
     it('leaves the key out of the page URL when the action renders the page again', async () => {

@@ -292,7 +292,9 @@ function installVoidWrappers(app: Hono): void {
 
 describe('c.redirect runtime wrapper', () => {
   it.each([
-    ['/new', '/new?x=1&y=2'],
+    ['/new', '/new'],
+    ['/new?tab=1', '/new?tab=1'],
+    ['https://example.com/next', 'https://example.com/next'],
     // A protocol-relative location is cross-origin, so the request query must not leak to it.
     ['//partner.example.com/landing', '//partner.example.com/landing'],
   ])('redirects to %s with Location %s', async (destination, location) => {
