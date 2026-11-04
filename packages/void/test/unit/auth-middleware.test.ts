@@ -134,6 +134,34 @@ describe('runVoidAuthMiddleware response headers', () => {
     },
   );
 
+  it('drops CDN cache policies from a credentialed page, including rule values', async () => {
+    const app = createApp({
+      response: null,
+      headers: new Headers({ 'cache-control': 'no-store', pragma: 'no-cache' }),
+    });
+    app.use(
+      createRoutingRuntime(app, { nodeTarget: true }).headerMiddleware([
+        {
+          pattern: '/*',
+          headers: [
+            ['Cache-Control', 'public, max-age=600'],
+            ['CDN-Cache-Control', 'max-age=600'],
+            ['Surrogate-Control', 'max-age=600'],
+          ],
+        },
+      ]),
+    );
+    app.get('/dashboard', (c) => c.text('signed in', 200, { 'cdn-cache-control': 'no-store' }));
+    const response = await app.request(
+      'http://localhost/dashboard',
+      { headers: { cookie: 'session=current' } },
+      { BETTER_AUTH_SECRET: 'test-secret' },
+    );
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    expect(response.headers.has('cdn-cache-control')).toBe(false);
+    expect(response.headers.has('surrogate-control')).toBe(false);
+  });
+
   it('keeps a resolved authenticated session private even without a request credential header', async () => {
     const now = new Date();
     const app = createApp({

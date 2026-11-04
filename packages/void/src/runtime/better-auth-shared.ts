@@ -10,7 +10,7 @@ import {
   type VoidAuthProvider,
   type VoidSocialAuthProvider,
 } from '../auth/providers.ts';
-import { authDependentRequests } from './auth-response.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { authContext, type AuthState, type VoidAuthConfig } from './auth.ts';
 import { isUnchangedStaticAsset } from './static-asset-marker.ts';
 
@@ -283,6 +283,7 @@ function appendAuthHeaders(
           ? 'private, no-store'
           : privateCachePolicy(c.res.headers.get('cache-control')),
       );
+      dropSharedCachePolicy(c);
     }
     return;
   }
@@ -315,6 +316,19 @@ function appendAuthHeaders(
     !['private', 'no-store', 'no-cache'].some((directive) => sessionDirectives.has(directive))
   ) {
     c.header('Cache-Control', 'private, no-store');
+  }
+  if (includeCachePolicy || source.has('set-cookie')) {
+    dropSharedCachePolicy(c);
+  }
+}
+
+// A CDN may follow these ahead of Cache-Control, so a private response drops
+// them, including values a header rule set.
+function dropSharedCachePolicy(c: Context): void {
+  for (const name of SHARED_CACHE_HEADERS) {
+    if (c.res.headers.has(name)) {
+      c.header(name, undefined);
+    }
   }
 }
 

@@ -31,6 +31,7 @@ import {
   createModuleLoader,
   createRoutingRuntime,
   type RoutingContext,
+  type RoutingHeaderRule,
 } from '../../src/runtime/routing.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
@@ -266,6 +267,39 @@ describe('typed HTTP execution', () => {
       'session=abc; Path=/; HttpOnly',
       'consent=1; Path=/',
     ]);
+  });
+  it('uses the last matching Set-Cookie rule value', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware(
+        ['theme=light; Path=/', 'theme=dark; Path=/', 'theme=light; Path=/'].map(
+          (cookie): RoutingHeaderRule => ({ pattern: '/*', headers: [['Set-Cookie', cookie]] }),
+        ),
+      ),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new'));
+    for (const path of ['/new', '/old']) {
+      const response = await app.request(`https://app.test${path}`);
+      expect(response.headers.getSetCookie()).toEqual(['theme=light; Path=/']);
+    }
+  });
+  it('ends with the source rule cookie after a rewrite', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true });
+    app.use(runtime.contextMiddleware);
+    app.use(
+      runtime.headerMiddleware([
+        { pattern: '/new', headers: [['Set-Cookie', 'theme=dark; Path=/']] },
+        { pattern: '/old', headers: [['Set-Cookie', 'theme=light; Path=/']] },
+      ]),
+    );
+    app.get('/old', (c) => (c as RoutingContext).rewrite('/new'));
+    app.get('/new', (c) => c.text('new', 200, { 'set-cookie': 'theme=light; Path=/' }));
+    const response = await app.request('https://app.test/old');
+    expect(response.headers.getSetCookie().at(-1)).toBe('theme=light; Path=/');
   });
   it('adds a Set-Cookie rule once when a rewrite source and destination both match', async () => {
     const app = new Hono();

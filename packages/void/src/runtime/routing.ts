@@ -16,7 +16,7 @@ import {
   markActionKey,
   searchWithoutActionKey,
 } from '../pages/action-key.ts';
-import { authDependentRequests } from './auth-response.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
@@ -24,13 +24,6 @@ import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 export { createErrorRenderer } from './routing-errors.ts';
-
-// These targeted policies can take precedence over Cache-Control at a CDN.
-const sharedCacheHeaders = [
-  'cdn-cache-control',
-  'cloudflare-cdn-cache-control',
-  'surrogate-control',
-];
 
 export type RoutingRule = {
   source: string;
@@ -266,7 +259,7 @@ export function createRoutingRuntime(
         authDependentRequests.add(c.req.raw);
         c.header('Cache-Control', 'no-store');
         c.header('Pragma', 'no-cache');
-        for (const name of sharedCacheHeaders) {
+        for (const name of SHARED_CACHE_HEADERS) {
           if (c.res.headers.has(name)) {
             c.header(name, undefined);
           }
@@ -291,18 +284,22 @@ export function createRoutingRuntime(
       if (!matched.length) {
         return;
       }
-      const asset = isUnchangedStaticAsset(c);
+      // The last match wins for each header name, Set-Cookie included.
+      const last = new Map<string, [string, string]>();
       for (const [name, value] of matched) {
-        const key = name.toLowerCase();
+        last.set(name.toLowerCase(), [name, value]);
+      }
+      const asset = isUnchangedStaticAsset(c);
+      for (const [key, [name, value]] of last) {
         if (
           protectCache &&
-          (key === 'cache-control' || key === 'pragma' || sharedCacheHeaders.includes(key))
+          (key === 'cache-control' || key === 'pragma' || SHARED_CACHE_HEADERS.includes(key))
         ) {
           continue;
         }
         // A Set-Cookie rule adds its cookie and keeps the response's own cookies.
-        // After a rewrite the destination's pass may already have added it.
-        if (key === 'set-cookie' && c.res.headers.getSetCookie().includes(value)) {
+        // After a rewrite the destination's pass may already have added it last.
+        if (key === 'set-cookie' && c.res.headers.getSetCookie().at(-1) === value) {
           continue;
         }
         c.header(name, value, { append: key === 'set-cookie' });
