@@ -127,7 +127,7 @@ describe('action result handling', () => {
     expect(isAbortError(new Error('Boom'))).toBe(false);
   });
 
-  it('preserves scroll by default when submitting an action', async () => {
+  it('leaves the default scroll decision to the router', async () => {
     const visit = vi.fn(async () => ({ props: {} }));
     const router = routerWithVisit(visit);
 
@@ -137,7 +137,6 @@ describe('action result handling', () => {
     });
 
     expect(visit).toHaveBeenCalledWith('/users', {
-      preserveScroll: true,
       method: 'POST',
       data: { name: 'Alice' },
     });
@@ -160,6 +159,19 @@ describe('action result handling', () => {
 });
 
 describe('action clients', () => {
+  it.each([true, false])('forwards preserveScroll: %s from action()', async (preserveScroll) => {
+    const client = createActionClient();
+    const visit = vi.fn(async () => ({ props: {} }));
+    client.setActionRouter(routerWithVisit(visit));
+
+    await client.action('/__action-test/static', { preserveScroll });
+
+    expect(visit).toHaveBeenCalledWith(
+      '/__action-test/static',
+      expect.objectContaining({ preserveScroll }),
+    );
+  });
+
   it('uses the adapter completion mode for action calls', async () => {
     const client = createActionClient({ _resolveOnShell: true });
     const visit = vi.fn(async () => ({ props: {} }));
@@ -169,7 +181,7 @@ describe('action clients', () => {
       method: 'POST',
       data: undefined,
       _resolveOnShell: true,
-      preserveScroll: true,
+      preserveScroll: undefined,
     });
   });
 
@@ -201,7 +213,7 @@ describe('action clients', () => {
     expect(firstVisit).toHaveBeenCalledWith('/__action-test/static', {
       method: 'POST',
       data: undefined,
-      preserveScroll: true,
+      preserveScroll: undefined,
     });
   });
 
@@ -219,7 +231,7 @@ describe('action clients', () => {
     expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
       method: 'PATCH',
       data: { name: 'Alice' },
-      preserveScroll: true,
+      preserveScroll: undefined,
     });
   });
 

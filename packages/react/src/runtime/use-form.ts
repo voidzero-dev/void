@@ -36,6 +36,7 @@ type FormReturn<TData> = FormState<TData, 'setters'> &
 type FormOptions = {
   params?: Record<string, string>;
   resetOnSuccess?: boolean;
+  preserveScroll?: boolean;
   onSuccess?: () => void | Promise<void>;
   onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>;
 };
@@ -44,7 +45,7 @@ type FormOptions = {
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
-  options?: ActionFormOptions<U> & Pick<FormOptions, 'onSuccess' | 'onError'>,
+  options?: ActionFormOptions<U> & Pick<FormOptions, 'onSuccess' | 'onError' | 'preserveScroll'>,
 ): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
@@ -147,6 +148,7 @@ export function useForm(
         result = await submitAction(router, interpolateRouteParams(url, options?.params), {
           method,
           data: { ...dataRef.current },
+          preserveScroll: options?.preserveScroll,
           _resolveOnShell: true,
         });
       } catch (submitError) {

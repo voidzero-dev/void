@@ -284,10 +284,7 @@ export async function submitAction(
   options: VisitOptions,
 ): Promise<ActionResult> {
   try {
-    const pageData = await router.visit(url, {
-      preserveScroll: true,
-      ...options,
-    });
+    const pageData = await router.visit(url, options);
     if (
       typeof pageData === 'object' &&
       pageData !== null &&
@@ -320,6 +317,7 @@ type HasParams<U extends string> = [ResolveActionParams<U>] extends [never] ? fa
 type ActionOptions<U extends string> = {
   data?: ResolveActionBody<U>;
   method?: ActionMethod;
+  preserveScroll?: boolean;
 } & (HasParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
 export type ActionClient = {
@@ -358,7 +356,12 @@ export function createActionClient(
       url,
       options?.params as Record<string, string> | undefined,
     );
-    return submitAction(_router, resolvedUrl, { method, data, ...defaults });
+    return submitAction(_router, resolvedUrl, {
+      method,
+      data,
+      preserveScroll: options?.preserveScroll,
+      ...defaults,
+    });
   }
 
   return { action, setActionRouter };

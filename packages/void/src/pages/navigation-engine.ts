@@ -43,6 +43,8 @@ type PageFetchOptions = RequestInit & { headers: Record<string, string> };
 
 type StaticPageDataResult = { pageData: PageData; resolvedDeferred: boolean };
 
+type NavigationCommitTarget = { fetchUrl: string; hash: string; method: string };
+
 export type VisitOptions = {
   method?: string;
   data?: unknown;
@@ -619,7 +621,7 @@ export async function createPageNavigationEngine(
     method: string,
     options: VisitOptions,
     signal: AbortSignal,
-    commitTarget: { fetchUrl: string; hash: string },
+    commitTarget: NavigationCommitTarget,
     deferredRegistry: DeferredRegistry,
   ): Promise<PageNavigationResult | undefined> {
     // Page data only comes from this origin. Other http(s) URLs get a full page
@@ -731,6 +733,7 @@ export async function createPageNavigationEngine(
         url = fetchUrl + redirectUrl.hash;
         commitTarget.fetchUrl = fetchUrl;
         commitTarget.hash = redirectUrl.hash;
+        commitTarget.method = method;
       }
 
       if (response && method !== 'GET' && !response.ok) {
@@ -863,7 +866,7 @@ export async function createPageNavigationEngine(
   }
 
   function makeCommit(
-    commitTarget: { fetchUrl: string; hash: string },
+    commitTarget: NavigationCommitTarget,
     options: VisitOptions,
     shell: Promise<PageNavigationResult | undefined>,
     deferredRegistry: DeferredRegistry,
@@ -885,6 +888,12 @@ export async function createPageNavigationEngine(
       if (resourceId < _urlNavigationId) {
         return false;
       }
+      // Mutations that update the current page keep scroll. A redirect's GET
+      // response or an action that opens another page follows normal navigation.
+      const preserveScroll =
+        options.preserveScroll ??
+        (commitTarget.method !== 'GET' &&
+          commitTarget.fetchUrl === window.location.pathname + window.location.search);
       // Write history before anything else changes. Disposing the previous page and handing
       // over its Deferred values cannot be undone, so a failed write must find them untouched.
       // preserveState only controls component state; back/forward traversal already moved history.
@@ -954,7 +963,7 @@ export async function createPageNavigationEngine(
       scrollRestoration.commit();
 
       requestAnimationFrame(() => {
-        if (!options.preserveScroll) {
+        if (!preserveScroll) {
           restoreScroll(options._scrollPosition, commitTarget.hash);
         }
       });
@@ -1054,7 +1063,7 @@ export async function createPageNavigationEngine(
 
       const controller = new AbortController();
       const deferredRegistry = new DeferredRegistry();
-      const commitTarget = { fetchUrl: effectiveFetchUrl, hash };
+      const commitTarget = { fetchUrl: effectiveFetchUrl, hash, method };
       const shell = loadNavigationShell(
         id,
         url,

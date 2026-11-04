@@ -371,6 +371,7 @@ Void manages scroll position for Pages automatically:
 
 - **Back/forward navigation and reloads** restore the saved scroll position.
 - **New navigation** scrolls to the top of the page.
+- **Actions and forms** keep scroll when updating the current page. Redirects follow normal navigation behavior.
 - **Hash links** (`/docs#api`) scroll to the target element. Same-page hash links (`#section`) skip the server fetch entirely.
 
 To keep the current scroll position, pass `preserveScroll: true`:

@@ -202,6 +202,22 @@ If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 
 
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
+### Scroll after submission
+
+Actions and forms keep the current scroll position when updating the page in place. Redirects and submissions that open another page scroll to the top, or to the destination's hash target.
+
+Pass `preserveScroll: false` to reset scroll after an in-place update, or `true` to keep it even after a redirect:
+
+```ts
+await action('/users/:id?update', {
+  params: { id: '42' },
+  data: { name: 'Alice' },
+  preserveScroll: false,
+});
+```
+
+In React, set `preserveScroll` in the third argument to `useForm()`. In Vue, Svelte, and Solid, pass it to the submit method, such as `form.post({ preserveScroll: false })`.
+
 ## Named Actions
 
 When a page needs multiple mutations, such as updating and deleting a user on the same page, export `actions` (plural) instead of `action`:

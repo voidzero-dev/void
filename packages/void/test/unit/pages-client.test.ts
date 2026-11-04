@@ -6,6 +6,7 @@ import {
   createVoidRouter,
   mergeDataIntoHref,
   ssrProxy,
+  submitAction,
   type VoidRouterConfig,
 } from '../../src/pages/client.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
@@ -125,6 +126,127 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    'preserves scroll for an in-place %s action',
+    async (method) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.scrollY = 1800;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => pageJson({ component: 'home', props: {}, url: '/editor', errors: null })),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/editor?save', { method });
+
+      expect(window.scrollTo).not.toHaveBeenCalled();
+      expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', '/editor');
+    },
+  );
+
+  it.each([
+    ['/editor', false, undefined],
+    ['/destination', false, undefined],
+    ['/destination', false, false],
+    ['/destination', true, true],
+  ])(
+    'handles scroll for an action redirect to %s (preserved: %s, override: %s)',
+    async (destination, preserved, preserveScroll) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.scrollY = 1800;
+      const response = pageJson({ component: 'home', props: {}, url: destination, errors: null });
+      Object.defineProperties(response, {
+        redirected: { value: true },
+        url: { value: `http://localhost${destination}` },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => response),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/editor?save', {
+        method: 'POST',
+        ...(preserveScroll === undefined ? {} : { preserveScroll }),
+      });
+
+      const writeHistory = destination === '/editor' ? history.replaceState : history.pushState;
+      expect(writeHistory).toHaveBeenCalledWith(expect.anything(), '', destination);
+      if (preserved) {
+        expect(window.scrollTo).not.toHaveBeenCalled();
+      } else {
+        expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+      }
+    },
+  );
+
+  it('scrolls to the fragment when an action redirects to an anchor', async () => {
+    const documentStub = stubClientGlobals();
+    window.location.pathname = '/editor';
+    const scrollIntoView = vi.fn();
+    const response = pageJson({ component: 'home', props: {}, url: '/destination', errors: null });
+    Object.defineProperties(response, {
+      redirected: { value: true },
+      url: { value: 'http://localhost/destination#details' },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response),
+    );
+    const { router } = await createTestRouter();
+    vi.stubGlobal('document', {
+      ...documentStub,
+      getElementById: vi.fn((id: string) => (id === 'details' ? { scrollIntoView } : null)),
+    });
+
+    await submitAction(router, '/editor?save', { method: 'POST' });
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(history.pushState).toHaveBeenCalledWith(expect.anything(), '', '/destination#details');
+  });
+
+  it.each([undefined, false])(
+    'resets action scroll with override %s when leaving the page',
+    async (preserveScroll) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      const response = pageJson({
+        component: 'home',
+        props: {},
+        url: '/destination',
+        errors: null,
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => response),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/destination?save', {
+        method: 'POST',
+        ...(preserveScroll === undefined ? {} : { preserveScroll }),
+      });
+
+      expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+    },
+  );
+
+  it('allows an in-place action to reset scroll explicitly', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/editor';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => pageJson({ component: 'home', props: {}, url: '/editor', errors: null })),
+    );
+    const { router } = await createTestRouter();
+
+    await submitAction(router, '/editor?save', { method: 'POST', preserveScroll: false });
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
   it('exposes the default prefetch strategy to Links', async () => {
     stubClientGlobals();
     const { router } = await createTestRouter({ prefetchDefaultStrategy: ['hover', 'click'] });

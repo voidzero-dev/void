@@ -98,6 +98,42 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
+  it('keeps action and form scroll in place, with resets for overrides and redirects', async ({
+    expect,
+  }) => {
+    const page = await newPage();
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(BASE + '/scroll-restoration');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      const row = page.getByTestId('scroll-row-30');
+      for (const [button, preserved] of [
+        ['Update action', true],
+        ['Update form', true],
+        ['Reset action scroll', false],
+        ['Redirect action', false],
+      ] as const) {
+        await row.scrollIntoViewIfNeeded();
+        const before = await page.evaluate(() => window.scrollY);
+        expect(before).toBeGreaterThan(1000);
+        const request = page.getByTestId('scroll-request');
+        const previousRequest = await request.textContent();
+        await row.getByRole('button', { name: button, exact: true }).click();
+        await expect.poll(() => request.textContent()).not.toBe(previousRequest);
+        await expect
+          .poll(() => page.evaluate(() => window.scrollY))
+          .toBeCloseTo(preserved ? before : 0, 0);
+      }
+      expect(page.url()).toBe(BASE + '/scroll-restoration?redirected=1');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('visits typed destinations', async ({ expect }) => {
     const page = await newPage();
     try {
