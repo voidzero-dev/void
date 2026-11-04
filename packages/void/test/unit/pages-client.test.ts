@@ -9,8 +9,10 @@ import {
   submitAction,
   type VoidRouterConfig,
 } from '../../src/pages/client.ts';
+import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
+import type { PageDefinition } from '../../src/pages/types.ts';
 import {
   createPageMutationHandler,
   createRoutingRuntime,
@@ -126,6 +128,83 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  describe.each(['navigation', 'prefetch'] as const)('static page data during %s', (operation) => {
+    it.each([true, false, undefined])('respects prerender = %s', async (prerender) => {
+      stubClientGlobals();
+      const page: PageDefinition = {
+        componentId: 'blog/[slug]',
+        componentPath: 'blog/[slug].tsx',
+        pattern: '/blog/:slug',
+        params: ['slug'],
+        catchAll: false,
+        serverPath: 'blog/[slug].server.ts',
+        methods: ['loader'],
+        hasGetPrerenderPaths: true,
+        prerender,
+        prerenderMode: prerender === false ? 'disabled' : prerender === true ? 'force' : 'auto',
+        shouldPrerender: prerender !== false,
+        ssrMode: 'auto',
+        renderMode: 'server',
+      };
+      const source = generateComponentManifest(
+        { pages: [page], layouts: [], namedLayouts: [] },
+        '/project/pages',
+      );
+      const manifest = new Function(`${source}\nreturn { routeMeta, matchRoute };`)() as Pick<
+        VoidRouterConfig,
+        'routeMeta' | 'matchRoute'
+      >;
+      const url = '/blog/example';
+      const pageData = {
+        component: page.componentId,
+        props: { title: 'Example' },
+        url,
+        errors: null,
+      };
+      const fetchMock = vi.fn(async (input: string) => {
+        if (input === '/_void/pages/blog/example.json') {
+          return prerender === false
+            ? new Response(null, { status: 404 })
+            : Response.json(pageData);
+        }
+        return pageJson(pageData);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const applyUpdate = vi.fn();
+      const { router } = await createTestRouter({
+        ...manifest,
+        components: { home: loadComponent, [page.componentId]: loadComponent },
+        staticPageData: true,
+        staticPageDataFastPath: true,
+        adapter: { applyUpdate },
+      });
+      try {
+        if (operation === 'navigation') {
+          await router.visit(url);
+          expect(applyUpdate.mock.calls[0][0]).toMatchObject(pageData);
+        } else {
+          await expect(router.prefetch(url)).resolves.toEqual(pageData);
+        }
+        expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([
+          prerender === false ? url : '/_void/pages/blog/example.json',
+        ]);
+        if (prerender === false) {
+          expect(fetchMock).toHaveBeenCalledWith(
+            url,
+            expect.objectContaining({
+              headers: expect.objectContaining({
+                'X-VoidPages': 'true',
+                ...(operation === 'prefetch' ? { Purpose: 'prefetch' } : {}),
+              }),
+            }),
+          );
+        }
+      } finally {
+        router.flushAll();
+      }
+    });
+  });
+
   it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
     'preserves scroll for an in-place %s action',
     async (method) => {

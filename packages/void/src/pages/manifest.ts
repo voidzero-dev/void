@@ -82,11 +82,18 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
     );
   }
 
-  // Route metadata (sparse — only island pages)
+  // Sparse route metadata: only flags that differ from the defaults.
   lines.push('const routeMeta = {');
   for (const page of scan.pages) {
+    const flags = [];
     if (page.island) {
-      lines.push(`  ${JSON.stringify(page.componentId)}: { island: true },`);
+      flags.push('island: true');
+    }
+    if (page.prerender === false) {
+      flags.push('prerender: false');
+    }
+    if (flags.length > 0) {
+      lines.push(`  ${JSON.stringify(page.componentId)}: { ${flags.join(', ')} },`);
     }
   }
   lines.push('};');

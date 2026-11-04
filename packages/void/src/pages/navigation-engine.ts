@@ -81,7 +81,7 @@ export type PageNavigationEngineConfig = {
   adapter: VoidRouterAdapter;
   components: Record<string, () => Promise<PageComponentModule>>;
   layoutTree: Record<string, Array<string>>;
-  routeMeta: Record<string, { island?: boolean }>;
+  routeMeta: Record<string, { island?: boolean; prerender?: boolean }>;
   /** Page id for a decoded pathname (see `decodePagePath`). */
   matchRoute(path: string): string | null;
   staticPageData?: boolean;
@@ -474,7 +474,12 @@ export async function createPageNavigationEngine(
   /** Route id for a non-island page that static page data can serve, or null. */
   function matchStaticPageId(fetchUrl: string): string | null {
     const matchedId = matchRoute(fetchUrl || window.location.pathname + window.location.search);
-    return matchedId && !routeMeta[matchedId]?.island && components[matchedId] ? matchedId : null;
+    return matchedId &&
+      !routeMeta[matchedId]?.island &&
+      routeMeta[matchedId]?.prerender !== false &&
+      components[matchedId]
+      ? matchedId
+      : null;
   }
 
   async function loadStaticPageDataFile(
