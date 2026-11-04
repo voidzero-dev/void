@@ -30,7 +30,9 @@ import { routeUrl } from 'void/routes';
 return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
 ```
 
-`c.redirect()` merges request query parameters into internal destinations, with destination values taking precedence. Redirecting a [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) to a GET page drops the action key: `POST /users/42?delete&tab=profile` redirects to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
+`c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.
+
+A [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) is the exception. Redirecting it to a GET page drops the action key and keeps the page's other query parameters: `POST /users/42?delete&tab=profile` with `c.redirect('/users/42')` goes to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
 
 ```ts
 import { defineHandler } from 'void';

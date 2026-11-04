@@ -23,6 +23,7 @@ Define URL redirects in [`void.config.ts`](../../reference/config) using the `ro
 - **Destinations** can be strings (default `302`) or objects with `to` and optional `status`. Supported statuses: `301`, `302`, `303`, `307`, `308`.
 - `:splat` in the destination is replaced with the portion of the path matched by `*` in the source pattern.
 - Destination query strings are merged into the `Location` header (the destination's parameters take precedence on per-key conflict). To drop the incoming query, write an explicit reset like `?`.
+- `c.redirect()` in a handler, loader, or middleware sends that location unchanged and does not append the request query. A named action still drops its action key when the browser follows with GET, and keeps the page's other parameters. See [`c.redirect()`](../../reference/api/rewrites.md#c-rewrite-destination).
 - When multiple rules match, the **first match wins**. Put specific patterns before catch-all patterns.
 - Redirects are evaluated **before** the request reaches the worker, so they short-circuit static asset serving, ISR, and SSR.
 
