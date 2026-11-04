@@ -10,6 +10,7 @@ import {
   type VoidAuthProvider,
   type VoidSocialAuthProvider,
 } from '../auth/providers.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { authContext, type AuthState, type VoidAuthConfig } from './auth.ts';
 import { isUnchangedStaticAsset } from './static-asset-marker.ts';
 
@@ -282,6 +283,7 @@ function appendAuthHeaders(
           ? 'private, no-store'
           : privateCachePolicy(c.res.headers.get('cache-control')),
       );
+      dropSharedCachePolicy(c);
     }
     return;
   }
@@ -315,6 +317,19 @@ function appendAuthHeaders(
   ) {
     c.header('Cache-Control', 'private, no-store');
   }
+  if (includeCachePolicy || source.has('set-cookie')) {
+    dropSharedCachePolicy(c);
+  }
+}
+
+// A CDN may follow these ahead of Cache-Control, so a private response drops
+// them, including values a header rule set.
+function dropSharedCachePolicy(c: Context): void {
+  for (const name of SHARED_CACHE_HEADERS) {
+    if (c.res.headers.has(name)) {
+      c.header(name, undefined);
+    }
+  }
 }
 
 // Lowercased Cache-Control directive names that carry no value. Commas inside a
@@ -333,6 +348,36 @@ function bareCacheDirectives(policy: string | null): Set<string> {
  * `s-maxage` and a field-scoped `private` give way to a leading `private`.
  * A policy that is already private or no-store stays as it is.
  */
+/**
+ * True when the response sets a Better Auth cookie, such as the session from a
+ * sign-in reached through a rewrite or fallback. A cookie the app sets itself
+ * keeps the route's own cache policy.
+ */
+function setsAuthCookie(
+  headers: Headers,
+  advanced:
+    | { cookiePrefix?: string; cookies?: Record<string, { name?: string } | undefined> }
+    | undefined,
+): boolean {
+  const prefix = `${advanced?.cookiePrefix || 'better-auth'}.`;
+  const custom = new Set<string>();
+  for (const cookie of Object.values(advanced?.cookies ?? {})) {
+    if (cookie?.name) {
+      custom.add(cookie.name);
+    }
+  }
+  return headers.getSetCookie().some((value) => {
+    const equals = value.indexOf('=');
+    let name = (equals === -1 ? value : value.slice(0, equals)).trim();
+    for (const secure of ['__Secure-', '__Host-']) {
+      if (name.startsWith(secure)) {
+        name = name.slice(secure.length);
+      }
+    }
+    return name.startsWith(prefix) || custom.has(name);
+  });
+}
+
 export function privateCachePolicy(policy: string | null): string {
   const directives = splitCacheDirectives(policy ?? '');
   if (directives.length === 0) {
@@ -619,6 +664,11 @@ export function createVoidAuthRuntime(
     c.set('user', state?.user ?? null);
     c.set('session', state?.session ?? null);
 
+    const authEndpoint = c.req.path === '/api/auth' || c.req.path.startsWith('/api/auth/');
+    if (authEndpoint) {
+      authDependentRequests.add(c.req.raw);
+    }
+
     await authContext.run({ user: state?.user ?? null, state }, async () => {
       await next();
     });
@@ -629,7 +679,11 @@ export function createVoidAuthRuntime(
     appendAuthHeaders(
       c,
       result.headers,
-      state !== null || credentialed || result.headers?.has('set-cookie') === true,
+      state !== null ||
+        credentialed ||
+        result.headers?.has('set-cookie') === true ||
+        setsAuthCookie(c.res.headers, auth.options.advanced) ||
+        authEndpoint,
       isUnchangedStaticAsset(c),
     );
   }

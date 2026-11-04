@@ -238,4 +238,18 @@ export default defineMiddleware(async (c, next) => {
 });
 ```
 
-Call `useShared()` from your framework adapter, as in the layout examples above. Its return type is inferred from `CloudContextVariables`. Shared data comes from middleware; page props come from the loader. See [Context variables](../type-safety.md#context-variables).
+Call `useShared()` from your framework adapter, as in the layout examples above. Its return type is inferred from `CloudContextVariables`. See [Context variables](../type-safety.md#context-variables).
+
+Middleware sets the starting value. A loader or action can update it before the page is sent:
+
+```ts
+// pages/profile.server.ts
+import { defineHandler } from 'void';
+
+export const action = defineHandler(async (c) => {
+  const user = await updateProfile(c);
+  c.set('shared', { ...c.get('shared'), auth: { user } });
+});
+```
+
+Middleware runs before the action. If an action changes data that shared data is built from, update shared data in the action, or redirect with `c.redirect()` so middleware runs again on the next page load.

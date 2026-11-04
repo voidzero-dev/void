@@ -183,10 +183,17 @@ beforeAll(async () => {
     import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing.ts'))};
     import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing-errors.ts'))};
     const apps = {};
-    for (const mode of ['pages', 'ssr', 'static']) {
+    for (const mode of ['pages', 'ssr', 'static', 'headers']) {
       const app = new Hono();
       const routing = createRoutingRuntime(app, {});
       app.use(routing.contextMiddleware);
+      if (mode === 'headers') {
+        app.use(routing.headerMiddleware([{ pattern: '/static/*', headers: [
+          ['Cache-Control', 'public, max-age=31536000, immutable'],
+          ['X-Void-Header', 'configured'],
+        ] }]));
+        app.get('/health', (c) => c.text('healthy', 200, { 'cache-control': 'private, no-store' }));
+      }
       app.notFound(mode === 'pages'
         ? createPagesFallback({ routing, assetsDir: 'static', errors: createErrorRenderer({ projectRoot: '/fixture', homeDir: '/home' }) })
         : mode === 'ssr'
@@ -303,6 +310,37 @@ describe('native asset cache policy in real Workers', () => {
       expect(missing.headers.get('cache-control') ?? '').not.toContain('immutable');
     },
   );
+
+  it.each(['css', 'javascript'])(
+    'overrides an existing ASSETS cache policy for %s',
+    async (kind) => {
+      const file = kind === 'css' ? cssAsset : uncachedAsset;
+      const response = await runtime!.dispatchFetch(`https://app.test/${file}?mode=headers`);
+      expect(response.status).toBe(200);
+      expect(response.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+      expect(response.headers.get('x-void-header')).toBe('configured');
+      expect(response.headers.get('content-type')).toContain(
+        kind === 'css' ? 'text/css' : 'javascript',
+      );
+      expect(await response.text()).toContain(kind === 'css' ? 'color' : 'uncached');
+    },
+  );
+
+  it('applies matching headers to real asset misses and preserves unmatched responses', async () => {
+    const missing = await runtime!.dispatchFetch(
+      'https://app.test/static/missing-abcdefgh.js?mode=headers',
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.headers.get('cache-control')).toBe('public, max-age=31536000, immutable');
+    expect(missing.headers.get('x-void-header')).toBe('configured');
+    await missing.arrayBuffer();
+
+    const unmatched = await runtime!.dispatchFetch('https://app.test/health?mode=headers');
+    expect(unmatched.status).toBe(200);
+    expect(unmatched.headers.get('cache-control')).toBe('private, no-store');
+    expect(unmatched.headers.has('x-void-header')).toBe(false);
+    await expect(unmatched.text()).resolves.toBe('healthy');
+  });
 
   it('wraps an immutable Cache API response without mutating its headers or consuming its body', async () => {
     const response = await runtime!.dispatchFetch('https://app.test/cache-proof');

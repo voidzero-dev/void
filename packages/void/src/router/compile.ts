@@ -294,9 +294,6 @@ export function compileRouteTable(
   if (emitEdgeRules && options.redirectRules?.length) {
     compileRoutingRulesMiddleware(lines, options.redirectRules, options.dev === true);
   }
-  if (emitEdgeRules && options.headerRules?.length) {
-    compileHeaderMiddleware(lines, options.headerRules);
-  }
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
@@ -307,11 +304,22 @@ export function compileRouteTable(
     lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
   }
 
+  const headerRules = emitEdgeRules ? options.headerRules : undefined;
+  if (headerRules?.length) {
+    lines.push(`const __headerRules = ${JSON.stringify(headerRules)};`);
+  }
   if (auth) {
+    if (headerRules?.length) {
+      lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules, "auth-error"));');
+    }
     lines.push('app.use(async (c, next) => {');
     lines.push('  return runVoidAuthMiddleware(c, next, __voidAuthOptions, __voidAuthDatabase);');
     lines.push('});');
     lines.push('');
+  }
+
+  if (headerRules?.length) {
+    lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
   }
 
   // Register user middleware
@@ -1484,12 +1492,6 @@ function compileRoutingRulesMiddleware(
   lines.push('// Routing rules: redirects + rewrites (applied before route handlers)');
   lines.push(`const __routingRules = ${JSON.stringify(dev ? rules : stripOriginForProd(rules))};`);
   lines.push('app.use("*", __routingRuntime.routingMiddleware(__routingRules));');
-}
-
-function compileHeaderMiddleware(lines: Array<string>, rules: Array<HeaderRule>): void {
-  lines.push('// Header rules (applied to responses)');
-  lines.push(`const __headerRules = ${JSON.stringify(rules)};`);
-  lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
 }
 
 /** Generate the server-side fetch client, which calls `app.fetch()` with the current request's credentials. */
