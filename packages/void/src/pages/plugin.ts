@@ -111,10 +111,11 @@ export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOp
           if (!pageScan) {
             return '';
           }
-          return options.generateClient(
-            pageScan,
-            resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir }),
-          );
+          // Static page-data files are emitted only during production prerendering.
+          const staticPageData = isDev
+            ? { enabled: false, fastPath: false }
+            : resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir });
+          return options.generateClient(pageScan, staticPageData);
         }
       },
     },
