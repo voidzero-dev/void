@@ -174,7 +174,11 @@ describe('voidPlugin Vite environments', () => {
     expect(config.environments.void_worker.optimizeDeps.include).toEqual(
       expect.arrayContaining(['void > email-validator', 'void > pg']),
     );
+    expect(config.environments.void_worker.optimizeDeps.exclude).toEqual(
+      expect.arrayContaining(['void', 'better-auth']),
+    );
     expect(config.environments.ssr.optimizeDeps.include).toEqual([]);
+    expect(config.environments.ssr.optimizeDeps.exclude ?? []).not.toContain('better-auth');
   });
 
   it.each(['before', 'after'])(
