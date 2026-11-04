@@ -164,6 +164,46 @@ describe('generateRouteTypes', () => {
     expect(pathMap).toContain('"/api/legacy": never;');
   });
 
+  it('lists page patterns and their params in PagePathMap, without HTTP routes', () => {
+    const page = (pattern: string, params: Array<string>, catchAll: boolean, file: string) => ({
+      ...pageRenderingDefaults,
+      pattern,
+      params,
+      catchAll,
+      componentPath: file,
+      serverPath: null,
+      methods: [],
+      componentId: file,
+    });
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/users/:id',
+          methods: ['GET'],
+          params: ['id'],
+          catchAll: false,
+          env: null,
+          filePath: 'api/users/[id].ts',
+        },
+      ],
+      pages: [
+        page('/about', [], false, 'about.tsx'),
+        page('/users/:id', ['id'], false, 'users/[id].tsx'),
+        page('/files/:path{.+}', ['path'], true, 'files/[...path].tsx'),
+        page('/wild/*', [], true, 'wild/[...].tsx'),
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const pageMap = dts.split('  export interface PagePathMap {')[1]!.split('  }')[0]!;
+
+    expect(pageMap).toContain('"/about": never;');
+    expect(pageMap).toContain('"/users/:id": "id";');
+    expect(pageMap).toContain('"/files/:path{.+}": "path";');
+    expect(pageMap).toContain('"/wild/*": "*";');
+    expect(pageMap).not.toContain('/api/users/:id');
+  });
+
   it('handles dynamic params in patterns', () => {
     const scan = makeScan({
       routes: [

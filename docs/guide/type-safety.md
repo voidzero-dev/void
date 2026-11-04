@@ -141,6 +141,22 @@ routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
 // /files/docs/get%20started
 ```
 
+### Page params
+
+Pass a page's URL pattern as the type argument of `useParams()` to type the params it reads. For `pages/users/[id].tsx`, the pattern is `/users/:id`:
+
+```tsx
+import { useParams } from '@void/react';
+
+const { id } = useParams<'/users/:id'>(); // id: string
+useParams<'/users/:id'>().idd; // Type error: no such param
+useParams<'/userz/:id'>(); // Type error: no page matches
+```
+
+The pattern must be one of your pages; HTTP and WebSocket routes are not accepted. A catch-all page such as `pages/files/[...path].tsx` gives `{ path: string }`. An unnamed catch-all (`[...].tsx`) has no params.
+
+The pattern is checked by TypeScript only. Pass the pattern of the page the component renders in; without a pattern, `useParams()` returns `Record<string, string>`.
+
 ### Checked URL strings
 
 [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Apps created with `void init` have it on. To turn it on in an existing app:
@@ -192,6 +208,7 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
 | Navigation   | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
 | Links        | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
+| `useParams`  | Page patterns and the names of the params they return                                                                 |
 | `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
 | `action()`   | Action URLs, `data` payload, `params`                                                                                 |
 

@@ -13,6 +13,20 @@ export type {
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
 
+/** Page URL patterns and their parameter names, augmented by .void/routes.d.ts. */
+export interface PagePathMap {}
+
+/** Union of the app's page URL patterns, such as `/users/:id`. */
+export type PagePath = keyof PagePathMap & string;
+
+/**
+ * Params a page receives: `{ id: string }` for `/users/:id`. An unnamed `[...]`
+ * catch-all has no param. A union of patterns gives a union of params.
+ */
+export type PageParams<P extends PagePath> = P extends PagePath
+  ? { [K in Exclude<PagePathMap[P], '*'> & string]: string }
+  : never;
+
 /** Percent-encoded spellings of patterns with encoded fixed segments, augmented by .void/routes.d.ts. */
 export interface EncodedRoutePathMap {}
 
