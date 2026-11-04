@@ -229,4 +229,14 @@ describe('WebSocket resource names', () => {
     expect(() => scanWebSocketRoutesSync(root)).toThrow('duplicate generated name');
     expect(scanWebSocketRoutesSync(root, undefined, 'prod')).toHaveLength(1);
   });
+
+  it('orders a static WebSocket route ahead of a dynamic sibling', () => {
+    const root = createRoot();
+    createRoute(root, 'chat/[room].ws.ts', 'export default defineRoom({})');
+    createRoute(root, 'chat/lobby.ws.ts', 'export default defineRoom({})');
+    expect(scanWebSocketRoutesSync(root).map((route) => route.pattern)).toEqual([
+      '/chat/lobby',
+      '/chat/:room',
+    ]);
+  });
 });

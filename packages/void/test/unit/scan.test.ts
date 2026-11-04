@@ -250,6 +250,19 @@ describe('scanRoutes', () => {
     ]);
   });
 
+  it('ranks routes by segment kind, not parameter names', async () => {
+    createFile('routes/[category]/[item].ts');
+    createFile('routes/[lang]/about.ts');
+    createFile('routes/[lang]/[slug].ts');
+
+    const result = await scanRoutes(TMP);
+    expect(result.routes.map((route) => route.pattern)).toEqual([
+      '/:lang/about',
+      '/:category/:item',
+      '/:lang/:slug',
+    ]);
+  });
+
   it('discovers cron jobs from crons directory', async () => {
     createFile('routes/api/hello.ts');
     createFile('crons/sync.ts', 'export const cron = "0 * * * *"\nexport default () => {}');

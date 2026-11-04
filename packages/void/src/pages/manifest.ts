@@ -1,3 +1,4 @@
+import { routeSegmentKind } from '../router/route-order.ts';
 import { resolveLayoutIds, toLayoutId } from './layout-resolution.ts';
 import type { PageScanResult } from './types.ts';
 
@@ -106,19 +107,19 @@ const REGEX_SYNTAX = '.*+?^${}()|[]\\';
 
 /** The capture group for `*`, `:name{.+}` and `:name`; other segments match as written. */
 function captureGroup(segment: string): string | undefined {
-  if (segment === '*') {
-    return '(.*)';
+  switch (routeSegmentKind(segment)) {
+    case 'rest':
+      return segment === '*' ? '(.*)' : '(.+)';
+    case 'param':
+      return '([^\\/]+)';
+    case 'static':
+      return undefined;
   }
-  if (segment.length < 2 || segment[0] !== ':') {
-    return undefined;
-  }
-  const name = segment.endsWith('{.+}') ? segment.slice(1, -4) : '';
-  return name && !name.includes('{') && !name.includes('}') ? '(.+)' : '([^\\/]+)';
 }
 
 /** Whether `patternToRegex` matches only the pattern's own text. */
 function isStaticPattern(pattern: string): boolean {
-  return pattern.split('/').every((segment) => captureGroup(segment) === undefined);
+  return pattern.split('/').every((segment) => routeSegmentKind(segment) === 'static');
 }
 
 /** The RegExp literal a page pattern matches with, the same on the client and the server. */

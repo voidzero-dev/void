@@ -18,6 +18,7 @@ import {
   type RouteDefinition,
   type RouteEnvironment,
 } from './parse-filename.ts';
+import { compareRouteSpecificity } from './route-order.ts';
 
 const WEBSOCKET_ROUTE_RE = new RegExp(
   `(?:\\.(?:dev|prod))?\\.ws\\.(?:${ROUTE_EXTENSIONS.join('|')})$`,
@@ -148,12 +149,7 @@ function parseWebSocketFiles(
       isRouteEnabledForEnvironment(parseWebSocketFilename(filePath), environment),
     )
     .map((filePath) => buildWebSocketRoute(root, filePath, paths))
-    .sort((a, b) => {
-      if (a.catchAll !== b.catchAll) {
-        return a.catchAll ? 1 : -1;
-      }
-      return a.pattern.localeCompare(b.pattern);
-    });
+    .sort(compareRouteSpecificity);
   const byClass = new Map<string, Array<WebSocketRouteDefinition>>();
   for (const route of routes) {
     const previous = byClass.get(route.className) ?? [];
