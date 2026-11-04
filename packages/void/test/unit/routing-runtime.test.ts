@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono';
+import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
@@ -1328,10 +1328,13 @@ describe('page loaders and actions composed with defineHandler middleware', () =
   });
   type PageJson = { props: Record<string, unknown>; errors: unknown; shared: unknown };
 
-  function createPageApp(mod: Record<string, unknown>) {
+  function createPageApp(mod: Record<string, unknown>, appMiddleware?: MiddlewareHandler) {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
     app.use(runtime.contextMiddleware);
+    if (appMiddleware) {
+      app.use(appMiddleware);
+    }
     const load = async () => mod;
     app.get('/db', createPageGetHandler({ ...pageOptions, load }));
     app.post('/db', createPageMutationHandler({ ...pageOptions, load, namedActions: true }));
@@ -1434,6 +1437,57 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       expect(response.headers.get('X-After')).toBe('1');
       expect(((await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
     }
+  });
+
+  it('lets a loader or action update shared data set by app middleware', async () => {
+    // Like middleware/01.shared.ts: app middleware runs before the page handler.
+    const count = (n: number) => ({ count: n });
+    const appShared: MiddlewareHandler = async (c, next) => {
+      c.set('shared', count(2));
+      await next();
+    };
+    const sharedOf = async (response: Response) => ((await response.json()) as PageJson).shared;
+    const setCount = (n: number) => (c: Context) => {
+      c.set('shared', { ...(c.get('shared') as object), ...count(n) });
+    };
+    const assignCount = (n: number) => (c: Context) => {
+      Object.assign(c.get('shared') as object, count(n));
+    };
+    const loader = () => ({});
+
+    // The loader runs last, so its update is what the page gets.
+    for (const update of [setCount(77), assignCount(77)]) {
+      const app = createPageApp(
+        {
+          loader: defineHandler(passThrough, (c) => (update(c), {})),
+          actions: { create: defineHandler(async () => {}) },
+        },
+        appShared,
+      );
+      expect(await sharedOf(await get(app))).toEqual(count(77));
+      expect(await sharedOf(await post(app, {}))).toEqual(count(77));
+    }
+
+    // The action's update reaches the page and the loader that runs after it.
+    for (const update of [setCount(99), assignCount(99)]) {
+      let loaderSaw: unknown;
+      const app = createPageApp(
+        {
+          loader: (c: Context) => ((loaderSaw = c.get('shared')), {}),
+          actions: { create: defineHandler(passThrough, async (c) => update(c)) },
+        },
+        appShared,
+      );
+      expect(await sharedOf(await post(app, {}))).toEqual(count(99));
+      expect(loaderSaw).toEqual(count(99));
+    }
+
+    // Middleware ran before the action, so an action that leaves shared alone keeps its value.
+    const untouched = createPageApp(
+      { loader, actions: { create: defineHandler(async () => {}) } },
+      appShared,
+    );
+    expect(await sharedOf(await post(untouched, {}))).toEqual(count(2));
   });
 
   it('keeps edits outer middleware makes after an inner middleware answers', async () => {

@@ -398,6 +398,27 @@ describe('handlePageGet', () => {
     expect(body.shared).toEqual({ auth: { user: { name: 'Test' } } });
   });
 
+  it('uses shared data the loader updates', async () => {
+    const c = await createTestContext('GET', '/', {
+      headers: { 'x-voidpages': 'true' },
+      shared: { count: 2 },
+    });
+
+    const response = await handlePageGet(
+      (ctx: CloudContext) => {
+        ctx.set('shared', { ...(ctx.get('shared') as object), count: 77 });
+        return {};
+      },
+      undefined,
+      c,
+      'index',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect((await json<PageResponse>(response)).shared).toEqual({ count: 77 });
+  });
+
   it('prefetch request — resolves deferred props inline as plain JSON', async () => {
     const c = await createTestContext('GET', '/dashboard', {
       headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
@@ -653,6 +674,77 @@ describe('handlePageMutation', () => {
     const body = await json<PageResponse>(response);
     expect(body.errors).toEqual({ name: 'required' });
     expect(body.props).toEqual({ users: [] });
+  });
+
+  it.each([true, false])(
+    'sends shared data the action updates (page JSON: %s)',
+    async (pagesRequest) => {
+      const c = await createTestContext('POST', '/users', {
+        headers: pagesRequest ? { 'x-voidpages': 'true' } : {},
+        shared: { count: 2 },
+      });
+      const render = vi.fn(async (_page: { shared: unknown }) => '<html></html>');
+
+      const response = await handlePageMutation(
+        (ctx: CloudContext) => {
+          ctx.set('shared', { ...(ctx.get('shared') as object), count: 99 });
+        },
+        () => ({}),
+        undefined,
+        c,
+        'users',
+        render,
+        mockGetAssetTags,
+      );
+
+      const shared = pagesRequest
+        ? (await json<PageResponse>(response)).shared
+        : render.mock.lastCall?.[0].shared;
+      expect(shared).toEqual({ count: 99 });
+    },
+  );
+
+  it('keeps the shared data an action updated before a ValidationError', async () => {
+    const c = await createTestContext('POST', '/users', {
+      headers: { 'x-voidpages': 'true' },
+      shared: { count: 2 },
+    });
+
+    const response = await handlePageMutation(
+      (ctx: CloudContext) => {
+        ctx.set('shared', { ...(ctx.get('shared') as object), count: 99 });
+        throw new ValidationError({ name: 'required' });
+      },
+      () => ({}),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    const body = await json<PageResponse>(response);
+    expect(body.errors).toEqual({ name: 'required' });
+    expect(body.shared).toEqual({ count: 99 });
+  });
+
+  it('keeps the middleware shared data when the action leaves it alone', async () => {
+    const c = await createTestContext('POST', '/users', {
+      headers: { 'x-voidpages': 'true' },
+      shared: { count: 2 },
+    });
+
+    const response = await handlePageMutation(
+      () => undefined,
+      () => ({}),
+      undefined,
+      c,
+      'users',
+      mockRenderFn,
+      mockGetAssetTags,
+    );
+
+    expect((await json<PageResponse>(response)).shared).toEqual({ count: 2 });
   });
 
   it('ValidationError HTML responses include collected dev CSS', async () => {
