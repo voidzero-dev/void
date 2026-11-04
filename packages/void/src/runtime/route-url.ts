@@ -1,4 +1,4 @@
-import type { RoutePathMap } from 'void/routes';
+import type { EncodedRoutePathMap, RoutePathMap, RouteTypesConfig } from 'void/routes';
 
 /**
  * Encode one path segment of a route param. `encodeURIComponent` keeps dots, and
@@ -77,6 +77,34 @@ export function interpolateRouteParams(
 /** Known page, HTTP and WebSocket route patterns. */
 export type RoutePath = keyof RoutePathMap & string;
 
+// With `routing.typedRoutes`, each `:name`, `:name{.+}` or `*` segment of a
+// pattern matches any text, so `/users/:id` accepts `/users/${string}`. Template
+// literal types cannot exclude empty or `/`-leading text without per-character unions.
+type RouteUrlSegment<S extends string> = S extends `:${string}` | '*' ? string : S;
+type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`
+  ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`
+  : RouteUrlSegment<P>;
+// A trailing `/*` also matches the bare prefix, as in Hono: `/docs/*` matches `/docs`.
+type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`
+  ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
+  : RouteSegmentsUrl<P>;
+// Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
+type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
+type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;
+
+/** Whether `routing.typedRoutes` is on in the generated route types. */
+export type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;
+
+/** The URL of one of the app's routes. A plain string unless `routing.typedRoutes` is on. */
+export type RouteUrl = TypedRoutes extends true
+  ? RoutePathUrl | `${RoutePathUrl}${'?' | '#'}${string}`
+  : string;
+
+/** Anything a link can point to: a route URL, a same-page query or hash, or an external URL. */
+export type Href = TypedRoutes extends true
+  ? RouteUrl | `${'?' | '#'}${string}` | `${'http://' | 'https://' | 'mailto:' | 'tel:'}${string}`
+  : string;
+
 export type RouteQueryValue = string | number | boolean | null | undefined;
 export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;
 
@@ -91,7 +119,7 @@ export type RouteDestination<P extends RoutePath = RoutePath> = P extends RouteP
   ? { pathname: P } & RouteOptions<P>
   : never;
 
-export type RouteUrlInput = string | URL | RouteDestination;
+export type RouteUrlInput = Href | URL | RouteDestination;
 
 type UrlOptions = {
   params?: Record<string, string | number>;
@@ -105,8 +133,8 @@ export function routeUrl<P extends RoutePath>(
   ...args: [RoutePathMap[NoInfer<P>]] extends [never]
     ? [options?: RouteOptions<P>]
     : [options: RouteOptions<P>]
-): string {
-  return buildRouteUrl(path, args[0]);
+): RouteUrl {
+  return buildRouteUrl(path, args[0]) as RouteUrl;
 }
 
 /** @internal Convert navigation inputs to URL strings without requiring an origin. */

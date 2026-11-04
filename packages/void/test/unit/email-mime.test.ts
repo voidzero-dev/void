@@ -33,6 +33,19 @@ async function build(opts: Parameters<typeof normalizeEmail>[0]) {
   return { raw, messageId, text: decode(raw) };
 }
 
+type Threading = Parameters<typeof buildMime>[0]['threading'];
+
+/**
+ * `normalizeEmail` caps threading ids, so size checks that need a larger
+ * value hand them to `buildMime` directly: it is the authority on the size.
+ */
+async function normalizeWithThreading(
+  opts: Parameters<typeof normalizeEmail>[0],
+  threading: Threading,
+): Promise<Parameters<typeof buildMime>[0]> {
+  return { ...(await normalizeEmail(opts)), threading };
+}
+
 function b64ToText(b64: string): string {
   const binary = atob(b64);
   const bytes = new Uint8Array(binary.length);
@@ -1690,7 +1703,7 @@ describe('buildMime', () => {
     ).rejects.toThrow(/from/);
   });
 
-  it('drops user-supplied In-Reply-To and References (reserved for replyEmail)', async () => {
+  it('drops user-supplied In-Reply-To and References (only `threading` sets them)', async () => {
     const { text } = await build({
       from: 'a@x.dev',
       to: 'b@y.dev',
@@ -1703,6 +1716,119 @@ describe('buildMime', () => {
     });
     expect(text).not.toContain('spoof-thread');
     expect(text).not.toContain('spoof-references');
+  });
+
+  describe('threading option', () => {
+    const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 'Re: s', text: 't' };
+
+    it('renders In-Reply-To and References after Message-ID', async () => {
+      const { text } = await build({
+        ...base,
+        threading: { inReplyTo: '<parent@x.dev>', references: '<root@x.dev> <parent@x.dev>' },
+      });
+      expect(text).toMatch(
+        /Message-ID: <[^>]+>\r\nIn-Reply-To: <parent@x\.dev>\r\nReferences: <root@x\.dev> <parent@x\.dev>\r\n/,
+      );
+    });
+
+    it('defaults References to In-Reply-To', async () => {
+      const email = await normalizeEmail({ ...base, threading: { inReplyTo: ' <parent@x.dev> ' } });
+      expect(email.threading).toEqual({
+        inReplyTo: '<parent@x.dev>',
+        references: '<parent@x.dev>',
+      });
+    });
+
+    it('still sends when a stray quote stops the folder from breaking the line', async () => {
+      // Inside a quoted string `foldHeader` cannot fold at a space, so the
+      // whole rest of the value is one run.
+      const quotedChain = `<"a@x> ${'<b@x.com> '.repeat(200)}<p@x>`;
+      for (const threading of [
+        { inReplyTo: '<p@x>', references: quotedChain },
+        { inReplyTo: `"${' a'.repeat(600)}` },
+      ]) {
+        const email = await normalizeEmail({ ...base, threading });
+        const text = decode(buildMime(email).raw);
+        expect(text).not.toContain('<"a@x>');
+        expect(text).not.toContain('In-Reply-To: "');
+      }
+      const fallback = await normalizeEmail({
+        ...base,
+        threading: { inReplyTo: '<p@x>', references: quotedChain },
+      });
+      expect(fallback.threading).toEqual({ inReplyTo: '<p@x>', references: '<p@x>' });
+    });
+
+    it('trims only spaces and tabs from inReplyTo', async () => {
+      const email = await normalizeEmail({
+        ...base,
+        threading: { inReplyTo: '\t <p@x.dev>\u00a0 ' },
+      });
+      expect(email.threading?.inReplyTo).toBe('<p@x.dev>\u00a0');
+    });
+
+    it('leaves out an id that holds a control character or cannot fit a line, and still sends', async () => {
+      for (const inReplyTo of [
+        '<a\r\nBcc: x@evil.dev>',
+        '<a\u0001@x>',
+        `<${'x'.repeat(1000)}@x>`,
+      ]) {
+        const email = await normalizeEmail({ ...base, threading: { inReplyTo } });
+        expect(email.threading).toBeUndefined();
+        expect(decode(buildMime(email).raw)).not.toContain('In-Reply-To');
+      }
+      const email = await normalizeEmail({
+        ...base,
+        threading: {
+          inReplyTo: '<parent@x.dev>',
+          references: '<root@x.dev> <bad\u007f@x> <parent@x.dev>',
+        },
+      });
+      expect(email.threading).toEqual({
+        inReplyTo: '<parent@x.dev>',
+        references: '<root@x.dev> <parent@x.dev>',
+      });
+      // A chain with an id too long for one line falls back to the parent.
+      const long = await normalizeEmail({
+        ...base,
+        threading: { inReplyTo: '<parent@x.dev>', references: `<${'x'.repeat(1000)}@x>` },
+      });
+      expect(long.threading).toEqual({ inReplyTo: '<parent@x.dev>', references: '<parent@x.dev>' });
+    });
+
+    it('keeps the newest whole ids of a References chain over 8 KiB', async () => {
+      const ids = Array.from(
+        { length: 1000 },
+        (_, i) => `<id-${String(i).padStart(4, '0')}@x.dev>`,
+      );
+      const email = await normalizeEmail({ ...base, threading: { references: ids.join(' ') } });
+      const kept = email.threading!.references!;
+      expect(kept.length).toBeLessThanOrEqual(8192);
+      expect(kept.endsWith('<id-0999@x.dev>')).toBe(true);
+      expect(ids.join(' ').endsWith(kept)).toBe(true);
+      expect(kept.startsWith('<id-')).toBe(true);
+    });
+
+    it('rejects a value that is not a string', async () => {
+      for (const threading of [
+        '<parent@x.dev>',
+        null,
+        { inReplyTo: 5 },
+        { references: ['<a@x>'] },
+      ]) {
+        await expect(
+          normalizeEmail({ ...base, threading } as unknown as Parameters<typeof normalizeEmail>[0]),
+        ).rejects.toMatchObject({ code: 'MIME_ERROR' });
+      }
+    });
+
+    it('treats empty values as no threading', async () => {
+      const email = await normalizeEmail({
+        ...base,
+        threading: { inReplyTo: '', references: '  ' },
+      });
+      expect(email.threading).toBeUndefined();
+    });
   });
 
   it('folds long whitespace-separated headers (e.g. References) below 78 columns', async () => {
@@ -1960,8 +2086,13 @@ describe('buildMime header size projection', () => {
     `message is at least \\d+ bytes once encoded, which exceeds Cloudflare limit of ${MAX_MESSAGE_BYTES} bytes`,
   );
 
-  async function expectProjected(opts: Parameters<typeof normalizeEmail>[0]) {
-    const email = await normalizeEmail(opts);
+  async function expectProjected(
+    opts: Parameters<typeof normalizeEmail>[0],
+    threading?: Threading,
+  ) {
+    const email = threading
+      ? await normalizeWithThreading(opts, threading)
+      : await normalizeEmail(opts);
     let error: unknown;
     try {
       buildMime(email);
@@ -2044,20 +2175,9 @@ describe('buildMime header size projection', () => {
   // remote sender controls their size.
   it('counts the threading headers', async () => {
     // 900k twelve-character ids: 10.8 MB of non-WSP before a single space.
-    await expectProjected({
-      from: 'a@x.dev',
-      to: 'b@y.dev',
-      subject: 's',
-      text: 'hi',
-      threading: { references: '<abcdefgh@x> '.repeat(900_000).trimEnd() },
-    });
-    await expectProjected({
-      from: 'a@x.dev',
-      to: 'b@y.dev',
-      subject: 's',
-      text: 'hi',
-      threading: { inReplyTo: `<${'x'.repeat(11 * 1024 * 1024)}@x>` },
-    });
+    const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 'hi' };
+    await expectProjected(base, { references: '<abcdefgh@x> '.repeat(900_000).trimEnd() });
+    await expectProjected(base, { inReplyTo: `<${'x'.repeat(11 * 1024 * 1024)}@x>` });
   });
 
   // `normalizeAttachment` bounds the Content-ID, so the charge is pinned on a
@@ -2123,26 +2243,22 @@ describe('buildMime header size projection', () => {
       { length: Math.floor((2.5 * 1024 * 1024) / (id.length + 1)) },
       () => id,
     );
-    const { raw, text } = await build({
-      from: 'a@x.dev',
-      to: 'b@y.dev',
-      subject: 's',
-      text: 'hi',
-      threading: { references: chain.join(' ') },
-    });
+    const base = { from: 'a@x.dev', to: 'b@y.dev', subject: 's', text: 'hi' };
+    const raw = buildMime(await normalizeWithThreading(base, { references: chain.join(' ') })).raw;
+    const text = decode(raw);
     expect(raw.byteLength).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
     expect(unfoldHeader(text, 'References')).toBe(chain.join(' '));
     // A long chain is re-joined from its ids by single spaces, so 11 MiB of
     // spaces between two ids renders as one; a bound that charged them
     // would reject a message that fits.
-    const spaced = await build({
-      from: 'a@x.dev',
-      to: 'b@y.dev',
-      subject: 's',
-      text: 'hi',
-      threading: { references: `<a@x>${' '.repeat(11 * 1024 * 1024)}<b@x>` },
-    });
-    expect(spaced.text).toContain('References: <a@x> <b@x>\r\n');
+    const spaced = decode(
+      buildMime(
+        await normalizeWithThreading(base, {
+          references: `<a@x>${' '.repeat(11 * 1024 * 1024)}<b@x>`,
+        }),
+      ).raw,
+    );
+    expect(spaced).toContain('References: <a@x> <b@x>\r\n');
   });
 
   it('never rejects a header-heavy message that fits, and leaves the final check as the authority', async () => {

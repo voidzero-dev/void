@@ -338,10 +338,10 @@ function requireManagementToken() {
       }),
       actions: [
         {
-          action: 'adopt',
+          action: 'create',
           kind: 'dns-record',
           key: 'wildcard-dns',
-          id: 'dns-id',
+          id: null,
           name: '*.example.com',
           reason: 'test',
         },
@@ -724,7 +724,10 @@ describe('platform credential onboarding', () => {
         ...readPendingInstallationSecrets(manifest),
         managementApiToken: 'saved-management-secret',
       });
-      for (const [key, value] of Object.entries(environment)) {
+      // An explicit runtime token would replace the saved one.
+      const { VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN: _runtime, ...resumeEnvironment } =
+        environment;
+      for (const [key, value] of Object.entries(resumeEnvironment)) {
         vi.stubEnv(key, value);
       }
       const fetcher = vi.fn<typeof fetch>(async () => Response.json({ success: true, result: {} }));
@@ -1415,6 +1418,150 @@ describe('platform credential onboarding', () => {
     expect(mocks.install.mock.calls[0]![1]).toMatchObject({
       jwtSecret: environment.VOID_PLATFORM_JWT_SECRET,
       projectSecretKey: environment.VOID_PLATFORM_PROJECT_SECRET_KEY,
+    });
+  });
+  describe('runtime token on an interrupted install resume', () => {
+    const replacement = 'replacement-runtime-token';
+    const resume = (manifest: { id: string }) =>
+      runPlatformLifecycleCommand(
+        parsePlatformArgs(['install', '--resume', '--name', manifest.id]),
+      );
+    const stubEnvironment = (runtimeToken: string) => {
+      for (const [key, value] of Object.entries(environment)) {
+        vi.stubEnv(key, value);
+      }
+      vi.stubEnv('VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN', runtimeToken);
+    };
+
+    it('uses an explicit replacement and sends it to deployed Workers', async () => {
+      const manifest = await interruptedInstall();
+      stubEnvironment(replacement);
+      await resume(manifest);
+      expect(mocks.password).not.toHaveBeenCalled();
+      expect(mocks.install.mock.calls[0]![1]).toMatchObject({
+        cloudflareApiToken: replacement,
+        githubClientId: environment.VOID_PLATFORM_GITHUB_CLIENT_ID,
+        r2SecretAccessKey: environment.VOID_PLATFORM_R2_SECRET_ACCESS_KEY,
+      });
+      // Only the token is an update; the other values are not replacements.
+      expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({
+        CF_API_TOKEN: replacement,
+      });
+    });
+
+    it.each(['', 'saved-runtime-token'])(
+      'keeps deployed Workers as they are without a different token (env %j)',
+      async (runtimeToken) => {
+        const manifest = await interruptedInstall();
+        stubEnvironment(runtimeToken);
+        await resume(manifest);
+        expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe('saved-runtime-token');
+        expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({});
+        expect(mocks.install.mock.calls[0]![1].pendingWorkerSecretUpdateIntent).toBeUndefined();
+      },
+    );
+
+    it('sends no update when no token was saved to compare with', async () => {
+      const manifest = await interruptedInstall();
+      // Another machine: the pending file holds no runtime token.
+      const { cloudflareApiToken: _saved, ...pending } = readPendingInstallationSecrets(manifest)!;
+      writePendingInstallationSecrets(manifest, pending);
+      stubEnvironment(replacement);
+      await resume(manifest);
+      expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe(replacement);
+      expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({});
+    });
+
+    it('finishes a saved token update after a crash', async () => {
+      const manifest = await interruptedInstall();
+      const intent = {
+        baselineGeneration: 0,
+        generation: null,
+        id: 'intent-1',
+        schema: 1,
+        updates: { CF_API_TOKEN: replacement },
+      };
+      // The installer saved the replacement and its update before it stopped.
+      writePendingInstallationSecrets(manifest, {
+        ...readPendingInstallationSecrets(manifest),
+        cloudflareApiToken: replacement,
+        workerSecretUpdatesJson: JSON.stringify(intent),
+      });
+      stubEnvironment('');
+      await resume(manifest);
+      expect(mocks.install.mock.calls[0]![1]).toMatchObject({
+        cloudflareApiToken: replacement,
+        pendingWorkerSecretUpdateIntent: intent,
+      });
+      expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({});
+    });
+
+    it('does not turn a saved email key into an update', async () => {
+      const manifest = await interruptedInstall();
+      const emailManifest = {
+        ...manifest,
+        deployment: {
+          ...manifest.deployment,
+          capabilities: { ...manifest.deployment.capabilities, email: true },
+        },
+      };
+      writeInstallationManifest(emailManifest);
+      const emailSigningSecret = 'e'.repeat(32);
+      writePendingInstallationSecrets(emailManifest, {
+        ...readPendingInstallationSecrets(manifest),
+        emailSigningSecret,
+      });
+      stubEnvironment(replacement);
+      vi.stubEnv('VOID_PLATFORM_EMAIL_SIGNING_SECRET', emailSigningSecret);
+      await resume(emailManifest);
+      expect(mocks.install.mock.calls[0]![1].emailSigningSecret).toBe(emailSigningSecret);
+      expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({
+        CF_API_TOKEN: replacement,
+      });
+    });
+
+    it('asks for a replacement when Cloudflare rejects the saved token', async () => {
+      const manifest = await interruptedInstall();
+      vi.spyOn(log, 'warn').mockImplementation(() => {});
+      stubEnvironment('');
+      mocks.preflight.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      mocks.password.mockResolvedValueOnce(replacement);
+      await resume(manifest);
+      expect(mocks.preflight).toHaveBeenCalledTimes(2);
+      expect(mocks.install.mock.calls[0]![1].cloudflareApiToken).toBe(replacement);
+      expect(mocks.install.mock.calls[0]![1].workerSecretUpdates).toEqual({
+        CF_API_TOKEN: replacement,
+      });
+    });
+
+    it('keeps the saved token when the replacement prompt is cancelled', async () => {
+      const manifest = await interruptedInstall();
+      vi.spyOn(log, 'warn').mockImplementation(() => {});
+      stubEnvironment('');
+      mocks.preflight.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 401),
+      );
+      mocks.password.mockResolvedValueOnce(Symbol('cancel'));
+      await expect(resume(manifest)).rejects.toThrow('Cancelled');
+      expect(readPendingInstallationSecrets(manifest)?.cloudflareApiToken).toBe(
+        'saved-runtime-token',
+      );
+      expect(mocks.install).not.toHaveBeenCalled();
+    });
+
+    it('fails without a prompt when Cloudflare rejects an explicit token', async () => {
+      const manifest = await interruptedInstall();
+      stubEnvironment(replacement);
+      mocks.preflight.mockRejectedValueOnce(
+        new PlatformCloudflareApiError('Authentication error', 403),
+      );
+      await expect(resume(manifest)).rejects.toThrow('Authentication error');
+      expect(mocks.password).not.toHaveBeenCalled();
+      expect(readPendingInstallationSecrets(manifest)?.cloudflareApiToken).toBe(
+        'saved-runtime-token',
+      );
     });
   });
   it('requires identity keys from the environment on a non-interactive install', async () => {

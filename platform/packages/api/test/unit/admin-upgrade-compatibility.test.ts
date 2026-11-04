@@ -403,3 +403,70 @@ it('upgrades the 1.1.11 through 1.2.1 schema to project email aliases', async ()
     await db.close();
   }
 }, 30_000);
+
+// 1.3.0 through 1.5.0 ignore oauth_refresh_tokens. Their grant writes keep working,
+// and deleting a grant removes its refresh tokens, so they fail closed after a rollback.
+it('upgrades the 1.3.0 through 1.5.0 schema to OAuth refresh tokens', async () => {
+  const root = resolve(import.meta.dirname, '../../drizzle');
+  const journal = JSON.parse(readFileSync(resolve(root, 'meta/_journal.json'), 'utf8')) as {
+    entries: Array<{ idx: number; tag: string; when: number }>;
+  };
+  const compatibility = JSON.parse(readFileSync(resolve(root, 'compatibility.json'), 'utf8'));
+  const previous = journal.entries.filter((entry) => entry.idx < 63);
+  expect(previous.at(-1)?.tag).toBe('0062_project_email_alias');
+  const schemaDigest = platformDatabaseSchemaDigest(
+    compatibility.lineage,
+    previous.map((entry) => ({
+      index: entry.idx,
+      tag: entry.tag,
+      timestampMillis: entry.when,
+      sha256: createHash('sha256')
+        .update(readFileSync(resolve(root, entry.tag + '.sql')))
+        .digest('hex'),
+    })),
+  );
+  expect(schemaDigest).toBe('8bde0b5b35b98112498be2954726223a6a059cbf92302990437e582f57a1fc98');
+  for (const platformVersion of ['1.3.0', '1.4.0', '1.5.0']) {
+    expect(compatibility.rollbackSafeFrom).toContainEqual({ platformVersion, schemaDigest });
+  }
+  const db = new PGlite();
+  const grant = (id: string, user: string, expires: string) =>
+    `INSERT INTO oauth_grants (id, client_id, user_id, session, token_hash, expires_at) VALUES ('${id}', 'client', '${user}', '{}', '${id}-hash', ${expires});`;
+  const refreshToken = (id: string, grantId: string) =>
+    `INSERT INTO oauth_refresh_tokens (id, grant_id, token_hash, expires_at) VALUES ('${id}', '${grantId}', '${id}-hash', now() + interval '30 days');`;
+  try {
+    for (const entry of previous) {
+      await db.exec(readFileSync(resolve(root, entry.tag + '.sql'), 'utf8'));
+    }
+    await db.exec(
+      "INSERT INTO users (id, provider_id, login) VALUES ('kept', 'kept', 'kept'), ('deleted', 'deleted', 'deleted'); INSERT INTO oauth_clients (id, name, operator, redirect_uris, scopes, secret_hash) VALUES ('client', 'client', 'operator', '[]', '[\"profile\"]', 'hash');" +
+        grant('existing', 'kept', "now() + interval '1 hour'"),
+    );
+    await db.exec(readFileSync(resolve(root, '0063_oauth_refresh_tokens.sql'), 'utf8'));
+    // The new runtime issues refresh tokens; one grant's access token expired days ago.
+    await db.exec(
+      grant('stale', 'kept', "now() - interval '2 days'") +
+        grant('owned', 'deleted', "now() + interval '1 hour'") +
+        refreshToken('existing-refresh', 'existing') +
+        refreshToken('stale-refresh', 'stale') +
+        refreshToken('owned-refresh', 'owned'),
+    );
+    // The previous runtime still creates and revokes grants without the new table.
+    await db.exec(grant('older-runtime', 'kept', "now() + interval '1 hour'"));
+    await db.exec("UPDATE oauth_grants SET revoked_at = now() WHERE id = 'existing'");
+    // Its hourly purge and user deletion remove refresh tokens with their grants.
+    await db.exec(
+      "DELETE FROM oauth_grants WHERE id IN (SELECT id FROM oauth_grants WHERE expires_at < now() - interval '1 day' ORDER BY expires_at LIMIT 1000)",
+    );
+    await db.exec("DELETE FROM users WHERE id = 'deleted'");
+    expect((await db.query('SELECT id FROM oauth_grants ORDER BY id')).rows).toEqual([
+      { id: 'existing' },
+      { id: 'older-runtime' },
+    ]);
+    expect((await db.query('SELECT id FROM oauth_refresh_tokens')).rows).toEqual([
+      { id: 'existing-refresh' },
+    ]);
+  } finally {
+    await db.close();
+  }
+}, 30_000);

@@ -5,7 +5,7 @@ import { createActionErrorFromResponse, isAbortError } from './action-result.ts'
 import { initClientHead, applyClientHead } from './head-client.ts';
 import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
-import type { CacheForInput, CacheForResult } from './prefetch.ts';
+import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
@@ -50,6 +50,8 @@ export type VisitOptions = {
   preserveState?: boolean;
   replace?: boolean;
   viewTransition?: boolean;
+  /** React navigation completion: page data readiness or UI commit (default). */
+  resolveOn?: 'data' | 'commit';
   /** @internal Used by React Actions to avoid waiting for a commit blocked by the action itself. */
   _resolveOnShell?: boolean;
   /** @internal Used by popstate handler to pass saved scroll position */
@@ -85,6 +87,8 @@ export type PageNavigationEngineConfig = {
   viewTransitions: boolean;
   prefetchHoverDelay: number;
   prefetchDefaultCacheFor: CacheForResult;
+  /** How Links without a `prefetch` prop prefetch. Defaults to `false`. */
+  prefetchDefaultStrategy?: LinkPrefetchValue;
   /** Reuse successful GET page shells on later visits, refreshing stale shells in the background. */
   cacheVisitedPageData?: boolean;
 };
@@ -112,6 +116,7 @@ export type PageNavigationResource = {
 
 export type PageNavigationEngine = {
   _hoverDelay: number;
+  _prefetchDefaultStrategy: LinkPrefetchValue;
   initialPageData: PageData;
   initialComponent: unknown;
   initialLayouts: Array<unknown>;
@@ -246,6 +251,7 @@ export async function createPageNavigationEngine(
     staticPageDataFastPath: STATIC_PAGE_DATA_FAST_PATH = STATIC_PAGE_DATA_ENABLED,
     prefetchHoverDelay: PREFETCH_HOVER_DELAY,
     prefetchDefaultCacheFor: PREFETCH_DEFAULT_CACHE_FOR,
+    prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY = false,
     cacheVisitedPageData: CACHE_VISITED_PAGE_DATA = false,
   } = config;
 
@@ -984,6 +990,7 @@ export async function createPageNavigationEngine(
 
   const engine: PageNavigationEngine = {
     _hoverDelay: PREFETCH_HOVER_DELAY,
+    _prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY,
     initialPageData,
     initialComponent,
     initialLayouts,

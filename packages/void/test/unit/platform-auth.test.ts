@@ -165,16 +165,16 @@ describe('platform Cloudflare authentication', () => {
       expect(request.mock.calls.every((call) => call.length === 1)).toBe(true);
     },
   );
-  it('requires an API token before browser OAuth applies zone or DNS writes', () => {
-    const action = (kind: 'dns-record' | 'zone', action: 'create' | 'reuse') => ({
-      action,
-      id: action === 'reuse' ? `${kind}-id` : null,
-      key: kind,
-      kind,
-      name: 'example.com',
-      reason: 'test',
-    });
+  const action = (kind: 'dns-record' | 'zone', action: 'adopt' | 'create' | 'reuse') => ({
+    action,
+    id: action === 'create' ? null : `${kind}-id`,
+    key: kind,
+    kind,
+    name: 'example.com',
+    reason: 'test',
+  });
 
+  it('requires an API token before browser OAuth applies zone or DNS writes', () => {
     expect(() =>
       assertPlatformOperatorCredentialCanApplyPlan(
         { source: 'oauth', token: 'browser-token' },
@@ -193,6 +193,26 @@ describe('platform Cloudflare authentication', () => {
         { actions: [action('zone', 'create'), action('dns-record', 'create')] },
       ),
     ).not.toThrow();
+  });
+
+  it('does not require an API token for a DNS record the install only adopts', () => {
+    const oauth = { source: 'oauth' as const, token: 'browser-token' };
+
+    const adopt = { actions: [action('zone', 'reuse'), action('dns-record', 'adopt')] };
+    expect(platformOperatorNeedsManagementToken(oauth, adopt)).toBe(false);
+    expect(() => assertPlatformOperatorCredentialCanApplyPlan(oauth, adopt)).not.toThrow();
+    const create = { actions: [action('zone', 'reuse'), action('dns-record', 'create')] };
+    expect(platformOperatorNeedsManagementToken(oauth, create)).toBe(true);
+    expect(() => assertPlatformOperatorCredentialCanApplyPlan(oauth, create)).toThrow(
+      'Zone → DNS → Edit',
+    );
+    const reuse = { actions: [action('zone', 'reuse'), action('dns-record', 'reuse')] };
+    expect(platformOperatorNeedsManagementToken(oauth, reuse)).toBe(false);
+    const zone = { actions: [action('zone', 'create'), action('dns-record', 'adopt')] };
+    expect(platformOperatorNeedsManagementToken(oauth, zone)).toBe(true);
+    expect(() => assertPlatformOperatorCredentialCanApplyPlan(oauth, zone)).toThrow(
+      'Account → Zone → Edit',
+    );
   });
 
   it.each([false, true])(

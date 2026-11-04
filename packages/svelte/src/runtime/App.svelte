@@ -28,7 +28,7 @@
   let params = $state(init.params || {});
   let routeUrl = $state(init.routeUrl || "/");
   let navigation = $state(init.navigation || idleNavigationState());
-  const router = createRouterFacade(init.router, () => routeUrl, () => params);
+  const router = init.router ? createRouterFacade(init.router, () => routeUrl, () => params) : null;
 
   // Pages and layouts keep the objects returned by useShared() and useParams()
   // across navigations, so update them in place.

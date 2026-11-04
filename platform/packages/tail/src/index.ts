@@ -1,6 +1,8 @@
 type Env = Readonly<{
   ANALYTICS: AnalyticsEngineDataset;
   PLATFORM_DISPATCH_WORKER_NAME?: string;
+  // Set by `--runtime-logs minimal`: keep URLs and message text out of rows.
+  PLATFORM_RUNTIME_LOGS?: 'minimal';
 }>;
 
 function isFetchEvent(event: TraceItem['event']): event is TraceItemFetchEventInfo {
@@ -50,6 +52,48 @@ export function parseScriptName(
   return null;
 }
 
+/**
+ * Build the `void_logs` row for one trace event.
+ *
+ * Minimal mode drops the request URL and all message text. It keeps each log
+ * level and exception name, so `--level` filters still match, and adds the
+ * Ray ID so readers do not merge two requests that now look the same.
+ */
+export function buildLogDataPoint(
+  event: TraceItem,
+  parsed: { projectKey: string; deployId: string },
+  runtimeLogs?: 'minimal',
+): AnalyticsEngineDataPoint {
+  const fetchEvent = isFetchEvent(event.event) ? event.event : null;
+  const minimal = runtimeLogs === 'minimal';
+  return {
+    indexes: [parsed.projectKey],
+    blobs: [
+      event.outcome,
+      JSON.stringify(minimal ? minimalLogs(event.logs) : event.logs),
+      JSON.stringify(minimal ? minimalExceptions(event.exceptions) : event.exceptions),
+      minimal ? '' : (fetchEvent?.request.url ?? ''),
+      fetchEvent?.request.method ?? '',
+      String(fetchEvent?.response?.status ?? ''),
+      parsed.deployId,
+      ...(minimal ? [fetchEvent?.request.headers['cf-ray'] ?? ''] : []),
+    ],
+    doubles: [event.eventTimestamp ?? Date.now(), fetchEvent?.response?.status ?? 0],
+  };
+}
+
+function minimalLogs(logs: ReadonlyArray<TraceLog> | undefined) {
+  return (logs ?? []).map((log) => ({ level: log.level, timestamp: log.timestamp, message: [] }));
+}
+
+function minimalExceptions(exceptions: ReadonlyArray<TraceException> | undefined) {
+  return (exceptions ?? []).map((exception) => ({
+    name: exception.name,
+    timestamp: exception.timestamp,
+    message: '',
+  }));
+}
+
 export default {
   async tail(events: ReadonlyArray<TraceItem>, env: Env) {
     for (const event of events) {
@@ -67,21 +111,7 @@ export default {
         continue;
       }
 
-      const fetchEvent = isFetchEvent(event.event) ? event.event : null;
-
-      env.ANALYTICS.writeDataPoint({
-        indexes: [parsed.projectKey],
-        blobs: [
-          event.outcome,
-          JSON.stringify(event.logs),
-          JSON.stringify(event.exceptions),
-          fetchEvent?.request.url ?? '',
-          fetchEvent?.request.method ?? '',
-          String(fetchEvent?.response?.status ?? ''),
-          parsed.deployId,
-        ],
-        doubles: [event.eventTimestamp ?? Date.now(), fetchEvent?.response?.status ?? 0],
-      });
+      env.ANALYTICS.writeDataPoint(buildLogDataPoint(event, parsed, env.PLATFORM_RUNTIME_LOGS));
     }
   },
 } satisfies ExportedHandler<Env>;

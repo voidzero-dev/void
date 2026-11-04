@@ -17,10 +17,10 @@ import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
 import { extname, join, relative } from 'pathslash';
-import { isGeneratedAssetHeaders } from '../asset-worker-bypass.ts';
 import type { CfBuildOutput } from './cf-build-output.ts';
 import { record as object } from './cf-config-migrate.ts';
 import { getVoidUserAgent } from './cf-user-agent.ts';
+import { readGeneratedAssetHeadersFile } from './headers.ts';
 import { Buffer } from './node-buffer.ts';
 
 type Json = Record<string, unknown>;
@@ -991,19 +991,9 @@ async function ensureContainerApplications(options: {
  * uploads. A user-authored `_headers` is not sent on this path.
  */
 function readGeneratedAssetHeaders(output: CfBuildOutput): string | undefined {
-  if (!output.assetsDirectory) {
-    return undefined;
-  }
-  let text: string;
-  try {
-    text = readFileSync(join(getWorkerAssetsDir(output.directory), '_headers'), 'utf8');
-  } catch (cause) {
-    if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
-      return undefined;
-    }
-    throw cause;
-  }
-  return isGeneratedAssetHeaders(text) ? text : undefined;
+  return output.assetsDirectory
+    ? readGeneratedAssetHeadersFile(getWorkerAssetsDir(output.directory))
+    : undefined;
 }
 
 async function uploadAssets(options: {

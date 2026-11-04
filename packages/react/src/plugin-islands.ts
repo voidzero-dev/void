@@ -1,34 +1,47 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { dirname, resolve, relative } from 'pathslash';
-import { normalizePath, type Plugin, type ResolvedConfig } from 'vite';
-import { generateComponentManifest, scanPages, resolveEffectiveLayoutChain } from 'void/pages';
+import { existsSync } from 'node:fs';
+import { dirname } from 'pathslash';
+import type { Plugin, ResolvedConfig } from 'vite';
+import { generateComponentManifest, scanPages } from 'void/pages';
 import type { PageScanResult } from 'void/pages';
 import {
-  resolveSpecifier,
-  hasIslandPages,
+  createIslandManifest,
+  generateIslandClientEntry,
+  islandCssFiles,
+  islandsBuildConfig,
+  mdClientScriptIds,
   recordIslandStyles,
   recordedIslandStyles,
   islandStylesPlugin,
   computePagesNeedingClientJS,
   watchPagesForRescan,
-  rewriteCssImportForVirtualModule,
   ISLANDS_RENDERER_ID,
   ISLANDS_CLIENT_ENTRY_ID,
   findIslandImports,
-  findStaticCssImports,
   editIslandSource,
   type IslandSourceEdit,
 } from 'void/pages-islands-plugin';
-import type { IslandEntry } from 'void/pages-islands-plugin';
 import { REACT_REFRESH_PREAMBLE } from './plugin-pages.ts';
 
 const COMPONENT_EXTENSIONS = ['.tsx', '.jsx', '.ts', '.js'];
-type MdPluginWithApi = Plugin & {
-  api?: {
-    getClientScripts?: () => Map<string, unknown>;
-  };
-};
-type ScannableEntry = { filePath: string; island: boolean | undefined };
+
+const HYDRATE_ISLAND = `
+async function hydrateIsland(el, mod, props, frontmatter) {
+  const { hydrateRoot } = await import("react-dom/client");
+  const React = await import("react");
+  const Component = mod.default || mod;
+  let island = React.createElement(Component, props);
+  if (Object.keys(frontmatter).length > 0) {
+    const { FrontmatterContext } = await import("@void/react");
+    island = React.createElement(FrontmatterContext.Provider, { value: frontmatter }, island);
+  }
+  function HydratedIsland() {
+    React.useLayoutEffect(() => {
+      el.setAttribute("data-hydrated", "true");
+    }, []);
+    return island;
+  }
+  hydrateRoot(el, React.createElement(HydratedIsland));
+}`;
 
 export function islandsPlugin(
   pagesDir: string,
@@ -37,24 +50,9 @@ export function islandsPlugin(
   let pageScan: PageScanResult | null = null;
   let isDev = false;
   const root = options?.root ?? dirname(pagesDir);
-  const islandManifest = new Map<string, IslandEntry>();
-  const islandCssFiles = new Set<string>();
+  const islandManifest = createIslandManifest(root, COMPONENT_EXTENSIONS);
+  let cssFiles = new Set<string>();
   let resolvedConfig: ResolvedConfig | null = null;
-
-  /** Resolve an island import and record it in the client manifest. */
-  function registerIsland(
-    spec: string,
-    importerDir: string,
-    hydrate: string,
-  ): { absPath: string | null; islandId: string } {
-    const absPath = resolveSpecifier(spec, importerDir, COMPONENT_EXTENSIONS);
-    if (!absPath) {
-      return { absPath, islandId: spec };
-    }
-    const islandId = normalizePath(relative(root, absPath)).replace(/\.[^.]+$/, '');
-    islandManifest.set(islandId, { componentPath: absPath, islandId, hydrate });
-    return { absPath, islandId };
-  }
 
   return [
     {
@@ -77,53 +75,8 @@ export function islandsPlugin(
             pagesDir,
             environment: isDev ? 'dev' : 'prod',
           });
-          // Pre-scan island pages to populate the manifest eagerly.
-          // This is needed because the client build may load the virtual
-          // islands-client entry before island page transforms run.
-          // Scan both pages AND layouts for island imports
-          const filesToScan: ReadonlyArray<ScannableEntry> = [
-            ...pageScan.pages.map((page) => ({
-              filePath: page.componentPath,
-              island: page.island,
-            })),
-            ...pageScan.layouts.map((layout) => ({
-              filePath: layout.filePath,
-              island: layout.island,
-            })),
-            ...pageScan.namedLayouts.map((namedLayout) => ({
-              filePath: namedLayout.filePath,
-              island: namedLayout.island,
-            })),
-          ];
-          for (const entry of filesToScan) {
-            if (!entry.island) {
-              continue;
-            }
-            const filePath = resolve(pagesDir, entry.filePath);
-            const code = readFileSync(filePath, 'utf-8');
-            const importerDir = dirname(filePath);
-            for (const islandImport of findIslandImports(code, filePath)) {
-              registerIsland(islandImport.specifier, importerDir, islandImport.hydrate);
-            }
-          }
-
-          // Collect page and layout files needing CSS for island pages
-          for (const page of pageScan.pages) {
-            if (!page.island) {
-              continue;
-            }
-            if (/\.(tsx|jsx)$/.test(page.componentPath)) {
-              islandCssFiles.add(normalizePath(resolve(pagesDir, page.componentPath)));
-            }
-            const layoutChain = resolveEffectiveLayoutChain(
-              page,
-              pageScan.layouts,
-              pageScan.namedLayouts,
-            );
-            for (const layout of layoutChain) {
-              islandCssFiles.add(normalizePath(resolve(pagesDir, layout.filePath)));
-            }
-          }
+          islandManifest.registerPages(pageScan, pagesDir);
+          cssFiles = islandCssFiles(pageScan, pagesDir, /\.(tsx|jsx)$/);
         }
       },
 
@@ -148,12 +101,7 @@ export function islandsPlugin(
             if (!pageScan) {
               return "export function renderIslandPage() { throw new Error('No pages found'); }";
             }
-            const mdPlugin = resolvedConfig?.plugins?.find(
-              (plugin): plugin is MdPluginWithApi => plugin.name === 'void-md',
-            );
-            const mdScriptIds: Set<string> = new Set(
-              mdPlugin?.api?.getClientScripts?.()?.keys() ?? [],
-            );
+            const mdScriptIds = mdClientScriptIds(resolvedConfig);
             const needsJS = computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig);
             return generateIslandRenderer(pageScan, pagesDir, isDev, mdScriptIds, needsJS);
           }
@@ -161,14 +109,16 @@ export function islandsPlugin(
             if (!pageScan) {
               return '';
             }
-            return generateIslandClientEntry(
-              islandManifest,
-              islandCssFiles,
-              recordedIslandStyles(pagesDir),
-              islandManifest.size > 0 ||
+            return generateIslandClientEntry({
+              manifest: islandManifest,
+              cssFiles,
+              styles: recordedIslandStyles(pagesDir),
+              needsRuntime:
+                islandManifest.entries.size > 0 ||
                 computePagesNeedingClientJS(pageScan, pagesDir, resolvedConfig).size > 0,
               isDev,
-            );
+              hydrateIsland: HYDRATE_ISLAND,
+            });
           }
         },
       },
@@ -200,7 +150,7 @@ export function islandsPlugin(
             const spec = islandImport.specifier;
             const rawName = `_raw_island_${idx++}`;
 
-            const { islandId } = registerIsland(spec, importerDir, strategy);
+            const { islandId } = islandManifest.register(spec, importerDir, strategy);
 
             const replacement = `import ${rawName} from ${specRaw}`;
             edits.push({ start: islandImport.start, end: islandImport.end, text: replacement });
@@ -229,19 +179,8 @@ export function islandsPlugin(
       },
 
       async config(_, env) {
-        if (env.command !== 'serve' && (await hasIslandPages(root, pagesDir))) {
-          return {
-            environments: {
-              client: {
-                build: {
-                  manifest: true,
-                  rollupOptions: {
-                    input: { 'islands-client': ISLANDS_CLIENT_ENTRY_ID },
-                  },
-                },
-              },
-            },
-          };
+        if (env.command !== 'serve') {
+          return islandsBuildConfig(root, pagesDir);
         }
       },
     },
@@ -329,77 +268,4 @@ export async function renderIslandPage(pageObj, assetTags) {
 </html>\`;
 }
 `;
-}
-
-function generateIslandClientEntry(
-  manifest: Map<string, IslandEntry>,
-  cssFiles: Set<string>,
-  styles: ReadonlyArray<string> | null,
-  needsRuntime: boolean,
-  isDev: boolean,
-): string {
-  const entries = [...manifest.values()];
-  const uniqueIslands = new Map<string, string>();
-  for (const entry of entries) {
-    uniqueIslands.set(entry.islandId, entry.componentPath);
-  }
-
-  const lines: Array<string> = [];
-
-  // In dev, first-paint CSS is provided by Void's shared dev CSS collector.
-  // Skip CSS imports here to avoid duplicate client injection.
-  // In production, the imports below bundle the CSS that island pages link.
-  // `styles` comes from the server build; without one, only the direct
-  // imports of the pages and layouts are known.
-  if (!isDev && styles) {
-    for (const id of styles) {
-      lines.push(`import ${JSON.stringify(id)};`);
-    }
-  } else if (!isDev) {
-    for (const file of cssFiles) {
-      const content = readFileSync(file, 'utf-8');
-      for (const item of findStaticCssImports(content, file)) {
-        lines.push(rewriteCssImportForVirtualModule(item.statement, item.specifier, file));
-      }
-    }
-  }
-
-  // Without islands, no built page gets this script (see
-  // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
-  // link. Dev keeps the runtime: it does not reload this module when a page
-  // gains an island.
-  if (!needsRuntime && !isDev) {
-    return lines.join('\n');
-  }
-
-  lines.push('import { initIslands } from "void/pages-client";');
-  lines.push('const islands = {');
-  for (const [id, path] of uniqueIslands) {
-    lines.push(`  ${JSON.stringify(id)}: () => import(${JSON.stringify(path)}),`);
-  }
-  lines.push('};');
-
-  lines.push(`
-async function hydrateIsland(el, mod, props, frontmatter) {
-  const { hydrateRoot } = await import("react-dom/client");
-  const React = await import("react");
-  const Component = mod.default || mod;
-  let island = React.createElement(Component, props);
-  if (Object.keys(frontmatter).length > 0) {
-    const { FrontmatterContext } = await import("@void/react");
-    island = React.createElement(FrontmatterContext.Provider, { value: frontmatter }, island);
-  }
-  function HydratedIsland() {
-    React.useLayoutEffect(() => {
-      el.setAttribute("data-hydrated", "true");
-    }, []);
-    return island;
-  }
-  hydrateRoot(el, React.createElement(HydratedIsland));
-}
-
-initIslands(islands, hydrateIsland);
-`);
-
-  return lines.join('\n');
 }

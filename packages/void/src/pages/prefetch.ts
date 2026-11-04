@@ -1,9 +1,43 @@
+const LINK_PREFETCH_STRATEGIES = ['hover', 'click', 'mount', 'visible'] as const;
+
+export type LinkPrefetchStrategy = (typeof LINK_PREFETCH_STRATEGIES)[number];
+
+/** A Link's `prefetch` prop, and the `prefetch.defaultStrategy` of an adapter plugin. */
+export type LinkPrefetchValue =
+  | boolean
+  | LinkPrefetchStrategy
+  | ReadonlyArray<LinkPrefetchStrategy>;
+
 export type CacheForResult = {
   stale: number;
   expires: number;
 };
 
 export type CacheForInput = number | string | [string, string];
+
+function isLinkPrefetchStrategy(value: unknown): value is LinkPrefetchStrategy {
+  return (LINK_PREFETCH_STRATEGIES as ReadonlyArray<unknown>).includes(value);
+}
+
+/** Rejects an invalid `prefetch.defaultStrategy` when the plugin is configured. */
+export function assertLinkPrefetchValue(
+  value: unknown,
+  name: string,
+): asserts value is LinkPrefetchValue {
+  if (typeof value === 'boolean') {
+    return;
+  }
+  const strategies = Array.isArray(value) ? value : [value];
+  for (const strategy of strategies) {
+    if (!isLinkPrefetchStrategy(strategy)) {
+      const allowed = LINK_PREFETCH_STRATEGIES.map((s) => `'${s}'`).join(', ');
+      throw new Error(
+        `${name}: Invalid prefetch strategy ${JSON.stringify(strategy)}. ` +
+          `Use true, false, ${allowed}, or an array of strategies.`,
+      );
+    }
+  }
+}
 
 const UNITS: Record<string, number> = {
   ms: 1,

@@ -263,6 +263,80 @@ describe('platform installation planning', () => {
     expect(formatPlatformInstallPlan(resumed)).toContain('https://dash.example.org:8443');
   });
 
+  it('records minimal runtime logs and changes them only on upgrade', async () => {
+    const full = await createPlatformInstallPlan(client(), input, null);
+    expect(full.deployment).not.toHaveProperty('runtimeLogs');
+    const minimal = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'minimal' },
+      null,
+    );
+    expect(minimal.deployment).toMatchObject({ runtimeLogs: 'minimal', schemaVersion: 5 });
+    expect(minimal.actions).toEqual(full.actions);
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(minimal))).toContain(
+      'Runtime logs: minimal',
+    );
+    expect(formatPlatformInstallPlan(full)).not.toContain('Runtime logs');
+    // An upgrade shows a change in both directions.
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(full, minimal.deployment))).toContain(
+      'Runtime logs: full (was minimal)',
+    );
+    expect(stripVTControlCharacters(formatPlatformInstallPlan(minimal, full.deployment))).toContain(
+      'Runtime logs: minimal (was full)',
+    );
+    expect(formatPlatformInstallPlan(full, full.deployment)).not.toContain('Runtime logs');
+
+    const recordedFull = manifestFor(full);
+    const recordedMinimal = manifestFor(minimal);
+    // Omitted keeps the recorded value.
+    expect(
+      (await createPlatformInstallPlan(client(), input, recordedMinimal)).deployment.runtimeLogs,
+    ).toBe('minimal');
+    expect(
+      (await createPlatformInstallPlan(client(), input, recordedFull)).deployment,
+    ).not.toHaveProperty('runtimeLogs');
+    // Upgrade switches it on and off.
+    const on = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'minimal' },
+      recordedFull,
+      { allowRuntimeLogsChange: true },
+    );
+    expect(on.deployment).toEqual(minimal.deployment);
+    const off = await createPlatformInstallPlan(
+      client(),
+      { ...input, runtimeLogs: 'full' },
+      recordedMinimal,
+      { allowRuntimeLogsChange: true },
+    );
+    expect(off.deployment).toEqual(full.deployment);
+    // Other drift still throws on upgrade.
+    await expect(
+      createPlatformInstallPlan(
+        client(),
+        { ...input, displayName: 'Other', runtimeLogs: 'full' },
+        recordedMinimal,
+        { allowRuntimeLogsChange: true },
+      ),
+    ).rejects.toThrow('--resume inputs do not match');
+    // An install resume with a different value throws.
+    await expect(
+      createPlatformInstallPlan(client(), { ...input, runtimeLogs: 'minimal' }, recordedFull),
+    ).rejects.toThrow('--resume inputs do not match');
+    await expect(
+      createPlatformInstallPlan(client(), { ...input, runtimeLogs: 'full' }, recordedMinimal),
+    ).rejects.toThrow('--resume inputs do not match');
+    expect(
+      (
+        await createPlatformInstallPlan(
+          client(),
+          { ...input, runtimeLogs: 'minimal' },
+          recordedMinimal,
+        )
+      ).deployment.runtimeLogs,
+    ).toBe('minimal');
+  });
+
   it('retains an existing advertised origin and rejects malformed configuration before provider reads', async () => {
     const recorded = setInstallationEndpoints(
       legacyInstallation(),

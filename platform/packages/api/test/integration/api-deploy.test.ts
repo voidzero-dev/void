@@ -6826,6 +6826,33 @@ describe('POST /projects/:id/deploy/preflight', () => {
     });
   });
 
+  it('turns Workers Logs off and keeps the tail consumer with minimal runtime logs', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'obs-minimal-proj');
+
+    let capturedMetadata: Record<string, unknown> | undefined;
+    mockCfApi({
+      uploadWorker: async (_url: string, init?: RequestInit) => {
+        const body = init?.body as FormData;
+        const metadataBlob = body.get('metadata') as Blob;
+        capturedMetadata = JSON.parse(await metadataBlob.text());
+        return new Response('ok', { status: 200 });
+      },
+    });
+
+    env.PLATFORM_RUNTIME_LOGS = 'minimal';
+    try {
+      const res = await app.fetch(await buildDeployRequest(env, project.id, user.jwt), env);
+      expect(res.status).toBe(200);
+      await res.text();
+    } finally {
+      delete env.PLATFORM_RUNTIME_LOGS;
+    }
+    expect(capturedMetadata).toBeDefined();
+    expect(capturedMetadata!.observability).toEqual({ enabled: false });
+    expect(capturedMetadata!.tail_consumers).toEqual([{ service: 'void-tail' }]);
+  });
+
   it('includes explicit tail_consumers metadata in worker upload', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'tail-proj');

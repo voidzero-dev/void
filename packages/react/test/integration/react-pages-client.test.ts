@@ -211,6 +211,60 @@ function defineTransitionAwaitTests(getBase: () => string) {
   describe.concurrent('React action completion', { retry: 0 }, () => {
     const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
 
+    for (const operation of ['visit', 'refresh'] as const) {
+      it.for(['transition', 'form-action', 'action-state', 'plain'] as const)(
+        `router.${operation} with resolveOn data resolves when awaited from %s`,
+        async (mode, { expect }) => {
+          const context = await browser.newContext();
+          const page = await context.newPage();
+          const errors: Array<string> = [];
+          page.on('pageerror', (error) => errors.push(error.message));
+          let releaseResponse!: () => void;
+          const responseGate = new Promise<void>((resolve) => {
+            releaseResponse = resolve;
+          });
+          try {
+            const url = `${getBase()}/transition-await`;
+            await page.goto(url);
+            await page.waitForSelector('#app[data-hydrated="true"]');
+            await page.getByTestId('operation').selectOption(operation);
+            await page.route('**/transition-await*', async (route) => {
+              if (route.request().method() === 'GET') {
+                await responseGate;
+              }
+              await route.continue();
+            });
+            const button = page.getByTestId(mode);
+            const [response] = await Promise.all([
+              page.waitForResponse(
+                (response) =>
+                  new URL(response.url()).pathname === '/transition-await' &&
+                  response.request().method() === 'GET' &&
+                  Boolean(response.request().headers()['x-voidpages']),
+              ),
+              (async () => {
+                await button.click();
+                await expect.poll(() => button.textContent()).toBe('pending');
+                releaseResponse();
+              })(),
+            ]);
+            expect(response.status()).toBe(200);
+            expect((await response.json()).props.revision).toBe('updated');
+            await expect
+              .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
+              .toBe('complete');
+            await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+            await expect.poll(() => button.textContent()).toBe('run');
+            expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
+            expect(errors).toEqual([]);
+          } finally {
+            releaseResponse();
+            await context.close();
+          }
+        },
+      );
+    }
+
     it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
       const context = await browser.newContext();
       const page = await context.newPage();
@@ -259,69 +313,76 @@ function defineTransitionAwaitTests(getBase: () => string) {
       }
     });
 
-    it('preserves optimistic state and stays pending through the Action and Suspense', async ({
-      expect,
-    }) => {
-      const context = await browser.newContext();
-      const page = await context.newPage();
-      const errors: Array<string> = [];
-      page.on('pageerror', (error) => errors.push(error.message));
-      let releaseResponse!: () => void;
-      const responseGate = new Promise<void>((resolve) => {
-        releaseResponse = resolve;
-      });
-      try {
-        const url = `${getBase()}/transition-await`;
-        await page.goto(url);
-        await page.waitForSelector('#app[data-hydrated="true"]');
-        await page.route('**/transition-await?ping', async (route) => {
-          await responseGate;
-          await route.continue();
+    it.for(['action', 'visit', 'refresh'] as const)(
+      '%s preserves optimistic state and stays pending through the Action and Suspense',
+      async (operation, { expect }) => {
+        const context = await browser.newContext();
+        const page = await context.newPage();
+        const errors: Array<string> = [];
+        page.on('pageerror', (error) => errors.push(error.message));
+        let releaseResponse!: () => void;
+        const responseGate = new Promise<void>((resolve) => {
+          releaseResponse = resolve;
         });
-        const button = page.getByTestId('async-contract');
-        // Cold dev compilation can exceed expect.poll's one-second default on
-        // Windows. Wait for the server before checking the Action continuation.
-        const [response] = await Promise.all([
-          page.waitForResponse(
-            (response) =>
-              new URL(response.url()).pathname === '/transition-await' &&
-              response.request().method() === 'POST',
-          ),
-          (async () => {
-            await button.click();
-            await expect.poll(() => button.textContent()).toBe('pending');
-            await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('saving');
-            releaseResponse();
-          })(),
-        ]);
-        expect(response.status()).toBe(200);
-        await expect.poll(() => page.getByTestId('data-ready').textContent()).toBe('ready');
-        expect(await button.textContent()).toBe('pending');
-        expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
-        expect(await page.getByTestId('revision').textContent()).toBe('initial');
-        expect(page.url()).toBe(url);
+        try {
+          const url = `${getBase()}/transition-await`;
+          await page.goto(url);
+          await page.waitForSelector('#app[data-hydrated="true"]');
+          await page.getByTestId('operation').selectOption(operation);
+          const method = operation === 'action' ? 'POST' : 'GET';
+          await page.route('**/transition-await*', async (route) => {
+            if (route.request().method() === method) {
+              await responseGate;
+            }
+            await route.continue();
+          });
+          const button = page.getByTestId('async-contract');
+          // Cold dev compilation can exceed expect.poll's one-second default on
+          // Windows. Wait for the server before checking the Action continuation.
+          const [response] = await Promise.all([
+            page.waitForResponse(
+              (response) =>
+                new URL(response.url()).pathname === '/transition-await' &&
+                response.request().method() === method &&
+                Boolean(response.request().headers()['x-voidpages']),
+            ),
+            (async () => {
+              await button.click();
+              await expect.poll(() => button.textContent()).toBe('pending');
+              await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('saving');
+              releaseResponse();
+            })(),
+          ]);
+          expect(response.status()).toBe(200);
+          await expect.poll(() => page.getByTestId('data-ready').textContent()).toBe('ready');
+          expect(await button.textContent()).toBe('pending');
+          expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+          expect(await page.getByTestId('revision').textContent()).toBe('initial');
+          expect(page.url()).toBe(url);
 
-        // The caller finishes, but the new page still suspends. The old page,
-        // optimistic state and URL must stay until React can commit the new UI.
-        await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
-        await page.evaluate(
-          () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
-        );
-        expect(await button.textContent()).toBe('pending');
-        expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
-        expect(await page.getByTestId('revision').textContent()).toBe('initial');
-        expect(page.url()).toBe(url);
+          // The caller finishes, but the new page still suspends. The old page,
+          // optimistic state and URL must stay until React can commit the new UI.
+          await page.evaluate(() => window.dispatchEvent(new Event('finish-action')));
+          await page.evaluate(
+            () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+          );
+          expect(await button.textContent()).toBe('pending');
+          expect(await page.getByTestId('optimistic').textContent()).toBe('saving');
+          expect(await page.getByTestId('revision').textContent()).toBe('initial');
+          expect(page.url()).toBe(url);
 
-        await page.evaluate(() => window.dispatchEvent(new Event('finish-render')));
-        await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
-        await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('updated');
-        await expect.poll(() => button.textContent()).toBe('run');
-        expect(errors).toEqual([]);
-      } finally {
-        releaseResponse();
-        await context.close();
-      }
-    });
+          await page.evaluate(() => window.dispatchEvent(new Event('finish-render')));
+          await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
+          await expect.poll(() => page.getByTestId('optimistic').textContent()).toBe('updated');
+          await expect.poll(() => button.textContent()).toBe('run');
+          expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
+          expect(errors).toEqual([]);
+        } finally {
+          releaseResponse();
+          await context.close();
+        }
+      },
+    );
   });
 }
 
@@ -374,26 +435,31 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
-  it('router.visit resolves after the React navigation commits', async () => {
-    const page = await newPage();
+  it.for(['default', 'commit'] as const)(
+    'router.visit resolves after the React navigation commits with %s completion',
+    async (completion) => {
+      const page = await newPage();
 
-    try {
-      await page.goto(BASE + '/visit-await');
-      await waitForHydration(page);
+      try {
+        await page.goto(
+          BASE + '/visit-await' + (completion === 'commit' ? '?resolveOn=commit' : ''),
+        );
+        await waitForHydration(page);
 
-      await page.click('button:has-text("Visit users")');
-      await page.waitForFunction(() =>
-        document.querySelector('h1')?.textContent?.includes('Users'),
-      );
-      await page.waitForFunction(() => window.__visitAwaitObserved != null);
+        await page.click('button:has-text("Visit users")');
+        await page.waitForFunction(() =>
+          document.querySelector('h1')?.textContent?.includes('Users'),
+        );
+        await page.waitForFunction(() => window.__visitAwaitObserved != null);
 
-      const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
-      expect(observedHeading).toBe('Users');
-      expect(page.url()).toBe(BASE + '/users');
-    } finally {
-      await page.context().close();
-    }
-  });
+        const observedHeading = await page.evaluate(() => window.__visitAwaitObserved);
+        expect(observedHeading).toBe('Users');
+        expect(page.url()).toBe(BASE + '/users');
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
 
   it('router.visit works from an initial layout effect', async () => {
     const page = await newPage();
@@ -556,9 +622,10 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.click('button:has-text("Trigger conflict")');
       await page.waitForSelector('[data-testid="conflict-error"]');
 
-      const text = await page.textContent('body');
-      expect(text).toContain('Action failed with 409 Conflict');
-      expect(text).toContain('Action Error');
+      expect(await page.textContent('[data-testid="conflict-error"]')).toBe(
+        'Conflict body="Conflict"',
+      );
+      expect(await page.textContent('body')).toContain('Action Error');
       expect(errors).toEqual([]);
     } finally {
       await page.context().close();
@@ -643,35 +710,38 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
-  it('Link ignores aborted GET navigations from interrupted clicks', async () => {
-    const page = await newPage();
-    const errors: Array<string> = [];
-    page.on('pageerror', (error) => {
-      errors.push(error.message);
-    });
-    page.on('console', (msg) => {
-      if (msg.type() === 'error') {
-        errors.push(msg.text());
+  it.for(['default', 'data'] as const)(
+    'Link ignores aborted GET navigations from interrupted clicks with %s completion',
+    async (completion) => {
+      const page = await newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => {
+        errors.push(error.message);
+      });
+      page.on('console', (msg) => {
+        if (msg.type() === 'error') {
+          errors.push(msg.text());
+        }
+      });
+
+      try {
+        await page.goto(BASE + '/link-behavior' + (completion === 'data' ? '?resolveOn=data' : ''));
+        await waitForHydration(page);
+
+        await page.click('button:has-text("Run interrupted navigation check")');
+        await page.waitForFunction(() =>
+          document
+            .querySelector('[data-testid="abort-navigation-status"]')
+            ?.textContent?.startsWith('Passed:'),
+        );
+
+        expect(errors.filter((error) => error.includes('Navigation aborted'))).toEqual([]);
+        expect(errors.filter((error) => error.includes('AbortError'))).toEqual([]);
+      } finally {
+        await page.context().close();
       }
-    });
-
-    try {
-      await page.goto(BASE + '/link-behavior');
-      await waitForHydration(page);
-
-      await page.click('button:has-text("Run interrupted navigation check")');
-      await page.waitForFunction(() =>
-        document
-          .querySelector('[data-testid="abort-navigation-status"]')
-          ?.textContent?.startsWith('Passed:'),
-      );
-
-      expect(errors.filter((error) => error.includes('Navigation aborted'))).toEqual([]);
-      expect(errors.filter((error) => error.includes('AbortError'))).toEqual([]);
-    } finally {
-      await page.context().close();
-    }
-  });
+    },
+  );
 
   it('Link keeps the current page when the target downloads a file', async () => {
     const page = await newPage();

@@ -1,5 +1,12 @@
 import type { Context } from 'hono';
-import { routeUrl, type RouteDestination, type RouteUrlInput } from 'void/routes';
+import { expectTypeOf } from 'vite-plus/test';
+import {
+  routeUrl,
+  type Href,
+  type RouteDestination,
+  type RouteUrl,
+  type RouteUrlInput,
+} from 'void/routes';
 import type { VoidRouter } from '../../src/pages/client.ts';
 import {
   defineHandler,
@@ -51,6 +58,10 @@ export function checkTypedNavigation(router: VoidRouter): void {
   };
   const url: RouteUrlInput = target;
   void router.visit(url);
+  void router.visit(url, { resolveOn: 'data' });
+  void router.refresh({ resolveOn: 'commit' });
+  // @ts-expect-error completion is data or commit
+  void router.refresh({ resolveOn: 'render' });
   void router.prefetch(target);
   router.flush(target);
   void router.visit('../relative');
@@ -61,4 +72,11 @@ export function checkTypedNavigation(router: VoidRouter): void {
   void router.prefetch({ pathname: '/typed-navigation-typo' });
   // @ts-expect-error parameter names are checked
   router.flush({ pathname: '/typed-navigation/:id', params: { wrong: 123 } });
+}
+
+// Without routing.typedRoutes, URL strings stay unchecked.
+export function checkUntypedRouteStrings(): void {
+  expectTypeOf<RouteUrl>().toEqualTypeOf<string>();
+  expectTypeOf<Href>().toEqualTypeOf<string>();
+  expectTypeOf(routeUrl('/typed-navigation')).toEqualTypeOf<string>();
 }

@@ -73,6 +73,14 @@ describe('saved platform install choices', () => {
     }
   });
 
+  it('replays minimal runtime logs in a saved plan', () => {
+    savePlatformInstallChoices(argumentsFor({ runtimeLogs: 'minimal' }), 'Account', directory);
+    expect(listSavedPlatformInstallPlans(directory)[0]!.args).toMatchObject({
+      runtimeLogs: 'minimal',
+    });
+    expect(argumentsFor()).not.toContain('--runtime-logs');
+  });
+
   it('updates the same account and slug while retaining plans for other accounts', () => {
     const first = savePlatformInstallChoices(argumentsFor(), 'Account', directory);
     const other = savePlatformInstallChoices(

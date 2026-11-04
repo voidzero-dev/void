@@ -27,7 +27,7 @@ import {
   type VisitOptions,
   type VoidRouter,
 } from 'void/pages-client';
-import type { CacheForResult } from 'void/pages-prefetch';
+import type { CacheForResult, LinkPrefetchValue } from 'void/pages-prefetch';
 import type { PageObject } from 'void/pages-protocol';
 import type { RouteUrlInput } from 'void/routes';
 import { setActionRouter } from './action.ts';
@@ -57,6 +57,7 @@ export type ReactPagesConfig = Readonly<{
   viewTransitions: boolean;
   prefetchHoverDelay: number;
   prefetchDefaultCacheFor: CacheForResult;
+  prefetchDefaultStrategy?: LinkPrefetchValue;
   cacheVisitedPageData?: boolean;
   /** Show this fallback for client visits whose destination remains pending at the next paint. */
   navigationFallback?: ComponentType<{ initialPageData: PageObject }>;
@@ -161,7 +162,8 @@ function normalizeUrl(value: RouteUrlInput): string {
   if (urlString.startsWith('#')) {
     return urlString;
   }
-  const url = new URL(urlString, window.location.origin);
+  // Relative URLs such as `?page=2` resolve against the current page, as in an anchor.
+  const url = new URL(urlString, window.location.href);
   return url.origin === window.location.origin ? url.pathname + url.search + url.hash : url.href;
 }
 
@@ -281,6 +283,7 @@ function appReducer(state: AppState, action: AppAction): AppState {
 function createRouter(engine: Awaited<ReturnType<typeof createPageNavigationEngine>>): VoidRouter {
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
+    _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
     get url() {
       return new URL(currentUrl(), window.location.origin);
     },
@@ -505,7 +508,7 @@ function App({
             pendingVisitSettlers.delete(resource.id);
             visitSettler.reject(error);
           } else {
-            // A form visit has already settled with its action result.
+            // A data-ready visit has already settled with its result.
             reportError(error);
           }
           if (activePendingNavigationId === resource.id) {
@@ -520,6 +523,8 @@ function App({
   const schedule = useCallback(
     (url: string, options: VisitOptions = {}) => {
       const prepared = engine.prepareVisit(url, options) as ReactPageResource;
+      const resolveOnData =
+        prepared.options.resolveOn === 'data' || prepared.options._resolveOnShell;
       if (prepared.immediate) {
         const navigation = navigationForResource(prepared);
 
@@ -568,7 +573,7 @@ function App({
               // The browser is leaving or downloading a file: keep the current page.
               dispatch({ type: 'abandon', resource: prepared, location: currentUrl() });
               resolveVisit(undefined);
-            } else if (prepared.options._resolveOnShell) {
+            } else if (resolveOnData) {
               pendingVisitSettlers.delete(prepared.id);
               resolveVisit(result.pageData);
             }
@@ -581,6 +586,7 @@ function App({
               resolveViewTransition();
             }
             pendingVisitSettlers.delete(prepared.id);
+            // Public data completion keeps the usual cancellation behavior for GETs.
             const abortingGetVisit =
               prepared.method.toUpperCase() === 'GET' &&
               !prepared.options._resolveOnShell &&
@@ -595,7 +601,7 @@ function App({
             }
             if (
               NavigationFallback ||
-              prepared.options._resolveOnShell ||
+              resolveOnData ||
               isAbortError(error) ||
               isCallSiteActionError(error)
             ) {
@@ -742,6 +748,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     viewTransitions: config.viewTransitions,
     prefetchHoverDelay: config.prefetchHoverDelay,
     prefetchDefaultCacheFor: config.prefetchDefaultCacheFor,
+    prefetchDefaultStrategy: config.prefetchDefaultStrategy,
     cacheVisitedPageData: config.cacheVisitedPageData,
   });
   const router = createRouter(engine);

@@ -450,6 +450,25 @@ describe('platform credential setup links', () => {
     expect(formatPlatformSetupPlan(plan())).not.toContain('management API token');
     expect(formatPlatformSetupPlan(plan())).not.toContain('Access application');
   });
+  it('does not list DNS changes when the plan only adopts or reuses DNS records', () => {
+    const original = plan('example.com');
+    const record = (action: 'adopt' | 'reuse' | 'create') =>
+      ({
+        kind: 'dns-record',
+        action,
+        name: '*.example.com',
+      }) as unknown as PlatformInstallPlan['actions'][number];
+    const preview = (action: 'adopt' | 'reuse' | 'create') =>
+      formatPlatformSetupPlan(
+        { ...original, actions: [record(action)] },
+        { managementToken: true, managementAccess: true },
+      );
+    expect(preview('adopt')).toContain('Cloudflare management API token for Access setup');
+    expect(preview('reuse')).toContain('Cloudflare management API token for Access setup');
+    expect(preview('create')).toContain(
+      'Cloudflare management API token for DNS changes and Access setup',
+    );
+  });
   it('includes zone permissions only for an application domain', () => {
     const page = platformSetupPages(plan('example.com')).runtime;
     expect(permissionGroupKeys(page.url)).toContainEqual({ key: 'cache', type: 'purge' });

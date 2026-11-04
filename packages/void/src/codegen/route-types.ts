@@ -7,6 +7,21 @@ export type RouteTypesResult = {
   dts: string;
 };
 
+/** Percent-encode a pattern's fixed segments the way `routeUrl()` serializes its pathname. */
+function encodeRoutePattern(pattern: string): string {
+  return pattern
+    .split('/')
+    .map((segment) => {
+      if (segment.startsWith(':') || segment === '*') {
+        return segment;
+      }
+      const url = new URL('https://void.invalid');
+      url.pathname = `/${segment}`;
+      return url.pathname.slice(1);
+    })
+    .join('/');
+}
+
 /**
  * Generate .void/routes.d.ts content.
  *
@@ -18,6 +33,7 @@ export function generateRouteTypes(
   routesDir: string,
   outDir: string,
   pagesDir?: string,
+  options: { typedRoutes?: boolean } = {},
 ): RouteTypesResult {
   const lines: Array<string> = [];
 
@@ -96,21 +112,48 @@ export function generateRouteTypes(
   );
   lines.push('    ? { pathname: P } & RouteOptions<P>');
   lines.push('    : never;');
-  lines.push('  export type RouteUrlInput = string | URL | RouteDestination;');
+  lines.push(
+    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
+  );
+  lines.push(
+    '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
+  );
+  lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
+  lines.push('    : RouteUrlSegment<P>;');
+  lines.push('  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`');
+  lines.push(
+    '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
+  );
+  lines.push('    : RouteSegmentsUrl<P>;');
+  lines.push('  type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;');
+  lines.push('  type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
+  lines.push('  export type RouteUrl = TypedRoutes extends true');
+  lines.push('    ? RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
+  lines.push('    : string;');
+  lines.push('  export type Href = TypedRoutes extends true');
+  lines.push(
+    '    ? RouteUrl | `${"?" | "#"}${string}` | `${"http://" | "https://" | "mailto:" | "tel:"}${string}`',
+  );
+  lines.push('    : string;');
+  lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
   lines.push('  export function routeUrl<P extends RoutePath>(');
   lines.push('    path: P,');
   lines.push('    ...args: [RoutePathMap[NoInfer<P>]] extends [never]');
   lines.push('      ? [options?: RouteOptions<P>]');
   lines.push('      : [options: RouteOptions<P>]');
-  lines.push('  ): string;');
+  lines.push('  ): RouteUrl;');
+  lines.push('');
+  lines.push('  export interface RouteTypesConfig {');
+  if (options.typedRoutes) {
+    lines.push('    typedRoutes: true;');
+  }
+  lines.push('  }');
   lines.push('');
   lines.push('  export interface RoutePathMap {');
   const paths = new Map<string, Set<string>>();
-  for (const route of [
-    ...scan.routes.filter((route) => route.methods.length > 0),
-    ...scan.pages.pages,
-    ...(scan.websockets ?? []),
-  ]) {
+  // A route file without HTTP method exports serves every method through its default export.
+  for (const route of [...scan.routes, ...scan.pages.pages, ...(scan.websockets ?? [])]) {
     const params = paths.get(route.pattern) ?? new Set<string>();
     for (const name of route.params) {
       params.add(name);
@@ -123,6 +166,16 @@ export function generateRouteTypes(
   for (const [pattern, params] of paths) {
     const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
     lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+  }
+  lines.push('  }');
+  lines.push('');
+  // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
+  lines.push('  export interface EncodedRoutePathMap {');
+  for (const pattern of paths.keys()) {
+    const encoded = encodeRoutePattern(pattern);
+    if (encoded !== pattern) {
+      lines.push(`    ${JSON.stringify(pattern)}: ${JSON.stringify(encoded)};`);
+    }
   }
   lines.push('  }');
   lines.push('');

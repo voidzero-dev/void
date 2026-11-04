@@ -45,7 +45,7 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     const plugins = adapter.create(pagesDir, {
       root,
       viewTransitions: true,
-      prefetch: { hoverDelay: 123, cacheFor: '45s' },
+      prefetch: { defaultStrategy: ['hover', 'click'], hoverDelay: 123, cacheFor: '45s' },
     });
     const plugin = (Array.isArray(plugins) ? plugins : [plugins]).find(
       (candidate: Plugin) => candidate.name === `void-${adapter.name}:pages`,
@@ -146,6 +146,7 @@ describe.each(adapters)('$name Pages plugin contract', (adapter) => {
     expect(client).toContain('viewTransitions: true');
     expect(client).toContain('prefetchHoverDelay: 123');
     expect(client).toContain('parseCacheFor("45s")');
+    expect(client).toContain('prefetchDefaultStrategy: ["hover","click"]');
 
     plugin.configResolved({ publicDir: false });
     expect(await handler(plugin.load)('\0virtual:void-pages-client')).toContain(

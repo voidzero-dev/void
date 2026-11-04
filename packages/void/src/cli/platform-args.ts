@@ -94,6 +94,8 @@ export type PlatformArgs =
       yes: boolean;
       zone: string;
       workersDev?: boolean;
+      /** Omitted keeps the recorded value; `full` clears it. */
+      runtimeLogs?: PlatformRuntimeLogsChoice;
     }
   | {
       subcommand: 'upgrade' | 'repair' | 'disable' | 'enable';
@@ -101,6 +103,8 @@ export type PlatformArgs =
       authConfig?: string;
       dashboardUrl?: string;
       customDomains?: true;
+      /** upgrade only: omitted keeps the recorded value; `full` clears it. */
+      runtimeLogs?: PlatformRuntimeLogsChoice;
       selector: string;
       plan: boolean;
       runtime: string;
@@ -123,6 +127,15 @@ export type PlatformArgs =
       purgeResources: boolean;
       yes: boolean;
     };
+
+export type PlatformRuntimeLogsChoice = 'full' | 'minimal';
+
+function parseRuntimeLogs(value: string): PlatformRuntimeLogsChoice {
+  if (value !== 'full' && value !== 'minimal') {
+    throw new Error('platform: --runtime-logs must be full or minimal.');
+  }
+  return value;
+}
 
 function readValue(rest: Array<string>, index: number, flag: string): [string, number] {
   const value = rest[index + 1];
@@ -171,8 +184,10 @@ function parseLifecycleSelector(
   authConfig?: string;
   dashboardUrl?: string;
   customDomains?: true;
+  runtimeLogs?: PlatformRuntimeLogsChoice;
 } {
   const positional: Array<string> = [];
+  let runtimeLogs: PlatformRuntimeLogsChoice | undefined;
   let runtime = '';
   let fromRuntime = '';
   let authConfig: string | undefined;
@@ -196,6 +211,10 @@ function parseLifecycleSelector(
       (subcommand === 'upgrade' || subcommand === 'repair')
     ) {
       customDomains = true;
+    } else if (arg === '--runtime-logs' && subcommand === 'upgrade') {
+      const [value, next] = readValue(rest, index, arg);
+      runtimeLogs = parseRuntimeLogs(value);
+      index = next;
     } else if (arg === '--auth-config' && subcommand === 'repair') {
       const [value, next] = readValue(rest, index, arg);
       authConfig = value;
@@ -219,6 +238,7 @@ function parseLifecycleSelector(
     ...(authConfig !== undefined ? { authConfig } : {}),
     ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
     ...(customDomains ? { customDomains: true as const } : {}),
+    ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
   };
 }
 
@@ -329,8 +349,17 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     subcommand === 'disable' ||
     subcommand === 'enable'
   ) {
-    const { selector, plan, runtime, fromRuntime, yes, authConfig, dashboardUrl, customDomains } =
-      parseLifecycleSelector(rest, subcommand);
+    const {
+      selector,
+      plan,
+      runtime,
+      fromRuntime,
+      yes,
+      authConfig,
+      dashboardUrl,
+      customDomains,
+      runtimeLogs,
+    } = parseLifecycleSelector(rest, subcommand);
     return subcommand === 'rollback'
       ? { subcommand, selector, plan, runtime, fromRuntime, yes }
       : {
@@ -342,6 +371,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
           ...(authConfig !== undefined ? { authConfig } : {}),
           ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
           ...(customDomains ? { customDomains } : {}),
+          ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
         };
   }
   if (subcommand === 'uninstall') {
@@ -381,6 +411,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       '--display-name',
       '--name',
       '--runtime',
+      '--runtime-logs',
       '--zone',
     ]);
     let workersDev = false;
@@ -437,6 +468,9 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     if (appAccess !== undefined && !['public', 'platform', 'custom'].includes(appAccess)) {
       throw new Error('platform: --app-access accepts public, platform, or custom.');
     }
+    const runtimeLogs = values.has('--runtime-logs')
+      ? parseRuntimeLogs(values.get('--runtime-logs')!)
+      : undefined;
     const loginMethods = values.get('--login-methods')?.split(',');
     if (
       loginMethods &&
@@ -471,6 +505,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(accessProtection !== undefined ? { accessProtection } : {}),
       ...(appAccess !== undefined ? { appAccess: appAccess as PlatformAppAccess } : {}),
       ...(workersDev ? { workersDev: true } : {}),
+      ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
       ...(values.has('--auth-config') ? { authConfig: values.get('--auth-config')! } : {}),
       account: values.get('--account') ?? '',
       applicationDomain: values.get('--application-domain') ?? '',

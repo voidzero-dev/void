@@ -29,6 +29,8 @@ export const action = defineHandler.withValidator({
 | Nothing (void)        | Re-runs the loader, page re-renders with fresh props. |
 | `c.redirect('/path')` | Navigates to another page.                            |
 
+Middleware does not run again after the action. To change [shared data](./layouts.md#shared-data), update it in the action or redirect.
+
 ## Form
 
 Pair `Form` with `useForm` to submit values and display validation and action errors. Inputs stay editable when a submission fails.
@@ -196,6 +198,8 @@ const form = useForm(
 
 `onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
 
+If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
+
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
 ## Named Actions
@@ -270,7 +274,7 @@ if (!result.ok) {
 
 `action()` defaults to `POST`. Pass `data`, `params`, and `method` to set the body, route parameters, or HTTP method.
 
-A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`.
+A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`. `error.message` is the message of an [`HTTPException`](../../integrations/hono.md#utilities) with a `4xx` status, or the body of another plain-text `4xx` response. For other errors, it is a status summary such as `Action failed with 404 Not Found`.
 
 ## Validation Errors
 

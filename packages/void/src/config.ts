@@ -49,6 +49,8 @@ export type RoutingConfig = {
   alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
   isr?: boolean;
+  /** Type-check URL strings in links, navigation, and rewrites against the app's routes. Omitted means off. */
+  typedRoutes?: boolean;
   revalidate?: number | Record<string, number>;
   revalidateQueryAllowlist?: Record<string, Array<string>>;
   prerender?: Array<string>;
@@ -568,6 +570,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(
         `config: "routing.alwaysUseHttps" in ${CONFIG_FILE} requires target: "cloudflare". It is not available with target: "${obj.target}".`,
       );
+    }
+    if (routing.typedRoutes !== undefined && typeof routing.typedRoutes !== 'boolean') {
+      throw new Error(`config: "routing.typedRoutes" in ${CONFIG_FILE} must be a boolean.`);
     }
 
     // Validate routing.notFound

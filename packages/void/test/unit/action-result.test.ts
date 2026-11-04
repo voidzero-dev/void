@@ -1,4 +1,6 @@
+import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
 import {
   VoidActionError,
   categorizeActionError,
@@ -248,4 +250,63 @@ it('exposes the application message and retry deadline for structured quota resp
   expect(error.message).toBe('Your draft is still editable.');
   expect(error.limit?.resource).toBe('ai');
   expect(error.limit?.retryAt).toBe('2099-01-01T00:00:00Z');
+});
+
+describe('action error messages', () => {
+  function errorFrom(body: BodyInit | null, init: ResponseInit) {
+    return createActionErrorFromResponse(new Response(body, init), '/users/1');
+  }
+
+  it('uses the message of a thrown HTTPException', async () => {
+    const response = new HTTPException(409, { message: 'That note was deleted.' }).getResponse();
+    const error = await createActionErrorFromResponse(response, '/notes');
+    expect(error.message).toBe('That note was deleted.');
+    expect(error.status).toBe(409);
+  });
+
+  it.each([
+    [403, 'Forbidden', 'Cross-origin page actions are not allowed.'],
+    [404, 'Not Found', 'User not found.'],
+    [409, 'Conflict', 'That email is already taken.'],
+    [422, 'Unprocessable Entity', 'The plan is archived.'],
+  ])('uses the plain-text body of a %i as the message', async (status, statusText, text) => {
+    const error = await errorFrom(text, { status, statusText });
+    expect(error.message).toBe(text);
+    expect(error.body).toBe(text);
+  });
+
+  it('keeps the status summary for an empty or blank body', async () => {
+    expect((await errorFrom(null, { status: 404, statusText: 'Not Found' })).message).toBe(
+      'Action failed with 404 Not Found',
+    );
+    expect((await errorFrom('  ', { status: 404, statusText: 'Not Found' })).message).toBe(
+      'Action failed with 404 Not Found',
+    );
+  });
+
+  it('keeps the status summary for a JSON or HTML body', async () => {
+    const json = await errorFrom(JSON.stringify({ error: 'Missing' }), {
+      status: 404,
+      statusText: 'Not Found',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(json.message).toBe('Action failed with 404 Not Found');
+    expect(json.body).toEqual({ error: 'Missing' });
+
+    const html = await errorFrom('<h1>Request Entity Too Large</h1>', {
+      status: 413,
+      statusText: 'Payload Too Large',
+      headers: { 'content-type': 'text/html' },
+    });
+    expect(html.message).toBe('Action failed with 413 Payload Too Large');
+  });
+
+  it('keeps the status summary for a server error', async () => {
+    const error = await errorFrom('relation "users" does not exist', {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+    expect(error.message).toBe('Action failed with 500 Internal Server Error');
+    expect(error.body).toBe('relation "users" does not exist');
+  });
 });

@@ -10,70 +10,33 @@ import {
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
-  type VisitOptions,
+  type FormState,
+  type FormSubmitOptions,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext, ErrorsContext } from './context.ts';
 
-type FormSubmitOptions = Omit<VisitOptions, 'method' | 'data'> & {
-  data?: Record<string, unknown>;
-};
-type UntypedForm = {
-  data: Record<string, unknown>;
-  setData(field: string, value: unknown): void;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(options: FormResetOptions, ...fields: ReadonlyArray<string>): void;
-  reset(...fields: ReadonlyArray<string>): void;
-  setError(field: string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+type FormReturn<TData> = FormState<TData, 'setters'> &
+  Readonly<{
+    setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
+    post(opts?: FormSubmitOptions): Promise<void>;
+    put(opts?: FormSubmitOptions): Promise<void>;
+    patch(opts?: FormSubmitOptions): Promise<void>;
+    delete(opts?: FormSubmitOptions): Promise<void>;
+  }>;
 
 // Typed overload — full inference from PageActionMap (requires codegen)
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
   options?: ActionFormOptions<U>,
-): {
-  data: ResolveActionBody<U>;
-  setData: <K extends keyof ResolveActionBody<U> & string>(
-    field: K,
-    value: ResolveActionBody<U>[K],
-  ) => void;
-  errors: Partial<Record<keyof ResolveActionBody<U> & string, string>>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(opts?: FormSubmitOptions): Promise<void>;
-  put(opts?: FormSubmitOptions): Promise<void>;
-  patch(opts?: FormSubmitOptions): Promise<void>;
-  delete(opts?: FormSubmitOptions): Promise<void>;
-  reset(
-    options: FormResetOptions,
-    ...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>
-  ): void;
-  reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  setError(field: keyof ResolveActionBody<U> & string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearError(): void;
-};
+): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
   options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
-): UntypedForm {
+): FormReturn<Record<string, unknown>> {
   const router = useContext(RouterContext);
   // ErrorsContext provides the errors signal accessor — a reactive function
   // that returns the current global errors object. This allows useForm to

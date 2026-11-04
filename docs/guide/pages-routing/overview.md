@@ -199,6 +199,8 @@ import { routeUrl } from 'void/routes';
 
 :::
 
+With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps created with `void init` have on, `href` and the router methods below reject plain strings such as `"/user"` that don't match a route.
+
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
 ```tsx
@@ -262,6 +264,88 @@ export default function PostPage() {
   return <h1>Post {id}</h1>;
 }
 ```
+
+### Active links
+
+`Link` marks the link to the current page with `aria-current="page"` and `data-void-active`. Use them to style navigation:
+
+```css
+nav a[data-void-active] {
+  font-weight: 600;
+}
+```
+
+A link is active only on its own path by default. Set `activeMatch="prefix"` to keep it active on nested pages:
+
+::: code-group
+
+```tsx [React]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+```vue [Vue]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" active-match="prefix">Users</Link>
+</nav>
+```
+
+```svelte [Svelte]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">Users</Link>
+</nav>
+```
+
+```tsx [Solid]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+:::
+
+| Current URL     | `href="/users"` | `href="/users" activeMatch="prefix"` |
+| --------------- | --------------- | ------------------------------------ |
+| `/users`        | both attributes | both attributes                      |
+| `/users?page=2` | both attributes | both attributes                      |
+| `/users/42`     | none            | `data-void-active`                   |
+| `/users-admin`  | none            | none                                 |
+
+`aria-current="page"` marks only the exact page, so select `[aria-current="page"]` to style it differently from its section. A link to `/` is active only on the home page.
+
+Paths match the way pages are routed: letter case and trailing slashes count, while the query string and hash are ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value.
+
+### Prefetching
+
+Add `prefetch` to a `Link` to load its page before the user clicks, so the visit doesn't wait for the server:
+
+```tsx
+<Link href="/dashboard" prefetch>
+  Dashboard
+</Link>
+```
+
+`prefetch` on its own loads the page on hover, keyboard focus, or touch. A `Link` can also prefetch on click, as soon as it renders, or when it scrolls into view, and `cacheFor` sets how long a prefetched page is reused. See [Prefetching](../../reference/api/pages.md#prefetching) for every option.
+
+To give every `Link` a prefetch strategy, set `prefetch.defaultStrategy` in the adapter plugin. A `Link` that sets its own `prefetch` keeps it:
+
+```ts
+// vite.config.ts
+voidReact({ prefetch: { defaultStrategy: 'hover' } });
+```
+
+Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page as soon as it renders or scrolls into view, including links in long lists.
+
+Prefetching runs the destination's loader, so keep loaders free of side effects such as counting views.
 
 ## Scroll Restoration
 
