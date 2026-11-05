@@ -77,7 +77,6 @@ export type CloudflareVersionActivation =
   | {
       ok: true;
       versionId: string;
-      /** Absent when the Worker has no preview, workers.dev hostname, or route Void can reach. */
       previewUrl?: string;
       previousVersionId: string | null;
       workersDevSubdomain?: string;
@@ -134,10 +133,6 @@ export type CloudflareVersionActivation =
        * credentials because `readinessHeadersOrigin` did not name the origin.
        */
       customRouteReadinessOrigin?: string;
-      /**
-       * Whether this Worker enables workers.dev. An account subdomain does not create a readiness
-       * URL when this is false.
-       */
       workersDev?: boolean;
     };
 
@@ -1061,6 +1056,7 @@ async function activateCloudflareVersionWithSecretsFile(
           routes: previousMetadata.triggerConfig.routes,
         }
       : undefined);
+  const preserveRoutesRequested = desiredTriggerConfig.preserveRoutes === true;
   if (continuesOpaqueTriggerPreservation) {
     desiredTriggerConfig = { ...desiredTriggerConfig, preserve: true };
   } else if (!options.preserveTriggers && desiredMetadata?.schema === 2) {
@@ -1365,9 +1361,11 @@ async function activateCloudflareVersionWithSecretsFile(
         return stagingFailure;
       }
       stagedVersionOverride = true;
-    } else if (desiredTriggerConfig.workers_dev || desiredTriggerConfig.routes.length > 0) {
-      // A non-empty route list still has HTTP traffic even when no pattern covers
-      // /__void/ready, such as `*.example.com/*` or `app.example.com/api/*`.
+    } else if (
+      desiredTriggerConfig.workers_dev ||
+      desiredTriggerConfig.routes.length > 0 ||
+      preserveRoutesRequested
+    ) {
       return {
         ok: false,
         reason: 'preview-unavailable',
@@ -1376,9 +1374,6 @@ async function activateCloudflareVersionWithSecretsFile(
         workersDev: desiredTriggerConfig.workers_dev,
       };
     }
-    // workers.dev is off and the route list is empty, so this Worker has no HTTP entry.
-    // A first deploy already publishes that Worker without a probe. Activate this upload
-    // the same way instead of stopping before traffic moves.
   }
 
   if (readinessUrl) {
@@ -2836,7 +2831,6 @@ function workersDevReadinessUrl(workerName: string, value: string | undefined): 
   return `https://${workerName}.${subdomain}.workers.dev`;
 }
 
-/** URL fields for a successful activation. Empty when nothing reaches the Worker. */
 function activationUrlFields(
   workerName: string,
   triggerConfig: CloudflareTriggerConfig,
