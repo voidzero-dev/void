@@ -647,6 +647,7 @@ describe('Cloudflare version activation', () => {
         reason: atomic ? 'atomic-output-invalid' : 'bootstrap-output-invalid',
         versionId: NEXT,
         previousVersionId: CURRENT,
+        workersDev: true,
       });
       expect(fixture.events).not.toContain('triggers');
       expect(fixture.fetcher).not.toHaveBeenCalled();
@@ -2785,7 +2786,136 @@ describe('Cloudflare version activation', () => {
         workerName: 'my-worker',
         message: encodeCloudflareVersionMessage([]),
       }),
-    ).resolves.toMatchObject({ ok: false, reason: 'preview-unavailable', versionId: NEXT });
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: 'preview-unavailable',
+      versionId: NEXT,
+      workersDev: true,
+    });
+    expect(
+      runWrangler.mock.calls.some(([args]) => args[0] === 'versions' && args[1] === 'deploy'),
+    ).toBe(false);
+  });
+
+  it('activates a later deploy without a readiness probe when the Worker has no entry URL', async () => {
+    const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+    const fetcher = vi.fn(async () => Response.json({ ready: true }));
+    const result = await activateCloudflareVersion({
+      runWrangler,
+      verifyUploader: () => true,
+      workerName: 'my-worker',
+      workersDevSubdomain: 'example',
+      message: noWorkersDevMessage(),
+      fetch: fetcher,
+    });
+    expect(result).toMatchObject({
+      ok: true,
+      versionId: NEXT,
+      previousVersionId: CURRENT,
+    });
+    expect(result.ok ? result.previewUrl : 'failed').toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();
+    const deployCalls = runWrangler.mock.calls.filter(
+      ([args]) => args[0] === 'versions' && args[1] === 'deploy',
+    );
+    expect(deployCalls).toHaveLength(1);
+    expect(deployCalls[0]![0]).toContain(`${NEXT}@100`);
+    expect(deployCalls[0]![0].join(' ')).not.toContain(`${NEXT}@0`);
+    expect(runWrangler.mock.calls.some(([args]) => args[0] === 'triggers')).toBe(true);
+    expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
+  });
+
+  it.each(['*.example.com/*', 'app.example.com/api/*'])(
+    'refuses a later deploy when %s has HTTP traffic but no probe URL',
+    async (pattern) => {
+      const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+      const fetcher = vi.fn(async () => Response.json({ ready: true }));
+      await expect(
+        activateCloudflareVersion({
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'my-worker',
+          workersDevSubdomain: 'example',
+          message: encodeCloudflareVersionMessage(
+            [],
+            triggersWith({
+              workers_dev: false,
+              preview_urls: false,
+              routes: [{ pattern }],
+            }),
+          ),
+          fetch: fetcher,
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        reason: 'preview-unavailable',
+        versionId: NEXT,
+        workersDev: false,
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(
+        runWrangler.mock.calls.some(
+          ([args]) => (args[0] === 'versions' && args[1] === 'deploy') || args[0] === 'deploy',
+        ),
+      ).toBe(false);
+    },
+  );
+
+  it('refuses a later deploy when preserveRoutes leaves remote HTTP routes unknown', async () => {
+    const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+    const fetcher = vi.fn(async () => Response.json({ ready: true }));
+    await expect(
+      activateCloudflareVersion({
+        runWrangler,
+        verifyUploader: () => true,
+        workerName: 'my-worker',
+        workersDevSubdomain: 'example',
+        message: encodeCloudflareVersionMessage(
+          [],
+          triggersWith({
+            workers_dev: false,
+            preview_urls: false,
+            routes: [],
+            preserveRoutes: true,
+          }),
+        ),
+        fetch: fetcher,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: 'preview-unavailable',
+      versionId: NEXT,
+      workersDev: false,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(
+      runWrangler.mock.calls.some(
+        ([args]) => (args[0] === 'versions' && args[1] === 'deploy') || args[0] === 'deploy',
+      ),
+    ).toBe(false);
+  });
+
+  it('keeps refusing a workers.dev deploy that has no preview URL and no account subdomain', async () => {
+    const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+    const fetcher = vi.fn(async () => Response.json({ ready: true }));
+    await expect(
+      activateCloudflareVersion({
+        runWrangler,
+        verifyUploader: () => true,
+        workerName: 'my-worker',
+        message: encodeCloudflareVersionMessage([], triggersWith({ preview_urls: false })),
+        fetch: fetcher,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: 'preview-unavailable',
+      versionId: NEXT,
+      workersDev: true,
+    });
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(
+      runWrangler.mock.calls.some(([args]) => args[0] === 'versions' && args[1] === 'deploy'),
+    ).toBe(false);
   });
 
   it('probes a zero-percent Durable Object version through a production workers.dev URL', async () => {

@@ -456,7 +456,9 @@ export function recordCloudflareActivation(options: {
     completeCloudflareLink(root);
   }
   acknowledgeWranglerManagedQueueRemovals(configPath, options.queueConsumerCleanup);
-  rememberCloudflareWorkersDevSubdomain(root, options.accountId, execution.previewUrl);
+  if (execution.previewUrl) {
+    rememberCloudflareWorkersDevSubdomain(root, options.accountId, execution.previewUrl);
+  }
   if (execution.trafficConfig) {
     writeWranglerPublishedTrafficSnapshot(
       configPath,
@@ -577,6 +579,13 @@ function formatCloudflareActivationFailure(
       if (result.diagnostic) {
         return `deploy: candidate readiness cannot be verified.\n\n${result.diagnostic}`;
       }
+      if (result.workersDev === false) {
+        return [
+          'deploy: the uploaded Worker Version has no URL Void can use to verify readiness.',
+          'workers.dev is off for this Worker, so an account subdomain does not create one.',
+          'Production traffic is unchanged.',
+        ].join('\n');
+      }
       return [
         'deploy: the uploaded Worker Version has no preview URL, so Void cannot verify readiness.',
         'Set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain (for example "my-team")',
@@ -600,7 +609,7 @@ function formatCloudflareActivationFailure(
         // enables workers.dev during trigger synchronization.
         return formatCloudflarePublishWithoutUrl(
           `Cloudflare published Worker version ${result.versionId} atomically`,
-          `If the app uses workers.dev, set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`,
+          workersDevReadinessRecovery(result.workersDev, 'atomic'),
         );
       }
       return 'deploy: Cloudflare published atomically but did not report its version id. Inspect `void project status` immediately.';
@@ -640,7 +649,7 @@ function formatCloudflareActivationFailure(
         // URL, which stays off until a trigger synchronization succeeds.
         return formatCloudflarePublishWithoutUrl(
           `Cloudflare published the first Worker deployment as version ${result.versionId}`,
-          `If the app uses workers.dev, enable workers.dev for this Worker in the Cloudflare dashboard. Then set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`,
+          workersDevReadinessRecovery(result.workersDev, 'bootstrap'),
         );
       }
       return [
@@ -719,6 +728,29 @@ function formatCloudflareReadinessRestoration(
 }
 
 const WORKERS_SUBDOMAIN_EXAMPLE = '(for example "my-team", or "my-team.fed" for FedRAMP High)';
+
+/**
+ * Tell the operator how to recover a publish whose URL Void could not determine.
+ * An account subdomain only becomes a readiness URL when workers.dev is on.
+ */
+function workersDevReadinessRecovery(
+  workersDev: boolean | undefined,
+  kind: 'atomic' | 'bootstrap',
+): string {
+  if (workersDev === false) {
+    return 'workers.dev is off for this Worker, so an account subdomain does not create a readiness URL.';
+  }
+  switch (kind) {
+    case 'bootstrap':
+      return `If the app uses workers.dev, enable workers.dev for this Worker in the Cloudflare dashboard. Then set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`;
+    case 'atomic':
+      return `If the app uses workers.dev, set CLOUDFLARE_WORKERS_SUBDOMAIN to your account subdomain ${WORKERS_SUBDOMAIN_EXAMPLE}.`;
+    default: {
+      const unreachable: never = kind;
+      return unreachable;
+    }
+  }
+}
 
 /** Explain a live version whose readiness URL Void could not determine. */
 function formatCloudflarePublishWithoutUrl(published: string, recovery: string): string {

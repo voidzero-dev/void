@@ -77,7 +77,7 @@ export type CloudflareVersionActivation =
   | {
       ok: true;
       versionId: string;
-      previewUrl: string;
+      previewUrl?: string;
       previousVersionId: string | null;
       workersDevSubdomain?: string;
       preservedTriggers?: boolean;
@@ -133,6 +133,7 @@ export type CloudflareVersionActivation =
        * credentials because `readinessHeadersOrigin` did not name the origin.
        */
       customRouteReadinessOrigin?: string;
+      workersDev?: boolean;
     };
 
 type ProductionDeployment = Readonly<{
@@ -1055,6 +1056,7 @@ async function activateCloudflareVersionWithSecretsFile(
           routes: previousMetadata.triggerConfig.routes,
         }
       : undefined);
+  const preserveRoutesRequested = desiredTriggerConfig.preserveRoutes === true;
   if (continuesOpaqueTriggerPreservation) {
     desiredTriggerConfig = { ...desiredTriggerConfig, preserve: true };
   } else if (!options.preserveTriggers && desiredMetadata?.schema === 2) {
@@ -1344,72 +1346,11 @@ async function activateCloudflareVersionWithSecretsFile(
       ? workersDevReadinessUrl(options.workerName, options.workersDevSubdomain)
       : customRouteReadinessUrl(desiredTriggerConfig.routes);
     readinessUsesCustomRoute = !desiredTriggerConfig.workers_dev && readinessUrl !== undefined;
-    if (!readinessUrl) {
-      return {
-        ok: false,
-        reason: 'preview-unavailable',
-        versionId,
-        previousVersionId: previous.versionId,
-      };
-    }
-    const fallbackSubdomain = extractWorkersDevSubdomain(readinessUrl);
-    if (fallbackSubdomain && fallbackSubdomain === options.readinessHeadersWorkersDevSubdomain) {
-      authenticatedWorkersDevSubdomain = fallbackSubdomain;
-    }
-    const stagingFailure = await stageCandidateForReadiness(
-      options,
-      previous.versionId,
-      versionId,
-      message,
-    );
-    if (stagingFailure) {
-      return stagingFailure;
-    }
-    stagedVersionOverride = true;
-  }
-
-  const trustedReadinessOrigin = normalizeReadinessAccessOrigin(options.readinessHeadersOrigin);
-  // A route hostname is not guaranteed to reach this Worker. Send Access credentials to a custom
-  // route only when the operator named its exact origin.
-  const withholdsCustomRouteHeaders = (url: string) =>
-    readinessUsesCustomRoute && !isTrustedReadinessOrigin(url, trustedReadinessOrigin);
-  const probe = (url: string) =>
-    probeReadiness(
-      `${url.replace(/\/$/, '')}/__void/ready`,
-      options.workerName,
-      withholdsCustomRouteHeaders(url) ? undefined : options.readinessHeaders,
-      authenticatedWorkersDevSubdomain,
-      readinessUsesCustomRoute ? trustedReadinessOrigin : undefined,
-      stagedVersionOverride ? versionId : undefined,
-      options.fetch ?? globalThis.fetch,
-      options.sleep ?? delay,
-      options.readinessAttempts ?? 6,
-      Number.POSITIVE_INFINITY,
-      options.requireVersionMetadata ? versionId : undefined,
-    );
-  options.onProgress?.('Waiting for the Worker to become ready...');
-  let ready = await probe(readinessUrl);
-
-  // Account-wide Access default-deny commonly blocks Wrangler's generated preview alias even
-  // when the stable `<worker>.<account>.workers.dev` destination has an application admitting the
-  // operator or a service token. The preview response gives us the account subdomain, so preserve
-  // the same no-traffic readiness invariant by staging the uploaded version at 0% and selecting it
-  // explicitly through the stable, policy-covered hostname. This requires a prior active version
-  // whose traffic can remain untouched while the new version is staged; a truly empty first
-  // deployment has no safe zero-percent fallback.
-  if (
-    ready === 'access-denied' &&
-    !stagedVersionOverride &&
-    previous.versionId !== null &&
-    !options.requirePreviewForReadiness
-  ) {
-    const stableReadinessUrl = desiredTriggerConfig.workers_dev
-      ? workersDevReadinessUrl(
-          options.workerName,
-          extractWorkersDevSubdomain(readinessUrl) ?? options.workersDevSubdomain,
-        )
-      : customRouteReadinessUrl(desiredTriggerConfig.routes);
-    if (stableReadinessUrl && stableReadinessUrl !== readinessUrl) {
+    if (readinessUrl) {
+      const fallbackSubdomain = extractWorkersDevSubdomain(readinessUrl);
+      if (fallbackSubdomain && fallbackSubdomain === options.readinessHeadersWorkersDevSubdomain) {
+        authenticatedWorkersDevSubdomain = fallbackSubdomain;
+      }
       const stagingFailure = await stageCandidateForReadiness(
         options,
         previous.versionId,
@@ -1419,28 +1360,97 @@ async function activateCloudflareVersionWithSecretsFile(
       if (stagingFailure) {
         return stagingFailure;
       }
-      readinessUrl = stableReadinessUrl;
-      authenticatedWorkersDevSubdomain = extractWorkersDevSubdomain(stableReadinessUrl);
-      readinessUsesCustomRoute = !desiredTriggerConfig.workers_dev;
       stagedVersionOverride = true;
-      ready = await probe(readinessUrl);
+    } else if (
+      desiredTriggerConfig.workers_dev ||
+      desiredTriggerConfig.routes.length > 0 ||
+      preserveRoutesRequested
+    ) {
+      return {
+        ok: false,
+        reason: 'preview-unavailable',
+        versionId,
+        previousVersionId: previous.versionId,
+        workersDev: desiredTriggerConfig.workers_dev,
+      };
     }
   }
-  if (ready !== 'ready') {
-    return {
-      ok: false,
-      reason: ready === 'access-denied' ? 'readiness-access-denied' : 'readiness-failed',
-      versionId,
-      previousVersionId: previous.versionId,
-      ...(ready === 'access-denied' && withholdsCustomRouteHeaders(readinessUrl)
-        ? customRouteReadinessOriginField(readinessUrl)
-        : {}),
-      ...(stagedVersionOverride
-        ? await restorePreviousVersion(options, previous.versionId, 'readiness failed', [
-            stagedVersionPercentages(previous.versionId, versionId),
-          ])
-        : { rollback: 'not-needed' as const }),
-    };
+
+  if (readinessUrl) {
+    const trustedReadinessOrigin = normalizeReadinessAccessOrigin(options.readinessHeadersOrigin);
+    // A route hostname is not guaranteed to reach this Worker. Send Access credentials to a custom
+    // route only when the operator named its exact origin.
+    const withholdsCustomRouteHeaders = (url: string) =>
+      readinessUsesCustomRoute && !isTrustedReadinessOrigin(url, trustedReadinessOrigin);
+    const probe = (url: string) =>
+      probeReadiness(
+        `${url.replace(/\/$/, '')}/__void/ready`,
+        options.workerName,
+        withholdsCustomRouteHeaders(url) ? undefined : options.readinessHeaders,
+        authenticatedWorkersDevSubdomain,
+        readinessUsesCustomRoute ? trustedReadinessOrigin : undefined,
+        stagedVersionOverride ? versionId : undefined,
+        options.fetch ?? globalThis.fetch,
+        options.sleep ?? delay,
+        options.readinessAttempts ?? 6,
+        Number.POSITIVE_INFINITY,
+        options.requireVersionMetadata ? versionId : undefined,
+      );
+    options.onProgress?.('Waiting for the Worker to become ready...');
+    let ready = await probe(readinessUrl);
+
+    // Account-wide Access default-deny commonly blocks Wrangler's generated preview alias even
+    // when the stable `<worker>.<account>.workers.dev` destination has an application admitting the
+    // operator or a service token. The preview response gives us the account subdomain, so preserve
+    // the same no-traffic readiness invariant by staging the uploaded version at 0% and selecting it
+    // explicitly through the stable, policy-covered hostname. This requires a prior active version
+    // whose traffic can remain untouched while the new version is staged; a truly empty first
+    // deployment has no safe zero-percent fallback.
+    if (
+      ready === 'access-denied' &&
+      !stagedVersionOverride &&
+      previous.versionId !== null &&
+      !options.requirePreviewForReadiness
+    ) {
+      const stableReadinessUrl = desiredTriggerConfig.workers_dev
+        ? workersDevReadinessUrl(
+            options.workerName,
+            extractWorkersDevSubdomain(readinessUrl) ?? options.workersDevSubdomain,
+          )
+        : customRouteReadinessUrl(desiredTriggerConfig.routes);
+      if (stableReadinessUrl && stableReadinessUrl !== readinessUrl) {
+        const stagingFailure = await stageCandidateForReadiness(
+          options,
+          previous.versionId,
+          versionId,
+          message,
+        );
+        if (stagingFailure) {
+          return stagingFailure;
+        }
+        readinessUrl = stableReadinessUrl;
+        authenticatedWorkersDevSubdomain = extractWorkersDevSubdomain(stableReadinessUrl);
+        readinessUsesCustomRoute = !desiredTriggerConfig.workers_dev;
+        stagedVersionOverride = true;
+        ready = await probe(readinessUrl);
+      }
+    }
+    if (ready !== 'ready') {
+      return {
+        ok: false,
+        reason: ready === 'access-denied' ? 'readiness-access-denied' : 'readiness-failed',
+        versionId,
+        previousVersionId: previous.versionId,
+        ...(ready === 'access-denied' && withholdsCustomRouteHeaders(readinessUrl)
+          ? customRouteReadinessOriginField(readinessUrl)
+          : {}),
+        ...(stagedVersionOverride
+          ? await restorePreviousVersion(options, previous.versionId, 'readiness failed', [
+              stagedVersionPercentages(previous.versionId, versionId),
+            ])
+          : { rollback: 'not-needed' as const }),
+      };
+    }
   }
   if (!options.verifyUploader()) {
     return {
@@ -1548,9 +1558,8 @@ async function activateCloudflareVersionWithSecretsFile(
       ok: true,
       versionId,
       previousVersionId: previous.versionId,
-      previewUrl: publishedCloudflareUrl(options.workerName, desiredTriggerConfig, readinessUrl),
       preservedTriggers: true,
-      ...workersDevSubdomainResult(readinessUrl),
+      ...activationUrlFields(options.workerName, desiredTriggerConfig, readinessUrl),
     };
   }
   const knownTriggerConfigs: Record<string, CloudflareTriggerConfig> = {
@@ -1661,7 +1670,6 @@ async function activateCloudflareVersionWithSecretsFile(
   return {
     ok: true,
     versionId,
-    previewUrl: publishedCloudflareUrl(options.workerName, desiredTriggerConfig, readinessUrl),
     previousVersionId: previous.versionId,
     ...(desiredTriggerConfig.preserve ? { preservedTriggers: true } : {}),
     ...(!desiredTriggerConfig.preserve
@@ -1673,7 +1681,7 @@ async function activateCloudflareVersionWithSecretsFile(
           },
         }
       : {}),
-    ...workersDevSubdomainResult(readinessUrl),
+    ...activationUrlFields(options.workerName, desiredTriggerConfig, readinessUrl),
   };
 }
 
@@ -2055,6 +2063,7 @@ async function bootstrapFirstDeployment(
       reason: atomic ? 'atomic-output-invalid' : 'bootstrap-output-invalid',
       previousVersionId,
       ...(versionId ? { versionId } : {}),
+      workersDev: desiredTriggerConfig.workers_dev,
     };
   }
   if (!options.verifyUploader()) {
@@ -2820,6 +2829,20 @@ function workersDevReadinessUrl(workerName: string, value: string | undefined): 
     return undefined;
   }
   return `https://${workerName}.${subdomain}.workers.dev`;
+}
+
+function activationUrlFields(
+  workerName: string,
+  triggerConfig: CloudflareTriggerConfig,
+  readinessUrl: string | undefined,
+): Pick<Extract<CloudflareVersionActivation, { ok: true }>, 'previewUrl' | 'workersDevSubdomain'> {
+  if (!readinessUrl) {
+    return {};
+  }
+  return {
+    previewUrl: publishedCloudflareUrl(workerName, triggerConfig, readinessUrl),
+    ...workersDevSubdomainResult(readinessUrl),
+  };
 }
 
 /** Resolve the stable URL that owns production traffic after triggers are published. */
