@@ -252,7 +252,8 @@ function readKey(key: string): unknown {
   if (!registry.schema) {
     return rawValue;
   }
-  const validator = registry.schema[key];
+  // `env.hasOwnProperty` and the like come from Object.prototype, not from the schema.
+  const validator = Object.hasOwn(registry.schema, key) ? registry.schema[key] : undefined;
   if (!validator) {
     return rawValue;
   }
