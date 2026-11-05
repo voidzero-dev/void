@@ -169,12 +169,59 @@ describe('linkActiveAttributes', () => {
     expect(attributes('/admin/users', { href: '/' }, 'prefix')).toEqual({});
   });
 
-  it('ignores the query and hash', () => {
-    expect(attributes('/inbox?page=2', { href: '/inbox' })).toEqual(page);
-    expect(attributes('/settings?tab=billing', { href: '/settings?tab=profile' })).toEqual(page);
-    expect(attributes('/search', { href: '/search', data: { q: 'void' } })).toEqual(page);
+  it('ignores the query for links without one', () => {
+    expect(attributes('/posts?page=2', { href: '/posts' })).toEqual(page);
+    expect(attributes('/posts?sort=new', { href: '/posts?' })).toEqual(page);
+  });
+
+  it('requires each param of the link query in the current URL', () => {
+    expect(attributes('/posts?page=2', { href: '/posts?page=1' })).toEqual({});
+    expect(attributes('/posts?page=2', { href: '/posts?page=3' })).toEqual({});
+    expect(attributes('/posts?page=2', { href: '/posts?page=2' })).toEqual(page);
+    expect(attributes('/posts', { href: '/posts?page=1' })).toEqual({});
+    expect(attributes('/issues?status=open&page=2', { href: '/issues?status=open' })).toEqual(page);
+    expect(attributes('/issues?page=2&status=open', { href: '/issues?status=open' })).toEqual(page);
+    expect(attributes('/issues?status=open', { href: '/issues?status=closed' })).toEqual({});
+    expect(attributes('/issues?status=open', { href: '/issues?status=open&page=2' })).toEqual({});
+    expect(attributes('/issues?status=', { href: '/issues?status=' })).toEqual(page);
+    expect(attributes('/issues', { href: '/issues?status=' })).toEqual({});
+  });
+
+  it('compares decoded query values and repeated params', () => {
+    expect(attributes('/search?q=void+pages', { href: '/search?q=void%20pages' })).toEqual(page);
+    expect(attributes('/search?tag=a&tag=b', { href: '/search?tag=b' })).toEqual(page);
+    expect(attributes('/search?tag=a&tag=b', { href: '/search?tag=b&tag=a' })).toEqual(page);
+    expect(attributes('/search?tag=a', { href: '/search?tag=a&tag=b' })).toEqual({});
+    expect(attributes('/search?Tag=a', { href: '/search?tag=a' })).toEqual({});
+  });
+
+  it('treats GET data as part of the link query', () => {
+    expect(attributes('/search', { href: '/search', data: { q: 'void' } })).toEqual({});
+    expect(attributes('/search?q=void', { href: '/search', data: { q: 'void' } })).toEqual(page);
+    expect(
+      attributes('/search?q=void&page=2', { href: '/search?q=void', data: { page: 3 } }),
+    ).toEqual({});
+  });
+
+  it('resolves query-only and hash-only hrefs against the current URL', () => {
+    expect(attributes('/posts?page=2', { href: '?page=3' })).toEqual({});
+    expect(attributes('/posts?page=2', { href: '?page=2' })).toEqual(page);
+    expect(attributes('/docs?v=2#install', { href: '#usage' })).toEqual(page);
+  });
+
+  it('ignores the hash', () => {
     expect(attributes('/docs', { href: '/docs#install' })).toEqual(page);
     expect(attributes('/docs#install', { href: '#usage' })).toEqual(page);
+    expect(attributes('/docs?v=2#install', { href: '/docs?v=2#usage' })).toEqual(page);
+  });
+
+  it('compares only the path on nested pages with prefix', () => {
+    expect(attributes('/reports/42', { href: '/reports?range=30d' }, 'prefix')).toEqual(nested);
+    expect(attributes('/reports?range=30d', { href: '/reports?range=30d' }, 'prefix')).toEqual(
+      page,
+    );
+    expect(attributes('/reports?range=7d', { href: '/reports?range=30d' }, 'prefix')).toEqual({});
+    expect(attributes('/admin/?tab=a', { href: '/admin/?tab=b' }, 'prefix')).toEqual({});
   });
 
   it('compares paths the way the router matches them', () => {
