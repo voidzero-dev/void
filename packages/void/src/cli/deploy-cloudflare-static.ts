@@ -25,6 +25,7 @@ import { selectNativeVersionMetadataBinding } from '../shared/version-metadata.t
 import { validateSsrEntry } from '../ssr/entry.ts';
 import { prepareCfStaticBuildOutput } from './cf-build-output.ts';
 import { type CloudflareCandidateReceipt } from './cloudflare-candidate.ts';
+import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink, type CloudflareLink } from './cloudflare-link.ts';
 import { deduplicateGeneratedCompatibilityFlags } from './deploy-artifact-validation.ts';
 import { deployPointerPath } from './deploy-binding-snapshot.ts';
@@ -317,6 +318,7 @@ export async function runCloudflareStaticDeploy(
   deps: CloudflareDeployDeps,
   initialCloudflareLink: CloudflareLink | null,
   initialCloudflareCandidate: CloudflareCandidateReceipt | null,
+  reporter: CloudflareChildReporter,
 ): Promise<void> {
   const exit = deps.exit ?? ((code: number): never => process.exit(code));
   const configPath = discoverRootWranglerConfig(root);
@@ -327,6 +329,7 @@ export async function runCloudflareStaticDeploy(
     deps,
     persistAccount: !(options.reuseExistingWorker || initialCloudflareLink),
     readinessAccessOrigin: options.readinessAccessOrigin,
+    reporter,
   });
   if (!connection || !(await confirmCloudflareDeployAuthentication(connection, configPath))) {
     return exit(1);
@@ -492,6 +495,7 @@ export async function runCloudflareStaticDeploy(
     runWrangler,
     cfUploaderIsPinned,
     verifyCompatibilityRunner: assertUploaderStillPinned,
+    reporter,
   });
   const execution = await activateCloudflareVersionWithProgress(
     deps.activateVersion ?? activateCloudflareVersion,
@@ -528,7 +532,11 @@ export async function runCloudflareStaticDeploy(
     },
   ).finally(() => cfOutput?.dispose());
   if (!execution.ok) {
-    await reportCloudflareActivationFailure(cliLog, formatCloudflareActivationError(execution));
+    await reportCloudflareActivationFailure(
+      reporter,
+      formatCloudflareActivationError(execution),
+      execution,
+    );
     return exit(1);
   }
   recordCloudflareActivation({

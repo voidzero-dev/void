@@ -127,10 +127,9 @@ export async function streamDeployEvents(
       log.info('Deployment id was not received before the interrupt.');
     }
     cliLog?.warn('stream_interrupted', { deploymentId });
-    // Best-effort flush of the JSONL log before the process exits. The
-    // returned promise is intentionally not awaited — `process.exit(130)`
-    // would race the awaiter, and the OS flushes the page cache for the
-    // line-delimited file regardless.
+    // The JSONL logger writes each record synchronously, so the warning above
+    // is already on disk; close() only releases the file. Nothing to await
+    // before `process.exit(130)`.
     cliLog?.close().catch(() => {});
     process.exit(130);
   };

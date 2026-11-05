@@ -3,11 +3,12 @@ import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:f
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { getWorkerConfigPath, readBuildOutput } from '@cloudflare/build-output-utils';
-import type {
-  CloudflareCommandResult,
-  CloudflareCommandRunner,
-  CloudflareOperation,
-  CloudflareVersionActivationOptions,
+import {
+  parseCloudflareVersionMessage,
+  type CloudflareCommandResult,
+  type CloudflareCommandRunner,
+  type CloudflareOperation,
+  type CloudflareVersionActivationOptions,
 } from '@void/deploy-cloudflare';
 import { isRecord as record } from '@void/deploy-core';
 import { dirname, join } from 'pathslash';
@@ -26,9 +27,39 @@ import {
 } from './cf-version-api.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
 import { isCleanCloudflareExit } from './cloudflare-process.ts';
+import type { WranglerAuthTokenResult } from './deploy-cloudflare-auth.ts';
 
 function failed(message: string): CloudflareCommandResult {
   return { status: 1, stdout: '', stderr: message };
+}
+
+/** Keep the credential child's real status, signal and diagnostic under one header. */
+function credentialFailed(
+  header: string,
+  failure: CloudflareCommandResult,
+): CloudflareCommandResult {
+  return {
+    status: failure.status,
+    ...(failure.signal ? { signal: failure.signal } : {}),
+    stdout: '',
+    stderr: `${header}: ${failure.stderr}`,
+  };
+}
+
+/**
+ * Whether activating a version with this message publishes Worker settings (observability or
+ * logpush) after traffic moves. The schema-2 snapshot is what trigger sync replays; a preserved
+ * snapshot publishes nothing.
+ */
+function publishesWorkerSettings(message: string | undefined): boolean {
+  const metadata = parseCloudflareVersionMessage(message);
+  if (metadata?.schema !== 2 || metadata.triggerConfig.preserve === true) {
+    return false;
+  }
+  return (
+    metadata.triggerConfig.observability !== undefined ||
+    metadata.triggerConfig.logpush !== undefined
+  );
 }
 
 function parseJson(value: string): unknown {
@@ -373,7 +404,7 @@ export function createCfVersionRunner(options: {
   pinnedUpload?: {
     accountId: string;
     apiBaseUrl: string;
-    getToken: () => Promise<string | null>;
+    getToken: () => Promise<WranglerAuthTokenResult>;
     verifyUploader: () => boolean;
   };
 }): CloudflareCommandRunner {
@@ -400,6 +431,63 @@ export function createCfVersionRunner(options: {
           }
         : undefined,
     };
+  };
+  // Session bearer read before upload, so a deploy that cannot get one (Global API Key session,
+  // broken helper child) stops while traffic is unchanged. The pinned upload reuses it. The
+  // settings publisher, which runs after traffic moves, reads again so an OAuth token that
+  // expired during the deploy is refreshed, and falls back to this one if that read fails.
+  let sessionToken: string | undefined;
+  const readSessionToken = async (
+    credentials: NonNullable<typeof options.pinnedUpload>,
+  ): Promise<WranglerAuthTokenResult> => {
+    if (sessionToken !== undefined) {
+      return { ok: true, token: sessionToken };
+    }
+    const credential = await credentials.getToken();
+    if (credential.ok) {
+      sessionToken = credential.token;
+    }
+    return credential;
+  };
+  const readFreshSessionToken = async (
+    credentials: NonNullable<typeof options.pinnedUpload>,
+  ): Promise<WranglerAuthTokenResult> => {
+    let credential: WranglerAuthTokenResult;
+    try {
+      credential = await credentials.getToken();
+    } catch (cause) {
+      if (sessionToken === undefined) {
+        throw cause;
+      }
+      return { ok: true, token: sessionToken };
+    }
+    if (credential.ok) {
+      sessionToken = credential.token;
+      return credential;
+    }
+    return sessionToken === undefined ? credential : { ok: true, token: sessionToken };
+  };
+  /**
+   * Read the settings publisher's credential before upload, so a deploy that cannot publish its
+   * observability or logpush settings stops while production traffic is unchanged.
+   */
+  const prepareSettingsCredential = async (
+    message: string | undefined,
+  ): Promise<CloudflareCommandResult | null> => {
+    if (!publishesWorkerSettings(message)) {
+      return null;
+    }
+    const credentials = options.pinnedUpload;
+    if (!credentials || !credentials.verifyUploader()) {
+      return failed('The Cloudflare settings publisher is unavailable; no version was uploaded.');
+    }
+    const credential = await readSessionToken(credentials);
+    return credential.ok
+      ? null
+      : credentialFailed(
+          'Could not get the Cloudflare session credential for publishing Worker settings (observability, logpush), so no version was uploaded',
+          credential.failure,
+        );
   };
   const verifyResources = async (directory: string) => {
     try {
@@ -431,10 +519,14 @@ export function createCfVersionRunner(options: {
     if (!options.pinnedUpload || !options.pinnedUpload.verifyUploader()) {
       return failed('The version-aware Cloudflare uploader is unavailable.');
     }
-    const token = await options.pinnedUpload.getToken();
-    if (!token) {
-      return failed('Cloudflare session has no bearer for version-aware upload.');
+    const credential = await readSessionToken(options.pinnedUpload);
+    if (!credential.ok) {
+      return credentialFailed(
+        'Could not get the Cloudflare session credential for the upload',
+        credential.failure,
+      );
     }
+    const { token } = credential;
     try {
       const version = await uploadPinnedCloudflareVersion({
         output,
@@ -611,6 +703,10 @@ export function createCfVersionRunner(options: {
       if (blocked) {
         return blocked;
       }
+      const settings = await prepareSettingsCredential(operation.message);
+      if (settings) {
+        return settings;
+      }
       if (output.activeSecrets) {
         return uploadPinnedVersion(operation, false);
       }
@@ -689,6 +785,10 @@ export function createCfVersionRunner(options: {
       );
       if (blocked) {
         return blocked;
+      }
+      const settings = await prepareSettingsCredential(operation.message);
+      if (settings) {
+        return settings;
       }
       if (output.activeSecrets) {
         return uploadPinnedVersion(operation, true);
@@ -789,10 +889,20 @@ export function createCfVersionRunner(options: {
             return failed('The Cloudflare settings publisher is unavailable.');
           }
           try {
-            const token = await credentials.getToken();
-            if (!token || !credentials.verifyUploader()) {
+            // Read again: the bearer read before upload may have expired while traffic moved.
+            // A recovery that replays the previous version's settings when the new version had
+            // none reads it here for the first time.
+            const credential = await readFreshSessionToken(credentials);
+            if (!credential.ok) {
+              return credentialFailed(
+                'Could not get the Cloudflare session credential for publishing Worker settings',
+                credential.failure,
+              );
+            }
+            if (!credentials.verifyUploader()) {
               return failed('Cloudflare session is unavailable for publishing Worker settings.');
             }
+            const { token } = credential;
             await publishCloudflareWorkerSettings({
               apiBaseUrl: credentials.apiBaseUrl,
               accountId: credentials.accountId,

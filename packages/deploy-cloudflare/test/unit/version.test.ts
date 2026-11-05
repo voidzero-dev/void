@@ -315,6 +315,155 @@ function runner(overrides?: {
   });
 }
 
+const TRIGGER_FAILURE: CloudflareCommandResult = {
+  stdout: '',
+  stderr: 'Queue "jobs" already has a consumer. [code: 11004]',
+  status: 1,
+};
+
+/** Placeholder Void's secret transport deploys before a Worker exists: no bindings yet. */
+function voidZeroBindingPlaceholder(): Record<string, unknown> {
+  return {
+    ...voidSecretDraftVersion(),
+    number: 1,
+    annotations: { 'workers/message': 'void:secret-draft', 'workers/triggered_by': 'deployment' },
+    bindings: [],
+    env: {},
+  };
+}
+
+/**
+ * Typed fake that tracks production traffic, so recovery tests assert which version is live at
+ * the end instead of matching a substring of some versions.deploy call.
+ */
+function recoveryActivation(setup: {
+  previous: Record<string, unknown>;
+  previousSource?: Record<string, unknown>;
+  triggers?: Array<CloudflareCommandResult>;
+  /** `applied` moves traffic even though the command result is a failure. */
+  deploys?: Array<CloudflareCommandResult & { applied?: true }>;
+  statusFailsAfter?: 'first-trigger-failure' | 'restore';
+  verifyUploaderAfterRestore?: boolean;
+  atomic?: boolean;
+}) {
+  let traffic: Array<{ version_id: string; percentage: number }> = [
+    { version_id: CURRENT, percentage: 100 },
+  ];
+  let uploaded = false;
+  let statusFails = false;
+  let restored = false;
+  const deploys: Array<Array<string>> = [];
+  let triggerCalls = 0;
+  const runWrangler = vi.fn(
+    async (operation: CloudflareOperation): Promise<CloudflareCommandResult> => {
+      switch (operation.type) {
+        case 'deployments.status':
+          return statusFails
+            ? { stdout: '', stderr: 'Cloudflare API unavailable.', status: 1 }
+            : { ...ok(), data: { versions: traffic } };
+        case 'versions.list':
+          return {
+            ...ok(),
+            data: [
+              setup.previous,
+              ...(uploaded
+                ? [{ id: NEXT, number: 2, annotations: { 'workers/message': 'next' } }]
+                : []),
+            ],
+          };
+        case 'versions.view':
+          if (operation.includeSource && setup.previousSource) {
+            return { ...ok(), data: setup.previousSource };
+          }
+          return { stdout: '', stderr: 'Version view is unavailable.', status: 1 };
+        case 'versions.upload':
+          uploaded = true;
+          return {
+            ...ok(),
+            data: {
+              versionId: NEXT,
+              previewUrl: `https://${NEXT.slice(0, 8)}-app.example.workers.dev`,
+            },
+          };
+        case 'worker.deploy':
+          uploaded = true;
+          traffic = [{ version_id: NEXT, percentage: 100 }];
+          return {
+            ...ok(),
+            data: { versionId: NEXT, workersDevUrl: 'https://app.example.workers.dev' },
+          };
+        case 'versions.deploy': {
+          const versions = operation.versions.map(
+            ({ versionId, percentage }) => `${versionId}@${percentage}`,
+          );
+          const planned: CloudflareCommandResult & { applied?: true } =
+            setup.deploys?.[deploys.length] ?? ok();
+          const { applied, ...result } = planned;
+          deploys.push(versions);
+          if (result.status === 0 || applied) {
+            traffic = operation.versions.map(({ versionId, percentage }) => ({
+              version_id: versionId,
+              percentage,
+            }));
+            if (versions.length === 1 && versions[0] === `${CURRENT}@100`) {
+              restored = true;
+              statusFails ||= setup.statusFailsAfter === 'restore';
+            }
+          }
+          return result;
+        }
+        case 'triggers.deploy': {
+          const result = setup.triggers?.[triggerCalls] ?? ok();
+          triggerCalls++;
+          statusFails ||= setup.statusFailsAfter === 'first-trigger-failure' && result.status !== 0;
+          return result;
+        }
+        default:
+          throw new Error(`Unexpected recovery operation: ${operation.type}`);
+      }
+    },
+  );
+  return {
+    deploys,
+    owner: () => traffic,
+    triggerCalls: () => triggerCalls,
+    options: {
+      runWrangler,
+      workerName: 'app',
+      message: encodeCloudflareVersionMessage([], triggersWith({ crons: ['*/5 * * * *'] })),
+      verifyUploader: () => !(restored && setup.verifyUploaderAfterRestore === false),
+      fetch: async () => Response.json({ ready: true }),
+      readinessAttempts: 1,
+      ...(setup.atomic ? { atomic: true } : {}),
+    },
+  };
+}
+
+const VOID_SCHEMA_2_PREVIOUS = {
+  id: CURRENT,
+  number: 1,
+  annotations: {
+    'workers/message': encodeCloudflareVersionMessage([], triggersWith({ crons: ['0 * * * *'] })),
+  },
+};
+
+/** Every versions.deploy request the argv runner received, as version@percentage lists. */
+function deployRequests(runWrangler: ReturnType<typeof runner>): Array<Array<string>> {
+  return runWrangler.mock.calls
+    .filter(([args]) => args[0] === 'versions' && args[1] === 'deploy')
+    .map(([args]) => {
+      // Version targets come right after `versions deploy`, before the first flag.
+      const end = args.findIndex((argument, index) => index > 1 && argument.startsWith('-'));
+      return args.slice(2, end < 0 ? undefined : end);
+    });
+}
+
+/** Production traffic the argv runner holds after the activation finished. */
+async function productionTraffic(runWrangler: ReturnType<typeof runner>): Promise<unknown> {
+  const status = await runWrangler({ type: 'deployments.status', workerName: 'my-worker' });
+  return (status.data as { versions: unknown }).versions;
+}
+
 describe('Cloudflare version activation', () => {
   it('pins ordinary revision secrets to the inspected active UUID before upload and readiness', async () => {
     const fixture = sdkDraftActivation();
@@ -3367,12 +3516,13 @@ describe('Cloudflare version activation', () => {
       reason: 'triggers-failed',
       rollback: 'succeeded',
       previousVersionId: CURRENT,
+      activeVersionId: CURRENT,
+      triggersRestored: 'yes',
     });
-    expect(
-      runWrangler.mock.calls.some(([args]) =>
-        args.some((argument) => argument === `${CURRENT}@100`),
-      ),
-    ).toBe(true);
+    expect(deployRequests(runWrangler)).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(await productionTraffic(runWrangler)).toEqual([
+      { version_id: CURRENT, percentage: 100 },
+    ]);
     expect(runWrangler.mock.calls.filter(([args]) => args[0] === 'triggers')).toHaveLength(2);
   });
 
@@ -3443,7 +3593,7 @@ describe('Cloudflare version activation', () => {
     expect(publications[1].queues).toEqual({ consumers: [] });
   });
 
-  it('does not claim opaque trigger recovery succeeded after restoring live traffic', async () => {
+  it('keeps the new version live when the previous version has only opaque triggers', async () => {
     const opaque = triggersWith({
       preserve: true,
       preserveRoutes: true,
@@ -3488,16 +3638,17 @@ describe('Cloudflare version activation', () => {
       reason: 'triggers-failed',
       rollback: 'unavailable',
       previousVersionId: CURRENT,
+      activeVersionId: NEXT,
+      triggersRestored: 'no',
+      restoreSkipped: 'no-trigger-snapshot',
     });
-    expect(
-      runWrangler.mock.calls.some(([args]) =>
-        args.some((argument) => argument === `${CURRENT}@100`),
-      ),
-    ).toBe(true);
+    // Readiness staging, then activation; no switch back to the opaque version.
+    expect(deployRequests(runWrangler)).toEqual([[`${CURRENT}@100`, `${NEXT}@0`], [`${NEXT}@100`]]);
+    expect(await productionTraffic(runWrangler)).toEqual([{ version_id: NEXT, percentage: 100 }]);
     expect(runWrangler.mock.calls.filter(([args]) => args[0] === 'triggers')).toHaveLength(1);
   });
 
-  it('does not claim trigger rollback succeeded without prior trigger metadata', async () => {
+  it('keeps the new version live when the previous version has no trigger snapshot', async () => {
     const runWrangler = runner({
       triggers: { ...ok(), status: 1 },
       versions: ok(
@@ -3522,7 +3673,12 @@ describe('Cloudflare version activation', () => {
       ok: false,
       reason: 'triggers-failed',
       rollback: 'unavailable',
+      activeVersionId: NEXT,
+      triggersRestored: 'no',
+      restoreSkipped: 'no-trigger-snapshot',
     });
+    expect(deployRequests(runWrangler)).toEqual([[`${NEXT}@100`]]);
+    expect(await productionTraffic(runWrangler)).toEqual([{ version_id: NEXT, percentage: 100 }]);
     expect(runWrangler.mock.calls.filter(([args]) => args[0] === 'triggers')).toHaveLength(1);
   });
 
@@ -4694,4 +4850,288 @@ describe('Cloudflare version activation', () => {
       ).toBe(false);
     },
   );
+});
+
+describe('Cloudflare trigger synchronization recovery', () => {
+  const keptNew = {
+    ok: false,
+    reason: 'triggers-failed',
+    versionId: NEXT,
+    previousVersionId: CURRENT,
+    activeVersionId: NEXT,
+    rollback: 'unavailable',
+    triggersRestored: 'no',
+  };
+
+  it('switches back to a Void version with a trigger snapshot and replays its triggers', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      ok: false,
+      reason: 'triggers-failed',
+      activeVersionId: CURRENT,
+      rollback: 'succeeded',
+      triggersRestored: 'yes',
+    });
+    expect(result).not.toHaveProperty('restoreSkipped');
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: CURRENT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(2);
+  });
+
+  it.each([
+    {
+      kind: 'a version deployed without Void',
+      previous: { id: CURRENT, number: 1, annotations: { 'workers/triggered_by': 'upload' } },
+      restoreSkipped: 'no-trigger-snapshot',
+    },
+    {
+      kind: 'a Wrangler secret-only draft',
+      previous: { ...secretOnlyDraftVersion(), number: 1 },
+      restoreSkipped: 'placeholder',
+    },
+    {
+      kind: "Void's zero-binding secret placeholder",
+      previous: {
+        id: CURRENT,
+        number: 1,
+        annotations: {
+          'workers/message': 'void:secret-draft',
+          'workers/triggered_by': 'deployment',
+        },
+      },
+      previousSource: voidZeroBindingPlaceholder(),
+      restoreSkipped: 'placeholder',
+    },
+    {
+      kind: 'a version that only reuses the placeholder marker',
+      previous: {
+        id: CURRENT,
+        number: 1,
+        annotations: {
+          'workers/message': 'void:secret-draft',
+          'workers/triggered_by': 'deployment',
+        },
+      },
+      previousSource: {
+        ...voidZeroBindingPlaceholder(),
+        modules: [
+          {
+            name: 'index.js',
+            content_type: 'application/javascript+module',
+            content_base64: Buffer.from('export default { fetch() { return app(); } };\n').toString(
+              'base64',
+            ),
+          },
+        ],
+      },
+      restoreSkipped: 'no-trigger-snapshot',
+    },
+  ])('keeps this deploy live when the previous version is $kind', async (setup) => {
+    const fixture = recoveryActivation({ ...setup, triggers: [TRIGGER_FAILURE] });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toEqual({
+      ...keptNew,
+      status: 1,
+      diagnostic: 'Queue "jobs" already has a consumer. [code: 11004]',
+      restoreSkipped: setup.restoreSkipped,
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: NEXT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
+
+  it.each(
+    [
+      {
+        kind: 'Void placeholder marker',
+        annotations: {
+          'workers/message': 'void:secret-draft',
+          'workers/triggered_by': 'deployment',
+        },
+      },
+      { kind: 'Wrangler secret version', annotations: { 'workers/triggered_by': 'secret' } },
+    ].flatMap((setup) => [false, true].map((atomic) => ({ ...setup, atomic }))),
+  )(
+    'does not offer a rollback to a $kind it could not read (atomic: $atomic)',
+    async ({ annotations, atomic }) => {
+      // No previousSource: the fixture's `versions.view` fails.
+      const fixture = recoveryActivation({
+        previous: { id: CURRENT, number: 1, annotations },
+        triggers: [TRIGGER_FAILURE],
+        atomic,
+      });
+      const result = await activateCloudflareVersion(fixture.options);
+      expect(result).toMatchObject({ ...keptNew, rollback: 'unavailable' });
+      expect(result).not.toHaveProperty('restoreSkipped');
+      expect(fixture.owner()).toEqual([{ version_id: NEXT, percentage: 100 }]);
+    },
+  );
+
+  it("keeps this deploy live over Void's secret draft through the bootstrap path", async () => {
+    const fixture = sdkDraftActivation();
+    const original = fixture.runWrangler.getMockImplementation()!;
+    fixture.runWrangler.mockImplementation(async (operation) =>
+      operation.type === 'triggers.deploy' ? TRIGGER_FAILURE : original(operation),
+    );
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      ...keptNew,
+      diagnostic: 'Queue "jobs" already has a consumer. [code: 11004]',
+      restoreSkipped: 'placeholder',
+    });
+    expect(fixture.operations.filter((op) => op.type === 'versions.deploy')).toEqual([]);
+    expect(
+      await fixture.runWrangler({ type: 'deployments.status', workerName: 'app' }),
+    ).toMatchObject({
+      data: { versions: [{ version_id: NEXT, percentage: 100 }] },
+    });
+  });
+
+  it('keeps an atomic publish live when its triggers fail', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      atomic: true,
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      ...keptNew,
+      diagnostic: 'Queue "jobs" already has a consumer. [code: 11004]',
+      restoreSkipped: 'atomic',
+    });
+    expect(fixture.deploys).toEqual([]);
+    expect(fixture.owner()).toEqual([{ version_id: NEXT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
+
+  it('reports this deploy live when the switch back is refused', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      deploys: [ok(), { stdout: '', stderr: 'Cloudflare refused the deployment.', status: 1 }],
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: NEXT,
+      rollback: 'failed',
+      triggersRestored: 'no',
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: NEXT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
+
+  it('reads the owner again when the switch back was applied but its command was killed', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      deploys: [ok(), { stdout: '', stderr: '', status: 1, signal: 'SIGTERM', applied: true }],
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: CURRENT,
+      rollback: 'failed',
+      triggersRestored: 'no',
+    });
+    expect(fixture.owner()).toEqual([{ version_id: CURRENT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
+
+  it('reads the owner again after a forced switch back fails', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      deploys: [
+        ok(),
+        { stdout: '', stderr: 'Secrets changed. [code: 10220]', status: 1, errorCode: 10220 },
+        { stdout: '', stderr: '', status: 1, error: 'socket hang up', applied: true },
+      ],
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: CURRENT,
+      rollback: 'failed',
+      triggersRestored: 'no',
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: CURRENT, percentage: 100 }]);
+  });
+
+  it('reports the previous version live when the uploader changes after the switch back', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      verifyUploaderAfterRestore: false,
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: CURRENT,
+      rollback: 'unsafe',
+      triggersRestored: 'no',
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: CURRENT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
+
+  it('reports the previous version live without its triggers when the replay fails', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE, TRIGGER_FAILURE],
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: CURRENT,
+      rollback: 'failed',
+      triggersRestored: 'no',
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: CURRENT, percentage: 100 }]);
+    expect(fixture.triggerCalls()).toBe(2);
+  });
+
+  it('reports an unknown owner when status cannot be read after the trigger failure', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      statusFailsAfter: 'first-trigger-failure',
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: null,
+      rollback: 'unsafe',
+      triggersRestored: 'no',
+      diagnostic: 'Queue "jobs" already has a consumer. [code: 11004]',
+    });
+    expect(result).not.toHaveProperty('restoreSkipped');
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`]]);
+    expect(fixture.owner()).toEqual([{ version_id: NEXT, percentage: 100 }]);
+  });
+
+  it('reports an unknown owner and trigger state when status fails during the replay', async () => {
+    const fixture = recoveryActivation({
+      previous: VOID_SCHEMA_2_PREVIOUS,
+      triggers: [TRIGGER_FAILURE],
+      statusFailsAfter: 'restore',
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({
+      reason: 'triggers-failed',
+      activeVersionId: null,
+      rollback: 'failed',
+      triggersRestored: 'unknown',
+    });
+    expect(fixture.deploys).toEqual([[`${NEXT}@100`], [`${CURRENT}@100`]]);
+    expect(fixture.triggerCalls()).toBe(1);
+  });
 });

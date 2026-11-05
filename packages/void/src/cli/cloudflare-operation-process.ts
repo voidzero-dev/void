@@ -509,7 +509,7 @@ async function readApiHeaders(): Promise<Record<string, string>> {
     return { 'User-Agent': getVoidUserAgent(), 'X-Auth-Key': key, 'X-Auth-Email': email };
   }
   const credential = await sessionCredential();
-  if (!credential) {
+  if (!('token' in credential)) {
     throw new Error('Cloudflare session bearer is unavailable.');
   }
   return { 'User-Agent': getVoidUserAgent(), Authorization: `Bearer ${credential.token}` };
@@ -529,21 +529,33 @@ async function withSecretFile(
   }
 }
 
-async function sessionCredential(): Promise<{ type: 'oauth' | 'api_token'; token: string } | null> {
+const NO_OAUTH_BEARER = 'Cloudflare session has no OAuth bearer.';
+
+async function sessionCredential(): Promise<
+  { type: 'oauth' | 'api_token'; token: string } | { failure: string }
+> {
   const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
   if (token) {
     return { type: 'api_token', token };
   }
   const identity = runCf(['auth', 'whoami']);
   if (identity.status !== 0) {
-    return null;
+    // Forward cf's own reason; the parent scrubs and bounds it before showing it.
+    return {
+      failure: [
+        `cf auth whoami exited with code ${String(identity.status)}.`,
+        identity.stderr.trim(),
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    };
   }
   const state = object(parsedJson(identity.stdout));
   if (state.authenticated !== true || state.tokenValid !== true) {
-    return null;
+    return { failure: NO_OAUTH_BEARER };
   }
   const credential = readCfSessionCredential(process.cwd(), state);
-  return credential ? { type: 'oauth', token: credential } : null;
+  return credential ? { type: 'oauth', token: credential } : { failure: NO_OAUTH_BEARER };
 }
 
 async function auth(): Promise<Result> {
@@ -586,9 +598,16 @@ async function auth(): Promise<Result> {
     throw new Error('Unsupported Cloudflare authentication operation.');
   }
   const credential = await sessionCredential();
-  return credential
-    ? result(0, '', '', credential)
-    : result(1, '', 'Cloudflare session has no OAuth bearer.');
+  if ('token' in credential) {
+    return result(0, '', '', credential);
+  }
+  // A Global API Key has no bearer. Mark it, so the parent can name the next step.
+  return result(
+    1,
+    '',
+    credential.failure,
+    process.env.CLOUDFLARE_API_KEY || process.env.CF_API_KEY ? { type: 'api_key' } : undefined,
+  );
 }
 
 function listAllResourcePages(command: Array<string>, extraFlags: Array<string> = []): Result {
