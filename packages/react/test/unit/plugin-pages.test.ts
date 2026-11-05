@@ -1,7 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { pagesPlugin } from '../../src/plugin-pages.ts';
+import { installedDependencies, pagesPlugin } from '../../src/plugin-pages.ts';
 
 const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
@@ -197,6 +197,22 @@ describe('pagesPlugin build config', () => {
   });
 });
 
+describe('installedDependencies', () => {
+  it('keeps entries installed in node_modules and drops linked workspace entries', () => {
+    const files: Record<string, string> = {
+      'void/pages-client':
+        '/app/node_modules/.pnpm/void@1.6.2/node_modules/void/dist/pages/client.mjs',
+      'void/pages-prefetch': 'C:\\app\\node_modules\\void\\dist\\pages\\prefetch.mjs',
+      'void/live/client': '/repo/packages/void/dist/runtime/live-client.mjs',
+    };
+
+    expect(installedDependencies(Object.keys(files), (specifier) => files[specifier]!)).toEqual([
+      'void/pages-client',
+      'void/pages-prefetch',
+    ]);
+  });
+});
+
 describe('pagesPlugin dev config', () => {
   afterEach(() => {
     rmSync(TMP, { recursive: true, force: true });
@@ -209,19 +225,14 @@ describe('pagesPlugin dev config', () => {
     expect(config).toMatchObject({
       optimizeDeps: {
         entries: ['pages/index.tsx'],
-        include: expect.arrayContaining(['void/pages-client', 'void/pages-prefetch']),
+        include: expect.arrayContaining(['react', 'react-dom/client']),
       },
       environments: {
         void_worker: {
           optimizeDeps: {
             exclude: ['@void/react'],
             entries: ['pages/**/*.{js,jsx,ts,tsx}'],
-            include: expect.arrayContaining([
-              'react',
-              'react-dom',
-              'react-dom/server',
-              'void/live/client',
-            ]),
+            include: expect.arrayContaining(['react', 'react-dom', 'react-dom/server']),
           },
         },
       },
@@ -285,6 +296,19 @@ describe('pagesPlugin dev config', () => {
       },
     });
     expect((config.optimizeDeps as { entries: Array<string> }).entries).toHaveLength(2);
+  });
+
+  it('serves the workspace-linked void as source instead of pre-bundling it', async () => {
+    // This repository links void from packages/void, so a pre-bundled copy would
+    // outlive the next void build.
+    const config = (await loadServeConfig()) as {
+      optimizeDeps: { include: Array<string> };
+      environments: { void_worker: { optimizeDeps: { include: Array<string> } } };
+    };
+
+    expect(config.optimizeDeps.include).not.toContain('void/pages-client');
+    expect(config.optimizeDeps.include).not.toContain('void/pages-prefetch');
+    expect(config.environments.void_worker.optimizeDeps.include).not.toContain('void/live/client');
   });
 
   it('includes only the React entry points needed by each environment', async () => {
