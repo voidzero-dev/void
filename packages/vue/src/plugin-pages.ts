@@ -1,7 +1,14 @@
 import { readdirSync } from 'node:fs';
 import { normalizePath, type Plugin } from 'vite';
-import { createPagesPlugin, generateComponentManifest } from 'void/pages';
-import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
+import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
+import type {
+  PageScanResult,
+  PagesPluginOptions,
+  PrefetchConfig,
+  StaticPageDataBuildOptions,
+} from 'void/pages';
+
+export type { PrefetchConfig } from 'void/pages';
 
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 
@@ -34,17 +41,6 @@ function patchProps(comp, props) {
   comp.__voidPatched = true;
 }
 `;
-
-export type PrefetchConfig = {
-  hoverDelay?: number;
-  cacheFor?: number | string | [string, string];
-};
-
-type PagesPluginOptions = {
-  root?: string;
-  viewTransitions?: boolean;
-  prefetch?: PrefetchConfig;
-};
 
 function isVuePageFile(id: string, pagesDir: string): boolean {
   if (!id.startsWith(pagesDir + '/')) {
@@ -210,7 +206,7 @@ ${generateComponentManifest(scan, pagesDir)}
 
 ${PATCH_PROPS_RUNTIME}
 
-export async function renderPage(pageObj, assetTags) {
+export async function renderPage(pageObj, assetTags, requestUrl) {
   const PageComponent = (await components[pageObj.component]()).default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
@@ -221,7 +217,7 @@ export async function renderPage(pageObj, assetTags) {
     setup() {
       provide("__void_shared", reactive(pageObj.shared || {}));
       provide("__void_params", reactive(pageObj.params || {}));
-      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}));
+      provide("__void_router", createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl));
       provide("__void_navigation", idleNavigationState());
       return () => {
         patchProps(PageComponent, pageObj.props);
@@ -261,6 +257,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
+  const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { createApp, createSSRApp, h, reactive, provide, shallowRef, nextTick, ref } from "vue";
 import { createDeferred, resolveDeferred, rejectDeferred } from "@void/vue/deferred";
@@ -307,8 +304,9 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
-    prefetchHoverDelay: ${prefetch?.hoverDelay ?? 75},
-    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(prefetch?.cacheFor ?? '30s')}),
+    prefetchHoverDelay: ${hoverDelay},
+    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
+    prefetchDefaultStrategy: ${JSON.stringify(defaultStrategy)},
     onRouteChange(url) {
       routeUrl.value = url;
     },

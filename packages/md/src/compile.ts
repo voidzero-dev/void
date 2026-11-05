@@ -6,7 +6,6 @@ import {
   transformerNotationFocus,
   transformerNotationErrorLevel,
 } from '@shikijs/transformers';
-import matter from 'gray-matter';
 import MarkdownExit from 'markdown-exit';
 import type { RuleCore, Token } from 'markdown-exit';
 import anchor from 'markdown-it-anchor';
@@ -14,7 +13,7 @@ import attrs from 'markdown-it-attrs';
 import { full as emoji } from 'markdown-it-emoji';
 import footnote from 'markdown-it-footnote';
 import { createHighlighter, bundledLanguages, isSpecialLang, type BundledLanguage } from 'shiki';
-import { extractHeadings } from './metadata.ts';
+import { extractHeadings, parseFrontmatter } from './metadata.ts';
 import { containerPlugin } from './plugins/containers.ts';
 import { gitHubAlertsPlugin } from './plugins/github-alerts.ts';
 import { imagePlugin } from './plugins/image.ts';
@@ -139,7 +138,7 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
 }
 
 export async function compile(source: string, options?: CompileOptions): Promise<CompileResult> {
-  const { data: frontmatter, content } = matter(source);
+  const { frontmatter, content } = parseFrontmatter(source);
   const compiler = await getCompiler(options);
 
   const env: { codeCopy?: boolean } = {};

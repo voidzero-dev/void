@@ -221,6 +221,38 @@ describe('platform post-success rollback', () => {
     ).toThrow('artifact digest');
   });
 
+  it('refuses rollback to a runtime without minimal runtime logs while they are on', () => {
+    const target = runtime({
+      digest: 'a'.repeat(64),
+      migrations: [firstMigration],
+      platformVersion: '1.0.0',
+      schemaDigest: 'c'.repeat(64),
+    });
+    const source = runtime({
+      digest: 'b'.repeat(64),
+      migrations: [firstMigration, secondMigration],
+      platformVersion: '1.0.0',
+      rollbackSafeFrom: [{ platformVersion: '1.0.0', schemaDigest: 'c'.repeat(64) }],
+      schemaDigest: 'd'.repeat(64),
+    });
+    const installation = installed(source);
+    const minimal = {
+      ...installation,
+      deployment: { ...installation.deployment, runtimeLogs: 'minimal' as const },
+    };
+    expect(() => assertPlatformRollbackCompatibility(minimal, target, source)).toThrow(
+      'Run `void platform upgrade --runtime-logs full` first',
+    );
+    expect(() =>
+      assertPlatformRollbackCompatibility(
+        minimal,
+        { ...target, manifest: { ...target.manifest, runtimeLogs: 1 } },
+        source,
+      ),
+    ).not.toThrow();
+    expect(() => assertPlatformRollbackCompatibility(installation, target, source)).not.toThrow();
+  });
+
   it('rejects a runtime that can reopen sandbox creation after drain', () => {
     const legacy = runtime({
       digest: 'a'.repeat(64),

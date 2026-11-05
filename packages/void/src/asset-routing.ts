@@ -55,6 +55,25 @@ export function workerOwnsHtmlRouting(inputs: AssetRoutingInputs): boolean {
   );
 }
 
+/**
+ * Returns true when native edge rules must run in the worker before Cloudflare
+ * Static Assets can answer: native builds compile HTTPS redirects and header,
+ * redirect, rewrite and fallback rules into the worker.
+ */
+export function edgeRulesNeedWorker(rules: {
+  alwaysUseHttps?: boolean;
+  headerRules?: ReadonlyArray<unknown>;
+  redirectRules?: ReadonlyArray<unknown>;
+  fallbackRules?: ReadonlyArray<unknown>;
+}): boolean {
+  return (
+    rules.alwaysUseHttps === true ||
+    (rules.headerRules?.length ?? 0) > 0 ||
+    (rules.redirectRules?.length ?? 0) > 0 ||
+    (rules.fallbackRules?.length ?? 0) > 0
+  );
+}
+
 export function resolveAssetConfig(inputs: AssetRoutingInputs): AssetConfig {
   return resolveAssetRoutingPolicy(inputs).assetConfig;
 }
@@ -67,7 +86,7 @@ export function resolveAssetConfig(inputs: AssetRoutingInputs): AssetConfig {
 // covers it; both SPA-fallback branches must list it explicitly, since a SPA
 // can advertise migrations without API/auth routes (e.g. a cron/queue-only app
 // with D1 migrations still emits manifest.migrations).
-const VOID_INTERNAL_WORKER_FIRST = ['/__void', '/__void/*'];
+export const VOID_INTERNAL_WORKER_FIRST: ReadonlyArray<string> = ['/__void', '/__void/*'];
 
 export function resolveAssetRoutingPolicy(inputs: AssetRoutingInputs): AssetRoutingPolicy {
   const workerFirst = workerOwnsHtmlRouting(inputs);

@@ -9,6 +9,7 @@ import {
   parseRouteFilename,
   type RouteEnvironment,
 } from '../router/parse-filename.ts';
+import { compareRouteSpecificity } from '../router/route-order.ts';
 import { bindingNames } from '../shared/ast-bindings.ts';
 import {
   isIdentifier,
@@ -375,9 +376,11 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     let layout: string | false | undefined;
 
     if (ext === '.md') {
+      // Imported here because most apps have no Markdown pages.
+      const { default: matter } = await import('gray-matter');
       ({ metadata, layout } = deriveFromSource(join(pagesDir, file), 'page-markdown', (source) => ({
         metadata: extractFrontmatterMeta(source),
-        layout: extractFrontmatterLayout(source),
+        layout: extractFrontmatterLayout(source, matter),
       })));
     } else {
       layout = deriveFromSource(join(pagesDir, file), 'page-layout', (source) =>
@@ -405,18 +408,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     });
   }
 
-  // Sort: static before dynamic, catch-all last
-  pages.sort((a, b) => {
-    if (a.catchAll !== b.catchAll) {
-      return a.catchAll ? 1 : -1;
-    }
-    const aDynamic = a.pattern.includes(':');
-    const bDynamic = b.pattern.includes(':');
-    if (aDynamic !== bDynamic) {
-      return aDynamic ? 1 : -1;
-    }
-    return a.pattern.localeCompare(b.pattern);
-  });
+  pages.sort(compareRouteSpecificity);
 
   if (options?.checkRoutes !== false) {
     // At most one page per route in each environment. A scan for every
@@ -582,19 +574,31 @@ function extractFrontmatterMeta(
 }
 
 /** Extract layout field from YAML frontmatter in markdown source. */
-function extractFrontmatterLayout(source: string): string | false | undefined {
+function extractFrontmatterLayout(
+  source: string,
+  matter: typeof import('gray-matter'),
+): string | false | undefined {
   const yaml = markdownFrontmatter(source);
   if (yaml === undefined) {
     return undefined;
   }
-  const value = frontmatterField(yaml, 'layout');
-  if (!value) {
+  let frontmatter: { layout?: unknown };
+  try {
+    // The parser @void/md uses, so that both agree on what a page's frontmatter says.
+    // Passing options skips gray-matter's cache of every source it has seen.
+    frontmatter = matter(`---\n${yaml}\n---`, {}).data;
+  } catch {
+    // It names no layout. @void/md reports the error on the page or fails the build.
     return undefined;
   }
-  if (value === 'false') {
+  const value = frontmatter.layout;
+  if (value === undefined || value === null || value === '') {
+    return undefined;
+  }
+  if (value === false || value === 'false') {
     return false;
   }
-  return value;
+  return typeof value === 'string' ? value : JSON.stringify(value);
 }
 
 export {

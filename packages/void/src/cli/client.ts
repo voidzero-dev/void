@@ -36,7 +36,7 @@ function readCliVersion(): string | null {
 const VOID_CLI_VERSION = readCliVersion();
 
 /** The oldest Void platform release this CLI supports. */
-export const MIN_PLATFORM_VERSION = '1.5.0';
+export const MIN_PLATFORM_VERSION = '1.6.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -351,6 +351,12 @@ export type LogEntry = {
   url: string;
   method: string;
   status: string;
+};
+
+export type LogsResult = {
+  entries: Array<LogEntry>;
+  /** Set when the platform keeps messages and URLs out of its logs. */
+  runtimeLogs?: 'minimal';
 };
 
 export type RequestEntry = {
@@ -1693,7 +1699,7 @@ export class PlatformClient {
     limit = 200,
     deploymentId?: string,
     level?: string,
-  ): Promise<Array<LogEntry>> {
+  ): Promise<LogsResult> {
     const params = new URLSearchParams({
       since,
       limit: String(limit),
@@ -1704,12 +1710,15 @@ export class PlatformClient {
     if (level && level !== 'all') {
       params.set('level', level);
     }
-    const json = await this.json<{ data: Array<LogEntry> }>(
+    const json = await this.json<{ data: Array<LogEntry>; runtimeLogs?: unknown }>(
       `${this.baseUrl}/projects/${projectId}/logs?${params}`,
       'Failed to fetch logs',
       { permission: 'read' },
     );
-    return json.data;
+    return {
+      entries: json.data,
+      ...(json.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
+    };
   }
 
   async getRequests(

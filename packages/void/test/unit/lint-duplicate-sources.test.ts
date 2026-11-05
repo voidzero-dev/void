@@ -34,8 +34,8 @@ describe('lintDuplicateSources', () => {
   it('emits no warning when all sources are unique', () => {
     const rules: Array<DevRedirectRule> = [
       rule('/docs/*', '_redirects:1'),
-      rule('/api/*', 'void.json#routing.rewrites'),
-      rule('/blog/*', 'void.json#routing.redirects', { status: 302 }),
+      rule('/api/*', 'void.config.ts#routing.rewrites'),
+      rule('/blog/*', 'void.config.ts#routing.redirects', { status: 302 }),
     ];
 
     lintDuplicateSources(rules, 'redirects');
@@ -52,8 +52,8 @@ describe('lintDuplicateSources', () => {
   it('emits a single aggregated warning naming the duplicate source and every origin', () => {
     const rules: Array<DevRedirectRule> = [
       rule('/docs/*', '_redirects:12'),
-      rule('/api/*', 'void.json#routing.redirects', { status: 302 }),
-      rule('/docs/*', 'void.json#routing.rewrites'),
+      rule('/api/*', 'void.config.ts#routing.redirects', { status: 302 }),
+      rule('/docs/*', 'void.config.ts#routing.rewrites'),
     ];
 
     lintDuplicateSources(rules, 'redirects/rewrites (pre-asset)');
@@ -63,7 +63,7 @@ describe('lintDuplicateSources', () => {
     expect(msg).toContain('redirects/rewrites (pre-asset)');
     expect(msg).toContain('/docs/*');
     expect(msg).toContain('_redirects:12');
-    expect(msg).toContain('void.json#routing.rewrites');
+    expect(msg).toContain('void.config.ts#routing.rewrites');
     // The non-duplicated /api/* source must not appear
     expect(msg).not.toContain('/api/*');
   });
@@ -71,9 +71,9 @@ describe('lintDuplicateSources', () => {
   it('aggregates multiple duplicate sources into one message', () => {
     const rules: Array<DevRedirectRule> = [
       rule('/docs/*', '_redirects:12'),
-      rule('/docs/*', 'void.json#routing.rewrites'),
-      rule('/api/*', 'void.json#routing.rewrites'),
-      rule('/api/*', 'void.json#routing.rewrites'),
+      rule('/docs/*', 'void.config.ts#routing.rewrites'),
+      rule('/api/*', 'void.config.ts#routing.rewrites'),
+      rule('/api/*', 'void.config.ts#routing.rewrites'),
       rule('/blog/*', '_redirects:20'),
     ];
 

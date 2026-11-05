@@ -152,6 +152,10 @@
           "type": "boolean",
           "description": "Enable inferred ISR caching. Set false to disable ISR and edge prerendering, including per-page prerender and revalidate policies. Does not disable output: static build-time prerendering."
         },
+        "typedRoutes": {
+          "type": "boolean",
+          "description": "Type-check URL strings in Link href, router navigation, and c.rewrite() against the app's routes. Omitted or false means off."
+        },
         "notFound": {
           "type": "string",
           "enum": ["single-page-application", "404-page", "none"],

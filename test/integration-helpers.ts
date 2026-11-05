@@ -29,6 +29,7 @@ const START_ATTEMPTS = 3;
 
 const GENERATED_PLAYGROUND_ENTRIES = new Set([
   '.astro',
+  '.cloudflare',
   '.next',
   '.nuxt',
   '.output',

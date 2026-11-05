@@ -1,6 +1,7 @@
 import { existsSync } from 'node:fs';
 import { dirname } from 'pathslash';
 import { normalizePath, type Plugin, type ResolvedConfig, type UserConfig } from 'vite';
+import { assertLinkPrefetchValue, type CacheForInput, type LinkPrefetchValue } from './prefetch.ts';
 import { scanPages } from './scan.ts';
 import {
   resolveStaticPageDataBuildOptions,
@@ -16,7 +17,38 @@ type PagesPluginContext = {
   scan: () => Promise<PageScanResult | null>;
 };
 
-type PagesPluginOptions = {
+/** The `prefetch` option of a framework adapter plugin. */
+export type PrefetchConfig = {
+  /** How a Link without its own `prefetch` prop prefetches. Accepts the same values. */
+  defaultStrategy?: LinkPrefetchValue;
+  hoverDelay?: number;
+  cacheFor?: CacheForInput;
+};
+
+/** Options of a framework adapter's pages plugin. */
+export type PagesPluginOptions = {
+  root?: string;
+  viewTransitions?: boolean;
+  prefetch?: PrefetchConfig;
+};
+
+/**
+ * `prefetch` with its defaults: Links prefetch only when they ask to, with a 75 ms
+ * hover delay and a 30 second cache.
+ */
+export function resolvePrefetchConfig(
+  prefetch: PrefetchConfig | undefined,
+): Required<PrefetchConfig> {
+  const defaultStrategy = prefetch?.defaultStrategy ?? false;
+  assertLinkPrefetchValue(defaultStrategy, 'prefetch.defaultStrategy');
+  return {
+    defaultStrategy,
+    hoverDelay: prefetch?.hoverDelay ?? 75,
+    cacheFor: prefetch?.cacheFor ?? '30s',
+  };
+}
+
+type CreatePagesPluginOptions = {
   name: string;
   root?: string;
   generateRenderer: (scan: PageScanResult, isDev: boolean) => string;
@@ -25,7 +57,7 @@ type PagesPluginOptions = {
 };
 
 /** Shared Vite lifecycle; adapters own their generated code and environment configuration. */
-export function createPagesPlugin(pagesDir: string, options: PagesPluginOptions): Plugin {
+export function createPagesPlugin(pagesDir: string, options: CreatePagesPluginOptions): Plugin {
   let pageScan: PageScanResult | null = null;
   let isDev = false;
   let viteConfig: ResolvedConfig | undefined;
@@ -79,10 +111,11 @@ export function createPagesPlugin(pagesDir: string, options: PagesPluginOptions)
           if (!pageScan) {
             return '';
           }
-          return options.generateClient(
-            pageScan,
-            resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir }),
-          );
+          // Static page-data files are emitted only during production prerendering.
+          const staticPageData = isDev
+            ? { enabled: false, fastPath: false }
+            : resolveStaticPageDataBuildOptions(root, { publicDir: viteConfig?.publicDir });
+          return options.generateClient(pageScan, staticPageData);
         }
       },
     },

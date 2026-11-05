@@ -111,6 +111,25 @@ describe('sendEmail (test harness)', () => {
     }
   });
 
+  it('threads a later reply with the threading option', async () => {
+    const harness = createEmailTestHarness();
+    try {
+      const result = await sendEmail({
+        from: 'support@acme.dev',
+        to: 'user@example.com',
+        subject: 'Re: Help',
+        text: 'Fixed.',
+        threading: { inReplyTo: '<question@example.com>' },
+      });
+      expect(result.ok).toBe(true);
+      const raw = new TextDecoder().decode(harness.messages[0].raw);
+      expect(raw).toContain('\r\nIn-Reply-To: <question@example.com>\r\n');
+      expect(raw).toContain('\r\nReferences: <question@example.com>\r\n');
+    } finally {
+      harness.dispose();
+    }
+  });
+
   it('does not populate the dev buffer when only the harness sink is active', async () => {
     const harness = createEmailTestHarness();
     try {
@@ -273,6 +292,26 @@ describe('sendEmail (error mapping)', () => {
       if (!result.ok && 'error' in result) {
         expect(result.error.code).toBe('INVALID_FROM');
       }
+    } finally {
+      harness.dispose();
+    }
+  });
+
+  it('returns MIME_ERROR for threading that is not a string', async () => {
+    const harness = createEmailTestHarness();
+    try {
+      const result = await sendEmail({
+        from: 'a@x.dev',
+        to: 'b@y.dev',
+        subject: 's',
+        text: 't',
+        threading: { inReplyTo: 5 },
+      } as unknown as Parameters<typeof sendEmail>[0]);
+      expect(result.ok).toBe(false);
+      if (!result.ok && 'error' in result) {
+        expect(result.error.code).toBe('MIME_ERROR');
+      }
+      expect(harness.messages).toHaveLength(0);
     } finally {
       harness.dispose();
     }

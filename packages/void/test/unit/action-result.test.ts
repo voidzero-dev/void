@@ -1,9 +1,13 @@
+import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
 import {
   VoidActionError,
   categorizeActionError,
   createActionClient,
   isAbortError,
+  isCallSiteActionError,
+  isVoidActionError,
   submitAction,
   type VoidRouter,
 } from '../../src/pages/client.ts';
@@ -120,13 +124,85 @@ describe('action result handling', () => {
     await expect(submitAction(router, '/users', { method: 'POST' })).rejects.toBe(error);
   });
 
+  it('recognizes action errors at every status', () => {
+    for (const status of [401, 403, 409, 422, 500]) {
+      const error = new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+      expect(isVoidActionError(error)).toBe(true);
+    }
+    // Another bundled copy of the class
+    expect(isVoidActionError({ name: 'VoidActionError', status: 403 })).toBe(true);
+  });
+
+  it('rejects values that are not action errors', () => {
+    expect(isVoidActionError(new Error('Boom'))).toBe(false);
+    expect(isVoidActionError({ name: 'VoidActionError' })).toBe(false);
+    expect(isVoidActionError({ name: 'VoidActionError', status: '403' })).toBe(false);
+    expect(isVoidActionError(null)).toBe(false);
+    expect(isVoidActionError('VoidActionError')).toBe(false);
+  });
+
+  it('recognizes call-site action errors by status', () => {
+    const error = (status: number) =>
+      new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+
+    expect(isCallSiteActionError(error(409))).toBe(true);
+    expect(isCallSiteActionError(error(422))).toBe(true);
+    expect(isCallSiteActionError(error(401))).toBe(false);
+    expect(isCallSiteActionError(error(403))).toBe(false);
+    expect(isCallSiteActionError(error(500))).toBe(false);
+    expect(isCallSiteActionError(new Error('Boom'))).toBe(false);
+  });
+
   it('detects abort errors', () => {
     expect(isAbortError(new DOMException('Navigation aborted', 'AbortError'))).toBe(true);
     expect(isAbortError(new Error('Boom'))).toBe(false);
   });
+
+  it('leaves the default scroll decision to the router', async () => {
+    const visit = vi.fn(async () => ({ props: {} }));
+    const router = routerWithVisit(visit);
+
+    await submitAction(router, '/users', {
+      method: 'POST',
+      data: { name: 'Alice' },
+    });
+
+    expect(visit).toHaveBeenCalledWith('/users', {
+      method: 'POST',
+      data: { name: 'Alice' },
+    });
+  });
+
+  it('allows explicitly disabling scroll preservation', async () => {
+    const visit = vi.fn(async () => ({ props: {} }));
+    const router = routerWithVisit(visit);
+
+    await submitAction(router, '/users', {
+      method: 'POST',
+      preserveScroll: false,
+    });
+
+    expect(visit).toHaveBeenCalledWith('/users', {
+      preserveScroll: false,
+      method: 'POST',
+    });
+  });
 });
 
 describe('action clients', () => {
+  it.each([true, false])('forwards preserveScroll: %s from action()', async (preserveScroll) => {
+    const client = createActionClient();
+    const visit = vi.fn(async () => ({ props: {} }));
+    client.setActionRouter(routerWithVisit(visit));
+
+    await client.action('/__action-test/static', { preserveScroll });
+
+    expect(visit).toHaveBeenCalledWith(
+      '/__action-test/static',
+      expect.objectContaining({ preserveScroll }),
+    );
+  });
+
   it('uses the adapter completion mode for action calls', async () => {
     const client = createActionClient({ _resolveOnShell: true });
     const visit = vi.fn(async () => ({ props: {} }));
@@ -136,6 +212,7 @@ describe('action clients', () => {
       method: 'POST',
       data: undefined,
       _resolveOnShell: true,
+      preserveScroll: undefined,
     });
   });
 
@@ -167,6 +244,7 @@ describe('action clients', () => {
     expect(firstVisit).toHaveBeenCalledWith('/__action-test/static', {
       method: 'POST',
       data: undefined,
+      preserveScroll: undefined,
     });
   });
 
@@ -184,6 +262,7 @@ describe('action clients', () => {
     expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
       method: 'PATCH',
       data: { name: 'Alice' },
+      preserveScroll: undefined,
     });
   });
 
@@ -214,4 +293,63 @@ it('exposes the application message and retry deadline for structured quota resp
   expect(error.message).toBe('Your draft is still editable.');
   expect(error.limit?.resource).toBe('ai');
   expect(error.limit?.retryAt).toBe('2099-01-01T00:00:00Z');
+});
+
+describe('action error messages', () => {
+  function errorFrom(body: BodyInit | null, init: ResponseInit) {
+    return createActionErrorFromResponse(new Response(body, init), '/users/1');
+  }
+
+  it('uses the message of a thrown HTTPException', async () => {
+    const response = new HTTPException(409, { message: 'That note was deleted.' }).getResponse();
+    const error = await createActionErrorFromResponse(response, '/notes');
+    expect(error.message).toBe('That note was deleted.');
+    expect(error.status).toBe(409);
+  });
+
+  it.each([
+    [403, 'Forbidden', 'Cross-origin page actions are not allowed.'],
+    [404, 'Not Found', 'User not found.'],
+    [409, 'Conflict', 'That email is already taken.'],
+    [422, 'Unprocessable Entity', 'The plan is archived.'],
+  ])('uses the plain-text body of a %i as the message', async (status, statusText, text) => {
+    const error = await errorFrom(text, { status, statusText });
+    expect(error.message).toBe(text);
+    expect(error.body).toBe(text);
+  });
+
+  it('keeps the status summary for an empty or blank body', async () => {
+    expect((await errorFrom(null, { status: 404, statusText: 'Not Found' })).message).toBe(
+      'Action failed with 404 Not Found',
+    );
+    expect((await errorFrom('  ', { status: 404, statusText: 'Not Found' })).message).toBe(
+      'Action failed with 404 Not Found',
+    );
+  });
+
+  it('keeps the status summary for a JSON or HTML body', async () => {
+    const json = await errorFrom(JSON.stringify({ error: 'Missing' }), {
+      status: 404,
+      statusText: 'Not Found',
+      headers: { 'content-type': 'application/json' },
+    });
+    expect(json.message).toBe('Action failed with 404 Not Found');
+    expect(json.body).toEqual({ error: 'Missing' });
+
+    const html = await errorFrom('<h1>Request Entity Too Large</h1>', {
+      status: 413,
+      statusText: 'Payload Too Large',
+      headers: { 'content-type': 'text/html' },
+    });
+    expect(html.message).toBe('Action failed with 413 Payload Too Large');
+  });
+
+  it('keeps the status summary for a server error', async () => {
+    const error = await errorFrom('relation "users" does not exist', {
+      status: 500,
+      statusText: 'Internal Server Error',
+    });
+    expect(error.message).toBe('Action failed with 500 Internal Server Error');
+    expect(error.body).toBe('relation "users" does not exist');
+  });
 });

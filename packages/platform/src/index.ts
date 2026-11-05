@@ -55,6 +55,7 @@ export {
   type PlatformDeploymentManifest,
   type PlatformDeploymentManifestInput,
   type PlatformResourceNames,
+  type PlatformRuntimeLogs,
 } from './manifest.ts';
 export {
   PLATFORM_DISABLED_KEY,

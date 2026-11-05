@@ -14,6 +14,7 @@ export function checkFormOptions(): void {
     { title: '' },
     {
       resetOnSuccess: true,
+      preserveScroll: false,
       onSuccess: async () => {},
       onError: async (error) => {
         if (error instanceof VoidActionError) {
@@ -53,4 +54,6 @@ export function checkFormOptions(): void {
   useForm('/__form-options/notes?create', { missing: '' }, { onSuccess: () => {} });
   // @ts-expect-error Success callbacks return void or a promise of void.
   useForm('/__form-options/notes?create', { title: '' }, { onSuccess: () => 123 });
+  // @ts-expect-error Scroll preservation must be a boolean.
+  useForm('/__form-options/notes?create', { title: '' }, { preserveScroll: 'yes' });
 }

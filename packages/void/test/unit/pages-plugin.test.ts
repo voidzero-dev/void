@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { normalizePath } from 'vite';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createPagesPlugin } from '../../src/pages/plugin.ts';
+import { createPagesPlugin, resolvePrefetchConfig } from '../../src/pages/plugin.ts';
 import { scanPages } from '../../src/pages/scan.ts';
 import type { PageScanResult } from '../../src/pages/types.ts';
 
@@ -135,5 +135,28 @@ describe('shared Pages plugin scan lifecycle', () => {
       'removed.tsx',
     );
     expect(scanPages).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('resolvePrefetchConfig', () => {
+  it('leaves Links without a prefetch prop off by default', () => {
+    expect(resolvePrefetchConfig(undefined)).toEqual({
+      defaultStrategy: false,
+      hoverDelay: 75,
+      cacheFor: '30s',
+    });
+  });
+
+  it.each([true, 'visible', ['hover', 'click'], []] as const)(
+    'accepts defaultStrategy %j',
+    (defaultStrategy) => {
+      expect(resolvePrefetchConfig({ defaultStrategy }).defaultStrategy).toEqual(defaultStrategy);
+    },
+  );
+
+  it.each(['hovr', ['hover', 'never'], 1])('rejects defaultStrategy %j', (defaultStrategy) => {
+    expect(() => resolvePrefetchConfig({ defaultStrategy: defaultStrategy as never })).toThrow(
+      /prefetch\.defaultStrategy: Invalid prefetch strategy/,
+    );
   });
 });

@@ -107,6 +107,15 @@ async function submitPost(form: TestForm) {
 }
 
 describe('useForm callbacks', () => {
+  it.each([true, false])('forwards preserveScroll: %s from useForm()', async (preserveScroll) => {
+    const visit = vi.fn(async () => ({}));
+    const { formRef } = await mountForm(visit, { preserveScroll });
+
+    await submitPost(formRef.current!);
+
+    expect(visit).toHaveBeenCalledWith(actionUrl, expect.objectContaining({ preserveScroll }));
+  });
+
   it('calls onSuccess once after a successful submit in Strict Mode', async () => {
     const onSuccess = vi.fn();
     const { formRef } = await mountForm(

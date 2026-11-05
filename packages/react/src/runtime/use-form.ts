@@ -17,34 +17,26 @@ import {
   parseFormResetArgs,
   submitAction,
   type FormResetOptions,
+  type FormState,
 } from 'void/pages-client';
 import type { ActionUrl, ResolveActionBody, ActionFormOptions } from 'void/routes';
 import { RouterContext } from './context.ts';
 
 type SubmitPayload = FormData | { method: string };
-type UntypedForm = {
-  data: Record<string, unknown>;
-  setData(field: string, value: unknown): void;
-  errors: Record<string, string>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(formData: FormData): void;
-  put(formData: FormData): void;
-  patch(formData: FormData): void;
-  delete(formData: FormData): void;
-  reset(options: FormResetOptions, ...fields: ReadonlyArray<string>): void;
-  reset(...fields: ReadonlyArray<string>): void;
-  setError(field: string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<string>): void;
-  clearError(): void;
-};
+// Submit methods are native form actions that take FormData.
+type FormReturn<TData> = FormState<TData, 'setters'> &
+  Readonly<{
+    setData: <K extends keyof TData & string>(field: K, value: TData[K]) => void;
+    post(formData: FormData): void;
+    put(formData: FormData): void;
+    patch(formData: FormData): void;
+    delete(formData: FormData): void;
+  }>;
 
 type FormOptions = {
   params?: Record<string, string>;
   resetOnSuccess?: boolean;
+  preserveScroll?: boolean;
   onSuccess?: () => void | Promise<void>;
   onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>;
 };
@@ -53,38 +45,14 @@ type FormOptions = {
 export function useForm<U extends ActionUrl & string>(
   url: U,
   defaults: ResolveActionBody<U>,
-  options?: ActionFormOptions<U> & Pick<FormOptions, 'onSuccess' | 'onError'>,
-): {
-  data: ResolveActionBody<U>;
-  setData: <K extends keyof ResolveActionBody<U> & string>(
-    field: K,
-    value: ResolveActionBody<U>[K],
-  ) => void;
-  errors: Partial<Record<keyof ResolveActionBody<U> & string, string>>;
-  error: VoidActionError | null;
-  pending: boolean;
-  hasChanges: boolean;
-  wasSuccessful: boolean;
-  recentlySuccessful: boolean;
-  post(formData: FormData): void;
-  put(formData: FormData): void;
-  patch(formData: FormData): void;
-  delete(formData: FormData): void;
-  reset(
-    options: FormResetOptions,
-    ...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>
-  ): void;
-  reset(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  setError(field: keyof ResolveActionBody<U> & string, message: string): void;
-  clearErrors(...fields: ReadonlyArray<keyof ResolveActionBody<U> & string>): void;
-  clearError(): void;
-};
+  options?: ActionFormOptions<U> & Pick<FormOptions, 'onSuccess' | 'onError' | 'preserveScroll'>,
+): FormReturn<ResolveActionBody<U>>;
 
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
   options?: FormOptions,
-): UntypedForm {
+): FormReturn<Record<string, unknown>> {
   const router = useContext(RouterContext);
   const [data, setDataState] = useState<Record<string, unknown>>(() => cloneFormValue(defaults));
   const [defaultsState, setDefaultsState] = useState<Record<string, unknown>>(() =>
@@ -180,6 +148,7 @@ export function useForm(
         result = await submitAction(router, interpolateRouteParams(url, options?.params), {
           method,
           data: { ...dataRef.current },
+          preserveScroll: options?.preserveScroll,
           _resolveOnShell: true,
         });
       } catch (submitError) {

@@ -1,6 +1,6 @@
 {
   "name": "void",
-  "version": "1.5.0",
+  "version": "1.6.2",
   "description": "Full-stack framework and deployment CLI for Cloudflare Workers, powered by Vite.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -372,6 +372,7 @@
     "drizzle-valibot": "^0.4.2",
     "drizzle-zod": "^0.8.3",
     "email-validator": "^2.0.4",
+    "gray-matter": "^4.0.3",
     "hono": "catalog:",
     "ignore": "catalog:",
     "jiti": "^2.7.0",

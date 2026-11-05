@@ -16,11 +16,13 @@ import {
   markActionKey,
   searchWithoutActionKey,
 } from '../pages/action-key.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { VoidAssetRewriteError } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
+import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
 export type RoutingRule = {
@@ -47,7 +49,7 @@ export type RoutingRuntime = {
   contextMiddleware: MiddlewareHandler;
   requestMiddleware: MiddlewareHandler;
   routingMiddleware: (rules: Array<RoutingRule>) => MiddlewareHandler;
-  headerMiddleware: (rules: Array<RoutingHeaderRule>) => MiddlewareHandler;
+  headerMiddleware: (rules: Array<RoutingHeaderRule>, phase?: 'auth-error') => MiddlewareHandler;
   applyFallback: (context: Context, rules: Array<RoutingRule>) => Promise<Response | undefined>;
   markNoMatch: (request: Request, response: Response) => Response;
 };
@@ -64,6 +66,12 @@ export function createRoutingRuntime(
 ): RoutingRuntime {
   const originalUrls = new WeakMap<Request, URL>();
   const fallbackHandled = new WeakSet<Request>();
+  // Outer requests a fallback answered. The fallback already applied the
+  // destination's header rules, as edge routing and platform dispatch do.
+  const fallbackServed = new WeakSet<Request>();
+  // Contexts whose inner header pass ran after next(). A handler that throws
+  // past it, such as notFound, leaves the context out.
+  const headerApplied = new WeakSet<Context>();
   const warnedPatterns = new Set<string>();
   const requestContext = new AsyncLocalStorage<RequestContextStore>();
   const assetExtensions = options.blockedAssetExtensions ?? ASSET_EXTENSIONS;
@@ -82,10 +90,19 @@ export function createRoutingRuntime(
       headers,
     });
   };
-  const dispatch = (request: Request, c: Context): Promise<Response> =>
-    Promise.resolve(
-      options.nodeTarget ? app.fetch(request, c.env) : app.fetch(request, c.env, c.executionCtx),
+  const dispatch = async (request: Request, c: Context, trace: string): Promise<Response> => {
+    const response = annotate(
+      await (options.nodeTarget
+        ? app.fetch(request, c.env)
+        : app.fetch(request, c.env, c.executionCtx)),
+      trace,
     );
+    if (authDependentRequests.has(request)) {
+      // The enclosing response may depend on auth even if middleware clones or replaces it.
+      authDependentRequests.add(c.req.raw);
+    }
+    return response;
+  };
   const rememberOriginal = (request: Request, c: Context): void => {
     originalUrls.set(request, originalUrls.get(c.req.raw) ?? new URL(c.req.url));
   };
@@ -135,11 +152,12 @@ export function createRoutingRuntime(
         keepActionKey(c.req.raw, request, search);
         if (fallback) {
           fallbackHandled.add(request);
+          fallbackServed.add(c.req.raw);
         }
-        const response = await dispatch(request, c);
         const kind = rule.force === true ? 'rewrite' : 'fallback';
-        return annotate(
-          response,
+        return dispatch(
+          request,
+          c,
           `${kind}[${rule.source}] -> ${destination} (${rule.origin || 'unknown'})`,
         );
       }
@@ -185,14 +203,15 @@ export function createRoutingRuntime(
       const request = new Request(url.toString(), c.req.raw);
       rememberOriginal(request, c);
       keepActionKey(c.req.raw, request, search);
-      return dispatch(request, c).then((response) =>
-        annotate(response, `c.rewrite -> ${path} (middleware)`),
-      );
+      return dispatch(request, c, `c.rewrite -> ${path} (middleware)`);
     };
     const redirect = context.redirect.bind(context);
     c.redirect = (destination, status) => {
       const location = toUrlString(destination);
-      if (location.startsWith('/') && !location.startsWith('//')) {
+      // A named action still places its key and keeps the page query. Every
+      // other code redirect sends the location it was given. routing.redirects
+      // merge the request query before they call this.
+      if (location.startsWith('/') && !location.startsWith('//') && hasActionKey(c.req.raw)) {
         return redirect(redirectLocation(c.req.raw, location, status), status);
       }
       return redirect(location, status);
@@ -229,8 +248,29 @@ export function createRoutingRuntime(
         }
       }
     },
-    headerMiddleware: (rules) => async (c, next) => {
+    headerMiddleware: (rules, phase) => async (c, next) => {
+      const authErrorsOnly = phase === 'auth-error';
       await next();
+      if (authErrorsOnly && (!c.error || headerApplied.has(c))) {
+        return;
+      }
+      if (!authErrorsOnly) {
+        headerApplied.add(c);
+      }
+      const protectCache = authErrorsOnly || authDependentRequests.has(c.req.raw);
+      if (protectCache) {
+        authDependentRequests.add(c.req.raw);
+        c.header('Cache-Control', 'no-store');
+        c.header('Pragma', 'no-cache');
+        for (const name of SHARED_CACHE_HEADERS) {
+          if (c.res.headers.has(name)) {
+            c.header(name, undefined);
+          }
+        }
+      }
+      if (fallbackServed.has(c.req.raw)) {
+        return;
+      }
       const pathname = new URL(c.req.url).pathname;
       const matched: Array<[string, string]> = [];
       for (const rule of rules) {
@@ -247,15 +287,31 @@ export function createRoutingRuntime(
       if (!matched.length) {
         return;
       }
-      const headers = new Headers(c.res.headers);
+      // The last match wins for each header name, Set-Cookie included.
+      const last = new Map<string, [string, string]>();
       for (const [name, value] of matched) {
-        headers.set(name, value);
+        last.set(name.toLowerCase(), [name, value]);
       }
-      c.res = new Response(c.res.body, {
-        headers,
-        status: c.res.status,
-        statusText: c.res.statusText,
-      });
+      const asset = isUnchangedStaticAsset(c);
+      for (const [key, [name, value]] of last) {
+        if (
+          protectCache &&
+          (key === 'cache-control' || key === 'pragma' || SHARED_CACHE_HEADERS.includes(key))
+        ) {
+          continue;
+        }
+        // A Set-Cookie rule adds its cookie and keeps the response's own cookies.
+        // After a rewrite the destination's pass may already have added it last.
+        if (key === 'set-cookie' && c.res.headers.getSetCookie().at(-1) === value) {
+          continue;
+        }
+        c.header(name, value, { append: key === 'set-cookie' });
+      }
+      if (asset) {
+        // A configured Cache-Control is the file's policy from here on, so auth
+        // still treats the response as a static file and only makes it private.
+        markStaticAsset(c, c.res);
+      }
     },
     applyFallback: (c, rules) =>
       fallbackHandled.has(c.req.raw) ? Promise.resolve(undefined) : applyRules(c, rules, true),

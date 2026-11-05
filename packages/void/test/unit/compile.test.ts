@@ -292,7 +292,9 @@ function installVoidWrappers(app: Hono): void {
 
 describe('c.redirect runtime wrapper', () => {
   it.each([
-    ['/new', '/new?x=1&y=2'],
+    ['/new', '/new'],
+    ['/new?tab=1', '/new?tab=1'],
+    ['https://example.com/next', 'https://example.com/next'],
     // A protocol-relative location is cross-origin, so the request query must not leak to it.
     ['//partner.example.com/landing', '//partner.example.com/landing'],
   ])('redirects to %s with Location %s', async (destination, location) => {
@@ -420,14 +422,14 @@ describe('c.rewrite runtime wrapper', () => {
         destination: '/fallback.html',
         status: 200,
         force: false,
-        origin: 'void.json#routing.fallbacks',
+        origin: 'void.config.ts#routing.fallbacks',
       },
       {
         source: '/docs/*',
         destination: '/rewrite-target',
         status: 200,
         force: true,
-        origin: 'void.json#routing.rewrites',
+        origin: 'void.config.ts#routing.rewrites',
       },
     ];
     const { always: preAsset, fallbacks: postAsset } = splitRedirectRulesByForce(allRules);
@@ -586,9 +588,9 @@ describe('c.rewrite runtime wrapper', () => {
       expect(caught).toBeInstanceOf(VoidAssetRewriteError);
       expect((caught as Error).name).toBe('VoidAssetRewriteError');
       expect((caught as Error).message).toContain(destination);
-      expect((caught as Error).message).toContain('routing.rewrites');
+      expect((caught as Error).message).toContain('`routing.rewrites` rule in void.config.ts');
       expect((caught as Error).message).toContain(
-        'https://void.dev/guide/edge/rewrites#runtime-rewrites-cannot-reach-static-assets',
+        'https://void.cloud/guide/edge/rewrites#runtime-rewrites-cannot-reach-static-assets',
       );
     },
   );
@@ -615,14 +617,14 @@ describe('default-target dev parity', () => {
       source: '/old',
       destination: '/new',
       status: 301,
-      origin: 'void.json#routing.redirects',
+      origin: 'void.config.ts#routing.redirects',
     },
     {
       source: '/rewrite',
       destination: '/new',
       status: 200,
       force: true,
-      origin: 'void.json#routing.rewrites',
+      origin: 'void.config.ts#routing.rewrites',
     },
   ];
   const headerRules = [{ pattern: '/*', headers: [['x-test', '1']] as Array<[string, string]> }];
@@ -632,7 +634,7 @@ describe('default-target dev parity', () => {
       destination: '/docs.html',
       status: 200,
       force: false,
-      origin: 'void.json#routing.fallbacks',
+      origin: 'void.config.ts#routing.fallbacks',
     },
   ];
 

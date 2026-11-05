@@ -199,6 +199,8 @@ import { routeUrl } from 'void/routes';
 
 :::
 
+With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps created with `void init` have on, `href` and the router methods below reject plain strings such as `"/user"` that don't match a route.
+
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
 ```tsx
@@ -252,16 +254,130 @@ You can also pass URL strings or `URL` instances to these router methods. See [T
 
 `router.visit()` updates the page in place for same-origin URLs. `http(s)` URLs on another origin get a full page load, and other schemes such as `javascript:` are rejected.
 
-For dynamic route params, use `useParams()` from the same adapter package:
+For dynamic route params, use `useParams()` from the same adapter package. Pass the page's URL pattern as the type argument to type the result:
 
 ```tsx
+// pages/posts/[id].tsx
 import { useParams } from '@void/react';
 
 export default function PostPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<'/posts/:id'>(); // { id: string }
   return <h1>Post {id}</h1>;
 }
 ```
+
+See [Page params](../type-safety.md#page-params) for how patterns are checked.
+
+### Active links
+
+`Link` marks the link to the current page with `aria-current="page"` and `data-void-active`. Use them to style navigation:
+
+```css
+nav a[data-void-active] {
+  font-weight: 600;
+}
+```
+
+A link is active only on its own path by default. Set `activeMatch="prefix"` to keep it active on nested pages:
+
+::: code-group
+
+```tsx [React]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+```vue [Vue]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" active-match="prefix">Users</Link>
+</nav>
+```
+
+```svelte [Svelte]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">Users</Link>
+</nav>
+```
+
+```tsx [Solid]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
+:::
+
+| Current URL     | `href="/users"` | `href="/users" activeMatch="prefix"` |
+| --------------- | --------------- | ------------------------------------ |
+| `/users`        | both attributes | both attributes                      |
+| `/users?page=2` | both attributes | both attributes                      |
+| `/users/42`     | none            | `data-void-active`                   |
+| `/users-admin`  | none            | none                                 |
+
+`aria-current="page"` marks only the exact page, so select `[aria-current="page"]` to style it differently from its section. A link to `/` is active only on the home page.
+
+A link without a query ignores the current query, as `/users?page=2` shows above. A link with a query is active only when the current URL has each of its params with the same value. The current URL can have other params, in any order, and a GET link's `data` counts as part of its query. Pagination links to other pages are not marked, while a filter tab stays active as you page through it:
+
+| Current URL                  | Link                           | Active          |
+| ---------------------------- | ------------------------------ | --------------- |
+| `/posts?page=2`              | `href="/posts?page=1"`         | none            |
+| `/posts?page=2`              | `href="/posts?page=2"`         | both attributes |
+| `/issues?status=open&page=2` | `href="/issues?status=open"`   | both attributes |
+| `/issues?status=open`        | `href="/issues?status=closed"` | none            |
+
+On nested pages, `activeMatch="prefix"` compares only the path, so `href="/reports?range=30d"` has `data-void-active` on `/reports/42`.
+
+Paths match the way pages are routed: letter case and trailing slashes count. The hash is ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value. Pass them yourself on a link that stands for a default value, such as an "All" tab at `/issues`, or a `?page=1` link when page 1 is `/posts`.
+
+### Pending links
+
+While a page loads, `Link` adds `data-void-pending` to every link to it. Use it to show that a click is being handled:
+
+```css
+a[data-void-pending] {
+  opacity: 0.6;
+  /* Skip visits that finish quickly, such as to a prefetched page */
+  transition: opacity 0.15s 0.1s;
+}
+```
+
+A link is pending only while its exact destination loads. The path, query and hash must all match, so a link to `/users?page=2` isn't pending while `/users?page=3` loads. A non-GET link, which renders a `<button>`, is pending while a request with its method to its `href` runs. `router.refresh()` reloads the current page, so links to it are pending during a refresh.
+
+A `data-void-pending` you pass to `Link` replaces the computed value. For a loading indicator that covers the whole page, use [`useNavigation()`](../../reference/api/pages.md).
+
+### Prefetching
+
+Add `prefetch` to a `Link` to load its page before the user clicks, so the visit doesn't wait for the server:
+
+```tsx
+<Link href="/dashboard" prefetch>
+  Dashboard
+</Link>
+```
+
+`prefetch` on its own loads the page on hover, keyboard focus, or touch. A `Link` can also prefetch on click, as soon as it renders, or once it stays in view, and `cacheFor` sets how long a prefetched page is reused. See [Prefetching](../../reference/api/pages.md#prefetching) for every option.
+
+To give every `Link` a prefetch strategy, set `prefetch.defaultStrategy` in the adapter plugin. A `Link` that sets its own `prefetch` keeps it:
+
+```ts
+// vite.config.ts
+voidReact({ prefetch: { defaultStrategy: 'hover' } });
+```
+
+Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page once it renders or stays in view, which adds up in long lists.
+
+`Link` doesn't prefetch while the browser reports that data saver is on or the connection is 2G, which only Chromium-based browsers report.
+
+Prefetching runs the destination's loader, so keep loaders free of side effects such as counting views.
 
 ## Scroll Restoration
 
@@ -269,6 +385,7 @@ Void manages scroll position for Pages automatically:
 
 - **Back/forward navigation and reloads** restore the saved scroll position.
 - **New navigation** scrolls to the top of the page.
+- **Actions and forms** keep scroll when updating the current page. Redirects follow normal navigation behavior.
 - **Hash links** (`/docs#api`) scroll to the target element. Same-page hash links (`#section`) skip the server fetch entirely.
 
 To keep the current scroll position, pass `preserveScroll: true`:

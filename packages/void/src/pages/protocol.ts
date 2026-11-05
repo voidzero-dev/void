@@ -72,7 +72,11 @@ type AssetTags = {
   devCss?: Array<DevCssAsset>;
   devCssNonce?: string;
 };
-type RenderPage = (pageObj: PageObject, assetTags: AssetTags) => Promise<PageRenderResult>;
+type RenderPage = (
+  pageObj: PageObject,
+  assetTags: AssetTags,
+  requestUrl: string,
+) => Promise<PageRenderResult>;
 type RenderPageWithMetadata = RenderPage & {
   preambleScript?: string;
 };
@@ -198,9 +202,10 @@ async function renderWithAssetTags(
   renderFn: RenderPage,
   pageObj: PageObject,
   assetTags: AssetTags,
+  requestUrl: string,
 ): Promise<PageRenderResult> {
   try {
-    return await renderFn(pageObj, assetTags);
+    return await renderFn(pageObj, assetTags, requestUrl);
   } catch (error) {
     attachRenderErrorAssetTags(error, assetTags);
   }
@@ -237,10 +242,11 @@ async function renderPageHtml(
   getAssetTags: GetAssetTags,
 ): Promise<{ html: PageRenderResult; assetTags: AssetTags }> {
   const assetTags = prepareAssetTags(await getAssetTags(c.req.raw, c.env, componentId));
+  // Keep the request origin in render context, rather than serialized navigation URLs.
   const html =
     renderMode === 'client'
       ? renderClientOnlyPage(pageObj, assetTags, renderFn)
-      : await renderWithAssetTags(renderFn, pageObj, assetTags);
+      : await renderWithAssetTags(renderFn, pageObj, assetTags, c.req.url);
   return { html, assetTags };
 }
 

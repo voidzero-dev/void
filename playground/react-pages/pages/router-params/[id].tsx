@@ -1,7 +1,7 @@
 import { Link, useParams, useRouter } from '@void/react';
 
 export default function RouterParamsDetail() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<'/router-params/:id'>();
   const router = useRouter();
 
   return (

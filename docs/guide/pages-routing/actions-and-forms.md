@@ -29,6 +29,8 @@ export const action = defineHandler.withValidator({
 | Nothing (void)        | Re-runs the loader, page re-renders with fresh props. |
 | `c.redirect('/path')` | Navigates to another page.                            |
 
+Middleware does not run again after the action. To change [shared data](./layouts.md#shared-data), update it in the action or redirect.
+
 ## Form
 
 Pair `Form` with `useForm` to submit values and display validation and action errors. Inputs stay editable when a submission fails.
@@ -196,7 +198,25 @@ const form = useForm(
 
 `onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
 
+If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
+
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
+
+### Scroll after submission
+
+Actions and forms keep the current scroll position when updating the page in place. Redirects and submissions that open another page scroll to the top, or to the destination's hash target.
+
+Pass `preserveScroll: false` to reset scroll after an in-place update, or `true` to keep it even after a redirect:
+
+```ts
+await action('/users/:id?update', {
+  params: { id: '42' },
+  data: { name: 'Alice' },
+  preserveScroll: false,
+});
+```
+
+In React, set `preserveScroll` in the third argument to `useForm()`. In Vue, Svelte, and Solid, pass it to the submit method, such as `form.post({ preserveScroll: false })`.
 
 ## Named Actions
 
@@ -270,7 +290,7 @@ if (!result.ok) {
 
 `action()` defaults to `POST`. Pass `data`, `params`, and `method` to set the body, route parameters, or HTTP method.
 
-A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`.
+A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`. `error.message` is the message of an [`HTTPException`](../../integrations/hono.md#utilities) with a `4xx` status, or the body of another plain-text `4xx` response. For other errors, it is a status summary such as `Action failed with 404 Not Found`.
 
 ## Validation Errors
 
@@ -279,6 +299,20 @@ A successful call returns `{ ok: true, pageData }`. Expected errors, such as val
 Expected errors such as `400`, `404`, `409`, `422`, and `429` stay with the form or action call. `useForm` stores them in `form.errors` or `form.error`; `action()` returns `{ ok: false, error }`.
 
 Authentication errors (`401`, `403`), server errors (`500`, `502`), and unexpected failures are thrown. Handle them with your framework's error boundary or error handling.
+
+Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
+
+```ts
+import { isVoidActionError } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+
+function describeError(error: unknown) {
+  if (isVoidActionError(error)) {
+    if (error.status === 401) return 'Please sign in again.';
+    if (error.status === 403) return error.message;
+  }
+  return 'Something went wrong.';
+}
+```
 
 Actions can throw `ValidationError` for custom validation logic:
 

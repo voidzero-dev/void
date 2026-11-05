@@ -26,6 +26,7 @@ import { createPlatformInstallPlan } from '../../src/cli/platform-plan.ts';
 import {
   listInstallationManifests,
   readInstallationRecoverySecrets,
+  readPendingInstallationSecrets,
 } from '../../src/cli/platform-registry.ts';
 import type { RunWrangler } from '../../src/cli/provision.ts';
 
@@ -99,6 +100,7 @@ async function createFakeCloudflare() {
   const r2 = new Map<string, string>();
   const named = new Map<string, Map<string, string>>();
   const commands: Array<{ args: CloudflareOperation; worker: string | null }> = [];
+  const secretUploads: Array<{ secrets: Record<string, string>; worker: string | null }> = [];
   let clock = Date.parse('2026-10-01T00:00:00.000Z');
   let failBlockedCreate: string | null = null;
   let failUpload: string | null = null;
@@ -147,6 +149,12 @@ async function createFakeCloudflare() {
   wrangler.run = async (args, opts) => {
     const worker = workerOf(args);
     commands.push({ args, worker });
+    if ('secretsFilePath' in args && args.secretsFilePath) {
+      secretUploads.push({
+        secrets: JSON.parse(readFileSync(args.secretsFilePath, 'utf8')),
+        worker,
+      });
+    }
     if (args.type === 'worker.deploy') {
       const base = `${opts.apiBaseUrl}/accounts/${opts.accountId}/workers/scripts/${worker}`;
       if (failBlockedCreate === worker) {
@@ -309,6 +317,7 @@ async function createFakeCloudflare() {
     },
     kv,
     planningClient,
+    secretUploads,
     replaceActiveVersion: (name: string) => {
       const worker = workers.get(name)!;
       const active = worker.versions.get(worker.deployments[0]!.versions[0]!.version_id)!;
@@ -725,6 +734,58 @@ it('enables traffic when resuming after the first Worker create was refused', as
   expect(stagedKeys(resumed.manifest, 1)).toEqual([...WORKER_KEYS].sort());
   expect(stagedKeys(resumed.manifest, 2)).toEqual([...WORKER_KEYS].sort());
   expect(workerStepKeys(resumed.manifest)).toContain('worker-cutover:2:committed');
+});
+
+it('sends a replaced runtime token to Workers an interrupted install already deployed', async () => {
+  const cloud = await createFakeCloudflare();
+  await expect(
+    runInstall(cloud, null, {
+      verifyHealth: async () => {
+        throw new Error('network unavailable');
+      },
+    }),
+  ).rejects.toThrow('network unavailable');
+  const interrupted = currentManifest();
+  expect(interrupted.status).toBe('failed');
+  const { apiWorker, proxyWorker } = interrupted.deployment.resources;
+  // What `install --resume` builds: only an explicit runtime token is an update.
+  const resumeSecrets = (manifest: PlatformInstallationManifest, cloudflareApiToken: string) =>
+    createPlatformInstallationSecrets({
+      ...installationSecrets(),
+      checkpoint: readPendingInstallationSecrets(manifest),
+      cloudflareApiToken,
+      githubClientId: '',
+      githubClientSecret: '',
+      r2AccessKeyId: '',
+      r2SecretAccessKey: '',
+      existingInstallation: true,
+      updateExistingWorkers: true,
+    });
+
+  // The first resume stops after the API Worker received the replacement.
+  cloud.failUpload(proxyWorker);
+  const firstResume = cloud.secretUploads.length;
+  await expect(
+    runInstall(cloud, interrupted, { secrets: resumeSecrets(interrupted, 'replacement-token') }),
+  ).rejects.toThrow('upload failed');
+  expect(
+    cloud.secretUploads.slice(firstResume).find((upload) => upload.worker === apiWorker)?.secrets,
+  ).toMatchObject({ CF_API_TOKEN: 'replacement-token' });
+  const stopped = currentManifest();
+  expect(readPendingInstallationSecrets(stopped)?.cloudflareApiToken).toBe('replacement-token');
+
+  // The next resume has no new token, yet still finishes the proxy update.
+  const secondResume = cloud.secretUploads.length;
+  const result = await runInstall(cloud, stopped, { secrets: resumeSecrets(stopped, '') });
+  expect(result.manifest.status).toBe('installed');
+  expect(
+    cloud.secretUploads.slice(secondResume).find((upload) => upload.worker === proxyWorker)
+      ?.secrets,
+  ).toEqual({ CF_API_TOKEN: 'replacement-token' });
+  expect(readInstallationRecoverySecrets(result.manifest)).toMatchObject({
+    cloudflareApiToken: 'replacement-token',
+  });
+  expect(readInstallationRecoverySecrets(result.manifest)?.workerSecretUpdatesJson).toBeUndefined();
 });
 
 it('retries a restored enabling generation with every Worker restaged', async () => {

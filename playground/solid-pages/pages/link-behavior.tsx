@@ -26,6 +26,17 @@ export default function LinkBehaviorPage(props: Props) {
     <div>
       <h1>{props.title}</h1>
       <p>
+        <Link href={props.absoluteUrl} data-testid="absolute-current-link">
+          Current page (absolute)
+        </Link>
+        <Link href={props.protocolRelativeUrl} data-testid="protocol-relative-current-link">
+          Current page (protocol-relative)
+        </Link>
+        <Link href="http://localhost/link-behavior" data-testid="external-localhost-link">
+          External localhost
+        </Link>
+      </p>
+      <p>
         <button
           data-testid="typed-visit"
           onClick={() =>
@@ -34,6 +45,12 @@ export default function LinkBehaviorPage(props: Props) {
         >
           Typed visit
         </button>
+      </p>
+
+      <p>
+        <Link href="?view=compact" data-testid="query-only-link">
+          Query-only link
+        </Link>
       </p>
 
       <p>
@@ -87,6 +104,12 @@ export default function LinkBehaviorPage(props: Props) {
       <p>
         <Link href="/users" data-testid="replace-link" replace>
           Replace with users
+        </Link>
+      </p>
+
+      <p>
+        <Link href="/link-behavior" method="post" data-testid="post-link">
+          Post to this page
         </Link>
       </p>
 

@@ -17,7 +17,9 @@ export default function VisitAwaitPage({ title }: Props) {
         type="button"
         onClick={async () => {
           window.__visitAwaitObserved = null;
-          await router.visit('/users');
+          await router.visit('/users', {
+            resolveOn: router.query.get('resolveOn') === 'commit' ? 'commit' : undefined,
+          });
           window.__visitAwaitObserved = document.querySelector('h1')?.textContent ?? '';
         }}
       >

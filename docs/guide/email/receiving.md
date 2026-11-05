@@ -78,7 +78,7 @@ export default defineEmail(async (message, env, ctx, info) => {
 });
 ```
 
-`replyEmail()` replies to the original sender with a threaded subject. You can override `subject`.
+`replyEmail()` replies to the original sender with a threaded subject. You can override `subject`. To reply after the handler returns, use [`sendEmail` with `threading`](./sending.md#reply-later).
 
 On a Void platform, the default sender is your project's shared address, or the address that received mail on your registered domain. Use that default for shared mail; `message.to` has the project prefix removed. Sender overrides must belong to your project.
 

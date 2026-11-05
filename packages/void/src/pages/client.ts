@@ -18,15 +18,34 @@ import {
   type VoidRouterAdapter as PageNavigationAdapter,
   type PrefetchOptions,
 } from './navigation-engine.ts';
+import type { LinkPrefetchValue } from './prefetch.ts';
 import { ISLAND_FRONTMATTER_ID } from './serialize.ts';
 import { isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
 export {
+  handleLinkClick,
+  linkActiveAttributes,
+  linkPendingAttributes,
+  linkPrefetchStrategies,
+  observeLinkVisible,
+  prefetchLink,
+  resolveLink,
+  type BaseLinkProps,
+  type LinkActiveAttributes,
+  type LinkActiveMatch,
+  type LinkNavigateEvent,
+  type LinkPendingAttributes,
+  type LinkPrefetchValue,
+  type LinkPrefetchStrategy,
+  type ResolvedLink,
+} from './link.ts';
+export {
   VoidActionError,
   categorizeActionError,
   isAbortError,
   isCallSiteActionError,
+  isVoidActionError,
 } from './action-result.ts';
 export type { ActionErrorHandlingScope, ActionResult } from './action-result.ts';
 export { submitIslandAction, type IslandActionResult } from './island-action.ts';
@@ -66,6 +85,8 @@ export type NavigationState = {
 
 export type VoidRouter = {
   _hoverDelay: number;
+  /** How Links without a `prefetch` prop prefetch. Absent during SSR. */
+  _prefetchDefaultStrategy?: LinkPrefetchValue;
   readonly url: URL;
   readonly path: string;
   readonly query: URLSearchParams;
@@ -100,8 +121,13 @@ function getUrlOrigin(): string {
   return typeof window === 'undefined' ? 'http://localhost' : window.location.origin;
 }
 
+/** Relative URLs such as `?page=2` resolve against the current page, as in an anchor. */
+function getUrlBase(): string {
+  return typeof window === 'undefined' ? 'http://localhost/' : getUrlOrigin() + currentUrl();
+}
+
 function toUrl(value: string | URL): URL {
-  return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlOrigin());
+  return value instanceof URL ? new URL(value.href) : new URL(value || '/', getUrlBase());
 }
 
 function normalizeUrl(value: RouteUrlInput): string {
@@ -153,8 +179,12 @@ export function createRouterFacade(
       return router._hoverDelay;
     },
 
+    get _prefetchDefaultStrategy() {
+      return router._prefetchDefaultStrategy;
+    },
+
     get url() {
-      return toUrl(getCurrentUrl());
+      return new URL(getCurrentUrl() || '/', router.url);
     },
 
     get path() {
@@ -191,11 +221,15 @@ export function createRouterFacade(
   };
 }
 
-export function createSsrRouter(url = '/', params: Record<string, string> = {}): VoidRouter {
+export function createSsrRouter(
+  url = '/',
+  params: Record<string, string> = {},
+  requestUrl?: string,
+): VoidRouter {
   const router = {
     _hoverDelay: 75,
     get url() {
-      return toUrl(url);
+      return new URL(url || '/', requestUrl ?? getUrlBase());
     },
     get path() {
       return this.url.pathname;
@@ -284,6 +318,7 @@ type HasParams<U extends string> = [ResolveActionParams<U>] extends [never] ? fa
 type ActionOptions<U extends string> = {
   data?: ResolveActionBody<U>;
   method?: ActionMethod;
+  preserveScroll?: boolean;
 } & (HasParams<U> extends true ? { params: ResolveActionParams<U> } : { params?: never });
 
 export type ActionClient = {
@@ -322,7 +357,12 @@ export function createActionClient(
       url,
       options?.params as Record<string, string> | undefined,
     );
-    return submitAction(_router, resolvedUrl, { method, data, ...defaults });
+    return submitAction(_router, resolvedUrl, {
+      method,
+      data,
+      preserveScroll: options?.preserveScroll,
+      ...defaults,
+    });
   }
 
   return { action, setActionRouter };
@@ -468,6 +508,7 @@ export async function createVoidRouter(config: VoidRouterConfig): Promise<{
 
   const router: VoidRouter = {
     _hoverDelay: engine._hoverDelay,
+    _prefetchDefaultStrategy: engine._prefetchDefaultStrategy,
 
     get url() {
       return toUrl(routeUrl);
@@ -593,4 +634,7 @@ export {
   scheduleFormRetry,
   type FormModel,
   type FormMethod,
+  type FormState,
+  type FormSubmitOptions,
+  type IslandFormState,
 } from './form-presentation.ts';

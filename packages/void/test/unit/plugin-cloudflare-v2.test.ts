@@ -12,7 +12,7 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getWorkerAssetsDir, readBuildOutput } from '@cloudflare/build-output-utils';
-import { createBuilder, normalizePath, preview, resolveConfig } from 'vite';
+import { createBuilder, createServer, normalizePath, preview, resolveConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {
@@ -170,7 +170,123 @@ describe('Cloudflare v2 compatibility', () => {
     const metadataPath = join(root, '.cloudflare/output/v0/void-containers.json');
     writeFileSync(metadataPath, JSON.stringify({ workerDirectory: '../outside' }));
     await expect(prepareCfBuildOutput(root)).rejects.toThrow('Invalid Void Container');
-  });
+    // Two real Vite builds take about four seconds, near the default timeout.
+  }, 15_000);
+
+  // The plugin does not support local Containers on Windows.
+  it.skipIf(process.platform === 'win32')(
+    'binds Container Durable Objects in the dev server and keeps their upload form in builds',
+    async () => {
+      const root = project();
+      writeFileSync(
+        join(root, 'worker.js'),
+        `export class Box {}
+export class Sandbox {}
+export class Plain {}
+export default {
+  fetch: (_, env) =>
+    Response.json(
+      Object.fromEntries(
+        ['BOX', 'SANDBOX', 'PLAIN', 'REMOTE', 'AUTHORED'].map((name) => [
+          name,
+          typeof env[name]?.getByName,
+        ]),
+      ),
+    ),
+};
+`,
+      );
+      writeFileSync(join(root, 'Dockerfile'), 'FROM scratch\n');
+      // The dev server prepares images at startup but starts no Container until one is
+      // used, so a stub lets this test run the real plugin and Miniflare without Docker.
+      // `docker build -f -` receives the Dockerfile on stdin. The stub reads it, because
+      // a stub that exits first makes that write fail with an uncaught EPIPE.
+      const docker = join(root, 'docker-stub');
+      writeFileSync(docker, '#!/bin/sh\nif [ "$1" = build ]; then cat >/dev/null; fi\nexit 0\n', {
+        mode: 0o755,
+      });
+      vi.stubEnv('WRANGLER_DOCKER_BIN', docker);
+      const plugins = () =>
+        cloudflare({
+          config: () => ({
+            name: 'container-app',
+            main: 'worker.js',
+            compatibility_date: '2026-02-24',
+            durable_objects: {
+              bindings: [
+                { name: 'BOX', class_name: 'Box' },
+                { name: 'SANDBOX', class_name: 'Sandbox' },
+                { name: 'PLAIN', class_name: 'Plain' },
+              ],
+            },
+            migrations: [{ tag: 'v1', new_sqlite_classes: ['Box', 'Sandbox', 'Plain'] }],
+            containers: [
+              { name: 'box', class_name: 'Box', image: 'docker.io/example/box:1' },
+              {
+                name: 'sandbox',
+                class_name: 'Sandbox',
+                scheduling_policy: 'durable_object',
+                images: { default: { dockerfile: join(root, 'Dockerfile') } },
+              },
+            ],
+            unsafe: {
+              bindings: [
+                // Another Worker's class, named like a local Container class.
+                {
+                  name: 'REMOTE',
+                  type: 'durable_object_namespace',
+                  class_name: 'Box',
+                  script_name: 'another-worker',
+                },
+                { name: 'AUTHORED', type: 'durable_object_namespace', class_name: 'Elsewhere' },
+              ],
+            },
+          }),
+          viteEnvironment: { name: 'ssr' },
+        });
+
+      const server = await createServer({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        server: { port: 0 },
+        plugins: plugins(),
+      });
+      try {
+        await server.listen();
+        const response = await fetch(server.resolvedUrls!.local[0]!);
+        expect(await response.json()).toEqual({
+          BOX: 'function',
+          SANDBOX: 'function',
+          PLAIN: 'function',
+          REMOTE: 'undefined',
+          AUTHORED: 'undefined',
+        });
+      } finally {
+        await server.close();
+      }
+
+      const builder = await createBuilder({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        plugins: plugins(),
+      });
+      await builder.buildApp();
+      expect((await readBuildOutput(root)).workers.default.config.env).toMatchObject({
+        BOX: { type: 'unsafe:durable_object_namespace', class_name: 'Box' },
+        SANDBOX: { type: 'unsafe:durable_object_namespace', class_name: 'Sandbox' },
+        PLAIN: { type: 'durable-object', worker: 'container-app', exportName: 'Plain' },
+        REMOTE: {
+          type: 'unsafe:durable_object_namespace',
+          class_name: 'Box',
+          script_name: 'another-worker',
+        },
+        AUTHORED: { type: 'unsafe:durable_object_namespace', class_name: 'Elsewhere' },
+      });
+    },
+    15_000,
+  );
 
   it('preserves resource identities, required secrets and compatibility settings', () => {
     const root = project();

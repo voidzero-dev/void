@@ -142,7 +142,7 @@ describe('generateRouteTypes', () => {
     expect(routeMap).toMatch(/output: .*health\.dev\.ts.* \| .*health\.prod\.ts/);
   });
 
-  it('skips routes with no methods', () => {
+  it('keeps default-export routes out of RouteMap but in RoutePathMap', () => {
     const scan = makeScan({
       routes: [
         {
@@ -157,8 +157,51 @@ describe('generateRouteTypes', () => {
     });
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const routeMap = dts.split('  interface RouteMap {')[1]!.split('\n  }')[0]!;
+    const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
 
-    expect(dts).not.toContain('/api/legacy');
+    expect(routeMap).not.toContain('/api/legacy');
+    expect(pathMap).toContain('"/api/legacy": never;');
+  });
+
+  it('lists page patterns and their params in PagePathMap, without HTTP routes', () => {
+    const page = (pattern: string, params: Array<string>, catchAll: boolean, file: string) => ({
+      ...pageRenderingDefaults,
+      pattern,
+      params,
+      catchAll,
+      componentPath: file,
+      serverPath: null,
+      methods: [],
+      componentId: file,
+    });
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/users/:id',
+          methods: ['GET'],
+          params: ['id'],
+          catchAll: false,
+          env: null,
+          filePath: 'api/users/[id].ts',
+        },
+      ],
+      pages: [
+        page('/about', [], false, 'about.tsx'),
+        page('/users/:id', ['id'], false, 'users/[id].tsx'),
+        page('/files/:path{.+}', ['path'], true, 'files/[...path].tsx'),
+        page('/wild/*', [], true, 'wild/[...].tsx'),
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void', '/project/pages');
+    const pageMap = dts.split('  export interface PagePathMap {')[1]!.split('  }')[0]!;
+
+    expect(pageMap).toContain('"/about": never;');
+    expect(pageMap).toContain('"/users/:id": "id";');
+    expect(pageMap).toContain('"/files/:path{.+}": "path";');
+    expect(pageMap).toContain('"/wild/*": "*";');
+    expect(pageMap).not.toContain('/api/users/:id');
   });
 
   it('handles dynamic params in patterns', () => {
@@ -221,6 +264,63 @@ describe('generateRouteTypes', () => {
     // The `(string & {})` trick is load-bearing: it keeps route-name
     // autocomplete while still accepting dynamic paths like `/users/${id}`.
     expect(moduleBlock).toContain('export type RewriteDestination = RouteName | (string & {});');
+  });
+
+  it('emits percent-encoded spellings only for fixed segments that need encoding', () => {
+    const route = (pattern: string, params: Array<string> = []) => ({
+      pattern,
+      methods: ['GET'],
+      params,
+      catchAll: false,
+      env: null,
+      filePath: `${pattern}.ts`,
+    });
+    const scan = makeScan({
+      routes: [
+        route('/café menu'),
+        route('/café/:id', ['id']),
+        route('/files/:path{.+}', ['path']),
+        route('/docs/*'),
+        route('/api/users/:id', ['id']),
+      ],
+    });
+
+    const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
+    const encoded = dts.split('  export interface EncodedRoutePathMap {')[1]!.split('  }')[0]!;
+
+    expect(encoded.trim().split('\n')).toEqual([
+      '"/café menu": "/caf%C3%A9%20menu";',
+      '    "/café/:id": "/caf%C3%A9/:id";',
+    ]);
+    expect(dts).toContain('type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  });
+
+  it('turns on typed route URLs only when routing.typedRoutes is set', () => {
+    const scan = makeScan({
+      routes: [
+        {
+          pattern: '/api/hello',
+          methods: ['GET'],
+          params: [],
+          catchAll: false,
+          env: null,
+          filePath: 'api/hello.ts',
+        },
+      ],
+    });
+    const typesConfig = (dts: string) =>
+      dts.split('  export interface RouteTypesConfig {')[1]!.split('  }')[0]!;
+
+    const off = generateRouteTypes(scan, '/project/routes', '/project/.void').dts;
+    const on = generateRouteTypes(scan, '/project/routes', '/project/.void', undefined, {
+      typedRoutes: true,
+    }).dts;
+
+    expect(typesConfig(off).trim()).toBe('');
+    expect(typesConfig(on).trim()).toBe('typedRoutes: true;');
+    expect(on.replace('    typedRoutes: true;\n', '')).toBe(off);
+    expect(off).toContain('export type RouteUrlInput = Href | URL | RouteDestination;');
+    expect(off).toContain('  ): RouteUrl;');
   });
 
   it('generates PageActionMap for pages with actions', () => {

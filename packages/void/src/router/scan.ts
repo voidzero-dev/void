@@ -14,6 +14,7 @@ import {
   type RouteDefinition,
   type RouteEnvironment,
 } from './parse-filename.ts';
+import { compareRouteSpecificity } from './route-order.ts';
 import { isWebSocketPatternFile, type WebSocketRouteDefinition } from './websocket.ts';
 
 export type ScanResult = {
@@ -45,27 +46,6 @@ function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefin
       };
     })
     .sort((a, b) => a.order - b.order);
-}
-
-// Order by specificity (static < dynamic param < catch-all, depth-first); Hono resolves overlap by registration order.
-function compareRouteSpecificity(a: RouteDefinition, b: RouteDefinition): number {
-  if (a.catchAll !== b.catchAll) {
-    return a.catchAll ? 1 : -1;
-  }
-  const aSegments = a.pattern.split('/');
-  const bSegments = b.pattern.split('/');
-  const shared = Math.min(aSegments.length, bSegments.length);
-  for (let i = 0; i < shared; i++) {
-    const aDynamic = aSegments[i].startsWith(':') || aSegments[i] === '*';
-    const bDynamic = bSegments[i].startsWith(':') || bSegments[i] === '*';
-    if (aDynamic !== bDynamic) {
-      return aDynamic ? 1 : -1;
-    }
-    if (aSegments[i] !== bSegments[i]) {
-      return aSegments[i].localeCompare(bSegments[i]);
-    }
-  }
-  return aSegments.length - bSegments.length;
 }
 
 /** Add pages and HTTP methods to the inventories already resolved for this application phase. */

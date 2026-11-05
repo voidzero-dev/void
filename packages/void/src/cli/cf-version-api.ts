@@ -17,7 +17,6 @@ import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
 import mime from 'mime';
 import { extname, join, relative } from 'pathslash';
-import { isGeneratedAssetHeaders } from '../asset-worker-bypass.ts';
 import type { CfBuildOutput } from './cf-build-output.ts';
 import { record as object } from './cf-config-migrate.ts';
 import { getVoidUserAgent } from './cf-user-agent.ts';
@@ -985,25 +984,18 @@ async function ensureContainerApplications(options: {
   }
 }
 
-/**
- * The `_headers` file a native build generated for its fingerprinted files.
- * This API takes it as a `_headers` module, as cf does on its JSON version
- * uploads. A user-authored `_headers` is not sent on this path.
- */
-function readGeneratedAssetHeaders(output: CfBuildOutput): string | undefined {
+function readAssetHeaders(output: CfBuildOutput): string | undefined {
   if (!output.assetsDirectory) {
     return undefined;
   }
-  let text: string;
   try {
-    text = readFileSync(join(getWorkerAssetsDir(output.directory), '_headers'), 'utf8');
+    return readFileSync(join(getWorkerAssetsDir(output.directory), '_headers'), 'utf8');
   } catch (cause) {
     if (cause instanceof Error && 'code' in cause && cause.code === 'ENOENT') {
       return undefined;
     }
     throw cause;
   }
-  return isGeneratedAssetHeaders(text) ? text : undefined;
 }
 
 async function uploadAssets(options: {
@@ -1019,16 +1011,7 @@ async function uploadAssets(options: {
   const directory = getWorkerAssetsDir(options.output.directory);
   const manifest: Record<string, { hash: string; size: number }> = {};
   const byHash = new Map<string, string>();
-  const ignored = ignore().add([
-    '/.assetsignore',
-    '/_headers',
-    '/_redirects',
-    '.DS_Store',
-    '.env',
-    '.env.*',
-    '.dev.vars',
-    '.dev.vars.*',
-  ]);
+  const ignored = ignore().add(['.DS_Store', '.env', '.env.*', '.dev.vars', '.dev.vars.*']);
   const ignorePath = join(directory, '.assetsignore');
   try {
     ignored.add(readFileSync(ignorePath, 'utf8'));
@@ -1037,6 +1020,7 @@ async function uploadAssets(options: {
       throw cause;
     }
   }
+  ignored.add(['/.assetsignore', '/_headers', '/_redirects']);
   for (const entry of readdirSync(directory, { recursive: true, withFileTypes: true })) {
     if (entry.isDirectory()) {
       continue;
@@ -1246,12 +1230,12 @@ export async function uploadPinnedCloudflareVersion(options: {
       ).toString('base64'),
     });
   }
-  const generatedHeaders = readGeneratedAssetHeaders(options.output);
-  if (generatedHeaders !== undefined) {
+  const assetHeaders = readAssetHeaders(options.output);
+  if (assetHeaders !== undefined) {
     modules.push({
       name: '_headers',
       content_type: 'text/plain',
-      content_base64: Buffer.from(generatedHeaders).toString('base64'),
+      content_base64: Buffer.from(assetHeaders).toString('base64'),
     });
   }
   await preflightWorkflowExports({

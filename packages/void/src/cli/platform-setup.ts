@@ -3,6 +3,7 @@ import { type CANCEL_SYMBOL, isCancel, log } from '@voidzero-dev/vite-plus-promp
 import { openBrowser } from './auth.ts';
 import { formatLink, pc } from './output.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
+import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
 
 type PlatformSetupPage = Readonly<{
@@ -244,11 +245,7 @@ export function formatPlatformSetupPlan(
   plan: PlatformInstallPlan,
   options: { managementToken?: boolean; managementAccess?: boolean } = {},
 ): string {
-  const writesDns = plan.actions.some(
-    (action) =>
-      (action.kind === 'zone' && action.action === 'create') ||
-      (action.kind === 'dns-record' && action.action !== 'reuse'),
-  );
+  const writesDns = planCreatesZone(plan) || planWritesDns(plan);
   const credentials = [
     ...(options.managementToken
       ? [
@@ -308,6 +305,7 @@ export type PlatformInstallCommandOptions = {
   appAccess?: PlatformDeploymentManifest['appAccess'];
   hyperdrive?: string;
   runtime: string;
+  runtimeLogs?: 'full' | 'minimal';
   resumeId?: string;
   yes: boolean;
 };
@@ -360,6 +358,7 @@ export function platformInstallCommandArguments(
   }
   flag('--dashboard-url', options.dashboardUrl ?? '');
   flag('--runtime', options.runtime);
+  flag('--runtime-logs', options.runtimeLogs ?? '');
   if (options.yes) {
     parts.push('--yes');
   }

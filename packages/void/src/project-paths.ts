@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
 import { isAbsolute, join, normalize } from 'pathslash';
-import { loadVoidConfig } from './config-loader.ts';
+import { getConfigFileName, loadVoidConfig, TYPED_CONFIG_FILE } from './config-loader.ts';
 import type { VoidConfig } from './config.ts';
 
 const SOURCE_CONVENTION_DIRECTORIES = [
@@ -50,9 +50,9 @@ export type ProjectPaths = {
   envFileCandidates: ReadonlyArray<string>;
 };
 
-export function validateSourceDir(value: string): string {
+export function validateSourceDir(value: string, configFile: string = TYPED_CONFIG_FILE): string {
   if (value.trim() !== value || value.length === 0) {
-    throw new Error('config: "sourceDir" in void.json must be a non-empty relative directory.');
+    throw new Error(`config: "sourceDir" in ${configFile} must be a non-empty relative directory.`);
   }
   if (
     value === '.' ||
@@ -63,24 +63,24 @@ export function validateSourceDir(value: string): string {
     isAbsolute(value)
   ) {
     throw new Error(
-      `config: "sourceDir" path '${value}' in void.json must be a relative directory.`,
+      `config: "sourceDir" path '${value}' in ${configFile} must be a relative directory.`,
     );
   }
   const normalized = normalize(value).replace(/\/+$/, '');
   if (normalized === '' || normalized === '.') {
     throw new Error(
-      `config: "sourceDir" path '${value}' in void.json must be a relative directory.`,
+      `config: "sourceDir" path '${value}' in ${configFile} must be a relative directory.`,
     );
   }
   return normalized;
 }
 
-function getSourceDir(config?: VoidConfig): string {
-  return config?.sourceDir ? validateSourceDir(config.sourceDir) : '';
+function getSourceDir(root: string, config?: VoidConfig): string {
+  return config?.sourceDir ? validateSourceDir(config.sourceDir, getConfigFileName(root)) : '';
 }
 
 export function resolveProjectPaths(root: string, config?: VoidConfig): ProjectPaths {
-  const sourceDir = getSourceDir(config);
+  const sourceDir = getSourceDir(root, config);
   const sourceRoot = sourceDir ? join(root, sourceDir) : root;
   const sourceRelative = (path: string) => (sourceDir ? `${sourceDir}/${path}` : path);
 
@@ -142,6 +142,6 @@ export function assertNoRootSourceConventionConflicts(paths: ProjectPaths): void
     return;
   }
   throw new Error(
-    `sourceDir: void.json sets "sourceDir": "${paths.sourceDir}", but convention path(s) also exist at the project root: ${conflicts.join(', ')}. Move them under "${paths.sourceDir}" or remove the root copy.`,
+    `sourceDir: ${getConfigFileName(paths.root)} sets "sourceDir": "${paths.sourceDir}", but convention path(s) also exist at the project root: ${conflicts.join(', ')}. Move them under "${paths.sourceDir}" or remove the root copy.`,
   );
 }

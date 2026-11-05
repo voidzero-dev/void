@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -31,7 +31,7 @@ describe('auth types prepare lifecycle', () => {
   it('writes auth.d.ts and updates tsconfig after prepare; removes both when auth.ts is gone', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-auth-prepare-'));
     roots.push(root);
-    mkdirSync(join(root, '.void'), { recursive: true });
+    writeFileSync(join(root, 'tsconfig.json'), '{ "extends": "./.void/tsconfig.json" }');
     writeFileSync(
       join(root, 'auth.ts'),
       'import type { VoidAuthConfig } from "void/auth";\nexport default {} satisfies VoidAuthConfig;\n',

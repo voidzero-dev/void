@@ -66,7 +66,9 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   const hasRouteTypes =
     scan.routes.length > 0 || (scan.websockets?.length ?? 0) > 0 || scan.pages.pages.length > 0;
   if (hasRouteTypes) {
-    const { dts } = generateRouteTypes(scan, paths.routesDir, outDir, paths.pagesDir);
+    const { dts } = generateRouteTypes(scan, paths.routesDir, outDir, paths.pagesDir, {
+      typedRoutes: config.routing?.typedRoutes,
+    });
     writeGeneratedFile(outDir, 'routes.d.ts', dts, written);
   } else {
     removeGeneratedFile(outDir, 'routes.d.ts', removed);
@@ -90,6 +92,11 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
     }
   } else {
     removeGeneratedFile(outDir, 'db.d.ts', removed);
+  }
+
+  // Vite follows the project's tsconfig extends chain when loading auth.ts.
+  if (ensureProjectTsconfig(root, hasRouteTypes, hasDbRuntime, schema != null, { paths })) {
+    written.push(join('.void', 'tsconfig.json'));
   }
 
   if (authEnabled) {
@@ -121,10 +128,6 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   } else {
     removeGeneratedFile(outDir, 'better-auth-schema.ts', removed);
     removeGeneratedFile(outDir, 'better-auth-db.ts', removed);
-  }
-
-  if (ensureProjectTsconfig(root, hasRouteTypes, hasDbRuntime, schema != null, { paths })) {
-    written.push(join('.void', 'tsconfig.json'));
   }
 
   return { written, removed };

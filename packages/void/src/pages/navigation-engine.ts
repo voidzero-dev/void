@@ -5,7 +5,7 @@ import { createActionErrorFromResponse, isAbortError } from './action-result.ts'
 import { initClientHead, applyClientHead } from './head-client.ts';
 import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
-import type { CacheForInput, CacheForResult } from './prefetch.ts';
+import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
@@ -43,6 +43,8 @@ type PageFetchOptions = RequestInit & { headers: Record<string, string> };
 
 type StaticPageDataResult = { pageData: PageData; resolvedDeferred: boolean };
 
+type NavigationCommitTarget = { fetchUrl: string; hash: string; method: string };
+
 export type VisitOptions = {
   method?: string;
   data?: unknown;
@@ -50,6 +52,8 @@ export type VisitOptions = {
   preserveState?: boolean;
   replace?: boolean;
   viewTransition?: boolean;
+  /** React navigation completion: page data readiness or UI commit (default). */
+  resolveOn?: 'data' | 'commit';
   /** @internal Used by React Actions to avoid waiting for a commit blocked by the action itself. */
   _resolveOnShell?: boolean;
   /** @internal Used by popstate handler to pass saved scroll position */
@@ -77,7 +81,7 @@ export type PageNavigationEngineConfig = {
   adapter: VoidRouterAdapter;
   components: Record<string, () => Promise<PageComponentModule>>;
   layoutTree: Record<string, Array<string>>;
-  routeMeta: Record<string, { island?: boolean }>;
+  routeMeta: Record<string, { island?: boolean; prerender?: boolean }>;
   /** Page id for a decoded pathname (see `decodePagePath`). */
   matchRoute(path: string): string | null;
   staticPageData?: boolean;
@@ -85,6 +89,8 @@ export type PageNavigationEngineConfig = {
   viewTransitions: boolean;
   prefetchHoverDelay: number;
   prefetchDefaultCacheFor: CacheForResult;
+  /** How Links without a `prefetch` prop prefetch. Defaults to `false`. */
+  prefetchDefaultStrategy?: LinkPrefetchValue;
   /** Reuse successful GET page shells on later visits, refreshing stale shells in the background. */
   cacheVisitedPageData?: boolean;
 };
@@ -112,6 +118,7 @@ export type PageNavigationResource = {
 
 export type PageNavigationEngine = {
   _hoverDelay: number;
+  _prefetchDefaultStrategy: LinkPrefetchValue;
   initialPageData: PageData;
   initialComponent: unknown;
   initialLayouts: Array<unknown>;
@@ -246,6 +253,7 @@ export async function createPageNavigationEngine(
     staticPageDataFastPath: STATIC_PAGE_DATA_FAST_PATH = STATIC_PAGE_DATA_ENABLED,
     prefetchHoverDelay: PREFETCH_HOVER_DELAY,
     prefetchDefaultCacheFor: PREFETCH_DEFAULT_CACHE_FOR,
+    prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY = false,
     cacheVisitedPageData: CACHE_VISITED_PAGE_DATA = false,
   } = config;
 
@@ -466,7 +474,12 @@ export async function createPageNavigationEngine(
   /** Route id for a non-island page that static page data can serve, or null. */
   function matchStaticPageId(fetchUrl: string): string | null {
     const matchedId = matchRoute(fetchUrl || window.location.pathname + window.location.search);
-    return matchedId && !routeMeta[matchedId]?.island && components[matchedId] ? matchedId : null;
+    return matchedId &&
+      !routeMeta[matchedId]?.island &&
+      routeMeta[matchedId]?.prerender !== false &&
+      components[matchedId]
+      ? matchedId
+      : null;
   }
 
   async function loadStaticPageDataFile(
@@ -613,7 +626,7 @@ export async function createPageNavigationEngine(
     method: string,
     options: VisitOptions,
     signal: AbortSignal,
-    commitTarget: { fetchUrl: string; hash: string },
+    commitTarget: NavigationCommitTarget,
     deferredRegistry: DeferredRegistry,
   ): Promise<PageNavigationResult | undefined> {
     // Page data only comes from this origin. Other http(s) URLs get a full page
@@ -725,6 +738,7 @@ export async function createPageNavigationEngine(
         url = fetchUrl + redirectUrl.hash;
         commitTarget.fetchUrl = fetchUrl;
         commitTarget.hash = redirectUrl.hash;
+        commitTarget.method = method;
       }
 
       if (response && method !== 'GET' && !response.ok) {
@@ -857,7 +871,7 @@ export async function createPageNavigationEngine(
   }
 
   function makeCommit(
-    commitTarget: { fetchUrl: string; hash: string },
+    commitTarget: NavigationCommitTarget,
     options: VisitOptions,
     shell: Promise<PageNavigationResult | undefined>,
     deferredRegistry: DeferredRegistry,
@@ -879,6 +893,12 @@ export async function createPageNavigationEngine(
       if (resourceId < _urlNavigationId) {
         return false;
       }
+      // Mutations that update the current page keep scroll. A redirect's GET
+      // response or an action that opens another page follows normal navigation.
+      const preserveScroll =
+        options.preserveScroll ??
+        (commitTarget.method !== 'GET' &&
+          commitTarget.fetchUrl === window.location.pathname + window.location.search);
       // Write history before anything else changes. Disposing the previous page and handing
       // over its Deferred values cannot be undone, so a failed write must find them untouched.
       // preserveState only controls component state; back/forward traversal already moved history.
@@ -948,7 +968,7 @@ export async function createPageNavigationEngine(
       scrollRestoration.commit();
 
       requestAnimationFrame(() => {
-        if (!options.preserveScroll) {
+        if (!preserveScroll) {
           restoreScroll(options._scrollPosition, commitTarget.hash);
         }
       });
@@ -984,6 +1004,7 @@ export async function createPageNavigationEngine(
 
   const engine: PageNavigationEngine = {
     _hoverDelay: PREFETCH_HOVER_DELAY,
+    _prefetchDefaultStrategy: PREFETCH_DEFAULT_STRATEGY,
     initialPageData,
     initialComponent,
     initialLayouts,
@@ -1047,7 +1068,7 @@ export async function createPageNavigationEngine(
 
       const controller = new AbortController();
       const deferredRegistry = new DeferredRegistry();
-      const commitTarget = { fetchUrl: effectiveFetchUrl, hash };
+      const commitTarget = { fetchUrl: effectiveFetchUrl, hash, method };
       const shell = loadNavigationShell(
         id,
         url,

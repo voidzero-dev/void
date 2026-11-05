@@ -1,3 +1,4 @@
+import { routeSegmentKind } from '../router/route-order.ts';
 import { resolveLayoutIds, toLayoutId } from './layout-resolution.ts';
 import type { PageScanResult } from './types.ts';
 
@@ -81,11 +82,18 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
     );
   }
 
-  // Route metadata (sparse — only island pages)
+  // Sparse route metadata: only flags that differ from the defaults.
   lines.push('const routeMeta = {');
   for (const page of scan.pages) {
+    const flags = [];
     if (page.island) {
-      lines.push(`  ${JSON.stringify(page.componentId)}: { island: true },`);
+      flags.push('island: true');
+    }
+    if (page.prerender === false) {
+      flags.push('prerender: false');
+    }
+    if (flags.length > 0) {
+      lines.push(`  ${JSON.stringify(page.componentId)}: { ${flags.join(', ')} },`);
     }
   }
   lines.push('};');
@@ -106,19 +114,19 @@ const REGEX_SYNTAX = '.*+?^${}()|[]\\';
 
 /** The capture group for `*`, `:name{.+}` and `:name`; other segments match as written. */
 function captureGroup(segment: string): string | undefined {
-  if (segment === '*') {
-    return '(.*)';
+  switch (routeSegmentKind(segment)) {
+    case 'rest':
+      return segment === '*' ? '(.*)' : '(.+)';
+    case 'param':
+      return '([^\\/]+)';
+    case 'static':
+      return undefined;
   }
-  if (segment.length < 2 || segment[0] !== ':') {
-    return undefined;
-  }
-  const name = segment.endsWith('{.+}') ? segment.slice(1, -4) : '';
-  return name && !name.includes('{') && !name.includes('}') ? '(.+)' : '([^\\/]+)';
 }
 
 /** Whether `patternToRegex` matches only the pattern's own text. */
 function isStaticPattern(pattern: string): boolean {
-  return pattern.split('/').every((segment) => captureGroup(segment) === undefined);
+  return pattern.split('/').every((segment) => routeSegmentKind(segment) === 'static');
 }
 
 /** The RegExp literal a page pattern matches with, the same on the client and the server. */

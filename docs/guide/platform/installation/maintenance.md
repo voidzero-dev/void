@@ -147,6 +147,19 @@ Let running rotations finish before you roll back. If an older proxy runs next t
 
 :::
 
+### Change runtime logs {#runtime-logs}
+
+Switch an installed platform between [full and minimal runtime logs](/guide/platform/installation/setup#runtime-logs) with an upgrade:
+
+```sh
+void platform upgrade [id] --runtime-logs minimal
+void platform upgrade [id] --runtime-logs full
+```
+
+Later upgrades keep the setting. The upgrade also changes Workers Logs on the projects' existing deployments. If that step fails, the upgrade still finishes and prints what to run next: `void platform repair [id]` after switching to minimal, or the same upgrade again after switching to full. Records stored before the change are not removed; they expire with Cloudflare's retention.
+
+While runtime logs are minimal, `void platform rollback` refuses a runtime that does not support the setting. Run `void platform upgrade [id] --runtime-logs full` first.
+
 ### Platform Workers changed outside Void {#workers-changed-outside-void}
 
 Use Void commands to manage the platform's Workers. If their configuration was changed in Cloudflare, or Void cannot identify the active version, maintenance asks you to approve replacing it. Preview the affected Workers with `--plan`.

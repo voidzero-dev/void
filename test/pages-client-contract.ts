@@ -1,4 +1,4 @@
-import type { Page } from 'playwright';
+import type { Page, Request } from 'playwright';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 
 type TestWindow = Window & {
@@ -98,6 +98,47 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
+  it('keeps action and form scroll in place, with resets for overrides and redirects', async ({
+    expect,
+  }) => {
+    const page = await newPage();
+    try {
+      await page.setViewportSize({ width: 1280, height: 800 });
+      await page.goto(BASE + '/scroll-restoration');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      const row = page.getByTestId('scroll-row-30');
+      for (const [button, preserved] of [
+        ['Update action', true],
+        ['Update form', true],
+        ['Reset action scroll', false],
+        ['Redirect action', false],
+      ] as const) {
+        await row.scrollIntoViewIfNeeded();
+        const before = await page.evaluate(() => window.scrollY);
+        expect(before).toBeGreaterThan(1000);
+        const request = page.getByTestId('scroll-request');
+        const previousRequest = await request.textContent();
+        await row.getByRole('button', { name: button, exact: true }).click();
+        // Use the browser timeout for the real action request and its UI commit.
+        await page.waitForFunction((previous) => {
+          const request = document.querySelector('[data-testid="scroll-request"]');
+          return request !== null && request.textContent !== previous;
+        }, previousRequest);
+        await page.waitForFunction(
+          (scrollY) => Math.abs(window.scrollY - scrollY) < 0.5,
+          preserved ? before : 0,
+        );
+      }
+      expect(page.url()).toBe(BASE + '/scroll-restoration?redirected=1');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('visits typed destinations', async ({ expect }) => {
     const page = await newPage();
     try {
@@ -111,6 +152,169 @@ export function registerSharedClientTests({
       expect(await page.textContent('body')).toContain('Bob');
       expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
     } finally {
+      await page.context().close();
+    }
+  });
+
+  it('keeps the current path for a query-only Link', async ({ expect }) => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.getByTestId('query-only-link').click();
+      await page.waitForURL(BASE + '/link-behavior?view=compact');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('Link matches absolute URLs consistently during SSR and hydration', async ({ expect }) => {
+    const page = await newPage();
+    const hydrationErrors: Array<string> = [];
+    page.on('console', (message) => {
+      if (/hydrat/i.test(message.text()) && ['warning', 'error'].includes(message.type())) {
+        hydrationErrors.push(message.text());
+      }
+    });
+    const links = (html = '') =>
+      page.evaluate((html) => {
+        const root = html ? new DOMParser().parseFromString(html, 'text/html') : document;
+        return [
+          'absolute-current-link',
+          'protocol-relative-current-link',
+          'external-localhost-link',
+          'query-only-link',
+        ].map((id) => {
+          const link = root.querySelector(`[data-testid="${id}"]`)!;
+          return [
+            link.getAttribute('href'),
+            link.getAttribute('aria-current'),
+            link.getAttribute('data-void-active'),
+          ];
+        });
+      }, html);
+    const expected = [
+      [`${BASE}/link-behavior`, 'page', ''],
+      [`//${new URL(BASE).host}/link-behavior`, 'page', ''],
+      ['http://localhost/link-behavior', null, null],
+      // A link with a query is current only once the URL has its params.
+      ['?view=compact', null, null],
+    ];
+    try {
+      const response = await page.goto(BASE + '/link-behavior');
+      const html = await response!.text();
+      expect(await links(html)).toEqual(expected);
+      await waitForHydration(page);
+      expect(await links()).toEqual(expected);
+      expect(hydrationErrors).toEqual([]);
+
+      // The request origin is render context; serialized navigation URLs stay relative.
+      const pageUrl = await page.evaluate(
+        () => JSON.parse(document.getElementById('__VOID_PAGE_DATA__')!.textContent!).url,
+      );
+      expect(pageUrl).toBe('/link-behavior');
+      await page.getByTestId('query-only-link').click();
+      await page.waitForURL(BASE + '/link-behavior?view=compact');
+      await page.waitForSelector('[data-testid="query-only-link"][aria-current="page"]');
+      expect(await links()).toEqual([...expected.slice(0, 3), ['?view=compact', 'page', '']]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('Link marks the link to the current page', async ({ expect }) => {
+    const page = await newPage();
+    // Users uses activeMatch="prefix" in every playground layout; Home matches exactly.
+    const state = (html: string, href: string) =>
+      page.evaluate(
+        ({ html, href }) => {
+          const root = html ? new DOMParser().parseFromString(html, 'text/html') : document;
+          const link = root.querySelector(`nav a[href="${href}"]`);
+          if (!link) {
+            throw new Error(`No nav link to ${href}`);
+          }
+          return [link.getAttribute('aria-current'), link.getAttribute('data-void-active')];
+        },
+        { html, href },
+      );
+    const navLinks = (html = '') => Promise.all([state(html, '/'), state(html, '/users')]);
+    try {
+      await page.goto(BASE + '/users');
+      const serverHtml = await (await page.request.get(BASE + '/users/1')).text();
+      expect(await navLinks(serverHtml)).toEqual([
+        [null, null],
+        [null, ''],
+      ]);
+
+      await waitForHydration(page);
+      expect(await navLinks()).toEqual([
+        [null, null],
+        ['page', ''],
+      ]);
+
+      await page.click('a[href="/users/1"]');
+      await page.waitForSelector('nav a[href="/users"][data-void-active]:not([aria-current])');
+      expect(await navLinks()).toEqual([
+        [null, null],
+        [null, ''],
+      ]);
+
+      await page.click('nav a[href="/"]');
+      await page.waitForSelector('nav a[href="/"][aria-current="page"]');
+      expect(await navLinks()).toEqual([
+        ['page', ''],
+        [null, null],
+      ]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('Link marks links to the page that is loading', async ({ expect }) => {
+    const page = await newPage();
+    // Holds the matching requests, keeping the visit in flight until release().
+    let release = () => {};
+    const hold = (matches: (request: Request) => boolean) => {
+      const released = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return page.route('**/*', async (route) => {
+        if (matches(route.request())) {
+          await released;
+        }
+        await route.continue();
+      });
+    };
+    const pending = (selector: string) =>
+      page.locator(selector).first().getAttribute('data-void-pending');
+    try {
+      // The home page prefetches /users as it renders; this page doesn't.
+      await page.goto(BASE + '/link-behavior');
+      await waitForHydration(page);
+
+      await hold((request) => request.method() === 'POST');
+      await page.click('[data-testid="post-link"]');
+      await page.waitForSelector('[data-testid="post-link"][data-void-pending]');
+      // A GET link to the same page isn't pending while it is submitting.
+      expect(await pending('[data-testid="absolute-current-link"]')).toBeNull();
+      release();
+      await page.waitForSelector('[data-testid="post-link"]:not([data-void-pending])');
+      await page.unrouteAll();
+
+      // Page data, prefetched or not, comes from a JSON request.
+      await hold((request) => request.headers().accept === 'application/json');
+      await page.click('nav a[href="/users"]');
+      await page.waitForSelector('nav a[href="/users"][data-void-pending]');
+      expect(await pending('nav a[href="/"]')).toBeNull();
+      release();
+      await page.waitForSelector('nav a[href="/users"][aria-current="page"]');
+      expect(await pending('nav a[href="/users"]')).toBeNull();
+    } finally {
+      release();
       await page.context().close();
     }
   });

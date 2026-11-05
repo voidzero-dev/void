@@ -49,6 +49,8 @@ export type RoutingConfig = {
   alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
   isr?: boolean;
+  /** Type-check URL strings in links, navigation, and rewrites against the app's routes. Omitted means off. */
+  typedRoutes?: boolean;
   revalidate?: number | Record<string, number>;
   revalidateQueryAllowlist?: Record<string, Array<string>>;
   prerender?: Array<string>;
@@ -425,7 +427,8 @@ export function validateConfig(config: unknown, source: string = CONFIG_FILE): V
     return validateConfigObject(config);
   } catch (error) {
     if (source !== CONFIG_FILE && error instanceof Error) {
-      throw new Error(error.message.replaceAll(CONFIG_FILE, source), { cause: error });
+      // No `cause`: Node would print its message too, which names the placeholder.
+      throw new Error(error.message.replaceAll(CONFIG_FILE, source));
     }
     throw error;
   }
@@ -448,7 +451,7 @@ function validateConfigObject(obj: unknown): VoidConfig {
     if (typeof obj.sourceDir !== 'string') {
       throw new Error(`config: "sourceDir" in ${CONFIG_FILE} must be a string.`);
     }
-    validateSourceDir(obj.sourceDir);
+    validateSourceDir(obj.sourceDir, CONFIG_FILE);
   }
 
   // Validate target
@@ -568,6 +571,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(
         `config: "routing.alwaysUseHttps" in ${CONFIG_FILE} requires target: "cloudflare". It is not available with target: "${obj.target}".`,
       );
+    }
+    if (routing.typedRoutes !== undefined && typeof routing.typedRoutes !== 'boolean') {
+      throw new Error(`config: "routing.typedRoutes" in ${CONFIG_FILE} must be a boolean.`);
     }
 
     // Validate routing.notFound
@@ -1167,7 +1173,7 @@ export function convertRedirectsConfig(
     return undefined;
   }
 
-  const origin = 'void.json#routing.redirects';
+  const origin = 'void.config.ts#routing.redirects';
   const rules: Array<DevRedirectRule> = [];
   for (const [rawSource, dest] of Object.entries(redirects)) {
     const parsed = parseHostPrefixedSource(rawSource);
@@ -1226,7 +1232,7 @@ function convertRewriteRules(
     return undefined;
   }
 
-  const origin = `void.json#routing.${field}`;
+  const origin = `void.config.ts#routing.${field}`;
   const rules: Array<DevRedirectRule> = [];
   for (const [rawSource, destination] of Object.entries(entries)) {
     const parsed = parseHostPrefixedSource(rawSource);

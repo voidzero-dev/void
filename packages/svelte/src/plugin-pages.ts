@@ -1,7 +1,14 @@
 import { readdirSync } from 'node:fs';
 import type { Plugin } from 'vite';
-import { createPagesPlugin, generateComponentManifest } from 'void/pages';
-import type { PageScanResult, StaticPageDataBuildOptions } from 'void/pages';
+import { createPagesPlugin, generateComponentManifest, resolvePrefetchConfig } from 'void/pages';
+import type {
+  PageScanResult,
+  PagesPluginOptions,
+  PrefetchConfig,
+  StaticPageDataBuildOptions,
+} from 'void/pages';
+
+export type { PrefetchConfig } from 'void/pages';
 
 const CLIENT_ENTRY_ID = 'virtual:void-pages-client';
 const SVELTE_OPTIMIZE_DEPS = {
@@ -10,17 +17,6 @@ const SVELTE_OPTIMIZE_DEPS = {
   exclude: ['@void/svelte'],
   // Pre-include Svelte so it's not discovered late via dynamic imports.
   include: ['svelte', 'svelte/store', 'svelte/internal', 'svelte/internal/client'],
-};
-
-export type PrefetchConfig = {
-  hoverDelay?: number;
-  cacheFor?: number | string | [string, string];
-};
-
-type PagesPluginOptions = {
-  root?: string;
-  viewTransitions?: boolean;
-  prefetch?: PrefetchConfig;
 };
 
 /** Check if the pages directory has any non-island Svelte page files. */
@@ -101,7 +97,7 @@ import { serializePageData } from "void/pages-server";
 
 ${generateComponentManifest(scan, pagesDir)}
 
-export async function renderPage(pageObj, assetTags) {
+export async function renderPage(pageObj, assetTags, requestUrl) {
   const PageComponent = (await components[pageObj.component]()).default;
   const layoutIds = layoutTree[pageObj.component] || [];
   const layoutComponents = await Promise.all(
@@ -115,7 +111,7 @@ export async function renderPage(pageObj, assetTags) {
       pageProps: pageObj.props,
       shared: pageObj.shared || {},
       params: pageObj.params || {},
-      router: createSsrRouter(pageObj.url || "/", pageObj.params || {}),
+      router: createSsrRouter(pageObj.url || "/", pageObj.params || {}, requestUrl),
       routeUrl: pageObj.url || "/",
       navigation: idleNavigationState(),
       stores: null,
@@ -147,6 +143,7 @@ function generateClientEntry(
   prefetch?: PrefetchConfig,
   staticPageData?: StaticPageDataBuildOptions,
 ): string {
+  const { defaultStrategy, hoverDelay, cacheFor } = resolvePrefetchConfig(prefetch);
   return `
 import { hydrate, mount, tick } from "svelte";
 import { writable } from "svelte/store";
@@ -190,8 +187,9 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
-    prefetchHoverDelay: ${prefetch?.hoverDelay ?? 75},
-    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(prefetch?.cacheFor ?? '30s')}),
+    prefetchHoverDelay: ${hoverDelay},
+    prefetchDefaultCacheFor: parseCacheFor(${JSON.stringify(cacheFor)}),
+    prefetchDefaultStrategy: ${JSON.stringify(defaultStrategy)},
     onRouteChange(url) {
       routeUrl = url;
       routeStore.set(url);

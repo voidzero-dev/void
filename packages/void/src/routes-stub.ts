@@ -1,15 +1,37 @@
 export { routeUrl } from './runtime/route-url.ts';
 export type {
+  Href,
   RoutePath,
   RouteOptions,
   RouteQuery,
   RouteQueryValue,
   RouteDestination,
+  RouteUrl,
   RouteUrlInput,
 } from './runtime/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
+
+/** Page URL patterns and their parameter names, augmented by .void/routes.d.ts. */
+export interface PagePathMap {}
+
+/** Union of the app's page URL patterns, such as `/users/:id`. */
+export type PagePath = keyof PagePathMap & string;
+
+/**
+ * Params a page receives: `{ id: string }` for `/users/:id`. An unnamed `[...]`
+ * catch-all has no param. A union of patterns gives a union of params.
+ */
+export type PageParams<P extends PagePath> = P extends PagePath
+  ? { [K in Exclude<PagePathMap[P], '*'> & string]: string }
+  : never;
+
+/** Percent-encoded spellings of patterns with encoded fixed segments, augmented by .void/routes.d.ts. */
+export interface EncodedRoutePathMap {}
+
+/** Route type options, augmented by .void/routes.d.ts when `routing.typedRoutes` is on. */
+export interface RouteTypesConfig {}
 
 /** Stub interface augmented by the generated .void/routes.d.ts */
 export interface RouteMap {}

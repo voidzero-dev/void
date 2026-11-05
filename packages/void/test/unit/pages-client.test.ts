@@ -1,9 +1,18 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
-import { createVoidRouter, ssrProxy, type VoidRouterConfig } from '../../src/pages/client.ts';
+import {
+  createRouterFacade,
+  createVoidRouter,
+  mergeDataIntoHref,
+  ssrProxy,
+  submitAction,
+  type VoidRouterConfig,
+} from '../../src/pages/client.ts';
+import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
+import type { PageDefinition } from '../../src/pages/types.ts';
 import {
   createPageMutationHandler,
   createRoutingRuntime,
@@ -119,6 +128,217 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  describe.each(['navigation', 'prefetch'] as const)('static page data during %s', (operation) => {
+    it.each([true, false, undefined])('respects prerender = %s', async (prerender) => {
+      stubClientGlobals();
+      const page: PageDefinition = {
+        componentId: 'blog/[slug]',
+        componentPath: 'blog/[slug].tsx',
+        pattern: '/blog/:slug',
+        params: ['slug'],
+        catchAll: false,
+        serverPath: 'blog/[slug].server.ts',
+        methods: ['loader'],
+        hasGetPrerenderPaths: true,
+        prerender,
+        prerenderMode: prerender === false ? 'disabled' : prerender === true ? 'force' : 'auto',
+        shouldPrerender: prerender !== false,
+        ssrMode: 'auto',
+        renderMode: 'server',
+      };
+      const source = generateComponentManifest(
+        { pages: [page], layouts: [], namedLayouts: [] },
+        '/project/pages',
+      );
+      const manifest = new Function(`${source}\nreturn { routeMeta, matchRoute };`)() as Pick<
+        VoidRouterConfig,
+        'routeMeta' | 'matchRoute'
+      >;
+      const url = '/blog/example';
+      const pageData = {
+        component: page.componentId,
+        props: { title: 'Example' },
+        url,
+        errors: null,
+      };
+      const fetchMock = vi.fn(async (input: string) => {
+        if (input === '/_void/pages/blog/example.json') {
+          return prerender === false
+            ? new Response(null, { status: 404 })
+            : Response.json(pageData);
+        }
+        return pageJson(pageData);
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      const applyUpdate = vi.fn();
+      const { router } = await createTestRouter({
+        ...manifest,
+        components: { home: loadComponent, [page.componentId]: loadComponent },
+        staticPageData: true,
+        staticPageDataFastPath: true,
+        adapter: { applyUpdate },
+      });
+      try {
+        if (operation === 'navigation') {
+          await router.visit(url);
+          expect(applyUpdate.mock.calls[0][0]).toMatchObject(pageData);
+        } else {
+          await expect(router.prefetch(url)).resolves.toEqual(pageData);
+        }
+        expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([
+          prerender === false ? url : '/_void/pages/blog/example.json',
+        ]);
+        if (prerender === false) {
+          expect(fetchMock).toHaveBeenCalledWith(
+            url,
+            expect.objectContaining({
+              headers: expect.objectContaining({
+                'X-VoidPages': 'true',
+                ...(operation === 'prefetch' ? { Purpose: 'prefetch' } : {}),
+              }),
+            }),
+          );
+        }
+      } finally {
+        router.flushAll();
+      }
+    });
+  });
+
+  it.each(['POST', 'PUT', 'PATCH', 'DELETE'])(
+    'preserves scroll for an in-place %s action',
+    async (method) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.scrollY = 1800;
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => pageJson({ component: 'home', props: {}, url: '/editor', errors: null })),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/editor?save', { method });
+
+      expect(window.scrollTo).not.toHaveBeenCalled();
+      expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', '/editor');
+    },
+  );
+
+  it.each([
+    ['/editor', false, undefined],
+    ['/destination', false, undefined],
+    ['/destination', false, false],
+    ['/destination', true, true],
+  ])(
+    'handles scroll for an action redirect to %s (preserved: %s, override: %s)',
+    async (destination, preserved, preserveScroll) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.scrollY = 1800;
+      const response = pageJson({ component: 'home', props: {}, url: destination, errors: null });
+      Object.defineProperties(response, {
+        redirected: { value: true },
+        url: { value: `http://localhost${destination}` },
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => response),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/editor?save', {
+        method: 'POST',
+        ...(preserveScroll === undefined ? {} : { preserveScroll }),
+      });
+
+      const writeHistory = destination === '/editor' ? history.replaceState : history.pushState;
+      expect(writeHistory).toHaveBeenCalledWith(expect.anything(), '', destination);
+      if (preserved) {
+        expect(window.scrollTo).not.toHaveBeenCalled();
+      } else {
+        expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+      }
+    },
+  );
+
+  it('scrolls to the fragment when an action redirects to an anchor', async () => {
+    const documentStub = stubClientGlobals();
+    window.location.pathname = '/editor';
+    const scrollIntoView = vi.fn();
+    const response = pageJson({ component: 'home', props: {}, url: '/destination', errors: null });
+    Object.defineProperties(response, {
+      redirected: { value: true },
+      url: { value: 'http://localhost/destination#details' },
+    });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => response),
+    );
+    const { router } = await createTestRouter();
+    vi.stubGlobal('document', {
+      ...documentStub,
+      getElementById: vi.fn((id: string) => (id === 'details' ? { scrollIntoView } : null)),
+    });
+
+    await submitAction(router, '/editor?save', { method: 'POST' });
+
+    expect(scrollIntoView).toHaveBeenCalledOnce();
+    expect(history.pushState).toHaveBeenCalledWith(expect.anything(), '', '/destination#details');
+  });
+
+  it.each([undefined, false])(
+    'resets action scroll with override %s when leaving the page',
+    async (preserveScroll) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      const response = pageJson({
+        component: 'home',
+        props: {},
+        url: '/destination',
+        errors: null,
+      });
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () => response),
+      );
+      const { router } = await createTestRouter();
+
+      await submitAction(router, '/destination?save', {
+        method: 'POST',
+        ...(preserveScroll === undefined ? {} : { preserveScroll }),
+      });
+
+      expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+    },
+  );
+
+  it('allows an in-place action to reset scroll explicitly', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/editor';
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => pageJson({ component: 'home', props: {}, url: '/editor', errors: null })),
+    );
+    const { router } = await createTestRouter();
+
+    await submitAction(router, '/editor?save', { method: 'POST', preserveScroll: false });
+
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+  });
+
+  it('exposes the default prefetch strategy to Links', async () => {
+    stubClientGlobals();
+    const { router } = await createTestRouter({ prefetchDefaultStrategy: ['hover', 'click'] });
+    expect(router._prefetchDefaultStrategy).toEqual(['hover', 'click']);
+    expect(createRouterFacade(router, () => '/')._prefetchDefaultStrategy).toEqual([
+      'hover',
+      'click',
+    ]);
+
+    const { router: plain } = await createTestRouter();
+    expect(plain._prefetchDefaultStrategy).toBe(false);
+  });
+
   it('uses the same typed destination for visits, prefetching and cache invalidation', async () => {
     stubClientGlobals();
     const pageData = { component: 'home', props: { title: 'Typed destination' } };
@@ -875,6 +1095,33 @@ describe('createVoidRouter', () => {
     expect(applyUpdate).not.toHaveBeenCalled();
     expect(matchRoute).not.toHaveBeenCalled();
     expect(documentStub.head.appendChild).not.toHaveBeenCalled();
+  });
+
+  it('resolves query-only visits against the current page', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/products';
+    window.location.search = '?sort=price';
+    const fetchMock = vi.fn(() => Promise.resolve(pageJson({ component: 'home', props: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter();
+
+    await router.visit('?page=2');
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/products?page=2', expect.anything());
+    expect(history.pushState).toHaveBeenLastCalledWith(expect.anything(), '', '/products?page=2');
+  });
+
+  it('keeps the current path when Link data is merged into a hash-only href', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/products';
+    const fetchMock = vi.fn(() => Promise.resolve(pageJson({ component: 'home', props: {} })));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter();
+
+    await router.visit(mergeDataIntoHref('#c', { x: 1 }));
+
+    expect(fetchMock).toHaveBeenLastCalledWith('/products?x=1', expect.anything());
+    expect(history.pushState).toHaveBeenLastCalledWith(expect.anything(), '', '/products?x=1#c');
   });
 
   it('keeps pending navigation state when an older visit aborts', async () => {
