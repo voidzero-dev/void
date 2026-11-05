@@ -127,6 +127,9 @@ Import these types from `void/routes`:
 | --------------------- | ------------------------------------------------------------------------------------------------- |
 | `RoutePathMap`        | Generated map of page, HTTP, and WebSocket route patterns to their parameter names.               |
 | `RoutePath`           | Union of the known route patterns in `RoutePathMap`.                                              |
+| `PagePathMap`         | Generated map of page patterns to their parameter names.                                          |
+| `PagePath`            | Union of the page patterns in `PagePathMap`; accepted by `useParams()`.                           |
+| `PageParams<P>`       | The params page `P` receives, such as `{ id: string }` for `/users/:id`.                          |
 | `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`.   |
 | `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
 | `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |

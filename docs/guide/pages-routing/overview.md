@@ -254,16 +254,19 @@ You can also pass URL strings or `URL` instances to these router methods. See [T
 
 `router.visit()` updates the page in place for same-origin URLs. `http(s)` URLs on another origin get a full page load, and other schemes such as `javascript:` are rejected.
 
-For dynamic route params, use `useParams()` from the same adapter package:
+For dynamic route params, use `useParams()` from the same adapter package. Pass the page's URL pattern as the type argument to type the result:
 
 ```tsx
+// pages/posts/[id].tsx
 import { useParams } from '@void/react';
 
 export default function PostPage() {
-  const { id } = useParams<{ id: string }>();
+  const { id } = useParams<'/posts/:id'>(); // { id: string }
   return <h1>Post {id}</h1>;
 }
 ```
+
+See [Page params](../type-safety.md#page-params) for how patterns are checked.
 
 ### Active links
 

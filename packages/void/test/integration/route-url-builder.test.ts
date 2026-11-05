@@ -137,6 +137,58 @@ const unknown: LinkProps['href'] = '/unknown';
 void [same, known, unknown];
 `;
 
+// Page params typed through each adapter's useParams<Pattern>().
+const useParamsCheck = `import type { PagePath } from 'void/routes';
+import { useParams as react } from ${adapterSource('react/src/runtime/use-params.ts')};
+import { useParams as vue } from ${adapterSource('vue/src/runtime/use-params.ts')};
+import { useParams as svelte } from ${adapterSource('svelte/src/runtime/use-params.ts')};
+import { useParams as solid } from ${adapterSource('solid/src/runtime/use-params.ts')};
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const pages: Array<PagePath> = ['/', '/about', '/users/:id', '/files/:path{.+}', '/wild/*'];
+// @ts-expect-error HTTP routes are not pages
+const api: PagePath = '/api/users/:id';
+void [pages, api];
+type Either = '/users/:id' | '/files/:path{.+}';
+${['react', 'vue', 'svelte', 'solid']
+  .map(
+    (useParams) => `{
+  const user = ${useParams}<'/users/:id'>();
+  const files = ${useParams}<'/files/:path{.+}'>();
+  const wild = ${useParams}<'/wild/*'>();
+  const about = ${useParams}<'/about'>();
+  const same: [
+    Same<typeof user, { id: string }>,
+    Same<typeof files, { path: string }>,
+    Same<typeof wild, {}>,
+    Same<typeof about, {}>,
+  ] = [true, true, true, true];
+  // @ts-expect-error misspelled params are rejected
+  void user.idd;
+  // @ts-expect-error static pages have no params
+  void about.id;
+  // @ts-expect-error unknown pages are rejected
+  ${useParams}<'/unknown'>();
+  // @ts-expect-error HTTP routes are not pages
+  ${useParams}<'/api/users/:id'>();
+  // A pattern union gives a union of params, not params from every pattern.
+  const either = ${useParams}<Either>();
+  const union: Same<typeof either, { id: string } | { path: string }> = true;
+  // @ts-expect-error a param of one pattern is not guaranteed
+  void either.id;
+  void union;
+  const untyped: Record<string, string> = ${useParams}();
+  const annotated: string = ${useParams}<{ slug: string }>().slug;
+  // Existing generic wrappers and ReturnType keep the record contract.
+  function wrapper<T extends Record<string, string>>(): T {
+    return ${useParams}<T>();
+  }
+  const derived: Same<ReturnType<typeof ${useParams}>, Record<string, string>> = true;
+  void [same, untyped, annotated, wrapper, derived];
+}
+`,
+  )
+  .join('')}`;
+
 async function createFixture({
   typedRoutes = false,
   extraFiles = {},
@@ -147,6 +199,7 @@ async function createFixture({
     'check-typed.ts': typedCheck,
     'check-links.ts': linkHrefCheck,
     'check-solid-link.ts': solidLinkHrefCheck,
+    'check-use-params.ts': useParamsCheck,
     'package.json': '{"type":"module"}',
     'routes/api/users/[id].ts':
       "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
@@ -287,6 +340,18 @@ describe('standalone routeUrl utility', () => {
     async (declarations) => {
       const root = await createFixture({ typedRoutes: true });
       expect(typecheck(root, declarations, ['check-typed.ts'])).toEqual({ output: '', status: 0 });
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
+    'types useParams<Pattern>() in every adapter through the %s declarations',
+    async (declarations) => {
+      const root = await createFixture();
+      expect(
+        typecheck(root, declarations, ['check-use-params.ts'], {
+          allowImportingTsExtensions: true,
+        }),
+      ).toEqual({ output: '', status: 0 });
     },
   );
 

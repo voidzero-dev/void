@@ -169,6 +169,29 @@ export function generateRouteTypes(
   }
   lines.push('  }');
   lines.push('');
+  lines.push('  export interface PagePathMap {');
+  // A .dev + .prod page pair shares one pattern and its params.
+  const pagePaths = new Map<string, Set<string>>();
+  for (const page of scan.pages.pages) {
+    const params = pagePaths.get(page.pattern) ?? new Set<string>();
+    for (const name of page.params) {
+      params.add(name);
+    }
+    if (page.pattern.split('/').includes('*')) {
+      params.add('*');
+    }
+    pagePaths.set(page.pattern, params);
+  }
+  for (const [pattern, params] of pagePaths) {
+    const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
+    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+  }
+  lines.push('  }');
+  lines.push('  export type PagePath = keyof PagePathMap & string;');
+  lines.push('  export type PageParams<P extends PagePath> = P extends PagePath');
+  lines.push('    ? { [K in Exclude<PagePathMap[P], "*"> & string]: string }');
+  lines.push('    : never;');
+  lines.push('');
   // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
   lines.push('  export interface EncodedRoutePathMap {');
   for (const pattern of paths.keys()) {
