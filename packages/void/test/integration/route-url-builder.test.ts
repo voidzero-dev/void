@@ -178,7 +178,12 @@ ${['react', 'vue', 'svelte', 'solid']
   void union;
   const untyped: Record<string, string> = ${useParams}();
   const annotated: string = ${useParams}<{ slug: string }>().slug;
-  void [same, untyped, annotated];
+  // Existing generic wrappers and ReturnType keep the record contract.
+  function wrapper<T extends Record<string, string>>(): T {
+    return ${useParams}<T>();
+  }
+  const derived: Same<ReturnType<typeof ${useParams}>, Record<string, string>> = true;
+  void [same, untyped, annotated, wrapper, derived];
 }
 `,
   )
