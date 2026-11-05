@@ -141,6 +141,9 @@ export async function generateWrapper(
         }),
       ],
       resolve: {
+        // Like bundleEntry: Worker conditions plus the build mode. A library build defaults to
+        // browser conditions, where `void/env` is the client variant that throws on a server key.
+        conditions: [...WORKER_CONDITIONS, 'production'],
         // Cron/queue scaffolds intentionally import their lightweight runtime helpers from the
         // public `void` entry. This focused build does not run voidPlugin(), so reproduce its
         // exact bare-import redirect here; otherwise Vite follows the plugin/CLI entry and pulls
