@@ -73,6 +73,29 @@ describe('handlePageGet', () => {
     { name: 'streamed HTML', spa: false, deferred: true, contentType: 'text/html; charset=utf-8' },
     { name: 'streamed NDJSON', spa: true, deferred: true, contentType: 'application/x-ndjson' },
   ])('$name cache negotiation', ({ spa, deferred, contentType }) => {
+    it('preserves negotiation when head varies metadata by language', async () => {
+      const app = new Hono<CloudEnv>();
+      app.get('/users', (c) =>
+        handlePageGet(
+          () => (deferred ? { users: defer(async () => []) } : { users: [] }),
+          (ctx) => {
+            ctx.header('Vary', 'Accept-Language');
+            return { title: ctx.req.header('Accept-Language') ?? 'en' };
+          },
+          c,
+          'users',
+          mockRenderFn,
+          mockGetAssetTags,
+        ),
+      );
+      const response = await app.request('/users', {
+        headers: { 'Accept-Language': 'de', ...(spa ? { 'x-voidpages': 'true' } : {}) },
+      });
+      await response.text();
+      expect(response.headers.get('Content-Type')).toBe(contentType);
+      expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages');
+    });
+
     it.each([
       { existing: undefined, expected: 'X-VoidPages' },
       { existing: 'Accept-Language', expected: 'Accept-Language, X-VoidPages' },
@@ -561,6 +584,33 @@ describe('handlePageGet', () => {
 });
 
 describe('handlePageMutation', () => {
+  it.each([false, true])(
+    'preserves negotiation when action page head varies metadata (spa=%s)',
+    async (spa) => {
+      const app = new Hono<CloudEnv>();
+      app.post('/users', (c) =>
+        handlePageMutation(
+          () => undefined,
+          () => ({ users: [] }),
+          (ctx) => {
+            ctx.header('Vary', 'Accept-Language');
+            return { title: ctx.req.header('Accept-Language') ?? 'en' };
+          },
+          c,
+          'users',
+          mockRenderFn,
+          mockGetAssetTags,
+        ),
+      );
+      const response = await app.request('/users', {
+        method: 'POST',
+        headers: { 'Accept-Language': 'de', ...(spa ? { 'x-voidpages': 'true' } : {}) },
+      });
+      await response.text();
+      expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages');
+    },
+  );
+
   it.each([false, true])('varies re-rendered action pages by X-VoidPages (spa=%s)', async (spa) => {
     const c = await createTestContext('POST', '/users', {
       headers: spa ? { 'x-voidpages': 'true' } : {},

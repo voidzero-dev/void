@@ -470,14 +470,14 @@ export async function handlePageGet(
 
   // Redirect/error responses from the loader are returned before rendering
   return runLoader(handler, c, async (props) => {
-    if (renderMode !== 'island') {
-      varyPagesResponse(c);
-    }
     // Read at render time so per-route middleware can set them before next()
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
     const pageHead = headFn ? headFn(c, props) : undefined;
     const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
     const head = resolveHead(configHead, middlewareHead, pageHead);
+    if (renderMode !== 'island') {
+      varyPagesResponse(c);
+    }
 
     const { immediateProps, deferredMap } = separateDeferred(props);
     const hasDeferred = Object.keys(deferredMap).length > 0;
@@ -658,8 +658,8 @@ export async function handlePageMutation(
   async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
     try {
       return await runLoader(getHandler, c, async (props) => {
-        varyPagesResponse(c);
         const pageObj = buildMutationPageObj(stripDeferred(props), errors);
+        varyPagesResponse(c);
         if (isPagesRequest(c)) {
           return pageJsonResponse(c, pageObj);
         }
