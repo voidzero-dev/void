@@ -162,8 +162,12 @@ const [navigation, setNavigation] = createSignal(idleNavigationState());
 // Pages and layouts keep the objects returned by useShared() and useParams()
 // across navigations, so update them in place.
 function replaceInPlace(target, next) {
-  for (const key of Object.keys(target)) delete target[key];
-  Object.assign(target, next || {});
+  const values = next || {};
+  // Keep unchanged keys so their reactive subscribers stay idle.
+  for (const key of Object.keys(target)) {
+    if (!Object.hasOwn(values, key)) delete target[key];
+  }
+  Object.assign(target, values);
 }
 
 function sameParams(a, b) {
