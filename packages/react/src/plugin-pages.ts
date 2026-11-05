@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { dirname, relative, resolve } from 'pathslash';
 import type { Plugin } from 'vite';
 import {
@@ -22,7 +23,8 @@ const WORKER_ENVIRONMENT_NAME = 'void_worker';
 const REACT_DEDUPE = ['react', 'react-dom'];
 const REACT_OPTIMIZE_DEPS = ['react', 'react/jsx-runtime', 'react/jsx-dev-runtime', 'react-dom'];
 const CLIENT_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'react-dom/client'];
-const WORKER_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'react-dom/server', 'void/live/client'];
+const WORKER_OPTIMIZE_DEPS = [...REACT_OPTIMIZE_DEPS, 'react-dom/server'];
+const NODE_MODULES_SEGMENT = /[\\/]node_modules[\\/]/;
 
 // SSR HTML bypasses transformIndexHtml, so @vitejs/plugin-react cannot inject
 // its Fast Refresh preamble. Without it, the dev client entry fails to load.
@@ -73,7 +75,10 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
             // from Vite's dep optimizer. void/pages-client and
             // void/pages-prefetch are reached only through virtual entries and
             // the excluded @void/react, so the scanner cannot see them.
-            include: [...CLIENT_OPTIMIZE_DEPS, 'void/pages-client', 'void/pages-prefetch'],
+            include: [
+              ...CLIENT_OPTIMIZE_DEPS,
+              ...installedDependencies(['void/pages-client', 'void/pages-prefetch']),
+            ],
           },
           ssr: {
             optimizeDeps: {
@@ -89,7 +94,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
                 // SSR is already rendering, the program reload can mix React
                 // and react-dom/server from different optimized-dep hashes.
                 entries: [pagesOptimizeEntries],
-                include: WORKER_OPTIMIZE_DEPS,
+                include: [...WORKER_OPTIMIZE_DEPS, ...installedDependencies(['void/live/client'])],
               },
             },
           },
@@ -115,6 +120,22 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
       };
     },
   });
+}
+
+/**
+ * Keeps the specifiers that resolve into `node_modules`. Vite serves a linked
+ * package, such as `void` in a workspace, as source unless
+ * `optimizeDeps.include` lists it. A listed linked package is pre-bundled into
+ * a cache keyed by the lockfile and config rather than the package's files, so
+ * dev would keep serving that copy after the package is rebuilt. A client built
+ * against the new exports then fails to load and never hydrates.
+ */
+export function installedDependencies(
+  specifiers: ReadonlyArray<string>,
+  resolveFile: (specifier: string) => string = (specifier) =>
+    fileURLToPath(import.meta.resolve(specifier)),
+): Array<string> {
+  return specifiers.filter((specifier) => NODE_MODULES_SEGMENT.test(resolveFile(specifier)));
 }
 
 function clientOptimizeEntries(
