@@ -121,6 +121,67 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 
+## Querying Authentication Tables
+
+When authentication is enabled, Void generates the Better Auth Drizzle schema in `.void/better-auth-schema.ts`.
+The generated file exports the core authentication tables:
+
+- `userTable`
+- `sessionTable`
+- `accountTable`
+- `verificationTable`
+
+Configured Better Auth plugins may also contribute additional tables.
+
+The generated file path and core table export names are documented integration points. You can import these exports directly rather than recreating the tables in your application.
+
+To import these tables into your application, add a TypeScript path alias to your root `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "paths": {
+      "@auth-schema": ["./.void/better-auth-schema.ts"]
+    }
+  }
+}
+```
+
+If your `tsconfig.json` already has a `paths` mapping, add `@auth-schema` to the existing mapping rather than replacing it.
+
+If your project extends `.void/tsconfig.json` and defines its own `paths`, make sure to retain any mappings from the generated configuration that your project uses, such as `@schema`.
+
+You can now import and query authentication tables:
+
+```ts
+import { userTable } from '@auth-schema';
+import { db, desc } from 'void/db';
+
+export function listUsers() {
+  return db.select().from(userTable).orderBy(desc(userTable.createdAt));
+}
+```
+
+You can also reference authentication tables when defining your own Drizzle tables:
+
+```ts
+import { userTable } from '@auth-schema';
+import { sqliteTable, text } from 'void/schema-d1';
+
+export const postTable = sqliteTable('post', {
+  id: text('id').primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => userTable.id, { onDelete: 'cascade' }),
+});
+```
+
+This example assumes the default text ID strategy. If you configure `advanced.database.generateId: 'serial'`, use an integer foreign-key column to match the generated user ID.
+
+The example above uses SQLite/D1. For PostgreSQL and MySQL, use the corresponding schema modules: `void/schema-pg` and `void/schema-mysql`.
+
+The generated schema is managed by Void. Do not edit `.void/better-auth-schema.ts` manually, as Void may regenerate it during its build or preparation process.
+
 ## Behavior
 
 Auth sessions use the same database as your app. Void creates `BETTER_AUTH_SECRET` on deploy if it is missing and reuses it on later deploys.
