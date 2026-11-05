@@ -123,9 +123,11 @@ export function linkPrefetchStrategies(
 /**
  * Marks a GET link to the current page. Pathnames compare the way the server
  * matches pages: case-sensitive, trailing slash significant, decoded like Hono's
- * getPath. The query and hash are ignored. `prefix` also matches nested pages by
- * whole segment, except for `/`, but only an exact match is `aria-current`.
- * Spread the result before the user's attributes so theirs win.
+ * getPath. A link with a query also needs each of its params, with the same value,
+ * in the current URL, which may have more params in any order. GET data counts as
+ * query, and the hash is ignored. `prefix` also matches nested pages by whole
+ * segment, except for `/`, comparing only the path, but only an exact match is
+ * `aria-current`. Spread the result before the user's attributes so theirs win.
  */
 export function linkActiveAttributes(
   router: VoidRouter | null | undefined,
@@ -145,7 +147,10 @@ export function linkActiveAttributes(
   const currentPath = decodePagePath(current.pathname);
   const linkPath = decodePagePath(target.pathname);
   if (linkPath === currentPath) {
-    return { 'aria-current': 'page', 'data-void-active': '' };
+    // A link that only changes the query, such as pagination, leads to another page.
+    return hasQueryParams(current.searchParams, target.searchParams)
+      ? { 'aria-current': 'page', 'data-void-active': '' }
+      : {};
   }
 
   if (match === 'prefix' && linkPath !== '/') {
@@ -160,9 +165,9 @@ export function linkActiveAttributes(
 
 /**
  * Marks a link while a visit to its destination is loading: the visit uses the link's
- * method and goes to its path, query and hash. Unlike active links, the query counts,
- * so `?page=2` isn't pending during a visit to `?page=3`. Every link to the destination
- * is marked, not only the one that was clicked.
+ * method and goes to its path, query and hash. Unlike active links, the whole query and
+ * the hash count, so `?tab=open` isn't pending during a visit to `?tab=open&page=2`.
+ * Every link to the destination is marked, not only the one that was clicked.
  * Spread the result before the user's attributes so theirs win.
  */
 export function linkPendingAttributes(
@@ -193,6 +198,16 @@ export function linkPendingAttributes(
   }
 
   return {};
+}
+
+/** Each of `params` has the same value in `current`. Extra params in `current` are allowed. */
+function hasQueryParams(current: URLSearchParams, params: URLSearchParams): boolean {
+  for (const [key, value] of params) {
+    if (!current.getAll(key).includes(value)) {
+      return false;
+    }
+  }
+  return true;
 }
 
 /** Resolves `href` against `base`, or returns `null` for a malformed or other-origin href. */

@@ -187,6 +187,7 @@ export function registerSharedClientTests({
           'absolute-current-link',
           'protocol-relative-current-link',
           'external-localhost-link',
+          'query-only-link',
         ].map((id) => {
           const link = root.querySelector(`[data-testid="${id}"]`)!;
           return [
@@ -200,6 +201,8 @@ export function registerSharedClientTests({
       [`${BASE}/link-behavior`, 'page', ''],
       [`//${new URL(BASE).host}/link-behavior`, 'page', ''],
       ['http://localhost/link-behavior', null, null],
+      // A link with a query is current only once the URL has its params.
+      ['?view=compact', null, null],
     ];
     try {
       const response = await page.goto(BASE + '/link-behavior');
@@ -216,7 +219,8 @@ export function registerSharedClientTests({
       expect(pageUrl).toBe('/link-behavior');
       await page.getByTestId('query-only-link').click();
       await page.waitForURL(BASE + '/link-behavior?view=compact');
-      expect(await links()).toEqual(expected);
+      await page.waitForSelector('[data-testid="query-only-link"][aria-current="page"]');
+      expect(await links()).toEqual([...expected.slice(0, 3), ['?view=compact', 'page', '']]);
     } finally {
       await page.context().close();
     }

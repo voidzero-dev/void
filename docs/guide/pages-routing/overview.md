@@ -322,7 +322,18 @@ A link is active only on its own path by default. Set `activeMatch="prefix"` to 
 
 `aria-current="page"` marks only the exact page, so select `[aria-current="page"]` to style it differently from its section. A link to `/` is active only on the home page.
 
-Paths match the way pages are routed: letter case and trailing slashes count, while the query string and hash are ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value.
+A link without a query ignores the current query, as `/users?page=2` shows above. A link with a query is active only when the current URL has each of its params with the same value. The current URL can have other params, in any order, and a GET link's `data` counts as part of its query. Pagination links to other pages are not marked, while a filter tab stays active as you page through it:
+
+| Current URL                  | Link                           | Active          |
+| ---------------------------- | ------------------------------ | --------------- |
+| `/posts?page=2`              | `href="/posts?page=1"`         | none            |
+| `/posts?page=2`              | `href="/posts?page=2"`         | both attributes |
+| `/issues?status=open&page=2` | `href="/issues?status=open"`   | both attributes |
+| `/issues?status=open`        | `href="/issues?status=closed"` | none            |
+
+On nested pages, `activeMatch="prefix"` compares only the path, so `href="/reports?range=30d"` has `data-void-active` on `/reports/42`.
+
+Paths match the way pages are routed: letter case and trailing slashes count. The hash is ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value. Pass them yourself on a link that stands for a default value, such as an "All" tab at `/issues`, or a `?page=1` link when page 1 is `/posts`.
 
 ### Pending links
 
