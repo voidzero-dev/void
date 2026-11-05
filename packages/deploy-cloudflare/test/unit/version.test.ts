@@ -2825,6 +2825,42 @@ describe('Cloudflare version activation', () => {
     expect(runWrangler.mock.calls.some(([args]) => args[0] === 'deploy')).toBe(false);
   });
 
+  it.each(['*.example.com/*', 'app.example.com/api/*'])(
+    'refuses a later deploy when %s has HTTP traffic but no probe URL',
+    async (pattern) => {
+      const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
+      const fetcher = vi.fn(async () => Response.json({ ready: true }));
+      await expect(
+        activateCloudflareVersion({
+          runWrangler,
+          verifyUploader: () => true,
+          workerName: 'my-worker',
+          workersDevSubdomain: 'example',
+          message: encodeCloudflareVersionMessage(
+            [],
+            triggersWith({
+              workers_dev: false,
+              preview_urls: false,
+              routes: [{ pattern }],
+            }),
+          ),
+          fetch: fetcher,
+        }),
+      ).resolves.toMatchObject({
+        ok: false,
+        reason: 'preview-unavailable',
+        versionId: NEXT,
+        workersDev: false,
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(
+        runWrangler.mock.calls.some(
+          ([args]) => (args[0] === 'versions' && args[1] === 'deploy') || args[0] === 'deploy',
+        ),
+      ).toBe(false);
+    },
+  );
+
   it('keeps refusing a workers.dev deploy that has no preview URL and no account subdomain', async () => {
     const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
     const fetcher = vi.fn(async () => Response.json({ ready: true }));

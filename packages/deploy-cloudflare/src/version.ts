@@ -1365,16 +1365,18 @@ async function activateCloudflareVersionWithSecretsFile(
         return stagingFailure;
       }
       stagedVersionOverride = true;
-    } else if (desiredTriggerConfig.workers_dev) {
+    } else if (desiredTriggerConfig.workers_dev || desiredTriggerConfig.routes.length > 0) {
+      // A non-empty route list still has HTTP traffic even when no pattern covers
+      // /__void/ready, such as `*.example.com/*` or `app.example.com/api/*`.
       return {
         ok: false,
         reason: 'preview-unavailable',
         versionId,
         previousVersionId: previous.versionId,
-        workersDev: true,
+        workersDev: desiredTriggerConfig.workers_dev,
       };
     }
-    // workers.dev is off and no route reaches this Worker, so there is no readiness URL.
+    // workers.dev is off and the route list is empty, so this Worker has no HTTP entry.
     // A first deploy already publishes that Worker without a probe. Activate this upload
     // the same way instead of stopping before traffic moves.
   }
