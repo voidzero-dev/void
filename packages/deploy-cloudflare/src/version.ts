@@ -1364,8 +1364,11 @@ async function activateCloudflareVersionWithSecretsFile(
     } else if (
       desiredTriggerConfig.workers_dev ||
       desiredTriggerConfig.routes.length > 0 ||
-      preserveRoutesRequested
+      preserveRoutesRequested ||
+      options.preserveTriggers ||
+      desiredTriggerConfig.preserve
     ) {
+      // Preserved triggers may still expose HTTP routes absent from the local configuration.
       return {
         ok: false,
         reason: 'preview-unavailable',

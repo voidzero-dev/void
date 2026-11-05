@@ -2895,6 +2895,56 @@ describe('Cloudflare version activation', () => {
     ).toBe(false);
   });
 
+  it.each(['handoff', 'continued handoff'] as const)(
+    'refuses an unprobed %s with explicit empty local routes and preserved live triggers',
+    async (kind) => {
+      const preserved = triggersWith({
+        preserve: true,
+        workers_dev: false,
+        preview_urls: false,
+        routes: [],
+        ...(kind === 'continued handoff' ? { preservePreviewUrls: true } : {}),
+      });
+      const previous = kind === 'handoff' ? customDomainTriggers('app.example.com') : preserved;
+      const runWrangler = runner({
+        upload: ok(`Worker Version ID: ${NEXT}`),
+        versions: ok(
+          JSON.stringify([
+            {
+              id: CURRENT,
+              number: 1,
+              annotations: { 'workers/message': encodeCloudflareVersionMessage([], previous) },
+            },
+          ]),
+        ),
+      });
+      const { preserve: _preserve, ...next } = preserved;
+      const fetcher = vi.fn(async () => Response.json({ ready: true }));
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        verifyUploader: () => true,
+        workerName: 'my-worker',
+        preserveTriggers: kind === 'handoff',
+        requireVersionMetadata: true,
+        message: encodeCloudflareVersionMessage([], next),
+        fetch: fetcher,
+      });
+      expect.soft(result).toMatchObject({
+        ok: false,
+        reason: 'preview-unavailable',
+        versionId: NEXT,
+        previousVersionId: CURRENT,
+      });
+      expect(fetcher).not.toHaveBeenCalled();
+      expect(
+        runWrangler.mock.calls.some(
+          ([args]) => (args[0] === 'versions' && args[1] === 'deploy') || args[0] === 'deploy',
+        ),
+      ).toBe(false);
+      expect(runWrangler.mock.calls.some(([args]) => args[0] === 'triggers')).toBe(false);
+    },
+  );
+
   it('keeps refusing a workers.dev deploy that has no preview URL and no account subdomain', async () => {
     const runWrangler = runner({ upload: ok(`Worker Version ID: ${NEXT}`) });
     const fetcher = vi.fn(async () => Response.json({ ready: true }));
