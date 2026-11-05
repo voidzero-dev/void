@@ -153,15 +153,21 @@ const [page, setPage] = createSignal({ component: null });
 const [pageProps, setPageProps] = createSignal({});
 const [layouts, setLayouts] = createSignal([]);
 const shared = createMutable({});
+const params = createMutable({});
 const [errors, setErrors] = createSignal({});
 const [routeUrl, setRouteUrl] = createSignal(window.location.pathname + window.location.search + window.location.hash);
 const [routeParams, setRouteParams] = createSignal({});
 const [navigation, setNavigation] = createSignal(idleNavigationState());
 
-// Keep the context object stable for layouts that call useShared() once.
-function replaceShared(next) {
-  for (const key of Object.keys(shared)) delete shared[key];
-  Object.assign(shared, next || {});
+// Pages and layouts keep the objects returned by useShared() and useParams()
+// across navigations, so update them in place.
+function replaceInPlace(target, next) {
+  const values = next || {};
+  // Keep unchanged keys so their reactive subscribers stay idle.
+  for (const key of Object.keys(target)) {
+    if (!Object.hasOwn(values, key)) delete target[key];
+  }
+  Object.assign(target, values);
 }
 
 function sameParams(a, b) {
@@ -177,18 +183,19 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       rejectDeferred(ref, error) { return { value: null, loading: false, error: new Error(error) }; },
       isLoading: (ref) => ref.loading,
       applyUpdate(pageData, comp, layoutComps, options) {
-        const params = pageData.params || {};
+        const nextParams = pageData.params || {};
         // Back/forward preserves state, but another route or another record
         // still needs a new page so useForm() targets that route and record.
         const current = page();
-        const keep = options?.preserveState && current.id === pageData.component && current.component === comp && sameParams(routeParams(), params);
+        const keep = options?.preserveState && current.id === pageData.component && current.component === comp && sameParams(routeParams(), nextParams);
         batch(() => {
           if (!keep) setPage({ component: comp, id: pageData.component });
           setPageProps(pageData.props);
           setLayouts(layoutComps);
-          replaceShared(pageData.shared);
+          replaceInPlace(shared, pageData.shared);
           setErrors(pageData.errors || {});
-          setRouteParams(params);
+          replaceInPlace(params, nextParams);
+          setRouteParams(nextParams);
         });
       },
       onDeferredUpdate(props) {
@@ -218,8 +225,9 @@ batch(() => {
   setPage({ component: initialComponent, id: initialPageData.component });
   setPageProps(initialPageData.props);
   setLayouts(initialLayouts);
-  replaceShared(initialPageData.shared);
+  replaceInPlace(shared, initialPageData.shared);
   setErrors(initialPageData.errors || {});
+  replaceInPlace(params, initialPageData.params);
   setRouteParams(initialPageData.params || {});
 });
 
@@ -254,7 +262,7 @@ function App() {
             value: reactiveRouter,
             get children() {
               return createComponent(ParamsContext.Provider, {
-                get value() { return routeParams(); },
+                value: params,
                 get children() {
                   return createComponent(NavigationContext.Provider, {
                     value: navigation,

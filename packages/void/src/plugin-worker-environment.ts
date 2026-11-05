@@ -212,7 +212,11 @@ export function createServerRuntimeOptimizerPlugin(
       }
       return {
         optimizeDeps: {
-          exclude: ['void'],
+          // `better-auth` keeps OAuth request state on a module-local ref. Prebundling an app
+          // import of `better-auth/api` while this excluded package loads `better-auth` from
+          // source gives the dev worker two copies, so `getOAuthState()` misses the state the
+          // runtime set. A production build already bundles one copy.
+          exclude: ['void', 'better-auth'],
           // Excluding void also skips converting its CommonJS dependencies, which workerd cannot
           // evaluate: an installed void/email fails with "exports is not defined".
           include: ['void > email-validator', ...DATABASE_DRIVER_DEPS[dialect]],

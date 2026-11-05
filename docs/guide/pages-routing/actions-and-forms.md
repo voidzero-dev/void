@@ -300,6 +300,20 @@ Expected errors such as `400`, `404`, `409`, `422`, and `429` stay with the form
 
 Authentication errors (`401`, `403`), server errors (`500`, `502`), and unexpected failures are thrown. Handle them with your framework's error boundary or error handling.
 
+Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
+
+```ts
+import { isVoidActionError } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+
+function describeError(error: unknown) {
+  if (isVoidActionError(error)) {
+    if (error.status === 401) return 'Please sign in again.';
+    if (error.status === 403) return error.message;
+  }
+  return 'Something went wrong.';
+}
+```
+
 Actions can throw `ValidationError` for custom validation logic:
 
 ```ts

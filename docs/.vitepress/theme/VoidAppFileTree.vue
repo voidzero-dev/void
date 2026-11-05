@@ -40,7 +40,7 @@ function buildItems(ext: string): Array<FileTreeItem> {
     { name: 'crons/', collapsed: true, children: [{ name: 'daily-cleanup.ts' }] },
     { name: 'queues/', collapsed: true, children: [{ name: 'email-sender.ts' }] },
     { name: 'vite.config.ts' },
-    { name: 'void.json' },
+    { name: 'void.config.ts' },
   ];
 }
 </script>

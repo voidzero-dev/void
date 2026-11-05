@@ -1497,28 +1497,50 @@ it(
   REAL_CF_TIMEOUT_MS,
 );
 
-it.each([
-  [
-    'Void-generated',
-    `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/a-12345678.js\n  Cache-Control: public, max-age=31536000, immutable\n`,
-  ],
-  ['user-authored', '/assets/*\n  X-Frame-Options: DENY\n'],
-  ['missing', undefined],
-] as const)(
-  'uploads only a Void-generated _headers file with pinned secrets (%s)',
-  async (_kind, headers) => {
+const authoredAssetHeaders =
+  '# Déploiement headers\n\n/assets/*\n  Cache-Control: public, max-age=31536000, immutable\n  X-Frame-Options: DENY\n';
+
+it.each(
+  (
+    [
+      [
+        'Void-generated',
+        `${GENERATED_ASSET_HEADERS_MARKER}\n/assets/a-12345678.js\n  Cache-Control: public, max-age=31536000, immutable\n`,
+      ],
+      ['user-authored', authoredAssetHeaders],
+      ['empty', ''],
+      ['custom ignore negation', authoredAssetHeaders],
+      ['missing', undefined],
+    ] as const
+  ).flatMap(([kind, headers]) =>
+    [false, true].map((workerFirst) => ({ kind, headers, workerFirst })),
+  ),
+)(
+  'uploads generated and user-authored _headers files with pinned secrets ($kind, worker-first=$workerFirst)',
+  async ({ kind, headers, workerFirst }) => {
+    const runWorkerFirst = workerFirst ? ['/**', '!/assets/*'] : undefined;
     const prepared = await output({
       secrets: { required: ['AUTH_SECRET'] },
       assets: {
         directory: '../client',
         binding: 'ASSETS',
         not_found_handling: 'none',
-        run_worker_first: ['/**', '!/assets/*'],
+        ...(runWorkerFirst === undefined ? {} : { run_worker_first: runWorkerFirst }),
       },
     });
     try {
       if (headers !== undefined) {
         writeFileSync(join(getWorkerAssetsDir(prepared.directory), '_headers'), headers);
+      }
+      if (kind === 'custom ignore negation') {
+        writeFileSync(
+          join(getWorkerAssetsDir(prepared.directory), '.assetsignore'),
+          'private.txt\n!/_headers\n!/_redirects\n!/.assetsignore\n',
+        );
+        writeFileSync(
+          join(getWorkerAssetsDir(prepared.directory), '_redirects'),
+          '/old /new 302\n',
+        );
       }
       await pinActiveWorkerSecrets({
         output: prepared,
@@ -1566,18 +1588,21 @@ it.each([
       const body = JSON.parse(posts.find(({ url }) => url.endsWith('/versions'))!.body);
       expect(body.assets).toEqual({
         jwt: 'asset-token',
-        config: { not_found_handling: 'none', run_worker_first: ['/**', '!/assets/*'] },
+        config: {
+          not_found_handling: 'none',
+          ...(runWorkerFirst === undefined ? {} : { run_worker_first: runWorkerFirst }),
+        },
       });
-      const modules = (body.modules as Array<{ name: string }>).filter(
-        ({ name }) => name === '_headers',
+      const modules = (body.modules as Array<{ name: string }>).filter(({ name }) =>
+        ['_headers', '_redirects', '.assetsignore'].includes(name),
       );
       expect(modules).toEqual(
-        _kind === 'Void-generated'
+        headers !== undefined
           ? [
               {
                 name: '_headers',
                 content_type: 'text/plain',
-                content_base64: Buffer.from(headers!).toString('base64'),
+                content_base64: Buffer.from(headers).toString('base64'),
               },
             ]
           : [],
@@ -1587,6 +1612,57 @@ it.each([
     }
   },
 );
+
+it('fails a pinned upload when prepared _headers cannot be read', async () => {
+  const prepared = await output({
+    secrets: { required: ['AUTH_SECRET'] },
+    assets: { directory: '../client', binding: 'ASSETS' },
+  });
+  try {
+    mkdirSync(join(getWorkerAssetsDir(prepared.directory), '_headers'));
+    await pinActiveWorkerSecrets({
+      output: prepared,
+      activeVersionId: '11111111-1111-4111-8111-111111111111',
+      bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+      requiredNames: ['AUTH_SECRET'],
+    });
+    const posts: Array<string> = [];
+    const server = createServer((request, response) => {
+      request.resume();
+      const url = request.url ?? '';
+      if (request.method === 'POST') {
+        posts.push(url);
+      }
+      response.writeHead(200, { 'Content-Type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          success: true,
+          errors: [],
+          result: url.endsWith('/assets-upload-session')
+            ? { jwt: 'asset-token', buckets: [] }
+            : {
+                id: '11111111-1111-4111-8111-111111111111',
+                bindings: [{ name: 'AUTH_SECRET', type: 'secret_text' }],
+              },
+        }),
+      );
+    });
+    await expect(
+      uploadPinnedCloudflareVersion({
+        output: prepared,
+        accountId: 'account-id',
+        apiBaseUrl: await listen(server),
+        workerName: 'void-test',
+        token: 'synthetic-token',
+        atomic: false,
+        verifyUploader: () => true,
+      }),
+    ).rejects.toMatchObject({ code: 'EISDIR' });
+    expect(posts.some((url) => url.endsWith('/versions'))).toBe(false);
+  } finally {
+    prepared.dispose();
+  }
+});
 
 it('uploads Worker limits, placement and cache with pinned secrets', async () => {
   const prepared = await output({

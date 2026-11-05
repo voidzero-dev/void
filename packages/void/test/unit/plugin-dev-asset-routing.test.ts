@@ -252,7 +252,7 @@ describe('voidPlugin dev asset routing', () => {
 
   it('converts void CommonJS dependencies only in environments that run in workerd', async () => {
     const workerdOptimizer = {
-      optimizeDeps: { exclude: ['void'], include: ['void > email-validator'] },
+      optimizeDeps: { exclude: ['void', 'better-auth'], include: ['void > email-validator'] },
     };
     const nodeOptimizer = { optimizeDeps: { exclude: ['void'] } };
     const cases = [
@@ -290,7 +290,7 @@ describe('voidPlugin dev asset routing', () => {
         `${createRoot.name} ${database}`,
       ).resolves.toEqual({
         optimizeDeps: drivers
-          ? { exclude: ['void'], include: ['void > email-validator', ...drivers] }
+          ? { exclude: ['void', 'better-auth'], include: ['void > email-validator', ...drivers] }
           : { exclude: ['void'] },
       });
     }

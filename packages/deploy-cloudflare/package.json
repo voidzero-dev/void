@@ -1,6 +1,6 @@
 {
   "name": "@void/deploy-cloudflare",
-  "version": "1.6.1",
+  "version": "1.6.2",
   "description": "Cloudflare deployment primitives for Void runtimes and deployment adapters.",
   "homepage": "https://void.cloud",
   "bugs": {

@@ -22,7 +22,7 @@ export class VoidAssetRewriteError extends Error {
   override name = 'VoidAssetRewriteError';
   constructor(destination: string) {
     super(
-      `c.rewrite() cannot re-dispatch to a static asset path (${JSON.stringify(destination)}). Runtime rewrites only reach routes and SSR entries inside the worker — static asset handlers run in front of the worker. To rewrite into an asset, use a static \`routing.rewrites\` rule in void.json or a \`200!\` entry in _redirects. See https://void.dev/guide/edge/rewrites#runtime-rewrites-cannot-reach-static-assets`,
+      `c.rewrite() cannot re-dispatch to a static asset path (${JSON.stringify(destination)}). Runtime rewrites only reach routes and SSR entries inside the worker — static asset handlers run in front of the worker. To rewrite into an asset, use a static \`routing.rewrites\` rule in void.config.ts or a \`200!\` entry in _redirects. See https://void.cloud/guide/edge/rewrites#runtime-rewrites-cannot-reach-static-assets`,
     );
   }
 }

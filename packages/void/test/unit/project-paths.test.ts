@@ -155,6 +155,48 @@ describe('project path resolution', () => {
     ).toThrow(/routes, db/);
   });
 
+  describe.each(['void.config.ts', 'void.json'] as const)('errors from %s', (file) => {
+    function writeConfigFile(config: Record<string, unknown>) {
+      const contents = JSON.stringify(config);
+      writeFileSync(
+        join(root, file),
+        file === 'void.json' ? contents : `export default ${contents};\n`,
+      );
+    }
+
+    it.each([
+      [' src', `config: "sourceDir" in ${file} must be a non-empty relative directory.`],
+      ['../src', `config: "sourceDir" path '../src' in ${file} must be a relative directory.`],
+      ['./', `config: "sourceDir" path './' in ${file} must be a relative directory.`],
+    ])('names the file when sourceDir is %j', (sourceDir, message) => {
+      writeConfigFile({ sourceDir });
+      expect(() => readProjectPaths(root)).toThrow(message);
+      expect(() => readConfig(root)).toThrow(message);
+    });
+
+    it('names the file when source conventions conflict', () => {
+      writeConfigFile({ sourceDir: 'src' });
+      mkdirSync(join(root, 'routes'), { recursive: true });
+      mkdirSync(join(root, 'src', 'routes'), { recursive: true });
+
+      expect(() => assertNoRootSourceConventionConflicts(readProjectPaths(root))).toThrow(
+        `sourceDir: ${file} sets "sourceDir": "src"`,
+      );
+    });
+  });
+
+  it('names void.config.ts when no config file exists', () => {
+    mkdirSync(join(root, 'routes'), { recursive: true });
+    mkdirSync(join(root, 'src', 'routes'), { recursive: true });
+
+    expect(() => resolveProjectPaths(root, { sourceDir: '../src' })).toThrow(
+      `config: "sourceDir" path '../src' in void.config.ts must be a relative directory.`,
+    );
+    expect(() =>
+      assertNoRootSourceConventionConflicts(resolveProjectPaths(root, { sourceDir: 'src' })),
+    ).toThrow('sourceDir: void.config.ts sets "sourceDir": "src"');
+  });
+
   it('does not treat project-root config and public files as source conflicts', () => {
     writeConfig({ sourceDir: 'src' });
     mkdirSync(join(root, 'public'), { recursive: true });

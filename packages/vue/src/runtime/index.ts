@@ -7,4 +7,5 @@ export { useForm } from './use-form.ts';
 export { useNavigation } from './use-navigation.ts';
 export { useIslandForm } from './use-island-form.ts';
 export { action, setActionRouter } from './action.ts';
+export { isCallSiteActionError, isVoidActionError, type VoidActionError } from 'void/pages-client';
 export type { DeferredState as Deferred, InferProps } from 'void';
