@@ -1,6 +1,14 @@
 import { execFileSync } from 'node:child_process';
 import { once } from 'node:events';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
@@ -342,6 +350,117 @@ export default defineScheduled(async () => {});
     } finally {
       await killChild(server.child);
       child = undefined;
+    }
+  });
+});
+
+describe('playground/astro build', () => {
+  // Astro embeds a local variable whose name occurs in a module that reads Vite's env object as a
+  // whole. Each name occurs in `void/env`: STRIPE_KEY in its documentation, the others in its code.
+  const LOCAL_ENV = {
+    STRIPE_KEY: 'sk_local_stripe_canary',
+    registry: 'sk_local_registry_canary',
+    getClientEnvValues: 'sk_local_function_canary',
+  };
+  const ORIGIN = 'https://build.example.com';
+  const DEFINED = 'https://define.example.com';
+  let playground: IsolatedPlayground;
+  const astro = () => join(playground.root, 'node_modules/astro/bin/astro.mjs');
+  const env = () => ({
+    ...process.env,
+    ASTRO_DISABLE_UPDATE_CHECK: 'true',
+    ASTRO_PREVIEW_BACKGROUND: 'false',
+    VOID_INSPECTOR_PORT: 'false',
+  });
+
+  beforeAll(() => {
+    playground = createIsolatedPlayground(ROOT, PLAYGROUND);
+    const root = playground.root;
+    writeFileSync(
+      join(root, '.env'),
+      Object.entries(LOCAL_ENV)
+        .map(([name, value]) => `${name}=${value}\n`)
+        .join(''),
+    );
+    // Astro's own prefix is PUBLIC_, so the build has VITE_ values only when the app adds it.
+    // Vite also puts each define of an `import.meta.env.*` key in the env object, over its value.
+    const config = readFileSync(join(root, 'astro.config.mjs'), 'utf8');
+    expect(config).toContain('vite: {');
+    writeFileSync(
+      join(root, 'astro.config.mjs'),
+      config.replace(
+        'vite: {',
+        `vite: {
+    envPrefix: ['PUBLIC_', 'VITE_'],
+    define: {
+      'import.meta.env.VITE_DEFINED': ${JSON.stringify(JSON.stringify(DEFINED))},
+      'import.meta.env.VITE_OVERRIDDEN': ${JSON.stringify(JSON.stringify(DEFINED))},
+    },`,
+      ),
+    );
+    mkdirSync(join(root, 'src/pages/api'), { recursive: true });
+    writeFileSync(
+      join(root, 'src/pages/api/env.ts'),
+      `import { env } from 'void/env';
+
+export const prerender = false;
+
+export const GET = () =>
+  Response.json({
+    stripeKey: env.STRIPE_KEY,
+    origin: env.VITE_ORIGIN,
+    defined: env.VITE_DEFINED,
+    overridden: env.VITE_OVERRIDDEN,
+  });
+`,
+    );
+    execFileSync(process.execPath, [astro(), 'build'], {
+      cwd: root,
+      stdio: 'pipe',
+      env: { ...env(), VITE_ORIGIN: ORIGIN, VITE_OVERRIDDEN: ORIGIN },
+    });
+  });
+
+  afterAll(() => {
+    playground?.cleanup();
+  });
+
+  it('keeps .env values out of the build output', () => {
+    const dist = join(playground.root, 'dist');
+    // Local development reads .dev.vars, and a deploy leaves it out of the upload.
+    const files = readdirSync(dist, { recursive: true, encoding: 'utf8' }).filter(
+      (file) => !file.endsWith('.dev.vars') && statSync(join(dist, file)).isFile(),
+    );
+    expect(files.some((file) => file.endsWith('.mjs'))).toBe(true);
+    const found = files.flatMap((file) => {
+      const content = readFileSync(join(dist, file), 'utf8');
+      return Object.entries(LOCAL_ENV)
+        .filter(([, value]) => content.includes(value))
+        .map(([name]) => `${name} in ${file}`);
+    });
+    expect(found).toEqual([]);
+  });
+
+  it('serves .env values from the Worker env and public values as Vite defines them', async () => {
+    const server = await startServer(
+      (port) =>
+        spawn(
+          process.execPath,
+          [astro(), 'preview', '--host', '127.0.0.1', '--port', String(port)],
+          { cwd: playground.root, stdio: ['ignore', 'pipe', 'pipe'], env: env() },
+        ),
+      20_000,
+    );
+    try {
+      const response = await fetch(`${server.base}/api/env`);
+      expect(await response.json(), server.output().slice(-4000)).toEqual({
+        stripeKey: LOCAL_ENV.STRIPE_KEY,
+        origin: ORIGIN,
+        defined: DEFINED,
+        overridden: DEFINED,
+      });
+    } finally {
+      await killChild(server.child);
     }
   });
 });

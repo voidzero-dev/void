@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
+import MagicString from 'magic-string';
 import { dirname } from 'pathslash';
-import { defaultServerConditions, type Plugin } from 'vite';
+import { defaultServerConditions, normalizePath, type Plugin } from 'vite';
 import { type ApplicationAnalysis } from './application-analysis.ts';
 import {
   ensureWranglerCompat,
@@ -34,14 +35,24 @@ import {
   createBareVoidRedirectPlugin,
   createCloudflareBuiltinsExternalPlugin,
 } from './plugin-worker-environment.ts';
+import { isClientEnvKey } from './shared/env.ts';
 import { injectSvelteKitBuildHooks, injectSvelteKitHooks } from './sveltekit-hooks-transform.ts';
 
 const handlerFile = fileURLToPath(import.meta.resolve('#self/handler'));
 const envModuleFile = fileURLToPath(import.meta.resolve('#self/_env'));
+const envPublicFile = normalizePath(fileURLToPath(import.meta.resolve('#self/env')));
 // Packages Void depends on are installed for code in this directory.
 const voidDir = dirname(fileURLToPath(import.meta.url));
 
 const ASTRO_SERVER_ENTRY = '@astrojs/cloudflare/entrypoints/server';
+
+/** A define value as Vite writes it into code: a string is code, anything else is JSON. */
+function defineValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
 const ASTRO_SCOPED_SERVER_ENTRY = '\0void:astro-server-entry';
 
 export function createFrameworkPlugins(input: {
@@ -310,6 +321,58 @@ export default {
         }
       : undefined;
 
+  // Astro's env plugin gives a server module that reads `import.meta.env` as a whole every local
+  // variable whose name occurs anywhere in that module, identifiers and comments included.
+  // `void/env` reads the object that way to pick the public `VITE_*` values, so before Astro sees
+  // the module, a build replaces the read with those values, as Vite's define would.
+  let astroBuildEnv: Record<string, unknown> = {};
+  const astroPublicEnvPlugin: Plugin | undefined =
+    detected.name === 'astro'
+      ? {
+          name: 'void:astro-public-env',
+          apply: 'build',
+          enforce: 'pre',
+          configResolved(resolvedConfig) {
+            // Keep the shared object: Void's env plugin removes `.env` client values from it in
+            // its own configResolved hook, and Vite runs those hooks concurrently.
+            astroBuildEnv = resolvedConfig.env;
+          },
+          transform: {
+            filter: { id: /env-public\.mjs$/ },
+            handler(code, id) {
+              if (normalizePath(id) !== envPublicFile || this.environment?.name === 'client') {
+                return;
+              }
+              // Build the object as Vite's define does: the env values, then each define of an
+              // `import.meta.env.*` key, which wins and keeps its value as code.
+              const values: Record<string, unknown> = {};
+              for (const [key, value] of Object.entries(astroBuildEnv)) {
+                if (isClientEnvKey(key)) {
+                  values[key] = JSON.stringify(value);
+                }
+              }
+              for (const [key, value] of Object.entries(this.environment.config.define ?? {})) {
+                const name = key.slice('import.meta.env.'.length);
+                if (key.startsWith('import.meta.env.') && isClientEnvKey(name)) {
+                  values[name] = value;
+                }
+              }
+              const object = `{${Object.keys(values)
+                .sort()
+                .map((key) => `${JSON.stringify(key)}: ${defineValue(values[key])}`)
+                .join(', ')}}`;
+              const ms = new MagicString(code);
+              for (const match of code.matchAll(/\bimport\.meta\.env\b/g)) {
+                ms.overwrite(match.index, match.index + match[0].length, `(${object})`);
+              }
+              return ms.hasChanged()
+                ? { code: ms.toString(), map: ms.generateMap({ hires: true }) }
+                : undefined;
+            },
+          },
+        }
+      : undefined;
+
   // SvelteKit builds its server in Vite's Node `ssr` environment, and the adapter's Worker runs
   // that output as it is. For PostgreSQL and MySQL, void/db's driver then fails in workerd: pg
   // loads pg-cloudflare's Node stub, and CommonJS requires of Node built-ins become
@@ -389,6 +452,7 @@ export default {
     wranglerSyncPlugin,
     ...(nuxtVite8WebSocketCompatPlugin ? [nuxtVite8WebSocketCompatPlugin] : []),
     ...(astroServerEntryPlugin ? [astroServerEntryPlugin] : []),
+    ...(astroPublicEnvPlugin ? [astroPublicEnvPlugin] : []),
     svelteKitHooksInjectPlugin,
     ...(svelteKitWorkerBuildPlugin ? [svelteKitWorkerBuildPlugin] : []),
     ...(svelteKitD1CasingBuildPlugin ? [svelteKitD1CasingBuildPlugin] : []),
