@@ -355,13 +355,16 @@ export default defineScheduled(async () => {});
 });
 
 describe('playground/astro build', () => {
-  // Astro embeds a local variable whose name occurs in a module that reads Vite's env object as a
-  // whole. Each name occurs in `void/env`: STRIPE_KEY in its documentation, the others in its code.
+  // Astro copies a private value (from .env or the build shell) into a module that reads Vite's env
+  // object as a whole and has the variable's name anywhere in its text. Each name occurs in
+  // `void/env`: STRIPE_KEY in its documentation, the others in its code.
   const LOCAL_ENV = {
     STRIPE_KEY: 'sk_local_stripe_canary',
     registry: 'sk_local_registry_canary',
     getClientEnvValues: 'sk_local_function_canary',
   };
+  // Set only in the build shell, as a CI secret would be.
+  const SHELL_ENV = { validatedCache: 'sk_shell_cache_canary' };
   const ORIGIN = 'https://build.example.com';
   const DEFINED = 'https://define.example.com';
   let playground: IsolatedPlayground;
@@ -417,7 +420,7 @@ export const GET = () =>
     execFileSync(process.execPath, [astro(), 'build'], {
       cwd: root,
       stdio: 'pipe',
-      env: { ...env(), VITE_ORIGIN: ORIGIN, VITE_OVERRIDDEN: ORIGIN },
+      env: { ...env(), ...SHELL_ENV, VITE_ORIGIN: ORIGIN, VITE_OVERRIDDEN: ORIGIN },
     });
   });
 
@@ -425,7 +428,7 @@ export const GET = () =>
     playground?.cleanup();
   });
 
-  it('keeps .env values out of the build output', () => {
+  it('keeps private .env and build-shell values out of the build output', () => {
     const dist = join(playground.root, 'dist');
     // Local development reads .dev.vars, and a deploy leaves it out of the upload.
     const files = readdirSync(dist, { recursive: true, encoding: 'utf8' }).filter(
@@ -434,7 +437,7 @@ export const GET = () =>
     expect(files.some((file) => file.endsWith('.mjs'))).toBe(true);
     const found = files.flatMap((file) => {
       const content = readFileSync(join(dist, file), 'utf8');
-      return Object.entries(LOCAL_ENV)
+      return Object.entries({ ...LOCAL_ENV, ...SHELL_ENV })
         .filter(([, value]) => content.includes(value))
         .map(([name]) => `${name} in ${file}`);
     });
