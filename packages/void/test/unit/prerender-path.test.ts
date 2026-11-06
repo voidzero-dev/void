@@ -11,6 +11,7 @@ describe('buildPrerenderPath', () => {
     ['/blog/:slug', { slug: 'a b?c#d' }, '/blog/a%20b%3Fc%23d'],
     ['/blog/:slug', { slug: 'café' }, '/blog/caf%C3%A9'],
     ['/posts/:id', { id: 42 }, '/posts/42'],
+    ['/blog/:__proto__', { ['__proto__']: 'hello' }, '/blog/hello'],
     // Keys the pattern does not use are ignored.
     ['/blog/:slug', { slug: 'hello', title: 'Hello' }, '/blog/hello'],
     ['/docs/:slug{.+}', { slug: 'guides/a b' }, '/docs/guides/a%20b'],

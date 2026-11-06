@@ -1414,7 +1414,7 @@ ${envSchemaImport}
 // Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
 const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
 const assetApp = new Hono();
-assetApp.get("*", serveStatic({ root: clientRoot }));
+assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
 const assets = { fetch: (request) => assetApp.fetch(request) };
 const app = new Hono();
 ${envMiddleware}app.post("/__void/prerender-paths", async (c) => {

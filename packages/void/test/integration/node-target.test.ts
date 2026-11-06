@@ -8,6 +8,8 @@ import {
   startServer,
   type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
+import { renderPrerenderPaths } from '../../src/prerender-render.ts';
+import { buildPrerenderPath } from '../../src/runtime/prerender-path.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
@@ -128,5 +130,46 @@ describe('playground/node-app build + production', () => {
     const html = await response.text();
     expect(html).toContain('Welcome');
     expect(html).toContain('<title>Home | Node App</title>');
+  });
+
+  it.each(['plain', 'a b?c#d', 'a%b', '%20', 'café'])(
+    'serves prerendered HTML and page data for parameter %j',
+    async (slug) => {
+      const path = buildPrerenderPath(
+        '/assets/prerender/:slug',
+        { slug },
+        'pages/[slug].server.ts',
+        0,
+      );
+      const data = { component: 'prerender', props: { slug }, url: path };
+      const html = `<script id="__VOID_PAGE_DATA__" type="application/json">${JSON.stringify(data)}</script>`;
+      const result = await renderPrerenderPaths(
+        [path],
+        join(playground.root, 'dist/client'),
+        async () => new Response(html),
+        undefined,
+        undefined,
+        'node',
+      );
+      expect(result).toEqual({ rendered: [path], failed: [] });
+
+      const document = await fetch(`${PROD_BASE}${path}.html`);
+      expect(document.status).toBe(200);
+      expect(await document.text()).toBe(html);
+
+      const pageData = await fetch(`${PROD_BASE}/_void/pages${path}.json`);
+      expect(pageData.status).toBe(200);
+      expect(await pageData.json()).toEqual(data);
+    },
+  );
+
+  it.each([
+    '/assets/%252e%252e/%252e%252e/%252e%252e/package.json',
+    '/assets/..%2F..%2F..%2Fpackage.json',
+    '/assets/%5C..%5C..%5C..%5Cpackage.json',
+  ])('does not serve files outside the client directory via %s', async (path) => {
+    const response = await fetch(`${PROD_BASE}${path}`);
+    expect(response.status).toBe(404);
+    await response.text();
   });
 });

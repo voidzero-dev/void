@@ -21,7 +21,7 @@ function routeParams(pattern: string, params: unknown): Record<string, string> {
   if (typeof params !== 'object' || params === null || Array.isArray(params)) {
     throw new TypeError(`Expected an object of route params, got ${describeValue(params)}.`);
   }
-  const values: Record<string, string> = {};
+  const values: Record<string, string> = Object.create(null);
   for (const [, paramName, catchAll] of pattern.matchAll(ROUTE_TOKEN)) {
     const name = paramName ?? '*';
     if (!Object.hasOwn(params, name)) {
