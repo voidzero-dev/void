@@ -174,7 +174,7 @@ Set production server values with `void secret put <NAME>`. Void preserves exist
 
 ### Readiness and rollback
 
-Void normally verifies an uploaded version before sending it traffic. A Worker with workers.dev turned off and no route or Custom Domain has no URL Void can check, so that deploy skips the readiness check and activates the uploaded version. If readiness or trigger updates fail, it restores the previous deployment. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
+Void normally verifies an uploaded version before sending it traffic. A Worker with workers.dev turned off and no route or Custom Domain has no URL Void can check, so that deploy skips the readiness check and activates the uploaded version. If readiness or trigger updates fail, it restores the previous deployment. If trigger updates fail and Void cannot restore the previous version's triggers, for example because another tool deployed it or it is an empty draft, the new version stays live and the error says which version is serving traffic. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
 
 For an existing Durable Object Worker that Cloudflare cannot stage, review the changes and use:
 

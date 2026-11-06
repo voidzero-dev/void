@@ -1,6 +1,7 @@
 import { readConfig, isNodeTarget } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { readCloudflareCandidate } from './cloudflare-candidate.ts';
+import { createCloudflareChildReporter } from './cloudflare-child-report.ts';
 import { readCloudflareLink } from './cloudflare-link.ts';
 import { withRecordedReadinessAccessOrigin } from './cloudflare-readiness.ts';
 import {
@@ -38,7 +39,22 @@ export async function runCloudflareDeploy(
   options = withRecordedReadinessAccessOrigin(options);
   const initialCloudflareLink = readCloudflareLink(root);
   const initialCloudflareCandidate = readCloudflareCandidate(root);
-  const exit = deps.exit ?? ((code: number): never => process.exit(code));
+  const exitProcess = deps.exit ?? ((code: number): never => process.exit(code));
+  // Most failures leave through exit(), which skips the deploy_end that runDeploy writes on a
+  // throw. Record it here. The logger keeps only the first deploy_end, so a path that already
+  // wrote one (a failed activation) is not recorded twice.
+  const exit = (code: number): never => {
+    if (code === 0) {
+      cliLog.info('deploy_end', { ok: true, exitCode: code });
+    } else {
+      cliLog.error('deploy_end', undefined, { ok: false, exitCode: code });
+    }
+    return exitProcess(code);
+  };
+  // Every step below, including the static branch, reads exit from deps.
+  deps = { ...deps, exit };
+  // One redactor for the whole deploy, so a bearer learned by one child is scrubbed everywhere.
+  const reporter = createCloudflareChildReporter(cliLog);
   const voidConfig = readConfig(root);
   const atomic = options.atomic === true || voidConfig.deploy?.cloudflare?.mode === 'atomic';
   if (atomic && (options.reuseExistingWorker || initialCloudflareLink)) {
@@ -94,6 +110,7 @@ export async function runCloudflareDeploy(
       deps,
       initialCloudflareLink,
       initialCloudflareCandidate,
+      reporter,
     );
   }
 
@@ -121,6 +138,7 @@ export async function runCloudflareDeploy(
     deps,
     exit,
     cliLog,
+    reporter,
     initialCloudflareLink,
     detectedFramework,
     source,
@@ -168,6 +186,7 @@ export async function runCloudflareDeploy(
       deps,
       exit: exitAfterMigrations,
       cliLog,
+      reporter,
       atomic,
       detectedFramework,
       initialCloudflareCandidate,

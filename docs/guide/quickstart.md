@@ -28,6 +28,7 @@ yarn void init
 ```
 
 ```sh [bun]
+# bunx runs Void with the `node` on your PATH: use Node.js 24.22+ or 26.12+
 bun add -D void
 bunx void init
 ```

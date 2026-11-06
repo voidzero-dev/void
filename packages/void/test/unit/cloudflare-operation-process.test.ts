@@ -485,6 +485,43 @@ it('reports an absent cf session as authentication failure', async () => {
   expect(output.stderr).toContain('authentication is required');
 }, 30_000);
 
+it.each([false, true])(
+  'forwards the cf auth whoami failure from auth.token (Global API Key=%s)',
+  async (apiKey) => {
+    const directory = temporaryDirectory('void-cf-token-whoami-');
+    const preload = join(directory, 'mock-cf.mjs');
+    writeFileSync(
+      preload,
+      `import child from 'node:child_process';
+import { syncBuiltinESMExports } from 'node:module';
+child.spawnSync = () => ({ status: 1, stdout: '', stderr: 'Not logged in. [code: 10000]\\n' });
+syncBuiltinESMExports();
+`,
+    );
+    const output = await runOperation(
+      directory,
+      { type: 'auth.token' },
+      {
+        ...systemEnv,
+        CI: 'true',
+        HOME: directory,
+        USERPROFILE: directory,
+        ...(apiKey
+          ? { CLOUDFLARE_API_KEY: 'synthetic-key', CLOUDFLARE_EMAIL: 'a@example.test' }
+          : {}),
+      },
+      preload,
+    );
+    expect(output.status, output.stderr).toBe(1);
+    const decoded = decodeCloudflareOperationResult(output);
+    expect(decoded.stderr).toContain(
+      'cf auth whoami exited with code 1.\nNot logged in. [code: 10000]',
+    );
+    expect(decoded.data).toEqual(apiKey ? { type: 'api_key' } : undefined);
+  },
+  30_000,
+);
+
 it('discovers KV namespaces beyond the first cf API page', async () => {
   const directory = temporaryDirectory('void-cf-kv-pages-');
   const requestedPages: Array<number> = [];

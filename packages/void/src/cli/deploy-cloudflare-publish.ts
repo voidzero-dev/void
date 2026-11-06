@@ -11,6 +11,7 @@ import {
   clearCloudflareCandidate,
   type CloudflareCandidateReceipt,
 } from './cloudflare-candidate.ts';
+import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import type { CloudflareBuild } from './deploy-cloudflare-build.ts';
 import {
   activateCloudflareVersionWithProgress,
@@ -37,6 +38,7 @@ export async function publishCloudflareWorker(input: {
   readonly deps: CloudflareDeployDeps;
   readonly exit: (code: number) => never;
   readonly cliLog: CliLogger;
+  readonly reporter: CloudflareChildReporter;
   readonly atomic: boolean;
   readonly detectedFramework: ReturnType<typeof detectFramework>;
   readonly initialCloudflareCandidate: CloudflareCandidateReceipt | null;
@@ -45,7 +47,8 @@ export async function publishCloudflareWorker(input: {
   readonly build: CloudflareBuild;
   readonly migration: CloudflareMigration;
 }): Promise<void> {
-  const { root, deps, exit, cliLog, atomic, detectedFramework, initialCloudflareCandidate } = input;
+  const { root, deps, exit, cliLog, reporter, atomic, detectedFramework } = input;
+  const { initialCloudflareCandidate } = input;
   const { configPath, needsSandbox, desired, analysis } = input.source;
   const {
     usesCf,
@@ -93,6 +96,7 @@ export async function publishCloudflareWorker(input: {
     runWrangler,
     cfUploaderIsPinned,
     verifyCompatibilityRunner: assertUploaderStillPinned,
+    reporter,
   });
   const pinActiveSecrets = createActiveSecretPinner({
     output: cfOutput,
@@ -152,10 +156,11 @@ export async function publishCloudflareWorker(input: {
       clearCloudflareCandidate(root);
     }
     await reportCloudflareActivationFailure(
-      cliLog,
+      reporter,
       needsSandbox && execution.containersUnavailable
         ? formatCloudflareSandboxUnavailable()
         : formatCloudflareActivationError(execution),
+      execution,
     );
     return exit(1);
   }

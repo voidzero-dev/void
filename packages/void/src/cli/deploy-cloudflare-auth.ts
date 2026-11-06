@@ -2,6 +2,7 @@ import { randomBytes } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import {
   CloudflareWorkerInspectionError,
+  type CloudflareCommandResult,
   type ExistingCloudflareWorker,
 } from '@void/deploy-cloudflare';
 import { isCancel, select } from '@voidzero-dev/vite-plus-prompts';
@@ -12,6 +13,10 @@ import {
   ensureCloudflareAuthentication,
   parseCloudflareAuthSession,
 } from './cloudflare-auth.ts';
+import {
+  describeCloudflareChildFailure,
+  formatCloudflareChildFailure,
+} from './cloudflare-child-report.ts';
 import { prepareExistingCloudflareDeploy } from './cloudflare-link.ts';
 import { createCloudflareProcessRunner, isCleanCloudflareExit } from './cloudflare-process.ts';
 import { log } from './deploy-helpers.ts';
@@ -23,6 +28,7 @@ import {
   SelfHostFirstDeployError,
   SelfHostSecretListError,
 } from './env-validation.ts';
+import { getErrorMessage } from './output.ts';
 import { writeProvisionedWranglerConfig } from './wrangler.ts';
 
 /** Run typed provider operations in the pinned account and API context. */
@@ -176,32 +182,73 @@ export function isWranglerNonInteractiveOrCI(): boolean {
   return ciInfoIsCI || !(process.stdin.isTTY && process.stdout.isTTY);
 }
 
+const GLOBAL_API_KEY_SESSION =
+  'the session uses a Global API Key (CLOUDFLARE_API_KEY), which this step cannot use. ' +
+  'Set CLOUDFLARE_API_TOKEN, or unset CLOUDFLARE_API_KEY and run `void cloudflare login`, then retry.';
+
+/** A session credential, or a failure that keeps the helper child's cause and diagnostic. */
+export type WranglerAuthTokenResult =
+  | { ok: true; token: string }
+  | { ok: false; failure: CloudflareCommandResult };
+
 /**
  * Read the current Cloudflare session bearer through the pinned deploy runner, for API calls
- * Void makes itself. The token goes only to the caller; every failure resolves `null`.
+ * Void makes itself. The token goes only to the caller. A failure is built fresh from the
+ * child's status, signal and stderr: it never carries the child's errorCode, failure, errors
+ * or data, so an auth failure can never be read as a Cloudflare upload error.
  */
-export async function runWranglerAuthToken(
+export async function readWranglerAuthToken(
   runWrangler: DeployWranglerRun,
   configPath: string,
-): Promise<string | null> {
+): Promise<WranglerAuthTokenResult> {
+  const fail = (
+    status: number,
+    signal: NodeJS.Signals | null | undefined,
+    stderr: string,
+  ): WranglerAuthTokenResult => ({
+    ok: false,
+    // A clean status here would read as a successful upload.
+    failure: {
+      status: status === 0 ? 1 : status,
+      ...(signal ? { signal } : {}),
+      stdout: '',
+      stderr,
+    },
+  });
   let result: DeployWranglerRunResult;
   try {
     result = await Promise.resolve(
       runWrangler({ type: 'auth.token', configPath }, { capture: true }),
     );
-  } catch {
-    return null;
-  }
-  if (!isCleanCloudflareExit(result)) {
-    return null;
+  } catch (error) {
+    return fail(
+      1,
+      null,
+      `${describeCloudflareChildFailure({ status: 1, error: getErrorMessage(error) })}.`,
+    );
   }
   const parsed = result.data as { type?: unknown; token?: unknown } | null | undefined;
-  // An `api_key` session answers `{ key, email }` — there is no single bearer to borrow.
+  if (!isCleanCloudflareExit(result)) {
+    // A Global API Key session has no bearer; the child marks it so the next step can be named.
+    if (parsed?.type === 'api_key' && !result.error && !result.signal) {
+      return fail(result.status, null, GLOBAL_API_KEY_SESSION);
+    }
+    return fail(result.status, result.signal, formatCloudflareChildFailure(result));
+  }
   const type = parsed?.type;
   const token = parsed?.token;
   return (type === 'oauth' || type === 'api_token') && typeof token === 'string' && token.length > 0
-    ? token
-    : null;
+    ? { ok: true, token }
+    : fail(1, null, 'the Void CLI helper process returned no session credential.');
+}
+
+/** {@link readWranglerAuthToken} for callers that only need the token; every failure is `null`. */
+export async function runWranglerAuthToken(
+  runWrangler: DeployWranglerRun,
+  configPath: string,
+): Promise<string | null> {
+  const read = await readWranglerAuthToken(runWrangler, configPath);
+  return read.ok ? read.token : null;
 }
 
 /**

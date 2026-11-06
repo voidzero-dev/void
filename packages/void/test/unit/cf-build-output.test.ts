@@ -927,6 +927,42 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
+it.each([
+  { flags: { keep_vars: true }, keep: ['plain_text', 'json', 'secret_text', 'secret_key'] },
+  { flags: { keep_secrets: true }, keep: ['secret_text', 'secret_key'] },
+])('keeps existing Worker secrets with $flags', async ({ flags, keep }) => {
+  // A written keep_bindings replaces cf's default, so keep_vars alone must still list secrets.
+  const output = worker({
+    name: 'void-test',
+    compatibility_date: '2026-09-29',
+    main: 'index.js',
+    ...flags,
+  });
+  await withPrepared(
+    prepareCfBuildOutput(output, { accountId: 'account-id' }),
+    async (prepared) => {
+      const built = await readBuildOutput(prepared.directory);
+      expect(built.workers.default.config.unsafe?.metadata?.keep_bindings).toEqual(keep);
+    },
+  );
+});
+
+it('passes a user-written keep_bindings through unchanged', async () => {
+  const output = worker({
+    name: 'void-test',
+    compatibility_date: '2026-09-29',
+    main: 'index.js',
+    unsafe: { metadata: { keep_bindings: ['plain_text'] } },
+  });
+  await withPrepared(
+    prepareCfBuildOutput(output, { accountId: 'account-id' }),
+    async (prepared) => {
+      const built = await readBuildOutput(prepared.directory);
+      expect(built.workers.default.config.unsafe?.metadata?.keep_bindings).toEqual(['plain_text']);
+    },
+  );
+});
+
 it('deploys Worker Workflow declarations through cf build output', async () => {
   const output = worker({
     name: 'void-test',

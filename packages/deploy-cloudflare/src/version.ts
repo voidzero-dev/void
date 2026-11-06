@@ -15,7 +15,11 @@ import {
   type CloudflareCommandRunner,
 } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
-import { isVoidSecretOnlyDraft, isWranglerSecretOnlyDraft } from './secret-draft.ts';
+import {
+  isVoidSecretOnlyDraft,
+  isWranglerSecretOnlyDraft,
+  VOID_SECRET_DRAFT_SOURCE,
+} from './secret-draft.ts';
 
 const DURABLE_MIGRATION_VERSION_ERROR = 10211;
 const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
@@ -124,8 +128,26 @@ export type CloudflareVersionActivation =
        * with its earlier secret values.
        */
       restoredOlderSecrets?: true;
-      /** Version that owned production after a concurrent operation superseded this command. */
+      /**
+       * Version serving 100% of production when this command stopped, or null when Void could
+       * not read it. Set when a concurrent operation superseded this command, on every
+       * `triggers-failed` result, and after any automatic traffic restoration that read status.
+       */
       activeVersionId?: string | null;
+      /**
+       * Set on `triggers-failed`. `yes`: Void re-applied the live version's own trigger snapshot.
+       * `no`: the live version runs with partly updated triggers. `unknown`: Void replayed a
+       * snapshot but could not confirm the outcome.
+       */
+      triggersRestored?: 'yes' | 'no' | 'unknown';
+      /**
+       * Set on `triggers-failed` when Void kept this deploy's version live instead of switching
+       * back. `placeholder`: the previous version is an empty placeholder or secret-only draft.
+       * `no-trigger-snapshot`: the previous version has no Void trigger snapshot to replay.
+       * `atomic`: the deploy published without a staged version, so Void does not switch back.
+       * Absent when there was no previous version or Void could not inspect it.
+       */
+      restoreSkipped?: 'placeholder' | 'no-trigger-snapshot' | 'atomic';
       /** Whether Void restored the active version's immutable trigger snapshot. */
       triggerRepair?: 'succeeded' | 'failed' | 'unavailable';
       /**
@@ -352,6 +374,8 @@ export type CloudflareTriggerStabilization =
       reason: 'status-failed' | 'traffic-split' | 'metadata-unavailable' | 'triggers-failed';
       status?: number;
       activeVersionId?: string | null;
+      /** Bounded trigger command error text, redacted like other uploader diagnostics. */
+      diagnostic?: string;
     }>;
 
 /**
@@ -422,6 +446,7 @@ export async function stabilizeCloudflareVersionTriggers(options: {
         reason: 'triggers-failed',
         status: triggers.status,
         activeVersionId,
+        ...commandDiagnosticFields(triggers),
       };
     }
 
@@ -1028,6 +1053,24 @@ async function activateCloudflareVersionWithSecretsFile(
     );
     return previousVersion?.isSecretOnlyDraft === true;
   }
+  // Recovery only: true when the previous version is an empty Worker that must never get traffic
+  // back. Unlike `isVoidSecretOnlyDraft`, this also accepts Void's zero-binding placeholder, which
+  // the bootstrap path must not treat as first-deployment proof.
+  async function previousIsRestorePlaceholder(): Promise<boolean | null> {
+    if (!previousVersionId) {
+      return false;
+    }
+    if (await previousIsSecretOnlyDraft()) {
+      return true;
+    }
+    if (!previousVersion || previousVersion.draftUnknown) {
+      return null;
+    }
+    if (previousVersion.message !== VOID_SECRET_DRAFT_MESSAGE) {
+      return false;
+    }
+    return await isVoidSecretDraftPlaceholderVersion(options, previousVersionId);
+  }
   const previousMetadata = desiredMetadata?.schema === 2 ? previousVersion?.metadata : null;
   const continuesOpaqueTriggerPreservation =
     !options.preserveTriggers &&
@@ -1145,6 +1188,7 @@ async function activateCloudflareVersionWithSecretsFile(
       previous.versionId,
       options.atomic === true,
       previousTriggerConfig,
+      previousIsRestorePlaceholder,
     );
   }
   // The ordinary cf uploader refuses a non-interactive revision of an API-origin
@@ -1241,6 +1285,7 @@ async function activateCloudflareVersionWithSecretsFile(
         previous.versionId,
         false,
         previousTriggerConfig,
+        previousIsRestorePlaceholder,
       );
     }
     return {
@@ -1340,6 +1385,7 @@ async function activateCloudflareVersionWithSecretsFile(
         previous.versionId,
         false,
         previousTriggerConfig,
+        previousIsRestorePlaceholder,
       );
     }
     readinessUrl = desiredTriggerConfig.workers_dev
@@ -1601,9 +1647,12 @@ async function activateCloudflareVersionWithSecretsFile(
         ok: false,
         reason: 'triggers-failed',
         status: triggers.status,
+        ...(triggers.diagnostic ? { diagnostic: triggers.diagnostic } : {}),
         versionId,
         previousVersionId: previous.versionId,
+        activeVersionId: null,
         rollback: 'unsafe',
+        triggersRestored: 'no',
       };
     }
     const ownerBeforeCompensation = await readCurrentProductionVersion(options);
@@ -1612,9 +1661,12 @@ async function activateCloudflareVersionWithSecretsFile(
         ok: false,
         reason: 'triggers-failed',
         status: triggers.status,
+        ...(triggers.diagnostic ? { diagnostic: triggers.diagnostic } : {}),
         versionId,
         previousVersionId: previous.versionId,
+        activeVersionId: null,
         rollback: 'unsafe',
+        triggersRestored: 'no',
       };
     }
     if (ownerBeforeCompensation.versionId !== versionId) {
@@ -1640,18 +1692,47 @@ async function activateCloudflareVersionWithSecretsFile(
         triggerRepair: triggerRepairOutcome(repair),
       };
     }
+    // This deploy owns 100%. Switch back only when Void can restore the previous version's
+    // triggers too. An empty placeholder or a version without a Void trigger snapshot stays
+    // inactive: moving traffic to it would serve an empty Worker or code with this deploy's
+    // partly applied triggers.
+    const placeholder = await previousIsRestorePlaceholder();
+    const previousSnapshot =
+      placeholder === false
+        ? (versionedPreviousTriggerConfigWithTraffic ??
+          (previousVersion?.metadata?.schema === 2
+            ? previousVersion.metadata.triggerConfig
+            : undefined))
+        : undefined;
+    if (!previous.versionId || !previousSnapshot || previousSnapshot.preserve) {
+      return {
+        ok: false,
+        reason: 'triggers-failed',
+        status: triggers.status,
+        ...(triggers.diagnostic ? { diagnostic: triggers.diagnostic } : {}),
+        versionId,
+        previousVersionId: previous.versionId,
+        activeVersionId: versionId,
+        rollback: 'unavailable',
+        triggersRestored: 'no',
+        ...(previous.versionId && placeholder !== null
+          ? { restoreSkipped: placeholder ? 'placeholder' : 'no-trigger-snapshot' }
+          : {}),
+      };
+    }
     const restore = await restorePreviousVersionAndTriggers(
       options,
       previous.versionId,
       'trigger activation failed',
       desiredTriggerConfig,
       versionId,
-      versionedPreviousTriggerConfigWithTraffic,
+      previousSnapshot,
     );
     return {
       ok: false,
       reason: 'triggers-failed',
       status: triggers.status,
+      ...(triggers.diagnostic ? { diagnostic: triggers.diagnostic } : {}),
       versionId,
       previousVersionId: previous.versionId,
       ...restore,
@@ -1698,40 +1779,31 @@ async function restorePreviousVersionAndTriggers(
     | 'publishEmptyCustomDomains'
     | 'publishEmptyCrons'
   >,
-  previousVersionId: string | null,
+  previousVersionId: string,
   cause: string,
   failedTriggerConfig: CloudflareTriggerConfig,
   failedVersionId: string,
-  capturedTriggerConfig?: CloudflareTriggerConfig,
+  targetTriggerConfig: CloudflareTriggerConfig,
 ): Promise<PreviousVersionRestore> {
   const traffic = await restorePreviousVersion(options, previousVersionId, cause, [
     [{ versionId: failedVersionId, percentage: 100 }],
   ]);
-  if (traffic.rollback !== 'succeeded' || !previousVersionId) {
-    return traffic;
-  }
-  if (!options.verifyUploader()) {
-    return { ...traffic, rollback: 'unsafe' };
+  if (traffic.rollback !== 'succeeded') {
+    // Without a status read, the failed version still owns traffic: the caller saw it at 100%
+    // just before, and no restore command ran.
+    return {
+      ...traffic,
+      activeVersionId:
+        traffic.activeVersionId === undefined ? failedVersionId : traffic.activeVersionId,
+      triggersRestored: 'no',
+    };
   }
   // Traffic attachments can change between uploads (for example `void domain
-  // add`). Restore the snapshot captured before this deployment, not the older
-  // immutable version annotation. Cleanup-only queue names are deliberately not
-  // part of this target snapshot.
-  let targetTriggerConfig = capturedTriggerConfig;
-  if (!targetTriggerConfig) {
-    const metadata = await readCloudflareVersionMetadata(options, previousVersionId);
-    if (metadata?.schema !== 2) {
-      return { ...traffic, rollback: 'unavailable' };
-    }
-    targetTriggerConfig = metadata.triggerConfig;
-  }
-  // A preserve marker leaves routes, schedules, queue consumers and workflows opaque, so there
-  // is no trigger snapshot to restore. Traffic is already back on the previous version.
-  if (targetTriggerConfig.preserve) {
-    return { ...traffic, rollback: 'unavailable' };
-  }
+  // add`), so the caller passes the snapshot captured before this deployment,
+  // not the older immutable version annotation. Cleanup-only queue names are
+  // deliberately not part of this target snapshot.
   if (!options.verifyUploader()) {
-    return { ...traffic, rollback: 'unsafe' };
+    return { ...traffic, rollback: 'unsafe', triggersRestored: 'no' };
   }
   const triggers = await stabilizeCloudflareVersionTriggers({
     runWrangler: options.runWrangler,
@@ -1744,9 +1816,21 @@ async function restorePreviousVersionAndTriggers(
     publishEmptyCustomDomains: options.publishEmptyCustomDomains,
     publishEmptyCrons: options.publishEmptyCrons,
   });
+  if (triggers.ok) {
+    return {
+      ...traffic,
+      rollback: triggers.targetOwnsTraffic ? 'succeeded' : 'failed',
+      activeVersionId: triggers.activeVersionId,
+      triggersRestored: 'yes',
+    };
+  }
+  // A status read or traffic split during the replay leaves both owner and triggers unknown.
+  const ownerUnknown = triggers.reason === 'status-failed' || triggers.reason === 'traffic-split';
   return {
     ...traffic,
-    rollback: triggers.ok && triggers.targetOwnsTraffic ? 'succeeded' : 'failed',
+    rollback: 'failed',
+    activeVersionId: ownerUnknown ? null : (triggers.activeVersionId ?? null),
+    triggersRestored: ownerUnknown ? 'unknown' : 'no',
   };
 }
 
@@ -1762,9 +1846,13 @@ async function readCloudflareVersionMetadata(
 
 type CloudflareVersionInspection = Readonly<{
   metadata: CloudflareVersionMetadata | null;
+  message: string | null;
   isSecretOnlyDraft: boolean;
   isVoidSecretOnlyDraft: boolean;
   voidDraftSecretNames: ReadonlyArray<string> | null;
+  // A Wrangler `secret put` version whose resources could not be read, so it may still be an
+  // empty draft. Recovery must not offer traffic back to it.
+  draftUnknown: boolean;
 }>;
 
 async function readCloudflareVersionInspection(
@@ -1801,11 +1889,13 @@ async function readCloudflareVersionInspection(
       // The list endpoint omits resources. Inspect the exact active version before deciding
       // whether secret provisioning left a placeholder rather than an existing application.
       let draft = entry;
+      let draftUnknown = false;
       if (
         annotations?.['workers/triggered_by'] === 'secret' &&
         Object.keys(annotations).length === 1 &&
         !isWranglerSecretOnlyDraft(entry)
       ) {
+        draftUnknown = true;
         const inspection = await options.runWrangler(
           {
             type: 'versions.view',
@@ -1820,23 +1910,82 @@ async function readCloudflareVersionInspection(
           const inspected: unknown = inspection.data;
           if (isRecord(inspected) && inspected.id === versionId) {
             draft = inspected;
+            draftUnknown = false;
           }
         }
       }
       const isVoidDraft = isVoidSecretOnlyDraft(draft);
       return {
         metadata: typeof message === 'string' ? parseCloudflareVersionMessage(message) : null,
+        message: typeof message === 'string' ? message : null,
         isSecretOnlyDraft: isWranglerSecretOnlyDraft(draft) || isVoidDraft,
         isVoidSecretOnlyDraft: isVoidDraft,
         voidDraftSecretNames: isVoidDraft
           ? (draft.bindings as Array<{ name: string }>).map((binding) => binding.name)
           : null,
+        draftUnknown,
       };
     }
   } catch {
     return null;
   }
   return null;
+}
+
+// Message Void's secret transport gives the zero-binding placeholder it deploys when a Worker
+// does not exist yet (packages/void cloudflare-operation-process.ts).
+const VOID_SECRET_DRAFT_MESSAGE = 'void:secret-draft';
+
+/**
+ * Recovery-only proof that a version is Void's secret placeholder: its marker plus the exact
+ * placeholder source, with no binding other than secrets. It may have zero bindings, so it is
+ * deliberately not `isVoidSecretOnlyDraft`, which bootstrap uses as first-deployment proof.
+ * Returns null when the version could not be read.
+ */
+async function isVoidSecretDraftPlaceholderVersion(
+  options: Pick<
+    Parameters<typeof activateCloudflareVersion>[0],
+    'configPath' | 'runWrangler' | 'workerName'
+  >,
+  versionId: string,
+): Promise<boolean | null> {
+  try {
+    const view = await options.runWrangler(
+      {
+        type: 'versions.view',
+        versionId,
+        configPath: options.configPath,
+        workerName: options.workerName,
+        includeSource: true,
+      },
+      { capture: true },
+    );
+    // null: the version could not be read, so it may still be the placeholder.
+    if (!isCleanCommandExit(view)) {
+      return null;
+    }
+    const entry: unknown = view.data;
+    if (
+      !isRecord(entry) ||
+      entry.id !== versionId ||
+      !isRecord(entry.annotations) ||
+      entry.annotations['workers/message'] !== VOID_SECRET_DRAFT_MESSAGE ||
+      !Array.isArray(entry.modules) ||
+      entry.modules.length !== 1 ||
+      !Array.isArray(entry.bindings)
+    ) {
+      return false;
+    }
+    const module: unknown = entry.modules[0];
+    return (
+      isRecord(module) &&
+      module.name === entry.main_module &&
+      module.content_base64 === Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64') &&
+      entry.bindings.every((binding) => isRecord(binding) && binding.type === 'secret_text')
+    );
+  } catch {
+    return null;
+  }
 }
 
 async function readRecentCloudflareVersionIds(
@@ -1958,6 +2107,7 @@ async function bootstrapFirstDeployment(
   previousVersionId: string | null,
   atomic = false,
   previousTriggerConfig?: CloudflareTriggerConfig,
+  previousIsRestorePlaceholder?: () => Promise<boolean | null>,
 ): Promise<CloudflareVersionActivation> {
   if (!options.verifyUploader()) {
     return { ok: false, reason: 'uploader-changed' };
@@ -2192,19 +2342,43 @@ async function bootstrapFirstDeployment(
       triggers.activeVersionId !== undefined &&
       triggers.activeVersionId !== null &&
       triggers.activeVersionId !== versionId;
+    if (superseded) {
+      return {
+        ok: false,
+        reason: 'deployment-changed',
+        ...(!triggers.ok ? { status: triggers.status } : {}),
+        versionId,
+        previousVersionId,
+        activeVersionId: triggers.activeVersionId,
+        rollback: 'not-needed',
+        triggerRepair: triggerRepairOutcome(triggers),
+      };
+    }
+    // A non-versioned publish has no staged predecessor to switch back to, so this version
+    // stays live with whatever triggers were applied.
+    const placeholder =
+      previousVersionId && triggers.activeVersionId === versionId
+        ? await previousIsRestorePlaceholder?.()
+        : null;
     return {
       ok: false,
-      reason: superseded ? 'deployment-changed' : 'triggers-failed',
-      ...(!triggers.ok ? { status: triggers.status } : {}),
-      versionId,
-      previousVersionId,
-      activeVersionId: triggers.activeVersionId,
-      rollback: superseded ? 'not-needed' : triggers.activeVersionId ? 'unavailable' : 'unsafe',
-      ...(superseded
+      reason: 'triggers-failed',
+      ...(!triggers.ok
         ? {
-            triggerRepair: triggerRepairOutcome(triggers),
+            status: triggers.status,
+            ...(triggers.diagnostic ? { diagnostic: triggers.diagnostic } : {}),
           }
         : {}),
+      versionId,
+      previousVersionId,
+      activeVersionId: triggers.activeVersionId ?? null,
+      rollback: triggers.activeVersionId ? 'unavailable' : 'unsafe',
+      triggersRestored: 'no',
+      ...(placeholder === true
+        ? { restoreSkipped: 'placeholder' }
+        : placeholder === false
+          ? { restoreSkipped: 'atomic' }
+          : {}),
     };
   }
   const previewUrl = publishedCloudflareUrl(
@@ -2775,6 +2949,12 @@ export async function deployCloudflareVersionTraffic(options: {
 type PreviousVersionRestore = Readonly<{
   rollback: 'succeeded' | 'failed' | 'unavailable' | 'unsafe';
   restoredOlderSecrets?: true;
+  /**
+   * Version serving 100% after the attempt, from the restore command or the last status read;
+   * null when that read failed or found no single owner. Absent when nothing was read.
+   */
+  activeVersionId?: string | null;
+  triggersRestored?: 'yes' | 'no' | 'unknown';
 }>;
 
 async function restorePreviousVersion(
@@ -2792,17 +2972,20 @@ async function restorePreviousVersion(
   if (!options.verifyUploader()) {
     return { rollback: 'unsafe' };
   }
-  const ownsExpectedTraffic = async () => {
+  const readOwner = async () => {
     const owner = await readCurrentProductionVersion(options);
-    return (
-      owner.kind === 'ok' &&
-      expectedOwnedTraffic.some((expected) =>
-        productionVersionPercentagesEqual(owner.versions, expected),
-      )
-    );
+    return {
+      owns:
+        owner.kind === 'ok' &&
+        expectedOwnedTraffic.some((expected) =>
+          productionVersionPercentagesEqual(owner.versions, expected),
+        ),
+      activeVersionId: owner.kind === 'ok' ? owner.versionId : null,
+    };
   };
-  if (!(await ownsExpectedTraffic())) {
-    return { rollback: 'unsafe' };
+  let owner = await readOwner();
+  if (!owner.owns) {
+    return { rollback: 'unsafe', activeVersionId: owner.activeVersionId };
   }
   const restore = (bypassDeploymentChecks: boolean) =>
     deployVersionPercentages(
@@ -2810,20 +2993,30 @@ async function restorePreviousVersion(
       [`${previousVersionId}@100`],
       `Void automatic rollback after ${cause}.`,
     );
+  // A restore that did not exit cleanly may still have moved traffic (a killed child, or a lost
+  // response after Cloudflare applied it), so read the owner again instead of reusing the
+  // earlier read. A failed read reports the owner as unknown.
+  const failed = async (): Promise<PreviousVersionRestore> => ({
+    rollback: 'failed',
+    activeVersionId: (await readOwner()).activeVersionId,
+  });
   const result = await restore(false);
   // Cloudflare refuses to move traffic back to a version older than a secret
   // change (10220). When the failed version made that change, force the
   // restore, as Wrangler's rollback does. Check again first that Void still
   // owns traffic, so a deployment made by someone else is not overwritten.
   if (result.errorCode === CLOUDFLARE_SECRET_CHANGED_ERROR) {
-    if (!(await ownsExpectedTraffic())) {
-      return { rollback: 'unsafe' };
+    owner = await readOwner();
+    if (!owner.owns) {
+      return { rollback: 'unsafe', activeVersionId: owner.activeVersionId };
     }
     return isCleanCommandExit(await restore(true))
-      ? { rollback: 'succeeded', restoredOlderSecrets: true }
-      : { rollback: 'failed' };
+      ? { rollback: 'succeeded', restoredOlderSecrets: true, activeVersionId: previousVersionId }
+      : await failed();
   }
-  return { rollback: isCleanCommandExit(result) ? 'succeeded' : 'failed' };
+  return isCleanCommandExit(result)
+    ? { rollback: 'succeeded', activeVersionId: previousVersionId }
+    : await failed();
 }
 
 function workersDevReadinessUrl(workerName: string, value: string | undefined): string | undefined {

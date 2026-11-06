@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { createWriteStream, mkdirSync, type WriteStream } from 'node:fs';
+import { closeSync, mkdirSync, openSync, writeSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'pathslash';
 
@@ -12,7 +12,7 @@ export type CliLogger = {
   debug(msg: string, fields?: Record<string, unknown>): void;
   /** path to the file backing this logger, or null if unable to open */
   readonly path: string | null;
-  /** Close stream and return final path. Idempotent. */
+  /** Release the file. Every record is already on disk when its call returns. Idempotent. */
   close(): Promise<void>;
 };
 
@@ -134,9 +134,12 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
   const startedAt = Date.now();
 
   let path: string | null = null;
-  let stream: WriteStream | null = null;
+  let fd: number | null = null;
   let broken = false;
   let closed = false;
+  // The CLI exits through process.exit() on many failure paths, and more than one of them may
+  // try to record the end of the deploy. Only the first deploy_end counts.
+  let ended = false;
 
   try {
     const dir = join(homedir(), '.void', 'logs');
@@ -147,17 +150,15 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
     // refuse to open a file that already exists.
     const suffix = randomBytes(3).toString('hex');
     const filePath = join(dir, `deploy-${ts}-${process.pid}-${suffix}.jsonl`);
-    stream = createWriteStream(filePath, { flags: 'wx', autoClose: true });
-    stream.on('error', () => {
-      // Disable subsequent writes silently. Stream errors should never
-      // bubble up into the deploy pipeline.
-      broken = true;
-    });
+    // Synchronous writes, so a record survives a process.exit() that follows it: a stream
+    // would still hold it in memory. The log can carry account and project details, so only
+    // the owner may read it.
+    fd = openSync(filePath, 'wx', 0o600);
     path = filePath;
   } catch {
     broken = true;
     path = null;
-    stream = null;
+    fd = null;
   }
 
   function write(
@@ -166,6 +167,12 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
     err: unknown | undefined,
     fields?: Record<string, unknown>,
   ): void {
+    if (msg === 'deploy_end') {
+      if (ended) {
+        return;
+      }
+      ended = true;
+    }
     if (mirror) {
       try {
         process.stderr.write(`${formatStderrLine(level, msg, err, fields)}\n`);
@@ -173,7 +180,7 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
         // Stderr write failures are not actionable.
       }
     }
-    if (broken || !stream || closed) {
+    if (broken || fd === null || closed) {
       return;
     }
     const now = Date.now();
@@ -209,8 +216,13 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
       line = `${JSON.stringify({ ts: now, elapsedMs: now - startedAt, lvl: level, msg, err: 'unserializable fields' })}\n`;
     }
     try {
-      stream.write(line);
+      const bytes = Buffer.from(line);
+      let offset = 0;
+      while (offset < bytes.length) {
+        offset += writeSync(fd, bytes, offset);
+      }
     } catch {
+      // A full disk or a closed descriptor must never break the deploy; stop logging instead.
       broken = true;
     }
   }
@@ -236,16 +248,15 @@ export function openDeployLog(opts?: { mirrorToStderr?: boolean }): CliLogger {
         return Promise.resolve();
       }
       closed = true;
-      if (!stream) {
-        return Promise.resolve();
-      }
-      return new Promise((resolveClose) => {
+      if (fd !== null) {
         try {
-          stream!.end(() => resolveClose());
+          closeSync(fd);
         } catch {
-          resolveClose();
+          // Nothing is buffered, so a failed close loses no record.
         }
-      });
+        fd = null;
+      }
+      return Promise.resolve();
     },
   };
 }

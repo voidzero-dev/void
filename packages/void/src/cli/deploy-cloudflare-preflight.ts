@@ -16,6 +16,7 @@ import { resolveBindingNames, type VoidConfig } from '../config.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { cloudflareQueueName } from '../queues/cloudflare-names.ts';
 import { assertSandboxNamespaceConfig, resolveSandboxConfig } from '../sandbox/config.ts';
+import type { CloudflareChildReporter } from './cloudflare-child-report.ts';
 import { classifyCloudflareDeployApp } from './cloudflare-deploy/classify.ts';
 import { approvedCloudflareIsrBinding, chooseCloudflareIsr } from './cloudflare-isr.ts';
 import { readCloudflareLink, type CloudflareLink } from './cloudflare-link.ts';
@@ -192,6 +193,7 @@ export async function preflightCloudflareWorker(input: {
   readonly deps: CloudflareDeployDeps;
   readonly exit: (code: number) => never;
   readonly cliLog: CliLogger;
+  readonly reporter: CloudflareChildReporter;
   readonly initialCloudflareLink: CloudflareLink | null;
   readonly detectedFramework: ReturnType<typeof detectFramework>;
   readonly source: CloudflareDeploySource;
@@ -224,6 +226,7 @@ export async function preflightCloudflareWorker(input: {
     deps,
     exit,
     cliLog,
+    reporter,
     initialCloudflareLink,
     detectedFramework,
     source,
@@ -260,6 +263,7 @@ export async function preflightCloudflareWorker(input: {
     deps,
     persistAccount: !(options.reuseExistingWorker || initialCloudflareLink),
     readinessAccessOrigin: options.readinessAccessOrigin,
+    reporter,
   });
   if (!connection) {
     return exit(1);

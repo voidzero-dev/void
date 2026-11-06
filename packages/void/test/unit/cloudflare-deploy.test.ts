@@ -1,16 +1,19 @@
 import {
   existsSync,
   mkdirSync,
+  mkdtempSync,
   readFileSync,
   readdirSync,
   rmSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import {
+  cloudflareCommandDiagnostic,
   CloudflareWorkerInspectionError,
   parseCloudflareVersionMessage,
   parseRootWranglerConfig,
@@ -18,7 +21,7 @@ import {
 } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
 import { toSlash } from 'pathslash';
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
 import {
   operationFixture,
@@ -38,6 +41,7 @@ import {
 } from '../../src/cli/deploy-binding-snapshot.ts';
 import {
   ensureCloudflareAuthSecret,
+  readWranglerAuthToken,
   runWranglerAuthToken,
 } from '../../src/cli/deploy-cloudflare-auth.ts';
 import {
@@ -77,9 +81,10 @@ import {
   type SelfHostEnvContext,
   type SelfHostSchemaFacts,
 } from '../../src/cli/env-validation.ts';
-import type { CliLogger } from '../../src/cli/log-file.ts';
+import { openDeployLog, type CliLogger } from '../../src/cli/log-file.ts';
 import { migrateLegacyVoidConfig } from '../../src/cli/migrate.ts';
 import { FRAMEWORK_PRESETS } from '../../src/cli/preset.ts';
+import { parseProjectArgs } from '../../src/cli/project-args.ts';
 import { provisionCloudflareResources, type ProvisionResult } from '../../src/cli/provision.ts';
 import {
   FRIENDLY_BINDING_NAMES,
@@ -92,6 +97,12 @@ import { readConfig } from '../../src/config.ts';
 
 // `runDeploy` calls `runCloudflareDeploy` without deps. A test that starts from `runDeploy` sets
 // these deps. Calls that pass their own deps are unchanged.
+// Deploy-log tests point homedir() at a temp folder; every other caller keeps the real one.
+const logHome = vi.hoisted(() => ({ dir: '' }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, homedir: () => logHome.dir || actual.homedir() };
+});
 const runDeployCloudflareDeps = vi.hoisted(() => ({
   current: undefined as CloudflareDeployDeps | undefined,
 }));
@@ -175,6 +186,102 @@ const cleanExit: DeployWranglerRunResult = {
   error: null,
 };
 
+// Most native deploy failures leave through exit(1), which skips the deploy_end that runDeploy
+// writes on a throw. These tests read the JSONL file back from a temp home folder.
+describe('Cloudflare deploy log end record', () => {
+  beforeEach(() => {
+    logHome.dir = mkdtempSync(join(tmpdir(), 'void-deploy-log-'));
+  });
+  afterEach(() => {
+    rmSync(logHome.dir, { recursive: true, force: true });
+    logHome.dir = '';
+  });
+
+  function openRealLog(opts?: { mirrorToStderr?: boolean }): {
+    cliLog: CliLogger;
+    readRecords: () => Array<Record<string, unknown>>;
+  } {
+    const cliLog = openDeployLog(opts);
+    expect(cliLog.path?.startsWith(logHome.dir)).toBe(true);
+    return {
+      cliLog,
+      readRecords: () =>
+        readFileSync(cliLog.path!, 'utf8')
+          .trimEnd()
+          .split('\n')
+          .map((line) => JSON.parse(line) as Record<string, unknown>),
+    };
+  }
+
+  it('writes deploy_end with the exit code when an early check exits', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'node-app' }),
+      'void.json': JSON.stringify({ target: 'node' }),
+      'wrangler.jsonc': JSON.stringify({ account_id: 'acc123' }),
+    });
+    const { cliLog, readRecords } = openRealLog();
+    const { deps, exitCalls } = harness();
+    const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+    try {
+      await expect(runCloudflareDeploy(root, {}, cliLog, deps)).rejects.toBeInstanceOf(ExitError);
+      // Read before close(): each record must already be on disk when exit() runs.
+      const ends = readRecords().filter((record) => record.msg === 'deploy_end');
+      expect(exitCalls).toEqual([1]);
+      expect(ends).toEqual([expect.objectContaining({ lvl: 'error', ok: false, exitCode: 1 })]);
+    } finally {
+      output.mockRestore();
+      await cliLog.close();
+    }
+  });
+
+  it.each(['worker', 'static'] as const)(
+    'writes deploy_end once when the %s activation fails and then exits',
+    async (kind) => {
+      const root = makeProject({
+        'package.json': JSON.stringify({ name: 'site', dependencies: { void: '*' } }),
+        'void.json': '{}',
+        'routes/index.ts': 'export const GET = () => "site";',
+        'public/index.html': '<h1>Site</h1>',
+        'wrangler.jsonc': JSON.stringify({
+          name: 'site',
+          account_id: 'personal',
+          compatibility_date: '2026-02-24',
+        }),
+      });
+      // The --debug mirror prints every record it accepts, even after close().
+      const stderrLines: Array<string> = [];
+      const stderr = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+        stderrLines.push(String(chunk));
+        return true;
+      });
+      const { cliLog, readRecords } = openRealLog({ mirrorToStderr: true });
+      const { deps, exitCalls } = harness({
+        activateVersion: async () => ({ ok: false, reason: 'upload-failed', status: 1 }),
+      });
+      const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+      try {
+        await expect(
+          runCloudflareDeploy(root, kind === 'static' ? { dir: 'public' } : {}, cliLog, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        const records = readRecords();
+        expect(exitCalls).toEqual([1]);
+        expect(records.filter((record) => record.msg === 'deploy_end')).toHaveLength(1);
+        expect(records.at(-1)).toEqual(
+          expect.objectContaining({ msg: 'deploy_end', ok: false, exitCode: 1 }),
+        );
+        expect(records.map((record) => record.msg)).toContain('cloudflare_deploy_failed');
+        expect(stderrLines.filter((line) => line.startsWith('error deploy_end '))).toEqual([
+          'error deploy_end ok=false exitCode=1\n',
+        ]);
+      } finally {
+        stderr.mockRestore();
+        output.mockRestore();
+        await cliLog.close();
+      }
+    },
+  );
+});
+
 describe('Cloudflare activation diagnostics', () => {
   it.each(['worker', 'static'] as const)(
     'flushes the %s upload diagnostic before exiting',
@@ -221,15 +328,124 @@ describe('Cloudflare activation diagnostics', () => {
         await expect(
           runCloudflareDeploy(root, kind === 'static' ? { dir: 'public' } : {}, logger, deps),
         ).rejects.toBeInstanceOf(ExitError);
-        expect(order).toEqual(['error', 'close', 'exit']);
+        // cloudflare_deploy_failed, then deploy_end, both flushed before exit. The exit wrapper
+        // repeats deploy_end; the real logger drops it (see 'writes deploy_end once' below).
+        expect(order).toEqual(['error', 'error', 'close', 'error', 'exit']);
         expect(error).toHaveBeenCalledWith(
           'cloudflare_deploy_failed',
           expect.objectContaining({ message: expect.stringContaining(diagnostic) }),
+          expect.objectContaining({
+            reason: 'upload-failed',
+            status: 1,
+            cloudflareErrorCode: 10021,
+          }),
         );
+        expect(error).toHaveBeenLastCalledWith('deploy_end', undefined, {
+          ok: false,
+          exitCode: 1,
+        });
         expect(output).toHaveBeenCalledWith(expect.stringContaining(diagnostic));
         expect(output).toHaveBeenCalledWith(
           expect.stringContaining('Detailed log: /tmp/deploy-diagnostic.jsonl'),
         );
+      } finally {
+        output.mockRestore();
+      }
+    },
+  );
+
+  it.each(['worker', 'static'] as const)(
+    'logs each %s child op and the failed upload without the Cloudflare token',
+    async (kind) => {
+      const token = 'fake-cloudflare-api-token-0123456789';
+      vi.stubEnv('CLOUDFLARE_API_TOKEN', token);
+      const root = makeProject({
+        'package.json': JSON.stringify({ name: 'site', dependencies: { void: '*' } }),
+        'void.json': '{}',
+        'routes/index.ts': 'export const GET = () => "site";',
+        'public/index.html': '<h1>Site</h1>',
+        'wrangler.jsonc': JSON.stringify({
+          name: 'site',
+          account_id: 'personal',
+          compatibility_date: '2026-02-24',
+        }),
+      });
+      const records: Array<{ lvl: string; msg: string; text: string; fields?: unknown }> = [];
+      const push = (lvl: string, msg: string, fields?: unknown, err?: unknown) =>
+        records.push({
+          lvl,
+          msg,
+          fields,
+          // Error objects serialize to {}, so keep their text explicitly.
+          text: JSON.stringify([
+            msg,
+            fields,
+            err instanceof Error ? [err.message, err.stack] : err,
+          ]),
+        });
+      const logger: CliLogger = {
+        info: (msg, fields) => push('info', msg, fields),
+        warn: (msg, fields) => push('warn', msg, fields),
+        error: (msg, err, fields) => push('error', msg, fields, err),
+        debug: (msg, fields) => push('debug', msg, fields),
+        path: null,
+        close: async () => {},
+      };
+      const output = vi.spyOn(log, 'error').mockImplementation(() => {});
+      const { deps } = harness({
+        runWrangler: operationFixture((args) => {
+          if (args[0] === 'whoami') {
+            return {
+              ...cleanExit,
+              stdout: '{"loggedIn":true,"accounts":[]}',
+              stderr: `using ${token}`,
+            };
+          }
+          if (args[0] === 'deploy') {
+            return { ...cleanExit, status: 1, stderr: `upload rejected for ${token}` };
+          }
+          return cleanExit;
+        }),
+        activateVersion: async (options) => {
+          const upload = await Promise.resolve(
+            options.runWrangler(operationFixtureRequest(['deploy']), { capture: true }),
+          );
+          return {
+            ok: false,
+            reason: 'upload-failed',
+            status: upload.status,
+            diagnostic: cloudflareCommandDiagnostic(upload),
+          };
+        },
+      });
+      try {
+        await expect(
+          runCloudflareDeploy(root, kind === 'static' ? { dir: 'public' } : {}, logger, deps),
+        ).rejects.toBeInstanceOf(ExitError);
+        for (const record of records) {
+          expect(record.text).not.toContain(token);
+        }
+        expect(JSON.stringify(output.mock.calls)).not.toContain(token);
+        expect(records).toContainEqual(
+          expect.objectContaining({
+            lvl: 'debug',
+            msg: 'cloudflare_op',
+            fields: expect.objectContaining({
+              op: 'worker.deploy',
+              ok: false,
+              status: 1,
+              diagnostic: 'upload rejected for <redacted>',
+            }),
+          }),
+        );
+        const failed = records.find((record) => record.msg === 'cloudflare_deploy_failed')!;
+        expect(failed.fields).toMatchObject({ reason: 'upload-failed', status: 1 });
+        expect(failed.text).toContain('upload rejected for <redacted>');
+        expect(records.at(-1)).toMatchObject({
+          lvl: 'error',
+          msg: 'deploy_end',
+          fields: { ok: false, exitCode: 1 },
+        });
       } finally {
         output.mockRestore();
       }
@@ -467,7 +683,7 @@ describe('Cloudflare activation diagnostics', () => {
     ).toContain('did not invoke the changed Wrangler binary');
   });
 
-  it.each(['readiness-failed', 'triggers-failed', 'uploader-changed'] as const)(
+  it.each(['readiness-failed', 'uploader-changed'] as const)(
     'says when a forced %s restore put the old secret values back',
     (reason) => {
       const forced = formatCloudflareActivationError({
@@ -562,25 +778,138 @@ describe('Cloudflare activation diagnostics', () => {
     },
   );
 
-  it('distinguishes opaque trigger recovery from a first deployment', () => {
-    const opaque = formatCloudflareActivationError({
-      ok: false,
-      reason: 'triggers-failed',
-      rollback: 'unavailable',
-      previousVersionId: '11111111-1111-4111-8111-111111111111',
-    });
-    expect(opaque).toContain('Traffic or trigger restoration could not be completed');
-    expect(opaque).not.toContain('Traffic was restored');
-    expect(opaque).not.toContain('first deployment');
-
-    expect(
+  describe('trigger synchronization failure message', () => {
+    const N = '22222222-2222-4222-8222-222222222222';
+    const P = '11111111-1111-4111-8111-111111111111';
+    const X = '33333333-3333-4333-8333-333333333333';
+    const reason = 'Queue "jobs" does not exist. [code: 11000]';
+    const rollbackHint = `\`void project rollback ${P} --platform cloudflare\``;
+    const failure = (fields: Partial<Parameters<typeof formatCloudflareActivationError>[0]>) =>
       formatCloudflareActivationError({
         ok: false,
         reason: 'triggers-failed',
+        status: 1,
+        versionId: N,
+        previousVersionId: P,
+        diagnostic: reason,
+        ...fields,
+      });
+    // The hint must name a command the CLI accepts, not only a string that looks right.
+    const expectRunnableStatusHint = (message: string) => {
+      const start = message.indexOf('`void project status');
+      expect(start).toBeGreaterThanOrEqual(0);
+      const command = message.slice(start + 1, message.indexOf('`', start + 1));
+      expect(command).toBe('void project status');
+      expect(parseProjectArgs(command.split(' ').slice(2))).toMatchObject({ subcommand: 'status' });
+    };
+
+    it.each([
+      ['an empty placeholder', 'placeholder', 'is an empty placeholder or secret-only draft'],
+      [
+        'an uninspectable version',
+        undefined,
+        `Void could not switch back to the previous version ${P}.`,
+      ],
+    ] as const)('keeps this deploy live after %s and offers no rollback', (_label, skip, why) => {
+      const message = failure({
+        activeVersionId: N,
+        triggersRestored: 'no',
         rollback: 'unavailable',
+        ...(skip ? { restoreSkipped: skip } : {}),
+      });
+      expect(message).toContain(`Live now: ${N} (this deploy).`);
+      expect(message).toContain('may be partly updated');
+      expect(message).toContain(why);
+      expect(message).toContain('`void deploy --platform cloudflare` again');
+      expect(message).toContain(reason);
+      expect(message).not.toContain('void project rollback');
+      expect(message).not.toContain('switched traffic back');
+    });
+
+    it.each([
+      ['no-trigger-snapshot', 'has no Void trigger snapshot to restore'],
+      ['atomic', 'published at 100% directly'],
+    ] as const)('offers a rollback to a real previous app kept inactive (%s)', (skip, why) => {
+      const message = failure({
+        activeVersionId: N,
+        triggersRestored: 'no',
+        rollback: 'unavailable',
+        restoreSkipped: skip,
+      });
+      expect(message).toContain(`Live now: ${N} (this deploy).`);
+      expect(message).toContain(why);
+      expect(message).toContain(rollbackHint);
+      expect(message).toContain(reason);
+    });
+
+    it('says a first deployment has nothing to switch back to', () => {
+      const message = failure({
         previousVersionId: null,
-      }),
-    ).toContain('This was the first deployment');
+        activeVersionId: N,
+        triggersRestored: 'no',
+        rollback: 'unavailable',
+      });
+      expect(message).toContain(`Live now: ${N} (this deploy).`);
+      expect(message).toContain('This was the first deployment');
+      expect(message).not.toContain('void project rollback');
+    });
+
+    it('says the previous version is live with its triggers restored', () => {
+      const message = failure({
+        activeVersionId: P,
+        triggersRestored: 'yes',
+        rollback: 'succeeded',
+      });
+      expect(message).toContain(
+        `Live now: ${P} (the previous version). Void switched traffic back to it and restored its routes, schedules, queues, and workflows.`,
+      );
+      expect(message).toContain(reason);
+      expect(message).not.toContain('void project rollback');
+    });
+
+    it.each(['failed', 'unsafe'] as const)(
+      'says the previous version is live without its triggers (rollback %s)',
+      (rollback) => {
+        // 'unsafe' includes a restore skipped because another operation already moved traffic.
+        const message = failure({ activeVersionId: P, triggersRestored: 'no', rollback });
+        expect(message).toContain(`Live now: ${P} (the previous version).`);
+        expect(message).toContain('so they may be partly updated');
+        expectRunnableStatusHint(message);
+        expect(message).not.toContain('restored its routes');
+        expect(message).not.toContain('switched traffic back');
+        expect(message).toContain(reason);
+      },
+    );
+
+    it('names a version another operation made live during recovery', () => {
+      const message = failure({ activeVersionId: X, triggersRestored: 'yes', rollback: 'failed' });
+      expect(message).toContain(`Live now: ${X}. Another Cloudflare operation changed production`);
+      expectRunnableStatusHint(message);
+      expect(message).not.toContain('restored its routes');
+    });
+
+    it.each([
+      ['no', 'unsafe'],
+      ['unknown', 'failed'],
+    ] as const)('says the live version is unknown (triggers %s)', (triggersRestored, rollback) => {
+      const message = failure({ activeVersionId: null, triggersRestored, rollback });
+      expect(message).toContain('Live now: unknown.');
+      expectRunnableStatusHint(message);
+      expect(message).toContain(reason);
+      expect(message).not.toContain('void project rollback');
+      expect(message.includes('could not confirm the result')).toBe(triggersRestored === 'unknown');
+    });
+
+    it('keeps the older-secrets note after a forced switch back', () => {
+      const message = failure({
+        activeVersionId: P,
+        triggersRestored: 'yes',
+        rollback: 'succeeded',
+        restoredOlderSecrets: true,
+      });
+      expect(message).toContain(`Live now: ${P} (the previous version).`);
+      expect(message).toContain('The previous version runs with its old secret values');
+    });
   });
 
   it('reports uncertain status after publication without claiming nothing was uploaded', () => {
@@ -11685,6 +12014,77 @@ describe('runWranglerAuthToken — the session-bearer bridge, on its own', () =>
         throw new Error('boom');
       }).token,
     ).toBeNull();
+  });
+});
+
+describe('readWranglerAuthToken — keeps the helper child failure', () => {
+  const read = (result: DeployWranglerRunResult) =>
+    readWranglerAuthToken(
+      operationFixture(() => result),
+      '/p/wrangler.jsonc',
+    );
+
+  it('returns the token, or a fresh failure with the real status and crash line', async () => {
+    expect(await read({ ...cleanExit, stdout: '{"type":"api_token","token":"abc"}' })).toEqual({
+      ok: true,
+      token: 'abc',
+    });
+    const crashed = await read({
+      ...cleanExit,
+      status: 1,
+      stderr:
+        "SyntaxError: The requested module 'node:http' does not provide an export named 'setGlobalProxyFromEnv'\n\nNode.js v22.23.4",
+      errorCode: 10007,
+      failure: 'not-found',
+    });
+    expect(crashed).toEqual({
+      ok: false,
+      failure: {
+        status: 1,
+        stdout: '',
+        stderr: [
+          'the Void CLI helper process exited with code 1.',
+          "SyntaxError: The requested module 'node:http' does not provide an export named 'setGlobalProxyFromEnv'",
+          '',
+          'Node.js v22.23.4',
+        ].join('\n'),
+      },
+    });
+  });
+
+  it('never reports a clean status for a missing credential', async () => {
+    expect(await read({ ...cleanExit, stdout: '{"type":"oauth"}' })).toEqual({
+      ok: false,
+      failure: {
+        status: 1,
+        stdout: '',
+        stderr: 'the Void CLI helper process returned no session credential.',
+      },
+    });
+    expect(await read({ ...cleanExit, signal: 'SIGKILL' })).toMatchObject({
+      ok: false,
+      failure: {
+        status: 1,
+        signal: 'SIGKILL',
+        stderr: 'the Void CLI helper process was stopped by SIGKILL.',
+      },
+    });
+  });
+});
+
+describe('Void-written credential failure texts', () => {
+  it('pass through the shared Cloudflare diagnostic formatter unchanged', () => {
+    for (const text of [
+      'Could not get the Cloudflare session credential for the upload: the Void CLI helper process exited with code 1.',
+      'Could not get the Cloudflare session credential for publishing Worker settings: the Void CLI helper process was stopped by SIGKILL.',
+      'Could not get the Cloudflare session credential for the upload: the Void CLI helper process could not run: spawn EACCES.',
+      'Could not get the Cloudflare session credential for the upload: the Void CLI helper process returned no session credential.',
+      'Could not get the Cloudflare session credential for the upload: the session uses a Global API Key (CLOUDFLARE_API_KEY), which this step cannot use. Set CLOUDFLARE_API_TOKEN, or unset CLOUDFLARE_API_KEY and run `void cloudflare login`, then retry.',
+      'Cloudflare session has no OAuth bearer.',
+      'cf auth whoami exited with code 1.',
+    ]) {
+      expect(cloudflareCommandDiagnostic({ status: 1, stdout: '', stderr: text })).toBe(text);
+    }
   });
 });
 
