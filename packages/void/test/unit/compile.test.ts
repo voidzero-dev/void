@@ -1102,6 +1102,10 @@ describe('compileNodeApp', () => {
     expect(code).toContain('app.post("/__void/prerender-paths"');
     // Only the prerender runner passes the marker as the Hono env.
     expect(code).toContain('if (c.env?.__VOID_PRERENDER !== "1") return c.notFound();');
+    // getPrerenderPaths() errors reach the build in the response body.
+    expect(code).toContain(
+      'return __prerenderPathsResponse(() => __voidCollectPrerenderPaths(c.req.raw));',
+    );
     expect(code).not.toContain('__VOID_PROXY_TOKEN');
     expect(code).not.toContain('x-void-internal');
   });
@@ -1453,5 +1457,49 @@ describe('typed runtime metadata wiring', () => {
     );
     expect(code).not.toContain('function __handleInternal');
     expect(code).not.toContain('async function serveWithAssets');
+  });
+});
+
+describe('compileRouteTable — prerender path collector', () => {
+  it('builds dynamic page paths with the route-param helper, naming the server file', () => {
+    const scan: ScanResult = {
+      ...emptyScan,
+      pages: {
+        layouts: [],
+        namedLayouts: [],
+        pages: [
+          {
+            pattern: '/blog/:slug',
+            params: ['slug'],
+            catchAll: false,
+            componentPath: 'blog/[slug].vue',
+            componentId: 'blog/[slug]',
+            serverPath: 'blog/[slug].server.ts',
+            methods: [],
+            ssrMode: 'server',
+            prerenderMode: 'force',
+            renderMode: 'server',
+            shouldPrerender: true,
+            hasGetPrerenderPaths: true,
+          },
+        ],
+      },
+    };
+    const code = compileRouteTable(
+      scan,
+      '/routes',
+      '/middleware',
+      '/crons',
+      '/queues',
+      null,
+      testOptions,
+      { pagesDir: '/pages', pagesDirRelative: 'pages', clientEntryId: 'virtual:void-pages-client' },
+    );
+
+    expect(code).toMatch(/buildPrerenderPath as __buildPrerenderPath[,\s][^;]*from "[^"]*routing/);
+    expect(code).toContain(
+      'paths.push(__buildPrerenderPath("/blog/:slug", paramSets[index], "pages/blog/[slug].server.ts", index));',
+    );
+    expect(code).not.toContain('__voidBuildPrerenderPath');
   });
 });

@@ -37,6 +37,8 @@ export async function getPrerenderPaths() {
 }
 ```
 
+Each object must include every param in the page path. Values can be strings or numbers, and Void URL-encodes them. A single-segment param such as `[slug]` cannot contain `/`. For nested paths, use a catch-all page such as `pages/docs/[...slug]` and return `{ slug: 'guides/intro' }`. If an entry is invalid, the build fails. The error names the server file and the entry index.
+
 ## 404 pages
 
 Static builds that prerender at least one page include a default `404.html` in `dist/client/`. To provide your own, add `public/404.html` or prerender a page at `/404`.
