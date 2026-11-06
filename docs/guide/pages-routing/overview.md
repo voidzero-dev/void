@@ -203,7 +203,11 @@ With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps 
 
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
-```tsx
+::: code-group
+
+```tsx [React]
+import { Link } from '@void/react';
+
 <Link href="/users" data={{ page: 2, tag: ['active', 'new'] }}>
   Filtered users
 </Link>
@@ -227,6 +231,77 @@ With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps 
   Settings
 </Link>
 ```
+
+```vue [Vue]
+<script setup lang="ts">
+import { Link } from '@void/vue';
+
+function onNavigate(event: { preventDefault(): void }) {
+  if (!confirm('Leave this page?')) {
+    event.preventDefault();
+  }
+}
+</script>
+
+<template>
+  <Link href="/users" :data="{ page: 2, tag: ['active', 'new'] }">Filtered users</Link>
+  <Link href="/users" replace>Users</Link>
+  <Link href="/logout" reload-document>Sign out</Link>
+  <Link href="/settings" :on-navigate="onNavigate">Settings</Link>
+</template>
+```
+
+```svelte [Svelte]
+<script lang="ts">
+  import { Link } from '@void/svelte';
+</script>
+
+<Link href="/users" data={{ page: 2, tag: ['active', 'new'] }}>Filtered users</Link>
+
+<Link href="/users" replace>Users</Link>
+
+<Link href="/logout" reloadDocument>Sign out</Link>
+
+<Link
+  href="/settings"
+  onNavigate={(event) => {
+    if (!confirm('Leave this page?')) {
+      event.preventDefault();
+    }
+  }}
+>
+  Settings
+</Link>
+```
+
+```tsx [Solid]
+import { Link } from '@void/solid';
+
+<Link href="/users" data={{ page: 2, tag: ['active', 'new'] }}>
+  Filtered users
+</Link>
+
+<Link href="/users" replace>
+  Users
+</Link>
+
+<Link href="/logout" reloadDocument>
+  Sign out
+</Link>
+
+<Link
+  href="/settings"
+  onNavigate={(event) => {
+    if (!confirm('Leave this page?')) {
+      event.preventDefault();
+    }
+  }}
+>
+  Settings
+</Link>
+```
+
+:::
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
@@ -256,7 +331,9 @@ You can also pass URL strings or `URL` instances to these router methods. See [T
 
 For dynamic route params, use `useParams()` from the same adapter package. Pass the page's URL pattern as the type argument to type the result:
 
-```tsx
+::: code-group
+
+```tsx [React]
 // pages/posts/[id].tsx
 import { useParams } from '@void/react';
 
@@ -265,6 +342,42 @@ export default function PostPage() {
   return <h1>Post {id}</h1>;
 }
 ```
+
+```vue [Vue]
+<!-- pages/posts/[id].vue -->
+<script setup lang="ts">
+import { useParams } from '@void/vue';
+
+const params = useParams<'/posts/:id'>(); // { id: string }
+</script>
+
+<template>
+  <h1>Post {{ params.id }}</h1>
+</template>
+```
+
+```svelte [Svelte]
+<!-- pages/posts/[id].svelte -->
+<script lang="ts">
+  import { useParams } from '@void/svelte';
+
+  const params = useParams<'/posts/:id'>(); // { id: string }
+</script>
+
+<h1>Post {params.id}</h1>
+```
+
+```tsx [Solid]
+// pages/posts/[id].tsx
+import { useParams } from '@void/solid';
+
+export default function PostPage() {
+  const params = useParams<'/posts/:id'>(); // { id: string }
+  return <h1>Post {params.id}</h1>;
+}
+```
+
+:::
 
 See [Page params](../type-safety.md#page-params) for how patterns are checked.
 
