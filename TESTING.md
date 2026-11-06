@@ -75,6 +75,7 @@ vp run test:integration
 vp run test:metaframeworks
 vp run test:pages:react-vue
 vp run test:pages:svelte-solid
+vp run test:pages:hono
 vp run test:platform
 ```
 
@@ -213,7 +214,7 @@ workspace links can hide. They do not publish packages or deploy applications.
 
 Smoke coverage checks package contents and exports, real initialization, CLI help, a frozen
 reinstall, public Vite builds, TypeScript, and development HTTP requests for pages, assets, and
-KV. It uses no browser. Full coverage adds Vue, Svelte, Solid, Markdown, production preview,
+KV. It uses no browser. Full coverage adds Vue, Svelte, Solid, Hono, Markdown, production preview,
 and browser hydration/navigation. Superseded PR/main runs are cancelled; release runs are not.
 
 The selector reads all PR file pages or the complete pushed commit range. Renames consider both
@@ -228,7 +229,7 @@ VOID_PACKED_SUITE=full node .github/scripts/packed-consumer.mjs
 node --test --test-timeout=10000 .github/scripts/packed-*.test.mjs
 ```
 
-`VOID_PACKED_PM=npm|pnpm` and `VOID_PACKED_FRAMEWORK=react|vue|svelte|solid` select a focused
+`VOID_PACKED_PM=npm|pnpm` and `VOID_PACKED_FRAMEWORK=react|vue|svelte|solid|hono` select a focused
 local run. `VOID_PACKED_TOOLCHAIN=vite-plus` verifies Vite+ initialization, the workspace's
 tested Vite+ version, and the generated `vp` build/dev/preview commands. CI checks a React
 app with Vite+ for both package managers alongside the plain Vite coverage.

@@ -22,6 +22,7 @@
     "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",
     "test:pages:react-vue": "vp test run --project parallel-integration packages/react packages/vue",
     "test:pages:svelte-solid": "vp test run --project parallel-integration packages/svelte packages/solid",
+    "test:pages:hono": "vp test run --project parallel-integration packages/hono",
     "test:platform": "vp test run --project 'platform-*'",
     "test:profile": "vp test run --reporter=default --experimental.importDurations.print --experimental.importDurations.limit=20",
     "test:unit": "vp test run --project unit --project unit-pglite --project cli-unit",

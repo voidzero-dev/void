@@ -2,6 +2,7 @@
 // Edited suites use conservative estimates adjusted for removed browser cases and duplicate builds.
 // These values schedule shards only; every discovered test is still included.
 export const integrationTimings: Readonly<Record<string, number>> = {
+  'packages/hono/test/integration/hono-pages-playground.test.ts': 39000,
   'packages/md/test/integration/markdown-blog.test.ts': 42014,
   'packages/react/test/integration/react-pages-client.test.ts': 43000,
   'packages/react/test/integration/react-pages-navigation-fallback.test.ts': 6920,

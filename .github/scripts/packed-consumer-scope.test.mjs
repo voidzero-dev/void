@@ -28,6 +28,7 @@ test('runs the full matrix for dependencies, adapters, scaffolding, and packagin
     'packages/void/package.json',
     'packages/void/vite.config.ts',
     'packages/solid/src/plugin.ts',
+    'packages/hono/src/plugin.ts',
     'packages/vue/src/runtime/index.ts',
     'packages/create-void/src/pm.ts',
     'packages/void/src/cli/init.ts',

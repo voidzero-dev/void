@@ -57,6 +57,10 @@ npm install @void/md @void/svelte
 npm install @void/md @void/solid
 ```
 
+```sh [Hono]
+npm install @void/md @void/hono hono
+```
+
 :::
 
 Add the plugin to your Vite config **after** the framework adapter:
@@ -108,6 +112,18 @@ import { voidPlugin } from 'void';
 
 export default defineConfig({
   plugins: [voidPlugin(), voidSolid(), voidMarkdown()],
+});
+```
+
+```ts [Hono]
+import { voidHono } from '@void/hono/plugin';
+// vite.config.ts
+import { voidMarkdown } from '@void/md/plugin';
+import { defineConfig } from 'vite';
+import { voidPlugin } from 'void';
+
+export default defineConfig({
+  plugins: [voidPlugin(), voidHono(), voidMarkdown()],
 });
 ```
 
@@ -215,6 +231,20 @@ const fm = useFrontmatter();
 ```
 
 ```tsx [Solid]
+import { useFrontmatter } from '@void/md';
+
+export default function DocsLayout(props) {
+  const fm = useFrontmatter();
+  return (
+    <div>
+      <h1>{fm.title}</h1>
+      {props.children}
+    </div>
+  );
+}
+```
+
+```tsx [Hono]
 import { useFrontmatter } from '@void/md';
 
 export default function DocsLayout(props) {

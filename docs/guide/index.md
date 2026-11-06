@@ -4,7 +4,7 @@ outline: deep
 
 # What is Void?
 
-Void is a full-stack framework for Cloudflare Workers, powered by Vite. Build your UI with React, Vue, Svelte, or Solid, and write server code in the same project. Void connects routing, data access, and deployment while keeping types shared across your app.
+Void is a full-stack framework for Cloudflare Workers, powered by Vite. Build your UI with React, Vue, Svelte, Solid, or Hono, and write server code in the same project. Void connects routing, data access, and deployment while keeping types shared across your app.
 
 Start with the [Quickstart](./quickstart.md) to create and deploy an app. If you already use a meta framework, follow its [integration guide](../integrations/frameworks/overview.md).
 

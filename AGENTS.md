@@ -73,6 +73,7 @@ pnpm workspaces managed through Vite+. Shared dependency versions use the **pnpm
 | [`packages/vue`](./packages/vue/README.md)                   | `@void/vue`               | Vue framework adapter for Pages mode (SSR, Link, useForm)         |
 | [`packages/svelte`](./packages/svelte/README.md)             | `@void/svelte`            | Svelte 5 framework adapter for Pages mode (SSR, Link, useForm)    |
 | [`packages/solid`](./packages/solid/README.md)               | `@void/solid`             | SolidJS framework adapter for Pages mode (SSR, Link, useForm)     |
+| [`packages/hono`](./packages/hono/README.md)                 | `@void/hono`              | Hono JSX framework adapter for Pages mode (SSR, Link, useForm)    |
 | [`docs`](./docs)                                             | (private)                 | Documentation site (VitePress)                                    |
 | [`platform`](./platform/README.md)                           | (private)                 | Self-hosted platform source, routing, proxy, logs, and dashboard  |
 | `playground/*`                                               | (private)                 | local apps for testing                                            |
@@ -85,7 +86,7 @@ Platform packages live under `platform/packages/*` and may depend on public/shar
 
 Read [the core package instructions](./packages/void/AGENTS.md) for plugin,
 runtime, code-generation and CLI invariants. Each framework adapter has its
-own README under `packages/{react,vue,svelte,solid}`.
+own README under `packages/{react,vue,svelte,solid,hono}`.
 The [API reference](./docs/reference/api.md) and
 [CLI reference](./docs/reference/cli.md) describe the supported public surface.
 

@@ -40,6 +40,13 @@ export default defineConfig({
 });
 ```
 
+```ts [Hono]
+// vite.config.ts
+export default defineConfig({
+  plugins: [voidPlugin(), voidHono({ viewTransitions: true })],
+});
+```
+
 :::
 
 This enables view transitions for all navigations, including `Link` clicks, programmatic `router.visit()` calls, and browser back or forward.
@@ -83,6 +90,22 @@ Override the global setting on individual links:
 ```
 
 ```tsx [Solid]
+{
+  /* Disable transition for this link */
+}
+<Link href="/settings" viewTransition={false}>
+  Settings
+</Link>;
+
+{
+  /* Enable for just this link (even if globally disabled) */
+}
+<Link href="/about" viewTransition>
+  About
+</Link>;
+```
+
+```tsx [Hono]
 {
   /* Disable transition for this link */
 }

@@ -218,6 +218,7 @@ const EMPTY_PROJECT_ALLOWED_PACKAGES = new Set([
   '@void/vue',
   '@void/svelte',
   '@void/solid',
+  '@void/hono',
 ]);
 
 // Only `void` and adapters may be a preinstall (`pnpm add -D void @void/svelte`);
@@ -227,6 +228,7 @@ const EMPTY_PROJECT_ALLOWED_ADAPTER_PACKAGES = new Set([
   '@void/vue',
   '@void/svelte',
   '@void/solid',
+  '@void/hono',
 ]);
 const EMPTY_PROJECT_BASE_PACKAGES = new Set([
   'void',
@@ -234,6 +236,7 @@ const EMPTY_PROJECT_BASE_PACKAGES = new Set([
   '@void/vue',
   '@void/svelte',
   '@void/solid',
+  '@void/hono',
 ]);
 
 // scaffoldPagesApp() replaces these starter scripts; custom scripts make the

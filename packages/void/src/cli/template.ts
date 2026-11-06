@@ -18,7 +18,7 @@ export const SCAFFOLD_GITIGNORE_LINES = [
   '.DS_Store',
 ] as const;
 
-export type ScaffoldFramework = 'react' | 'vue' | 'svelte' | 'solid';
+export type ScaffoldFramework = 'react' | 'vue' | 'svelte' | 'solid' | 'hono';
 export type ScaffoldStarterMode = 'sqlite' | 'postgresql' | 'mysql' | 'static';
 export type ScaffoldToolchain = 'vite-plus' | 'vite';
 
@@ -61,6 +61,11 @@ export const SCAFFOLD_FRAMEWORK_OPTIONS = [
     value: 'solid',
     label: 'Solid',
     hint: 'Fine-grained TSX Pages starter with the Solid adapter.',
+  },
+  {
+    value: 'hono',
+    label: 'Hono',
+    hint: 'Lightweight TSX Pages starter with the Hono JSX adapter.',
   },
 ] as const;
 
@@ -139,6 +144,23 @@ export const SCAFFOLD_FRAMEWORKS: Record<ScaffoldFramework, ScaffoldFrameworkCon
     tsconfigCompilerOptions: {
       jsx: 'preserve',
       jsxImportSource: 'solid-js',
+    },
+  },
+  hono: {
+    label: 'Hono',
+    docsUrl: 'https://hono.dev/',
+    adapterPackage: '@void/hono',
+    adapterImport: 'voidHono',
+    adapterPlugin: '@void/hono/plugin',
+    pageExtension: 'tsx',
+    // The adapter needs a newer Hono than the base dependency allows.
+    dependencies: {
+      hono: '^4.13.0',
+    },
+    devDependencies: {},
+    tsconfigCompilerOptions: {
+      jsx: 'react-jsx',
+      jsxImportSource: 'hono/jsx',
     },
   },
 };
@@ -443,7 +465,8 @@ ${indent(description, 8)}
 
   switch (framework) {
     case 'react':
-    case 'solid': {
+    case 'solid':
+    case 'hono': {
       const jsx = framework === 'react' ? body.replaceAll('class=', 'className=') : body;
       const imports = hasDatabase
         ? `${framework === 'solid' ? 'import { For, Show } from "solid-js";\n' : ''}import { Form, useForm } from "${SCAFFOLD_FRAMEWORKS[framework].adapterPackage}";
@@ -539,6 +562,25 @@ ${indent(empty, 2)}
   <label for="message-text">Message</label>
   <div class="message-fields">
     <input id="message-text" name="text" bind:value={form.data.text} required maxlength={1000} />
+    <button type="submit" disabled={form.pending}>Add message</button>
+  </div>
+</Form>`,
+    hono: `{props.messages.length === 0 ? (
+${indent(empty, 2)}
+) : (
+  <ul class="messages">
+    {props.messages.map((message) => (
+      <li key={message.id}>
+        <strong>{message.text}</strong>
+        <small>{String(message.createdAt)}</small>
+      </li>
+    ))}
+  </ul>
+)}
+<Form form={form} class="message-form">
+  <label for="message-text">Message</label>
+  <div class="message-fields">
+    <input id="message-text" name="text" value={form.data.text} onInput={(event) => form.setData("text", (event.target as HTMLInputElement).value)} required maxlength={1000} />
     <button type="submit" disabled={form.pending}>Add message</button>
   </div>
 </Form>`,
