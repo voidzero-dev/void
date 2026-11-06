@@ -157,6 +157,21 @@ The pattern must be one of your pages; HTTP and WebSocket routes are not accepte
 
 The pattern is checked by TypeScript only. Pass the pattern of the page the component renders in; without a pattern, `useParams()` returns `Record<string, string>`.
 
+### Prerender paths
+
+On a dynamic page, annotate `getPrerenderPaths()` with `PageParams` for that page's URL pattern. Each returned object must then include the page's params, and a missing or misspelled key is a type error. Void does not infer this type from the filename, so the check applies only when the annotation is present:
+
+```ts
+// pages/blog/[slug].server.ts
+import type { PageParams } from 'void/routes';
+
+export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> {
+  return [{ slug: 'hello-world' }];
+}
+```
+
+In custom SSR mode the function returns full path strings, so annotate it as `Promise<string[]>`. See [Edge Prerendering](./edge/prerendering.md#dynamic-pages-with-params) and [Static Site Generation](./ssg.md#per-page-overrides).
+
 ### Checked URL strings
 
 [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Apps created with `void init` have it on. To turn it on in an existing app:
@@ -201,16 +216,17 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 
 ## What Gets Checked
 
-| Layer        | What's type-checked                                                                                                   |
-| ------------ | --------------------------------------------------------------------------------------------------------------------- |
-| Database     | Table columns, value types, insert/update shapes from Drizzle schema                                                  |
-| Handlers     | `c.env` bindings, validator input, return type                                                                        |
-| Fetch client | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
-| Navigation   | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
-| Links        | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
-| `useParams`  | Page patterns and the names of the params they return                                                                 |
-| `useForm`    | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
-| `action()`   | Action URLs, `data` payload, `params`                                                                                 |
+| Layer               | What's type-checked                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Database            | Table columns, value types, insert/update shapes from Drizzle schema                                                  |
+| Handlers            | `c.env` bindings, validator input, return type                                                                        |
+| Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
+| Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
+| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
+| `useParams`         | Page patterns and the names of the params they return                                                                 |
+| `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                 |
+| `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
+| `action()`          | Action URLs, `data` payload, `params`                                                                                 |
 
 ## Serialization
 
