@@ -1,0 +1,227 @@
+.github/scripts/packed-consumer-scope.mjs
+  s_448d0c388cf77b::t_b8cfa7c282cfcc 8
+.github/scripts/packed-consumer-scope.test.mjs
+  s_448d0c388cf77b::t_1203a43af59578 31
+.github/scripts/packed-consumer.mjs
+  s_448d0c388cf77b::t_0d4434f3244ef7 152,154-156,180-185
+.github/scripts/packed-init.mjs
+  s_448d0c388cf77b::t_6979590164c9d5 125
+AGENTS.md
+  s_448d0c388cf77b::t_aeb32ac1fea305 76,89
+README.md
+  s_448d0c388cf77b::t_de1493ca3c6ebc 11
+TESTING.md
+  s_448d0c388cf77b::t_1ede39c709ebfa 78,217,232
+docs/guide/app-types.md
+  s_448d0c388cf77b::t_a985062ae5a834 17
+docs/guide/index.md
+  s_448d0c388cf77b::t_1a9fd0459e663b 7
+docs/guide/pages-routing/actions-and-forms.md
+  s_448d0c388cf77b::t_bdbb37a23d7b8e 144-165,192,225,241,302,328,435-451
+docs/guide/pages-routing/islands.md
+  s_448d0c388cf77b::t_84a0e90930a849 155-175,366-400
+docs/guide/pages-routing/layouts.md
+  s_448d0c388cf77b::t_9b56a8ee178606 143-162,165,215-222
+docs/guide/pages-routing/loaders.md
+  s_448d0c388cf77b::t_63911924929f02 98-115,182,232-250
+docs/guide/pages-routing/markdown.md
+  s_448d0c388cf77b::t_f650a26690c279 60-63,118-129,235-248
+docs/guide/pages-routing/overview.md
+  s_448d0c388cf77b::t_d732afd89d49a0 7,15,37-40,91-101,104,215-222,259,340-348,453-458
+docs/guide/pages-routing/view-transitions.md
+  s_448d0c388cf77b::t_11fa30c730e862 43-49,100-115
+docs/index.md
+  s_448d0c388cf77b::t_e2cb5ba38f0599 47
+docs/reference/api.md
+  s_448d0c388cf77b::t_cccb810c6b1154 31
+docs/reference/api/pages.md
+  s_448d0c388cf77b::t_772fc2688d3993 11,162,164,292-358
+docs/reference/cli/setup.md
+  s_448d0c388cf77b::t_259587b0706f5f 42
+docs/reference/structure.md
+  s_448d0c388cf77b::t_0ef51c2cd15641 81
+package.json
+  s_448d0c388cf77b::t_dc1f28a8c7f4d4 25
+packages/create-void/README.md
+  s_448d0c388cf77b::t_4652e201de96aa 15
+packages/hono/src/plugin-islands.ts
+  s_448d0c388cf77b::t_24c9500b44f059 1-266
+packages/hono/src/plugin-pages.ts
+  s_448d0c388cf77b::t_87151a7fa94f54 1-210
+packages/hono/src/plugin.ts
+  s_448d0c388cf77b::t_2b27b8c13dfcec 1-38
+packages/hono/src/runtime/form.tsx
+  s_448d0c388cf77b::t_0519c55b76e22d 1-54
+packages/hono/src/runtime/link.tsx
+  s_448d0c388cf77b::t_81b805241dbd58 1-190
+packages/hono/src/runtime/pages-client.tsx
+  s_448d0c388cf77b::t_3022a47579ce6e 1-204
+packages/hono/test/integration/hono-pages-playground.test.ts
+  s_448d0c388cf77b::t_5dc94ff8e358ac 1-245
+packages/hono/test/integration/island-css-build.test.ts
+  s_448d0c388cf77b::t_8d9d5a5997a953 1-94
+packages/hono/test/integration/md-layout-frontmatter.test.ts
+  s_448d0c388cf77b::t_89c306cfa7a9e3 1-163
+packages/hono/test/unit/form-errors.typecheck.ts
+  s_448d0c388cf77b::t_152123be39690d 1-45
+packages/hono/test/unit/island-form.typecheck.ts
+  s_448d0c388cf77b::t_4c03475ee8289c 1-37
+packages/hono/test/unit/link.test.ts
+  s_448d0c388cf77b::t_dc51140eef1ed7 1-134
+packages/hono/test/unit/pages-client.test.ts
+  s_448d0c388cf77b::t_325fbcfac20ed3 1-127
+packages/hono/test/unit/plugin-islands.test.ts
+  s_448d0c388cf77b::t_1830a5d128f1af 1-231
+packages/hono/test/unit/plugin-pages.test.ts
+  s_448d0c388cf77b::t_25491eda414bbd 1-170
+packages/hono/test/unit/plugin.test.ts
+  s_448d0c388cf77b::t_24dcd5181f14b1 1-29
+packages/md/README.md
+  s_448d0c388cf77b::t_c72596259ea493 26
+packages/md/src/plugin.ts
+  s_448d0c388cf77b::t_3bb1f6cb8d233f 14,24,31,224,339,363-370,428-431
+packages/md/test/unit/emit-hono.test.ts
+  s_448d0c388cf77b::t_feb67f7c1a42b7 1-37
+packages/void/README.md
+  s_448d0c388cf77b::t_d83433b9ba4b3c 11
+packages/void/src/cli/help.ts
+  s_448d0c388cf77b::t_d284096444e76c 133-136
+packages/void/src/cli/init.ts
+  s_448d0c388cf77b::t_dd6461d1b8a957 221,231,239
+packages/void/src/cli/template.ts
+  s_448d0c388cf77b::t_de5b94cf1f0676 21,65-69,149-165,468-469,567-585
+packages/void/templates/assets/hono.svg
+  s_448d0c388cf77b::t_1702fcf73a68de 1-10
+packages/void/test/unit/init.test.ts
+  s_448d0c388cf77b::t_f30c7857889735 157,191,1478-1482
+packages/void/test/unit/pages-plugin-adapters.test.ts
+  s_448d0c388cf77b::t_cafa4473ed16f0 6,27
+packages/void/test/unit/template.test.ts
+  s_448d0c388cf77b::t_a841abed645244 4,22-64
+packages/void/vite.config.ts
+  s_448d0c388cf77b::t_acecb7d00591e4 176
+playground/hono-pages/middleware/01.shared.ts
+  s_448d0c388cf77b::t_b43b6053f1e2dd 1-20
+playground/hono-pages/package.json
+  s_448d0c388cf77b::t_e29ec8092cdf65 1-22
+playground/hono-pages/pages/blog/[slug].island.tsx
+  s_448d0c388cf77b::t_7e224b25cc82ee 1-13
+playground/hono-pages/pages/blog/[slug].server.ts
+  s_448d0c388cf77b::t_ee6ce310fd0549 1-15
+playground/hono-pages/pages/blog/_PostForm.tsx
+  s_448d0c388cf77b::t_bfc041b42983eb 1-36
+playground/hono-pages/pages/blog/_data.ts
+  s_448d0c388cf77b::t_1d8d8bee5325c1 1-4
+playground/hono-pages/pages/blog/index.server.ts
+  s_448d0c388cf77b::t_2c222e1ece15ab 1-21
+playground/hono-pages/pages/deferred.server.ts
+  s_448d0c388cf77b::t_d2102636798b24 1-14
+playground/hono-pages/pages/deferred.tsx
+  s_448d0c388cf77b::t_acf4d80bf23f18 1-16
+playground/hono-pages/pages/form-errors.server.ts
+  s_448d0c388cf77b::t_ef6526e740cb54 1-12
+playground/hono-pages/pages/form-errors.tsx
+  s_448d0c388cf77b::t_abdafc51b0519a 1-69
+playground/hono-pages/pages/form-reset.server.ts
+  s_448d0c388cf77b::t_86ff5d66ca4eca 1-8
+playground/hono-pages/pages/form-reset.tsx
+  s_448d0c388cf77b::t_496897ec12e502 1-50
+playground/hono-pages/pages/index.server.ts
+  s_448d0c388cf77b::t_6cb8992cc1289e 1-9
+playground/hono-pages/pages/index.tsx
+  s_448d0c388cf77b::t_8655eae54ec8d9 1-15
+playground/hono-pages/pages/layout.tsx
+  s_448d0c388cf77b::t_85ee46baa78334 1-30
+playground/hono-pages/pages/link-behavior.server.ts
+  s_448d0c388cf77b::t_cdff33b4566d96 1-25
+playground/hono-pages/pages/link-behavior.tsx
+  s_448d0c388cf77b::t_efec076d8dd0ce 1-129
+playground/hono-pages/pages/scroll-restoration.server.ts
+  s_448d0c388cf77b::t_568dc543f8dd50 1-8
+playground/hono-pages/pages/scroll-restoration.tsx
+  s_448d0c388cf77b::t_6cd2a2b4da2ac3 1-40
+playground/hono-pages/pages/twins/_shared.tsx
+  s_448d0c388cf77b::t_ffcf20f271e0ff 1-12
+playground/hono-pages/pages/twins/a.tsx
+  s_448d0c388cf77b::t_17a39ef1bf49d9 1
+playground/hono-pages/pages/twins/b.tsx
+  s_448d0c388cf77b::t_8c043306518d80 1
+playground/hono-pages/pages/users/[id].server.ts
+  s_448d0c388cf77b::t_1824f82cabe227 1-17
+playground/hono-pages/pages/users/[id].tsx
+  s_448d0c388cf77b::t_949d61bfdaf107 1-14
+playground/hono-pages/pages/users/_data.ts
+  s_448d0c388cf77b::t_ca0e094f265c5f 1-4
+playground/hono-pages/pages/users/index.server.ts
+  s_448d0c388cf77b::t_fc1fc7cc601915 1-20
+playground/hono-pages/pages/users/index.tsx
+  s_448d0c388cf77b::t_923d0c827c9642 1-49
+playground/hono-pages/routes/api/health.ts
+  s_448d0c388cf77b::t_2cd9973ecf4f6e 1-5
+playground/hono-pages/tsconfig.json
+  s_448d0c388cf77b::t_bf677bc91bdb88 1-17
+playground/hono-pages/vite.config.ts
+  s_448d0c388cf77b::t_e79f0588547a09 1-9
+playground/hono-pages/void.config.ts
+  s_448d0c388cf77b::t_3dbce407c31dba 1-11
+pnpm-lock.yaml
+  s_448d0c388cf77b::t_0c08739e034e56 553-577,1351-1375
+test/integration-timings.ts
+  s_448d0c388cf77b::t_ed240a289f8bdb 5
+test/private-pages-build.ts
+  s_448d0c388cf77b::t_aadb8c60454578 9-14,17,27
+vite.config.ts
+  s_448d0c388cf77b::t_8bf4d6f31bb88e 560
+packages/hono/README.md
+  s_448d0c388cf77b::t_b7874401da4b0c 1-42
+packages/hono/package.json
+  s_448d0c388cf77b::t_1d41053c97fe46 1-59
+packages/hono/src/index.ts
+  s_448d0c388cf77b::t_da1b626873942e 1
+packages/hono/src/runtime/action.ts
+  s_448d0c388cf77b::t_f8bb3175756155 1-6
+packages/hono/src/runtime/context.ts
+  s_448d0c388cf77b::t_7c8dc453901b9a 1-23
+packages/hono/src/runtime/index.ts
+  s_448d0c388cf77b::t_8f0a60c5513da7 1-19
+packages/hono/src/runtime/pages-server.ts
+  s_448d0c388cf77b::t_21ec368af7b084 1-153
+packages/hono/src/runtime/submission-status.ts
+  s_448d0c388cf77b::t_117367d46f0fd4 1-53
+packages/hono/src/runtime/use-form.ts
+  s_448d0c388cf77b::t_dc27485e1d4276 1-179
+packages/hono/src/runtime/use-island-form.ts
+  s_448d0c388cf77b::t_217c69563e861a 1-100
+packages/hono/src/runtime/use-navigation.ts
+  s_448d0c388cf77b::t_e0a59685a68fad 1-7
+packages/hono/src/runtime/use-params.ts
+  s_448d0c388cf77b::t_3442727b12ebcf 1-21
+packages/hono/src/runtime/use-router.ts
+  s_448d0c388cf77b::t_f54b6a172c6df2 1-8
+packages/hono/src/runtime/use-shared.ts
+  s_448d0c388cf77b::t_ee367398547f80 1-11
+packages/hono/test/unit/pages-server.test.ts
+  s_448d0c388cf77b::t_05a92bfb62f324 1-162
+packages/hono/tsconfig.json
+  s_448d0c388cf77b::t_4e7d4c2b31bf6e 1-20
+packages/hono/vite.config.ts
+  s_448d0c388cf77b::t_19bd05f6753945 1-19
+packages/md/src/emit-hono.ts
+  s_448d0c388cf77b::t_e6921d4aaea9e4 1-70
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "ae94680dae70801b4405ff459860b10eb473a56e",
+  "prompts": {},
+  "sessions": {
+    "s_448d0c388cf77b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "77e194c5-70e5-4faf-9f50-743b4e35d062",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Yusuke Wada <yusuke@kamawada.com>"
+    }
+  }
+}
