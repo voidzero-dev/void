@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { serializePageData } from '../../src/pages/serialize.ts';
 import {
   assertNoPrerenderFailures,
+  outputFileForPath,
   readPrerenderPathsResponse,
   renderPrerenderPaths,
 } from '../../src/prerender-render.ts';
@@ -203,16 +204,23 @@ describe('prerender pool', () => {
   );
 
   it.each([
+    ['cloudflare', 't/a#b?c.html'],
+    ['node', 't/a%23b%3Fc.html'],
+  ] as const)('maps reserved URL characters for %s static hosting', (host, file) => {
+    expect(outputFileForPath('/t/a%23b%3Fc', host)).toBe(file);
+  });
+
+  it.each([
     // Cloudflare assets decode every escape in a segment before the file lookup.
-    ['cloudflare', 't/a#b?c'],
+    ['cloudflare', 't/a#b'],
     // Hono serveStatic (Node, Bun, Deno) uses decodeURI, which keeps reserved characters encoded.
-    ['node', 't/a%23b%3Fc'],
+    ['node', 't/a%23b'],
   ] as const)(
     'writes percent-encoded paths to the files %s static hosting reads',
     async (host, reservedFile) => {
       const clientDir = fixture();
       const result = await renderPrerenderPaths(
-        ['/router-url/a%20b', '/t/a%23b%3Fc', '/caf%C3%A9'],
+        ['/router-url/a%20b', '/t/a%23b', '/caf%C3%A9'],
         clientDir,
         async (path) => new Response(pageHtml({ path })),
         undefined,
@@ -222,7 +230,7 @@ describe('prerender pool', () => {
       expect(result.failed).toEqual([]);
       for (const [path, file] of [
         ['/router-url/a%20b', 'router-url/a b'],
-        ['/t/a%23b%3Fc', reservedFile],
+        ['/t/a%23b', reservedFile],
         ['/caf%C3%A9', 'café'],
       ]) {
         expect(readFileSync(join(clientDir, `${file}.html`), 'utf8')).toBe(pageHtml({ path }));
@@ -230,6 +238,25 @@ describe('prerender pool', () => {
           JSON.parse(readFileSync(join(clientDir, `_void/pages/${file}.json`), 'utf8')),
         ).toEqual({ path });
       }
+    },
+  );
+
+  // Windows cannot create a literal '?' filename; its URL mapping is tested above.
+  it.skipIf(process.platform === 'win32')(
+    'writes encoded question marks to Cloudflare HTML and page-data filenames',
+    async () => {
+      const clientDir = fixture();
+      const path = '/t/a%23b%3Fc';
+      const result = await renderPrerenderPaths(
+        [path],
+        clientDir,
+        async () => new Response(pageHtml({ path })),
+      );
+      expect(result).toEqual({ rendered: [path], failed: [] });
+      expect(readFileSync(join(clientDir, 't/a#b?c.html'), 'utf8')).toBe(pageHtml({ path }));
+      expect(JSON.parse(readFileSync(join(clientDir, '_void/pages/t/a#b?c.json'), 'utf8'))).toEqual(
+        { path },
+      );
     },
   );
 
