@@ -138,4 +138,6 @@ Import these types from `void/routes`:
 | `RouteQuery`          | Query keys mapped to `RouteQueryValue` or readonly arrays of those values.                        |
 | `RouteQueryValue`     | `string`, `number`, `boolean`, `null`, or `undefined`.                                            |
 
+Annotate a dynamic page's `getPrerenderPaths()` as `Promise<PageParams<P>[]>` so TypeScript checks those param names. See [Prerender paths](../../guide/type-safety.md#prerender-paths).
+
 `typedRoutes` is [`routing.typedRoutes`](../config.md#routing-typedroutes). See [Checked URL strings](../../guide/type-safety.md#checked-url-strings).
