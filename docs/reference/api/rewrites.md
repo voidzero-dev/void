@@ -22,14 +22,17 @@ return c.rewrite({
 
 With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
 
-For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options). `c.redirect()` still accepts any string, so a full path is checked only when you annotate it with [`RouteUrl`](./types.md#route-types). That check applies when [`routing.typedRoutes`](../config.md#routing-typedroutes) is on. An external URL stays a plain string:
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), `c.redirect()` checks its location the same way as a link. A string must be a route URL, a same-page query or hash, or an `http://`, `https://`, `mailto:`, or `tel:` URL. An external `https://` literal needs no cast. A `URL`, a [`routeUrl()`](./types.md#routeurl-path-options) string, or a destination object is accepted. Cast a string TypeScript cannot check with `as Href`:
 
 ```ts
-import { routeUrl, type RouteUrl } from 'void/routes';
+import { routeUrl, type Href } from 'void/routes';
+
+declare const nextUrl: string;
 
 return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
-return c.redirect('/users/42' satisfies RouteUrl);
+return c.redirect({ pathname: '/users/:id', params: { id: 42 } });
 return c.redirect('https://example.com/login');
+return c.redirect(nextUrl as Href);
 ```
 
 `c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.

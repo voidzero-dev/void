@@ -1,5 +1,6 @@
-import type { Context, Env, MiddlewareHandler, Next } from 'hono';
-import type { RewriteDestination, RouteDestination, RouteUrl } from 'void/routes';
+import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
+import type { RedirectStatusCode } from 'hono/utils/http-status';
+import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
@@ -132,8 +133,16 @@ declare module 'hono' {
  *
  * This is the type of the `c` parameter in route handlers and middleware
  * created with {@link defineHandler} and {@link defineMiddleware}.
+ * `redirect` accepts a {@link RouteUrlInput}.
  */
-export type CloudContext = Context<CloudEnv>;
+// One property, not a second overload. A module augmentation would leave
+// Hono's `(location: string | URL)` signature in place.
+export interface CloudContext extends Context<CloudEnv> {
+  redirect: <T extends RedirectStatusCode = 302>(
+    location: RouteUrlInput,
+    status?: T,
+  ) => Response & TypedResponse<undefined, T, 'redirect'>;
+}
 
 type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;
 // `R` is the loader's data, so `defineHandler<Props>(async (c) => ...)` works.
@@ -289,7 +298,21 @@ export function defineHandler<F extends HandlerFn>(
   fifthMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
-export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
+// Hono middleware such as `etag()` is not a CloudContext callback. These
+// overloads come after the CloudContext ones, so an inline callback is still
+// checked against `RouteUrlInput`.
+export function defineHandler<V extends ValidatorSlots, R>(
+  ...args: [...Array<MiddlewareHandler>, TypedHandler<V, R>]
+): TypedHandler<V, R>;
+export function defineHandler<R>(
+  ...args: [...Array<MiddlewareHandler>, LoaderFn<R>]
+): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
+export function defineHandler<F extends HandlerFn>(
+  ...args: [...Array<MiddlewareHandler>, F]
+): TypedHandler<{}, LoaderOutput<F>>;
+export function defineHandler(
+  ...args: Array<MiddlewareFn | HandlerFn | MiddlewareHandler>
+): TypedHandler {
   if (args.length === 1) {
     return args[0] as TypedHandler;
   }
@@ -341,7 +364,10 @@ export namespace defineHandler {
  * At runtime it simply returns the function passed to it.
  */
 export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
-  return handler;
+  // The callback's context accepts destination objects. Hono's handler type
+  // does not, so the same function is not assignable without a cast. The
+  // routing runtime replaces `redirect` before this runs.
+  return handler as MiddlewareHandler<CloudEnv>;
 }
 
 const basicAuthEncoder = new TextEncoder();

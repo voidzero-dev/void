@@ -17,7 +17,7 @@ import {
   searchWithoutActionKey,
 } from '../pages/action-key.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
-import { VoidAssetRewriteError } from './handler.ts';
+import { VoidAssetRewriteError, type CloudContext } from './handler.ts';
 import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
@@ -409,11 +409,11 @@ export function markNoMatch(request: Request, response: Response): Response {
 }
 
 export function createHttpRouteHandler(
-  load: () => Promise<Record<string, (c: Context) => unknown>>,
+  load: () => Promise<Record<string, (c: CloudContext) => unknown>>,
   method: string,
 ): (c: Context) => Promise<Response> {
   return markRouteHandler(async (c: Context) =>
-    convertReturnValue(await (await load())[method](c)),
+    convertReturnValue(await (await load())[method](c as unknown as CloudContext)),
   );
 }
 

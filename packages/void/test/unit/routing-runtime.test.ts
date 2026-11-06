@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
+import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import {
@@ -203,7 +203,7 @@ describe('typed HTTP execution', () => {
             assets: async () => ({ css: '', body: '', preloads: '' }),
             headConfig: undefined,
             renderOptions: { renderMode: 'server' },
-            load: async () => ({ loader: (c: Context) => c.redirect('/notes') }),
+            load: async () => ({ loader: (c: CloudContext) => c.redirect('/notes') }),
           }),
         );
       });
@@ -222,7 +222,7 @@ describe('typed HTTP execution', () => {
             assets: async () => ({ css: '', body: '', preloads: '' }),
             headConfig: undefined,
             renderOptions: { renderMode: 'server' },
-            load: async () => ({ action: (c: Context) => c.redirect('/done') }),
+            load: async () => ({ action: (c: CloudContext) => c.redirect('/done') }),
           }),
         );
       });
@@ -809,7 +809,7 @@ describe('typed Pages and SSR execution', () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
     app.use(runtime.contextMiddleware);
-    const redirectTo = (location: string) => (c: Context) => c.redirect(location);
+    const redirectTo = (location: string) => (c: CloudContext) => c.redirect(location);
     app.post(
       '/named',
       createPageMutationHandler({
@@ -830,7 +830,10 @@ describe('typed Pages and SSR execution', () => {
       app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
       app.post(
         '/api/x',
-        createHttpRouteHandler(async () => ({ POST: (c: Context) => c.redirect('/done') }), 'POST'),
+        createHttpRouteHandler(
+          async () => ({ POST: (c: CloudContext) => c.redirect('/done') }),
+          'POST',
+        ),
       );
       app.on(
         ['POST', 'PUT'],
@@ -839,19 +842,19 @@ describe('typed Pages and SSR execution', () => {
           ...pageOptions,
           load: async () => ({
             actions: {
-              delete: (c: Context) => c.redirect('/named'),
-              update: (c: Context) => c.redirect('/named', 303),
-              move: (c: Context) => c.redirect('/named-v2', 307),
-              moveTab: (c: Context) => c.redirect('/named-v2?tab=details', 307),
-              moveHash: (c: Context) => c.redirect('/named-v2?tab=details#top', 307),
-              moveReset: (c: Context) => c.redirect('/named-v2?', 307),
-              replace: (c: Context) => c.redirect('/named-v2?tab=details', 302),
-              moveKey: (c: Context) => c.redirect('/named-v2?tab=1&moveKey=x', 307),
-              moveSame: (c: Context) => c.redirect('/named-v2?moveSame', 307),
-              toArchive: (c: Context) => c.redirect('/named?archive', 307),
-              toArchiveHere: (c: Context) => c.redirect('/named?', 307),
-              go: (c: Context) => c.rewrite('/api/x'),
-              goWithQuery: (c: Context) => c.rewrite('/api/x?q=1'),
+              delete: (c: CloudContext) => c.redirect('/named'),
+              update: (c: CloudContext) => c.redirect('/named', 303),
+              move: (c: CloudContext) => c.redirect('/named-v2', 307),
+              moveTab: (c: CloudContext) => c.redirect('/named-v2?tab=details', 307),
+              moveHash: (c: CloudContext) => c.redirect('/named-v2?tab=details#top', 307),
+              moveReset: (c: CloudContext) => c.redirect('/named-v2?', 307),
+              replace: (c: CloudContext) => c.redirect('/named-v2?tab=details', 302),
+              moveKey: (c: CloudContext) => c.redirect('/named-v2?tab=1&moveKey=x', 307),
+              moveSame: (c: CloudContext) => c.redirect('/named-v2?moveSame', 307),
+              toArchive: (c: CloudContext) => c.redirect('/named?archive', 307),
+              toArchiveHere: (c: CloudContext) => c.redirect('/named?', 307),
+              go: (c: CloudContext) => c.rewrite('/api/x'),
+              goWithQuery: (c: CloudContext) => c.rewrite('/api/x?q=1'),
               save: () => undefined,
             },
           }),
@@ -1557,10 +1560,10 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       await next();
     };
     const sharedOf = async (response: Response) => ((await response.json()) as PageJson).shared;
-    const setCount = (n: number) => (c: Context) => {
+    const setCount = (n: number) => (c: CloudContext) => {
       c.set('shared', { ...(c.get('shared') as object), ...count(n) });
     };
-    const assignCount = (n: number) => (c: Context) => {
+    const assignCount = (n: number) => (c: CloudContext) => {
       Object.assign(c.get('shared') as object, count(n));
     };
     const loader = () => ({});
@@ -1583,7 +1586,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       let loaderSaw: unknown;
       const app = createPageApp(
         {
-          loader: (c: Context) => ((loaderSaw = c.get('shared')), {}),
+          loader: (c: CloudContext) => ((loaderSaw = c.get('shared')), {}),
           actions: { create: defineHandler(passThrough, async (c) => update(c)) },
         },
         appShared,

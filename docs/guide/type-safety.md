@@ -257,7 +257,7 @@ await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
 
 ### Checked URL strings
 
-[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Apps created with `void init` have it on. To turn it on in an existing app:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, and `c.redirect()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts
@@ -324,20 +324,26 @@ import { routeUrl } from 'void/routes';
 
 Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
 
-`c.redirect()` is not part of that check. It still accepts any string. Build an internal path with `routeUrl()`, or annotate a full path with `satisfies RouteUrl`. With `routing.typedRoutes` on, a path that matches no route is a type error. An external URL stays a plain string:
+`c.redirect()` uses that check. With `routing.typedRoutes` on, the location is a route URL, a same-page query or hash (`?page=2`, `#comments`), or an `http://`, `https://`, `mailto:`, or `tel:` URL. A path that matches no route is a type error. An external `https://` literal needs no cast. A `URL` or a destination object is accepted too. Cast a string TypeScript cannot check, such as a URL from a provider SDK, your CMS, or a file in `public/`, with `as Href`:
 
 ```ts
-import { routeUrl, type RouteUrl } from 'void/routes';
+import { routeUrl, type Href } from 'void/routes';
 
+declare const id: string;
+declare const dynamic: string;
+
+c.redirect('/about');
 c.redirect(routeUrl('/users/:id', { params: { id } }));
-c.redirect('/users/42' satisfies RouteUrl);
+c.redirect({ pathname: '/users/:id', params: { id } });
 c.redirect('https://example.com/login');
+c.redirect(new URL('https://example.com/login'));
+c.redirect(dynamic as Href);
 ```
 
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a `c.redirect()` path or a prerender or revalidate path list with it.
-- `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a prerender or revalidate path list with it.
+- `Href`: anything a link or `c.redirect()` can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
 
@@ -395,20 +401,20 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 
 ## What Gets Checked
 
-| Layer               | What's type-checked                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Database            | Table columns, value types, insert/update shapes from Drizzle schema                                                  |
-| Handlers            | `c.env` bindings, validator input, return type                                                                        |
-| Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
-| Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
-| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
-| `c.redirect`        | An internal path built with `routeUrl()`, or a full path annotated with `satisfies RouteUrl`                          |
-| `useParams`         | Page patterns and the names of the params they return                                                                 |
-| `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                      |
-| `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                 |
-| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                             |
-| `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
-| `action()`          | Action URLs, `data` payload, `params`                                                                                 |
+| Layer               | What's type-checked                                                                                                                                                                                                   |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Database            | Table columns, value types, insert/update shapes from Drizzle schema                                                                                                                                                  |
+| Handlers            | `c.env` bindings, validator input, return type                                                                                                                                                                        |
+| Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                                                                                                                     |
+| Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                                                                                                                        |
+| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                                                                                                                  |
+| `c.redirect`        | With `routing.typedRoutes`, route URLs, same-page queries and hashes, destination objects, `URL` values, and `http://`, `https://`, `mailto:`, and `tel:` literals. A string TypeScript cannot check needs `as Href`. |
+| `useParams`         | Page patterns and the names of the params they return                                                                                                                                                                 |
+| `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                                                                                                                      |
+| `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                                                                                                                 |
+| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                                                                                                                             |
+| `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess`                                                                                                 |
+| `action()`          | Action URLs, `data` payload, `params`                                                                                                                                                                                 |
 
 ## Serialization
 

@@ -1,3 +1,4 @@
+import type { Context } from 'hono';
 import { executeComposedHandler, getHandlerComposition } from '../runtime/handler-composition.ts';
 import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
 import { isConvertedResponse } from '../runtime/response.ts';
@@ -60,6 +61,7 @@ type PageHandler = ((c: CloudContext) => unknown | Promise<unknown>) | undefined
 type PageHeadHandler =
   | ((c: CloudContext, props: Record<string, unknown>) => HeadDescriptor | undefined)
   | undefined;
+type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
   renderMode?: PageRenderMode;
   /** Dev server build: rejected deferred props keep their raw error message. */
@@ -455,8 +457,34 @@ function streamDeferredResponse(
   return renderedResponse(c, readable, contentType, assetTags);
 }
 
+function asCloudContext(c: PageRequestContext): CloudContext {
+  return c as unknown as CloudContext;
+}
+
 /** Handle GET page request — run handler, return page object or SSR HTML */
-export async function handlePageGet(
+export function handlePageGet(
+  handler: PageHandler,
+  headFn: PageHeadHandler,
+  c: PageRequestContext,
+  componentId: string,
+  renderFn: RenderPage,
+  getAssetTags: GetAssetTags,
+  configHead?: HeadConfig,
+  options?: PageRenderOptions,
+): Promise<Response> {
+  return runPageGet(
+    handler,
+    headFn,
+    asCloudContext(c),
+    componentId,
+    renderFn,
+    getAssetTags,
+    configHead,
+    options,
+  );
+}
+
+async function runPageGet(
   handler: PageHandler,
   headFn: PageHeadHandler,
   c: CloudContext,
@@ -614,7 +642,31 @@ function isSameOriginAction(request: Request): boolean {
 }
 
 /** Handle POST/PUT/PATCH/DELETE page request — run mutation, then re-run GET or redirect */
-export async function handlePageMutation(
+export function handlePageMutation(
+  mutationHandler: PageHandler,
+  getHandler: PageHandler,
+  headFn: PageHeadHandler,
+  c: PageRequestContext,
+  componentId: string,
+  renderFn: RenderPage,
+  getAssetTags: GetAssetTags,
+  configHead?: HeadConfig,
+  options?: PageRenderOptions,
+): Promise<Response> {
+  return runPageMutation(
+    mutationHandler,
+    getHandler,
+    headFn,
+    asCloudContext(c),
+    componentId,
+    renderFn,
+    getAssetTags,
+    configHead,
+    options,
+  );
+}
+
+async function runPageMutation(
   mutationHandler: PageHandler,
   getHandler: PageHandler,
   headFn: PageHeadHandler,

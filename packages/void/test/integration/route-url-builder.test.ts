@@ -26,7 +26,7 @@ afterEach(() => {
 const typedCheck = `import { routeUrl, type Href, type RouteUrl } from 'void/routes';
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
-import { defineMiddleware, type CloudContext } from 'void/handler';
+import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
 declare const id: number;
 declare const dynamic: string;
 const user: RouteUrl = routeUrl('/users/:id', { params: { id } });
@@ -82,8 +82,7 @@ router.flush('#details');
 void router.visit('/unknown');
 // @ts-expect-error router prefetches are checked
 void router.prefetch('../relative');
-declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
-const context: CloudContext = honoContext;
+declare const context: CloudContext;
 void context.rewrite('/users/42');
 void context.rewrite(user);
 void context.rewrite('/api/legacy');
@@ -91,7 +90,28 @@ void context.rewrite('/api/legacy');
 void context.rewrite('https://example.com');
 // @ts-expect-error rewrites do not take same-page hashes
 void context.rewrite('#details');
+context.redirect('/about');
+context.redirect(user);
+context.redirect(routeUrl('/users/:id', { params: { id } }));
+context.redirect({ pathname: '/users/:id', params: { id } });
 context.redirect('https://example.com/elsewhere');
+context.redirect(new URL('https://example.com/login'));
+context.redirect(dynamic as Href);
+// @ts-expect-error unknown routes are rejected
+context.redirect('/unknown');
+// @ts-expect-error unchecked strings are rejected
+context.redirect(dynamic);
+defineHandler((c) => {
+  c.redirect('/about');
+  c.redirect({ pathname: '/users/:id', params: { id } });
+  // @ts-expect-error unknown routes are rejected
+  return c.redirect('/unknown');
+});
+defineMiddleware(async (c) => {
+  c.redirect('https://example.com/login');
+  // @ts-expect-error unknown routes are rejected
+  return c.redirect('/unknown');
+});
 // Config rewrites keep placeholders and static files.
 defineConfig({
   routing: {
@@ -251,17 +271,21 @@ void router.prefetch(destination);
 router.flush(destination);
 // @ts-expect-error destinations require path params
 void router.visit({ pathname: '/users/:id' });
-declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
-const context: CloudContext = honoContext;
+declare const context: CloudContext;
 const response: Response & { _status: 307 } = context.redirect(url, 307);
 void response;
 void context.rewrite(destination);
-// @ts-expect-error Hono redirects require a string or URL
 context.redirect(destination);
+context.redirect('/unknown');
+context.redirect('https://example.com/elsewhere');
+context.redirect(new URL('https://example.com/login'));
 // @ts-expect-error typed server rewrites reject unknown patterns
 void context.rewrite({ pathname: '/unknown' });
 defineHandler(c => c.redirect(url));
+defineHandler(c => c.redirect(destination));
+defineHandler(c => c.redirect('/unknown'));
 defineMiddleware(async c => c.redirect(url));
+defineMiddleware(async c => c.redirect(destination));
 `,
     ...extraFiles,
   };
