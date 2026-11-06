@@ -9,7 +9,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import {
@@ -202,7 +202,8 @@ describe('Cloudflare deploy log end record', () => {
     readRecords: () => Array<Record<string, unknown>>;
   } {
     const cliLog = openDeployLog(opts);
-    expect(cliLog.path?.startsWith(logHome.dir)).toBe(true);
+    expect(cliLog.path).not.toBeNull();
+    expect(dirname(resolve(cliLog.path!))).toBe(resolve(logHome.dir, '.void', 'logs'));
     return {
       cliLog,
       readRecords: () =>
