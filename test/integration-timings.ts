@@ -11,6 +11,7 @@ export const integrationTimings: Readonly<Record<string, number>> = {
   'packages/void/test/integration/analog.test.ts': 38000,
   'packages/void/test/integration/astro.test.ts': 26000,
   'packages/void/test/integration/cli-help.test.ts': 1718,
+  'packages/void/test/integration/cli-runtime-check.test.ts': 900,
   'packages/void/test/integration/cloudflare-compatibility-build.test.ts': 5000,
   'packages/void/test/integration/cloudflare-deploy-build.test.ts': 6700,
   'packages/void/test/integration/cloudflare-isr-policy.test.ts': 15391,

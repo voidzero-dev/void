@@ -239,6 +239,64 @@ describe('GitHub Actions deployment workflows', () => {
     expect(yaml).not.toContain('VOID_TOKEN');
   });
 
+  it('sets up a supported Node before bunx runs the CLI in Bun workflows', () => {
+    // bunx runs the CLI with the `node` on PATH, which is the runner's default Node.
+    const yaml = getWorkflowYaml('/project', 'bun', null, 'cloudflare');
+    expect(yaml).toContain(
+      '      - uses: oven-sh/setup-bun@v2\n' +
+        '      - uses: actions/setup-node@v6\n' +
+        '        with:\n' +
+        '          node-version: lts/*\n' +
+        '          check-latest: true\n' +
+        '      - run: bun install --frozen-lockfile\n',
+    );
+    expect(yaml.indexOf('actions/setup-node@v6')).toBeLessThan(
+      yaml.indexOf('bunx void deploy --platform cloudflare'),
+    );
+
+    const managed = getWorkflowYaml(
+      '/project',
+      'bun',
+      'my-app',
+      'void',
+      'https://api.company.example',
+    );
+    expect(managed.indexOf('actions/setup-node@v6')).toBeGreaterThan(-1);
+    expect(managed.indexOf('actions/setup-node@v6')).toBeLessThan(
+      managed.indexOf('bunx void connect'),
+    );
+  });
+
+  it.each(['24.22.1', '24'])(
+    'uses .node-version %s for the Bun workflow Node without a stale cached release',
+    (pin) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-bun-node-'));
+      try {
+        writeFileSync(join(root, '.node-version'), `${pin}\n`);
+        const yaml = getWorkflowYaml(root, 'bun', null, 'cloudflare');
+        expect(yaml).toContain(
+          '      - uses: actions/setup-node@v6\n' +
+            '        with:\n' +
+            '          node-version-file: .node-version\n' +
+            '          check-latest: true\n' +
+            '      - run: bun install --frozen-lockfile\n',
+        );
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('asks setup-node for the latest LTS release instead of a cached one', () => {
+    const yaml = getWorkflowYaml('/project', 'pnpm', null, 'cloudflare');
+    expect(yaml).toContain(
+      '        with:\n' +
+        '          node-version: lts/*\n' +
+        '          check-latest: true\n' +
+        '          cache: pnpm\n',
+    );
+  });
+
   it('retains the GitHub OIDC workflow for managed deployments', () => {
     const yaml = getWorkflowYaml(
       '/project',

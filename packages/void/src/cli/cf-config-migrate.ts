@@ -65,10 +65,12 @@ function migrationInput(raw: JsonObject): JsonObject {
 
 function applyPreservationFlags(raw: JsonObject, worker: JsonObject): void {
   // cf forwards unsafe.metadata to the Worker upload metadata, including these API flags.
-  const keepBindings = [
-    ...(raw.keep_vars === true ? ['plain_text', 'json'] : []),
-    ...(raw.keep_secrets === true ? ['secret_text', 'secret_key'] : []),
-  ];
+  // A written keep_bindings replaces cf's default, which keeps secrets. Wrangler always adds the
+  // secret types next to keep_vars, so keep_vars alone must not drop secrets either.
+  const keepBindings =
+    raw.keep_vars === true || raw.keep_secrets === true
+      ? [...(raw.keep_vars === true ? ['plain_text', 'json'] : []), 'secret_text', 'secret_key']
+      : [];
   if (keepBindings.length === 0 && raw.keep_assets !== true) {
     return;
   }
