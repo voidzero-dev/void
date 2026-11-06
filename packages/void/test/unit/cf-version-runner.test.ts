@@ -18,7 +18,8 @@ import {
   OutputContainerSchema,
   type ParsedInputConfig,
 } from '@cloudflare/config';
-import { afterEach, expect, it, vi } from 'vite-plus/test';
+import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import {
@@ -39,6 +40,8 @@ import {
   createCfVersionRunner,
   pinActiveWorkerSecrets,
 } from '../../src/cli/cf-version-runner.ts';
+import { readWranglerAuthToken } from '../../src/cli/deploy-cloudflare-auth.ts';
+import { formatCloudflareActivationError } from '../../src/cli/deploy-cloudflare-helpers.ts';
 
 const roots: Array<string> = [];
 const cleanups: Array<() => unknown> = [];
@@ -597,7 +600,7 @@ it.each([
         pinnedUpload: {
           accountId: 'account-id',
           apiBaseUrl,
-          getToken: async () => 'synthetic-token',
+          getToken: async () => ({ ok: true, token: 'synthetic-token' }),
           verifyUploader: () => true,
         },
         verifyResources: createCfResourceVerifier({
@@ -1009,6 +1012,66 @@ it.each([false, true])(
       expect(uploads[1].modules).toEqual([expect.objectContaining({ name: 'index.js' })]);
     } finally {
       await prepared!.dispose();
+    }
+  },
+  REAL_CF_TIMEOUT_MS,
+);
+
+it(
+  'keeps secret bindings in an unpinned cf upload when only keep_vars is set',
+  async () => {
+    const prepared = await output({ keep_vars: true });
+    const uploads: Array<Record<string, unknown>> = [];
+    const apiBaseUrl = await listen(
+      createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        const path = new URL(request.url!, 'http://localhost').pathname;
+        let result: unknown = {};
+        if (request.method === 'POST' && path.endsWith('/workers/scripts/void-test/versions')) {
+          const form = await new Request('http://localhost', {
+            method: 'POST',
+            headers: { 'content-type': request.headers['content-type']! },
+            body: Buffer.concat(chunks),
+          }).formData();
+          uploads.push(JSON.parse(String(form.get('metadata'))));
+          result = { id: '33333333-3333-4333-8333-333333333333', number: 1 };
+        } else if (
+          request.method === 'POST' &&
+          path.endsWith('/workers/workers/void-test/versions')
+        ) {
+          uploads.push(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+          result = { id: '22222222-2222-4222-8222-222222222222', urls: [] };
+        } else if (path.endsWith('/services/void-test')) {
+          result = {
+            default_environment: {
+              environment: 'production',
+              script: { id: 'void-test', last_deployed_from: 'wrangler' },
+            },
+          };
+        }
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ success: true, errors: [], messages: [], result }));
+      }),
+    );
+    try {
+      const result = await pinnedCf(apiBaseUrl)(['workers', 'versions', 'create', '--prebuilt'], {
+        cwd: prepared.directory,
+        capture: true,
+        timeoutMs: REAL_CF_TIMEOUT_MS,
+      });
+      expect(uploads, `${result.stdout}\n${result.stderr}`).toHaveLength(1);
+      // A keep_bindings without the secret types would make Cloudflare drop the live secrets.
+      expect(uploads[0]!.keep_bindings).toEqual([
+        'plain_text',
+        'json',
+        'secret_text',
+        'secret_key',
+      ]);
+    } finally {
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -2407,7 +2470,7 @@ it.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
         pinnedUpload: {
           accountId: 'account-id',
           apiBaseUrl: api.apiBaseUrl,
-          getToken: async () => 'synthetic-token',
+          getToken: async () => ({ ok: true, token: 'synthetic-token' }),
           verifyUploader: () => true,
         },
       });
@@ -2698,7 +2761,7 @@ it.each([false, true])(
         pinnedUpload: {
           accountId: 'account-id',
           apiBaseUrl,
-          getToken: async () => 'synthetic-token',
+          getToken: async () => ({ ok: true, token: 'synthetic-token' }),
           verifyUploader: () => true,
         },
       });
@@ -3143,7 +3206,7 @@ it.each([
         pinnedUpload: {
           accountId: 'account-id',
           apiBaseUrl,
-          getToken: async () => 'synthetic-token',
+          getToken: async () => ({ ok: true, token: 'synthetic-token' }),
           verifyUploader: () => true,
         },
       });
@@ -3694,4 +3757,369 @@ it('uploads when existing R2 and Queue bindings are verified by exact identity',
   } finally {
     prepared.dispose();
   }
+});
+
+describe('session credential failures', () => {
+  const nodeCrash =
+    "file:///void/dist/cli/cloudflare-operation-process.mjs:4\nimport { setGlobalProxyFromEnv } from 'node:http';\n         ^^^^^^^^^^^^^^^^^^^^^\nSyntaxError: The requested module 'node:http' does not provide an export named 'setGlobalProxyFromEnv'\n\nNode.js v22.23.4";
+  /** The deploy's getToken bridge over a fake helper child. */
+  const tokenFrom =
+    (child: CloudflareCommandResult) => (): ReturnType<typeof readWranglerAuthToken> =>
+      readWranglerAuthToken(() => child, '/p/wrangler.jsonc');
+  const pinnedRunner = (
+    prepared: Awaited<ReturnType<typeof output>>,
+    getToken: () => ReturnType<typeof readWranglerAuthToken>,
+    runCf: Parameters<typeof createCfVersionRunner>[0]['runCf'] = () => {
+      throw new Error('No cf command is expected.');
+    },
+  ) => {
+    prepared.activeSecrets = { versionId: '11111111-1111-4111-8111-111111111111', bindings: [] };
+    return createCfVersionRunner({
+      output: prepared,
+      workerName: 'void-test',
+      verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+      runCf,
+      pinnedUpload: {
+        accountId: 'account-id',
+        apiBaseUrl: 'http://127.0.0.1:9/client/v4',
+        getToken,
+        verifyUploader: () => true,
+      },
+    });
+  };
+
+  it('keeps the helper child status and crash for the upload', async () => {
+    const prepared = await output();
+    try {
+      const runner = pinnedRunner(
+        prepared,
+        tokenFrom({ status: 7, stdout: '', stderr: nodeCrash }),
+      );
+      const upload = await runner(
+        { type: 'versions.upload', workerName: 'void-test' },
+        { capture: true },
+      );
+      expect(upload.status).toBe(7);
+      expect(upload.error).toBeUndefined();
+      // version.ts formats the upload failure the same way.
+      const diagnostic = cloudflareCommandDiagnostic(upload)!;
+      expect(diagnostic).toContain(
+        'Could not get the Cloudflare session credential for the upload: the Void CLI helper process exited with code 7.',
+      );
+      expect(diagnostic).toContain(
+        "SyntaxError: The requested module 'node:http' does not provide an export named 'setGlobalProxyFromEnv'",
+      );
+      expect(diagnostic).toContain('Node.js v22.23.4');
+      expect(diagnostic.toLowerCase()).not.toContain('bearer [redacted]');
+    } finally {
+      await prepared.dispose();
+    }
+  });
+
+  it('keeps the header for a helper child that could not run', async () => {
+    const prepared = await output();
+    try {
+      const runner = pinnedRunner(
+        prepared,
+        tokenFrom({ status: 1, stdout: '', stderr: '', error: 'spawn EACCES' }),
+      );
+      const upload = await runner(
+        { type: 'versions.upload', workerName: 'void-test' },
+        { capture: true },
+      );
+      const text =
+        'Could not get the Cloudflare session credential for the upload: the Void CLI helper process could not run: spawn EACCES.';
+      // version.ts runs the formatter a second time over this result.
+      expect(cloudflareCommandDiagnostic(upload)).toBe(text);
+      expect(cloudflareCommandDiagnostic({ status: 1, stdout: '', stderr: text })).toBe(text);
+    } finally {
+      await prepared.dispose();
+    }
+  });
+
+  it('names the next step for a Global API Key session', async () => {
+    const prepared = await output();
+    try {
+      const runner = pinnedRunner(
+        prepared,
+        tokenFrom({
+          status: 1,
+          stdout: '',
+          stderr: 'Cloudflare session has no OAuth bearer.',
+          data: { type: 'api_key' },
+        }),
+      );
+      const upload = await runner(
+        { type: 'versions.upload', workerName: 'void-test' },
+        { capture: true },
+      );
+      expect(cloudflareCommandDiagnostic(upload)).toBe(
+        'Could not get the Cloudflare session credential for the upload: the session uses a Global API Key (CLOUDFLARE_API_KEY), which this step cannot use. Set CLOUDFLARE_API_TOKEN, or unset CLOUDFLARE_API_KEY and run `void cloudflare login`, then retry.',
+      );
+    } finally {
+      await prepared.dispose();
+    }
+  });
+
+  it('keeps the helper child status and crash for the settings publisher', async () => {
+    const prepared = await output();
+    const triggerConfig = join(roots.at(-1)!, 'trigger.json');
+    writeFileSync(
+      triggerConfig,
+      JSON.stringify({ name: 'void-test', observability: { enabled: true } }),
+    );
+    try {
+      const runner = pinnedRunner(
+        prepared,
+        tokenFrom({ status: 1, stdout: '', stderr: nodeCrash, signal: 'SIGKILL' }),
+        () => ({ status: 0, stdout: '', stderr: '' }),
+      );
+      const result = await runner(
+        { type: 'triggers.deploy', configPath: triggerConfig, workerName: 'void-test' },
+        { capture: true },
+      );
+      expect(result).toMatchObject({ status: 1, signal: 'SIGKILL' });
+      const diagnostic = cloudflareCommandDiagnostic(result)!;
+      expect(diagnostic).toContain(
+        'Could not get the Cloudflare session credential for publishing Worker settings: the Void CLI helper process was stopped by SIGKILL.',
+      );
+      expect(diagnostic).toContain('Node.js v22.23.4');
+      expect(diagnostic.toLowerCase()).not.toContain('bearer [redacted]');
+    } finally {
+      await prepared.dispose();
+    }
+  });
+
+  it('never reads an auth failure as a missing Worker that needs a bootstrap', async () => {
+    const prepared = await output();
+    const getToken = vi.fn(async () => ({
+      ok: false as const,
+      failure: {
+        status: 1,
+        stdout: '',
+        stderr: 'helper failed',
+        failure: 'not-found' as const,
+        errorCode: 10007,
+        errors: [{ code: 10007, message: 'The given script does not exist.' }],
+      },
+    }));
+    const missing = {
+      status: 1,
+      stdout: '',
+      stderr: 'The given script does not exist. [code: 10007]',
+      errorCode: 10007,
+      failure: 'not-found' as const,
+    };
+    try {
+      const runner = pinnedRunner(prepared, getToken, () => missing);
+      const operations: Array<string> = [];
+      const result = await activateCloudflareVersion({
+        workerName: 'void-test',
+        message: 'review',
+        verifyUploader: () => true,
+        verifyInheritedSecrets: true,
+        allowFirstDeploymentBootstrap: true,
+        runWrangler: (operation, command) => {
+          operations.push(operation.type);
+          return runner(operation, command);
+        },
+      });
+      expect(result).toMatchObject({ ok: false, reason: 'upload-failed', status: 1 });
+      expect(result).not.toHaveProperty('cloudflareErrorCode');
+      expect(operations).not.toContain('worker.deploy');
+      expect(getToken).toHaveBeenCalledTimes(1);
+    } finally {
+      await prepared.dispose();
+    }
+  });
+});
+
+describe('settings credential before activation', () => {
+  const current = '11111111-1111-4111-8111-111111111111';
+  const next = '22222222-2222-4222-8222-222222222222';
+  const triggers = {
+    workers_dev: true,
+    preview_urls: true,
+    routes: [],
+    crons: [],
+    queueConsumers: [],
+    workflows: [],
+  };
+  const apiKeySession = (): ReturnType<typeof readWranglerAuthToken> =>
+    readWranglerAuthToken(
+      () => ({
+        status: 1,
+        stdout: '',
+        stderr: 'Cloudflare session has no OAuth bearer.',
+        data: { type: 'api_key' },
+      }),
+      '/p/wrangler.jsonc',
+    );
+  /** A staged deploy over a live Worker whose fake cf records every command. */
+  const stagedDeploy = async (
+    triggerConfig: Parameters<typeof encodeCloudflareVersionMessage>[1],
+    getToken: () => ReturnType<typeof readWranglerAuthToken>,
+  ) => {
+    const prepared = await output();
+    const commands: Array<string> = [];
+    try {
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+        runCf: (args) => {
+          const command = args.slice(0, 3).join(' ');
+          commands.push(command);
+          if (command === 'workers deployments list') {
+            return {
+              status: 0,
+              stderr: '',
+              stdout: JSON.stringify({
+                deployments: [{ versions: [{ version_id: current, percentage: 100 }] }],
+              }),
+            };
+          }
+          if (command === 'workers versions get') {
+            return { status: 0, stderr: '', stdout: JSON.stringify({ id: args[3], bindings: [] }) };
+          }
+          if (command === 'workers versions create') {
+            return {
+              status: 0,
+              stderr: '',
+              stdout: JSON.stringify({ versionId: next, previewUrl: 'https://ready.example.com' }),
+            };
+          }
+          // Fail the first traffic change.
+          return { status: 1, stdout: '', stderr: 'Test stopped here.' };
+        },
+        pinnedUpload: {
+          accountId: 'account-id',
+          apiBaseUrl: 'http://127.0.0.1:9/client/v4',
+          getToken,
+          verifyUploader: () => true,
+        },
+      });
+      const result = await activateCloudflareVersion({
+        runWrangler: runner,
+        workerName: 'void-test',
+        verifyUploader: () => true,
+        readinessAttempts: 1,
+        message: encodeCloudflareVersionMessage([], triggerConfig),
+        fetch: async () => {
+          commands.push('readiness');
+          return Response.json({ ready: true });
+        },
+      });
+      return { result, commands };
+    } finally {
+      await prepared.dispose();
+    }
+  };
+
+  it.each([
+    { label: 'observability', settings: { observability: { enabled: true } } },
+    { label: 'logpush', settings: { logpush: false } },
+  ])('stops before upload when the $label publisher has no credential', async ({ settings }) => {
+    const getToken = vi.fn(apiKeySession);
+    const { result, commands } = await stagedDeploy({ ...triggers, ...settings }, getToken);
+    expect(result).toMatchObject({ ok: false, reason: 'upload-failed', status: 1 });
+    expect(commands).not.toContain('workers versions create');
+    expect(commands).not.toContain('workers deployments create');
+    expect(commands).not.toContain('workers triggers deploy');
+    expect(commands).not.toContain('readiness');
+    expect(getToken).toHaveBeenCalledTimes(1);
+    const message = formatCloudflareActivationError(result as Exclude<typeof result, { ok: true }>);
+    expect(message).toContain('production traffic is unchanged');
+    expect(message).toContain(
+      'Could not get the Cloudflare session credential for publishing Worker settings (observability, logpush), so no version was uploaded: the session uses a Global API Key (CLOUDFLARE_API_KEY), which this step cannot use.',
+    );
+  });
+
+  it.each([
+    { label: 'no Worker settings', config: triggers },
+    {
+      label: 'a preserved snapshot',
+      config: { ...triggers, preserve: true, observability: { enabled: true } },
+    },
+  ])('reads no credential for $label', async ({ config }) => {
+    const getToken = vi.fn(async () => {
+      throw new Error('A deploy without Worker settings must not read the session credential.');
+    });
+    const { result, commands } = await stagedDeploy(config, getToken);
+    expect(result.ok).toBe(false);
+    expect(commands).toContain('workers versions create');
+    expect(getToken).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      label: 'a fresh credential',
+      second: { ok: true as const, token: 'refreshed-token' },
+      bearer: 'Bearer refreshed-token',
+    },
+    {
+      label: 'the credential read before upload when the fresh read fails',
+      second: {
+        ok: false as const,
+        failure: { status: 1, stdout: '', stderr: 'helper failed' },
+      },
+      bearer: 'Bearer synthetic-token',
+    },
+  ])('publishes the settings with $label', async ({ second, bearer }) => {
+    const authorization: Array<string | undefined> = [];
+    const apiBaseUrl = await listen(
+      createServer((request, response) => {
+        authorization.push(request.headers.authorization);
+        request.resume();
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(JSON.stringify({ success: true, errors: [], result: {} }));
+      }),
+    );
+    const prepared = await output();
+    const triggerConfig = join(roots.at(-1)!, 'trigger.json');
+    writeFileSync(
+      triggerConfig,
+      JSON.stringify({ name: 'void-test', observability: { enabled: true } }),
+    );
+    const getToken = vi
+      .fn<() => ReturnType<typeof readWranglerAuthToken>>()
+      .mockResolvedValueOnce({ ok: true, token: 'synthetic-token' })
+      .mockResolvedValueOnce(second);
+    try {
+      const runner = createCfVersionRunner({
+        output: prepared,
+        workerName: 'void-test',
+        verifyResources: async () => ({ status: 0, stdout: '', stderr: '' }),
+        runCf: (args) => ({
+          status: 0,
+          stderr: '',
+          stdout: args[1] === 'versions' ? JSON.stringify({ versionId: next }) : '',
+        }),
+        pinnedUpload: { accountId: 'account-id', apiBaseUrl, getToken, verifyUploader: () => true },
+      });
+      const upload = await runner(
+        {
+          type: 'versions.upload',
+          workerName: 'void-test',
+          message: encodeCloudflareVersionMessage([], {
+            ...triggers,
+            observability: { enabled: true },
+          }),
+        },
+        { capture: true },
+      );
+      expect(upload).toMatchObject({ status: 0, data: { versionId: next } });
+      expect(getToken).toHaveBeenCalledTimes(1);
+      const published = await runner(
+        { type: 'triggers.deploy', configPath: triggerConfig, workerName: 'void-test' },
+        { capture: true },
+      );
+      expect(published.status, published.stderr).toBe(0);
+      // The bearer read before upload may have expired while traffic moved.
+      expect(getToken).toHaveBeenCalledTimes(2);
+      expect(authorization).toEqual([bearer]);
+    } finally {
+      await prepared.dispose();
+    }
+  });
 });

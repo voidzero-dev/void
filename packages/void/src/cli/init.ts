@@ -1745,11 +1745,15 @@ function getDevCommand(root: string, framework?: DetectedFramework): string {
   }
 }
 
+// Lines for a setup-node `with:` block, indented to match the templates below.
+// Without check-latest, setup-node reuses any cached release that matches a
+// partial version (`lts/*`, or `24` in .node-version), which can be older than
+// the CLI's minimum and then fails its runtime check. An exact pin is unaffected.
 function getNodeVersionLine(root: string): string {
-  if (existsSync(join(root, '.node-version'))) {
-    return 'node-version-file: .node-version';
-  }
-  return 'node-version: lts/*';
+  const version = existsSync(join(root, '.node-version'))
+    ? 'node-version-file: .node-version'
+    : 'node-version: lts/*';
+  return `${version}\n          check-latest: true`;
 }
 
 // Per-package-manager install + setup steps. `void deploy` always runs through
@@ -1781,7 +1785,11 @@ function getWorkflowSetupSteps(
       };
     case 'bun':
       return {
-        setup: '      - uses: oven-sh/setup-bun@v2',
+        // bunx runs the CLI with the `node` on PATH, so pin a supported Node too.
+        setup: `      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-node@v6
+        with:
+          ${nodeVersion}`,
         install: '      - run: bun install --frozen-lockfile',
         runner: 'bunx void',
       };

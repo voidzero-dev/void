@@ -29,6 +29,11 @@ import {
   type CloudflareCandidateReceipt,
 } from './cloudflare-candidate.ts';
 import {
+  observeCfCommand,
+  observeCloudflareRunner,
+  type CloudflareChildReporter,
+} from './cloudflare-child-report.ts';
+import {
   assertCloudflareLinkUnchanged,
   completeCloudflareLink,
   recordCloudflareCandidate,
@@ -52,7 +57,7 @@ import {
 import {
   chooseCloudflareDeployAccount,
   createDeployWranglerRunner,
-  runWranglerAuthToken,
+  readWranglerAuthToken,
 } from './deploy-cloudflare-auth.ts';
 import { log } from './deploy-helpers.ts';
 import { deployChildEnv, resolveDeployTransport } from './deploy-transport.ts';
@@ -163,8 +168,10 @@ export async function connectCloudflareDeployAccount(options: {
   persistAccount: boolean;
   /** `CF_ACCESS_READINESS_ORIGIN` as recorded before project code ran. */
   readinessAccessOrigin: string | null | undefined;
+  /** Scrubs and logs every child this connection runs. */
+  reporter: CloudflareChildReporter;
 }): Promise<CloudflareDeployConnection | null> {
-  const { root, configPath, deps } = options;
+  const { root, configPath, deps, reporter } = options;
   let { rootConfig } = options;
   let apiBaseUrl: string;
   try {
@@ -184,8 +191,10 @@ export async function connectCloudflareDeployAccount(options: {
     readWranglerTopLevelString(rootConfig, 'account_id') ??
     (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined);
   if (!accountId) {
-    const accountRunner =
-      deps.runWrangler ?? createDeployWranglerRunner(root, undefined, apiBaseUrl);
+    const accountRunner = observeCloudflareRunner(
+      deps.runWrangler ?? createDeployWranglerRunner(root, undefined, apiBaseUrl),
+      reporter,
+    );
     try {
       accountId = await chooseCloudflareDeployAccount({
         persist: options.persistAccount,
@@ -219,7 +228,10 @@ export async function connectCloudflareDeployAccount(options: {
     accountId,
     workersDevSubdomain,
     readinessAccessOrigin,
-    runWrangler: deps.runWrangler ?? createDeployWranglerRunner(root, accountId, apiBaseUrl),
+    runWrangler: observeCloudflareRunner(
+      deps.runWrangler ?? createDeployWranglerRunner(root, accountId, apiBaseUrl),
+      reporter,
+    ),
     rootConfig,
   };
 }
@@ -280,17 +292,22 @@ export function createCfActivationRunner(options: {
   runWrangler: DeployWranglerRun;
   cfUploaderIsPinned: () => boolean;
   verifyCompatibilityRunner: () => boolean;
+  /** The deploy's reporter; `runWrangler` is already observed by the connection. */
+  reporter: CloudflareChildReporter;
 }): CloudflareCommandRunner | DeployWranglerRun {
   const { cfOutput, accountId, apiBaseUrl, configPath, runWrangler } = options;
   if (!cfOutput) {
     return runWrangler;
   }
-  const runCf = createCfCommand({
-    accountId,
-    apiBaseUrl,
-    env: deployChildEnv,
-    verifyUploader: options.cfUploaderIsPinned,
-  });
+  const runCf = observeCfCommand(
+    createCfCommand({
+      accountId,
+      apiBaseUrl,
+      env: deployChildEnv,
+      verifyUploader: options.cfUploaderIsPinned,
+    }),
+    options.reporter,
+  );
   return createCfVersionRunner({
     output: cfOutput,
     workerName: options.workerName,
@@ -298,7 +315,7 @@ export function createCfActivationRunner(options: {
     pinnedUpload: {
       accountId,
       apiBaseUrl,
-      getToken: () => runWranglerAuthToken(runWrangler, configPath),
+      getToken: () => readWranglerAuthToken(runWrangler, configPath),
       verifyUploader: options.cfUploaderIsPinned,
     },
     verifyResources: createCfResourceVerifier({
@@ -477,14 +494,35 @@ export function recordCloudflareActivation(options: {
   });
 }
 
+/**
+ * Record the failed activation, then the end of the deploy, and release the log before the
+ * caller exits. The fields are picked from a fixed list, never spread from the result, and avoid
+ * key names that the log summary masks.
+ */
 export async function reportCloudflareActivationFailure(
-  cliLog: CliLogger,
+  reporter: CloudflareChildReporter,
   message: string,
+  execution: Exclude<CloudflareActivationResult, { ok: true }>,
 ): Promise<void> {
-  cliLog.error('cloudflare_deploy_failed', new Error(message));
-  // The default exit() terminates the process immediately, so flush the diagnostic first.
+  const { cliLog } = reporter;
+  const safeMessage = reporter.redactor.redact(message);
+  cliLog.error('cloudflare_deploy_failed', new Error(safeMessage), {
+    reason: execution.reason,
+    status: execution.status,
+    cloudflareErrorCode: execution.cloudflareErrorCode,
+    versionId: execution.versionId,
+    previousVersionId: execution.previousVersionId,
+    activeVersionId: execution.activeVersionId,
+    rollback: execution.rollback,
+    triggersRestored: execution.triggersRestored,
+    restoreSkipped: execution.restoreSkipped,
+    triggerRepair: execution.triggerRepair,
+    containersUnavailable: execution.containersUnavailable,
+  });
+  // Written here because the log is closed below, before the caller exit(1) could record it.
+  cliLog.error('deploy_end', undefined, { ok: false, exitCode: 1 });
   await cliLog.close().catch(() => {});
-  log.error(`${message}${cliLog.path ? `\n\nDetailed log: ${cliLog.path}` : ''}`);
+  log.error(`${safeMessage}${cliLog.path ? `\n\nDetailed log: ${cliLog.path}` : ''}`);
 }
 
 export async function activateCloudflareVersionWithProgress(
@@ -684,17 +722,94 @@ function formatCloudflareActivationFailure(
       ].join('\n');
     case 'activation-failed':
       return `deploy: the ready Worker Version could not be activated${status}; production traffic is unchanged.`;
-    case 'triggers-failed': {
-      const rollback =
-        result.rollback === 'succeeded'
-          ? 'Traffic was restored to the previous version.'
-          : result.rollback === 'unavailable'
-            ? result.previousVersionId === null
-              ? 'This was the first deployment, so no previous version was available to restore.'
-              : 'Traffic or trigger restoration could not be completed. Inspect its routes, schedules, queues, and workflows in Cloudflare before retrying.'
-            : 'Automatic traffic restoration failed; inspect `void project status` immediately.';
-      return `deploy: the Worker activated, but Cloudflare trigger synchronization failed${status}. ${rollback}`;
-    }
+    case 'triggers-failed':
+      return [
+        `deploy: the Worker activated, but Cloudflare trigger synchronization failed${status}.${cloudflareCode}`,
+        ...formatCloudflareTriggerRecovery(result),
+      ].join('\n');
+  }
+}
+
+const TRIGGER_KINDS = 'routes, schedules, queues, and workflows';
+const RETRY_DEPLOY = 'Fix the cause and run `void deploy --platform cloudflare` again.';
+const INSPECT_STATUS = 'Run `void project status` and check them in Cloudflare before retrying.';
+
+/**
+ * Say which version serves production after a trigger synchronization failure. Built only from
+ * the final owner and trigger state: `rollback` cannot tell "kept this deploy" from "switched
+ * back", so reading it once printed a restore that never happened.
+ */
+function formatCloudflareTriggerRecovery(
+  result: Exclude<CloudflareActivationResult, { ok: true }>,
+): Array<string> {
+  const live = result.activeVersionId ?? null;
+  const previous = result.previousVersionId ?? null;
+  const diagnostic = result.diagnostic ? ['', result.diagnostic] : [];
+  if (live === null) {
+    return [
+      'Live now: unknown. Void could not read which version serves production.',
+      ...(result.triggersRestored === 'unknown' && previous
+        ? [
+            `Void tried to switch back to the previous version ${previous} and restore its ${TRIGGER_KINDS}, but could not confirm the result.`,
+          ]
+        : []),
+      `Its ${TRIGGER_KINDS} may be partly updated. ${INSPECT_STATUS}`,
+      ...diagnostic,
+    ];
+  }
+  if (live === result.versionId) {
+    // Only a real app is worth rolling back to. Without `restoreSkipped`, Void could not tell
+    // whether the previous version is an empty draft, so it offers nothing.
+    const rollbackHint =
+      previous &&
+      (result.restoreSkipped === 'no-trigger-snapshot' || result.restoreSkipped === 'atomic')
+        ? [
+            `To serve the previous version instead, run \`void project rollback ${previous} --platform cloudflare\`.`,
+          ]
+        : [];
+    return [
+      `Live now: ${live} (this deploy). Its ${TRIGGER_KINDS} may be partly updated.`,
+      keptDeployReason(result.restoreSkipped, previous),
+      RETRY_DEPLOY,
+      ...rollbackHint,
+      ...diagnostic,
+    ];
+  }
+  if (live === previous) {
+    // Without restored triggers, Void cannot tell whether its own command or another operation
+    // moved traffic back (a restore skipped over a foreign deployment also lands here).
+    return [
+      result.triggersRestored === 'yes'
+        ? `Live now: ${live} (the previous version). Void switched traffic back to it and restored its ${TRIGGER_KINDS}.`
+        : `Live now: ${live} (the previous version). Void did not restore its ${TRIGGER_KINDS}, so they may be partly updated.`,
+      result.triggersRestored === 'yes' ? RETRY_DEPLOY : INSPECT_STATUS,
+      ...diagnostic,
+    ];
+  }
+  return [
+    `Live now: ${live}. Another Cloudflare operation changed production while Void was switching back.`,
+    `Its ${TRIGGER_KINDS} may not match it. ${INSPECT_STATUS}`,
+    ...diagnostic,
+  ];
+}
+
+/** Explain why this deploy's version still serves production. */
+function keptDeployReason(
+  restoreSkipped: 'placeholder' | 'no-trigger-snapshot' | 'atomic' | undefined,
+  previous: string | null,
+): string {
+  if (!previous) {
+    return 'This was the first deployment, so there is no previous version to switch back to.';
+  }
+  switch (restoreSkipped) {
+    case 'placeholder':
+      return `Void did not switch back to the previous version ${previous} because it is an empty placeholder or secret-only draft.`;
+    case 'no-trigger-snapshot':
+      return `Void did not switch back to the previous version ${previous} because it has no Void trigger snapshot to restore.`;
+    case 'atomic':
+      return `This deploy published at 100% directly, so Void did not switch back to the previous version ${previous}.`;
+    default:
+      return `Void could not switch back to the previous version ${previous}.`;
   }
 }
 

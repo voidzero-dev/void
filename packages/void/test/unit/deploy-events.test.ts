@@ -1,4 +1,14 @@
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, it, expect, vi } from 'vite-plus/test';
+
+// Deploy-log tests point homedir() at a temp folder; every other caller keeps the real one.
+const logHome = vi.hoisted(() => ({ dir: '' }));
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, homedir: () => logHome.dir || actual.homedir() };
+});
 
 vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   intro: vi.fn(),
@@ -18,7 +28,7 @@ import {
   warnIgnoredNotFoundForFramework,
   warnUnpublishedRouting,
 } from '../../src/cli/deploy-managed-events.ts';
-import type { CliLogger } from '../../src/cli/log-file.ts';
+import { openDeployLog, type CliLogger } from '../../src/cli/log-file.ts';
 import type { DeployEvent } from '../../src/cli/types.ts';
 
 type DoneEvent = Extract<DeployEvent, { event: 'done' }>;
@@ -260,6 +270,54 @@ it('explains stalled deployment progress once and reports recovery without claim
 });
 
 describe('streamDeployEvents', () => {
+  // Ctrl-C during a managed deploy exits with 130 without awaiting anything, so the records
+  // must already be on disk. The log goes to a temp home folder.
+  it('has every managed deploy record on disk when Ctrl-C exits', async () => {
+    logHome.dir = mkdtempSync(join(tmpdir(), 'void-deploy-log-'));
+    const { spinner } = createMockSpinner();
+    const cliLog = openDeployLog();
+    expect(cliLog.path?.startsWith(logHome.dir)).toBe(true);
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
+    const before = new Set(process.listeners('SIGINT'));
+    let reachedWait!: () => void;
+    const waiting = new Promise<void>((resolve) => {
+      reachedWait = resolve;
+    });
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    async function* events(): AsyncGenerator<DeployEvent> {
+      yield { event: 'start', deploymentId: 'dpl_1' };
+      reachedWait();
+      await released;
+    }
+    try {
+      const stream = streamDeployEvents('proj_1', events(), spinner, cliLog);
+      await waiting;
+      const onSigint = process.listeners('SIGINT').find((listener) => !before.has(listener));
+      expect(onSigint).toBeTypeOf('function');
+      // Call the handler directly: emitting SIGINT would reach the test runner's own handlers.
+      (onSigint as () => void)();
+      expect(exit).toHaveBeenCalledWith(130);
+
+      const lines = readFileSync(cliLog.path!, 'utf8').trimEnd().split('\n');
+      expect(lines.map((line) => (JSON.parse(line) as { msg: string }).msg)).toEqual([
+        'stream_start',
+        'stream_deployment_id',
+        'stream_interrupted',
+      ]);
+
+      release();
+      await expect(stream).rejects.toThrow();
+    } finally {
+      exit.mockRestore();
+      await cliLog.close();
+      rmSync(logHome.dir, { recursive: true, force: true });
+      logHome.dir = '';
+    }
+  });
+
   it('logs deploy_success and returns the done event on a published deploy', async () => {
     const { spinner } = createMockSpinner();
     const { logger, calls } = createMockCliLog();
