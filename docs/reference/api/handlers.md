@@ -228,11 +228,13 @@ Type-safe wrapper for the page `head()` export in `.server.ts` files. Provides [
 ```ts
 import { defineHandler, defineHead } from 'void';
 import type { InferProps } from 'void';
+import type { PageParams } from 'void/routes';
 
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler(async (c) => {
-  const post = await getPost(c.req.param('slug'));
+  const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+  const post = await getPost(slug);
   return { post };
 });
 

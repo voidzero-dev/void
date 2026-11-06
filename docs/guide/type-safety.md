@@ -224,6 +224,14 @@ The pattern must be one of your pages; HTTP and WebSocket routes are not accepte
 
 The pattern is checked by TypeScript only. Pass the pattern of the page the component renders in; without a pattern, `useParams()` returns `Record<string, string>`.
 
+On the server, `c.req.param('slug')` accepts any name. Read the params object through `PageParams` so a missing or misspelled name is a type error:
+
+```ts
+import type { PageParams } from 'void/routes';
+
+const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+```
+
 ### Prerender paths
 
 On a dynamic page, annotate `getPrerenderPaths()` with `PageParams` for that page's URL pattern. Each returned object must then include the page's params, and a missing or misspelled key is a type error. Void does not infer this type from the filename, so the check applies only when the annotation is present:
@@ -238,6 +246,14 @@ export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> 
 ```
 
 In custom SSR mode the function returns full path strings, so annotate it as `Promise<string[]>`. See [Edge Prerendering](./edge/prerendering.md#dynamic-pages-with-params) and [Static Site Generation](./ssg.md#per-page-overrides).
+
+`revalidate({ paths })` and `routing.prerender` are lists of plain strings. Annotate the array with `satisfies RouteUrl[]` so each path has to match a route. The check applies when [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) is on; otherwise `RouteUrl` is `string`:
+
+```ts
+import type { RouteUrl } from 'void/routes';
+
+await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
+```
 
 ### Checked URL strings
 
@@ -308,9 +324,19 @@ import { routeUrl } from 'void/routes';
 
 Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
 
+`c.redirect()` is not part of that check. It still accepts any string. Build an internal path with `routeUrl()`, or annotate a full path with `satisfies RouteUrl`. With `routing.typedRoutes` on, a path that matches no route is a type error. An external URL stays a plain string:
+
+```ts
+import { routeUrl, type RouteUrl } from 'void/routes';
+
+c.redirect(routeUrl('/users/:id', { params: { id } }));
+c.redirect('/users/42' satisfies RouteUrl);
+c.redirect('https://example.com/login');
+```
+
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a `c.redirect()` path or a prerender or revalidate path list with it.
 - `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
@@ -376,8 +402,11 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
 | Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
 | Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
+| `c.redirect`        | An internal path built with `routeUrl()`, or a full path annotated with `satisfies RouteUrl`                          |
 | `useParams`         | Page patterns and the names of the params they return                                                                 |
+| `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                      |
 | `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                 |
+| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                             |
 | `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
 | `action()`          | Action URLs, `data` payload, `params`                                                                                 |
 
