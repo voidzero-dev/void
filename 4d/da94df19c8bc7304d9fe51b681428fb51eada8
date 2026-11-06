@@ -1,0 +1,21 @@
+docs/.vitepress/config.ts
+  s_448d0c388cf77b::t_3b93f673ee0923 186
+package.json
+  s_448d0c388cf77b::t_6a1d6427b45ba7 23
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.6.10",
+  "base_commit_sha": "4dda94df19c8bc7304d9fe51b681428fb51eada8",
+  "prompts": {},
+  "sessions": {
+    "s_448d0c388cf77b": {
+      "agent_id": {
+        "tool": "claude",
+        "id": "77e194c5-70e5-4faf-9f50-743b4e35d062",
+        "model": "claude-fable-5-1"
+      },
+      "human_author": "Yusuke Wada <yusuke@kamawada.com>"
+    }
+  }
+}
