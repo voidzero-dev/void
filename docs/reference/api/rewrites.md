@@ -22,12 +22,14 @@ return c.rewrite({
 
 With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
 
-For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options):
+For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options). `c.redirect()` still accepts any string, so a full path is checked only when you annotate it with [`RouteUrl`](./types.md#route-types). That check applies when [`routing.typedRoutes`](../config.md#routing-typedroutes) is on. An external URL stays a plain string:
 
 ```ts
-import { routeUrl } from 'void/routes';
+import { routeUrl, type RouteUrl } from 'void/routes';
 
 return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
+return c.redirect('/users/42' satisfies RouteUrl);
+return c.redirect('https://example.com/login');
 ```
 
 `c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.

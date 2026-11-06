@@ -378,7 +378,7 @@ routing: {
 
 #### `routing.typedRoutes`
 
-Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. `c.redirect()`, `revalidate({ paths })`, and `routing.prerender` stay plain strings until you annotate them. See [Checked URL strings](../guide/type-safety#checked-url-strings).
 
 ```ts
 routing: {
@@ -503,6 +503,14 @@ Paths to prerender as static HTML at deploy time. Each path must start with `/`.
     "prerender": ["/", "/about", "/pricing"]
   }
 }
+```
+
+In `void.config.ts`, annotate the array with [`RouteUrl`](./api/types.md#route-types) so TypeScript checks the paths when [`routing.typedRoutes`](#routing-typedroutes) is on:
+
+```ts
+import type { RouteUrl } from 'void/routes';
+
+prerender: ['/', '/about', '/pricing'] satisfies RouteUrl[],
 ```
 
 #### `routing.notFound`

@@ -13,13 +13,15 @@ Export a `head()` function from your `.server.ts` file. It receives the Hono con
 ```ts
 // pages/posts/[slug].server.ts
 import { defineHandler, defineHead } from 'void';
+import type { PageParams } from 'void/routes';
 
 export interface Props {
   post: { title: string; excerpt: string; slug: string };
 }
 
 export const loader = defineHandler<Props>(async (c) => {
-  const post = await getPost(c.req.param('slug'));
+  const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+  const post = await getPost(slug);
   return { post };
 });
 

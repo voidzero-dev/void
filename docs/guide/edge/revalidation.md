@@ -119,13 +119,15 @@ Purge the destination pathname with `revalidate({ paths })`. Purging `/en/docs/f
 You can purge ISR cache entries programmatically from a route handler:
 
 ```ts
+import { defineHandler } from 'void';
 import { revalidate } from 'void/isr';
+import type { RouteUrl } from 'void/routes';
 
 export const POST = defineHandler(async (c) => {
   // ... update content in database ...
 
-  // Purge specific pages
-  await revalidate({ paths: ['/', '/blog/hello-world'] });
+  // Purge specific pages. `satisfies RouteUrl[]` checks the paths when routing.typedRoutes is on.
+  await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
 
   // Or purge all cached pages
   await revalidate({ all: true });

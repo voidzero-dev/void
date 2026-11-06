@@ -104,10 +104,13 @@ Revalidate ISR-cached pages on demand. In local development this is a no-op beca
 
 ```ts
 import { revalidate } from 'void/isr';
+import type { RouteUrl } from 'void/routes';
 
-await revalidate({ paths: ['/', '/blog/hello'] });
+await revalidate({ paths: ['/', '/blog/hello'] satisfies RouteUrl[] });
 await revalidate({ all: true });
 ```
+
+`paths` is `string[]`. Annotate the array with `satisfies RouteUrl[]` so TypeScript checks each path when [`routing.typedRoutes`](../config.md#routing-typedroutes) is on.
 
 **Signature:**
 

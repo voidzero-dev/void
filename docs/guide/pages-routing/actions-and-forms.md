@@ -24,10 +24,10 @@ export const action = defineHandler.withValidator({
 });
 ```
 
-| Action returns        | Behavior                                              |
-| --------------------- | ----------------------------------------------------- |
-| Nothing (void)        | Re-runs the loader, page re-renders with fresh props. |
-| `c.redirect('/path')` | Navigates to another page.                            |
+| Action returns    | Behavior                                                                                                     |
+| ----------------- | ------------------------------------------------------------------------------------------------------------ |
+| Nothing (void)    | Re-runs the loader, page re-renders with fresh props.                                                        |
+| `c.redirect(url)` | Navigates to another page. Build `url` with `routeUrl()`, or annotate a full path with `satisfies RouteUrl`. |
 
 Middleware does not run again after the action. To change [shared data](./layouts.md#shared-data), update it in the action or redirect.
 
@@ -227,19 +227,22 @@ When a page needs multiple mutations, such as updating and deleting a user on th
 import { users, updateUserSchema } from '@schema';
 import { defineHandler } from 'void';
 import { db, eq } from 'void/db';
+import type { PageParams } from 'void/routes';
 
 export const actions = {
   update: defineHandler.withValidator({
     body: updateUserSchema,
   })(async (c, { body }) => {
+    const { id } = c.req.param() as PageParams<'/users/:id'>;
     await db
       .update(users)
       .set(body)
-      .where(eq(users.id, Number(c.req.param('id'))));
+      .where(eq(users.id, Number(id)));
   }),
 
   delete: defineHandler(async (c) => {
-    await db.delete(users).where(eq(users.id, Number(c.req.param('id'))));
+    const { id } = c.req.param() as PageParams<'/users/:id'>;
+    await db.delete(users).where(eq(users.id, Number(id)));
   }),
 };
 ```
