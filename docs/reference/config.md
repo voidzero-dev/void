@@ -220,7 +220,7 @@ Output mode. Controls the default rendering strategy for pages.
 | `"server"` (default) | `false`           | `export const prerender = true`  | Deploy-time (platform ISR) |
 | `"static"`           | `true`            | `export const prerender = false` | Build or deploy post-build |
 
-When set to `"static"`, pages are prerendered to HTML in `dist/client/`. Individual pages can opt out with `export const prerender = false`. Dynamic pages need `getPrerenderPaths()` to be prerendered.
+When set to `"static"`, pages are prerendered to HTML in `dist/client/`. Individual pages can opt out with `export const prerender = false`. Dynamic pages need [`getPrerenderPaths()`](../guide/ssg.md#per-page-overrides) to be prerendered. Annotate its return type with [`PageParams`](./api/types.md#route-types) so TypeScript checks the param names.
 
 When omitted or set to `"server"`, pages are server-rendered on request. Individual pages can opt into deploy-time prerendering with `export const prerender = true`, or opt out of server-rendered component HTML with `export const ssr = false`.
 

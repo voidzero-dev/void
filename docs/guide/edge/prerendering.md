@@ -22,17 +22,20 @@ Pages without dynamic params do not need `getPrerenderPaths()`.
 
 ## Dynamic pages (with params)
 
-For pages with URL params, also export `getPrerenderPaths()` to specify which param combinations to prerender:
+For pages with URL params, also export `getPrerenderPaths()` to specify which param combinations to prerender. Annotate the return type with [`PageParams`](../../reference/api/types.md#route-types) for that page's URL pattern, such as `/blog/:slug` for `pages/blog/[slug].server.ts`. TypeScript then requires each object to include those params, so a missing or misspelled key is a type error. Void does not infer this type from the filename.
 
 ```ts
 // pages/blog/[slug].server.ts
+import type { PageParams } from 'void/routes';
+
 export const prerender = true;
 
-export async function getPrerenderPaths() {
-  // Return param objects matching the URL pattern
+export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> {
   return [{ slug: 'hello-world' }, { slug: 'getting-started' }];
 }
 ```
+
+Each object must include every param in the page path. Values can be strings or numbers, and Void URL-encodes them. A single-segment param such as `[slug]` cannot contain `/`. For nested paths, use a catch-all page such as `pages/docs/[...slug]` and return `{ slug: 'guides/intro' }`. If an entry is invalid, `void deploy` fails. The error names the server file and the entry index.
 
 ## Custom SSR
 
@@ -42,10 +45,12 @@ In custom SSR mode (`src/main.ssr.ts`), export `getPrerenderPaths()` at the top 
 // src/main.ssr.ts
 export const prerender = true;
 
-export async function getPrerenderPaths() {
+export async function getPrerenderPaths(): Promise<string[]> {
   return ['/', '/about', '/blog/hello-world'];
 }
 ```
+
+Annotate this return type as an array of path strings. Use `PageParams` on file-based pages, where the function returns param objects.
 
 ## Relationship to revalidation
 

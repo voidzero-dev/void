@@ -417,6 +417,8 @@ async function renderPaths(paths) {
     (path) => fetch(new Request("http://localhost" + path, {
       headers: { "Accept": "application/json", "Purpose": "prefetch", "X-VoidPages": "true" },
     })),
+    undefined,
+    "node",
   );
 }
 
@@ -497,7 +499,7 @@ export async function prerenderPagesNode(options: {
   ensureStatic404(options.clientDir);
 
   for (const path of result.rendered) {
-    voidLog(`prerender ${pc.blue(outputFileForPath(path))}`);
+    voidLog(`prerender ${pc.blue(outputFileForPath(path, 'node'))}`);
   }
   for (const { path, error } of result.failed) {
     voidWarn(`prerender ${path} failed: ${error}`);

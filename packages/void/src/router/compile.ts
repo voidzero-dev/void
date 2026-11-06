@@ -191,7 +191,7 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
@@ -459,7 +459,7 @@ export function compileRouteTable(
     );
   }
 
-  compilePrerenderCollector(lines, scan, ssr, options, pageNames);
+  compilePrerenderCollector(lines, scan, ssr, options, pageNames, pages?.pagesDirRelative);
 
   if (ssr) {
     lines.push(
@@ -860,6 +860,7 @@ function compilePrerenderCollector(
   ssr: SsrCompileOptions | null,
   options: CompileOptions,
   pageNames: (componentId: string) => string,
+  pagesDirRelative: string | undefined,
 ): void {
   const staticPaths = scan.pages.pages
     .filter((page) => page.shouldPrerender && page.params.length === 0 && !page.catchAll)
@@ -871,16 +872,6 @@ function compilePrerenderCollector(
       (page.params.length > 0 || page.catchAll),
   );
   const explicitPaths = options.explicitPrerenderPaths ?? [];
-
-  lines.push(`function __voidBuildPrerenderPath(pattern, params) {`);
-  lines.push(`  let path = pattern;`);
-  lines.push(`  for (const [key, value] of Object.entries(params)) {`);
-  lines.push(`    path = path.replace(":" + key + "{.+}", value);`);
-  lines.push(`    path = path.replace(":" + key, value);`);
-  lines.push(`  }`);
-  lines.push(`  return path;`);
-  lines.push(`}`);
-  lines.push('');
 
   lines.push(`export async function __voidCollectPrerenderPaths(request, env, ctx) {`);
   lines.push(`  return withRuntimeEnv(env, async () => {`);
@@ -902,9 +893,13 @@ function compilePrerenderCollector(
     lines.push(`        if (typeof mod.getPrerenderPaths === "function") {`);
     lines.push(`          const paramSets = await mod.getPrerenderPaths();`);
     lines.push(`          if (Array.isArray(paramSets)) {`);
-    lines.push(`            for (const params of paramSets) {`);
+    // Name the file that defines getPrerenderPaths() in build errors.
+    const file = [pagesDirRelative, page.serverPath ?? page.componentPath]
+      .filter(Boolean)
+      .join('/');
+    lines.push(`            for (let index = 0; index < paramSets.length; index++) {`);
     lines.push(
-      `              paths.push(__voidBuildPrerenderPath(${JSON.stringify(page.pattern)}, params));`,
+      `              paths.push(__buildPrerenderPath(${JSON.stringify(page.pattern)}, paramSets[index], ${JSON.stringify(file)}, index));`,
     );
     lines.push(`            }`);
     lines.push(`          }`);
@@ -1422,17 +1417,17 @@ export function compileNodeApp(
 import { fileURLToPath } from "node:url";
 import { Hono } from ${JSON.stringify(honoPath)};
 import innerApp, { __voidCollectPrerenderPaths } from "virtual:void-routes";
+import { prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
 ${envSchemaImport}
 // Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
 const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
 const assetApp = new Hono();
-assetApp.get("*", serveStatic({ root: clientRoot }));
+assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
 const assets = { fetch: (request) => assetApp.fetch(request) };
 const app = new Hono();
 ${envMiddleware}app.post("/__void/prerender-paths", async (c) => {
   if (c.env?.__VOID_PRERENDER !== "1") return c.notFound();
-  const paths = await __voidCollectPrerenderPaths(c.req.raw);
-  return c.json({ paths });
+  return __prerenderPathsResponse(() => __voidCollectPrerenderPaths(c.req.raw));
 });
 app.get("/assets/*", (c) => assets.fetch(c.req.raw));
 app.all("*", (c) => innerApp.fetch(c.req.raw, { ...c.env, ASSETS: assets }));

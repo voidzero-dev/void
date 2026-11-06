@@ -28,14 +28,18 @@ Individual pages can opt out of prerendering:
 export const prerender = false;
 ```
 
-Dynamic pages with `getPrerenderPaths()` are prerendered for the returned param combinations:
+Dynamic pages with `getPrerenderPaths()` are prerendered for the returned param combinations. Annotate the return type with [`PageParams`](../reference/api/types.md#route-types) so TypeScript checks the param names. Void does not infer them from the filename:
 
 ```ts
 // pages/blog/[slug].server.ts
-export async function getPrerenderPaths() {
+import type { PageParams } from 'void/routes';
+
+export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> {
   return [{ slug: 'hello-world' }, { slug: 'getting-started' }];
 }
 ```
+
+Each object must include every param in the page path. Values can be strings or numbers, and Void URL-encodes them. A single-segment param such as `[slug]` cannot contain `/`. For nested paths, use a catch-all page such as `pages/docs/[...slug]` and return `{ slug: 'guides/intro' }`. If an entry is invalid, the build fails. The error names the server file and the entry index.
 
 ## 404 pages
 
