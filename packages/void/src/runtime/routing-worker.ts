@@ -203,6 +203,23 @@ export type WorkerFetchOptions = {
     ) => Promise<Response | null>;
   };
 };
+/**
+ * Answer the prerender runner. A getPrerenderPaths() error is returned in the
+ * body so the build can show which page and entry to fix, not only HTTP 500.
+ */
+export async function prerenderPathsResponse(
+  collect: () => Promise<Array<string>>,
+): Promise<Response> {
+  try {
+    return Response.json({ paths: await collect() });
+  } catch (error) {
+    return Response.json(
+      { error: error instanceof Error ? error.message : String(error) },
+      { status: 500 },
+    );
+  }
+}
+
 export function createWorkerFetch(
   options: WorkerFetchOptions,
 ): (request: Request, env: RuntimeEnvironment, ctx: ExecutionContext) => Promise<Response> {
@@ -246,7 +263,7 @@ export function createWorkerFetch(
           return internal;
         }
         if (discovery) {
-          return Response.json({ paths: await options.collectPrerenderPaths(request, env, ctx) });
+          return prerenderPathsResponse(() => options.collectPrerenderPaths(request, env, ctx));
         }
         // After the Void endpoints that tools and the platform call above, and
         // before ISR, so a cached page is never served over HTTP. The

@@ -535,6 +535,22 @@ describe('typed Worker fetch execution', () => {
     expect(await runner.json()).toEqual({ paths: ['/page'] });
     expect(validateEnv).toHaveBeenCalledTimes(4);
   });
+  it('returns a getPrerenderPaths() error to the prerender runner', async () => {
+    const fetch = worker({
+      collectPrerenderPaths: async () => {
+        throw new TypeError('pages/a.server.ts getPrerenderPaths()[0]: bad');
+      },
+    });
+    const response = await fetch(
+      new Request('https://app.test/__void/prerender-paths', { method: 'POST' }),
+      { __VOID_PRERENDER: '1' },
+      context,
+    );
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: 'pages/a.server.ts getPrerenderPaths()[0]: bad',
+    });
+  });
   it('resolves remote env after validating original bindings and enters scopes before internal routes', async () => {
     const original = { __VOID_REMOTE: '1' };
     const resolved = { PUBLIC: 'remote' };

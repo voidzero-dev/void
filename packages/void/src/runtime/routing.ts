@@ -441,6 +441,8 @@ export {
   createAssetFallback,
   createWorkerFetch,
   filterInternalBindings,
+  prerenderPathsResponse,
 } from './routing-worker.ts';
 export { createClientAssetTags, createManifestLoader } from './routing-assets.ts';
 export { createSsrFallback, createAssetNotFound } from './routing-pages.ts';
+export { buildPrerenderPath } from './prerender-path.ts';

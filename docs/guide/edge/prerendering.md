@@ -35,6 +35,8 @@ export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> 
 }
 ```
 
+Each object must include every param in the page path. Values can be strings or numbers, and Void URL-encodes them. A single-segment param such as `[slug]` cannot contain `/`. For nested paths, use a catch-all page such as `pages/docs/[...slug]` and return `{ slug: 'guides/intro' }`. If an entry is invalid, `void deploy` fails. The error names the server file and the entry index.
+
 ## Custom SSR
 
 In custom SSR mode (`src/main.ssr.ts`), export `getPrerenderPaths()` at the top level. Since there's no file-based routing, return full path strings:

@@ -17,13 +17,42 @@ export function assertNoPrerenderFailures(failed: PrerenderResult['failed']): vo
   throw new Error(`${failed.length} page(s) failed to prerender:\n${details}`);
 }
 
-export function outputFileForPath(path: string): string {
-  return path === '/' ? 'index.html' : `${path.slice(1)}.html`;
+/**
+ * Static file server that will serve the prerendered files. Hosts decode the
+ * request path before the file lookup, so files are written decoded:
+ * Cloudflare assets decode each segment with decodeURIComponent, and Hono's
+ * serveStatic (Node, Bun, Deno) uses decodeURI, which keeps reserved
+ * characters such as %23 and %3F encoded.
+ */
+export type PrerenderHost = 'cloudflare' | 'node';
+
+function tryDecode(value: string, decode: (value: string) => string): string {
+  try {
+    return decode(value);
+  } catch {
+    return value;
+  }
+}
+
+function filePathForPath(path: string, host: PrerenderHost): string {
+  return host === 'node'
+    ? tryDecode(path, decodeURI)
+    : path
+        .split('/')
+        .map((segment) => tryDecode(segment, decodeURIComponent))
+        .join('/');
+}
+
+export function outputFileForPath(path: string, host: PrerenderHost = 'cloudflare'): string {
+  return path === '/' ? 'index.html' : `${filePathForPath(path, host).slice(1)}.html`;
 }
 
 export async function readPrerenderPathsResponse(response: Response): Promise<Array<string>> {
   if (!response.ok) {
-    throw new Error(`prerender: Failed to collect prerender paths. HTTP ${response.status}.`);
+    // The app returns getPrerenderPaths() errors as { error }.
+    const body = (await response.json().catch(() => null)) as { error?: unknown } | null;
+    const detail = typeof body?.error === 'string' ? body.error : `HTTP ${response.status}.`;
+    throw new Error(`prerender: Failed to collect prerender paths. ${detail}`);
   }
 
   const payload = (await response.json()) as { paths?: unknown } | null;
@@ -38,8 +67,10 @@ export async function readPrerenderPathsResponse(response: Response): Promise<Ar
   return payload.paths;
 }
 
-function pageDataFileForPath(path: string): string {
-  return path === '/' ? '_void/pages/index.json' : `_void/pages/${path.slice(1)}.json`;
+function pageDataFileForPath(path: string, host: PrerenderHost): string {
+  return path === '/'
+    ? '_void/pages/index.json'
+    : `_void/pages/${filePathForPath(path, host).slice(1)}.json`;
 }
 
 /** Whether `path` resolves strictly inside `directory`. */
@@ -52,8 +83,8 @@ function normalizedFile(clientDir: string, path: string): string {
   return join(clientDir, path).normalize('NFC').toLowerCase();
 }
 
-function generatedFiles(path: string, clientDir: string): Array<string> {
-  return [outputFileForPath(path), pageDataFileForPath(path)].map((file) =>
+function generatedFiles(path: string, clientDir: string, host: PrerenderHost): Array<string> {
+  return [outputFileForPath(path, host), pageDataFileForPath(path, host)].map((file) =>
     normalizedFile(clientDir, file),
   );
 }
@@ -89,8 +120,12 @@ function requestAssetCandidates(path: string, clientDir: string): Set<string> {
   return new Set([...candidates].map((file) => normalizedFile(clientDir, file)));
 }
 
-function renderConcurrency(paths: ReadonlyArray<string>, clientDir: string): number {
-  const outputs = paths.map((path) => generatedFiles(path, clientDir));
+function renderConcurrency(
+  paths: ReadonlyArray<string>,
+  clientDir: string,
+  host: PrerenderHost,
+): number {
+  const outputs = paths.map((path) => generatedFiles(path, clientDir, host));
   const ownerByOutput = new Map<string, number>();
   for (let index = 0; index < outputs.length; index++) {
     for (const output of outputs[index]!) {
@@ -132,20 +167,21 @@ export async function renderPrerenderPaths(
   fetchPath: (path: string) => Promise<Response>,
   fetchPageData?: (path: string) => Promise<Response>,
   onResult?: (path: string, outputFile: string, error?: string) => void,
+  host: PrerenderHost = 'cloudflare',
 ): Promise<PrerenderResult> {
   const results = paths.map((): PrerenderResult => ({ rendered: [], failed: [] }));
   let next = 0;
   await Promise.all(
     Array.from(
-      { length: Math.min(paths.length, renderConcurrency(paths, clientDir)) },
+      { length: Math.min(paths.length, renderConcurrency(paths, clientDir, host)) },
       async () => {
         while (next < paths.length) {
           const index = next++;
           const path = paths[index]!;
           const result = results[index]!;
-          const outputFile = outputFileForPath(path);
+          const outputFile = outputFileForPath(path, host);
           const outputPath = join(clientDir, outputFile);
-          const pageDataPath = join(clientDir, pageDataFileForPath(path));
+          const pageDataPath = join(clientDir, pageDataFileForPath(path, host));
           // Paths come from getPrerenderPaths and may include unencoded user data
           // such as '../', which must not write files outside the output directory.
           if (
