@@ -61,13 +61,45 @@ export const loader = defineHandler(async (c) => {
 });
 ```
 
-```vue
+::: code-group
+
+```tsx [React]
+// pages/users/index.tsx
+import type { Props } from './index.server';
+
+export default function UsersPage({ users }: Props) {
+  // users: { id: number; name: string; ... }[]
+}
+```
+
+```vue [Vue]
 <!-- pages/users/index.vue -->
 <script setup lang="ts">
 import type { Props } from './index.server';
-const { users } = defineProps<Props>(); // ← users: { id: number; name: string; ... }[]
+
+const { users } = defineProps<Props>(); // users: { id: number; name: string; ... }[]
 </script>
 ```
+
+```svelte [Svelte]
+<!-- pages/users/index.svelte -->
+<script lang="ts">
+  import type { Props } from './index.server';
+
+  let { users }: Props = $props(); // users: { id: number; name: string; ... }[]
+</script>
+```
+
+```tsx [Solid]
+// pages/users/index.tsx
+import type { Props } from './index.server';
+
+export default function UsersPage(props: Props) {
+  // props.users: { id: number; name: string; ... }[]
+}
+```
+
+:::
 
 No manual interface is needed. Props stay in sync with whatever the loader returns.
 
@@ -104,7 +136,7 @@ The `action()` helper gets the same type checking. See [Actions & Forms](./pages
 
 ## Typed URLs and Navigation
 
-Use `routeUrl()` from `void/routes` to build URLs from your app's page, HTTP, and WebSocket route patterns. For a page at `pages/users/[id].tsx`, the pattern is `/users/:id`:
+Use `routeUrl()` from `void/routes` to build URLs from your app's page, HTTP, and WebSocket route patterns. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/:id`:
 
 ```ts
 import { routeUrl } from 'void/routes';
@@ -134,7 +166,7 @@ const profile = {
 
 Destination objects use the same parameter checking and URL encoding as `routeUrl()`. See [Pages Routing](./pages-routing/overview.md#typed-navigation) for links and router methods, and [Rewrites](../reference/api/rewrites.md#c-rewrite-destination) for server navigation.
 
-For a catch-all page such as `pages/files/[...path].tsx`, use `/files/:path{.+}` and pass the full path as one value:
+For a catch-all page such as `pages/files/[...path].tsx`, `.vue`, or `.svelte`, use `/files/:path{.+}` and pass the full path as one value:
 
 ```ts
 routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
@@ -143,9 +175,11 @@ routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
 
 ### Page params
 
-Pass a page's URL pattern as the type argument of `useParams()` to type the params it reads. For `pages/users/[id].tsx`, the pattern is `/users/:id`:
+Pass a page's URL pattern as the type argument of `useParams()` to type the params it reads. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/:id`:
 
-```tsx
+::: code-group
+
+```tsx [React]
 import { useParams } from '@void/react';
 
 const { id } = useParams<'/users/:id'>(); // id: string
@@ -153,7 +187,40 @@ useParams<'/users/:id'>().idd; // Type error: no such param
 useParams<'/userz/:id'>(); // Type error: no page matches
 ```
 
-The pattern must be one of your pages; HTTP and WebSocket routes are not accepted. A catch-all page such as `pages/files/[...path].tsx` gives `{ path: string }`. An unnamed catch-all (`[...].tsx`) has no params.
+```vue [Vue]
+<script setup lang="ts">
+import { useParams } from '@void/vue';
+
+const params = useParams<'/users/:id'>();
+params.id; // string
+params.idd; // Type error: no such param
+useParams<'/userz/:id'>(); // Type error: no page matches
+</script>
+```
+
+```svelte [Svelte]
+<script lang="ts">
+  import { useParams } from '@void/svelte';
+
+  const params = useParams<'/users/:id'>();
+  params.id; // string
+  params.idd; // Type error: no such param
+  useParams<'/userz/:id'>(); // Type error: no page matches
+</script>
+```
+
+```tsx [Solid]
+import { useParams } from '@void/solid';
+
+const params = useParams<'/users/:id'>();
+params.id; // string
+params.idd; // Type error: no such param
+useParams<'/userz/:id'>(); // Type error: no page matches
+```
+
+:::
+
+The pattern must be one of your pages; HTTP and WebSocket routes are not accepted. A catch-all page such as `pages/files/[...path].tsx`, `.vue`, or `.svelte` gives `{ path: string }`. An unnamed catch-all (`[...].tsx`, `[...].vue`, or `[...].svelte`) has no params.
 
 The pattern is checked by TypeScript only. Pass the pattern of the page the component renders in; without a pattern, `useParams()` returns `Record<string, string>`.
 
@@ -187,14 +254,59 @@ export default defineConfig({
 
 A string must then match one of your routes, optionally followed by a query string or hash:
 
-```tsx
+::: code-group
+
+```tsx [React]
+import { Link } from '@void/react';
+import { routeUrl } from 'void/routes';
+
 <Link href="/about">About</Link>
 <Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
 <Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
 <Link href="/abuot">About</Link> // Type error: no route matches
 ```
 
-Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, a protocol-relative URL like `//example.com` passes too.
+```vue [Vue]
+<script setup lang="ts">
+import { Link } from '@void/vue';
+import { routeUrl } from 'void/routes';
+</script>
+
+<template>
+  <Link href="/about">About</Link>
+  <Link :href="`/users/${user.id}?tab=activity`">Profile</Link>
+  <Link :href="routeUrl('/users/:id', { params: { id } })">Profile</Link>
+  <!-- Type error: no route matches -->
+  <Link href="/abuot">About</Link>
+</template>
+```
+
+```svelte [Svelte]
+<script lang="ts">
+  import { Link } from '@void/svelte';
+  import { routeUrl } from 'void/routes';
+</script>
+
+<Link href="/about">About</Link>
+<Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<!-- Type error: no route matches -->
+<Link href="/abuot">About</Link>
+```
+
+```tsx [Solid]
+import { Link } from '@void/solid';
+import { routeUrl } from 'void/routes';
+
+<Link href="/about">About</Link>
+<Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href="/abuot">About</Link> // Type error: no route matches
+```
+
+:::
+
+Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
 
 `void/routes` exports two types for these strings:
 
@@ -203,12 +315,53 @@ Links can also point to the current page (`?page=2`, `#comments`) and to `http:/
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
 
-```tsx
+::: code-group
+
+```tsx [React]
+import { Link } from '@void/react';
 import type { Href, RouteUrl } from 'void/routes';
 
 <Link href={post.path as RouteUrl}>{post.title}</Link>
 <Link href={user.website as Href}>Website</Link>
 ```
+
+```vue [Vue]
+<script setup lang="ts">
+import { Link } from '@void/vue';
+import type { Href, RouteUrl } from 'void/routes';
+
+const postHref = post.path as RouteUrl;
+const website = user.website as Href;
+</script>
+
+<template>
+  <Link :href="postHref">{{ post.title }}</Link>
+  <Link :href="website">Website</Link>
+</template>
+```
+
+```svelte [Svelte]
+<script lang="ts">
+  import { Link } from '@void/svelte';
+  import type { Href, RouteUrl } from 'void/routes';
+
+  const postHref = post.path as RouteUrl;
+  const website = user.website as Href;
+</script>
+
+<Link href={postHref}>{post.title}</Link>
+<Link href={website}>Website</Link>
+```
+
+```tsx [Solid]
+import { Link } from '@void/solid';
+import type { Href, RouteUrl } from 'void/routes';
+
+<Link href={post.path as RouteUrl}>{post.title}</Link>
+<Link href={user.website as Href}>Website</Link>
+```
+
+:::
 
 Restart the dev server or run `void prepare` after changing `routing.typedRoutes`.
 

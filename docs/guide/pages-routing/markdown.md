@@ -136,13 +136,13 @@ Welcome to Void. Here's an interactive demo:
 <Counter />
 ```
 
-- **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
+- **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). The component file uses your framework's extension (`.vue`, `.tsx`, or `.svelte`). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
 - **Frontmatter:** YAML metadata between `---` fences. Layouts and islands can read it through [`useFrontmatter()`](#frontmatter-access).
 - **Body:** standard markdown plus GFM. Uppercase tags such as `<Counter />` reference imported components and render as islands.
 
 ## Client Scripts
 
-Use the `<script>` block for island imports and JavaScript that runs when the page loads:
+Use the `<script>` block for island imports and JavaScript that runs when the page loads. Import the component with your framework's extension (`.vue`, `.tsx`, or `.svelte`):
 
 ```md
 <script>
