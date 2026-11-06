@@ -127,6 +127,15 @@ describe('defineEnv + env proxy', () => {
     });
   });
 
+  it('passes through Object.prototype members without validation', () => {
+    defineEnv({ STRIPE_KEY: string() });
+    withRuntimeEnv({ STRIPE_KEY: 'sk' }, () => {
+      expect(env.hasOwnProperty).toBe(Object.prototype.hasOwnProperty);
+      expect(env.constructor).toBe(Object);
+      expect(String(env)).toBe('[object Object]');
+    });
+  });
+
   it('caches validated values per env identity (no re-validation)', () => {
     let calls = 0;
     const inner = string();

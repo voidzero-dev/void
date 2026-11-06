@@ -109,6 +109,12 @@ function appendVary(headers: Headers, name: string): void {
   }
 }
 
+function varyPagesResponse(c: CloudContext): void {
+  const headers = new Headers(c.res.headers);
+  appendVary(headers, 'X-VoidPages');
+  c.header('Vary', headers.get('Vary')!);
+}
+
 function escapeHtmlAttr(value: string): string {
   return value.replaceAll('&', '&amp;').replaceAll('"', '&quot;').replaceAll('<', '&lt;');
 }
@@ -469,6 +475,9 @@ export async function handlePageGet(
     const pageHead = headFn ? headFn(c, props) : undefined;
     const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
     const head = resolveHead(configHead, middlewareHead, pageHead);
+    if (renderMode !== 'island') {
+      varyPagesResponse(c);
+    }
 
     const { immediateProps, deferredMap } = separateDeferred(props);
     const hasDeferred = Object.keys(deferredMap).length > 0;
@@ -538,9 +547,6 @@ export async function handlePageGet(
       }
       // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
       c.header('X-VoidPages', 'true');
-      const headers = new Headers(c.res.headers);
-      appendVary(headers, 'X-VoidPages');
-      c.header('Vary', headers.get('Vary')!);
       return streamDeferredResponse(
         JSON.stringify(pageObj) + '\n',
         deferredMap,
@@ -653,6 +659,7 @@ export async function handlePageMutation(
     try {
       return await runLoader(getHandler, c, async (props) => {
         const pageObj = buildMutationPageObj(stripDeferred(props), errors);
+        varyPagesResponse(c);
         if (isPagesRequest(c)) {
           return pageJsonResponse(c, pageObj);
         }

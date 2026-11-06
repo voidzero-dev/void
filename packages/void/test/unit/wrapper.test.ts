@@ -759,6 +759,7 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
       bindings?: Record<string, unknown>;
       d1Databases?: Array<string>;
       compatibilityDate?: string;
+      compatibilityFlags?: Array<string>;
     } = {},
   ): Promise<unknown> {
     // Upload every module, as the platform does; the wrapper imports the handler statically.
@@ -773,7 +774,7 @@ describe('generateWrapper with migrations', { timeout: migrationTestTimeout }, (
           modulesRoot: workerDir,
           modules,
           compatibilityDate: options.compatibilityDate ?? '2026-02-24',
-          compatibilityFlags: ['nodejs_compat'],
+          compatibilityFlags: options.compatibilityFlags ?? ['nodejs_compat'],
           bindings: { __VOID_PROXY_TOKEN: 'proxy-token', ...options.bindings },
           d1Databases: options.d1Databases,
         }),
@@ -1161,6 +1162,63 @@ export default async function () {
     expect(handlers).toContain('export async function handleQueue(batch, env, ctx) {');
     expect(handlers).not.toContain('withRuntimeEnv');
   });
+
+  // A D1 framework Worker has only `nodejs_als`; PostgreSQL deploys add `nodejs_compat`, and run
+  // jobs in a request scope. Under browser conditions, reading a server key from `void/env` throws.
+  it.each([
+    { database: 'D1', config: {}, compatibilityFlags: ['nodejs_als'] },
+    { database: 'PostgreSQL', config: { database: 'pg' }, compatibilityFlags: ['nodejs_compat'] },
+  ])(
+    'gives $database cron and queue jobs server values from void/env in workerd',
+    async ({ config, compatibilityFlags }) => {
+      const { workerDir, projectRoot } = createMigrationFixture();
+      writeFileSync(join(projectRoot, 'void.json'), JSON.stringify(config));
+      const job = `import { env } from 'void/env';
+
+export default async function () {
+  if (env.STRIPE_KEY !== 'sk_test') throw new Error('unexpected STRIPE_KEY');
+}
+`;
+      mkdirSync(join(projectRoot, 'crons'));
+      writeFileSync(join(projectRoot, 'crons', 'read-env.ts'), job);
+      mkdirSync(join(projectRoot, 'queues'));
+      writeFileSync(join(projectRoot, 'queues', 'read-env.ts'), job);
+      mkdirSync(join(projectRoot, 'node_modules'));
+      symlinkSync(
+        join(import.meta.dirname, '..', '..'),
+        join(projectRoot, 'node_modules', 'void'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+
+      await generateWrapper(workerDir, 'index.mjs', projectRoot, {
+        ...base,
+        crons: [{ name: 'read-env', filePath: 'read-env.ts', crons: ['0 * * * *'] }],
+        queues: [{ name: 'read-env', filePath: 'read-env.ts', bindingName: 'QUEUE_READ_ENV' }],
+      });
+
+      const options = { bindings: { STRIPE_KEY: 'sk_test' }, compatibilityFlags };
+      expect(
+        await fetchWrappedWorker(
+          workerDir,
+          { path: '/__void/scheduled', body: { cron: '0 * * * *', scheduledTime: Date.now() } },
+          options,
+        ),
+      ).toEqual({ ok: true });
+      expect(
+        await fetchWrappedWorker(
+          workerDir,
+          {
+            path: '/__void/queue',
+            body: {
+              queue: 'read-env',
+              messages: [{ id: 'one', timestamp: new Date().toISOString(), body: {}, attempts: 1 }],
+            },
+          },
+          options,
+        ),
+      ).toMatchObject({ ok: true });
+    },
+  );
 
   it('does not generate migration handler when hasMigrations is false', async () => {
     const { workerDir, projectRoot } = createMigrationFixture();
