@@ -35,6 +35,8 @@ The client constrains every part of the request:
 - **Body, query, params:** when your handler uses [`defineHandler.withValidator()`](./server-routing.md#validation), validator schemas become the input types and the client enforces them at the call site.
 - **Response type:** the return type matches what your handler returns after [JSON serialization](./type-safety.md#serialization).
 
+Omitting `method` sends GET. For a route without a GET handler, specify a supported method, such as `{ method: 'POST' }`.
+
 ## Query Parameters
 
 Pass `query` for GET requests with search parameters:

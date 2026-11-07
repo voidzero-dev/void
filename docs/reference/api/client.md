@@ -43,6 +43,8 @@ function fetch<P extends keyof RouteMap, M extends MethodsOf<P>>(
 | `retry`   | `number`                 | Number of retry attempts (ofetch default: 1 for GET).      |
 | `timeout` | `number`                 | Request timeout in milliseconds.                           |
 
+Omitting `method` sends GET. Non-GET calls require an explicit `method`, including calls that specify the method as a generic type argument.
+
 Returns the parsed JSON response body, or `undefined` for 204 responses. Throws `FetchError` on non-2xx responses.
 
 ## `FetchError` {#fetcherror}
