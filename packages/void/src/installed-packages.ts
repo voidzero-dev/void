@@ -5,6 +5,7 @@ import { parseSync } from 'vite';
 import { staticModuleReferences } from './shared/module-references.ts';
 
 type PackageManifest = {
+  readonly version?: string;
   readonly type?: string;
   readonly module?: unknown;
   readonly main?: unknown;
@@ -15,7 +16,7 @@ type PackageManifest = {
   readonly peerDependencies?: Record<string, string>;
 };
 
-function readManifest(dir: string): PackageManifest | undefined {
+export function readManifest(dir: string): PackageManifest | undefined {
   try {
     return JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as PackageManifest;
   } catch {
@@ -26,7 +27,7 @@ function readManifest(dir: string): PackageManifest | undefined {
 type PnpApi = { resolveToUnqualified(request: string, issuer: string): string | null };
 
 /** The directory Node loads `name` from for code in `fromDir`. Ignores `exports`. */
-function findInstalledPackage(name: string, fromDir: string): string | undefined {
+export function findInstalledPackage(name: string, fromDir: string): string | undefined {
   // A Yarn Plug'n'Play install has no node_modules. Under `yarn`, its runtime adds
   // `findPnpApi` to `node:module` and serves the packages' files from its archives.
   const pnp = (module as { findPnpApi?: (path: string) => PnpApi | null }).findPnpApi?.(fromDir);
