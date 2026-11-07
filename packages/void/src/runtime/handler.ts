@@ -135,13 +135,28 @@ declare module 'hono' {
  * created with {@link defineHandler} and {@link defineMiddleware}.
  * `redirect` accepts a {@link RouteUrlInput}.
  */
-// One property, not a second overload. A module augmentation would leave
-// Hono's `(location: string | URL)` signature in place.
+// `c` must still be assignable to Hono's `Context`, as in `getCookie(c)` and
+// `etag()`. An interface with its own members is compared member by member,
+// and two of them are not assignable on their own:
+// - `redirect`: a narrower `location` rejects some of the strings Hono's
+//   accepts.
+// - `set`: TypeScript compares `Set<CloudEnv>` by its type argument.
+// Each member begins with a signature that Hono's `Context` accepts. `this:
+// never` makes that signature uncallable, so `c.redirect()` and `c.set()`
+// resolve to the typed signature, and its error is the one reported. A
+// module augmentation cannot narrow `redirect`: it would keep Hono's
+// `(location: string | URL)` signature callable.
 export interface CloudContext extends Context<CloudEnv> {
-  redirect: <T extends RedirectStatusCode = 302>(
-    location: RouteUrlInput,
+  redirect: (<T extends RedirectStatusCode = 302>(
+    this: never,
+    location: string | URL,
     status?: T,
-  ) => Response & TypedResponse<undefined, T, 'redirect'>;
+  ) => Response & TypedResponse<undefined, T, 'redirect'>) &
+    (<T extends RedirectStatusCode = 302>(
+      location: RouteUrlInput,
+      status?: T,
+    ) => Response & TypedResponse<undefined, T, 'redirect'>);
+  set: ((this: never, key: PropertyKey, value: unknown) => void) & Context<CloudEnv>['set'];
 }
 
 type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;
@@ -298,21 +313,7 @@ export function defineHandler<F extends HandlerFn>(
   fifthMiddleware: MiddlewareFn,
   handler: F,
 ): TypedHandler<{}, LoaderOutput<F>>;
-// Hono middleware such as `etag()` is not a CloudContext callback. These
-// overloads come after the CloudContext ones, so an inline callback is still
-// checked against `RouteUrlInput`.
-export function defineHandler<V extends ValidatorSlots, R>(
-  ...args: [...Array<MiddlewareHandler>, TypedHandler<V, R>]
-): TypedHandler<V, R>;
-export function defineHandler<R>(
-  ...args: [...Array<MiddlewareHandler>, LoaderFn<R>]
-): TypedHandler<{}, Exclude<Awaited<R>, Response>>;
-export function defineHandler<F extends HandlerFn>(
-  ...args: [...Array<MiddlewareHandler>, F]
-): TypedHandler<{}, LoaderOutput<F>>;
-export function defineHandler(
-  ...args: Array<MiddlewareFn | HandlerFn | MiddlewareHandler>
-): TypedHandler {
+export function defineHandler(...args: Array<MiddlewareFn | HandlerFn>): TypedHandler {
   if (args.length === 1) {
     return args[0] as TypedHandler;
   }

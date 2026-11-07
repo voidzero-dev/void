@@ -1,3 +1,5 @@
+import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
 import { expectTypeOf } from 'vite-plus/test';
 import {
   routeUrl,
@@ -27,6 +29,9 @@ export function checkTypedServerDestinations(c: CloudContext): void {
   const response: Response & { _status: 307 } = c.redirect(target, 307);
   void response;
   expectTypeOf<Parameters<CloudContext['redirect']>[0]>().toEqualTypeOf<RouteUrlInput>();
+  // Hono helpers and functions typed with Hono's `Context` still take `c`.
+  const honoContext: Context = c;
+  void [honoContext, getCookie(c, 'session')];
   void c.rewrite({
     pathname: '/typed-navigation/:id',
     params: { id: 123 },

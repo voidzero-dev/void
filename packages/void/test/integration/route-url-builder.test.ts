@@ -23,7 +23,10 @@ afterEach(() => {
 });
 
 // Checked against a fixture generated with routing.typedRoutes on.
-const typedCheck = `import { routeUrl, type Href, type RouteUrl } from 'void/routes';
+const typedCheck = `import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
+import { etag } from 'hono/etag';
+import { routeUrl, type Href, type RouteUrl } from 'void/routes';
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
@@ -111,6 +114,14 @@ defineMiddleware(async (c) => {
   c.redirect('https://example.com/login');
   // @ts-expect-error unknown routes are rejected
   return c.redirect('/unknown');
+});
+// Checked redirects keep the context usable with Hono helpers and middleware.
+const honoContext: Context = context;
+void [honoContext, getCookie(context, 'session')];
+defineHandler(etag(), (c) => c.redirect('/about'));
+defineMiddleware(async (c, next) => {
+  if (!getCookie(c, 'session')) return c.redirect('/about');
+  await next();
 });
 // Config rewrites keep placeholders and static files.
 defineConfig({
@@ -295,6 +306,7 @@ defineMiddleware(async c => c.redirect(destination));
   }
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(packageRoot, join(root, 'node_modules/void'), 'junction');
+  symlinkSync(join(packageRoot, 'node_modules/hono'), join(root, 'node_modules/hono'), 'junction');
   const { scan } = await analyzeApplication(root, {
     config: readConfig(root),
   });
