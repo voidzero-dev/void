@@ -1,4 +1,5 @@
 import type { LiveClientEvent, LiveControlOperation, LiveControlResponse } from './live.ts';
+import type { RequestUrl } from './route-url.ts';
 
 export type LiveSubscribeOptions<Data = unknown> = {
   id: string;
@@ -47,8 +48,16 @@ type PendingOperation = {
   reject: (error: unknown) => void;
 };
 
+/**
+ * Open one `EventSource` to a `defineLiveStream()` route and send subscribe and
+ * unsubscribe requests to the same URL.
+ *
+ * With `routing.typedRoutes`, a string `url` must match one of the app's routes
+ * or be an absolute `http://`/`https://` URL. Cast a path built at runtime with
+ * `as RouteUrl`.
+ */
 export function connectLiveStream(
-  url: string | URL,
+  url: RequestUrl | URL,
   options: ConnectLiveStreamOptions = {},
 ): LiveClient {
   const EventSourceCtor =
