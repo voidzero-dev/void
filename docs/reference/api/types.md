@@ -134,7 +134,7 @@ Import these types from `void/routes`:
 | `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
 | `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |
 | `Href`                | A `RouteUrl`, a same-page query or hash, or an external URL. `string` unless `typedRoutes` is on. |
-| `RouteUrlInput`       | `Href`, `URL`, or `RouteDestination`; accepted by router navigation methods.                      |
+| `RouteUrlInput`       | `Href`, `URL`, or `RouteDestination`; accepted by router navigation methods and `c.redirect()`.   |
 | `RouteQuery`          | Query keys mapped to `RouteQueryValue` or readonly arrays of those values.                        |
 | `RouteQueryValue`     | `string`, `number`, `boolean`, `null`, or `undefined`.                                            |
 

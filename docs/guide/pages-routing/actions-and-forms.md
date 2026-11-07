@@ -24,10 +24,10 @@ export const action = defineHandler.withValidator({
 });
 ```
 
-| Action returns    | Behavior                                                                                                     |
-| ----------------- | ------------------------------------------------------------------------------------------------------------ |
-| Nothing (void)    | Re-runs the loader, page re-renders with fresh props.                                                        |
-| `c.redirect(url)` | Navigates to another page. Build `url` with `routeUrl()`, or annotate a full path with `satisfies RouteUrl`. |
+| Action returns    | Behavior                                                                                                                                                                                              |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Nothing (void)    | Re-runs the loader, page re-renders with fresh props.                                                                                                                                                 |
+| `c.redirect(url)` | Navigates to another page. With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), the location is checked the same way as a link. Cast a string TypeScript cannot check with `as Href`. |
 
 Middleware does not run again after the action. To change [shared data](./layouts.md#shared-data), update it in the action or redirect.
 

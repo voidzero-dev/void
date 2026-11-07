@@ -1,5 +1,6 @@
-import type { Context, Env, MiddlewareHandler, Next } from 'hono';
-import type { RewriteDestination, RouteDestination, RouteUrl } from 'void/routes';
+import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
+import type { RedirectStatusCode } from 'hono/utils/http-status';
+import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
 import type { HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
@@ -132,8 +133,36 @@ declare module 'hono' {
  *
  * This is the type of the `c` parameter in route handlers and middleware
  * created with {@link defineHandler} and {@link defineMiddleware}.
+ * `redirect` accepts a {@link RouteUrlInput}.
  */
-export type CloudContext = Context<CloudEnv>;
+// `c` must still be assignable to Hono's `Context`, as in `getCookie(c)` and
+// `etag()`. An interface with its own members is compared member by member,
+// and two of them are not assignable on their own:
+// - `redirect`: a narrower `location` rejects some of the strings Hono's
+//   accepts.
+// - `set`: TypeScript compares `Set<CloudEnv>` by its type argument.
+// Each member begins with a signature that Hono's `Context` accepts. `this:
+// never` makes that signature uncallable, so `c.redirect()` and `c.set()`
+// resolve to the typed signature, and its error is the one reported. A
+// module augmentation cannot narrow `redirect`: it would keep Hono's
+// `(location: string | URL)` signature callable.
+// Keep method variance on both overloads so an unchecked Hono context is
+// assignable back to CloudContext, including in raw Hono middleware.
+export interface CloudContext extends Context<CloudEnv> {
+  redirect<T extends RedirectStatusCode = 302>(
+    this: never,
+    location: string | URL,
+    status?: T,
+  ): Response & TypedResponse<undefined, T, 'redirect'>;
+  redirect<T extends RedirectStatusCode = 302>(
+    location: RouteUrlInput,
+    status?: T,
+  ): Response & TypedResponse<undefined, T, 'redirect'>;
+  set: {
+    set(this: never, key: PropertyKey, value: unknown): void;
+  }['set'] &
+    Context<CloudEnv>['set'];
+}
 
 type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;
 // `R` is the loader's data, so `defineHandler<Props>(async (c) => ...)` works.
@@ -341,7 +370,10 @@ export namespace defineHandler {
  * At runtime it simply returns the function passed to it.
  */
 export function defineMiddleware(handler: MiddlewareFn): MiddlewareHandler<CloudEnv> {
-  return handler;
+  // The callback's context accepts destination objects. Hono's handler type
+  // does not, so the same function is not assignable without a cast. The
+  // routing runtime replaces `redirect` before this runs.
+  return handler as MiddlewareHandler<CloudEnv>;
 }
 
 const basicAuthEncoder = new TextEncoder();

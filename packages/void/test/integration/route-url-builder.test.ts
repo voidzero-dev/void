@@ -23,10 +23,13 @@ afterEach(() => {
 });
 
 // Checked against a fixture generated with routing.typedRoutes on.
-const typedCheck = `import { routeUrl, type Href, type RouteUrl } from 'void/routes';
+const typedCheck = `import type { Context } from 'hono';
+import { getCookie } from 'hono/cookie';
+import { etag } from 'hono/etag';
+import { routeUrl, type Href, type RouteUrl } from 'void/routes';
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
-import { defineMiddleware, type CloudContext } from 'void/handler';
+import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
 import { revalidate } from 'void/isr';
 import { connectLiveStream } from 'void/live/client';
 import { connectEventStream } from 'void/sse/client';
@@ -86,8 +89,7 @@ router.flush('#details');
 void router.visit('/unknown');
 // @ts-expect-error router prefetches are checked
 void router.prefetch('../relative');
-declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
-const context: CloudContext = honoContext;
+declare const context: CloudContext;
 void context.rewrite('/users/42');
 void context.rewrite(user);
 void context.rewrite('/api/legacy');
@@ -95,7 +97,36 @@ void context.rewrite('/api/legacy');
 void context.rewrite('https://example.com');
 // @ts-expect-error rewrites do not take same-page hashes
 void context.rewrite('#details');
+context.redirect('/about');
+context.redirect(user);
+context.redirect(routeUrl('/users/:id', { params: { id } }));
+context.redirect({ pathname: '/users/:id', params: { id } });
 context.redirect('https://example.com/elsewhere');
+context.redirect(new URL('https://example.com/login'));
+context.redirect(dynamic as Href);
+// @ts-expect-error unknown routes are rejected
+context.redirect('/unknown');
+// @ts-expect-error unchecked strings are rejected
+context.redirect(dynamic);
+defineHandler((c) => {
+  c.redirect('/about');
+  c.redirect({ pathname: '/users/:id', params: { id } });
+  // @ts-expect-error unknown routes are rejected
+  return c.redirect('/unknown');
+});
+defineMiddleware(async (c) => {
+  c.redirect('https://example.com/login');
+  // @ts-expect-error unknown routes are rejected
+  return c.redirect('/unknown');
+});
+// Checked redirects keep the context usable with Hono helpers and middleware.
+const honoContext: Context = context;
+void [honoContext, getCookie(context, 'session')];
+defineHandler(etag(), (c) => c.redirect('/about'));
+defineMiddleware(async (c, next) => {
+  if (!getCookie(c, 'session')) return c.redirect('/about');
+  await next();
+});
 void revalidate({ paths: ['/', '/about', \`/users/\${id}\`, user] });
 // @ts-expect-error revalidated paths are checked
 void revalidate({ paths: ['/unknown'] });
@@ -275,14 +306,16 @@ async function createFixture({
     'pages/users/[id].tsx': 'export default function Page() { return null; }',
     'pages/files/[...path].tsx': 'export default function Page() { return null; }',
     'pages/wild/[...].tsx': 'export default function Page() { return null; }',
-    'check.ts': `import {
+    'check.ts': `import type { Context, MiddlewareHandler } from 'hono';
+import { getCookie } from 'hono/cookie';
+import {
   routeUrl,
   type RouteDestination,
   type RouteOptions,
   type RoutePath,
 } from 'void/routes';
 import type { VoidRouter } from 'void/pages-client';
-import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
+import { defineHandler, defineMiddleware, type CloudContext, type CloudEnv } from 'void/handler';
 const path: RoutePath = '/users/:id';
 const options: RouteOptions<typeof path> = { params: { id: 123 }, query: { tab: 'activity' }, hash: 'details' };
 const url: string = routeUrl(path, options);
@@ -314,17 +347,33 @@ void router.prefetch(destination);
 router.flush(destination);
 // @ts-expect-error destinations require path params
 void router.visit({ pathname: '/users/:id' });
-declare const honoContext: Parameters<ReturnType<typeof defineMiddleware>>[0];
+declare const honoContext: Context<CloudEnv>;
 const context: CloudContext = honoContext;
+const nativeContext: Context<CloudEnv> = context;
+const readUser = (c: CloudContext) => c.get('user');
+const middleware: MiddlewareHandler<CloudEnv> = async (c, next) => {
+  readUser(c);
+  await next();
+};
+defineHandler(middleware, c => c.redirect('/unknown'));
+context.set('user', null);
+// @ts-expect-error compatibility overloads must not bypass context variable types
+context.set('user', 'not a user');
+void [nativeContext, getCookie(context, 'session')];
 const response: Response & { _status: 307 } = context.redirect(url, 307);
 void response;
 void context.rewrite(destination);
-// @ts-expect-error Hono redirects require a string or URL
 context.redirect(destination);
+context.redirect('/unknown');
+context.redirect('https://example.com/elsewhere');
+context.redirect(new URL('https://example.com/login'));
 // @ts-expect-error typed server rewrites reject unknown patterns
 void context.rewrite({ pathname: '/unknown' });
 defineHandler(c => c.redirect(url));
+defineHandler(c => c.redirect(destination));
+defineHandler(c => c.redirect('/unknown'));
 defineMiddleware(async c => c.redirect(url));
+defineMiddleware(async c => c.redirect(destination));
 `,
     ...extraFiles,
   };
@@ -334,6 +383,7 @@ defineMiddleware(async c => c.redirect(url));
   }
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(packageRoot, join(root, 'node_modules/void'), 'junction');
+  symlinkSync(join(packageRoot, 'node_modules/hono'), join(root, 'node_modules/hono'), 'junction');
   const { scan } = await analyzeApplication(root, {
     config: readConfig(root),
   });

@@ -1,4 +1,4 @@
-import { Hono, type Context } from 'hono';
+import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { defer } from '../../src/pages/defer.ts';
@@ -52,7 +52,7 @@ function createTestContext(
   });
 
   app.all(options.routePattern ?? '*', (c) => {
-    resolveContext!(c);
+    resolveContext!(c as unknown as CloudContext);
     return c.text('ok');
   });
 
@@ -179,7 +179,7 @@ describe('handlePageGet', () => {
       headers: { 'x-voidpages': 'true' },
     });
 
-    const handler = vi.fn((ctx: Context) => {
+    const handler = vi.fn((ctx: CloudContext) => {
       ctx.header('Set-Cookie', 'void_auth_nonce=abc; Path=/auth; HttpOnly');
       return { users: [] };
     });
@@ -258,7 +258,7 @@ describe('handlePageGet', () => {
   it('preserves headers set by loaders on rendered HTML responses', async () => {
     const c = await createTestContext('GET', '/login');
 
-    const handler = vi.fn((ctx: Context) => {
+    const handler = vi.fn((ctx: CloudContext) => {
       ctx.header('Set-Cookie', 'void_auth_nonce=abc; Path=/auth; HttpOnly');
       return { githubUrl: '/auth/github' };
     });
@@ -341,7 +341,7 @@ describe('handlePageGet', () => {
   it('adds a quoted dev CSS nonce source to strict style CSP responses', async () => {
     const c = await createTestContext('GET', '/styled');
     const response = await handlePageGet(
-      (ctx: Context) => {
+      (ctx: CloudContext) => {
         ctx.header('Content-Security-Policy', "default-src 'self'; style-src 'self'");
         return {};
       },
@@ -365,7 +365,7 @@ describe('handlePageGet', () => {
   it('adds style-src with a quoted nonce when only default-src is present', async () => {
     const c = await createTestContext('GET', '/styled');
     const response = await handlePageGet(
-      (ctx: Context) => {
+      (ctx: CloudContext) => {
         ctx.header('Content-Security-Policy', "default-src 'self'");
         return {};
       },
@@ -389,7 +389,7 @@ describe('handlePageGet', () => {
   it('adds the generated dev CSS nonce when CSP already has another nonce', async () => {
     const c = await createTestContext('GET', '/styled');
     const response = await handlePageGet(
-      (ctx: Context) => {
+      (ctx: CloudContext) => {
         ctx.header('Content-Security-Policy', "style-src 'self' 'nonce-existing'");
         return {};
       },
@@ -954,21 +954,21 @@ describe('handlePageMutation', () => {
     name: string;
     headers: Record<string, string>;
     action: () => undefined;
-    loader: (c: Context) => Response | Promise<Response>;
+    loader: (c: CloudContext) => Response | Promise<Response>;
     status: number;
   }>([
     {
       name: 'void action passes through a loader redirect',
       headers: { 'x-voidpages': 'true' },
       action: () => undefined,
-      loader: (c: Context) => c.redirect('/posts'),
+      loader: (c: CloudContext) => c.redirect('/posts'),
       status: 302,
     },
     {
       name: 'void action passes through a loader 404',
       headers: {},
       action: () => undefined,
-      loader: (c: Context) => c.notFound(),
+      loader: (c: CloudContext) => c.notFound(),
       status: 404,
     },
     {
@@ -977,7 +977,7 @@ describe('handlePageMutation', () => {
       action: () => {
         throw new ValidationError({ title: 'required' });
       },
-      loader: (c: Context) => c.redirect('/posts'),
+      loader: (c: CloudContext) => c.redirect('/posts'),
       status: 302,
     },
   ])('$name', async ({ headers, action, loader, status }) => {
