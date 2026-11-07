@@ -14,6 +14,7 @@ import {
   type CloudContext,
   type CloudEnv,
 } from '../../src/runtime/handler.ts';
+import { revalidate } from '../../src/runtime/isr.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -79,4 +80,10 @@ export function checkUntypedRouteStrings(): void {
   expectTypeOf<RouteUrl>().toEqualTypeOf<string>();
   expectTypeOf<Href>().toEqualTypeOf<string>();
   expectTypeOf(routeUrl('/typed-navigation')).toEqualTypeOf<string>();
+}
+
+// Without routing.typedRoutes, revalidated paths are plain strings.
+export async function checkUntypedRevalidatePaths(paths: Array<string>): Promise<void> {
+  await revalidate({ paths });
+  await revalidate({ paths: ['/unknown'] });
 }
