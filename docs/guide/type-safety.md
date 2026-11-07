@@ -324,7 +324,9 @@ import { routeUrl } from 'void/routes';
 
 Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
 
-`c.redirect()` uses that check. With `routing.typedRoutes` on, the location is a route URL, a same-page query or hash (`?page=2`, `#comments`), or an `http://`, `https://`, `mailto:`, or `tel:` URL. A path that matches no route is a type error. An external `https://` literal needs no cast. A `URL` or a destination object is accepted too. Cast a string TypeScript cannot check, such as a URL from a provider SDK, your CMS, or a file in `public/`, with `as Href`:
+The [SSE](./sse.md#client) and [live stream](./live.md#subscribe-from-the-browser) clients, `connectEventStream()` and `connectLiveStream()`, take one of your routes or an `http://` or `https://` URL for a stream on another origin. They reject same-page, `mailto:`, `tel:`, and `ws://` URLs. Cast a stream URL that TypeScript can't check with `as RouteUrl`; the cast turns off the check for that URL.
+
+`c.redirect()` uses the same check as links. With `routing.typedRoutes` on, the location is a route URL, a same-page query or hash (`?page=2`, `#comments`), or an `http://`, `https://`, `mailto:`, or `tel:` URL. A path that matches no route is a type error. An external `https://` literal needs no cast. A `URL` or a destination object is accepted too. Cast a string TypeScript cannot check, such as a URL from a provider SDK, your CMS, or a file in `public/`, with `as Href`:
 
 ```ts
 import { routeUrl, type Href } from 'void/routes';
