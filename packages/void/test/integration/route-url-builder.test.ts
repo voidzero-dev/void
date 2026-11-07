@@ -30,6 +30,7 @@ import { routeUrl, type Href, type RouteUrl } from 'void/routes';
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
+import { revalidate } from 'void/isr';
 import { connectLiveStream } from 'void/live/client';
 import { connectEventStream } from 'void/sse/client';
 import type { IslandFormState } from 'void/pages-client';
@@ -126,6 +127,13 @@ defineMiddleware(async (c, next) => {
   if (!getCookie(c, 'session')) return c.redirect('/about');
   await next();
 });
+void revalidate({ paths: ['/', '/about', \`/users/\${id}\`, user] });
+// @ts-expect-error revalidated paths are checked
+void revalidate({ paths: ['/unknown'] });
+declare const stored: string[];
+// @ts-expect-error unchecked string arrays are rejected
+void revalidate({ paths: stored });
+void revalidate({ paths: stored as RouteUrl[] });
 connectEventStream('/api/legacy');
 connectEventStream(\`/api/users/\${id}\`);
 connectEventStream(user);

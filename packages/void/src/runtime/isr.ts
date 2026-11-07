@@ -6,10 +6,12 @@ import {
   isrVariantPrefix,
   listIsrHosts,
 } from '@void/isr/runtime';
+import type { RouteUrl } from 'void/routes';
 import { getRawRuntimeEnv } from './env-raw.ts';
 
 export type RevalidateOptions = {
-  paths?: Array<string>;
+  /** Paths to purge. Checked against the app's routes when `routing.typedRoutes` is on. */
+  paths?: Array<RouteUrl>;
   all?: boolean;
 };
 
