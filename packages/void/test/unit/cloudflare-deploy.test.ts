@@ -5,6 +5,7 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
@@ -20,6 +21,7 @@ import {
   type CloudflareOperation,
 } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
+import ignore from 'ignore';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
@@ -7782,6 +7784,47 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       ai: { binding: 'AI' },
     });
     expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// keep this comment');
+  });
+
+  // SvelteKit's Worker directory is also its asset directory. In an ES module package, which is
+  // what `sv create` makes, Vite names the cron and queue bundle `__void_handlers.js`.
+  it('keeps the modules it adds to an ES module SvelteKit Worker out of its assets', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({
+        name: 'skapp',
+        type: 'module',
+        dependencies: { '@sveltejs/kit': '2.0.0' },
+      }),
+      'void.json': JSON.stringify({}),
+      'wrangler.jsonc': JSON.stringify({ name: 'skapp', account_id: 'acc123' }),
+      '.svelte-kit/cloudflare/_worker.js':
+        'export default { fetch() { return new Response("ok") } };\n',
+      '.svelte-kit/cloudflare/_app/immutable/app.js': 'console.log("client");\n',
+      'crons/hourly.ts': [
+        'import { defineScheduled } from "void";',
+        'export const cron = "0 * * * *";',
+        'export default defineScheduled(async function hourly() {});',
+      ].join('\n'),
+    });
+
+    await prepareCloudflareFrameworkArtifact({
+      root,
+      configPath: join(root, 'wrangler.jsonc'),
+      accountId: 'acc123',
+      workerName: 'skapp',
+      voidConfig: readConfig(root),
+      framework: { name: 'sveltekit', class: 'b' },
+      preset: FRAMEWORK_PRESETS.sveltekit,
+    });
+
+    const directory = join(root, '.svelte-kit/cloudflare');
+    expect(existsSync(join(directory, '__void_handlers.js'))).toBe(true);
+    const ignored = ignore().add(readFileSync(join(directory, '.assetsignore'), 'utf-8'));
+    const assets = readdirSync(directory, { recursive: true, encoding: 'utf8' })
+      .map((file) => toSlash(file))
+      .filter((file) => statSync(join(directory, file)).isFile())
+      .filter((file) => file !== '.assetsignore' && !ignored.ignores(file));
+    expect(assets).toEqual(['_app/immutable/app.js']);
   });
 
   it('prepares Class A wrapper handlers without replacing its generated config pointer', async () => {

@@ -30,6 +30,7 @@ import { routeUrl, type Href, type RouteUrl } from 'void/routes';
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
+import type { IslandFormState } from 'void/pages-client';
 declare const id: number;
 declare const dynamic: string;
 const user: RouteUrl = routeUrl('/users/:id', { params: { id } });
@@ -123,6 +124,14 @@ defineMiddleware(async (c, next) => {
   if (!getCookie(c, 'session')) return c.redirect('/about');
   await next();
 });
+declare const island: IslandFormState<{ title: string }, 'setters'>;
+void island.post('/about');
+void island.post('/users/42?update');
+void island.delete(user);
+// @ts-expect-error unknown routes are rejected
+void island.post('/unknown');
+// @ts-expect-error external URLs are rejected
+void island.put('https://example.com');
 // Config rewrites keep placeholders and static files.
 defineConfig({
   routing: {
@@ -156,6 +165,26 @@ const vue: VueLinkProps['href'] = '/unknown';
 // @ts-expect-error Svelte Link rejects unknown routes
 const svelte: SvelteLinkProps['href'] = '/unknown';
 void [same, known, react, vue, svelte];
+`;
+
+// Svelte's implementation uses runes, so this tsc fixture covers the other adapters.
+// Svelte's `submit` takes the same `RouteUrl`, and `post`/`put`/`patch`/`delete` come from IslandFormState.
+const islandFormCheck = `import { useIslandForm as react } from ${adapterSource('react/src/runtime/use-island-form.ts')};
+import { useIslandForm as vue } from ${adapterSource('vue/src/runtime/use-island-form.ts')};
+import { useIslandForm as solid } from ${adapterSource('solid/src/runtime/use-island-form.ts')};
+const reactForm = react({ title: '' });
+const vueForm = vue({ title: '' });
+const solidForm = solid({ title: '' });
+void reactForm.post('/about');
+void vueForm.put('/users/42?update');
+void solidForm.delete('/api/legacy');
+void vueForm.submit('/about', 'POST');
+// @ts-expect-error unknown routes are rejected
+void reactForm.post('/unknown');
+// @ts-expect-error external URLs are rejected
+void solidForm.put('https://example.com');
+// @ts-expect-error Vue submit is a route URL
+void vueForm.submit('/unknown', 'POST');
 `;
 
 const solidLinkHrefCheck = `import type { Href } from 'void/routes';
@@ -407,6 +436,18 @@ void loose;
       output: '',
       status: 0,
     });
+  });
+
+  it('checks useIslandForm URLs in every adapter with routing.typedRoutes', async () => {
+    const root = await createFixture({
+      typedRoutes: true,
+      extraFiles: { 'check-island-form.ts': islandFormCheck },
+    });
+    expect(
+      typecheck(root, 'generated', ['check-island-form.ts'], {
+        allowImportingTsExtensions: true,
+      }),
+    ).toEqual({ output: '', status: 0 });
   });
 
   it('checks Link href in every adapter with routing.typedRoutes', async () => {

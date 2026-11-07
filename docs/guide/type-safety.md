@@ -257,7 +257,7 @@ await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
 
 ### Checked URL strings
 
-[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, and `c.redirect()`. Apps created with `void init` have it on. To turn it on in an existing app:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `c.redirect()`, and `useIslandForm()`'s `post()`, `put()`, `patch()`, `delete()`, and `submit()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts
@@ -344,7 +344,7 @@ The cast turns the check off, so cast only URLs you trust. Check a URL from the 
 
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a prerender or revalidate path list with it.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` and `useIslandForm()` accept it. Annotate a prerender or revalidate path list with it.
 - `Href`: anything a link or `c.redirect()` can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`. The cast skips the check, so a wrong path still compiles:
@@ -409,7 +409,7 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | Handlers            | `c.env` bindings, validator input, return type                                                                                                                                                                        |
 | Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                                                                                                                     |
 | Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                                                                                                                        |
-| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                                                                                                                  |
+| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, `c.rewrite()`, and `useIslandForm()`                                                                                                               |
 | `c.redirect`        | With `routing.typedRoutes`, route URLs, same-page queries and hashes, destination objects, `URL` values, and `http://`, `https://`, `mailto:`, and `tel:` literals. A string TypeScript cannot check needs `as Href`. |
 | `useParams`         | Page patterns and the names of the params they return                                                                                                                                                                 |
 | `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                                                                                                                      |

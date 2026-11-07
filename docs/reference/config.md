@@ -378,7 +378,7 @@ routing: {
 
 #### `routing.typedRoutes`
 
-Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, and `c.redirect()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. `c.redirect()` accepts those strings, a `URL`, or a destination object. An external `https://` literal needs no cast; cast a string TypeScript cannot check with `as Href`. `revalidate({ paths })` and `routing.prerender` stay plain strings until you annotate them. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `c.redirect()`, and `useIslandForm()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Link and router strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. `useIslandForm()` takes a route URL. `c.redirect()` accepts those strings, a `URL`, or a destination object. An external `https://` literal needs no cast; cast a string TypeScript cannot check with `as Href`. `revalidate({ paths })` and `routing.prerender` stay plain strings until you annotate them. See [Checked URL strings](../guide/type-safety#checked-url-strings).
 
 ```ts
 routing: {
