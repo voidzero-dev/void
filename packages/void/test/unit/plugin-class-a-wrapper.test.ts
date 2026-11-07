@@ -121,6 +121,14 @@ describe('Class A framework custom entry', () => {
     },
   );
 
+  it.each([
+    ['vinext-app', 'vinext/server/app-router-entry'],
+    // vinext's own entry runs middleware and next.config redirects, rewrites and headers.
+    ['vinext-pages', 'vinext/server/pages-router-entry'],
+  ] as const)('uses vinext’s own worker entry for %s', (framework, entry) => {
+    expect(getOriginalFrameworkEntry(framework, createTanStackRoot())).toBe(entry);
+  });
+
   it('keeps the default TanStack server entry when no custom entry is configured', () => {
     expect(getOriginalFrameworkEntry('tanstack-start', createTanStackRoot())).toBe(
       '@tanstack/react-start/server-entry',
