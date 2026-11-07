@@ -1,4 +1,4 @@
-import type { Context } from 'hono';
+import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import { expectTypeOf } from 'vite-plus/test';
 import {
@@ -9,7 +9,12 @@ import {
   type RouteUrlInput,
 } from 'void/routes';
 import type { VoidRouter } from '../../src/pages/client.ts';
-import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
+import {
+  defineHandler,
+  defineMiddleware,
+  type CloudContext,
+  type CloudEnv,
+} from '../../src/runtime/handler.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -20,6 +25,23 @@ declare module 'void/routes' {
 
 // This package typecheck leaves `routing.typedRoutes` off, so a string is a route URL.
 // The route-url builder fixture covers the checked case.
+export function checkUntypedHonoCompatibility(c: Context<CloudEnv>): void {
+  const cloud: CloudContext = c;
+  const hono: Context<CloudEnv> = cloud;
+  const readUser = (context: CloudContext) => context.get('user');
+  const middleware: MiddlewareHandler<CloudEnv> = async (context, next) => {
+    readUser(context);
+    await next();
+  };
+  defineHandler(middleware, (context) => context.text('ok'));
+  cloud.set('user', null);
+  // @ts-expect-error compatibility overloads must not bypass context variable types
+  cloud.set('user', 'not a user');
+  // @ts-expect-error compatibility overloads must not accept arbitrary symbol keys
+  cloud.set(Symbol('user'), null);
+  void [hono, getCookie(cloud, 'session')];
+}
+
 export function checkTypedServerDestinations(c: CloudContext): void {
   const target = routeUrl('/typed-navigation/:id', {
     params: { id: 123 },

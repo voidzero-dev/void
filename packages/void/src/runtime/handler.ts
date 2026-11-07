@@ -146,17 +146,22 @@ declare module 'hono' {
 // resolve to the typed signature, and its error is the one reported. A
 // module augmentation cannot narrow `redirect`: it would keep Hono's
 // `(location: string | URL)` signature callable.
+// Keep method variance on both overloads so an unchecked Hono context is
+// assignable back to CloudContext, including in raw Hono middleware.
 export interface CloudContext extends Context<CloudEnv> {
-  redirect: (<T extends RedirectStatusCode = 302>(
+  redirect<T extends RedirectStatusCode = 302>(
     this: never,
     location: string | URL,
     status?: T,
-  ) => Response & TypedResponse<undefined, T, 'redirect'>) &
-    (<T extends RedirectStatusCode = 302>(
-      location: RouteUrlInput,
-      status?: T,
-    ) => Response & TypedResponse<undefined, T, 'redirect'>);
-  set: ((this: never, key: PropertyKey, value: unknown) => void) & Context<CloudEnv>['set'];
+  ): Response & TypedResponse<undefined, T, 'redirect'>;
+  redirect<T extends RedirectStatusCode = 302>(
+    location: RouteUrlInput,
+    status?: T,
+  ): Response & TypedResponse<undefined, T, 'redirect'>;
+  set: {
+    set(this: never, key: PropertyKey, value: unknown): void;
+  }['set'] &
+    Context<CloudEnv>['set'];
 }
 
 type HandlerFn = (c: CloudContext) => unknown | Promise<unknown>;

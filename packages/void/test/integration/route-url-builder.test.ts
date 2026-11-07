@@ -272,14 +272,16 @@ async function createFixture({
     'pages/users/[id].tsx': 'export default function Page() { return null; }',
     'pages/files/[...path].tsx': 'export default function Page() { return null; }',
     'pages/wild/[...].tsx': 'export default function Page() { return null; }',
-    'check.ts': `import {
+    'check.ts': `import type { Context, MiddlewareHandler } from 'hono';
+import { getCookie } from 'hono/cookie';
+import {
   routeUrl,
   type RouteDestination,
   type RouteOptions,
   type RoutePath,
 } from 'void/routes';
 import type { VoidRouter } from 'void/pages-client';
-import { defineHandler, defineMiddleware, type CloudContext } from 'void/handler';
+import { defineHandler, defineMiddleware, type CloudContext, type CloudEnv } from 'void/handler';
 const path: RoutePath = '/users/:id';
 const options: RouteOptions<typeof path> = { params: { id: 123 }, query: { tab: 'activity' }, hash: 'details' };
 const url: string = routeUrl(path, options);
@@ -311,7 +313,19 @@ void router.prefetch(destination);
 router.flush(destination);
 // @ts-expect-error destinations require path params
 void router.visit({ pathname: '/users/:id' });
-declare const context: CloudContext;
+declare const honoContext: Context<CloudEnv>;
+const context: CloudContext = honoContext;
+const nativeContext: Context<CloudEnv> = context;
+const readUser = (c: CloudContext) => c.get('user');
+const middleware: MiddlewareHandler<CloudEnv> = async (c, next) => {
+  readUser(c);
+  await next();
+};
+defineHandler(middleware, c => c.redirect('/unknown'));
+context.set('user', null);
+// @ts-expect-error compatibility overloads must not bypass context variable types
+context.set('user', 'not a user');
+void [nativeContext, getCookie(context, 'session')];
 const response: Response & { _status: 307 } = context.redirect(url, 307);
 void response;
 void context.rewrite(destination);
