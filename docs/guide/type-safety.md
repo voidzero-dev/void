@@ -257,7 +257,7 @@ await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
 
 ### Checked URL strings
 
-[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `connectEventStream()`, and `connectLiveStream()`. Apps created with `void init` have it on. To turn it on in an existing app:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `connectEventStream()`, `connectLiveStream()`, and `useIslandForm()`'s `post()`, `put()`, `patch()`, `delete()`, and `submit()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts
@@ -338,7 +338,7 @@ c.redirect('https://example.com/login');
 
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a `c.redirect()` path or a prerender or revalidate path list with it.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` and `useIslandForm()` accept it. Annotate a `c.redirect()` path or a prerender or revalidate path list with it.
 - `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
@@ -397,20 +397,20 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 
 ## What Gets Checked
 
-| Layer               | What's type-checked                                                                                                   |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Database            | Table columns, value types, insert/update shapes from Drizzle schema                                                  |
-| Handlers            | `c.env` bindings, validator input, return type                                                                        |
-| Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
-| Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
-| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, `c.rewrite()`, and SSE and live stream clients     |
-| `c.redirect`        | An internal path built with `routeUrl()`, or a full path annotated with `satisfies RouteUrl`                          |
-| `useParams`         | Page patterns and the names of the params they return                                                                 |
-| `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                      |
-| `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                 |
-| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                             |
-| `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess` |
-| `action()`          | Action URLs, `data` payload, `params`                                                                                 |
+| Layer               | What's type-checked                                                                                                                  |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Database            | Table columns, value types, insert/update shapes from Drizzle schema                                                                 |
+| Handlers            | `c.env` bindings, validator input, return type                                                                                       |
+| Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                                    |
+| Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                                       |
+| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, `c.rewrite()`, `useIslandForm()`, and SSE and live stream clients |
+| `c.redirect`        | An internal path built with `routeUrl()`, or a full path annotated with `satisfies RouteUrl`                                         |
+| `useParams`         | Page patterns and the names of the params they return                                                                                |
+| `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                                     |
+| `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                                |
+| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                                            |
+| `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess`                |
+| `action()`          | Action URLs, `data` payload, `params`                                                                                                |
 
 ## Serialization
 

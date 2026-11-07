@@ -1,7 +1,34 @@
 import { describe, it } from 'vite-plus/test';
 import { fetch as typedFetch } from '../../src/runtime/fetch.ts';
 
+declare module 'void/routes' {
+  interface RouteMap {
+    '/api/rebuild': {
+      POST: { input: {}; output: { started: boolean } };
+    };
+  }
+}
+
 describe('typed fetch client', () => {
+  it('type: requires an explicit method whenever the request cannot default to GET', () => {
+    const _check = async () => {
+      const result = await typedFetch('/api/rebuild', { method: 'POST' });
+      const started: boolean = result.started;
+      void started;
+      await typedFetch('/api/hello', {});
+
+      // @ts-expect-error - a POST-only route cannot be called with the default GET
+      await typedFetch('/api/rebuild');
+      // @ts-expect-error - an options object does not supply a runtime method
+      await typedFetch('/api/rebuild', {});
+      // @ts-expect-error - generic type arguments do not set the runtime method
+      await typedFetch<'/api/rebuild', 'POST'>('/api/rebuild', {});
+      // @ts-expect-error - selecting POST requires a method even when GET also exists
+      await typedFetch<'/api/users', 'POST'>('/api/users', { body: { name: 'Alice' } });
+    };
+    void _check;
+  });
+
   it('type: output is correctly narrowed per route', () => {
     const _check = async () => {
       const hello = await typedFetch('/api/hello');

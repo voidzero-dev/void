@@ -5,6 +5,7 @@ import {
   type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
+import type { RouteUrl } from 'void/routes';
 
 export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'setters'> &
   Readonly<{ setData: <K extends keyof T & string>(field: K, value: T[K]) => void }>;
@@ -117,9 +118,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     reset,
     clearErrors,
     clearError,
-    post: (url: string) => submit(url, 'POST'),
-    put: (url: string) => submit(url, 'PUT'),
-    patch: (url: string) => submit(url, 'PATCH'),
-    delete: (url: string) => submit(url, 'DELETE'),
+    post: (url: RouteUrl) => submit(url, 'POST'),
+    put: (url: RouteUrl) => submit(url, 'PUT'),
+    patch: (url: RouteUrl) => submit(url, 'PATCH'),
+    delete: (url: RouteUrl) => submit(url, 'DELETE'),
   };
 }
