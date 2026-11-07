@@ -462,7 +462,7 @@ function asCloudContext(c: PageRequestContext): CloudContext {
 }
 
 /** Handle GET page request — run handler, return page object or SSR HTML */
-export function handlePageGet(
+export async function handlePageGet(
   handler: PageHandler,
   headFn: PageHeadHandler,
   c: PageRequestContext,
@@ -642,7 +642,7 @@ function isSameOriginAction(request: Request): boolean {
 }
 
 /** Handle POST/PUT/PATCH/DELETE page request — run mutation, then re-run GET or redirect */
-export function handlePageMutation(
+export async function handlePageMutation(
   mutationHandler: PageHandler,
   getHandler: PageHandler,
   headFn: PageHeadHandler,
