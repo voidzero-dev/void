@@ -283,6 +283,9 @@ function bindingsFromOutput(
       case 'version-metadata':
         bindings.push({ name, type: 'version_metadata' });
         break;
+      case 'worker-loader':
+        bindings.push({ name, type: 'worker_loader' });
+        break;
       default:
         throw new Error(`Cloudflare binding ${name} cannot be uploaded with pinned secrets.`);
     }
