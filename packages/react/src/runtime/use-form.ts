@@ -155,14 +155,15 @@ export function useForm(
         ? cloneFormValue(initialDefaults)
         : cloneFormValue(payload.snapshot);
       const nextOutcome: SubmissionOutcome = { status: 'success', defaults: nextDefaults };
-      let pendingSuccess: void | Promise<void>;
+      // Helpers called after an await still belong to this successful submission.
       callbackOutcomeRef.current = nextOutcome;
       try {
-        pendingSuccess = options?.onSuccess?.();
+        await options?.onSuccess?.();
       } finally {
-        callbackOutcomeRef.current = null;
+        if (callbackOutcomeRef.current === nextOutcome) {
+          callbackOutcomeRef.current = null;
+        }
       }
-      await pendingSuccess;
       if (options?.resetOnSuccess && dataRef.current === payload.dispatchData) {
         dataRef.current = cloneFormValue(initialDefaults);
         setDataState(dataRef.current);

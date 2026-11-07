@@ -129,6 +129,42 @@ describe('useForm callbacks', () => {
     expect(formRef.current!.wasSuccessful).toBe(true);
   });
 
+  it('resets to saved values after awaiting onSuccess work', async () => {
+    const { formRef } = await mountForm(
+      vi.fn(async () => ({})),
+      {
+        onSuccess: async () => {
+          await Promise.resolve();
+          formRef.current!.reset();
+        },
+      },
+    );
+    await act(async () => {
+      formRef.current!.setData('title', 'Saved');
+    });
+
+    await submitPost(formRef.current!);
+
+    expect(formRef.current!.data.title).toBe('Saved');
+    expect(formRef.current!.hasChanges).toBe(false);
+  });
+
+  it('preserves field errors set after awaiting onSuccess work', async () => {
+    const { formRef } = await mountForm(
+      vi.fn(async () => ({})),
+      {
+        onSuccess: async () => {
+          await Promise.resolve();
+          formRef.current!.setError('title', 'Check the saved value');
+        },
+      },
+    );
+
+    await submitPost(formRef.current!);
+
+    expect(formRef.current!.errors).toEqual({ title: 'Check the saved value' });
+  });
+
   it('calls onError with validation errors before the updated UI commits', async () => {
     const onError = vi.fn(() => {
       expect(container.textContent).not.toBe('Required');
@@ -378,11 +414,15 @@ describe('useForm state derivation and error management', () => {
     expect(formRef.current!.hasChanges).toBe(false);
   });
 
-  it('applies reset(), setError(), and clearError() inside onSuccess/onError without leaking uncommitted outcomes to external UI during await', async () => {
+  it('applies form helpers during callbacks and only resets to a new baseline after the request succeeds', async () => {
     let mode: 'success-reset' | 'async-external-reset' | 'validation' | 'action-error' =
       'success-reset';
+    const requestGate = deferred<Record<string, unknown>>();
     const callbackGate = deferred<void>();
     const visit = vi.fn(async () => {
+      if (mode === 'async-external-reset') {
+        return requestGate.promise;
+      }
       if (mode === 'validation') {
         return { errors: { title: 'Server invalid', extra: 'Keep me' } };
       }
@@ -424,10 +464,10 @@ describe('useForm state derivation and error management', () => {
     expect(formRef.current!.data).toEqual({ title: 'Saved' });
     expect(formRef.current!.hasChanges).toBe(false);
 
-    // While async onSuccess is suspended at await, external UI reset() uses committed baseline ('Saved'), not uncommitted ('Uncommitted')
+    // Until the request succeeds, reset() still uses the previous saved values.
     mode = 'async-external-reset';
     await act(async () => {
-      formRef.current!.setData('title', 'Uncommitted');
+      formRef.current!.setData('title', 'Next saved');
     });
     await submitPost(formRef.current!);
     expect(formRef.current!.pending).toBe(true);
@@ -435,9 +475,22 @@ describe('useForm state derivation and error management', () => {
       formRef.current!.reset();
     });
     expect(formRef.current!.data).toEqual({ title: 'Saved' });
+
+    // The server has accepted the new snapshot, even while onSuccess is still pending.
+    await act(async () => {
+      requestGate.resolve({});
+    });
+    expect(formRef.current!.pending).toBe(true);
+    expect(formRef.current!.wasSuccessful).toBe(false);
+    await act(async () => {
+      formRef.current!.reset();
+    });
+    expect(formRef.current!.data).toEqual({ title: 'Next saved' });
     await act(async () => {
       callbackGate.resolve();
     });
+    expect(formRef.current!.pending).toBe(false);
+    expect(formRef.current!.hasChanges).toBe(false);
 
     // onError -> clearErrors() + setError()
     mode = 'validation';
