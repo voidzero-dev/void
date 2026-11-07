@@ -121,13 +121,12 @@ You can purge ISR cache entries programmatically from a route handler:
 ```ts
 import { defineHandler } from 'void';
 import { revalidate } from 'void/isr';
-import type { RouteUrl } from 'void/routes';
 
 export const POST = defineHandler(async (c) => {
   // ... update content in database ...
 
-  // Purge specific pages. `satisfies RouteUrl[]` checks the paths when routing.typedRoutes is on.
-  await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
+  // Purge specific pages
+  await revalidate({ paths: ['/', '/blog/hello-world'] });
 
   // Or purge all cached pages
   await revalidate({ all: true });
@@ -135,3 +134,5 @@ export const POST = defineHandler(async (c) => {
   return c.json({ ok: true });
 });
 ```
+
+With [`routing.typedRoutes`](../../reference/config.md#routing-typedroutes) on, each path must match one of your routes. Cast a path that TypeScript can't check, such as one from a webhook payload, with `as RouteUrl` from `void/routes`. The cast turns the check off for that path.

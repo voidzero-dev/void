@@ -27,6 +27,7 @@ const typedCheck = `import { routeUrl, type Href, type RouteUrl } from 'void/rou
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineMiddleware, type CloudContext } from 'void/handler';
+import { revalidate } from 'void/isr';
 import { connectLiveStream } from 'void/live/client';
 import { connectEventStream } from 'void/sse/client';
 import type { IslandFormState } from 'void/pages-client';
@@ -95,6 +96,13 @@ void context.rewrite('https://example.com');
 // @ts-expect-error rewrites do not take same-page hashes
 void context.rewrite('#details');
 context.redirect('https://example.com/elsewhere');
+void revalidate({ paths: ['/', '/about', \`/users/\${id}\`, user] });
+// @ts-expect-error revalidated paths are checked
+void revalidate({ paths: ['/unknown'] });
+declare const stored: string[];
+// @ts-expect-error unchecked string arrays are rejected
+void revalidate({ paths: stored });
+void revalidate({ paths: stored as RouteUrl[] });
 connectEventStream('/api/legacy');
 connectEventStream(\`/api/users/\${id}\`);
 connectEventStream(user);

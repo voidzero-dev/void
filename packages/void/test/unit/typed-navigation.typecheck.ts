@@ -14,6 +14,7 @@ import {
   type CloudContext,
   type CloudEnv,
 } from '../../src/runtime/handler.ts';
+import { revalidate } from '../../src/runtime/isr.ts';
 import { connectLiveStream } from '../../src/runtime/live-client.ts';
 import { connectEventStream } from '../../src/runtime/sse-client.ts';
 
@@ -81,6 +82,12 @@ export function checkUntypedRouteStrings(): void {
   expectTypeOf<RouteUrl>().toEqualTypeOf<string>();
   expectTypeOf<Href>().toEqualTypeOf<string>();
   expectTypeOf(routeUrl('/typed-navigation')).toEqualTypeOf<string>();
+}
+
+// Without routing.typedRoutes, revalidated paths are plain strings.
+export async function checkUntypedRevalidatePaths(paths: Array<string>): Promise<void> {
+  await revalidate({ paths });
+  await revalidate({ paths: ['/unknown'] });
 }
 
 export function checkUntypedStreamUrls(url: string): void {

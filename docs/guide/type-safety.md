@@ -247,17 +247,21 @@ export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> 
 
 In custom SSR mode the function returns full path strings, so annotate it as `Promise<string[]>`. See [Edge Prerendering](./edge/prerendering.md#dynamic-pages-with-params) and [Static Site Generation](./ssg.md#per-page-overrides).
 
-`revalidate({ paths })` and `routing.prerender` are lists of plain strings. Annotate the array with `satisfies RouteUrl[]` so each path has to match a route. The check applies when [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) is on; otherwise `RouteUrl` is `string`:
+`routing.prerender` is a list of plain strings. Annotate the array with `satisfies RouteUrl[]` so each path has to match a route. The check applies when [`routing.typedRoutes`](../reference/config.md#routing-typedroutes) is on; otherwise `RouteUrl` is `string`:
 
 ```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
 import type { RouteUrl } from 'void/routes';
 
-await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
+export default defineConfig({
+  routing: { prerender: ['/', '/blog/hello-world'] satisfies RouteUrl[] },
+});
 ```
 
 ### Checked URL strings
 
-[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `connectEventStream()`, `connectLiveStream()`, and `useIslandForm()`'s `post()`, `put()`, `patch()`, `delete()`, and `submit()`. Apps created with `void init` have it on. To turn it on in an existing app:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `revalidate({ paths })`, `connectEventStream()`, `connectLiveStream()`, and `useIslandForm()`'s `post()`, `put()`, `patch()`, `delete()`, and `submit()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts
@@ -338,10 +342,10 @@ c.redirect('https://example.com/login');
 
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` and `useIslandForm()` accept it. Annotate a `c.redirect()` path or a prerender or revalidate path list with it.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()`, `useIslandForm()`, and `revalidate({ paths })` accept it. Annotate a `c.redirect()` path or a `routing.prerender` list with it.
 - `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
-Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
+Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`. The cast turns the check off for that string:
 
 ::: code-group
 
@@ -408,7 +412,8 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | `useParams`         | Page patterns and the names of the params they return                                                                                |
 | `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                                     |
 | `getPrerenderPaths` | Page param names, when the return type is annotated with `PageParams`                                                                |
-| `revalidate`        | `paths`, and `routing.prerender`, when the array is annotated with `satisfies RouteUrl[]`                                            |
+| `revalidate`        | With `routing.typedRoutes`, URL strings in `paths`                                                                                   |
+| `routing.prerender` | Paths, when the array is annotated with `satisfies RouteUrl[]`                                                                       |
 | `useForm`           | Action URLs, `data` fields, `errors` keys, `reset()` args (including `{ initial: true }`), `params`, `resetOnSuccess`                |
 | `action()`          | Action URLs, `data` payload, `params`                                                                                                |
 
