@@ -22,17 +22,24 @@ return c.rewrite({
 
 With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
 
-With [`routing.typedRoutes`](../config.md#routing-typedroutes), `c.redirect()` checks its location the same way as a link. A string must be a route URL, a same-page query or hash, or an `http://`, `https://`, `mailto:`, or `tel:` URL. An external `https://` literal needs no cast. A `URL`, a [`routeUrl()`](./types.md#routeurl-path-options) string, or a destination object is accepted. Cast a string TypeScript cannot check with `as Href`:
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), `c.redirect()` checks its location the same way as a link. A string must be a route URL, a same-page query or hash, or an `http://`, `https://`, `mailto:`, or `tel:` URL. An external `https://` literal needs no cast. A `URL`, a [`routeUrl()`](./types.md#routeurl-path-options) string, or a destination object is accepted. Cast a string TypeScript cannot check, such as a checkout URL from a payment provider's SDK, with `as Href`:
 
 ```ts
 import { routeUrl, type Href } from 'void/routes';
 
-declare const nextUrl: string;
+declare const checkoutUrl: string;
 
 return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
 return c.redirect({ pathname: '/users/:id', params: { id: 42 } });
 return c.redirect('https://example.com/login');
-return c.redirect(nextUrl as Href);
+return c.redirect(checkoutUrl as Href);
+```
+
+The cast turns the check off for that value, and Void does not check the location at runtime, so cast only URLs you trust. A URL from the request, such as a `?redirectTo=` parameter, can point to another site. Resolve it against the request URL and redirect only when the origin matches:
+
+```ts
+const requested = new URL(c.req.query('redirectTo') ?? '/', c.req.url);
+return c.redirect(requested.origin === new URL(c.req.url).origin ? requested : '/');
 ```
 
 `c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.

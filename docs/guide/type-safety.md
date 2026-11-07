@@ -340,12 +340,14 @@ c.redirect(new URL('https://example.com/login'));
 c.redirect(dynamic as Href);
 ```
 
+The cast turns the check off, so cast only URLs you trust. Check a URL from the request, such as a `?redirectTo=` parameter, before redirecting to it. See [`c.redirect()`](../reference/api/rewrites.md#c-rewrite-destination).
+
 `void/routes` exports two types for these strings:
 
 - `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` accepts it. Annotate a prerender or revalidate path list with it.
 - `Href`: anything a link or `c.redirect()` can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
-Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`:
+Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`. The cast skips the check, so a wrong path still compiles:
 
 ::: code-group
 
