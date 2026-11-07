@@ -5,7 +5,7 @@ export { FetchError };
 
 import type { RouteMap } from 'void/routes';
 export type MethodsOf<P extends keyof RouteMap> = keyof RouteMap[P] & string;
-type DefaultMethod<P extends keyof RouteMap> = 'GET' extends MethodsOf<P> ? 'GET' : never;
+type DefaultMethod<P extends keyof RouteMap> = 'GET' extends MethodsOf<P> ? 'GET' : MethodsOf<P>;
 
 type RouteEntry<P extends keyof RouteMap, M extends MethodsOf<P>> = RouteMap[P][M] extends {
   input: infer I;
@@ -47,7 +47,7 @@ type FetchOptions<P extends keyof RouteMap, M extends MethodsOf<P>> = BodyOption
     baseURL?: string;
     retry?: number;
     timeout?: number;
-  };
+  } & ('GET' extends M ? unknown : { method: M });
 
 export type UntypedFetchOptions = {
   method?: string;
@@ -77,7 +77,11 @@ const browserFetch = createRouteFetch((...args) => globalThis.fetch(...args));
  * ```
  */
 export function fetch<P extends keyof RouteMap & string>(
-  path: HasRequiredInput<P, DefaultMethod<P>> extends false ? P : never,
+  path: 'GET' extends MethodsOf<P>
+    ? HasRequiredInput<P, DefaultMethod<P>> extends false
+      ? P
+      : never
+    : never,
 ): Promise<OutputOf<P, DefaultMethod<P>>>;
 export function fetch<P extends keyof RouteMap & string, M extends MethodsOf<P> = DefaultMethod<P>>(
   path: P,

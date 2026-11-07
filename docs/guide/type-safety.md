@@ -261,7 +261,7 @@ export default defineConfig({
 
 ### Checked URL strings
 
-[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, and `revalidate({ paths })`. Apps created with `void init` have it on. To turn it on in an existing app:
+[`routing.typedRoutes`](../reference/config.md#routing-typedroutes) checks plain URL strings in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `revalidate({ paths })`, and `useIslandForm()`'s `post()`, `put()`, `patch()`, `delete()`, and `submit()`. Apps created with `void init` have it on. To turn it on in an existing app:
 
 ```ts
 // void.config.ts
@@ -340,7 +340,7 @@ c.redirect('https://example.com/login');
 
 `void/routes` exports two types for these strings:
 
-- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()` and `revalidate({ paths })` accept it. Annotate a `c.redirect()` path or a `routing.prerender` list with it.
+- `RouteUrl`: the URL of one of your routes. `routeUrl()` returns it, and `c.rewrite()`, `useIslandForm()`, and `revalidate({ paths })` accept it. Annotate a `c.redirect()` path or a `routing.prerender` list with it.
 - `Href`: anything a link can point to: a `RouteUrl`, a same-page query or hash, or an external URL.
 
 Cast a string that TypeScript can't check, such as a path from your CMS or a file in `public/`. The cast turns the check off for that string:
@@ -405,7 +405,7 @@ Route types update with the dev server. For CI or standalone typechecking, run `
 | Handlers            | `c.env` bindings, validator input, return type                                                                        |
 | Fetch client        | Route paths, HTTP methods, `body`/`query`/`params`, response type                                                     |
 | Navigation          | Route patterns and required parameter names and values in `routeUrl()` and destination objects                        |
-| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, and `c.rewrite()`                                  |
+| Links               | With `routing.typedRoutes`, URL strings in `Link`, router methods, `c.rewrite()`, and `useIslandForm()`               |
 | `c.redirect`        | An internal path built with `routeUrl()`, or a full path annotated with `satisfies RouteUrl`                          |
 | `useParams`         | Page patterns and the names of the params they return                                                                 |
 | `c.req.param`       | Page param names, when the result is annotated with `PageParams`                                                      |

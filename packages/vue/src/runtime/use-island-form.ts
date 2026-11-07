@@ -4,10 +4,11 @@ import {
   type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
+import type { RouteUrl } from 'void/routes';
 import { reactive, ref, watch } from 'vue';
 
 export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
-  Readonly<{ submit(url: string, method: string): Promise<void> }>;
+  Readonly<{ submit(url: RouteUrl, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
@@ -66,7 +67,7 @@ export function useIslandForm(
     error.value = null;
   }
 
-  async function submit(url: string, method: string) {
+  async function submit(url: RouteUrl, method: string) {
     pending.value = true;
     wasSuccessful.value = false;
     recentlySuccessful.value = false;
@@ -114,9 +115,9 @@ export function useIslandForm(
     reset,
     clearErrors,
     clearError,
-    post: (url: string) => submit(url, 'POST'),
-    put: (url: string) => submit(url, 'PUT'),
-    patch: (url: string) => submit(url, 'PATCH'),
-    delete: (url: string) => submit(url, 'DELETE'),
+    post: (url: RouteUrl) => submit(url, 'POST'),
+    put: (url: RouteUrl) => submit(url, 'PUT'),
+    patch: (url: RouteUrl) => submit(url, 'PATCH'),
+    delete: (url: RouteUrl) => submit(url, 'DELETE'),
   });
 }
