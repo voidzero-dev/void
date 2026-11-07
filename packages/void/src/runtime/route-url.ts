@@ -105,6 +105,15 @@ export type Href = TypedRoutes extends true
   ? RouteUrl | `${'?' | '#'}${string}` | `${'http://' | 'https://' | 'mailto:' | 'tel:'}${string}`
   : string;
 
+/**
+ * A URL an HTTP request can target: one of the app's routes or an absolute
+ * `http://`/`https://` URL. A plain string unless `routing.typedRoutes` is on.
+ */
+// Not re-exported from `void/routes`: apps cast runtime strings with `as RouteUrl`.
+export type RequestUrl = TypedRoutes extends true
+  ? RouteUrl | `${'http://' | 'https://'}${string}`
+  : string;
+
 export type RouteQueryValue = string | number | boolean | null | undefined;
 export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;
 

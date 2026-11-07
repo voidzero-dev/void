@@ -77,6 +77,8 @@ stream.close();
 
 Subscription IDs are scoped to a connection. Reusing an ID replaces its subscription. After reconnecting, the helper restores active subscriptions and sends their latest `eventId` as `lastEventId`.
 
+With [`routing.typedRoutes`](../reference/config.md#routing-typedroutes), the URL must match one of your routes or be an `http://` or `https://` URL. Cast a `string` that TypeScript can't check with `as RouteUrl` from `void/routes`. The cast turns off the check for that URL.
+
 ## Publish
 
 Publish from any server-side code that has a Void runtime env:

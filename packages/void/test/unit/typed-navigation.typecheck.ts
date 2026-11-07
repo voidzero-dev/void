@@ -14,6 +14,8 @@ import {
   type CloudContext,
   type CloudEnv,
 } from '../../src/runtime/handler.ts';
+import { connectLiveStream } from '../../src/runtime/live-client.ts';
+import { connectEventStream } from '../../src/runtime/sse-client.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -79,4 +81,13 @@ export function checkUntypedRouteStrings(): void {
   expectTypeOf<RouteUrl>().toEqualTypeOf<string>();
   expectTypeOf<Href>().toEqualTypeOf<string>();
   expectTypeOf(routeUrl('/typed-navigation')).toEqualTypeOf<string>();
+}
+
+export function checkUntypedStreamUrls(url: string): void {
+  expectTypeOf<Parameters<typeof connectEventStream>[0]>().toEqualTypeOf<string | URL>();
+  expectTypeOf<Parameters<typeof connectLiveStream>[0]>().toEqualTypeOf<string | URL>();
+  connectEventStream(url);
+  connectLiveStream(url);
+  connectEventStream('/unknown');
+  connectLiveStream('ws://example.com/live');
 }

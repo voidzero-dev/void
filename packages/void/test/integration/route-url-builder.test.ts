@@ -27,6 +27,8 @@ const typedCheck = `import { routeUrl, type Href, type RouteUrl } from 'void/rou
 import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineMiddleware, type CloudContext } from 'void/handler';
+import { connectLiveStream } from 'void/live/client';
+import { connectEventStream } from 'void/sse/client';
 declare const id: number;
 declare const dynamic: string;
 const user: RouteUrl = routeUrl('/users/:id', { params: { id } });
@@ -92,6 +94,30 @@ void context.rewrite('https://example.com');
 // @ts-expect-error rewrites do not take same-page hashes
 void context.rewrite('#details');
 context.redirect('https://example.com/elsewhere');
+connectEventStream('/api/legacy');
+connectEventStream(\`/api/users/\${id}\`);
+connectEventStream(user);
+connectEventStream('https://example.com/events');
+connectEventStream(new URL('https://example.com/events'));
+connectEventStream(dynamic as RouteUrl);
+// @ts-expect-error event streams reject unknown routes
+connectEventStream('/unknown');
+// @ts-expect-error event streams do not take WebSocket URLs
+connectEventStream('ws://example.com/events');
+// @ts-expect-error event streams do not take same-page hashes
+connectEventStream('#details');
+// @ts-expect-error event streams reject unchecked strings
+connectEventStream(dynamic);
+connectLiveStream('/api/legacy');
+connectLiveStream(\`/api/users/\${id}?room=1\`);
+connectLiveStream('http://localhost:5173/live');
+connectLiveStream(new URL('https://example.com/live'));
+// @ts-expect-error live streams reject unknown routes
+connectLiveStream('/unknown');
+// @ts-expect-error live streams do not take WebSocket URLs
+connectLiveStream('wss://example.com/live');
+// @ts-expect-error live streams reject unchecked strings
+connectLiveStream(dynamic);
 // Config rewrites keep placeholders and static files.
 defineConfig({
   routing: {

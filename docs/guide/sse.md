@@ -141,6 +141,8 @@ stream.close();
 
 The client wraps native `EventSource`. It supports cookie credentials and typed event handlers, but it does not support request bodies or arbitrary headers. Use cookie auth, signed URLs, or a fetch-based streaming route when you need custom headers.
 
+With [`routing.typedRoutes`](../reference/config.md#routing-typedroutes), the URL must match one of your routes, such as `` `/api/jobs/${id}` ``, or be an `http://` or `https://` URL. Cast a `string` that TypeScript can't check with `as RouteUrl` from `void/routes`. The cast turns off the check for that URL.
+
 JSON parsing is the default. Set `parse: 'text'` or pass a custom parser for non-JSON payloads:
 
 ```ts

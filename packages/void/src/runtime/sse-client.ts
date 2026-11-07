@@ -1,3 +1,5 @@
+import type { RequestUrl } from './route-url.ts';
+
 export type SseClientEvent<T = unknown> = {
   data: T;
   event: string;
@@ -38,8 +40,15 @@ type EventSourceConstructor = new (
   options?: { withCredentials?: boolean },
 ) => EventSourceLike;
 
+/**
+ * Open an `EventSource` to a route that returns `eventStream()`.
+ *
+ * With `routing.typedRoutes`, a string `url` must match one of the app's routes
+ * or be an absolute `http://`/`https://` URL. Cast a path built at runtime with
+ * `as RouteUrl`.
+ */
 export function connectEventStream<Events extends SseEventMap = SseEventMap>(
-  url: string | URL,
+  url: RequestUrl | URL,
   options: ConnectEventStreamOptions = {},
 ): SseClient<Events> {
   const EventSourceCtor = (globalThis as { EventSource?: EventSourceConstructor }).EventSource;
