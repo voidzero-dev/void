@@ -156,6 +156,8 @@ export async function prepareCloudflareFrameworkArtifact(options: {
             '_routes.json',
             '__original.js',
             '__original.mjs',
+            // Vite names the job bundle `.js` in an ES module package, `.mjs` otherwise.
+            '__void_handlers.js',
             '__void_handlers.mjs',
             '__void_isr*.mjs',
             '__void_migration_handler*.mjs',
