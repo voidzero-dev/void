@@ -14,7 +14,7 @@ The type is auto-detected from your project structure, or you can set it explici
 
 ## Void Apps
 
-In a Void app, Void handles server routing and deployment. Use React, Vue, Svelte, or Solid for server-rendered pages, or build a frontend with any library that works with Vite.
+In a Void app, Void handles server routing and deployment. Use React, Vue, Svelte, Solid, or Hono for server-rendered pages, or build a frontend with any library that works with Vite.
 
 A Void app can be **API-only** (just `routes/`), a **SPA + API** (frontend in `src/` with API routes), or **full-stack with pages mode** (server-rendered pages in `pages/` with co-located data loading):
 

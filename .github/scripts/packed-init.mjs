@@ -122,7 +122,7 @@ export async function initializePackedProject(
   version,
   toolchain = 'vite',
 ) {
-  const frameworks = ['react', 'vue', 'svelte', 'solid'];
+  const frameworks = ['react', 'vue', 'svelte', 'solid', 'hono'];
   assert(frameworks.includes(framework), 'Unknown Pages framework');
   assert(['npm', 'pnpm'].includes(manager), 'Unknown package manager');
   assert(['vite', 'vite-plus'].includes(toolchain), 'Unknown toolchain');

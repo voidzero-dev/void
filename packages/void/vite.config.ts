@@ -173,6 +173,7 @@ export default defineConfig({
         '@void/react',
         '@void/svelte',
         '@void/solid',
+        '@void/hono',
         '@napi-rs/keyring',
         '@cloudflare/sandbox',
         '@cloudflare/containers',

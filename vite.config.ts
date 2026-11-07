@@ -557,6 +557,7 @@ export default defineConfig({
             'packages/vue/test/integration/**/*.test.ts',
             'packages/svelte/test/integration/**/*.test.ts',
             'packages/solid/test/integration/**/*.test.ts',
+            'packages/hono/test/integration/**/*.test.ts',
           ],
           maxWorkers,
         },

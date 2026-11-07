@@ -6,9 +6,15 @@ import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from './browser-helpers.ts';
 import { buildIslandApp } from './island-css-build.ts';
 
+const JSX_COMPILER_OPTIONS = {
+  voidReact: { jsx: 'react-jsx', jsxImportSource: 'react' },
+  voidSolid: { jsx: 'preserve', jsxImportSource: 'solid-js' },
+  voidHono: { jsx: 'react-jsx', jsxImportSource: 'hono/jsx' },
+};
+
 export function definePrivatePagesBuildTest(app: {
   packageDir: string;
-  pluginName: 'voidReact' | 'voidSolid';
+  pluginName: 'voidReact' | 'voidSolid' | 'voidHono';
   counter: string;
 }): void {
   it('excludes private helpers from the Pages client and hydrates explicit private islands', async () => {
@@ -18,10 +24,7 @@ export function definePrivatePagesBuildTest(app: {
       pluginName: app.pluginName,
       files: {
         'tsconfig.json': JSON.stringify({
-          compilerOptions: {
-            jsx: app.pluginName === 'voidReact' ? 'react-jsx' : 'preserve',
-            jsxImportSource: app.pluginName === 'voidReact' ? 'react' : 'solid-js',
-          },
+          compilerOptions: JSX_COMPILER_OPTIONS[app.pluginName],
         }),
         'pages/_ui/frame.tsx': `import './frame.css';
 export function Frame(props) {

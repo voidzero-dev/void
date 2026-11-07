@@ -152,6 +152,27 @@ export default function BlogIndex(props) {
 }
 ```
 
+```tsx [Hono]
+// pages/blog/index.island.tsx
+import Counter from './_Counter' with { island: 'load' };
+import PostForm from './_PostForm' with { island: 'visible' };
+
+export default function BlogIndex(props) {
+  return (
+    <div>
+      <h1>Blog</h1>
+      <Counter />
+      {props.posts.map((post) => (
+        <a key={post.slug} href={`/blog/${post.slug}`}>
+          {post.title}
+        </a>
+      ))}
+      <PostForm />
+    </div>
+  );
+}
+```
+
 :::
 
 Components imported _without_ the `island` attribute are rendered as static HTML only. No JavaScript is sent to the browser for them.
@@ -335,6 +356,41 @@ export default function PostForm() {
       <Show when={form.errors.body}>
         <span>{form.errors.body}</span>
       </Show>
+
+      <button disabled={form.pending}>{form.pending ? 'Saving...' : 'Add Post'}</button>
+    </form>
+  );
+}
+```
+
+```tsx [Hono]
+import { useIslandForm } from '@void/hono';
+
+export default function PostForm() {
+  const form = useIslandForm({ title: '', body: '' });
+
+  return (
+    <form
+      onSubmit={(e) => {
+        e.preventDefault();
+        return form.post('/blog');
+      }}
+    >
+      <label for="title">Title:</label>
+      <input
+        id="title"
+        value={form.data.title}
+        onInput={(e) => form.setData('title', (e.target as HTMLInputElement).value)}
+      />
+      {form.errors.title && <span>{form.errors.title}</span>}
+
+      <label for="body">Body:</label>
+      <textarea
+        id="body"
+        value={form.data.body}
+        onInput={(e) => form.setData('body', (e.target as HTMLTextAreaElement).value)}
+      />
+      {form.errors.body && <span>{form.errors.body}</span>}
 
       <button disabled={form.pending}>{form.pending ? 'Saving...' : 'Add Post'}</button>
     </form>

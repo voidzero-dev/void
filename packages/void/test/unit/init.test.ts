@@ -154,7 +154,7 @@ describe('init scaffold arguments', () => {
       deploy: undefined,
     });
     expect(() => parseInitArgs(['--framework', 'angular'])).toThrow(
-      'init: --framework must be one of react, vue, svelte, solid.',
+      'init: --framework must be one of react, vue, svelte, solid, hono.',
     );
   });
 
@@ -188,7 +188,7 @@ describe('init scaffold arguments', () => {
     try {
       Object.defineProperty(process.stdin, 'isTTY', { configurable: true, get: () => false });
       await expect(runInitCommand(root, parseInitArgs(['--toolchain', 'vite']))).rejects.toThrow(
-        'init: Pass --framework (react, vue, svelte, solid) when running without an interactive terminal.',
+        'init: Pass --framework (react, vue, svelte, solid, hono) when running without an interactive terminal.',
       );
       expect(mockSelect).not.toHaveBeenCalled();
       expect(readdirSync(root)).toEqual([]);
@@ -1533,6 +1533,11 @@ describe('isScaffoldableEmptyProject', () => {
           value: 'solid',
           label: 'Solid',
           hint: 'Fine-grained TSX Pages starter with the Solid adapter.',
+        },
+        {
+          value: 'hono',
+          label: 'Hono',
+          hint: 'Lightweight TSX Pages starter with the Hono JSX adapter.',
         },
       ]);
 

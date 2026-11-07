@@ -1,0 +1,59 @@
+{
+  "name": "@void/hono",
+  "version": "1.6.2",
+  "description": "Hono JSX pages, server rendering, forms, and navigation for Void.",
+  "homepage": "https://void.cloud",
+  "bugs": {
+    "url": "https://github.com/voidzero-dev/void/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voidzero-dev/void.git",
+    "directory": "packages/hono"
+  },
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.mts",
+      "import": "./dist/index.mjs"
+    },
+    "./plugin": {
+      "types": "./dist/plugin.d.mts",
+      "import": "./dist/plugin.mjs"
+    },
+    "./pages-client": {
+      "types": "./dist/runtime/pages-client.d.mts",
+      "import": "./dist/runtime/pages-client.mjs"
+    },
+    "./pages-server": {
+      "types": "./dist/runtime/pages-server.d.mts",
+      "import": "./dist/runtime/pages-server.mjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit --rootDir ../.."
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "happy-dom": "catalog:",
+    "hono": "catalog:",
+    "pathslash": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "void": "workspace:*"
+  },
+  "peerDependencies": {
+    "hono": "^4.13.0",
+    "vite": "^8.0.0",
+    "void": "workspace:*"
+  }
+}

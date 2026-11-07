@@ -140,9 +140,29 @@ export default function Layout(props: { children: JSX.Element }) {
 }
 ```
 
+```tsx [Hono]
+// pages/layout.tsx
+import { useShared, Link } from '@void/hono';
+import type { Child } from 'hono/jsx';
+
+export default function Layout(props: { children?: Child }) {
+  const shared = useShared();
+  return (
+    <>
+      <nav>
+        <Link href="/">Home</Link>
+        <Link href="/users">Users</Link>
+        {shared.auth?.user && <span>{shared.auth.user.name}</span>}
+      </nav>
+      <main>{props.children}</main>
+    </>
+  );
+}
+```
+
 :::
 
-When a page renders, the layout wraps it. The page component is injected as the layout's children in React, Solid, and Svelte, or as a slot in Vue:
+When a page renders, the layout wraps it. The page component is injected as the layout's children in React, Solid, Svelte, and Hono, or as a slot in Vue:
 
 <img src="./layout-nesting.svg" alt="Layout nesting diagram: pages/layout wraps pages/users/layout wraps pages/users/[id] page component" style="max-width: 520px; width: 100%;" />
 
@@ -185,6 +205,14 @@ export const layout = "landing";
 ```
 
 ```tsx [Solid]
+export const layout = 'landing';
+
+export default function Page() {
+  return <div>This page uses the landing layout</div>;
+}
+```
+
+```tsx [Hono]
 export const layout = 'landing';
 
 export default function Page() {

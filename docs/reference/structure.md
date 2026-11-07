@@ -78,7 +78,7 @@ See [Server Routing](/guide/server-routing) for the full guide.
 
 ## `pages/`
 
-Full-stack server-rendered pages with co-located data loading. Available with Vue, React, Svelte, and Solid adapters.
+Full-stack server-rendered pages with co-located data loading. Available with Vue, React, Svelte, Solid, and Hono adapters.
 
 <PagesFileTree />
 

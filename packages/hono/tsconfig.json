@@ -1,0 +1,20 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022", "DOM"],
+    "types": ["node"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "strict": true,
+    "noUnusedLocals": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "declaration": true,
+    "isolatedDeclarations": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx",
+    "allowImportingTsExtensions": true
+  },
+  "include": ["src", "test"]
+}
