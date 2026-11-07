@@ -15,6 +15,8 @@ import {
   type CloudEnv,
 } from '../../src/runtime/handler.ts';
 import { revalidate } from '../../src/runtime/isr.ts';
+import { connectLiveStream } from '../../src/runtime/live-client.ts';
+import { connectEventStream } from '../../src/runtime/sse-client.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {
@@ -86,4 +88,13 @@ export function checkUntypedRouteStrings(): void {
 export async function checkUntypedRevalidatePaths(paths: Array<string>): Promise<void> {
   await revalidate({ paths });
   await revalidate({ paths: ['/unknown'] });
+}
+
+export function checkUntypedStreamUrls(url: string): void {
+  expectTypeOf<Parameters<typeof connectEventStream>[0]>().toEqualTypeOf<string | URL>();
+  expectTypeOf<Parameters<typeof connectLiveStream>[0]>().toEqualTypeOf<string | URL>();
+  connectEventStream(url);
+  connectLiveStream(url);
+  connectEventStream('/unknown');
+  connectLiveStream('ws://example.com/live');
 }

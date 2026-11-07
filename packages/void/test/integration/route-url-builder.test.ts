@@ -28,6 +28,8 @@ import { defineConfig } from 'void/config';
 import type { VoidRouter } from 'void/pages-client';
 import { defineMiddleware, type CloudContext } from 'void/handler';
 import { revalidate } from 'void/isr';
+import { connectLiveStream } from 'void/live/client';
+import { connectEventStream } from 'void/sse/client';
 import type { IslandFormState } from 'void/pages-client';
 declare const id: number;
 declare const dynamic: string;
@@ -101,6 +103,30 @@ declare const stored: string[];
 // @ts-expect-error unchecked string arrays are rejected
 void revalidate({ paths: stored });
 void revalidate({ paths: stored as RouteUrl[] });
+connectEventStream('/api/legacy');
+connectEventStream(\`/api/users/\${id}\`);
+connectEventStream(user);
+connectEventStream('https://example.com/events');
+connectEventStream(new URL('https://example.com/events'));
+connectEventStream(dynamic as RouteUrl);
+// @ts-expect-error event streams reject unknown routes
+connectEventStream('/unknown');
+// @ts-expect-error event streams do not take WebSocket URLs
+connectEventStream('ws://example.com/events');
+// @ts-expect-error event streams do not take same-page hashes
+connectEventStream('#details');
+// @ts-expect-error event streams reject unchecked strings
+connectEventStream(dynamic);
+connectLiveStream('/api/legacy');
+connectLiveStream(\`/api/users/\${id}?room=1\`);
+connectLiveStream('http://localhost:5173/live');
+connectLiveStream(new URL('https://example.com/live'));
+// @ts-expect-error live streams reject unknown routes
+connectLiveStream('/unknown');
+// @ts-expect-error live streams do not take WebSocket URLs
+connectLiveStream('wss://example.com/live');
+// @ts-expect-error live streams reject unchecked strings
+connectLiveStream(dynamic);
 declare const island: IslandFormState<{ title: string }, 'setters'>;
 void island.post('/about');
 void island.post('/users/42?update');
