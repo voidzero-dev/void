@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { build, createBuilder, resolveConfig, type InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { envClientFoldPlugin } from '../../src/plugin-env-client-fold.ts';
@@ -557,4 +566,73 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
       );
     },
   );
+});
+
+describe('envSchemaPlugin with "sideEffects": false', () => {
+  const publicEnvUrl = pathToFileURL(
+    join(import.meta.dirname, '../../src/runtime/env-public.ts'),
+  ).href;
+
+  /** Build an app that declares no side effects, with an entry that imports env.ts for its side effect. */
+  async function buildEntryImportingEnv(
+    consumer: 'server' | 'client',
+    options: { symlinkTo?: string } = {},
+  ): Promise<string> {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ type: 'module', sideEffects: false }),
+    );
+    const schemaFile = join(root, options.symlinkTo ?? 'env.ts');
+    writeFileSync(
+      schemaFile,
+      `import { defineEnv, number } from ${JSON.stringify(publicEnvUrl)};\n` +
+        'export default defineEnv({ SCHEMA_DEFAULT: number().default(48213) });\n',
+    );
+    if (options.symlinkTo) {
+      symlinkSync(schemaFile, join(root, 'env.ts'));
+    }
+    writeFileSync(join(root, 'entry.js'), 'import "./env.ts";\nexport const ready = true;\n');
+    const entry = join(root, 'entry.js');
+    const output = await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [envSchemaPlugin(root)],
+      build: {
+        ssr: consumer === 'server' ? entry : false,
+        write: false,
+        minify: false,
+        rollupOptions: {
+          ...(consumer === 'client' && { input: entry }),
+          external: ['cloudflare:workers'],
+        },
+      },
+    });
+    return [output]
+      .flat()
+      .flatMap((result) => ('output' in result ? result.output : []))
+      .map((chunk) => ('code' in chunk ? chunk.code : ''))
+      .join('\n');
+  }
+
+  // Void's server entries import env.ts to register its schema.
+  it('keeps env.ts in a server build', async () => {
+    expect(await buildEntryImportingEnv('server')).toContain('48213');
+  });
+
+  // Vite loads a symlinked env.ts under its target's path. Windows needs privileges for a file
+  // symlink.
+  it.skipIf(process.platform === 'win32')(
+    'keeps a symlinked env.ts whose target has another name',
+    async () => {
+      expect(await buildEntryImportingEnv('server', { symlinkTo: 'shared-schema.ts' })).toContain(
+        '48213',
+      );
+    },
+  );
+
+  it('leaves client builds to the side effects that the app declares', async () => {
+    expect(await buildEntryImportingEnv('client')).not.toContain('48213');
+  });
 });
