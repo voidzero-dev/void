@@ -400,6 +400,7 @@
     "estree-walker": "^3.0.3",
     "fast-wrap-ansi": "^0.2.2",
     "magic-string": "catalog:",
+    "nitro": "^3.0.261103-rc",
     "ofetch": "2.0.0-alpha.3",
     "pathslash": "catalog:",
     "pglite-server": "0.1.5",

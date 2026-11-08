@@ -112,6 +112,10 @@ catalogs:
     typescript: 6.0.3
 
 packageExtensions:
+  # Analog's Nitro 2 plugin imports H3 v1 without declaring it.
+  '@analogjs/vite-plugin-nitro@2.9.4':
+    dependencies:
+      h3: ^1.15.11
   # Analog imports TypeScript without declaring it; use the app's compiler.
   '@analogjs/vite-plugin-angular@*':
     peerDependencies:

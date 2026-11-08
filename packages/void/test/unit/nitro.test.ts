@@ -42,13 +42,23 @@ type NitroOptions = {
   plugins: Array<string>;
   virtual: Record<string, string | (() => string | Promise<string>)>;
   rollupConfig: { plugins?: unknown };
+  buildPlugins?: Array<unknown>;
+  noExternals?: boolean | Array<string | RegExp>;
   cloudflare?: { nodeCompat?: boolean };
+  devServer?: { runner?: string };
 };
 
 /** Run the module against the options of a Nitro Worker build. */
 function setUp(
   root: string,
-  options: { dev: boolean; plugins?: unknown; cloudflare?: NitroOptions['cloudflare'] },
+  options: {
+    dev: boolean;
+    plugins?: unknown;
+    cloudflare?: NitroOptions['cloudflare'];
+    devServer?: NitroOptions['devServer'];
+    buildPlugins?: Array<unknown>;
+    noExternals?: NitroOptions['noExternals'];
+  },
 ): NitroOptions {
   const nitro = {
     options: {
@@ -60,6 +70,9 @@ function setUp(
       virtual: {},
       rollupConfig: { plugins: options.plugins },
       ...(options.cloudflare && { cloudflare: options.cloudflare }),
+      ...(options.devServer && { devServer: options.devServer }),
+      ...(options.buildPlugins && { buildPlugins: options.buildPlugins }),
+      ...(options.noExternals !== undefined && { noExternals: options.noExternals }),
     } as NitroOptions,
   };
   voidNitroModule.setup(nitro);
@@ -92,6 +105,31 @@ function resolve(plugin: Plugin, id: string, importer: string): Promise<ResolveR
 }
 
 describe('void/nitro', () => {
+  it('prepares SQL drivers and request scope for Nitro 3 workerd development', async () => {
+    const root = createApp('mysql');
+    const existing = { name: 'existing' };
+    const options = setUp(root, {
+      dev: true,
+      devServer: { runner: 'miniflare' },
+      buildPlugins: [existing],
+      noExternals: ['app-package'],
+    });
+    const [plugin, asyncHooks, ...rest] = options.buildPlugins as Array<Plugin>;
+    expect(rest).toEqual([existing]);
+    expect(plugin?.enforce).toBe('pre');
+    expect(options.rollupConfig.plugins).toBeUndefined();
+    expect(options.cloudflare?.nodeCompat).toBe(true);
+    expect(options.noExternals).toContain('app-package');
+    expect(options.noExternals).toContain('drizzle-orm');
+    const driver = await resolve(plugin!, 'mysql2', drizzleMysqlFile);
+    expect(typeof driver).toBe('string');
+    expect(existsSync(driver as string)).toBe(true);
+    expect(await resolve(asyncHooks!, 'node:async_hooks', envModuleFile)).toEqual({
+      id: 'node:async_hooks',
+      external: true,
+    });
+  });
+
   it("serves the app's void/db and @schema before Nitro's own plugins", async () => {
     const root = createApp('pg');
     const existing = { name: 'existing' };
@@ -326,6 +364,45 @@ describe('void/nitro', () => {
     expect(b[1]).toBe(b[0]);
     expect(a[0]).toEqual({ event: 'a' });
     expect(b[0]).toEqual({ event: 'b' });
+  });
+
+  it('runs Nitro 3 fetch requests in isolated Void scopes and preserves arguments and receiver', async () => {
+    const options = setUp(createApp('pg'), { dev: true });
+    const source = options.virtual[options.plugins[0]!] as string;
+    const pluginFile = join(roots[0]!, 'request-scope-v3.mjs');
+    writeFileSync(
+      pluginFile,
+      source.replace(
+        JSON.stringify(envModuleFile),
+        JSON.stringify(pathToFileURL(envModuleFile).href),
+      ),
+    );
+    const { default: requestScope } = await import(pathToFileURL(pluginFile).href);
+    const key = {};
+    const nitroApp = {
+      marker: 'nitro3',
+      async fetch(request: Request, extra: string) {
+        expect(this.marker).toBe('nitro3');
+        expect(extra).toBe('forwarded');
+        const first = getRuntimeRequestResource(key, () => ({
+          path: new URL(request.url).pathname,
+        }));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        return [first, getRuntimeRequestResource(key, () => ({}))];
+      },
+    };
+    requestScope(nitroApp);
+    (globalThis as { __env__?: unknown }).__env__ = Promise.resolve({ DATABASE_URL: 'x' });
+    const [a, b] = await Promise.all(
+      ['/a', '/b'].map((path) =>
+        nitroApp.fetch(new Request('http://localhost' + path), 'forwarded'),
+      ),
+    );
+    expect(a[1]).toBe(a[0]);
+    expect(b[1]).toBe(b[0]);
+    expect(a[0]).toEqual({ path: '/a' });
+    expect(b[0]).toEqual({ path: '/b' });
+    expect(a[0]).not.toBe(b[0]);
   });
 
   it('keeps D1 requests and Node modules as Nitro has them', () => {
