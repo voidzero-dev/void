@@ -42,7 +42,7 @@ Add `void/env` to your TypeScript types:
 }
 ```
 
-This provides binding types and Workers runtime types.
+This provides binding types and Workers runtime types. Custom bindings declared in `cloudflare` in `void.config.ts` are typed on `c.env` after `void prepare` or starting a dev server or build. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) to add RPC methods to service or Durable Object bindings.
 
 ### Available bindings
 

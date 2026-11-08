@@ -68,10 +68,14 @@ Files your users upload can contain HTML or scripts. Store them under keys your 
 
 ## Custom bindings
 
-Use `createStorage(bucket)` with your own R2 binding, or in tests:
+Declare your R2 binding under `cloudflare.r2_buckets` in `void.config.ts`, for example `{ binding: 'MY_BUCKET', bucket_name: 'uploads' }`. Run `void prepare` to generate its type, then pass it to `createStorage(bucket)`:
 
 ```ts
+import { defineHandler } from 'void';
 import { createStorage } from 'void/storage';
 
-const storage = createStorage(env.MY_BUCKET);
+export const GET = defineHandler((c) => {
+  const storage = createStorage(c.env.MY_BUCKET);
+  return storage.list();
+});
 ```

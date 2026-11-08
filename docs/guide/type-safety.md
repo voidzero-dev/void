@@ -466,6 +466,48 @@ export default defineMiddleware(async (c, next) => {
 
 Now `c.get("requestId")` returns `string` everywhere, with no assertion needed. Multiple augmentations across files are [merged together](https://www.typescriptlang.org/docs/handbook/declaration-merging.html).
 
+## Custom Binding Types
+
+On the Cloudflare target, Void generates types for bindings declared under `cloudflare` in `void.config.ts`. For example, configure a [Cloudflare rate limiter](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/):
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  cloudflare: {
+    ratelimits: [
+      { name: 'MY_RATE_LIMITER', namespace_id: '1001', simple: { limit: 10, period: 60 } },
+    ],
+  },
+});
+```
+
+Run `void prepare`, or start the dev server, to use the binding without a type assertion:
+
+```ts
+import { defineHandler } from 'void';
+
+export const GET = defineHandler(async (c) => {
+  const { success } = await c.env.MY_RATE_LIMITER.limit({ key: 'example' });
+  return { success };
+});
+```
+
+Service bindings use `Fetcher`, Durable Objects use `DurableObjectNamespace`, and other bindings use their standard Cloudflare types. For RPC methods or other specialized types, augment `CloudBindings` in a file included by your tsconfig:
+
+```ts
+import type {} from 'void';
+
+declare module 'void' {
+  interface CloudBindings {
+    AUTH: Fetcher & { check(): Promise<boolean> };
+  }
+}
+```
+
+The declaration can refine a generated binding or type a binding that is not declared in `cloudflare`. Fixed values and secrets declared in `env.ts` retain their schema types. These types apply to Void's `c.env`; use your framework's Cloudflare type setup when accessing bindings through `cloudflare:workers`.
+
 ## Setup
 
 Extend the generated tsconfig in your project:

@@ -70,6 +70,32 @@ afterEach(() => {
 });
 
 describe('void prepare (subprocess)', () => {
+  it('generates custom binding types and removes them when switching targets', () => {
+    const root = createProject();
+    const config = {
+      cloudflare: {
+        ratelimits: [{ name: 'LIMITER', namespace_id: '1001', simple: { limit: 10, period: 60 } }],
+      },
+    };
+    writeFileSync(join(root, 'void.json'), JSON.stringify(config));
+    const first = runVoid(root, ['prepare']);
+    expect(first.status, first.stderr).toBe(0);
+    expect(existsSync(join(root, '.void/bindings.d.ts'))).toBe(true);
+    expect(readFileSync(join(root, '.void/bindings.d.ts'), 'utf8')).toContain(
+      '"LIMITER": RateLimit;',
+    );
+    expect(JSON.parse(readFileSync(join(root, '.void/tsconfig.json'), 'utf8')).files).toContain(
+      'bindings.d.ts',
+    );
+    writeFileSync(join(root, 'void.json'), JSON.stringify({ ...config, target: 'node' }));
+    const second = runVoid(root, ['prepare']);
+    expect(second.status, second.stderr).toBe(0);
+    expect(existsSync(join(root, '.void/bindings.d.ts'))).toBe(false);
+    expect(JSON.parse(readFileSync(join(root, '.void/tsconfig.json'), 'utf8')).files).not.toContain(
+      'bindings.d.ts',
+    );
+  });
+
   it('generates project-local .void files without starting Vite', () => {
     const root = createProject({ withSources: true });
     const { stdout, status } = runVoid(root, ['prepare']);

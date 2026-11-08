@@ -349,6 +349,8 @@ cloudflare: {
 
 Void writes a generated Cloudflare config for its tooling and records provisioned resource IDs and append-only migration history in `void.lock.json`. Commit the lock when it changes. Root `wrangler.jsonc` and `wrangler.json` are migrated on `void init` or `void deploy`; Void keeps backup copies under `.void/config-migration/`.
 
+Bindings declared here are typed on `c.env` after `void prepare` or starting a dev server or build. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) for an example and RPC type overrides.
+
 If you need to remove a value that Void previously generated, remove it from the `resolved` object in `void.lock.json`. Void refreshes the generated Cloudflare file on the next command. Put ongoing custom settings in `cloudflare` in `void.config.ts`.
 
 ### `deploy.cloudflare.mode`

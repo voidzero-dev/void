@@ -27,6 +27,7 @@ import {
   restoreCloudflarePreviewPointer,
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
+import { syncBindingTypes } from './codegen/binding-types.ts';
 import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
@@ -108,6 +109,7 @@ export function voidPlugin(options?: {
     ? crypto.randomUUID()
     : getOrCreateDevTriggerToken(root);
   const config = readConfig(root);
+  syncBindingTypes(root, config);
   const projectCloudflareConfigPath = !isNodeTarget(config.target)
     ? materializeCloudflareConfig(root)
     : undefined;
@@ -1051,6 +1053,7 @@ export {
 export type {
   CloudContext,
   CloudContextVariables,
+  CloudBindings,
   CloudEnv,
   BasicAuthOptions,
   RenderAssetTags,
