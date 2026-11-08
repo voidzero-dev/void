@@ -505,7 +505,9 @@ function apiHeaders(): Promise<Record<string, string>> {
 async function readApiHeaders(): Promise<Record<string, string>> {
   const key = process.env.CLOUDFLARE_API_KEY ?? process.env.CF_API_KEY;
   const email = process.env.CLOUDFLARE_EMAIL ?? process.env.CF_EMAIL;
-  if (key && email) {
+  // Prefer an API token, as cf does, so direct requests use the same credential as cf commands.
+  const token = process.env.CLOUDFLARE_API_TOKEN || process.env.CF_API_TOKEN;
+  if (key && email && !token) {
     return { 'User-Agent': getVoidUserAgent(), 'X-Auth-Key': key, 'X-Auth-Email': email };
   }
   const credential = await sessionCredential();
@@ -950,24 +952,96 @@ function email(): Result {
   }
 }
 
+async function postWorkersApi(
+  path: string,
+  body: unknown,
+): Promise<{ status: number; body: Json | null }> {
+  const response = await fetch(
+    `${apiBaseUrl()}/accounts/${encodeURIComponent(accountId())}/workers/workers${path}`,
+    {
+      method: 'POST',
+      headers: { ...(await apiHeaders()), 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      redirect: 'error',
+      signal: AbortSignal.timeout(30_000),
+    },
+  );
+  const parsed: unknown = await response.json().catch(() => null);
+  return {
+    status: response.status,
+    body: parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? (parsed as Json) : null,
+  };
+}
+
+function workerWithoutDeploymentMessage(worker: string): string {
+  return [
+    `Cloudflare Worker "${worker}" exists but has no deployment, so Void cannot set its secrets.`,
+    'If a deploy or secret command is running for this Worker, wait for it to finish and run this command again.',
+    `Otherwise, run \`void deploy\` first. If the deploy stops because a required secret is missing, delete the Worker "${worker}" in the Cloudflare dashboard (Workers & Pages) and run this command again.`,
+  ].join('\n');
+}
+
+/**
+ * Set secrets on a Worker that has no deployed code yet.
+ *
+ * Cloudflare keeps secrets on deployed Worker versions, so the secrets go live inside an empty
+ * placeholder that the first `void deploy` replaces. Deploy that placeholder only to a Worker this
+ * command created: when a first `void deploy` or another secret command creates the Worker after
+ * the 10007, a placeholder would replace that app or its secrets. The Worker create fails (409)
+ * when the name is taken, and the placeholder and its secrets go live in one request.
+ *
+ * A Worker that exists without a deployment (another command is setting it up, or an earlier one
+ * failed after the create) cannot tell those cases apart, so this fails with the recovery steps.
+ */
+async function setSecretsOnWorkerWithoutCode(
+  worker: string,
+  values: Record<string, string>,
+  retry: () => Result,
+): Promise<Result> {
+  const created = await postWorkersApi('', {
+    name: worker,
+    subdomain: { enabled: false, previews_enabled: false },
+  });
+  if (created.status === 409) {
+    const retried = retry();
+    // 10007 or 10013: the Worker still has no deployment.
+    if (retried.status === 0 || (retried.errorCode !== 10007 && retried.errorCode !== 10013)) {
+      return retried;
+    }
+    return result(1, '', workerWithoutDeploymentMessage(worker));
+  }
+  if (created.status !== 200 || created.body?.success !== true) {
+    throw new Error(`Cloudflare did not create the Worker (HTTP ${created.status}).`);
+  }
+  const { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } =
+    await import('@void/deploy-cloudflare');
+  const uploaded = await postWorkersApi(`/${encodeURIComponent(worker)}/versions?deploy=true`, {
+    main_module: 'index.js',
+    modules: [
+      {
+        name: 'index.js',
+        content_type: 'application/javascript+module',
+        content_base64: Buffer.from(VOID_SECRET_DRAFT_SOURCE).toString('base64'),
+      },
+    ],
+    compatibility_date: config().compatibility_date ?? '2025-01-01',
+    bindings: Object.entries(values).map(([name, text]) => ({ type: 'secret_text', name, text })),
+    annotations: { 'workers/message': VOID_SECRET_DRAFT_MESSAGE },
+  });
+  if (uploaded.status !== 200 || uploaded.body?.success !== true) {
+    throw new Error(`Cloudflare did not deploy the secret placeholder (HTTP ${uploaded.status}).`);
+  }
+  return result(0);
+}
+
 async function secrets(): Promise<Result> {
   const worker = workerName();
-  const apply = async (action: () => Result): Promise<Result> => {
+  const apply = async (values: Record<string, string>, action: () => Result): Promise<Result> => {
     const first = action();
     if (first.status === 0 || first.errorCode !== 10007) {
       return first;
     }
-    const raw = {
-      name: worker,
-      account_id: process.env.CLOUDFLARE_ACCOUNT_ID ?? config().account_id,
-      compatibility_date: config().compatibility_date ?? '2025-01-01',
-      workers_dev: false,
-      preview_urls: false,
-    };
-    const draft = await withBuildOutput(raw, null, (directory) =>
-      runCf(['deploy', '--prebuilt', '--message', 'void:secret-draft'], directory),
-    );
-    return draft.status === 0 ? action() : draft;
+    return setSecretsOnWorkerWithoutCode(worker, values, action);
   };
   switch (operation.type) {
     case 'secret.list':
@@ -976,18 +1050,27 @@ async function secrets(): Promise<Result> {
       const value = readFileSync(0, 'utf8').replace(/\n$/, '');
       const name = operation.name;
       return withSecretFile(JSON.stringify({ name, text: value, type: 'secret_text' }), (path) =>
-        apply(() =>
+        apply({ [name]: value }, () =>
           runCf(['workers', 'secrets', 'update', name, '--worker', worker, '--body', '@' + path]),
         ),
       );
     }
     case 'secret.bulk': {
       const values = object(parsedJson(readFileSync(0, 'utf8')));
+      const texts: Record<string, string> = {};
+      for (const [name, text] of Object.entries(values)) {
+        if (typeof text !== 'string') {
+          throw new Error('Secret values must be strings.');
+        }
+        texts[name] = text;
+      }
       const patch = Object.fromEntries(
-        Object.entries(values).map(([name, text]) => [name, { type: 'secret_text', text }]),
+        Object.entries(texts).map(([name, text]) => [name, { type: 'secret_text', text }]),
       );
       return withSecretFile(JSON.stringify({ secrets: patch }), (path) =>
-        apply(() => runCf(['workers', 'secrets', 'bulk', '--worker', worker, '--file', path])),
+        apply(texts, () =>
+          runCf(['workers', 'secrets', 'bulk', '--worker', worker, '--file', path]),
+        ),
       );
     }
     case 'secret.delete':
