@@ -13,10 +13,25 @@ declare module 'void/routes' {
     '/route-util/files/*': '*';
     '/route-util/:toString': 'toString';
     '/:leading{.+}': 'leading';
+    '/route-util/[id]': 'id';
+    '/route-util/files/[...path]': 'path';
+    '/route-util/files/[...]': '*';
   }
 }
 
 describe('routeUrl', () => {
+  it('builds URLs and destinations from bracket patterns', () => {
+    expect(routeUrl('/route-util/[id]', { params: { id: 42 } })).toBe('/route-util/42');
+    expect(routeUrl('/route-util/files/[...path]', { params: { path: 'docs/start here' } })).toBe(
+      '/route-util/files/docs/start%20here',
+    );
+    expect(routeUrl('/route-util/files/[...]', { params: { '*': 'a/b' } })).toBe(
+      '/route-util/files/a/b',
+    );
+    expect(
+      toUrlString({ pathname: '/route-util/[id]', params: { id: 'a/b' }, hash: 'details' }),
+    ).toBe('/route-util/a%2Fb#details');
+  });
   it('converts typed destinations and preserves ordinary URLs', () => {
     expect(
       toUrlString({

@@ -164,7 +164,7 @@ import { Link } from "@void/react";
 import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 ```vue [Vue]
@@ -175,7 +175,7 @@ import { routeUrl } from 'void/routes';
 
 <template>
   <Link href="/users">Users</Link>
-  <Link :href="routeUrl('/users/:id', { params: { id } })">View</Link>
+  <Link :href="routeUrl('/users/[id]', { params: { id } })">View</Link>
 </template>
 ```
 
@@ -186,7 +186,7 @@ import { routeUrl } from 'void/routes';
 </script>
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 ```tsx [Solid]
@@ -194,7 +194,7 @@ import { Link } from "@void/solid";
 import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
 ```
 
 :::
@@ -313,7 +313,7 @@ import type { RouteDestination } from 'void/routes';
 
 const router = useRouter();
 const profile = {
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
 } satisfies RouteDestination;
@@ -338,7 +338,7 @@ For dynamic route params, use `useParams()` from the same adapter package. Pass 
 import { useParams } from '@void/react';
 
 export default function PostPage() {
-  const { id } = useParams<'/posts/:id'>(); // { id: string }
+  const { id } = useParams<'/posts/[id]'>(); // { id: string }
   return <h1>Post {id}</h1>;
 }
 ```
@@ -348,7 +348,7 @@ export default function PostPage() {
 <script setup lang="ts">
 import { useParams } from '@void/vue';
 
-const params = useParams<'/posts/:id'>(); // { id: string }
+const params = useParams<'/posts/[id]'>(); // { id: string }
 </script>
 
 <template>
@@ -361,7 +361,7 @@ const params = useParams<'/posts/:id'>(); // { id: string }
 <script lang="ts">
   import { useParams } from '@void/svelte';
 
-  const params = useParams<'/posts/:id'>(); // { id: string }
+  const params = useParams<'/posts/[id]'>(); // { id: string }
 </script>
 
 <h1>Post {params.id}</h1>
@@ -372,7 +372,7 @@ const params = useParams<'/posts/:id'>(); // { id: string }
 import { useParams } from '@void/solid';
 
 export default function PostPage() {
-  const params = useParams<'/posts/:id'>(); // { id: string }
+  const params = useParams<'/posts/[id]'>(); // { id: string }
   return <h1>Post {params.id}</h1>;
 }
 ```

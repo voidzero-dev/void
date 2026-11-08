@@ -233,7 +233,7 @@ import type { PageParams } from 'void/routes';
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler(async (c) => {
-  const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+  const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
   const post = await getPost(slug);
   return { post };
 });

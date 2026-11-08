@@ -7,12 +7,37 @@ export type RouteTypesResult = {
   dts: string;
 };
 
+/** Present bracket parameters without changing the router's compiled patterns. */
+function publicRoutePattern(pattern: string): string {
+  return pattern
+    .split('/')
+    .map((segment) => {
+      if (segment === '*') {
+        return '[...]';
+      }
+      const param = segment.match(/^:([^/{}]+)(\{\.\+\})?$/);
+      return param ? `[${param[2] ? '...' : ''}${param[1]}]` : segment;
+    })
+    .join('/');
+}
+
+/** Legacy keys stay indexable and carry the exact same contract as the public key. */
+function legacyRouteAlias(lines: Array<string>, map: string, pattern: string): void {
+  const publicPattern = publicRoutePattern(pattern);
+  if (publicPattern !== pattern) {
+    // Escape comment delimiters in static segments before writing JSDoc.
+    const label = JSON.stringify(publicPattern).replace(/\*\//g, '*\\/');
+    lines.push(`    /** @deprecated Use ${label} instead. */`);
+    lines.push(`    ${JSON.stringify(pattern)}: ${map}[${JSON.stringify(publicPattern)}];`);
+  }
+}
+
 /** Percent-encode a pattern's fixed segments the way `routeUrl()` serializes its pathname. */
 function encodeRoutePattern(pattern: string): string {
   return pattern
     .split('/')
     .map((segment) => {
-      if (segment.startsWith(':') || segment === '*') {
+      if (segment.startsWith(':') || segment === '*' || /^\[.*\]$/.test(segment)) {
         return segment;
       }
       const url = new URL('https://void.invalid');
@@ -113,14 +138,16 @@ export function generateRouteTypes(
   lines.push('    ? { pathname: P } & RouteOptions<P>');
   lines.push('    : never;');
   lines.push(
-    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
+    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | "*" ? string : S;',
   );
   lines.push(
     '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
   );
   lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
   lines.push('    : RouteUrlSegment<P>;');
-  lines.push('  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`');
+  lines.push(
+    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}`',
+  );
   lines.push(
     '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
   );
@@ -165,7 +192,8 @@ export function generateRouteTypes(
   }
   for (const [pattern, params] of paths) {
     const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
-    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: ${names};`);
+    legacyRouteAlias(lines, 'RoutePathMap', pattern);
   }
   lines.push('  }');
   lines.push('');
@@ -184,7 +212,8 @@ export function generateRouteTypes(
   }
   for (const [pattern, params] of pagePaths) {
     const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
-    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: ${names};`);
+    legacyRouteAlias(lines, 'PagePathMap', pattern);
   }
   lines.push('  }');
   lines.push('  export type PagePath = keyof PagePathMap & string;');
@@ -195,9 +224,16 @@ export function generateRouteTypes(
   // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
   lines.push('  export interface EncodedRoutePathMap {');
   for (const pattern of paths.keys()) {
-    const encoded = encodeRoutePattern(pattern);
-    if (encoded !== pattern) {
-      lines.push(`    ${JSON.stringify(pattern)}: ${JSON.stringify(encoded)};`);
+    const publicPattern = publicRoutePattern(pattern);
+    const encoded = encodeRoutePattern(publicPattern);
+    if (encoded !== publicPattern) {
+      lines.push(`    ${JSON.stringify(publicPattern)}: ${JSON.stringify(encoded)};`);
+      // Preserve the original encoded map's keys and values too.
+      if (publicPattern !== pattern) {
+        lines.push(
+          `    ${JSON.stringify(pattern)}: ${JSON.stringify(encodeRoutePattern(pattern))};`,
+        );
+      }
     }
   }
   lines.push('  }');
@@ -300,7 +336,7 @@ export function generateRouteTypes(
   }
 
   for (const [pattern, methods] of routesByPattern) {
-    lines.push(`    ${JSON.stringify(pattern)}: {`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
 
     for (const [method, sources] of methods) {
       const imports = sources.map((route) => {
@@ -318,6 +354,7 @@ export function generateRouteTypes(
     }
 
     lines.push('    };');
+    legacyRouteAlias(lines, 'RouteMap', pattern);
   }
 
   lines.push('  }');
@@ -336,7 +373,7 @@ export function generateRouteTypes(
       const importPath = relative(outDir, `${routesDir}/${route.filePath}`);
       return `(typeof import(${JSON.stringify(importPath)}))["default"]["messages"]`;
     });
-    lines.push(`    ${JSON.stringify(pattern)}: {`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
     lines.push(`      params: RouteParams<${JSON.stringify(sources[0]!.params)}>;`);
     lines.push(
       `      client: ${imports.map((source) => `ExtractInput<${source}["client"]>`).join(' & ')};`,
@@ -345,6 +382,7 @@ export function generateRouteTypes(
       `      server: ${imports.map((source) => `ExtractOutput<${source}["server"]>`).join(' | ')};`,
     );
     lines.push('    };');
+    legacyRouteAlias(lines, 'WebSocketRouteMap', pattern);
   }
 
   lines.push('  }');
@@ -402,7 +440,7 @@ export function generateRouteTypes(
     }
 
     for (const [pattern, bodies] of bodiesByPattern) {
-      lines.push(`    ${JSON.stringify(pattern)}: {`);
+      lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
       bodies.forEach((body, index) => {
         if (index > 0) {
           lines.push('    } | {');
@@ -410,6 +448,7 @@ export function generateRouteTypes(
         lines.push(...body);
       });
       lines.push('    };');
+      legacyRouteAlias(lines, 'PageActionMap', pattern);
     }
 
     lines.push('  }');

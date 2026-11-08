@@ -173,7 +173,7 @@ For dynamic routes, pass `params` in the options:
 
 ```ts
 // pages/users/[id].server.ts has an action
-const form = useForm('/users/:id', { name: '' }, { params: { id: '42' } });
+const form = useForm('/users/[id]', { name: '' }, { params: { id: '42' } });
 <Form form={form} method="put">{/* submits to /users/42 */}</Form>
 ```
 
@@ -209,7 +209,7 @@ Actions and forms keep the current scroll position when updating the page in pla
 Pass `preserveScroll: false` to reset scroll after an in-place update, or `true` to keep it even after a redirect:
 
 ```ts
-await action('/users/:id?update', {
+await action('/users/[id]?update', {
   params: { id: '42' },
   data: { name: 'Alice' },
   preserveScroll: false,
@@ -233,7 +233,7 @@ export const actions = {
   update: defineHandler.withValidator({
     body: updateUserSchema,
   })(async (c, { body }) => {
-    const { id } = c.req.param() as PageParams<'/users/:id'>;
+    const { id } = c.req.param() as PageParams<'/users/[id]'>;
     await db
       .update(users)
       .set(body)
@@ -241,7 +241,7 @@ export const actions = {
   }),
 
   delete: defineHandler(async (c) => {
-    const { id } = c.req.param() as PageParams<'/users/:id'>;
+    const { id } = c.req.param() as PageParams<'/users/[id]'>;
     await db.delete(users).where(eq(users.id, Number(id)));
   }),
 };
@@ -269,7 +269,7 @@ export const actions = {
 When a page exports named actions, append `?actionName` to the URL:
 
 ```ts
-const form = useForm('/users/:id?update', { name: '' }, { params: { id } });
+const form = useForm('/users/[id]?update', { name: '' }, { params: { id } });
 <Form form={form} method="put">{/* submits to /users/42?update */}</Form>
 ```
 
@@ -282,7 +282,7 @@ Use `action()` for a button or other mutation that does not need form state. It 
 ```ts
 import { action } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
 
-const result = await action('/users/:id?delete', {
+const result = await action('/users/[id]?delete', {
   params: { id: '42' },
   method: 'DELETE',
 });

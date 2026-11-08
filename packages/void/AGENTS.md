@@ -164,6 +164,11 @@ Applied in order to a path relative to `routes/`:
 5. Convert `[param]` → `:param`, `[...param]` → `:param{.+}`, `[...]` → `*`
 6. Prefix with `/`
 
+Keep these compiled patterns for internal matching. Generated public route maps use
+bracket patterns (`/users/[id]`, `/files/[...path]`, `/files/[...]`) and retain the
+original patterns as deprecated aliases with identical types. HTTP, WebSocket,
+page-action and URL clients share `interpolateRouteParams()` for both syntaxes.
+
 HTTP methods are determined by **named exports** in each file (detected by `detect-exports.ts` via `parseSync`), not by filename suffixes. Files/dirs starting with `_` are ignored by the scanner.
 
 `listRouteFiles()` uses `ROUTE_EXTENSIONS`, shared with HTTP/WebSocket filename parsing, resource-name inference, and route binding inference. Both route scanners use it, with `isWebSocketPatternFile()` sharing the WebSocket filename regex to distinguish `.ws.*` files. `listConventionFiles()` keeps fixed script extensions for crons and queues. Void sets no JSX options: route JSX follows framework plugins, tsconfig (TS files only) or `oxc.jsx`. Page `.server.tsx` and `.server.jsx` companions supply server metadata and handlers; exclude them from component inventories and component manifests.

@@ -20,7 +20,7 @@ export interface Props {
 }
 
 export const loader = defineHandler<Props>(async (c) => {
-  const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+  const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
   const post = await getPost(slug);
   return { post };
 });
