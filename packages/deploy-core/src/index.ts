@@ -242,6 +242,8 @@ export type DeployManifest = {
   /** Authenticated framed HTTP delivery for managed inbound email. */
   emailProtocolVersion?: 1;
   auth?: boolean;
+  /** SQL execution policy; omitted means apply pending application and auth migrations. */
+  migrationMode?: 'apply' | 'skip';
   bindings: {
     d1?: Array<string>;
     kv?: Array<string>;

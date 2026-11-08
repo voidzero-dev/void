@@ -27,11 +27,11 @@ const CLOUDFLARE_SECRET_CHANGED_ERROR = 10220;
 export type CloudflareVersionMetadata =
   | Readonly<{
       schema: 1;
-      migrations: ReadonlyArray<string>;
+      migrations: ReadonlyArray<string> | null;
     }>
   | Readonly<{
       schema: 2;
-      migrations: ReadonlyArray<string>;
+      migrations: ReadonlyArray<string> | null;
       triggerConfig: CloudflareTriggerConfig;
       /** Digest of the complete Worker upload input, when supplied by the caller. */
       contentHash?: string;
@@ -181,7 +181,7 @@ type RecentCloudflareVersion = Readonly<{
 
 /** Encode migration state into Cloudflare's version annotation for safe rollback diagnostics. */
 export function encodeCloudflareVersionMessage(
-  migrations: ReadonlyArray<string>,
+  migrations: ReadonlyArray<string> | null,
   triggerConfig?: CloudflareTriggerConfig,
   contentHash?: string,
 ): string {
@@ -207,8 +207,11 @@ export function parseCloudflareVersionMessage(
     };
     if (
       (value.schema !== 1 && value.schema !== 2) ||
-      !Array.isArray(value.migrations) ||
-      !value.migrations.every((migration): migration is string => typeof migration === 'string')
+      (value.migrations !== null &&
+        (!Array.isArray(value.migrations) ||
+          !value.migrations.every(
+            (migration): migration is string => typeof migration === 'string',
+          )))
     ) {
       return null;
     }

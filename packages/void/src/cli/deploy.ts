@@ -69,6 +69,7 @@ export async function runDeploy(root: string, options?: RunDeployOptions): Promi
     dir: options?.dir,
     spa: options?.spa === true ? true : undefined,
     skipBuild: options?.skipBuild === true ? true : undefined,
+    skipMigrations: options?.skipMigrations === true ? true : undefined,
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,
@@ -270,6 +271,9 @@ async function runManagedDeploy(
       // Access credentials stay in `process.env` for the expired-token re-auth
       // below; `buildEnv()` removes them from each project-controlled child.
       const client = new PlatformClient(token, { root, cliLog });
+      if (options.skipMigrations) {
+        await client.requireMigrationSkipSupport();
+      }
 
       // Resolve the target project: CLI flag > env var > linked project file.
       let config: ProjectConfig | null = null;
@@ -393,6 +397,7 @@ async function runManagedDeploy(
             options?.skipBuild,
             gitMetadata,
             cliLog,
+            options.skipMigrations,
           );
         } else {
           // Class A: preset is optional (e.g. vinext probes at runtime)
@@ -406,6 +411,7 @@ async function runManagedDeploy(
             gitMetadata,
             detected,
             cliLog,
+            options.skipMigrations,
           );
         }
         return;
@@ -456,6 +462,7 @@ async function runManagedDeploy(
           gitMetadata,
           undefined,
           cliLog,
+          options.skipMigrations,
         );
       }
       return;

@@ -47,6 +47,7 @@ export async function runFrameworkDeploy(
   skipBuild?: boolean,
   gitMetadata?: GitDeployMetadata,
   cliLog?: CliLogger,
+  skipMigrations?: boolean,
 ): Promise<void> {
   log.info(`${detected.name} framework deploy`);
   cliLog?.info('deploy_mode', { mode: 'framework', framework: detected.name });
@@ -217,6 +218,9 @@ export async function runFrameworkDeploy(
     fallbackRules,
     dialect,
   });
+  if (skipMigrations) {
+    manifest.migrationMode = 'skip';
+  }
   const workerFiles = collectWorkerFiles(actualWorkerDir);
   cliLog?.info('package_end', {
     mode: 'framework',

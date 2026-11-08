@@ -54,6 +54,25 @@ function client(options: { checkPlatformVersion?: boolean } = {}): PlatformClien
 }
 
 describe('minimum platform version', () => {
+  it.each([true, false, undefined])(
+    'requires explicit platform support before skipping migrations (advertised: %s)',
+    async (skipMigrations) => {
+      fetchMock.mockImplementation(async (input: string) => {
+        if (isPlatformDiscoveryRequest(input)) {
+          return platformDiscoveryResponse(input, 'hosted');
+        }
+        return Response.json({ skipMigrations });
+      });
+      const result = client().requireMigrationSkipSupport();
+      if (skipMigrations === true) {
+        await expect(result).resolves.toBeUndefined();
+      } else {
+        await expect(result).rejects.toThrow('does not support --skip-migrations');
+      }
+      expect(requestedPaths()).toEqual(['/.well-known/void-platform', '/capabilities']);
+    },
+  );
+
   it.each(['1.6.0', '1.6.1', '2.0.0', 'hosted'])(
     'accepts a platform reporting %s',
     async (version) => {

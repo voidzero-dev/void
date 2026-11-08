@@ -523,6 +523,7 @@ const app = new Hono<ApiEnv>()
   .get('/capabilities', (context) =>
     context.json({
       acceptsExecutionPlans: true,
+      skipMigrations: true,
       migrationProtocolVersion: 2,
       supportedClassifierVersions: [1],
     }),

@@ -32,6 +32,8 @@ For a one-time deployment elsewhere, connect to that platform, then set
 `VOID_API_URL` for the deploy command and pass `--project <slug>`. This preserves
 the app's existing saved destination, including when the target project is new.
 
+Use `void deploy --skip-migrations` when database migrations run separately; it skips application and authentication SQL for that invocation. Ensure the code supports the current database schema and follow `docs/guide/deployment.md` for the release workflow.
+
 ## Task Routing
 
 | User intent                                | Docs file(s)                                                                              |

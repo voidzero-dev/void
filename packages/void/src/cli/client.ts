@@ -719,6 +719,24 @@ export class PlatformClient {
     return probe.kind === 'version' && probe.directWorkerUpload;
   }
 
+  /** Older servers otherwise ignore the execution mode and apply SQL anyway. */
+  async requireMigrationSkipSupport(): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/capabilities`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      await throwPlatformApiError('Failed to check migration capabilities', response, 'deploy');
+    }
+    const capabilities = response.ok
+      ? ((await response.json()) as { skipMigrations?: unknown })
+      : null;
+    if (capabilities?.skipMigrations !== true) {
+      throw new Error(
+        'deploy: This Void platform does not support --skip-migrations. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+    }
+  }
+
   /** Reads the platform version from public discovery, without credentials. */
   private async probePlatformVersion(): Promise<PlatformVersionProbe> {
     let response: Response;

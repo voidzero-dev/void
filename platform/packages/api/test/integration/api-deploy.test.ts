@@ -1425,6 +1425,105 @@ describe('POST /projects/:id/deploy', () => {
     expect(createD1Call).toBeUndefined();
   });
 
+  it.each(['void', 'framework'])(
+    'skips app and auth SQL for a %s deployment, then migrates on a normal deploy',
+    async (type) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, `skip-sql-${type}`);
+      mockCfApi({ createD1: () => cfSuccess({ uuid: 'd1-skip-uuid', name: 'test-db' }) });
+      const calls: Array<string> = [];
+      const originalDispatch = env.DISPATCH;
+      env.DISPATCH = {
+        get: () => ({
+          fetch: async (request: Request) => {
+            const path = new URL(request.url).pathname;
+            calls.push(path);
+            if (path === '/__void/ready') {
+              return Response.json({ ready: true });
+            }
+            if (path === '/__void/migrate/capabilities') {
+              return Response.json({
+                ...SQLITE_MIGRATIONS,
+                destructiveValidation: 'passed',
+                endpoints: {
+                  app: '/__void/migrate/app',
+                  auth: '/__void/migrate/auth',
+                  reconcile: '/__void/migrate/app/attempt/:attemptId',
+                },
+              });
+            }
+            if (path === '/__void/migrate/auth') {
+              return Response.json({ ok: true, protocolVersion: 2 });
+            }
+            return Response.json({
+              ok: true,
+              protocolVersion: 2,
+              attemptId: 'skip-followup',
+              confirmedApplied: ['001_create_table.sql'],
+              confirmedSkipped: [],
+              stability: 'stable',
+              migrations: [
+                {
+                  name: '001_create_table.sql',
+                  applied: true,
+                  status: 'applied',
+                  stability: 'stable',
+                  durationMs: 1,
+                },
+              ],
+            });
+          },
+        }),
+      } as unknown as DispatchNamespace;
+      try {
+        for (const skip of [true, false]) {
+          const response = await app.fetch(
+            await buildDeployRequest(env, project.id, user.jwt, {
+              manifest: {
+                version: 3,
+                type,
+                auth: type === 'void',
+                bindings: { d1: ['DB'] },
+                migrations: SQLITE_MIGRATIONS,
+                ...(skip ? { migrationMode: 'skip' } : {}),
+              },
+            }),
+            env,
+          );
+          expect(response.status).toBe(200);
+          const events = parseDeployStream(await response.text());
+          const done = requireEvent<DoneEvent>(events, 'done');
+          expect(done.migrations).toBe(skip ? undefined : 1);
+          if (skip) {
+            expect(calls).toEqual(['/__void/ready']);
+            expect(
+              events.some((event) => isDeployEvent(event) && event.event === 'migration_start'),
+            ).toBe(false);
+            expect(
+              (await getDeployment(env.db, done.deployment))?.applied_migrations ?? [],
+            ).toEqual([]);
+            expect(
+              await env.db
+                .select()
+                .from(projectMigrations)
+                .where(eq(projectMigrations.project_id, project.id)),
+            ).toEqual([]);
+          } else {
+            expect(calls).toContain('/__void/migrate/app');
+            expect(calls).toContain('/__void/migrate/auth');
+          }
+        }
+      } finally {
+        env.DISPATCH = originalDispatch;
+      }
+    },
+  );
+
+  it('advertises deployment migration opt-out support', async () => {
+    const response = await app.fetch(new Request('https://api.test/capabilities'), env);
+    expect(await response.json()).toMatchObject({ skipMigrations: true });
+  });
+
   it('runs migrations via worker after upload (v3 flow)', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'migrate-app');

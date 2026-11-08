@@ -2083,6 +2083,13 @@ describe('Cloudflare version activation', () => {
     expect(parseCloudflareVersionMessage('void:{bad')).toBeNull();
   });
 
+  it('preserves trigger snapshots when applied migration history is unknown', () => {
+    const triggerConfig = triggersWith({ preview_urls: false });
+    expect(
+      parseCloudflareVersionMessage(encodeCloudflareVersionMessage(null, triggerConfig)),
+    ).toEqual({ schema: 2, migrations: null, triggerConfig });
+  });
+
   it('round-trips an upload digest only when it is a valid SHA-256 value', () => {
     const triggers = triggersWith({ preview_urls: false });
     const digest = 'a'.repeat(64);

@@ -115,7 +115,12 @@ export async function prepareCloudflareDeploySource(
   const facts = await computeDesiredCloudflareResources(root, voidConfig, configPath, application);
   const { desired, dialect, migrations: preBuildMigrations, migrationsDir } = facts;
 
-  if (dialect !== 'sqlite' && preBuildMigrations.length > 0 && !process.env.DATABASE_URL) {
+  if (
+    !options.skipMigrations &&
+    dialect !== 'sqlite' &&
+    preBuildMigrations.length > 0 &&
+    !process.env.DATABASE_URL
+  ) {
     log.error(
       [
         `deploy: ${dialect === 'mysql' ? 'MySQL' : 'PostgreSQL'} migrations require DATABASE_URL for --platform cloudflare.`,

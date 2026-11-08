@@ -73,7 +73,7 @@ async function showCloudflareDeployments(root: string, slug?: string): Promise<v
   const rows = [...status.versions].reverse().map((version) => ({
     id: version.id,
     status: version.id === status.activeVersionId ? 'live' : 'available',
-    migrations: version.metadata ? String(version.metadata.migrations.length) : '-',
+    migrations: version.metadata?.migrations ? String(version.metadata.migrations.length) : '-',
     deployed: version.createdAt ? formatRelativeTime(version.createdAt) : '-',
   }));
   const idWidth = Math.max('id'.length, ...rows.map((row) => row.id.length));

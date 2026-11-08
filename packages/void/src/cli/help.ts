@@ -168,6 +168,10 @@ const HELP_TREE: HelpTree = {
         description: 'Skip the build step and use existing output (static deploys on Cloudflare)',
       },
       {
+        command: '--skip-migrations',
+        description: 'Deploy without applying application or authentication database migrations',
+      },
+      {
         command: '--platform <cloudflare|void>',
         description: 'Override the platform saved by void init',
       },

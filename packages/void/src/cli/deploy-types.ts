@@ -36,6 +36,8 @@ export type RunDeployOptions = {
   dir?: string;
   spa?: boolean;
   skipBuild?: boolean;
+  /** Deploy without applying application or authentication database migrations. */
+  skipMigrations?: boolean;
   debug?: boolean;
   platform?: Exclude<DeploymentPlatform, 'none'>;
   provision?: boolean;

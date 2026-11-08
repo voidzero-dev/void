@@ -144,6 +144,12 @@ export async function migrateDeploymentWorker(input: {
       throw new Error(`${readinessError} (${readinessFailure})`);
     }
 
+    if (manifest.migrationMode === 'skip') {
+      await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
+      logger.info('migrate', 'skipped', { pending: manifest.migrations.pending });
+      return { migrationsApplied };
+    }
+
     const manifestProtocol = manifest.migrations.protocolVersion;
     const probe =
       manifestProtocol === 2
