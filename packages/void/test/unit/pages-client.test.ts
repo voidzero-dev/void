@@ -128,13 +128,17 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
-  describe.each(['navigation', 'prefetch'] as const)('static page data during %s', (operation) => {
+  describe.each(
+    ['navigation', 'prefetch'].flatMap((operation) =>
+      ['', '/'].map((suffix) => ({ operation, suffix })),
+    ),
+  )('static page data during $operation (suffix: $suffix)', ({ operation, suffix }) => {
     it.each([true, false, undefined])('respects prerender = %s', async (prerender) => {
       stubClientGlobals();
       const page: PageDefinition = {
         componentId: 'blog/[slug]',
         componentPath: 'blog/[slug].tsx',
-        pattern: '/blog/:slug',
+        pattern: `/blog/:slug${suffix}`,
         params: ['slug'],
         catchAll: false,
         serverPath: 'blog/[slug].server.ts',
@@ -154,7 +158,8 @@ describe('createVoidRouter', () => {
         VoidRouterConfig,
         'routeMeta' | 'matchRoute'
       >;
-      const url = '/blog/example';
+      const url = `/blog/example${suffix}`;
+      const dataUrl = `/_void/pages/blog/example${suffix ? '/index' : ''}.json`;
       const pageData = {
         component: page.componentId,
         props: { title: 'Example' },
@@ -162,7 +167,7 @@ describe('createVoidRouter', () => {
         errors: null,
       };
       const fetchMock = vi.fn(async (input: string) => {
-        if (input === '/_void/pages/blog/example.json') {
+        if (input === dataUrl) {
           return prerender === false
             ? new Response(null, { status: 404 })
             : Response.json(pageData);
@@ -186,7 +191,7 @@ describe('createVoidRouter', () => {
           await expect(router.prefetch(url)).resolves.toEqual(pageData);
         }
         expect(fetchMock.mock.calls.map(([input]) => input)).toEqual([
-          prerender === false ? url : '/_void/pages/blog/example.json',
+          prerender === false ? url : dataUrl,
         ]);
         if (prerender === false) {
           expect(fetchMock).toHaveBeenCalledWith(

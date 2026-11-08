@@ -42,6 +42,38 @@ function cleanup() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
 
+describe('routing.trailingSlash', () => {
+  it.each([true, false, undefined])('preserves %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(readConfig(tmpDir).routing?.trailingSlash).toBe(trailingSlash);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('routing.trailingSlash');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it('rejects conflicting Cloudflare HTML handling', () => {
+    setup(
+      JSON.stringify({
+        routing: { trailingSlash: true },
+        cloudflare: { assets: { html_handling: 'drop-trailing-slash' } },
+      }),
+    );
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('conflicts');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('routing.alwaysUseHttps', () => {
   it.each([true, false, undefined])('preserves %s without applying a default', (alwaysUseHttps) => {
     setup(JSON.stringify({ routing: { alwaysUseHttps } }));

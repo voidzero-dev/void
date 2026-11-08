@@ -45,6 +45,8 @@ export type NotFoundHandling = 'single-page-application' | '404-page' | 'none';
 
 /** Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering. */
 export type RoutingConfig = {
+  /** Use trailing-slash Pages URLs and directory indexes for prerendered HTML. */
+  trailingSlash?: boolean;
   /** Redirect HTTP to HTTPS with a 308. Requires the Cloudflare target. Omitted means off. */
   alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
@@ -563,6 +565,20 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing" in ${CONFIG_FILE} must be an object.`);
     }
     const routing = obj.routing;
+
+    if (routing.trailingSlash !== undefined && typeof routing.trailingSlash !== 'boolean') {
+      throw new Error(`config: "routing.trailingSlash" in ${CONFIG_FILE} must be a boolean.`);
+    }
+    if (
+      routing.trailingSlash === true &&
+      isRecord(obj.cloudflare) &&
+      isRecord(obj.cloudflare.assets) &&
+      obj.cloudflare.assets.html_handling === 'drop-trailing-slash'
+    ) {
+      throw new Error(
+        `config: "routing.trailingSlash" conflicts with cloudflare.assets.html_handling: "drop-trailing-slash".`,
+      );
+    }
 
     if (routing.alwaysUseHttps !== undefined && typeof routing.alwaysUseHttps !== 'boolean') {
       throw new Error(`config: "routing.alwaysUseHttps" in ${CONFIG_FILE} must be a boolean.`);

@@ -265,6 +265,7 @@ export function routingPlugin(
   }
   const runtimeEmailPath = resolveFile('#self/email');
   const compileOptions: CompileOptions = {
+    trailingSlash: options.routing?.trailingSlash,
     honoPath: resolveFile('hono'),
     honoRoutePath: resolveFile('hono/route'),
     runtimeEnvPath: resolveFile('#self/_env'),

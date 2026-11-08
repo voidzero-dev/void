@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, dirname, basename, extname, toSlash } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
+import { readConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import {
@@ -59,6 +60,7 @@ type PageRenderingSource = {
 };
 
 type PageScanOptions = {
+  trailingSlash?: boolean;
   output?: 'server' | 'static';
   paths?: ProjectPaths;
   pagesDir?: string;
@@ -243,6 +245,7 @@ export function pageFileEnvironment(relativePath: string): RouteEnvironment | nu
 }
 
 export async function scanPages(root: string, options?: PageScanOptions): Promise<PageScanResult> {
+  const trailingSlash = options?.trailingSlash ?? readConfig(root).routing?.trailingSlash;
   const pagesDir = options?.pagesDir ?? options?.paths?.pagesDir ?? readProjectPaths(root).pagesDir;
   if (!existsSync(pagesDir)) {
     return { pages: [], layouts: [], namedLayouts: [] };
@@ -389,7 +392,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
 
     pages.push({
-      pattern: route.pattern,
+      pattern: trailingSlash && route.pattern !== '/' ? `${route.pattern}/` : route.pattern,
       params: route.params,
       catchAll: route.catchAll,
       componentPath: file,

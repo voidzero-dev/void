@@ -1,6 +1,7 @@
 import type { Context, MiddlewareHandler } from 'hono';
 import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
+import { decodePagePath } from '../pages/url.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
 import type { ErrorRenderer } from './routing-errors.ts';
 import { createAssetCachePolicy } from './routing-worker.ts';
@@ -113,6 +114,8 @@ export function createPageMutationHandler(
 }
 
 export function createPagesFallback(options: {
+  trailingSlash?: boolean;
+  pagePatterns?: Array<RegExp>;
   routing: RoutingRuntime;
   errors: ErrorRenderer;
   fallbackRules?: Array<RoutingRule>;
@@ -127,6 +130,17 @@ export function createPagesFallback(options: {
       (c.req.method !== 'GET' && c.req.method !== 'HEAD')
     ) {
       return c.text('Not Found', 404);
+    }
+    // Directory indexes may be served without a redirect by the asset binding.
+    // Canonicalize known Pages URLs first, without registering overlapping catch-all routes.
+    if (
+      options.trailingSlash &&
+      !path.endsWith('/') &&
+      options.pagePatterns?.some((pattern) => pattern.test(decodePagePath(`${path}/`)))
+    ) {
+      const url = new URL(c.req.url);
+      url.pathname += '/';
+      return Response.redirect(url.href, 301);
     }
     const assets = c.env?.ASSETS;
     const assetResponse: Response =
@@ -145,9 +159,9 @@ export function createPagesFallback(options: {
     if (path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.')) {
       return options.errors.serveCustomPage(c, 404, 'Not Found');
     }
-    if (path !== '/' && path.endsWith('/')) {
+    if (path !== '/' && (options.trailingSlash ? !path.endsWith('/') : path.endsWith('/'))) {
       const url = new URL(c.req.url);
-      url.pathname = path.slice(0, -1);
+      url.pathname = options.trailingSlash ? `${path}/` : path.slice(0, -1);
       return Response.redirect(url.href, 301);
     }
     return options.routing.markNoMatch(

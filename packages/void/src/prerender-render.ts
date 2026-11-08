@@ -44,6 +44,12 @@ function filePathForPath(path: string, host: PrerenderHost): string {
 }
 
 export function outputFileForPath(path: string, host: PrerenderHost = 'cloudflare'): string {
+  if (path === '/404/') {
+    return '404.html';
+  }
+  if (path.endsWith('/')) {
+    return `${filePathForPath(path, host).slice(1)}index.html`;
+  }
   return path === '/' ? 'index.html' : `${filePathForPath(path, host).slice(1)}.html`;
 }
 
@@ -70,7 +76,7 @@ export async function readPrerenderPathsResponse(response: Response): Promise<Ar
 function pageDataFileForPath(path: string, host: PrerenderHost): string {
   return path === '/'
     ? '_void/pages/index.json'
-    : `_void/pages/${filePathForPath(path, host).slice(1)}.json`;
+    : `_void/pages/${filePathForPath(path, host).slice(1)}${path.endsWith('/') ? 'index' : ''}.json`;
 }
 
 /** Whether `path` resolves strictly inside `directory`. */

@@ -291,7 +291,7 @@ export async function createPageNavigationEngine(
   function getStaticPageDataUrl(url: string): string {
     const { pathname } = new URL(url || '/', window.location.origin);
     const filePath = pathname === '/' ? 'index' : pathname.replace(/^\/+/, '');
-    return `${STATIC_PAGE_DATA_PREFIX}/${filePath}.json`;
+    return `${STATIC_PAGE_DATA_PREFIX}/${filePath}${pathname !== '/' && pathname.endsWith('/') ? 'index' : ''}.json`;
   }
 
   function isUsablePageData(pageData: unknown, matchedId: string): pageData is PageData {

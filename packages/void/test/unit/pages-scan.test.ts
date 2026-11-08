@@ -27,6 +27,18 @@ function writeFile(relativePath: string, content: string): void {
 }
 
 describe('scanPages', () => {
+  it('uses trailing slashes for page patterns when configured, including dynamic pages', async () => {
+    writeFile('index.vue', '<template>Home</template>');
+    writeFile('posts/index.vue', '<template>Posts</template>');
+    writeFile('posts/[slug].vue', '<template>Post</template>');
+    writeFileSync(join(TMP, 'void.json'), JSON.stringify({ routing: { trailingSlash: true } }));
+    expect((await scanPages(TMP)).pages.map((page) => page.pattern)).toEqual([
+      '/',
+      '/posts/',
+      '/posts/:slug/',
+    ]);
+  });
+
   it('reads quoted server export names and ignores renamed local handlers', async () => {
     writeFile('[slug].vue', '<template><div>Post</div></template>');
     writeFile(

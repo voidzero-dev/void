@@ -971,6 +971,27 @@ describe('typed Pages and SSR execution', () => {
     );
     expect(((await response.json()) as { props: unknown }).props).toEqual({ title: 'loaded' });
   });
+  it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    app.notFound(
+      createPagesFallback({
+        routing,
+        errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+        trailingSlash: true,
+      }),
+    );
+    app.get('/posts/', (c) => c.text('posts'));
+    const response = await app.request('https://app.test/posts?sort=new');
+    expect(response.status).toBe(301);
+    expect(response.headers.get('location')).toBe('https://app.test/posts/?sort=new');
+    expect((await app.request('https://app.test/posts/')).status).toBe(200);
+    for (const path of ['/api/missing', '/file.css', '/unknown/']) {
+      const missing = await app.request('https://app.test' + path);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.has('location')).toBe(false);
+    }
+  });
   it('tries Pages assets before fallbacks and distinguishes files, API requests and unknown documents', async () => {
     const app = new Hono();
     const routing = createRoutingRuntime(app, { nodeTarget: true });

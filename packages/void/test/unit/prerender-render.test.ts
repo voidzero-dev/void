@@ -26,6 +26,29 @@ afterEach(() => {
 });
 
 describe('prerender pool', () => {
+  it('writes directory indexes and page data for trailing-slash paths', async () => {
+    const root = fixture();
+    const paths = ['/', '/posts/', '/posts/hello/', '/caf%C3%A9/'];
+    const result = await renderPrerenderPaths(
+      paths,
+      root,
+      async (path) => new Response(pageHtml({ path })),
+    );
+    expect(result.failed).toEqual([]);
+    for (const file of [
+      'index.html',
+      'posts/index.html',
+      'posts/hello/index.html',
+      'café/index.html',
+    ]) {
+      expect(existsSync(join(root, file)), file).toBe(true);
+    }
+    expect(JSON.parse(readFileSync(join(root, '_void/pages/posts/index.json'), 'utf8'))).toEqual({
+      path: '/posts/',
+    });
+    expect(outputFileForPath('/404/')).toBe('404.html');
+  });
+
   it.each([301, 302, 303, 307, 308])(
     'skips HTTP %i redirects without emitting HTML or page data',
     async (status) => {

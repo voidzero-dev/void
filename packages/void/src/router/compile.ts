@@ -5,6 +5,7 @@ import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
+import { patternToRegex } from '../pages/manifest.ts';
 import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
@@ -32,6 +33,7 @@ export type AuthCompileOptions = {
 };
 
 export type CompileOptions = {
+  trailingSlash?: boolean;
   /** Absolute path to the hono module entry */
   honoPath: string;
   /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
@@ -454,8 +456,11 @@ export function compileRouteTable(
   }
 
   if (pages && scan.pages.pages.length > 0) {
+    const pagePatterns = options.trailingSlash
+      ? `[${scan.pages.pages.map((page) => patternToRegex(page.pattern)).join(', ')}]`
+      : 'undefined';
     lines.push(
-      `app.notFound(__createPagesFallback({ routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} }));`,
+      `app.notFound(__createPagesFallback({ routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, trailingSlash: ${options.trailingSlash === true}, pagePatterns: ${pagePatterns} }));`,
     );
   }
 
@@ -925,7 +930,11 @@ function compilePrerenderCollector(
     lines.push(`      paths.push(${JSON.stringify(path)});`);
   }
 
-  lines.push(`      return [...new Set(paths)];`);
+  lines.push(
+    options.trailingSlash
+      ? `      return [...new Set(paths.map((path) => path.endsWith("/") ? path : path + "/"))];`
+      : `      return [...new Set(paths)];`,
+  );
   lines.push(`    });`);
   lines.push(`  });`);
   lines.push(`}`);

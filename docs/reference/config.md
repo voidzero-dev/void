@@ -378,6 +378,18 @@ routing: {
 }
 ```
 
+#### `routing.trailingSlash`
+
+Use trailing-slash Void Pages URLs. Prerendered pages use directory indexes (`posts/index.html` for `/posts/`), and URLs without the slash redirect to the trailing-slash URL. Omitted or `false` preserves the default URLs and `posts.html` output. API routes are unaffected. Third-party frameworks use their own routing settings.
+
+```ts
+routing: {
+  trailingSlash: true,
+}
+```
+
+See [Static Site Generation](../guide/ssg.md#trailing-slashes-and-directory-indexes) for hosting details.
+
 #### `routing.typedRoutes`
 
 Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, `c.rewrite()`, `c.redirect()`, `useIslandForm()`, `revalidate({ paths })`, `connectEventStream()`, and `connectLiveStream()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Link and router strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. `useIslandForm()` and `revalidate({ paths })` take route URLs; `connectEventStream()` and `connectLiveStream()` also take `http://` and `https://` URLs. `c.redirect()` accepts those strings, a `URL`, or a destination object. An external `https://` literal needs no cast; cast a string TypeScript cannot check with `as Href`. `routing.prerender` takes plain strings unless you annotate them. See [Checked URL strings](../guide/type-safety#checked-url-strings).
