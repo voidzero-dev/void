@@ -995,6 +995,52 @@ describe('typed Pages and SSR execution', () => {
       expect(missing.headers.has('location')).toBe(false);
     }
   });
+  it('serves static files before canonicalizing dynamic trailing-slash Pages URLs', async () => {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    app.notFound(
+      createPagesFallback({
+        routing,
+        errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+        trailingSlash: true,
+        pagePatterns: [/^\/(.+)\/$/],
+      }),
+    );
+    const files = new Map([
+      ['/assets/app.js', 'text/javascript'],
+      ['/favicon.ico', 'image/x-icon'],
+      ['/terms.html', 'text/html'],
+      ['/terms', 'text/html'],
+      ['/LICENSE', 'text/plain'],
+      ['/about', 'text/html'],
+      ['/about/', 'text/html'],
+    ]);
+    const env = {
+      ASSETS: {
+        fetch: async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          if (path === '/terms/') {
+            return Response.redirect('https://app.test/terms', 307);
+          }
+          const type = files.get(path);
+          return type
+            ? new Response('file', { headers: { 'Content-Type': type } })
+            : new Response('missing', { status: 404 });
+        },
+      },
+    };
+    for (const path of ['/assets/app.js', '/favicon.ico', '/terms.html', '/terms', '/LICENSE']) {
+      const response = await app.fetch(new Request('https://app.test' + path), env);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toBe('file');
+    }
+    for (const path of ['/about', '/users/alice.smith']) {
+      const response = await app.fetch(new Request('https://app.test' + path + '?q=1'), env);
+      expect(response.status, path).toBe(301);
+      expect(response.headers.get('location')).toBe('https://app.test' + path + '/?q=1');
+    }
+  });
+
   it('tries Pages assets before fallbacks and distinguishes files, API requests and unknown documents', async () => {
     const app = new Hono();
     const routing = createRoutingRuntime(app, { nodeTarget: true });

@@ -51,6 +51,9 @@ export function interpolateRouteParams(
         leadingName = name;
       }
       const value = params[name];
+      if (anonymous && value === '' && pathname.slice(offset + token.length) === '/') {
+        return '';
+      }
       if (requireParams && !anonymous && value === '') {
         throw new TypeError(`Route param "${name}" must not be empty.`);
       }
@@ -85,9 +88,11 @@ type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Re
   ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`
   : RouteUrlSegment<P>;
 // A trailing `/*` also matches the bare prefix, as in Hono: `/docs/*` matches `/docs`.
-type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[...]'}`
-  ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
-  : RouteSegmentsUrl<P>;
+type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[...]'}/`
+  ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`
+  : P extends `${infer Prefix}/${'*' | '[...]'}`
+    ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
+    : RouteSegmentsUrl<P>;
 // Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
 type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
 type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;

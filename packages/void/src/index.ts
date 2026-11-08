@@ -868,7 +868,9 @@ export function voidPlugin(options?: {
         hasSandbox: false,
       }),
       prerenderPlugin(root, config),
-      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno'),
+      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno', {
+        trailingSlash: config.routing?.trailingSlash,
+      }),
     ];
   }
 

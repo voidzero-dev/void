@@ -131,7 +131,9 @@ function isStaticPattern(pattern: string): boolean {
 
 /** The RegExp literal a page pattern matches with, the same on the client and the server. */
 export function patternToRegex(pattern: string): string {
-  const regexSource = pattern
+  // An empty anonymous catch-all uses the prefix's slash as its final separator.
+  const trailingWildcard = pattern.endsWith('/*/');
+  const regexSource = (trailingWildcard ? pattern.slice(0, -2) : pattern)
     .split('/')
     .map((segment) => {
       const group = captureGroup(segment);
@@ -145,5 +147,5 @@ export function patternToRegex(pattern: string): string {
       return literal;
     })
     .join('\\/');
-  return `/^${regexSource}$/`;
+  return `/^${regexSource}${trailingWildcard ? '(?:(.*)\\/)?' : ''}$/`;
 }

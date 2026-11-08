@@ -16,10 +16,16 @@ declare module 'void/routes' {
     '/route-util/[id]': 'id';
     '/route-util/files/[...path]': 'path';
     '/route-util/files/[...]': '*';
+    '/route-util/files/[...]/': '*';
   }
 }
 
 describe('routeUrl', () => {
+  it('builds an empty trailing-slash catch-all without a duplicate separator', () => {
+    expect(routeUrl('/route-util/files/[...]/', { params: { '*': '' } })).toBe(
+      '/route-util/files/',
+    );
+  });
   it('builds URLs and destinations from bracket patterns', () => {
     expect(routeUrl('/route-util/[id]', { params: { id: 42 } })).toBe('/route-util/42');
     expect(routeUrl('/route-util/files/[...path]', { params: { path: 'docs/start here' } })).toBe(

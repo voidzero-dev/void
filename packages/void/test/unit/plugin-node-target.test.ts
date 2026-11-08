@@ -49,12 +49,12 @@ describe('nodeTargetPlugin request bridge', () => {
   it('keeps every Set-Cookie header in dev', async () => {
     let middleware: Middleware | undefined;
     const app = {
-      fetch: async () => {
+      fetch: vi.fn(async () => {
         const headers = new Headers({ 'content-type': 'text/plain' });
         headers.append('set-cookie', 'session=abc; Path=/');
         headers.append('set-cookie', 'csrf=xyz; Path=/');
         return new Response('ok', { headers });
-      },
+      }),
     };
     const server = {
       middlewares: { use: (fn: Middleware) => (middleware = fn) },
@@ -67,6 +67,7 @@ describe('nodeTargetPlugin request bridge', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('text/plain');
     expect(response.headers.getSetCookie()).toEqual(['session=abc; Path=/', 'csrf=xyz; Path=/']);
+    expect(app.fetch).toHaveBeenCalledWith(expect.any(Request));
   });
 
   it('keeps every Set-Cookie header in preview', async () => {

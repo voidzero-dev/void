@@ -606,6 +606,19 @@ void loose;
     ).toEqual({ output: '', status: 0 });
   });
 
+  it('checks empty trailing-slash catch-alls through generated declarations', async () => {
+    const root = await createFixture({
+      typedRoutes: true,
+      extraFiles: {
+        'void.json': JSON.stringify({ routing: { trailingSlash: true } }),
+        'check-trailing.ts': `import type { RouteUrl } from 'void/routes';
+const paths: Array<RouteUrl> = ['/wild/', '/wild/a/b/'];
+void paths;`,
+      },
+    });
+    expect(typecheck(root, 'generated', ['check-trailing.ts'])).toEqual({ output: '', status: 0 });
+  });
+
   it('checks URL strings through the package types alone with routing.typedRoutes', () => {
     // The generated declarations repeat the route URL types, so check the
     // package's own copy without a generated .void/routes.d.ts.
@@ -618,7 +631,7 @@ void loose;
       join(root, 'routes.d.ts'),
       `export {};
 declare module 'void/routes' {
-  interface RoutePathMap { '/': never; '/docs/[...]': '*'; '/users/[id]': 'id'; '/café menu': never }
+  interface RoutePathMap { '/': never; '/docs/[...]': '*'; '/trailing/[...]/': '*'; '/users/[id]': 'id'; '/café menu': never }
   interface EncodedRoutePathMap { '/café menu': '/caf%C3%A9%20menu' }
   interface RouteTypesConfig { typedRoutes: true }
 }
@@ -629,11 +642,13 @@ declare module 'void/routes' {
       `import type { Href, RouteUrl } from 'void/routes';
 const hrefs: Array<Href> = ['/', '/docs', '/docs/a/b', '/users/42', '/café menu', '/caf%C3%A9%20menu?q=1', '#top', 'https://vite.dev'];
 const route: RouteUrl = '/caf%C3%A9%20menu';
+const emptyCatchAll: RouteUrl = '/trailing/';
+const nestedCatchAll: RouteUrl = '/trailing/a/b/';
 // @ts-expect-error unknown routes are rejected
 const unknown: Href = '/unknown';
 // @ts-expect-error route URLs exclude external links
 const external: RouteUrl = 'https://vite.dev';
-void [hrefs, route, unknown, external];
+void [hrefs, route, emptyCatchAll, nestedCatchAll, unknown, external];
 `,
     );
     writeFileSync(

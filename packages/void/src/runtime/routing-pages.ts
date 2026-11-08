@@ -24,7 +24,26 @@ export type PageRouteOptions = {
   headConfig: PageGetArguments[6] | null;
   renderOptions: PageGetArguments[7];
   namedActions?: boolean;
+  trailingSlash?: boolean;
+  catchAllParam?: string;
 };
+// Hono's trie matcher cannot match a named catch-all followed by a literal slash.
+// Register that route without the slash, then enforce the public URL and exclude
+// the final separator from the parameter before invoking application code.
+function preparePageRequest(c: Context, options: PageRouteOptions): boolean {
+  if (!options.trailingSlash) {
+    return true;
+  }
+  if (!c.req.path.endsWith('/')) {
+    return false;
+  }
+  if (options.catchAllParam) {
+    const params = c.req.param();
+    params[options.catchAllParam] = params[options.catchAllParam].slice(0, -1);
+    c.req.param = ((key?: string) => (key ? params[key] : { ...params })) as typeof c.req.param;
+  }
+  return true;
+}
 function actionNameOf(url: string): string | undefined {
   return new URL(url).searchParams.keys().next().value;
 }
@@ -58,6 +77,9 @@ export function createNamedActionMarker(
 }
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
   return markRouteHandler(async (context: Context) => {
+    if (!preparePageRequest(context, options)) {
+      return context.notFound();
+    }
     const mod = options.load ? await options.load() : { head: options.head };
     return handlePageGet(
       mod.loader,
@@ -75,6 +97,9 @@ export function createPageMutationHandler(
   options: PageRouteOptions,
 ): (c: Context) => Promise<Response> {
   const mutationHandler = async (context: Context) => {
+    if (!preparePageRequest(context, options)) {
+      return context.notFound();
+    }
     const mod = options.load ? await options.load() : {};
     const actionName = options.namedActions ? actionNameOf(context.req.url) : undefined;
     // The name comes from the query string, so only own function properties
@@ -131,22 +156,37 @@ export function createPagesFallback(options: {
     ) {
       return c.text('Not Found', 404);
     }
-    // Directory indexes may be served without a redirect by the asset binding.
-    // Canonicalize known Pages URLs first, without registering overlapping catch-all routes.
-    if (
-      options.trailingSlash &&
-      !path.endsWith('/') &&
-      options.pagePatterns?.some((pattern) => pattern.test(decodePagePath(`${path}/`)))
-    ) {
-      const url = new URL(c.req.url);
-      url.pathname += '/';
-      return Response.redirect(url.href, 301);
-    }
     const assets = c.env?.ASSETS;
     const assetResponse: Response =
       assets && typeof assets.fetch === 'function'
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
+    const filePath = path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.');
+    // Directory indexes may be served without a redirect by the asset binding.
+    // Dynamic page patterns also match real files, which must keep their URLs.
+    const pageNeedsSlash =
+      options.trailingSlash &&
+      !path.endsWith('/') &&
+      options.pagePatterns?.some((pattern) => pattern.test(decodePagePath(`${path}/`)));
+    let directoryIndex = false;
+    if (
+      pageNeedsSlash &&
+      assetResponse.status === 200 &&
+      assetResponse.headers.get('Content-Type')?.split(';')[0] === 'text/html' &&
+      assets
+    ) {
+      const url = new URL(c.req.url);
+      url.pathname += '/';
+      const index = await assets.fetch(new Request(url, c.req.raw));
+      directoryIndex = index.status === 200;
+      await index.body?.cancel();
+    }
+    if (pageNeedsSlash && (assetResponse.status === 404 || directoryIndex)) {
+      await assetResponse.body?.cancel();
+      const url = new URL(c.req.url);
+      url.pathname += '/';
+      return Response.redirect(url.href, 301);
+    }
     if (assetResponse.status !== 404) {
       return markStaticAsset(c, await cachePolicy(c.req.raw, c.env, assetResponse));
     }
@@ -156,7 +196,7 @@ export function createPagesFallback(options: {
     if (fallback) {
       return fallback;
     }
-    if (path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.')) {
+    if (filePath) {
       return options.errors.serveCustomPage(c, 404, 'Not Found');
     }
     if (path !== '/' && (options.trailingSlash ? !path.endsWith('/') : path.endsWith('/'))) {

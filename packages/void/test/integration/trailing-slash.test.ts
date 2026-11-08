@@ -43,8 +43,22 @@ describe.each(['node', 'cloudflare'] as const)('trailing-slash Pages on %s', (ta
       writeFileSync(
         `${file}.server.ts`,
         `export const getPrerenderPaths = () => [{ ${name}: ${JSON.stringify(value)} }];
-export const loader = (c) => ({ value: c.req.param(${JSON.stringify(name)}) });`,
+export const loader = (c) => ({ value: c.req.param(${JSON.stringify(name)}) });
+export const action = (c) => c.json({ value: c.req.param(${JSON.stringify(name)}) });`,
       );
+    }
+    writeFileSync(
+      join(fixture.root, 'pages/[...fallback].tsx'),
+      'export default function Page() { return <h1>Fallback route</h1>; }',
+    );
+    mkdirSync(join(fixture.root, 'pages/wild'), { recursive: true });
+    writeFileSync(
+      join(fixture.root, 'pages/wild/[...].tsx'),
+      'export default function Page() { return <h1>Anonymous route</h1>; }',
+    );
+    mkdirSync(join(fixture.root, 'public'), { recursive: true });
+    for (const file of ['asset.js', 'favicon.ico', 'terms.html', 'LICENSE']) {
+      writeFileSync(join(fixture.root, 'public', file), 'public file');
     }
     execFileSync('vp', ['build'], { cwd: fixture.root, stdio: 'pipe', timeout: 60_000 });
     for (const mode of ['dev', 'production']) {
@@ -120,6 +134,31 @@ export const loader = (c) => ({ value: c.req.param(${JSON.stringify(name)}) });`
       const api = await fetch(`${base}/api/hello`, { redirect: 'manual' });
       expect(api.status).toBe(200);
       await api.text();
+    }
+  });
+  it('keeps public files accessible beside a catch-all page', async () => {
+    for (const { base, mode } of servers) {
+      for (const file of ['asset.js', 'favicon.ico', 'LICENSE']) {
+        const response = await fetch(`${base}/${file}`, { redirect: 'manual' });
+        expect(response.status, `${mode}: ${file}`).toBe(200);
+        expect(await response.text(), `${mode}: ${file}`).toBe('public file');
+      }
+      const html = await fetch(`${base}/terms.html`);
+      expect(html.status, mode).toBe(200);
+      expect(await html.text(), mode).toBe('public file');
+    }
+  });
+  it('preserves catch-all parameters in actions and supports empty anonymous catch-alls', async () => {
+    for (const { base, mode } of servers) {
+      const action = await fetch(`${base}/files/guides/intro/`, {
+        method: 'POST',
+        headers: { Origin: base },
+      });
+      expect(action.status, mode).toBe(200);
+      expect(await action.json(), mode).toEqual({ value: 'guides/intro' });
+      const page = await fetch(`${base}/wild/`);
+      expect(page.status, mode).toBe(200);
+      expect(await page.text(), mode).toContain('<h1>Anonymous route</h1>');
     }
   });
 });

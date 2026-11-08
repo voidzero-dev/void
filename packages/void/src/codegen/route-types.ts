@@ -146,8 +146,10 @@ export function generateRouteTypes(
   lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
   lines.push('    : RouteUrlSegment<P>;');
   lines.push(
-    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}`',
+    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}/`',
   );
+  lines.push('    ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`');
+  lines.push('    : P extends `${infer Prefix}/${"*" | "[...]"}`');
   lines.push(
     '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
   );
