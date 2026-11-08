@@ -50,10 +50,11 @@ const TANSTACK_SERVER_ENTRY = '@tanstack/react-start/server-entry';
 
 /** Include proxy.ts and custom page extensions; vinext selects the actual convention file. */
 export function hasVinextMiddleware(root: string): boolean {
+  // Convention lookup also succeeds with different casing on macOS and Windows.
   return [root, join(root, 'src')].some(
     (dir) =>
       statSync(dir, { throwIfNoEntry: false })?.isDirectory() &&
-      readdirSync(dir).some((file) => /^(?:middleware|proxy)\./.test(file)),
+      readdirSync(dir).some((file) => /^(?:middleware|proxy)\./i.test(file)),
   );
 }
 

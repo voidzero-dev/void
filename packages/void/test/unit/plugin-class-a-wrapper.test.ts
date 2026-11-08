@@ -74,16 +74,20 @@ afterEach(() => {
 });
 
 describe('Class A framework custom entry', () => {
-  it.each(['middleware.ts', 'src/middleware.js', 'proxy.ts', 'src/proxy.custom.ts'])(
-    'detects vinext convention file %s without importing application code',
-    (file) => {
-      const root = createTanStackRoot();
-      expect(hasVinextMiddleware(root)).toBe(false);
-      mkdirSync(join(root, file, '..'), { recursive: true });
-      writeFileSync(join(root, file), 'throw new Error("must not execute during config");');
-      expect(hasVinextMiddleware(root)).toBe(true);
-    },
-  );
+  it.each([
+    'middleware.ts',
+    'src/middleware.js',
+    'proxy.ts',
+    'src/proxy.custom.ts',
+    'Middleware.ts',
+    'src/Proxy.ts',
+  ])('detects vinext convention file %s without importing application code', (file) => {
+    const root = createTanStackRoot();
+    expect(hasVinextMiddleware(root)).toBe(false);
+    mkdirSync(join(root, file, '..'), { recursive: true });
+    writeFileSync(join(root, file), 'throw new Error("must not execute during config");');
+    expect(hasVinextMiddleware(root)).toBe(true);
+  });
 
   it.each(['serve', 'build'] as const)(
     'preserves a custom TanStack Worker entry and named exports during %s',
