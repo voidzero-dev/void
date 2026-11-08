@@ -160,3 +160,37 @@ console.log(await response.json()); // { message: "Hello from Node.js!" }
 ```
 
 This is useful for testing, embedding in Express/Fastify, or running in serverless environments that accept a `fetch` handler.
+
+### Serving the client build from somewhere else
+
+By default, `app.js` serves the client build from `dist/client`, next to `dist/ssr`. To serve it from elsewhere, such as from inside a [single executable application](https://nodejs.org/api/single-executable-applications.html), pass an `ASSETS` object with a `fetch(request)` method in the env. Void then reads the client manifest, scripts, styles and `public/` files through it, and doesn't look for `dist/client`.
+
+This server reads the client build from a single executable's assets, stored under their URL paths (`/.vite/manifest.json`, `/assets/…`, and `public/` files):
+
+```ts
+import { getAsset } from 'node:sea';
+import { serve } from '@hono/node-server';
+import app from './dist/ssr/app.js';
+
+const types: Record<string, string> = {
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+};
+
+const ASSETS = {
+  async fetch(request: Request): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    try {
+      const type = types[pathname.slice(pathname.lastIndexOf('.'))] ?? 'application/octet-stream';
+      return new Response(getAsset(pathname), { headers: { 'content-type': type } });
+    } catch {
+      return new Response('Not Found', { status: 404 });
+    }
+  },
+};
+
+serve({ fetch: (request, env) => app.fetch(request, { ...env, ASSETS }), port: 3000 });
+```
+
+Keep the env the server passes in: on Node.js it carries the incoming request, which `getConnInfo()` reads.

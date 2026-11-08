@@ -1428,18 +1428,27 @@ import { Hono } from ${JSON.stringify(honoPath)};
 import innerApp, { __voidCollectPrerenderPaths } from "virtual:void-routes";
 import { prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
 ${envSchemaImport}
-// Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
-const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
-const assetApp = new Hono();
-assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
-const assets = { fetch: (request) => assetApp.fetch(request) };
+// dist/client, created on first use so a server that supplies its own ASSETS
+// (a single executable, for one) never looks for a directory it doesn't have.
+let fileAssets;
+const clientAssets = () => {
+  if (!fileAssets) {
+    // Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
+    const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
+    const assetApp = new Hono();
+    assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
+    fileAssets = { fetch: (request) => assetApp.fetch(request) };
+  }
+  return fileAssets;
+};
+const assetsFor = (c) => (typeof c.env?.ASSETS?.fetch === "function" ? c.env.ASSETS : clientAssets());
 const app = new Hono();
 ${envMiddleware}app.post("/__void/prerender-paths", async (c) => {
   if (c.env?.__VOID_PRERENDER !== "1") return c.notFound();
   return __prerenderPathsResponse(() => __voidCollectPrerenderPaths(c.req.raw));
 });
-app.get("/assets/*", (c) => assets.fetch(c.req.raw));
-app.all("*", (c) => innerApp.fetch(c.req.raw, { ...c.env, ASSETS: assets }));
+app.get("/assets/*", (c) => assetsFor(c).fetch(c.req.raw));
+app.all("*", (c) => innerApp.fetch(c.req.raw, { ...c.env, ASSETS: assetsFor(c) }));
 export default app;`;
 }
 
