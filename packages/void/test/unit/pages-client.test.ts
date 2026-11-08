@@ -4,6 +4,7 @@ import type { RouteDestination } from 'void/routes';
 import {
   createRouterFacade,
   createVoidRouter,
+  initIslands,
   mergeDataIntoHref,
   ssrProxy,
   submitAction,
@@ -12,6 +13,7 @@ import {
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
+import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import type { PageDefinition } from '../../src/pages/types.ts';
 import {
   createPageMutationHandler,
@@ -128,6 +130,90 @@ afterEach(() => {
 });
 
 describe('createVoidRouter', () => {
+  it.each(['navigation', 'prefetch', 'static', 'action'] as const)(
+    'preserves rich data through %s and cached visits',
+    async (operation) => {
+      const doc = stubClientGlobals();
+      const values = {
+        date: new Date('2026-11-08'),
+        map: new Map([['x', 1]]),
+        count: 42n,
+        url: new URL('https://void.cloud/'),
+      };
+      const page = {
+        component: 'home',
+        props: values,
+        shared: values,
+        params: {},
+        url: '/rich',
+        errors: null,
+      };
+      const originalGet = doc.getElementById.getMockImplementation()!;
+      doc.getElementById.mockImplementation((id) =>
+        id === '__VOID_PAGE_DATA__' ? { textContent: serializePageData(page) } : originalGet(id),
+      );
+      const fetchMock = vi.fn(
+        async (_input: string) =>
+          new Response(serializePageData(page), {
+            headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+          }),
+      );
+      vi.stubGlobal('fetch', fetchMock);
+      const applyUpdate = vi.fn();
+      const { router, initialPageData } = await createTestRouter({
+        adapter: { applyUpdate },
+        staticPageData: operation === 'static',
+        staticPageDataFastPath: operation === 'static',
+        routeMeta: { home: { prerender: true } },
+        matchRoute: () => 'home',
+        cacheVisitedPageData: true,
+      });
+      try {
+        expect(initialPageData).toMatchObject({ props: values, shared: values });
+        if (operation === 'prefetch') {
+          await expect(router.prefetch('/rich')).resolves.toMatchObject({
+            props: values,
+            shared: values,
+          });
+        }
+        await router.visit('/rich', operation === 'action' ? { method: 'POST' } : {});
+        if (operation === 'static') {
+          expect(fetchMock.mock.calls[0][0]).toBe('/_void/pages/rich.json');
+        }
+        expect(applyUpdate.mock.calls.at(-1)![0]).toMatchObject({ props: values, shared: values });
+        if (operation !== 'action') {
+          await router.visit('/rich');
+          expect(applyUpdate.mock.calls.at(-1)![0]).toMatchObject({
+            props: values,
+            shared: values,
+          });
+        }
+      } finally {
+        router.flushAll();
+      }
+    },
+  );
+
+  it('hydrates island props and frontmatter with rich values', async () => {
+    const props = { date: new Date('2026-11-08'), count: 42n };
+    const frontmatter = { published: props.date };
+    const attributes: Record<string, string> = {
+      'data-island': 'counter',
+      'data-props': serializePageData(props),
+      'data-hydrate': 'load',
+    };
+    const element = { getAttribute: (name: string) => attributes[name] ?? null };
+    vi.stubGlobal('document', {
+      getElementById: () => ({ textContent: serializePageData(frontmatter) }),
+      querySelectorAll: () => [element],
+    });
+    const hydrate = vi.fn();
+    const component = {};
+    initIslands({ counter: async () => component }, hydrate);
+    await vi.waitFor(() =>
+      expect(hydrate).toHaveBeenCalledWith(element, component, props, frontmatter),
+    );
+  });
   describe.each(
     ['navigation', 'prefetch'].flatMap((operation) =>
       ['', '/'].map((suffix) => ({ operation, suffix })),
@@ -1035,7 +1121,9 @@ describe('createVoidRouter', () => {
         vi.fn(async (url: string, init: RequestInit) => {
           const response = await app.fetch(new Request(new URL(url, window.location.origin), init));
           expect(response.status).toBe(200);
-          expect(await response.clone().json()).toMatchObject({ url: '/books?category=internal' });
+          expect(decodePageData(await response.clone().json())).toMatchObject({
+            url: '/books?category=internal',
+          });
           return response;
         }),
       );

@@ -19,7 +19,7 @@ import {
   type PrefetchOptions,
 } from './navigation-engine.ts';
 import type { LinkPrefetchValue } from './prefetch.ts';
-import { ISLAND_FRONTMATTER_ID } from './serialize.ts';
+import { deserializePageData, ISLAND_FRONTMATTER_ID } from './serialize.ts';
 import { isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
@@ -613,12 +613,16 @@ export function initIslands(
   // Islands hydrate as separate roots, so they read the page frontmatter here
   // to match what useFrontmatter() returned during server rendering.
   const frontmatterText = document.getElementById(ISLAND_FRONTMATTER_ID)?.textContent;
-  const frontmatter = frontmatterText ? JSON.parse(frontmatterText) : {};
+  const frontmatter = frontmatterText
+    ? deserializePageData<Record<string, unknown>>(frontmatterText)
+    : {};
   const hydrate = (el: Element, mod: unknown, props: Record<string, unknown>) =>
     hydrateFn(el, mod, props, frontmatter);
   document.querySelectorAll('[data-island]').forEach((el) => {
     const id = el.getAttribute('data-island')!;
-    const props = JSON.parse(el.getAttribute('data-props') || '{}');
+    const props = deserializePageData<Record<string, unknown>>(
+      el.getAttribute('data-props') || '{}',
+    );
     const strategy = el.getAttribute('data-hydrate') || 'load';
     const loader = islands[id];
     if (loader) {

@@ -8,6 +8,7 @@ import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
+import { decodePageData, deserializePageData, serializePageData } from './serialize.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
 
 /**
@@ -34,9 +35,9 @@ export type PageComponentModule = {
 export type PageData = PageObject;
 
 type DeferredWindow = Window & {
-  __resolveDeferred?: (group: string, data: unknown) => void;
+  __resolveDeferred?: (group: string, data: unknown, serialized?: boolean) => void;
   __rejectDeferred?: (group: string, error: unknown) => void;
-  __deferredQueue?: Array<[string, unknown] | [string, 0, unknown]>;
+  __deferredQueue?: Array<[string, unknown] | [string, 0, unknown] | [string, unknown, 0, true]>;
 };
 
 type PageFetchOptions = RequestInit & { headers: Record<string, string> };
@@ -192,13 +193,14 @@ export function objectToFormData(
 }
 
 function clonePageData(pageData: PageData): PageData {
-  return JSON.parse(JSON.stringify(pageData)) as PageData;
+  // structuredClone does not preserve all supported values, such as URL.
+  return deserializePageData<PageData>(serializePageData(pageData));
 }
 
 function readInitialPageData(): PageData {
   const scriptEl = document.getElementById(PAGE_DATA_SCRIPT_ID);
   if (scriptEl?.textContent) {
-    return JSON.parse(scriptEl.textContent) as PageData;
+    return deserializePageData<PageData>(scriptEl.textContent);
   }
 
   throw new Error('pages: Missing initial page payload.');
@@ -211,7 +213,7 @@ function parsePageDataFromHtml(html: string): PageData | null {
     return null;
   }
   try {
-    return JSON.parse(scriptEl.textContent) as PageData;
+    return deserializePageData<PageData>(scriptEl.textContent);
   } catch {
     return null;
   }
@@ -497,7 +499,7 @@ export async function createPageNavigationEngine(
         signal,
       });
       if (pageDataResponse.ok) {
-        const pageData = await pageDataResponse.json();
+        const pageData = decodePageData<PageData>(await pageDataResponse.json());
         if (isUsablePageData(pageData, matchedId)) {
           return { pageData, resolvedDeferred: true };
         }
@@ -579,7 +581,7 @@ export async function createPageNavigationEngine(
             null
           );
         }
-        return r.json();
+        return decodePageData<PageData>(await r.json());
       });
     });
   }
@@ -600,8 +602,8 @@ export async function createPageNavigationEngine(
   }
 
   const deferredWindow = window as DeferredWindow;
-  deferredWindow.__resolveDeferred = (group: string, data: unknown) =>
-    _htmlDeferredRegistry?.resolve(group, data, undefined);
+  deferredWindow.__resolveDeferred = (group: string, data: unknown, serialized?: boolean) =>
+    _htmlDeferredRegistry?.resolve(group, serialized ? decodePageData(data) : data, undefined);
   deferredWindow.__rejectDeferred = (group: string, error: unknown) =>
     _htmlDeferredRegistry?.resolve(group, undefined, error);
 
@@ -786,11 +788,15 @@ export async function createPageNavigationEngine(
             }
 
             if (firstLine) {
-              pageData = JSON.parse(line) as PageData;
+              pageData = deserializePageData<PageData>(line);
               deferredRegistry.setup(pageData);
               firstLine = false;
             } else {
-              const msg = JSON.parse(line);
+              const msg = deserializePageData<{
+                __deferred?: string;
+                data?: unknown;
+                error?: unknown;
+              }>(line);
               if (msg.__deferred) {
                 deferredRegistry.resolve(msg.__deferred, msg.data, msg.error);
               }
@@ -824,7 +830,7 @@ export async function createPageNavigationEngine(
           }
         })();
       } else {
-        pageData = (await response!.json()) as PageData;
+        pageData = decodePageData<PageData>(await response!.json());
         deferredRegistry.setup(pageData);
       }
 
@@ -1189,7 +1195,11 @@ export async function createPageNavigationEngine(
           if (entry.length === 3) {
             _htmlDeferredRegistry?.resolve(entry[0], undefined, entry[2]);
           } else {
-            _htmlDeferredRegistry?.resolve(entry[0], entry[1], undefined);
+            _htmlDeferredRegistry?.resolve(
+              entry[0],
+              entry.length === 4 ? decodePageData(entry[1]) : entry[1],
+              undefined,
+            );
           }
         }
         delete deferredWindow.__deferredQueue;

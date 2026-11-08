@@ -8,7 +8,12 @@ import {
   flattenValidationErrors,
   ValidationError,
 } from '../../src/pages/protocol.ts';
-import type { CloudContext, CloudEnv } from '../../src/runtime/handler.ts';
+import {
+  deserializePageData,
+  decodePageData,
+  serializePageData,
+} from '../../src/pages/serialize.ts';
+import { defineHandler, type CloudContext, type CloudEnv } from '../../src/runtime/handler.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing.ts';
 
 type RenderPage = { component: string };
@@ -24,7 +29,7 @@ type PageResponse = {
 };
 
 async function json<T>(response: Response): Promise<T> {
-  return (await response.json()) as T;
+  return decodePageData<T>(await response.json());
 }
 
 /** Create a minimal Hono context for testing */
@@ -67,6 +72,64 @@ const mockRenderFn = vi.fn(async (pageObj: RenderPage) => `<html>${pageObj.compo
 const mockGetAssetTags = vi.fn(async () => ({ css: '', preloads: '', body: '' }));
 
 describe('handlePageGet', () => {
+  it.each(['plain', 'validated', 'middleware'] as const)(
+    'preserves rich loader and shared data for %s handlers and action reloads',
+    async (kind) => {
+      const values = { date: new Date('2026-11-08'), count: 42n, map: new Map([['x', 1]]) };
+      const leaf = () => values;
+      const validated = defineHandler.withValidator({})(leaf);
+      const handler =
+        kind === 'plain'
+          ? defineHandler(leaf)
+          : kind === 'validated'
+            ? validated
+            : defineHandler(async (c, next) => {
+                await next();
+                c.header('X-Middleware', 'ran');
+              }, validated);
+      const render = vi.fn(
+        async (page: { props: Record<string, unknown>; shared: Record<string, unknown> }) => {
+          expect(page.props).toEqual(values);
+          expect(page.shared).toEqual(values);
+          return 'rendered';
+        },
+      );
+      const htmlContext = await createTestContext('GET', '/rich', { shared: values });
+      expect(
+        await (
+          await handlePageGet(handler, undefined, htmlContext, 'rich', render, mockGetAssetTags)
+        ).text(),
+      ).toBe('rendered');
+      expect(render).toHaveBeenCalledOnce();
+      const c = await createTestContext('POST', '/rich', {
+        shared: values,
+        headers: { 'x-voidpages': 'true' },
+      });
+      const response = await handlePageMutation(
+        () => undefined,
+        handler,
+        undefined,
+        c,
+        'rich',
+        render,
+        mockGetAssetTags,
+      );
+      expect(deserializePageData(await response.text())).toMatchObject({
+        props: values,
+        shared: values,
+      });
+      if (kind === 'middleware') {
+        expect(response.headers.get('X-Middleware')).toBe('ran');
+      }
+    },
+  );
+
+  it('keeps validated API handlers on ordinary JSON', async () => {
+    const handler = defineHandler.withValidator({})(() => ({ date: new Date('2026-11-08') }));
+    const response = (await handler(await createTestContext('GET', '/api'))) as Response;
+    expect(await response.json()).toEqual({ date: '2026-11-08T00:00:00.000Z' });
+  });
+
   describe.each([
     { name: 'HTML', spa: false, deferred: false, contentType: 'text/html; charset=utf-8' },
     { name: 'JSON', spa: true, deferred: false, contentType: 'application/json' },
@@ -1201,7 +1264,9 @@ describe('handlePageGet with deferred props', () => {
     const lines = text.trim().split('\n');
     expect(lines.length).toBe(2);
 
-    const pageObj = JSON.parse(lines[0]);
+    const pageObj = deserializePageData<
+      PageResponse & { __deferred: string; data: unknown; error: string }
+    >(lines[0]);
     expect(pageObj.props).toEqual({
       projects: [1, 2],
       usage: { value: null, loading: true, error: null },
@@ -1209,7 +1274,9 @@ describe('handlePageGet with deferred props', () => {
     expect(pageObj.deferred).toEqual(['usage']);
     expect(pageObj.deferredKeys).toEqual({ usage: 'usage' });
 
-    const deferredLine = JSON.parse(lines[1]);
+    const deferredLine = deserializePageData<
+      PageResponse & { __deferred: string; data: unknown; error: string }
+    >(lines[1]);
     expect(deferredLine.__deferred).toBe('usage');
     expect(deferredLine.data).toEqual({ requests: 100 });
   });
@@ -1229,7 +1296,11 @@ describe('handlePageGet with deferred props', () => {
     );
 
     const lines = (await response.text()).trim().split('\n');
-    expect(JSON.parse(lines[1])).toEqual({ __deferred: 'post', data: null });
+    expect(
+      deserializePageData<PageResponse & { __deferred: string; data: unknown; error: string }>(
+        lines[1],
+      ),
+    ).toEqual({ __deferred: 'post', data: undefined });
   });
 
   it('SPA — dev streams the raw error for a failed deferred resolver', async () => {
@@ -1259,7 +1330,9 @@ describe('handlePageGet with deferred props', () => {
       const lines = text.trim().split('\n');
       expect(lines.length).toBe(2);
 
-      const deferredLine = JSON.parse(lines[1]);
+      const deferredLine = deserializePageData<
+        PageResponse & { __deferred: string; data: unknown; error: string }
+      >(lines[1]);
       expect(deferredLine.__deferred).toBe('usage');
       expect(deferredLine.error).toBe('timeout');
     } finally {
@@ -1286,7 +1359,11 @@ describe('handlePageGet with deferred props', () => {
 
       const text = await response.text();
       expect(text).not.toContain('10.0.0.5');
-      expect(JSON.parse(text.trim().split('\n')[1])).toEqual({
+      expect(
+        deserializePageData<PageResponse & { __deferred: string; data: unknown; error: string }>(
+          text.trim().split('\n')[1],
+        ),
+      ).toEqual({
         __deferred: 'usage',
         error: 'Internal Server Error',
       });
@@ -1342,7 +1419,11 @@ describe('handlePageGet with deferred props', () => {
       );
 
       const text = await response.text();
-      expect(JSON.parse(text.trim().split('\n')[1])).toEqual({
+      expect(
+        deserializePageData<PageResponse & { __deferred: string; data: unknown; error: string }>(
+          text.trim().split('\n')[1],
+        ),
+      ).toEqual({
         __deferred: 'usage',
         error: 'Upgrade required',
       });
@@ -1378,7 +1459,7 @@ describe('handlePageGet with deferred props', () => {
     expect(text).toContain('__VOID_PAGE_DATA__');
     expect(text).toContain('"deferred":["usage"]');
     expect(text).toContain('window.__resolveDeferred("usage",');
-    expect(text).toContain('"requests":100');
+    expect(text).toContain(serializePageData({ requests: 100 }));
   });
 
   it('client-only page — returns an empty app shell with initial page data', async () => {
@@ -1408,8 +1489,11 @@ describe('handlePageGet with deferred props', () => {
     expect(html).toContain('window.__reactPreamble = true');
     expect(html).toContain('<div id="app" data-void-ssr="false"></div>');
     expect(html).toContain('__VOID_PAGE_DATA__');
-    expect(html).toContain('"component":"analytics"');
-    expect(html).toContain('"title":"Analytics"');
+    expect(
+      deserializePageData(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ),
+    ).toMatchObject({ component: 'analytics', props: { title: 'Analytics' } });
     expect(html).not.toContain('server rendered');
   });
 
@@ -1432,9 +1516,13 @@ describe('handlePageGet with deferred props', () => {
 
     const html = await response.text();
     expect(html).toContain('<div id="app" data-void-ssr="false"></div>');
-    expect(html).toContain('"deferred":["stats"]');
+    expect(
+      deserializePageData<{ deferred: Array<string> }>(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ).deferred,
+    ).toEqual(['stats']);
     expect(html).toContain('window.__resolveDeferred("stats",');
-    expect(html).toContain('"visits":12');
+    expect(html).toContain(serializePageData({ visits: 12 }));
   });
 
   it('deferred named group — resolves all keys together', async () => {
@@ -1465,11 +1553,15 @@ describe('handlePageGet with deferred props', () => {
     const lines = text.trim().split('\n');
     expect(lines.length).toBe(2);
 
-    const pageObj = JSON.parse(lines[0]);
+    const pageObj = deserializePageData<
+      PageResponse & { __deferred: string; data: unknown; error: string }
+    >(lines[0]);
     expect(pageObj.deferred).toEqual(['analytics']);
     expect(pageObj.deferredKeys).toEqual({ metrics: 'analytics', chart: 'analytics' });
 
-    const deferredLine = JSON.parse(lines[1]);
+    const deferredLine = deserializePageData<
+      PageResponse & { __deferred: string; data: unknown; error: string }
+    >(lines[1]);
     expect(deferredLine.__deferred).toBe('analytics');
     expect(deferredLine.data).toHaveProperty('metrics');
     expect(deferredLine.data).toHaveProperty('chart');

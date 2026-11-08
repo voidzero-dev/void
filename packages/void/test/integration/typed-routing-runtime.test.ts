@@ -7,6 +7,7 @@ import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { readConfig } from '../../src/config.ts';
+import { decodePageData } from '../../src/pages/serialize.ts';
 import { compileRouteTable, compileWorkerEntry } from '../../src/router/compile.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
@@ -299,7 +300,7 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       const protocol = await runtime.dispatchFetch('https://app.test/', {
         headers: { 'x-voidpages': 'true' },
       });
-      expect(((await protocol.json()) as { props: unknown }).props).toEqual({
+      expect((decodePageData(await protocol.json()) as { props: unknown }).props).toEqual({
         title: 'real page loader',
       });
       expect(

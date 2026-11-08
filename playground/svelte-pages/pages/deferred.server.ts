@@ -3,12 +3,14 @@ import type { Deferred } from 'void';
 
 export type Props = Readonly<{
   title: string;
-  stats: Deferred<{ count: number }>;
+  createdAt: Date;
+  stats: Deferred<{ count: number; date: Date }>;
 }>;
 
 export const loader = defineHandler<Props>(() => {
   return {
     title: 'Deferred Page',
-    stats: defer(async () => ({ count: 42 })),
+    createdAt: new Date('2026-11-08T00:00:00Z'),
+    stats: defer(async () => ({ count: 42, date: new Date('2026-11-08T00:00:00Z') })),
   };
 });

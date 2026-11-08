@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
+import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
@@ -954,7 +955,7 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true' },
         }),
       );
-      expect(((await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
     });
   });
   it('executes the real page loader and protocol', async () => {
@@ -969,7 +970,9 @@ describe('typed Pages and SSR execution', () => {
     const response = await app.fetch(
       new Request('https://app.test/page', { headers: { 'x-voidpages': 'true' } }),
     );
-    expect(((await response.json()) as { props: unknown }).props).toEqual({ title: 'loaded' });
+    expect((decodePageData(await response.json()) as { props: unknown }).props).toEqual({
+      title: 'loaded',
+    });
   });
   it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
     const app = new Hono();
@@ -1493,7 +1496,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
     const json = await get(app);
     expect(json.status).toBe(200);
-    expect(((await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    expect((decodePageData(await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
     const html = await get(app, {});
     expect(html.status).toBe(200);
     expect(await html.text()).toContain('{"notes":["a"]}');
@@ -1510,12 +1513,15 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       title: 'a',
     });
     expect(valid.status).toBe(200);
-    expect(await valid.json()).toMatchObject({ props: { notes: ['fresh'] }, errors: null });
+    expect(decodePageData(await valid.json())).toMatchObject({
+      props: { notes: ['fresh'] },
+      errors: null,
+    });
     const invalid = await post(createPageApp({ loader, actions: { create: action('Required') } }), {
       title: '',
     });
     expect(invalid.status).toBe(200);
-    expect(await invalid.json()).toMatchObject({
+    expect(decodePageData(await invalid.json())).toMatchObject({
       props: { notes: ['fresh'] },
       errors: { title: 'Required' },
     });
@@ -1539,7 +1545,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     });
     const json = await get(app);
     expect(json.headers.get('X-After')).toBe('1');
-    expect(await json.text()).toContain('{"__deferred":"slow","data":2}');
+    expect(await json.text()).toContain(serializePageData({ __deferred: 'slow', data: 2 }));
     const html = await get(app, {});
     expect(html.headers.get('X-After')).toBe('1');
     expect(await html.text()).toContain('__resolveDeferred');
@@ -1569,7 +1575,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       expect(response.status).toBe(200);
       expect(response.headers.get('X-Before')).toBe('1');
       expect(response.headers.get('X-After')).toBe('1');
-      expect(((await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+      expect((decodePageData(await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
     }
   });
 
@@ -1580,7 +1586,8 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       c.set('shared', count(2));
       await next();
     };
-    const sharedOf = async (response: Response) => ((await response.json()) as PageJson).shared;
+    const sharedOf = async (response: Response) =>
+      (decodePageData(await response.json()) as PageJson).shared;
     const setCount = (n: number) => (c: CloudContext) => {
       c.set('shared', { ...(c.get('shared') as object), ...count(n) });
     };
@@ -1650,7 +1657,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       {},
     );
     expect(errors.status).toBe(200);
-    expect(await errors.json()).toMatchObject({ errors: { title: 'Taken' } });
+    expect(decodePageData(await errors.json())).toMatchObject({ errors: { title: 'Taken' } });
 
     // A ValidationError from the loader while re-rendering is not the action's.
     const failing = vi.fn(() => {

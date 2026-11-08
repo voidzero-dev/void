@@ -259,9 +259,10 @@ async function renderPageHtml(
 }
 
 function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
-  return Response.json(pageObj, {
+  return new Response(serializePageData(pageObj), {
     headers: pageResponseHeaders(c, {
       'X-VoidPages': 'true',
+      'Content-Type': 'application/json',
       Vary: 'X-VoidPages',
       ...POWERED_BY,
     }),
@@ -576,13 +577,13 @@ async function runPageGet(
       // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
       c.header('X-VoidPages', 'true');
       return streamDeferredResponse(
-        JSON.stringify(pageObj) + '\n',
+        serializePageData(pageObj) + '\n',
         deferredMap,
         c,
         'application/x-ndjson',
         options?.dev === true,
-        (group, data) => JSON.stringify({ __deferred: group, data: data ?? null }) + '\n',
-        (group, error) => JSON.stringify({ __deferred: group, error }) + '\n',
+        (group, data) => serializePageData({ __deferred: group, data }) + '\n',
+        (group, error) => serializePageData({ __deferred: group, error }) + '\n',
       );
     }
 
@@ -608,7 +609,7 @@ async function runPageGet(
       options?.dev === true,
       (group, data) => {
         const g = safeJsonStringify(group);
-        return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d):(window.__deferredQueue??=[]).push([${g},d])})(${safeJsonStringify(data)})</script>`;
+        return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d,true):(window.__deferredQueue??=[]).push([${g},d,0,true])})(${serializePageData(data)})</script>`;
       },
       (group, error) => {
         const g = safeJsonStringify(group);

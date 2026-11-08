@@ -786,6 +786,9 @@ importers:
       cf:
         specifier: 'catalog:'
         version: 1.0.0-beta.26(@types/node@26.6.6)
+      devalue:
+        specifier: ^6.0.3
+        version: 6.0.3
       drizzle-arktype:
         specifier: ^0.1.3
         version: 0.1.3(arktype@2.2.9)(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261102.1)(@electric-sql/pglite@0.5.14)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.7)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))

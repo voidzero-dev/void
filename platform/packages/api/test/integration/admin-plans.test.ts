@@ -2,6 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vite-plus/test';
+import { decodePageData } from 'void/pages-server';
 import type { AdminPlanPreview, AdminPlanProgress } from '../../src/admin/plans.ts';
 import { app } from '../../src/index.ts';
 import { readPlanCatalog } from '../../src/plans.ts';
@@ -73,7 +74,8 @@ async function preview(action: string, id: string, fields: Record<string, string
     { 'X-VoidPages': 'true' },
   );
   expect(response.status).toBe(200);
-  return ((await response.json()) as { props: { preview: AdminPlanPreview } }).props.preview;
+  return (decodePageData(await response.json()) as { props: { preview: AdminPlanPreview } }).props
+    .preview;
 }
 function apply(change: AdminPlanPreview) {
   return request(
@@ -151,7 +153,7 @@ describe('administrator plan dashboard', () => {
         expect(html).toContain('Replacement plan');
       }
       const navigation = await request(path, undefined, { 'X-VoidPages': 'true' });
-      expect(await navigation.json()).toMatchObject({
+      expect(decodePageData(await navigation.json())).toMatchObject({
         component: path === home ? 'plans' : 'planEdit',
       });
     }
@@ -269,7 +271,7 @@ describe('administrator plan dashboard', () => {
       requestsPerMonth: '1000',
     });
     const result = await apply(change);
-    expect(await result.json()).toMatchObject({
+    expect(decodePageData(await result.json())).toMatchObject({
       component: 'planProgress',
       props: {
         initial: { complete: false, error: expect.any(String), processed: 0, revision: 1 },
