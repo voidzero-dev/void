@@ -1,4 +1,9 @@
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PGlite } from '@electric-sql/pglite';
+import { drizzle } from 'drizzle-orm/pglite';
+import { migrate } from 'drizzle-orm/pglite/migrator';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
 import {
   applyPgMigrations,
@@ -29,6 +34,61 @@ afterAll(async () => {
 });
 
 describe('applyPgMigrations', () => {
+  it('adopts an existing Drizzle database using the documented procedure without replaying SQL', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-drizzle-adoption-'));
+    const old = [
+      {
+        name: '0000_create_users.sql',
+        sql: "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT);\n--> statement-breakpoint\nINSERT INTO users (name) VALUES ('alice');",
+      },
+      { name: '0001_add_email.sql', sql: 'ALTER TABLE users ADD COLUMN email TEXT;' },
+    ];
+    try {
+      mkdirSync(join(root, 'meta'));
+      for (const migration of old) {
+        writeFileSync(join(root, migration.name), migration.sql);
+      }
+      writeFileSync(
+        join(root, 'meta/_journal.json'),
+        JSON.stringify({
+          version: '7',
+          dialect: 'postgresql',
+          entries: old.map((migration, idx) => ({
+            idx,
+            version: '7',
+            when: 1_700_000_000_000 + idx,
+            tag: migration.name.replace('.sql', ''),
+            breakpoints: false,
+          })),
+        }),
+      );
+      await migrate(drizzle(pglite), { migrationsFolder: root });
+      expect(await readPgAppliedMigrations(client)).toEqual([]);
+      const guide = readFileSync(
+        join(import.meta.dirname, '../../../../docs/guide/database.md'),
+        'utf8',
+      );
+      const sql = guide.match(/```sql \[adopt-void.sql\]\n([\s\S]*?)```/)?.[1];
+      expect(sql, 'the guide must provide the adoption SQL').toBeDefined();
+      await pglite.exec(sql!);
+      await pglite.exec(sql!);
+      expect((await readPgAppliedMigrations(client)).sort()).toEqual(old.map(({ name }) => name));
+      const next = {
+        name: '0002_add_active.sql',
+        sql: 'ALTER TABLE users ADD COLUMN active BOOLEAN DEFAULT true;',
+      };
+      expect(await applyPgMigrations(client, [...old, next])).toEqual([next.name]);
+      expect((await pglite.query('SELECT name, active FROM users')).rows).toEqual([
+        { name: 'alice', active: true },
+      ]);
+      expect((await pglite.query('SELECT * FROM drizzle.__drizzle_migrations')).rows).toHaveLength(
+        2,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it('returns empty array for empty migrations list', async () => {
     const result = await applyPgMigrations(client, []);
     expect(result).toEqual([]);

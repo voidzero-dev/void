@@ -385,6 +385,39 @@ npm install arktype
 
 See the [CLI reference](../reference/cli/database.md#database) for connection setup, SQL execution, Studio, exports, and other commands.
 
+## Adopt an existing Drizzle PostgreSQL database {#adopt-existing-drizzle}
+
+You can keep a PostgreSQL database that Drizzle has already migrated. Void tracks applied files separately, so record the existing history before the first Void deployment.
+
+1. Back up the database and pause deployments. Try the procedure on a restored copy first.
+2. Set `database: 'pg'` in `void.config.ts`. Keep your existing schema, SQL filenames, and `db/migrations/meta/` directory. Do not regenerate or rename migrations during adoption.
+3. Check the database's Drizzle history against `meta/_journal.json` and your SQL files. Match each applied row's `created_at` to the journal entry's `when`, and its `hash` to the SHA-256 of the corresponding SQL file. Drizzle normally stores this history in `drizzle.__drizzle_migrations`; use your configured schema and table if different. If a file cannot be verified, resolve the discrepancy before continuing.
+
+```sql
+SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at;
+```
+
+4. Save the following as `adopt-void.sql`, replacing the example filenames with **only the migrations verified as already applied to this database**, including `.sql`. Leave new, unapplied files out of the list.
+
+```sql [adopt-void.sql]
+BEGIN;
+CREATE TABLE IF NOT EXISTS _void_migrations (
+  name TEXT PRIMARY KEY,
+  applied_at TEXT NOT NULL
+);
+INSERT INTO _void_migrations (name, applied_at)
+VALUES
+  ('0000_create_users.sql', CURRENT_TIMESTAMP::text),
+  ('0001_add_email.sql', CURRENT_TIMESTAMP::text)
+ON CONFLICT (name) DO NOTHING;
+COMMIT;
+```
+
+5. Run the file against the existing database with your PostgreSQL client, stopping on errors. Use the same database and PostgreSQL search path that Void will use. This records the verified filenames without executing their SQL or changing Drizzle's history.
+6. Configure Void's connection to that database and run `void db status`. Verify that only new migrations are pending, then deploy. For direct Cloudflare deployments, provide that database's `DATABASE_URL` in the shell or CI environment running `void deploy`.
+
+Repeat the verification and adoption separately for each database. An entry in one environment's history does not prove that another environment has applied it. Leave Drizzle's history table intact, and use Void for subsequent migrations.
+
 ## Hand-written migrations {#hand-written-migrations}
 
 Deploy compares your Drizzle schema with the snapshots in `db/migrations/meta/`. If you have SQL migrations without this metadata, running `void db generate` would create another migration for the same tables.
