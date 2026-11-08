@@ -15,7 +15,10 @@ import { pathToFileURL } from 'node:url';
 import { toSlash } from 'pathslash';
 import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getOriginalFrameworkEntry } from '../../src/plugin-framework-entry.ts';
+import {
+  getOriginalFrameworkEntry,
+  hasVinextMiddleware,
+} from '../../src/plugin-framework-entry.ts';
 import { frameworkTriggersDispatchPath } from '../../src/plugin-framework-triggers.ts';
 
 vi.mock('../../src/plugin-cloudflare.ts', () => import('../helpers/cloudflare-vite-plugin.ts'));
@@ -71,6 +74,17 @@ afterEach(() => {
 });
 
 describe('Class A framework custom entry', () => {
+  it.each(['middleware.ts', 'src/middleware.js', 'proxy.ts', 'src/proxy.custom.ts'])(
+    'detects vinext convention file %s without importing application code',
+    (file) => {
+      const root = createTanStackRoot();
+      expect(hasVinextMiddleware(root)).toBe(false);
+      mkdirSync(join(root, file, '..'), { recursive: true });
+      writeFileSync(join(root, file), 'throw new Error("must not execute during config");');
+      expect(hasVinextMiddleware(root)).toBe(true);
+    },
+  );
+
   it.each(['serve', 'build'] as const)(
     'preserves a custom TanStack Worker entry and named exports during %s',
     async (command) => {

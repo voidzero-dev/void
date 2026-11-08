@@ -54,6 +54,7 @@ import { envSchemaPlugin, type EnvSchemaFacts } from './plugin-env-schema.ts';
 import {
   getFrameworkEntry,
   generateClassATriggerWrapper,
+  hasVinextMiddleware,
   getOriginalFrameworkEntry,
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
@@ -634,6 +635,13 @@ export function voidPlugin(options?: {
   };
 
   if (framework) {
+    if ((framework === 'vinext-app' || framework === 'vinext-pages') && hasVinextMiddleware(root)) {
+      workerConfig.assets = {
+        binding: 'ASSETS',
+        not_found_handling: 'none',
+        run_worker_first: ['/*'],
+      };
+    }
     workerConfig.main = getFrameworkEntry(
       framework,
       root,
