@@ -73,9 +73,14 @@ describe('generated auth types in a consumer project', () => {
         '  user: { additionalFields: { plan: { type: "string", required: false } } },\n' +
         '}));\n',
       'import { defineHandler } from "void";\n' +
-        'import { getUser, getSession, requireAuth } from "void/auth";\n' +
+        'import { getAuth, getUser, getSession, requireAuth } from "void/auth";\n' +
         'import { logger } from "void/log";\n' +
         'export const loader = defineHandler((c) => {\n' +
+        '  const auth = getAuth(c);\n' +
+        '  auth.api.listUsers({ headers: c.req.raw.headers, query: { limit: 10 } });\n' +
+        '  auth.$context;\n' +
+        '  // @ts-expect-error no such plugin endpoint\n' +
+        '  auth.api.notAnEndpoint();\n' +
         '  const role: string | null | undefined = c.get("user")?.role;\n' +
         '  const plan: string | null | undefined = getUser()?.plan;\n' +
         '  const impersonatedBy: string | null | undefined = c.get("session")?.impersonatedBy;\n' +
@@ -120,7 +125,14 @@ describe('generated auth types in a consumer project', () => {
         'export default defineAuth({\n' +
         '  user: { additionalFields: { plan: { type: "string", required: true } } },\n' +
         '});\n',
-      'import { getUser, type AuthUser } from "void/auth";\n' +
+      'import { getAuth, getUser, type AuthUser } from "void/auth";\n' +
+        'import { defineHandler } from "void";\n' +
+        'export const GET = defineHandler(c => {\n' +
+        '  getAuth(c).handler(c.req.raw);\n' +
+        '  // @ts-expect-error not an endpoint on the base instance\n' +
+        '  getAuth(c).api.notAnEndpoint();\n' +
+        '  return {};\n' +
+        '});\n' +
         'export const email: string = getUser()!.email;\n' +
         '// @ts-expect-error not a key of the base user\n' +
         'export const key: keyof AuthUser = "notAField";\n' +

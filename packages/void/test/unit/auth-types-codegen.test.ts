@@ -49,13 +49,16 @@ describe('generateAuthTypes', () => {
       const { dts } = generateAuthTypes(join(root, 'auth.ts'), outDir);
       expect(dts).toContain('export {}');
       // better-auth is reached through void/auth: apps usually cannot resolve it themselves.
-      expect(dts).toContain('import type { InferAuthSession } from "void/auth";');
+      expect(dts).toContain(
+        'import type { InferAuthInstance, InferAuthSession } from "void/auth";',
+      );
       expect(dts).not.toContain('from "better-auth"');
       expect(dts).toContain(
         'type _VoidAuthSession = InferAuthSession<typeof import("../auth.ts")["default"]>;',
       );
       expect(dts).toContain('declare module "void/auth"');
       expect(dts).toContain('interface VoidAuthTypes {');
+      expect(dts).toContain('auth: InferAuthInstance<typeof import("../auth.ts")["default"]>;');
       expect(dts).toContain('user: _VoidAuthSession["user"];');
       expect(dts).toContain('session: _VoidAuthSession["session"];');
     } finally {
