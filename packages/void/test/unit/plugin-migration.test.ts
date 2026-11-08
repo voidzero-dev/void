@@ -2,6 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync, existsSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
+import { createServer, type PluginOption } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 import { migrationPlugin } from '../../src/plugin-migration.ts';
@@ -119,6 +120,32 @@ describe('migrationPlugin persistence roots', () => {
     await runConfigureServer(plugin);
 
     const dbPath = getMiniflareDatabasePath(persistRoot, 'local');
+    expect(existsSync(dbPath)).toBe(true);
+  });
+});
+
+describe("migrationPlugin in Vitest's server", () => {
+  it('applies migrations only in other dev servers, whatever the mode', async () => {
+    const root = createProjectRoot();
+    const dbPath = getMiniflareDatabasePath(join(root, '.void'), 'local');
+    const startServer = async (mode: string, plugins: Array<PluginOption>) => {
+      const server = await createServer({
+        root,
+        configFile: false,
+        logLevel: 'silent',
+        mode,
+        server: { middlewareMode: true, ws: false },
+        plugins,
+      });
+      await server.close();
+    };
+    // Vitest adds plugins of its own to the server that runs the tests.
+    for (const mode of ['test', 'staging']) {
+      await startServer(mode, [{ name: 'vitest:config' }, migrationPlugin(root, 'sqlite')]);
+      expect(existsSync(dbPath)).toBe(false);
+    }
+    // A server that a test starts has none, even in mode `test`.
+    await startServer('test', [migrationPlugin(root, 'sqlite')]);
     expect(existsSync(dbPath)).toBe(true);
   });
 });

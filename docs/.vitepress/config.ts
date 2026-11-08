@@ -317,6 +317,7 @@ export default extendConfig(
             icon: 'lucide:rocket',
             collapsed: false,
             items: [
+              { text: 'Testing', link: '/guide/testing' },
               { text: 'Remote Development', link: '/guide/remote-dev' },
               { text: 'Deploying Your App', link: '/guide/deployment' },
               { text: 'Project Collaboration', link: '/guide/project-collaboration' },

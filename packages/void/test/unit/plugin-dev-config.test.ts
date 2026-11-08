@@ -1,7 +1,9 @@
+import type { PluginOption } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   devTriggerSecretGuardPlugin,
   isDevTriggerSecretRequest,
+  isVitestServer,
 } from '../../src/plugin-dev-config.ts';
 
 describe('isDevTriggerSecretRequest', () => {
@@ -69,5 +71,28 @@ describe('isDevTriggerSecretRequest', () => {
 describe('devTriggerSecretGuardPlugin', () => {
   it('runs before other dev server plugins', () => {
     expect(devTriggerSecretGuardPlugin().enforce).toBe('pre');
+  });
+});
+
+describe('isVitestServer', () => {
+  it.each<[Array<PluginOption>]>([
+    // Vitest 5 names every plugin of its server `vitest:*`.
+    [[{ name: 'vite-plugin-cloudflare' }, { name: 'vitest:config' }]],
+    // Vitest 3 and 4 also name their main plugin `vitest`.
+    [[{ name: 'vitest' }]],
+    // Vite flattens nested arrays and ignores falsy entries.
+    [[false, null, [[{ name: 'vitest:test-config' }]]]],
+  ])('finds Vitest in %j', (plugins) => {
+    expect(isVitestServer({ plugins })).toBe(true);
+  });
+
+  it.each<[Array<PluginOption> | undefined]>([
+    [undefined],
+    [[]],
+    [[false, [{ name: 'vite-plugin-cloudflare' }, { name: 'void:env' }]]],
+    // A plugin named after Vitest is not Vitest's own.
+    [[{ name: 'vitest-plugin-example' }]],
+  ])('does not find Vitest in %j', (plugins) => {
+    expect(isVitestServer({ plugins })).toBe(false);
   });
 });

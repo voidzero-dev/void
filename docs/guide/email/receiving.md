@@ -138,4 +138,4 @@ describe('email handlers', () => {
 });
 ```
 
-The harness matches handlers in the same order as deployed email routes.
+The harness matches handlers in the same order as deployed email routes. [Testing](../testing.md) explains how to run tests and how to test code that uses other bindings.
