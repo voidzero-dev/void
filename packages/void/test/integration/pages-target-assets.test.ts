@@ -151,21 +151,28 @@ export default function Home() {
       }
     });
 
-    // A server that embeds the client build (a single executable, for one) has no dist/client to
-    // read from. Moving it away proves the manifest, scripts and public files all come from the
-    // supplied provider rather than the filesystem.
-    it.skipIf(target !== 'node')(
+    // A server that embeds the client build (a Node single executable, or `bun build --compile`)
+    // has no dist/client to read from. Moving it away proves the manifest, scripts and public files
+    // all come from the supplied provider rather than the filesystem.
+    it.skipIf(target === 'deno')(
       'serves the client build through an ASSETS provider the server supplies',
       async () => {
         const client = join(root, 'dist/client');
         const supplied = join(root, 'supplied-client');
         renameSync(client, supplied);
+        const serve =
+          target === 'bun'
+            ? `const server = Bun.serve({ fetch: (request, server) => app.fetch(request, { server, ASSETS }), port: Number(process.env.PORT) });
+console.log('Listening on http://localhost:' + server.port);`
+            : `serve({ fetch: (request, env) => app.fetch(request, { ...env, ASSETS }), port: Number(process.env.PORT) }, (info) => {
+  console.log('Listening on http://localhost:' + info.port);
+});`;
         writeFileSync(
           join(root, 'supplied-server.mjs'),
           `
 import { readFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
-import { serve } from '@hono/node-server';
+${target === 'bun' ? '' : "import { serve } from '@hono/node-server';"}
 import app from './dist/ssr/app.js';
 
 const types = { '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.txt': 'text/plain' };
@@ -183,15 +190,13 @@ const ASSETS = {
   },
 };
 
-serve({ fetch: (request, env) => app.fetch(request, { ...env, ASSETS }), port: Number(process.env.PORT) }, (info) => {
-  console.log('Listening on http://localhost:' + info.port);
-});
+${serve}
 `,
         );
         try {
           const server = await startServer(
             (port) =>
-              spawn(command, ['supplied-server.mjs'], {
+              spawn(command, [...args, 'supplied-server.mjs'], {
                 cwd: root,
                 stdio: ['ignore', 'pipe', 'pipe'],
                 env: { ...process.env, PORT: String(port) },
