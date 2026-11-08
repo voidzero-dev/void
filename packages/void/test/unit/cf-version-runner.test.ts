@@ -1111,6 +1111,7 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
       vectorize: [{ binding: 'VECTORS', index_name: 'vectors' }],
       browser: { binding: 'BROWSER' },
       images: { binding: 'IMAGES' },
+      worker_loaders: [{ binding: 'LOADER' }],
       dispatch_namespaces: [
         {
           binding: 'DISPATCH',
@@ -1287,6 +1288,7 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
         { name: 'VECTORS', type: 'vectorize', index_name: 'vectors' },
         { name: 'BROWSER', type: 'browser' },
         { name: 'IMAGES', type: 'images' },
+        { name: 'LOADER', type: 'worker_loader' },
         {
           name: 'DISPATCH',
           type: 'dispatch_namespace',
