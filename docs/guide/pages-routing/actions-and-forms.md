@@ -443,6 +443,8 @@ export const action = defineHandler(async (c) => {
 });
 ```
 
+`withValidator({ body })` accepts the same upload. Nested names such as `profile[name]`, `tags[0]`, and `tags[]` are objects and arrays again. A multipart schema has to coerce the rest: booleans arrive as `'1'` or `'0'`, numbers and dates as strings, and `null` as `''`.
+
 Pick the storage key on the server and allow only the file types you expect. See [Serving Files](../storage.md#serving-files) to send them back safely.
 
 ## Choosing a Primitive

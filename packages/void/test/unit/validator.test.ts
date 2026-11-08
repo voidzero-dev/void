@@ -25,7 +25,12 @@ function failSchema(issues: Array<StandardSchemaV1.Issue>): StandardSchemaV1 {
 }
 
 function mockContext(body?: unknown): CloudContext {
-  return { req: { json: async () => body } } as unknown as CloudContext;
+  return {
+    req: {
+      json: async () => body,
+      header: () => undefined,
+    },
+  } as unknown as CloudContext;
 }
 
 describe('runValidation', () => {
