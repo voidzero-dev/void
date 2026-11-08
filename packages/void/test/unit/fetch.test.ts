@@ -3,6 +3,8 @@ import { fetch as typedFetch, FetchError } from '../../src/runtime/fetch.ts';
 
 declare module 'void/routes' {
   interface RouteMap {
+    '/api/users/[id]': RouteMap['/api/users/:id'];
+    '/api/files/[...path]': RouteMap['/api/files/:path{.+}'];
     '/api/hello': {
       GET: { input: {}; output: { ok: boolean } };
     };
@@ -53,13 +55,23 @@ describe('typed fetch client', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it('expands complete catch-all tokens', async () => {
-    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({}));
-    await typedFetch('/api/files/:path{.+}', { params: { path: 'docs/start here' } });
-    expect(globalThis.fetch).toHaveBeenCalledWith(
-      '/api/files/docs/start%20here',
-      expect.anything(),
-    );
+  it.each(['/api/files/[...path]', '/api/files/:path{.+}'] as const)(
+    'expands catch-all tokens in %s',
+    async (path) => {
+      vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({}));
+      await typedFetch(path, { params: { path: 'docs/start here' } });
+      expect(globalThis.fetch).toHaveBeenCalledWith(
+        '/api/files/docs/start%20here',
+        expect.anything(),
+      );
+    },
+  );
+
+  it('interpolates bracket parameters for typed requests', async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(jsonResponse({ id: 'a/b', name: 'Alice' }));
+    const result = await typedFetch('/api/users/[id]', { params: { id: 'a/b' } });
+    expect(globalThis.fetch).toHaveBeenCalledWith('/api/users/a%2Fb', expect.anything());
+    expect(result).toEqual({ id: 'a/b', name: 'Alice' });
   });
 
   it('builds query string', async () => {

@@ -238,7 +238,7 @@ import { useParams as vue } from ${adapterSource('vue/src/runtime/use-params.ts'
 import { useParams as svelte } from ${adapterSource('svelte/src/runtime/use-params.ts')};
 import { useParams as solid } from ${adapterSource('solid/src/runtime/use-params.ts')};
 type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
-const pages: Array<PagePath> = ['/', '/about', '/users/:id', '/files/:path{.+}', '/wild/*'];
+const pages: Array<PagePath> = ['/', '/about', '/users/[id]', '/files/[...path]', '/wild/[...]', '/users/:id', '/files/:path{.+}', '/wild/*'];
 // @ts-expect-error HTTP routes are not pages
 const api: PagePath = '/api/users/:id';
 void [pages, api];
@@ -247,6 +247,15 @@ ${['react', 'vue', 'svelte', 'solid']
   .map(
     (useParams) => `{
   const user = ${useParams}<'/users/:id'>();
+  const bracketUser = ${useParams}<'/users/[id]'>();
+  const bracketFiles = ${useParams}<'/files/[...path]'>();
+  const bracketWild = ${useParams}<'/wild/[...]'>();
+  const aliases: [
+    Same<typeof bracketUser, typeof user>,
+    Same<typeof bracketFiles, { path: string }>,
+    Same<typeof bracketWild, {}>,
+  ] = [true, true, true];
+  void aliases;
   const files = ${useParams}<'/files/:path{.+}'>();
   const wild = ${useParams}<'/wild/*'>();
   const about = ${useParams}<'/about'>();
@@ -325,6 +334,17 @@ routeUrl('/café menu');
 routeUrl('/api/users/:id', { params: { id: '123' } });
 routeUrl('/files/:path{.+}', { params: { path: 'docs/start' } });
 routeUrl('/wild/*', { params: { '*': 'a/b' } });
+routeUrl('/users/[id]', { params: { id: 123 } });
+routeUrl('/files/[...path]', { params: { path: 'docs/start' } });
+routeUrl('/wild/[...]', { params: { '*': 'a/b' } });
+// @ts-expect-error bracket patterns require params
+routeUrl('/users/[id]');
+// @ts-expect-error bracket catch-all patterns require params
+routeUrl('/files/[...path]');
+// @ts-expect-error bracket anonymous catch-alls require a wildcard param
+routeUrl('/wild/[...]');
+// @ts-expect-error bracket params are checked
+routeUrl('/users/[id]', { params: { wrong: 123 } });
 // @ts-expect-error a known route's params are required
 routeUrl('/users/:id');
 // @ts-expect-error params cannot be omitted while providing other options
@@ -341,6 +361,8 @@ routeUrl('/files/:path{.+}');
 routeUrl('/wild/*');
 void url;
 const destination: RouteDestination = { pathname: '/users/:id', params: { id: 123 }, query: { tab: 'activity' } };
+const bracketDestination: RouteDestination = { pathname: '/users/[id]', params: { id: 123 } };
+void bracketDestination;
 declare const router: VoidRouter;
 void router.visit(destination);
 void router.prefetch(destination);
@@ -441,6 +463,77 @@ function typecheck(
 
 describe('standalone routeUrl utility', () => {
   it.each(['generated', 'package'] as const)(
+    'preserves HTTP, WebSocket and page action contracts for both syntaxes through %s declarations',
+    async (declarations) => {
+      const root = await createFixture({
+        extraFiles: {
+          'routes/chat/[room].ws.ts': `import { defineRoom } from 'void/ws';
+type Schema<T> = { '~standard': { version: 1; vendor: string; validate: (value: unknown) => { value: T }; types?: { input: T; output: T } } };
+declare const message: Schema<{ text: string }>;
+export default defineRoom({ messages: { client: message, server: message } });
+`,
+          'pages/users/[id].server.ts': `import { defineHandler } from 'void/handler';
+type Schema<T> = { '~standard': { version: 1; vendor: string; validate: (value: unknown) => { value: T }; types?: { input: T; output: T } } };
+declare const body: Schema<{ name: string }>;
+export const actions = { save: defineHandler.withValidator({ body })(() => ({ ok: true })) };
+`,
+          'check-aliases.ts': `import { fetch } from 'void/client';
+import { connect } from 'void/ws';
+import { createActionClient } from 'void/pages-client';
+import type { RouteMap, RoutePathMap, PagePathMap, PageActionMap, WebSocketRouteMap } from 'void/routes';
+type Same<A, B> = [A] extends [B] ? ([B] extends [A] ? true : false) : false;
+const aliases: [
+  Same<RouteMap['/api/users/[id]'], RouteMap['/api/users/:id']>,
+  Same<RoutePathMap['/files/[...path]'], RoutePathMap['/files/:path{.+}']>,
+  Same<PagePathMap['/users/[id]'], PagePathMap['/users/:id']>,
+  Same<PageActionMap['/users/[id]'], PageActionMap['/users/:id']>,
+  Same<WebSocketRouteMap['/chat/[room]'], WebSocketRouteMap['/chat/:room']>,
+] = [true, true, true, true, true];
+void aliases;
+const bracket = fetch('/api/users/[id]', { params: { id: '42' } });
+const legacy = fetch('/api/users/:id', { params: { id: '42' } });
+const responses: Same<typeof bracket, typeof legacy> = true;
+void responses;
+// @ts-expect-error methods stay constrained through bracket keys
+fetch('/api/users/[id]', { method: 'POST' });
+// @ts-expect-error legacy methods stay constrained
+fetch('/api/users/:id', { method: 'POST' });
+connect('/chat/[room]', { params: { room: 'lobby' } }).send({ text: 'hi' });
+connect('/chat/:room', { params: { room: 'lobby' } }).send({ text: 'hi' });
+// @ts-expect-error bracket WebSocket params are required
+connect('/chat/[room]', {});
+// @ts-expect-error legacy WebSocket params are required
+connect('/chat/:room', {});
+connect('/chat/[room]', { params: { room: 'lobby' } }).on('message', (message) => {
+  const text: string = message.text;
+  // @ts-expect-error server message types stay constrained
+  void message.missing;
+  void text;
+});
+const { action } = createActionClient();
+action('/users/[id]?save', { params: { id: '42' }, data: { name: 'Alice' } });
+action('/users/:id?save', { params: { id: '42' }, data: { name: 'Alice' } });
+// @ts-expect-error bracket actions require params
+action('/users/[id]?save');
+// @ts-expect-error legacy actions require params
+action('/users/:id?save');
+// @ts-expect-error bracket action bodies stay constrained
+action('/users/[id]?save', { params: { id: '42' }, data: { name: 42 } });
+// @ts-expect-error legacy action bodies stay constrained
+action('/users/:id?save', { params: { id: '42' }, data: { name: 42 } });
+// @ts-expect-error bracket action names stay constrained
+action('/users/[id]?missing', { params: { id: '42' } });
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-aliases.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
     'typechecks through the %s declarations',
     async (declarations) => {
       const root = await createFixture();
@@ -525,7 +618,7 @@ void loose;
       join(root, 'routes.d.ts'),
       `export {};
 declare module 'void/routes' {
-  interface RoutePathMap { '/': never; '/docs/*': '*'; '/users/:id': 'id'; '/café menu': never }
+  interface RoutePathMap { '/': never; '/docs/[...]': '*'; '/users/[id]': 'id'; '/café menu': never }
   interface EncodedRoutePathMap { '/café menu': '/caf%C3%A9%20menu' }
   interface RouteTypesConfig { typedRoutes: true }
 }
@@ -611,7 +704,12 @@ void [hrefs, route, unknown, external];
       `import { routeUrl } from 'void/routes';
 export function buildUrls() {
   return [
+    routeUrl('/users/[id]', { params: { id: 'a/b' }, query: { page: 2, tag: ['one', 'two'] }, hash: '/settings?tab=1&next=%2Fhome' }),
     routeUrl('/users/:id', { params: { id: 'a/b' }, query: { page: 2, tag: ['one', 'two'] }, hash: '/settings?tab=1&next=%2Fhome' }),
+    routeUrl('/files/[...path]', { params: { path: 'docs/start here' } }),
+    routeUrl('/files/:path{.+}', { params: { path: 'docs/start here' } }),
+    routeUrl('/wild/[...]', { params: { '*': 'a/b' } }),
+    routeUrl('/wild/*', { params: { '*': 'a/b' } }),
     routeUrl('/café menu', { query: { q: 'café menu' }, hash: 'café menu' }),
   ];
 }
@@ -628,6 +726,11 @@ export function buildUrls() {
     });
     const expected = [
       '/users/a%2Fb?page=2&tag=one&tag=two#/settings?tab=1&next=%2Fhome',
+      '/users/a%2Fb?page=2&tag=one&tag=two#/settings?tab=1&next=%2Fhome',
+      '/files/docs/start%20here',
+      '/files/docs/start%20here',
+      '/wild/a/b',
+      '/wild/a/b',
       '/caf%C3%A9%20menu?q=caf%C3%A9+menu#caf%C3%A9%20menu',
     ];
     const scriptPath = join(root, 'dist/route.mjs');

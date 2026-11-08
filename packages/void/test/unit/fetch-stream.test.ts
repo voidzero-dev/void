@@ -17,6 +17,7 @@ vi.mock('ofetch', () => {
 
 declare module 'void/routes' {
   interface RouteMap {
+    '/api/stream/[...path]': RouteMap['/api/stream/:path{.+}'];
     '/api/chat': {
       POST: { input: { body: { messages: Array<unknown> } }; output: unknown };
     };
@@ -50,11 +51,14 @@ beforeEach(() => {
 });
 
 describe('fetchStream', () => {
-  it('expands complete catch-all tokens', async () => {
-    vi.mocked(ofetch.raw).mockResolvedValue({ _data: null } as never);
-    await fetchStream('/api/stream/:path{.+}', { params: { path: 'docs/start here' } }).next();
-    expect(ofetch.raw).toHaveBeenCalledWith('/api/stream/docs/start%20here', expect.anything());
-  });
+  it.each(['/api/stream/[...path]', '/api/stream/:path{.+}'] as const)(
+    'expands catch-all tokens in %s',
+    async (path) => {
+      vi.mocked(ofetch.raw).mockResolvedValue({ _data: null } as never);
+      await fetchStream(path, { params: { path: 'docs/start here' } }).next();
+      expect(ofetch.raw).toHaveBeenCalledWith('/api/stream/docs/start%20here', expect.anything());
+    },
+  );
   it('parses Workers AI JSON SSE format', async () => {
     const stream = makeSSEStream([
       'data: {"response":"Hello"}\n\n',

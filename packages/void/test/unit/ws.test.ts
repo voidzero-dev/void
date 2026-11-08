@@ -3,6 +3,8 @@ import { connect } from '../../src/runtime/ws.ts';
 
 declare module 'void/routes' {
   interface WebSocketRouteMap {
+    '/chat/[room]': WebSocketRouteMap['/chat/:room'];
+    '/files/[...path]': WebSocketRouteMap['/files/:path{.+}'];
     '/chat/:room': {
       params: { room: string };
       client: { type: 'chat.message'; text: string };
@@ -80,9 +82,17 @@ describe('typed websocket client', () => {
     (globalThis as { location?: unknown }).location = originalLocation;
   });
 
-  it('expands complete catch-all tokens', () => {
-    connect('/files/:path{.+}', { params: { path: 'docs/start here' } });
-    expect(MockWebSocket.instances[0]!.url).toBe('wss://void.test/files/docs/start%20here');
+  it.each(['/files/[...path]', '/files/:path{.+}'] as const)(
+    'expands catch-all tokens in %s',
+    (path) => {
+      connect(path, { params: { path: 'docs/start here' } });
+      expect(MockWebSocket.instances[0]!.url).toBe('wss://void.test/files/docs/start%20here');
+    },
+  );
+
+  it('interpolates bracket parameters in WebSocket URLs', () => {
+    connect('/chat/[room]', { params: { room: 'a/b' } });
+    expect(MockWebSocket.instances[0]!.url).toBe('wss://void.test/chat/a%2Fb');
   });
 
   it('keeps a secure wss baseURL secure', () => {

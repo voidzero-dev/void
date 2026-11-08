@@ -14,7 +14,7 @@ Pass a [`RouteDestination`](./types.md#route-types) object to check the route pa
 
 ```ts
 return c.rewrite({
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
 });
@@ -29,8 +29,8 @@ import { routeUrl, type Href } from 'void/routes';
 
 declare const checkoutUrl: string;
 
-return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
-return c.redirect({ pathname: '/users/:id', params: { id: 42 } });
+return c.redirect(routeUrl('/users/[id]', { params: { id: 42 } }));
+return c.redirect({ pathname: '/users/[id]', params: { id: 42 } });
 return c.redirect('https://example.com/login');
 return c.redirect(checkoutUrl as Href);
 ```
