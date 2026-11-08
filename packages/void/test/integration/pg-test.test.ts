@@ -6,6 +6,7 @@ import spawn from 'cross-spawn';
 import { createServer } from 'pglite-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { decodePageData } from '../../src/pages/serialize.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const ENV_PATH = join(ROOT, 'playground/pg-test/.env');
@@ -118,7 +119,7 @@ describe('playground/pg-test', () => {
     const propsRes = await fetch(BASE + '/', {
       headers: { 'X-VoidPages': 'true' },
     });
-    const data = (await propsRes.json()) as PageData;
+    const data = decodePageData<PageData>(await propsRes.json());
     expect(data.props.users).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'Alice', email: 'alice@test.com' })]),
     );
@@ -127,7 +128,7 @@ describe('playground/pg-test', () => {
   it('creates a post via action', async () => {
     // Get the user id first
     const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const data = decodePageData<PageData>(await propsRes.json());
     const alice = data.props.users.find((u) => u.name === 'Alice');
     expect(alice).toBeTruthy();
     if (!alice) {
@@ -152,7 +153,7 @@ describe('playground/pg-test', () => {
 
     // Verify post appears
     const postsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const postsData = (await postsRes.json()) as PageData;
+    const postsData = decodePageData<PageData>(await postsRes.json());
     expect(postsData.props.posts).toEqual(
       expect.arrayContaining([expect.objectContaining({ title: 'Hello World', author: 'Alice' })]),
     );
@@ -160,7 +161,7 @@ describe('playground/pg-test', () => {
 
   it('deletes a post via action', async () => {
     const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const data = decodePageData<PageData>(await propsRes.json());
     const post = data.props.posts.find((p) => p.title === 'Hello World');
     expect(post).toBeTruthy();
     if (!post) {
@@ -179,14 +180,14 @@ describe('playground/pg-test', () => {
     expect(deleteRes.status).toBeLessThan(400);
 
     const afterRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const afterData = (await afterRes.json()) as PageData;
+    const afterData = decodePageData<PageData>(await afterRes.json());
     expect(afterData.props.posts.find((p) => p.title === 'Hello World')).toBeUndefined();
   });
 
   it('deletes a user and cascade-deletes their posts', async () => {
     // Create a post for Alice first
     const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const data = decodePageData<PageData>(await propsRes.json());
     const alice = data.props.users.find((u) => u.name === 'Alice');
 
     expect(alice).toBeTruthy();
@@ -215,7 +216,7 @@ describe('playground/pg-test', () => {
     expect(deleteRes.status).toBeLessThan(400);
 
     const afterRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const afterData = (await afterRes.json()) as PageData;
+    const afterData = decodePageData<PageData>(await afterRes.json());
     expect(afterData.props.users.find((u) => u.name === 'Alice')).toBeUndefined();
     expect(afterData.props.posts.find((p) => p.author === 'Alice')).toBeUndefined();
   });

@@ -11,6 +11,7 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
+import { deserializePageData } from 'void/pages-server';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
@@ -684,7 +685,7 @@ function pageSnapshot(html: string): string {
   const match =
     /<script id="__VOID_PAGE_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
   expect(match).not.toBeNull();
-  const page = JSON.parse(match![1]!) as { shared: { adminFateSnapshot?: unknown } };
+  const page = deserializePageData(match![1]!) as { shared: { adminFateSnapshot?: unknown } };
   expect(page.shared.adminFateSnapshot).toBeDefined();
   return JSON.stringify(page.shared.adminFateSnapshot);
 }
@@ -3568,7 +3569,11 @@ describe('GET /admin/deployments/:id (logs section)', () => {
     const html = await res.text();
     expect(html).toContain('role="combobox"');
     expect(html).toContain('placeholder="Filter logs"');
-    expect(html).toContain('"component":"deploymentDetail"');
+    expect(
+      deserializePageData(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ),
+    ).toMatchObject({ component: 'deploymentDetail' });
     expect(html).toContain('src="/admin/client.js"');
   });
 
