@@ -1,78 +1,28 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, request as httpRequest, type Server } from 'node:http';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { pathToFileURL } from 'node:url';
-import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { afterEach, expect, it } from 'vite-plus/test';
+import { expect, it } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
-import {
-  decodeCloudflareOperationResult,
-  encodeCloudflareOperation,
-} from '../../src/cli/cloudflare-process.ts';
+import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
-import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
+import {
+  cleanups,
+  listen,
+  runOperation,
+  systemEnv,
+  temporaryDirectory,
+  tokenEnv,
+} from '../helpers/cloudflare-operation-process.ts';
 
 const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   .version as string;
 const cfVersion = JSON.parse(readFileSync(new URL(import.meta.resolve('cf/package.json')), 'utf8'))
   .version as string;
-
-const cleanups: Array<() => unknown> = [];
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) {
-    await cleanup();
-  }
-});
-
-function temporaryDirectory(prefix: string): string {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
-  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-/** Serve on a random local port until the test ends and return the origin. */
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  cleanups.push(
-    () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
-  );
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
-
-// Children get only what Node needs, so host credentials cannot leak into a test.
-const systemEnv = {
-  PATH: process.env.PATH,
-  SYSTEMROOT: process.env.SYSTEMROOT,
-  WINDIR: process.env.WINDIR,
-  TMP: process.env.TMP,
-  TEMP: process.env.TEMP,
-  NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE,
-  NODE_DISABLE_COMPILE_CACHE: process.env.NODE_DISABLE_COMPILE_CACHE,
-};
-
-function tokenEnv(
-  api?: string,
-  token: 'CLOUDFLARE_API_TOKEN' | 'CF_API_TOKEN' = 'CLOUDFLARE_API_TOKEN',
-): NodeJS.ProcessEnv {
-  return {
-    ...systemEnv,
-    CI: 'true',
-    [token]: 'synthetic-token',
-    CLOUDFLARE_ACCOUNT_ID: 'test-account',
-    ...(api ? { CLOUDFLARE_API_BASE_URL: `${api}/client/v4` } : {}),
-  };
-}
 
 function unproxiedEnv(api: string): NodeJS.ProcessEnv {
   return {
@@ -85,26 +35,6 @@ function unproxiedEnv(api: string): NodeJS.ProcessEnv {
     http_proxy: '',
     https_proxy: '',
   };
-}
-
-/** Run the operation process the CLI spawns; `preload` is imported first to stub cf. */
-function runOperation(
-  cwd: string,
-  request: CloudflareOperation | Array<string>,
-  env: NodeJS.ProcessEnv,
-  preload?: string,
-): Promise<{ status: number; stdout: string; stderr: string }> {
-  const [command, ...prefix] = resolveCloudflareOperationArgv();
-  const args = Array.isArray(request) ? request : encodeCloudflareOperation(request);
-  return new Promise((resolve) => {
-    execFile(
-      command!,
-      [...(preload ? ['--import', pathToFileURL(preload).href] : []), ...prefix, ...args],
-      { cwd, encoding: 'utf8', timeout: 20_000, maxBuffer: 128 * 1024 * 1024, env },
-      (error, stdout, stderr) =>
-        resolve({ status: error ? Number(error.code) || 1 : 0, stdout, stderr }),
-    );
-  });
 }
 
 it.each([

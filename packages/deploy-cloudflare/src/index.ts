@@ -55,7 +55,7 @@ export {
 } from './version.ts';
 export { createCloudflareMetadataRunner } from './metadata.ts';
 export { cloudflareCommandDiagnostic } from './diagnostics.ts';
-export { VOID_SECRET_DRAFT_SOURCE } from './secret-draft.ts';
+export { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } from './secret-draft.ts';
 
 export type {
   CloudflareOperation,

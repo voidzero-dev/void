@@ -31,3 +31,17 @@ export function voidSecretDraftVersion(): Record<string, unknown> & {
     author_id: 'synthetic-author',
   };
 }
+
+/** Sanitized shape of the placeholder that Void's transport uploads and deploys in one request. */
+export function apiSecretDraftVersion(): ReturnType<typeof voidSecretDraftVersion> {
+  return {
+    ...voidSecretDraftVersion(),
+    number: 1,
+    startup_time_ms: 0,
+    annotations: {
+      'workers/message': 'void:secret-draft',
+      'workers/triggered_by': 'create_version_api',
+    },
+    source: 'api',
+  };
+}

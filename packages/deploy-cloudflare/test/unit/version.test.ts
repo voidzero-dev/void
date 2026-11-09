@@ -17,7 +17,7 @@ import {
   type CloudflareTriggerConfig,
 } from '../../src/index.ts';
 import { operationFixture } from '../operation-fixture.ts';
-import { voidSecretDraftVersion } from '../secret-draft-fixture.ts';
+import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';
 
 const CURRENT = '11111111-1111-4111-8111-111111111111';
 const NEXT = '22222222-2222-4222-8222-222222222222';
@@ -58,7 +58,10 @@ function readConfigArg(args: Array<string>): Record<string, unknown> {
   return JSON.parse(readFileSync(args[args.indexOf('-c') + 1]!, 'utf8')) as Record<string, unknown>;
 }
 
-function sdkDraftActivation(source: Record<string, unknown> = voidSecretDraftVersion()) {
+function sdkDraftActivation(
+  source: Record<string, unknown> = voidSecretDraftVersion(),
+  listed: Record<string, unknown> = { annotations: { 'workers/triggered_by': 'secret' } },
+) {
   const events: Array<string> = [];
   const operations: Array<CloudflareOperation> = [];
   const message = encodeCloudflareVersionMessage([], triggersWith());
@@ -81,9 +84,7 @@ function sdkDraftActivation(source: Record<string, unknown> = voidSecretDraftVer
             {
               id: CURRENT,
               number: 2,
-              annotations: ordinary
-                ? { 'workers/message': message }
-                : { 'workers/triggered_by': 'secret' },
+              ...(ordinary ? { annotations: { 'workers/message': message } } : listed),
             },
             ...(uploaded
               ? [{ id: NEXT, number: 3, annotations: { 'workers/message': message } }]
@@ -624,6 +625,47 @@ describe('Cloudflare version activation', () => {
       ),
     ).toBe(false);
   });
+
+  it('publishes over the placeholder that the secret transport deployed in one request', async () => {
+    const draft = apiSecretDraftVersion();
+    const fixture = sdkDraftActivation(draft, {
+      source: draft.source,
+      annotations: draft.annotations,
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({ ok: true, versionId: NEXT, previousVersionId: CURRENT });
+    expect(fixture.events.slice(0, 3)).toEqual(['source', 'pin', 'publish']);
+    expect(fixture.pinActiveSecrets).toHaveBeenCalledExactlyOnceWith(CURRENT, [
+      { name: 'TOKEN', type: 'secret_text' },
+    ]);
+    expect(fixture.operations.filter((op) => op.type === 'worker.deploy')).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'application code',
+      { modules: [{ ...apiSecretDraftVersion().modules[0], content_base64: 'YXBw' }] },
+    ],
+    ['another source', { source: 'dash' }],
+    [
+      'another message',
+      {
+        annotations: { 'workers/message': 'release', 'workers/triggered_by': 'create_version_api' },
+      },
+    ],
+  ])(
+    'does not treat an API-deployed version with %s as the placeholder',
+    async (_label, change) => {
+      const draft: Record<string, unknown> = { ...apiSecretDraftVersion(), ...change };
+      const fixture = sdkDraftActivation(draft, {
+        source: draft.source,
+        annotations: draft.annotations,
+      });
+      await activateCloudflareVersion(fixture.options);
+      expect(fixture.operations.some((op) => op.type === 'worker.deploy')).toBe(false);
+      expect(fixture.events).not.toContain('publish');
+    },
+  );
 
   it('publishes an exact private SDK draft once, proving secrets and callbacks before readiness', async () => {
     const fixture = sdkDraftActivation({

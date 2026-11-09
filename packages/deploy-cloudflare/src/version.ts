@@ -16,8 +16,10 @@ import {
 } from './execute.ts';
 import type { CloudflareUploadResult } from './operations.ts';
 import {
+  isVoidSecretDraftHeader,
   isVoidSecretOnlyDraft,
   isWranglerSecretOnlyDraft,
+  VOID_SECRET_DRAFT_MESSAGE,
   VOID_SECRET_DRAFT_SOURCE,
 } from './secret-draft.ts';
 
@@ -1894,8 +1896,9 @@ async function readCloudflareVersionInspection(
       let draft = entry;
       let draftUnknown = false;
       if (
-        annotations?.['workers/triggered_by'] === 'secret' &&
-        Object.keys(annotations).length === 1 &&
+        ((annotations?.['workers/triggered_by'] === 'secret' &&
+          Object.keys(annotations).length === 1) ||
+          isVoidSecretDraftHeader(entry)) &&
         !isWranglerSecretOnlyDraft(entry)
       ) {
         draftUnknown = true;
@@ -1934,10 +1937,6 @@ async function readCloudflareVersionInspection(
   }
   return null;
 }
-
-// Message Void's secret transport gives the zero-binding placeholder it deploys when a Worker
-// does not exist yet (packages/void cloudflare-operation-process.ts).
-const VOID_SECRET_DRAFT_MESSAGE = 'void:secret-draft';
 
 /**
  * Recovery-only proof that a version is Void's secret placeholder: its marker plus the exact
