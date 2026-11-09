@@ -45,6 +45,7 @@ export function useForm(
 
   const defaults_ = shallowRef(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   let dataSnapshot = cloneFormValue(initialDefaults);
   watch(
@@ -98,6 +99,9 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     pending.value = true;
     wasSuccessful.value = false;
     recentlySuccessful.value = false;
@@ -116,9 +120,13 @@ export function useForm(
       // request path (such as "..") fails this submit, not the page render.
       const result = await submitAction(router, interpolateRouteParams(url, options?.params), {
         method,
-        data: { ...data },
+        data: submittedData,
         ...opts,
       });
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
@@ -133,10 +141,12 @@ export function useForm(
       wasSuccessful.value = true;
       recentlySuccessful.value = true;
       if (options?.resetOnSuccess) {
-        Object.assign(data, cloneFormValue(initialDefaults));
+        if (isEqualFormValue(data, submittedData)) {
+          Object.assign(data, cloneFormValue(initialDefaults));
+        }
         defaults_.value = cloneFormValue(initialDefaults);
       } else {
-        defaults_.value = cloneFormValue(data);
+        defaults_.value = cloneFormValue(submittedData);
       }
       successTimeout = setTimeout(() => {
         recentlySuccessful.value = false;
@@ -147,7 +157,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      pending.value = false;
+      if (requestId === latestRequestId) {
+        pending.value = false;
+      }
     }
   }
 

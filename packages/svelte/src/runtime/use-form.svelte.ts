@@ -47,6 +47,7 @@ export function useForm(
 
   let defaults_ = $state.raw(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
   let dataSnapshot = cloneFormValue(initialDefaults);
 
   $effect(() => {
@@ -119,6 +120,9 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     pending = true;
     wasSuccessful = false;
     recentlySuccessful = false;
@@ -133,9 +137,13 @@ export function useForm(
       // request path (such as "..") fails this submit, not the page render.
       const result = await submitAction(router, interpolateRouteParams(url, options?.params), {
         method,
-        data: { ...data },
+        data: submittedData,
         ...opts,
       });
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
@@ -152,10 +160,12 @@ export function useForm(
       wasSuccessful = true;
       recentlySuccessful = true;
       if (options?.resetOnSuccess) {
-        data = cloneFormValue(initialDefaults);
+        if (isEqualFormValue(data, submittedData)) {
+          data = cloneFormValue(initialDefaults);
+        }
         defaults_ = cloneFormValue(initialDefaults);
       } else {
-        defaults_ = cloneFormValue(data);
+        defaults_ = cloneFormValue(submittedData);
       }
       successTimeout = setTimeout(() => {
         recentlySuccessful = false;
@@ -166,7 +176,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      pending = false;
+      if (requestId === latestRequestId) {
+        pending = false;
+      }
     }
   }
 

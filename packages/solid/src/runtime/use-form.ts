@@ -79,6 +79,7 @@ export function useForm(
 
   const [defaults_, setDefaults] = createSignal<Record<string, unknown>>(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = createMemo(() => {
     const current = defaults_();
@@ -123,6 +124,9 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     setPending(true);
     setWasSuccessful(false);
     setRecentlySuccessful(false);
@@ -141,9 +145,13 @@ export function useForm(
       // request path (such as "..") fails this submit, not the page render.
       const result = await submitAction(router, interpolateRouteParams(url, options?.params), {
         method,
-        data: { ...data },
+        data: submittedData,
         ...opts,
       });
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
@@ -158,10 +166,12 @@ export function useForm(
       setWasSuccessful(true);
       setRecentlySuccessful(true);
       if (options?.resetOnSuccess) {
-        setDataStore(reconcile(cloneFormValue(initialDefaults)));
+        if (isEqualFormValue(data, submittedData)) {
+          setDataStore(reconcile(cloneFormValue(initialDefaults)));
+        }
         setDefaults(cloneFormValue(initialDefaults));
       } else {
-        setDefaults(cloneFormValue(data));
+        setDefaults(cloneFormValue(submittedData));
       }
       successTimeout = setTimeout(() => {
         setRecentlySuccessful(false);
@@ -172,7 +182,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      setPending(false);
+      if (requestId === latestRequestId) {
+        setPending(false);
+      }
     }
   }
 

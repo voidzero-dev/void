@@ -1,6 +1,7 @@
 import { createSignal, createMemo } from 'solid-js';
 import { createStore, reconcile } from 'solid-js/store';
 import {
+  cloneFormValue,
   isEqualFormValue,
   submitIslandAction,
   type IslandFormState,
@@ -25,6 +26,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
 
   let defaults_ = { ...defaults };
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = createMemo(() => {
     return Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key]));
@@ -63,6 +65,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
   }
 
   async function submit(url: string, method: string) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     setPending(true);
     setWasSuccessful(false);
     setRecentlySuccessful(false);
@@ -73,7 +78,11 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     clearError();
 
     try {
-      const result = await submitIslandAction(url, method, data);
+      const result = await submitIslandAction(url, method, submittedData);
+      // A newer submit owns the form's state and decides whether the page changes.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (result.kind === 'redirect') {
         window.location.href = result.url;
@@ -83,7 +92,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
       if (result.kind === 'success') {
         setWasSuccessful(true);
         setRecentlySuccessful(true);
-        defaults_ = { ...data } as typeof defaults_;
+        defaults_ = submittedData as typeof defaults_;
         successTimeout = setTimeout(() => setRecentlySuccessful(false), 2000);
         window.location.reload();
       } else if (result.kind === 'validation') {
@@ -92,7 +101,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
         setError(result.error);
       }
     } finally {
-      setPending(false);
+      if (requestId === latestRequestId) {
+        setPending(false);
+      }
     }
   }
 
