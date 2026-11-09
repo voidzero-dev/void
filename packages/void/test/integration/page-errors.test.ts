@@ -79,7 +79,7 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     );
     write(
       'middleware/shared.ts',
-      `import { defineMiddleware } from 'void/handler'; export default defineMiddleware(async (c,next)=>{c.set('shared',{viewer:'alice'}); c.header('X-Security','retained'); await next();});`,
+      `import { defineMiddleware } from 'void/handler'; export default defineMiddleware(async (c,next)=>{c.set('shared',{viewer:'alice'}); c.header('X-Security','retained'); const guard=c.req.header('X-Test-Guard'); if(guard==='not-found') return c.notFound(); if(guard==='explicit') return c.text('Hidden by guard',404); await next(); if(guard==='after-not-found') c.res=await c.notFound();});`,
     );
     write('pages/style.css', 'nav { color: rgb(20, 80, 100); }');
     const nav =
@@ -251,6 +251,41 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     }
     fixture?.cleanup();
   });
+  it.each(['not-found', 'after-not-found'])(
+    'uses the root not-found for middleware guards (%s) and preserves explicit responses',
+    async (guard) => {
+      for (const pages of [false, true]) {
+        const headers = {
+          'X-Test-Guard': guard,
+          ...(pages && { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }),
+        };
+        const response = await fetch(base + '/islands', { headers });
+        expect(response.status).toBe(404);
+        expect(response.headers.get('X-Security')).toBe('retained');
+        const body = await response.text();
+        if (pages) {
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          const data = deserializePageData<{ component: string }>(body);
+          expect(data.component).toContain('_void:boundary:root-not-found:');
+          expect(data).toMatchObject({
+            props: { error: { status: 404, message: 'Not Found' } },
+            shared: { viewer: 'alice' },
+          });
+        } else {
+          expect(body).toContain('Missing page');
+          expect(body).toContain('data-layout="root"');
+          expect(body).not.toContain('Missing island page');
+        }
+        const explicit = await fetch(base + '/islands', {
+          headers: { ...headers, 'X-Test-Guard': 'explicit' },
+        });
+        expect(explicit.status).toBe(404);
+        expect(explicit.headers.has('X-VoidPages')).toBe(false);
+        expect(await explicit.text()).toBe('Hidden by guard');
+      }
+    },
+  );
+
   it('returns status-correct documents and marked error payloads without exposing secrets', async () => {
     for (const [path, status] of [
       ['/unknown', 404],

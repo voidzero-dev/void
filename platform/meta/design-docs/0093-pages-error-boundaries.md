@@ -82,6 +82,12 @@ after `next()`. Catch unexpected exceptions at the loader/render operation, not
 around the whole composed middleware chain. No `_not-found` means the original
 404 path; do not silently use `_error` for a normal not-found result.
 
+A middleware call to `c.notFound()` deliberately invokes Hono's app-level
+not-found handler. With a root `_not-found`, that handler renders the root
+boundary and returns it unchanged; this does not select the matched page's
+nested boundary or run its loader. Explicit middleware 404 responses keep their
+own body. This distinction applies before and after `next()`.
+
 For wholly unmatched URLs, use only the root `_not-found`, root layout, empty
 params, and already completed global middleware shared/head defaults. Do not
 infer a dynamic directory, execute nearby route middleware, or fabricate params.

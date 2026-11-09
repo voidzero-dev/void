@@ -79,6 +79,8 @@ export const loader = defineHandler((c) => c.notFound());
 
 `_error` handles unexpected loader and rendering failures. Unexpected errors use generic production messages; server details stay in your logs. Development shows the error message. Action errors that reach a client boundary retain their HTTP status and public message. Explicit responses such as redirects, authentication failures, and API errors keep their existing behavior.
 
+Calling `c.notFound()` in middleware invokes the app's not-found handler, which uses the root `pages/_not-found`. It doesn't select a nested boundary or run the page loader. To send your own 404 response from middleware, return a response such as `c.text('Not Found', 404)`; Void leaves it unchanged.
+
 ## Nested errors
 
 Put a boundary in a subdirectory to customize that section. The closest boundary wins, keeping its layout and outer layouts. A layout's own rendering failure goes to a boundary outside that layout. If an error component fails, Void tries an outer boundary, then its built-in error page.
