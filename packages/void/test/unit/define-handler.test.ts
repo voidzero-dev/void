@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import { objectToFormData } from '../../src/pages/navigation-engine.ts';
 import {
   defineHandler,
@@ -460,6 +460,70 @@ describe('defineHandler.withValidator', () => {
         tags: ['work', 'urgent'],
         photos: ['one', 'two'],
       },
+    });
+  });
+
+  it.each([
+    ['multipart', 'indexed'],
+    ['urlencoded', 'indexed'],
+    ['multipart', 'appended'],
+    ['urlencoded', 'appended'],
+  ] as const)(
+    'rejects excessive aggregate array growth in %s bodies (%s)',
+    async (encoding, kind) => {
+      const validate = vi.fn((value: unknown) => ({ value }));
+      const handler = defineHandler.withValidator({
+        body: { '~standard': { version: 1, vendor: 'test', validate } },
+      })(() => ({ ok: true }));
+      const app = createValidatedApp('post', '/test', handler);
+      const form = new FormData();
+      if (kind === 'indexed') {
+        // Few containers, but each inner array allocates 1,001 slots.
+        for (let i = 0; i < 20; i++) {
+          form.append(`items[${i}][1000]`, 'value');
+        }
+      } else {
+        // Append syntax must share the same allocation budget across arrays.
+        for (let i = 0; i < 6_000; i++) {
+          form.append('first[]', 'value');
+          form.append('second[]', 'value');
+        }
+      }
+      const body =
+        encoding === 'multipart'
+          ? form
+          : new URLSearchParams(Array.from(form, ([key, value]) => [key, String(value)]));
+      const response = await app.request(
+        new Request('http://localhost/test', { method: 'POST', body }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'Invalid form body' });
+      expect(validate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows filling already allocated array slots in any order', async () => {
+    const handler = defineHandler.withValidator({ body: passSchema() })((_c, { body }) => {
+      const { items } = body as { items: Array<string> };
+      return { length: items.length, first: items[0], filled: items[1000], last: items[8999] };
+    });
+    const app = createValidatedApp('post', '/test', handler);
+    const form = new FormData();
+    form.append('items[8999]', 'last');
+    for (let i = 0; i <= 1000; i++) {
+      form.append(`items[${i}]`, 'filled');
+    }
+    const response = await app.request(
+      new Request('http://localhost/test', { method: 'POST', body: form }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      length: 9000,
+      first: 'filled',
+      filled: 'filled',
+      last: 'last',
     });
   });
 

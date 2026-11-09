@@ -139,10 +139,15 @@ function formRecordToObject(
   const root: Record<string, unknown> = {};
   let nodes = 0;
 
-  const createContainer = (asArray: boolean): Record<string, unknown> | Array<unknown> => {
-    if (++nodes > MAX_FORM_NODES) {
+  const reserveNodes = (count: number): void => {
+    nodes += count;
+    if (nodes > MAX_FORM_NODES) {
       throw new Error('Form field has too many nested values');
     }
+  };
+
+  const createContainer = (asArray: boolean): Record<string, unknown> | Array<unknown> => {
+    reserveNodes(1);
     return asArray ? [] : {};
   };
 
@@ -159,14 +164,13 @@ function formRecordToObject(
     value: unknown,
   ): void => {
     if (Array.isArray(parent)) {
-      if (segment === '') {
-        parent.push(value);
-        return;
-      }
-      const index = arrayIndex(segment);
+      const index = segment === '' ? parent.length : arrayIndex(segment);
       if (index === null) {
         throw new Error('Form field shape is inconsistent');
       }
+      // Sparse indices allocate slots too. Charge growth before writing, across
+      // all arrays, while allowing existing slots to be filled or overwritten.
+      reserveNodes(Math.max(0, index + 1 - parent.length));
       parent[index] = value;
       return;
     }
