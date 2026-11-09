@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import * as tinyglobby from 'tinyglobby';
-import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
+import { describe, expect, it, beforeEach, afterEach, vi, type MockInstance } from 'vite-plus/test';
 import { generateRouteTypes } from '../../src/codegen/route-types.ts';
 import { resolveLayoutIds } from '../../src/pages/layout-resolution.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
@@ -303,11 +303,20 @@ export const ssr = true as const;`,
     expect(page.ssrMode).toBe('server');
   });
 
-  it('does not treat a computed revalidate expression as its leading literal', async () => {
-    writeFile('computed.vue', '<template><div>Computed</div></template>');
-    writeFile('computed.server.ts', 'export const revalidate = 60 + 1;');
+  it('ignores a computed revalidate expression with a warning instead of reading its leading literal', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      writeFile('computed.vue', '<template><div>Computed</div></template>');
+      writeFile('computed.server.ts', 'export const revalidate = 60 + 1;');
 
-    expect((await scanPages(TMP)).pages[0].revalidate).toBeUndefined();
+      expect((await scanPages(TMP)).pages[0].revalidate).toBeUndefined();
+      expect(log).toHaveBeenCalledOnce();
+      expect(log.mock.calls[0][0]).toContain(
+        "pages: revalidate in 'computed.server.ts' is ignored. It must be a nonnegative integer literal, such as `export const revalidate = 3600`.",
+      );
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('keeps detecting page methods declared with let or var', async () => {
@@ -997,6 +1006,153 @@ const example = 'export const layout = "home"';
       } finally {
         log.mockRestore();
       }
+    });
+  });
+
+  describe('ignored page settings', () => {
+    let log: MockInstance<typeof console.log>;
+
+    beforeEach(() => {
+      log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      log.mockRestore();
+    });
+
+    function warnings(): Array<string> {
+      return log.mock.calls.map(([message]) => String(message));
+    }
+
+    it.each([
+      ['revalidate', 're-exported', "export { revalidate } from './_shared';", 'reexported'],
+      ['revalidate', 'renamed', 'const ttl = 60;\nexport { ttl as revalidate };', 'renamed'],
+      ['prerender', 'let', 'export let prerender = false;', 'let-prerender'],
+      ['ssr', 'destructured', 'export const { ssr } = { ssr: false };', 'destructured-ssr'],
+    ] as const)(
+      'warns and ignores %s exported in a %s form',
+      async (name, _form, declaration, page) => {
+        writeFile(`${page}.vue`, '<template><div /></template>');
+        writeFile(`${page}.server.ts`, `${declaration}\nexport const loader = () => ({});`);
+
+        const [scanned] = (await scanPages(TMP)).pages;
+        expect(scanned[name]).toBeUndefined();
+        expect(scanned.methods).toEqual(['loader']);
+        expect(warnings()).toEqual([
+          expect.stringContaining(
+            `pages: ${name} in '${page}.server.ts' is ignored. Declare it in that file as \`export const ${name} = `,
+          ),
+        ]);
+      },
+    );
+
+    it('warns once and ignores render flags that are not boolean literals', async () => {
+      writeFile('flags.vue', '<template><div /></template>');
+      writeFile('flags.server.ts', "export const prerender = 'false';\nexport const ssr = !0;");
+
+      const [page] = (await scanPages(TMP)).pages;
+      await scanPages(TMP);
+      expect(page.prerenderMode).toBe('auto');
+      expect(page.ssrMode).toBe('auto');
+      expect(warnings()).toEqual([
+        expect.stringContaining("pages: prerender in 'flags.server.ts' is ignored. It must be"),
+        expect.stringContaining("pages: ssr in 'flags.server.ts' is ignored. It must be"),
+      ]);
+    });
+
+    it('keeps type-only exports of setting names silent', async () => {
+      writeFile('typed.vue', '<template><div /></template>');
+      writeFile(
+        'typed.server.ts',
+        "export type { revalidate } from './_types';\nexport const ssr = false;",
+      );
+
+      expect((await scanPages(TMP)).pages[0].ssr).toBe(false);
+      expect(warnings()).toEqual([]);
+    });
+
+    it('warns that page exports through export * are not seen', async () => {
+      writeFile('shared.island.vue', '<template><div /></template>');
+      writeFile('shared.server.ts', "export * from './_shared.server';");
+
+      await scanPages(TMP);
+      await scanPages(TMP);
+      expect(warnings()).toEqual([
+        expect.stringContaining(
+          "pages: 'shared.server.ts' uses `export * from`. Void does not see page exports through it",
+        ),
+      ]);
+    });
+
+    it.each([
+      ["export { layout } from './_shared';", 're-exported-layout.tsx', 'Declare it in that file'],
+      ['export const layout = 42;', 'numeric-layout.tsx', 'It must be a string literal or `false`'],
+      [
+        "export * from './_shared';",
+        'star-layout.tsx',
+        'uses `export * from`. Void does not read a layout export through it',
+      ],
+      [
+        "export /* shared */ * from './_shared';",
+        'commented-star-layout.tsx',
+        'uses `export * from`. Void does not read a layout export through it',
+      ],
+    ])('warns and keeps the default layouts for %s', async (declaration, file, message) => {
+      writeFile('layout.tsx', 'export default () => null;');
+      writeFile('_layouts/landing.tsx', 'export default () => null;');
+      writeFile(file, `${declaration}\nexport default () => null;`);
+
+      const result = await scanPages(TMP);
+      const page = result.pages.find((p) => p.componentPath === file)!;
+      expect(page.layout).toBeUndefined();
+      expect(warnings()).toEqual([expect.stringContaining(message)]);
+    });
+
+    it('reads a layout declared beside export * without a warning', async () => {
+      writeFile('_layouts/landing.tsx', 'export default () => null;');
+      writeFile(
+        'local-layout.tsx',
+        "export * from './_shared';\nexport const layout = 'landing';\nexport default () => null;",
+      );
+
+      expect((await scanPages(TMP)).pages[0].layout).toBe('landing');
+      expect(warnings()).toEqual([]);
+    });
+
+    it.each(['module', 'context="module"'])(
+      'reads a Svelte <script %s> layout after an instance prop named layout',
+      async (attribute) => {
+        const file = `prop-${attribute.length}.svelte`;
+        writeFile(
+          file,
+          `<script>\n  export let layout = 'prop';\n</script>\n<script ${attribute}>\n  export const layout = false;\n</script>\n<p>{layout}</p>`,
+        );
+
+        expect((await scanPages(TMP)).pages[0].layout).toBe(false);
+        expect(warnings()).toEqual([]);
+      },
+    );
+
+    it('treats exports of a Svelte instance script as component props', async () => {
+      writeFile(
+        'instance-prop.svelte',
+        "<script>\n  export let layout = 'prop';\n</script>\n<p>{layout}</p>",
+      );
+
+      expect((await scanPages(TMP)).pages[0].layout).toBeUndefined();
+      expect(warnings()).toEqual([]);
+    });
+
+    it('warns about an unreadable layout in a Svelte module script', async () => {
+      writeFile(
+        'module-let.svelte',
+        "<script module>\n  export let layout = 'landing';\n</script>\n<p />",
+      );
+
+      expect((await scanPages(TMP)).pages[0].layout).toBeUndefined();
+      expect(warnings()).toEqual([
+        expect.stringContaining("pages: layout in 'module-let.svelte' is ignored. Declare it"),
+      ]);
     });
   });
 

@@ -153,6 +153,8 @@ Render and prerender flags combine like this:
 | Island page + `ssr = false`            | Invalid. Island pages already use the island renderer.                    |
 | `output: "static"` + `prerender` unset | Auto-prerender pages that have known paths, including client-only shells. |
 
+Write `ssr` and `prerender` as `true` or `false` with `export const` in the `.server.ts` file itself. Void reads them without running the file, so it ignores a computed or re-exported value and prints a warning.
+
 ### Typed navigation
 
 Use the `Link` component for SPA navigation between pages. Build dynamic URLs with [`routeUrl()`](../type-safety.md#typed-urls-and-navigation) to check the route pattern and its parameters:
