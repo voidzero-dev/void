@@ -1,4 +1,4 @@
-import { redirectToHttps, type ProjectZeroTrustRouting } from '@void/edge';
+import { matchLiteralPattern, redirectToHttps, type ProjectZeroTrustRouting } from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -940,8 +940,11 @@ const dispatcher = {
       );
     }
 
+    // Shared asset caches must not skip middleware on worker-first paths, even
+    // when an older deployment or an allowed request already populated them.
+    const workerFirst = workerRunsBeforeAssets(routing, pathname);
     // Edge-cache hashed static assets (immutable, content-addressed URLs)
-    if (routing.hashedAssetsPrefix && isSharedStaticCacheRequestEligible(request)) {
+    if (!workerFirst && routing.hashedAssetsPrefix && isSharedStaticCacheRequestEligible(request)) {
       const prefix = '/' + routing.hashedAssetsPrefix + '/';
       if (pathname.startsWith(prefix)) {
         // Cache key tracks the post-rewrite (hash-bearing) URL, not the
@@ -1528,7 +1531,7 @@ const dispatcher = {
     const knownStaticAsset = isStaticCacheRequestEligible(request, staticCachePathname, routing)
       ? await isKnownStaticAssetPath(env, staticCachePathname, routing, timeoutMs)
       : undefined;
-    const isStaticCandidate = knownStaticAsset === true;
+    const isStaticCandidate = knownStaticAsset === true && !workerFirst;
 
     let staticCacheKey: Request | undefined;
     if (isStaticCandidate) {
@@ -2569,6 +2572,28 @@ function isFallbackTargetCacheable(
   pathRevalidate: Record<string, number> | undefined,
 ): boolean {
   return isHtmlResponse(response) && matchesLiteralPage(pages, targetPathname, pathRevalidate);
+}
+
+/** Match Cloudflare's glob-only rules, with asset exclusions taking precedence. */
+function workerRunsBeforeAssets(routing: RoutingEntry, pathname: string): boolean {
+  if (routing.staticDeploymentId) {
+    return false;
+  }
+  const rules = routing.assetConfig?.run_worker_first;
+  if (typeof rules === 'boolean') {
+    return rules;
+  }
+  let workerFirst = false;
+  for (const rule of rules ?? []) {
+    const excluded = rule.startsWith('!');
+    if (matchLiteralPattern(excluded ? rule.slice(1) : rule, pathname)) {
+      if (excluded) {
+        return false;
+      }
+      workerFirst = true;
+    }
+  }
+  return workerFirst;
 }
 
 /**

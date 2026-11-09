@@ -5629,6 +5629,141 @@ describe('static asset caching', () => {
     expect(workerFetch).toHaveBeenCalledTimes(1);
   });
 
+  describe.each(['/reports/private.txt', '/assets/private-abc123.txt'])(
+    'worker-first asset middleware at %s',
+    (path) => {
+      const routing: RoutingEntry = {
+        workerName: 'test-worker',
+        projectId: 'proj-1',
+        type: 'framework',
+        version: 'deploy-1',
+        ssr: true,
+        assetManifestId: 'deploy-1',
+        hashedAssetsPrefix: 'assets',
+      };
+      const assetManifest = { [path]: 'private-hash' };
+      const url = `https://test.void.app${path}`;
+      const cacheKey = `${url}?${path.startsWith('/assets/') ? '_p=proj-1' : '_v=deploy-1'}`;
+
+      it.each(
+        [true, ['/*'], ['/**'], ['/reports/*', '/assets/*'], ['/*.txt'], [path]].map(
+          (runWorkerFirst) => ({
+            runWorkerFirst,
+          }),
+        ),
+      )(
+        'runs middleware after an allowed request with run_worker_first=$runWorkerFirst',
+        async ({ runWorkerFirst }) => {
+          const { env, workerFetch } = createEnv({
+            routing: { ...routing, assetConfig: { run_worker_first: runWorkerFirst } },
+            assetManifest,
+            workerFetchImpl: async () => {
+              const request = workerFetch.mock.calls.at(-1)![0];
+              return request.headers.get('x-report-key') === 'allowed'
+                ? new Response('private report', { headers: { 'Content-Type': 'text/plain' } })
+                : new Response('Hidden', { status: 404 });
+            },
+          });
+          for (const allowed of [false, true, false]) {
+            const ctx = createCtx();
+            const response = await app.fetch(
+              new Request(url, { headers: allowed ? { 'x-report-key': 'allowed' } : {} }),
+              env,
+              ctx,
+            );
+            await Promise.all(
+              (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map(([promise]) => promise),
+            );
+            expect(response.status).toBe(allowed ? 200 : 404);
+            expect(await response.text()).toBe(allowed ? 'private report' : 'Hidden');
+          }
+          expect(workerFetch).toHaveBeenCalledTimes(3);
+          expect(edgeCacheStore.size).toBe(0);
+        },
+      );
+
+      it('ignores an existing shared cache entry, including after a rewrite', async () => {
+        const { env, workerFetch } = createEnv({
+          routing: {
+            ...routing,
+            assetConfig: { run_worker_first: [path] },
+            redirectRules: [{ source: '/download', destination: path, status: 200 }],
+          },
+          assetManifest,
+          workerFetchImpl: async () => new Response('Hidden', { status: 404 }),
+        });
+        edgeCacheStore.set(
+          cacheKey,
+          currentSharedCacheResponse(
+            new Response('private report', {
+              headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
+            }),
+          ),
+        );
+        for (const requestUrl of [url, 'https://test.void.app/download']) {
+          const response = await app.fetch(new Request(requestUrl), env, createCtx());
+          expect(response.status).toBe(404);
+          expect(await response.text()).toBe('Hidden');
+        }
+        expect(workerFetch).toHaveBeenCalledTimes(2);
+        expect(workerFetch.mock.calls[1]![0].url).toBe(url);
+      });
+
+      it.each(
+        [
+          undefined,
+          false,
+          ['/api/*'],
+          ['/reports/:name.txt', '/assets/:name.txt'],
+          ['/*', '!/reports/*', '!/assets/*'],
+          ['!/reports/*', '!/assets/*', '/*'],
+          [`${path}.other`],
+        ].map((runWorkerFirst) => ({ runWorkerFirst })),
+      )(
+        'retains asset caching with run_worker_first=$runWorkerFirst',
+        async ({ runWorkerFirst }) => {
+          const { env, workerFetch } = createEnv({
+            routing: { ...routing, assetConfig: { run_worker_first: runWorkerFirst } },
+            assetManifest,
+            workerFetchImpl: async () => new Response('public asset'),
+          });
+          for (let visit = 0; visit < 2; visit++) {
+            const ctx = createCtx();
+            const response = await app.fetch(new Request(url), env, ctx);
+            expect(await response.text()).toBe('public asset');
+            await Promise.all(
+              (ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map(([promise]) => promise),
+            );
+          }
+          expect(workerFetch).toHaveBeenCalledOnce();
+          expect(edgeCacheStore.has(cacheKey)).toBe(true);
+        },
+      );
+
+      it('retains caching for static deployments with no application Worker', async () => {
+        const { env, workerFetch } = createEnv({
+          routing: {
+            ...routing,
+            staticDeploymentId: 'deploy-1',
+            assetConfig: { run_worker_first: true },
+          },
+          assetManifest,
+        });
+        edgeCacheStore.set(
+          cacheKey,
+          currentSharedCacheResponse(
+            new Response('public asset', {
+              headers: { 'Cache-Control': 'public, max-age=31536000, immutable' },
+            }),
+          ),
+        );
+        const response = await app.fetch(new Request(url), env, createCtx());
+        expect(await response.text()).toBe('public asset');
+        expect(workerFetch).not.toHaveBeenCalled();
+      });
+    },
+  );
+
   it('keeps Set-Cookie responses out of the deploy-versioned static cache', async () => {
     let render = 0;
     const { env, workerFetch } = createEnv({
