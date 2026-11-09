@@ -98,6 +98,8 @@ function pinnedCf(apiBaseUrl: string, accountId = 'account-id', env: NodeJS.Proc
       WINDIR: process.env.WINDIR,
       TMP: process.env.TMP,
       TEMP: process.env.TEMP,
+      NODE_COMPILE_CACHE: process.env.NODE_COMPILE_CACHE,
+      NODE_DISABLE_COMPILE_CACHE: process.env.NODE_DISABLE_COMPILE_CACHE,
       CI: 'true',
       CLOUDFLARE_API_TOKEN: 'synthetic-token',
       CLOUDFLARE_ACCOUNT_ID: accountId,

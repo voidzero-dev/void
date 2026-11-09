@@ -109,6 +109,13 @@ cache test results or remove per-file module isolation. The first run primes it;
 runs with the same selection and machine load. For a control use `--no-fsModuleCache`; use
 `vp test --clearCache` only when diagnosing cache problems, not before ordinary tests.
 
+Forks and real Node subprocesses also reuse Node's JavaScript/TypeScript compile cache under
+`node_modules/.cache/node-compile`. This reuses compilation, while every test and subprocess
+still executes with its existing isolation. Compare cold and warm runs when changing subprocess
+startup. Use `NODE_DISABLE_COMPILE_CACHE=1 vp test run <file>` for a control. Vitest disables
+the cache for V8 coverage, and `NODE_V8_COVERAGE` disables it too, to preserve precise coverage
+([Node's compile-cache guidance](https://nodejs.org/download/release/v24.15.0/docs/api/module.html#module-compile-cache)).
+
 ## Profiling slow tests
 
 Vitest 5's import diagnostics are opt-in so ordinary runs stay quiet:
