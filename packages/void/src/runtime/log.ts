@@ -58,7 +58,7 @@ function format(message: string, boundFields: ReadonlyArray<Fields> = [], fields
       }
 
       for (const [key, value] of Object.entries(source)) {
-        if (key === 'msg' || key === 'toJSON' || key === '__proto__' || key === 'constructor') {
+        if (key === 'msg' || key === 'toJSON') {
           continue;
         }
 

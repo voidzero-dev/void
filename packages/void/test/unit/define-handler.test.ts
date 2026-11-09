@@ -463,6 +463,40 @@ describe('defineHandler.withValidator', () => {
     });
   });
 
+  it.each(['multipart', 'urlencoded'])(
+    'preserves prototype-named form fields as ordinary own properties in %s bodies',
+    async (encoding) => {
+      let received: unknown;
+      const handler = defineHandler.withValidator({ body: passSchema() })((_c, { body }) => {
+        received = body;
+        return body;
+      });
+      const app = createValidatedApp('post', '/test', handler);
+      const fields = ['__proto__', 'constructor', 'prototype', 'toString', 'hasOwnProperty'];
+      const form = encoding === 'multipart' ? new FormData() : new URLSearchParams();
+      for (const field of fields) {
+        form.append(`${field}[value]`, field);
+      }
+      form.append('constructor[prototype][polluted]', 'form value');
+      const res = await app.request(
+        new Request('http://localhost/test', { method: 'POST', body: form }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ...Object.fromEntries(fields.map((field) => [field, { value: field }])),
+        constructor: { value: 'constructor', prototype: { polluted: 'form value' } },
+      });
+      const parsed = received as Record<string, unknown>;
+      expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+      for (const field of fields) {
+        expect(Object.hasOwn(parsed, field)).toBe(true);
+        expect(Object.getPrototypeOf(parsed[field])).toBe(Object.prototype);
+      }
+      expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
+    },
+  );
+
   it.each([
     ['multipart', 'indexed'],
     ['urlencoded', 'indexed'],

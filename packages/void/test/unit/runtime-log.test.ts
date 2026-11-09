@@ -102,6 +102,7 @@ describe('runtime log', () => {
     const parsed = JSON.parse(arg);
     expect(parsed.msg).toBe('visible');
     expect('level' in parsed).toBe(false);
+    expect(Object.hasOwn(parsed, '__proto__')).toBe(true);
   });
 
   it('throwing enumerable getters do not crash — fallback to safe shape', () => {
@@ -123,15 +124,15 @@ describe('runtime log', () => {
     expect(parsed.error).toBe('log: fields not serializable');
   });
 
-  it('a `constructor` key in fields is skipped', () => {
-    logger.info('ctor', { constructor: 'evil', keep: 'yes' });
+  it.each(['__proto__', 'constructor', 'prototype'])('preserves %s as an own log field', (key) => {
+    logger.info('visible', { [key]: 'value', keep: 'yes' });
 
     const arg = (console.info as ReturnType<typeof vi.fn>).mock.calls[0][0] as string;
     const parsed = JSON.parse(arg);
-    expect(parsed.msg).toBe('ctor');
+    expect(parsed.msg).toBe('visible');
     expect(parsed.keep).toBe('yes');
-    // Object.prototype already has `constructor`, so check own properties only.
-    expect(Object.hasOwn(parsed, 'constructor')).toBe(false);
+    expect(Object.hasOwn(parsed, key)).toBe(true);
+    expect(parsed[key]).toBe('value');
   });
 
   it('non-stringifiable values (circular refs) do not crash — fallback to safe shape', () => {
@@ -241,7 +242,7 @@ describe('runtime log', () => {
         component: 'worker',
         msg: 'ignored',
         toJSON: () => ({ hacked: true }),
-        constructor: 'ignored',
+        constructor: 'custom',
         fn: () => {},
       })
       .info('safe');
@@ -251,6 +252,7 @@ describe('runtime log', () => {
     expect(JSON.parse(arg)).toEqual({
       msg: 'safe',
       component: 'worker',
+      constructor: 'custom',
     });
   });
 

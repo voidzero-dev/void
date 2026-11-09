@@ -50,7 +50,6 @@ type FormEntry = string | File;
 const MAX_FORM_DEPTH = 32;
 const MAX_FORM_NODES = 10_000;
 const MAX_FORM_INDEX = 10_000;
-const DANGEROUS_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function isFormContentType(contentType: string | undefined): boolean {
   const mediaType = contentType?.split(';', 1)[0]?.trim().toLowerCase();
@@ -109,26 +108,6 @@ function isContainerRecord(value: unknown): value is Record<string, unknown> {
   );
 }
 
-function own(record: Record<string, unknown>, key: string): unknown {
-  if (DANGEROUS_KEYS.has(key)) {
-    return Object.getOwnPropertyDescriptor(record, key)?.value;
-  }
-  return record[key];
-}
-
-function setOwn(record: Record<string, unknown>, key: string, value: unknown): void {
-  if (DANGEROUS_KEYS.has(key)) {
-    Object.defineProperty(record, key, {
-      value,
-      writable: true,
-      enumerable: true,
-      configurable: true,
-    });
-    return;
-  }
-  record[key] = value;
-}
-
 /**
  * Rebuild the object `objectToFormData` flattened. Numeric segments and `[]`
  * become arrays. Scalars are left as the client encoded them.
@@ -155,7 +134,7 @@ function formRecordToObject(
     if (Array.isArray(parent)) {
       return segment === '' ? undefined : parent[Number(segment)];
     }
-    return own(parent, segment);
+    return Object.hasOwn(parent, segment) ? parent[segment] : undefined;
   };
 
   const write = (
@@ -174,7 +153,12 @@ function formRecordToObject(
       parent[index] = value;
       return;
     }
-    setOwn(parent, segment, value);
+    Object.defineProperty(parent, segment, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   };
 
   const assign = (segments: Array<string>, value: FormEntry): void => {
