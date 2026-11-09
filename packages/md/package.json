@@ -1,6 +1,6 @@
 {
   "name": "@void/md",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Markdown pages with layouts and interactive islands for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
