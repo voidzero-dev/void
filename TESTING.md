@@ -90,6 +90,9 @@ or hanging tests when they occur instead of routinely increasing timeouts.
 Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
 process deadlines can overlap database work. The remaining SDK unit and integration files then
 share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
+The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
+not serialize the whole runner suite. Both files use the same fixture helpers with per-file
+isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
 Unit files and most API integration files use isolated worker threads to reduce startup time. On Linux and macOS,
 API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-pglite`) use forks to isolate PGlite's
 WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
