@@ -227,16 +227,19 @@ afterEach(() => {
   vi.unstubAllGlobals();
 });
 
-async function mountOverlappingForm() {
+async function mountOverlappingForm(options?: { resetOnSuccess?: boolean }) {
   const visits: Array<Deferred<unknown>> = [];
+  const sent: Array<unknown> = [];
   const router = {
-    visit: () => {
+    visit: (_url: string, visitOptions: { data?: unknown }) => {
+      sent.push(visitOptions.data);
       const visit = deferred<unknown>();
       visits.push(visit);
       return visit.promise;
     },
   } as unknown as VoidRouter;
-  return { form: await mountForm({ title: '' }, undefined, router), visits };
+  const defaults = { title: '', profile: { name: '' } };
+  return { form: await mountForm(defaults, options, router), visits, sent };
 }
 
 describe('useForm overlapping submits', () => {
@@ -302,19 +305,19 @@ describe('useForm overlapping submits', () => {
   });
 });
 
-describe('useIslandForm overlapping submits', () => {
-  function stubIslandPage() {
-    const responses: Array<Deferred<Response>> = [];
-    const reload = vi.fn();
-    vi.stubGlobal('window', { location: { href: 'http://localhost/test', reload } });
-    vi.stubGlobal('fetch', () => {
-      const response = deferred<Response>();
-      responses.push(response);
-      return response.promise;
-    });
-    return { responses, reload };
-  }
+function stubIslandPage() {
+  const responses: Array<Deferred<Response>> = [];
+  const reload = vi.fn();
+  vi.stubGlobal('window', { location: { href: 'http://localhost/test', reload } });
+  vi.stubGlobal('fetch', () => {
+    const response = deferred<Response>();
+    responses.push(response);
+    return response.promise;
+  });
+  return { responses, reload };
+}
 
+describe('useIslandForm overlapping submits', () => {
   it('ignores an older submit that finishes first', async () => {
     const { responses } = stubIslandPage();
     const form = useIslandForm({ title: '' });
@@ -346,5 +349,70 @@ describe('useIslandForm overlapping submits', () => {
     expect(reload).not.toHaveBeenCalled();
     expect(form.wasSuccessful).toBe(false);
     expect(form.errors).toEqual({ title: 'Invalid' });
+  });
+});
+
+describe('useForm edits made during a submit', () => {
+  it('sends and saves the values from when the submit started', async () => {
+    const { form, visits, sent } = await mountOverlappingForm();
+    form.data.title = 'Sent';
+    (form.data.profile as { name: string }).name = 'Ann';
+    const submit = form.post();
+    form.data.title = 'Typed while in flight';
+    (form.data.profile as { name: string }).name = 'Typed';
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(sent).toEqual([{ title: 'Sent', profile: { name: 'Ann' } }]);
+    expect(form.data.title).toBe('Typed while in flight');
+    expect(form.hasChanges).toBe(true);
+    form.reset();
+    expect(form.data).toEqual({ title: 'Sent', profile: { name: 'Ann' } });
+  });
+
+  it('resetOnSuccess keeps an edit made during the submit', async () => {
+    const { form, visits } = await mountOverlappingForm({ resetOnSuccess: true });
+    form.data.title = 'Sent';
+    const submit = form.post();
+    form.data.title = 'Typed while in flight';
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('Typed while in flight');
+    expect(form.hasChanges).toBe(true);
+    form.reset();
+    expect(form.data.title).toBe('');
+  });
+
+  it('resetOnSuccess clears the form when nothing changed during the submit', async () => {
+    const { form, visits } = await mountOverlappingForm({ resetOnSuccess: true });
+    form.data.title = 'Sent';
+    const submit = form.post();
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('');
+    expect(form.hasChanges).toBe(false);
+  });
+});
+
+describe('useIslandForm edits made during a submit', () => {
+  it('saves the values from when the submit started', async () => {
+    const { responses, reload } = stubIslandPage();
+    const form = useIslandForm({ title: '' });
+    form.data.title = 'Sent';
+    const submit = form.post('/island');
+    form.data.title = 'Typed while in flight';
+
+    responses[0].resolve(new Response('{}', { status: 200 }));
+    await submit;
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(form.data.title).toBe('Typed while in flight');
+    form.reset();
+    expect(form.data.title).toBe('Sent');
   });
 });

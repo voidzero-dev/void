@@ -1,4 +1,5 @@
 import {
+  cloneFormValue,
   isEqualFormValue,
   submitIslandAction,
   type IslandFormState,
@@ -70,6 +71,8 @@ export function useIslandForm(
 
   async function submit(url: RouteUrl, method: string) {
     const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     pending.value = true;
     wasSuccessful.value = false;
     recentlySuccessful.value = false;
@@ -80,7 +83,7 @@ export function useIslandForm(
     clearError();
 
     try {
-      const result = await submitIslandAction(url, method, data);
+      const result = await submitIslandAction(url, method, submittedData);
       // A newer submit owns the form's state and decides whether the page changes.
       if (requestId !== latestRequestId) {
         return;
@@ -94,7 +97,7 @@ export function useIslandForm(
       if (result.kind === 'success') {
         wasSuccessful.value = true;
         recentlySuccessful.value = true;
-        defaults_ = { ...data };
+        defaults_ = submittedData;
         successTimeout = setTimeout(() => {
           recentlySuccessful.value = false;
         }, 2000);

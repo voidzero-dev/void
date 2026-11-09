@@ -149,21 +149,21 @@ The types are inferred from your action's `withValidator()` schema in the compan
 
 `useForm` returns a reactive object with:
 
-| Property / Method                | Purpose                                                                                                                                                                             |
-| -------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                       |
-| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                      |
-| `error`                          | Action error, or `null`.                                                                                                                                                            |
-| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                  |
-| `pending`                        | `true` while the submission is in flight.                                                                                                                                           |
-| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values so `hasChanges` becomes `false`.                          |
-| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.                                                                                                       |
-| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                      |
-| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`. |
-| `resetOnSuccess` (option)        | When `true`, a successful submit resets both form data and defaults to the mount-time values. Useful for create forms that should clear after save.                                 |
-| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                      |
-| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                  |
-| `clearError()`                   | Clear `error`.                                                                                                                                                                      |
+| Property / Method                | Purpose                                                                                                                                                                                                  |
+| -------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                                            |
+| `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                                           |
+| `error`                          | Action error, or `null`.                                                                                                                                                                                 |
+| `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                                       |
+| `pending`                        | `true` while the submission is in flight.                                                                                                                                                                |
+| `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values, so `hasChanges` becomes `false` unless the form was edited during the submit. |
+| `wasSuccessful`                  | `true` after a successful submission. Stays `true` until the next submission.                                                                                                                            |
+| `recentlySuccessful`             | `true` for 2 seconds after a successful submission. Useful for flash messages.                                                                                                                           |
+| `reset(...fields)`               | Reset form data to the current defaults (last submitted values after success). Field names autocomplete. Pass `{ initial: true }` first to reset to the values passed to `useForm`.                      |
+| `resetOnSuccess` (option)        | When `true`, a successful submit resets defaults to the mount-time values, and form data too unless it was edited during the submit. Useful for create forms that should clear after save.               |
+| `setError(field, message)`       | Set a client-side validation error on a field.                                                                                                                                                           |
+| `clearErrors(...fields)`         | Clear validation errors. Field names autocomplete.                                                                                                                                                       |
+| `clearError()`                   | Clear `error`.                                                                                                                                                                                           |
 
 Use `setError()` for client-side validation. Editing a field clears its error automatically.
 

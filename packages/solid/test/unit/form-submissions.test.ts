@@ -25,6 +25,7 @@ type TestForm = {
 const useForm = typedUseForm as unknown as (
   url: string,
   defaults: Record<string, unknown>,
+  options?: { resetOnSuccess?: boolean },
 ) => TestForm;
 
 type Deferred<T> = {
@@ -59,10 +60,12 @@ afterEach(() => {
   }
 });
 
-function mountOverlappingForm() {
+function mountOverlappingForm(options?: { resetOnSuccess?: boolean }) {
   const visits: Array<Deferred<unknown>> = [];
+  const sent: Array<unknown> = [];
   const router = {
-    visit: () => {
+    visit: (_url: string, visitOptions: { data?: unknown }) => {
+      sent.push(visitOptions.data);
       const visit = deferred<unknown>();
       visits.push(visit);
       return visit.promise;
@@ -74,12 +77,12 @@ function mountOverlappingForm() {
     createComponent(RouterContext.Provider, {
       value: router,
       get children() {
-        form = useForm('/notes?create', { title: '' });
+        form = useForm('/notes?create', { title: '' }, options);
         return null;
       },
     });
   });
-  return { form, visits };
+  return { form, visits, sent };
 }
 
 describe('useForm overlapping submits', () => {
@@ -147,23 +150,23 @@ describe('useForm overlapping submits', () => {
   });
 });
 
-describe('useIslandForm overlapping submits', () => {
-  function mountIslandForm() {
-    const responses: Array<Deferred<Response>> = [];
-    const reload = vi.fn();
-    vi.stubGlobal('window', { location: { href: 'http://localhost/test', reload } });
-    vi.stubGlobal('fetch', () => {
-      const response = deferred<Response>();
-      responses.push(response);
-      return response.promise;
-    });
-    const form = createRoot((dispose) => {
-      disposers.push(dispose);
-      return useIslandForm({ title: '' });
-    });
-    return { form, responses, reload };
-  }
+function mountIslandForm() {
+  const responses: Array<Deferred<Response>> = [];
+  const reload = vi.fn();
+  vi.stubGlobal('window', { location: { href: 'http://localhost/test', reload } });
+  vi.stubGlobal('fetch', () => {
+    const response = deferred<Response>();
+    responses.push(response);
+    return response.promise;
+  });
+  const form = createRoot((dispose) => {
+    disposers.push(dispose);
+    return useIslandForm({ title: '' });
+  });
+  return { form, responses, reload };
+}
 
+describe('useIslandForm overlapping submits', () => {
   it('ignores an older submit that finishes first', async () => {
     const { form, responses } = mountIslandForm();
     const first = form.post('/island');
@@ -193,5 +196,64 @@ describe('useIslandForm overlapping submits', () => {
     expect(reload).not.toHaveBeenCalled();
     expect(form.wasSuccessful).toBe(false);
     expect(form.errors).toEqual({ title: 'Invalid' });
+  });
+});
+
+describe('useForm edits made during a submit', () => {
+  it('sends and saves the values from when the submit started', async () => {
+    const { form, visits, sent } = mountOverlappingForm();
+    form.setData('title', 'Sent');
+    const submit = form.post();
+    form.setData('title', 'Typed while in flight');
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(sent).toEqual([{ title: 'Sent' }]);
+    expect(form.data.title).toBe('Typed while in flight');
+    form.reset();
+    expect(form.data).toEqual({ title: 'Sent' });
+  });
+
+  it('resetOnSuccess keeps an edit made during the submit', async () => {
+    const { form, visits } = mountOverlappingForm({ resetOnSuccess: true });
+    form.setData('title', 'Sent');
+    const submit = form.post();
+    form.setData('title', 'Typed while in flight');
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('Typed while in flight');
+    form.reset();
+    expect(form.data.title).toBe('');
+  });
+
+  it('resetOnSuccess clears the form when nothing changed during the submit', async () => {
+    const { form, visits } = mountOverlappingForm({ resetOnSuccess: true });
+    form.setData('title', 'Sent');
+    const submit = form.post();
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('');
+  });
+});
+
+describe('useIslandForm edits made during a submit', () => {
+  it('saves the values from when the submit started', async () => {
+    const { form, responses, reload } = mountIslandForm();
+    form.setData('title', 'Sent');
+    const submit = form.post('/island');
+    form.setData('title', 'Typed while in flight');
+
+    responses[0].resolve(new Response('{}', { status: 200 }));
+    await submit;
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(form.data.title).toBe('Typed while in flight');
+    form.reset();
+    expect(form.data.title).toBe('Sent');
   });
 });

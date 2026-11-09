@@ -17,13 +17,16 @@ type TestForm = {
   readonly pending: boolean;
   readonly wasSuccessful: boolean;
   setError(field: string, message: string): void;
+  reset(): void;
   post(): Promise<void>;
 };
 
 type TestIslandForm = {
+  readonly data: Record<string, unknown>;
   readonly errors: Record<string, string>;
   readonly pending: boolean;
   readonly wasSuccessful: boolean;
+  reset(): void;
   post(url: string): Promise<void>;
 };
 
@@ -52,7 +55,11 @@ function writeCompiled(file: string, code: string): void {
 }
 
 let svelte: typeof import('svelte');
-let Host: Component<{ defaults: Record<string, unknown>; onform: (form: TestForm) => void }>;
+let Host: Component<{
+  defaults: Record<string, unknown>;
+  options?: { resetOnSuccess?: boolean };
+  onform: (form: TestForm) => void;
+}>;
 let useIslandForm: (defaults: Record<string, unknown>) => TestIslandForm;
 const mounted: Array<ReturnType<typeof import('svelte').mount>> = [];
 
@@ -67,8 +74,8 @@ beforeAll(async () => {
   );
   const host = `<script>
   import { useForm } from './use-form.svelte.js';
-  let { defaults, onform } = $props();
-  onform(useForm('/notes?create', defaults));
+  let { defaults, options, onform } = $props();
+  onform(useForm('/notes?create', defaults, options));
 </script>`;
   writeCompiled('Host.js', compile(host, { filename: 'Host.svelte', generate: 'client' }).js.code);
   Host = (await import(pathToFileURL(join(TMP, 'Host.js')).href)).default;
@@ -94,12 +101,13 @@ afterEach(() => {
 function mountForm(
   defaults: Record<string, unknown>,
   router = { visit: async () => ({}) } as unknown as VoidRouter,
+  options?: { resetOnSuccess?: boolean },
 ): TestForm {
   let form!: TestForm;
   mounted.push(
     svelte.mount(Host, {
       target: document.createElement('div'),
-      props: { defaults, onform: (value) => (form = value) },
+      props: { defaults, options, onform: (value) => (form = value) },
       context: new Map([['__void_router', router]]),
     }),
   );
@@ -178,16 +186,19 @@ function validationResponse(errors: Record<string, string>): Response {
   });
 }
 
-function mountOverlappingForm() {
+function mountOverlappingForm(options?: { resetOnSuccess?: boolean }) {
   const visits: Array<Deferred<unknown>> = [];
+  const sent: Array<unknown> = [];
   const router = {
-    visit: () => {
+    visit: (_url: string, visitOptions: { data?: unknown }) => {
+      sent.push(visitOptions.data);
       const visit = deferred<unknown>();
       visits.push(visit);
       return visit.promise;
     },
   } as unknown as VoidRouter;
-  return { form: mountForm({ title: '' }, router), visits };
+  const defaults = { title: '', profile: { name: '' } };
+  return { form: mountForm(defaults, router, options), visits, sent };
 }
 
 describe('useForm overlapping submits', () => {
@@ -253,34 +264,34 @@ describe('useForm overlapping submits', () => {
   });
 });
 
-describe('useIslandForm overlapping submits', () => {
-  const originalLocation = window.location;
+const originalLocation = window.location;
 
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    Object.defineProperty(window, 'location', {
-      value: originalLocation,
-      writable: true,
-      configurable: true,
-    });
+function stubIslandPage() {
+  const responses: Array<Deferred<Response>> = [];
+  const reload = vi.fn();
+  Object.defineProperty(window, 'location', {
+    value: { href: 'http://localhost/test', reload },
+    writable: true,
+    configurable: true,
   });
+  vi.stubGlobal('fetch', () => {
+    const response = deferred<Response>();
+    responses.push(response);
+    return response.promise;
+  });
+  return { responses, reload };
+}
 
-  function stubIslandPage() {
-    const responses: Array<Deferred<Response>> = [];
-    const reload = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { href: 'http://localhost/test', reload },
-      writable: true,
-      configurable: true,
-    });
-    vi.stubGlobal('fetch', () => {
-      const response = deferred<Response>();
-      responses.push(response);
-      return response.promise;
-    });
-    return { responses, reload };
-  }
+afterEach(() => {
+  vi.unstubAllGlobals();
+  Object.defineProperty(window, 'location', {
+    value: originalLocation,
+    writable: true,
+    configurable: true,
+  });
+});
 
+describe('useIslandForm overlapping submits', () => {
   it('ignores an older submit that finishes first', async () => {
     const { responses } = stubIslandPage();
     const form = useIslandForm({ title: '' });
@@ -312,5 +323,70 @@ describe('useIslandForm overlapping submits', () => {
     expect(reload).not.toHaveBeenCalled();
     expect(form.wasSuccessful).toBe(false);
     expect({ ...form.errors }).toEqual({ title: 'Invalid' });
+  });
+});
+
+describe('useForm edits made during a submit', () => {
+  it('sends and saves the values from when the submit started', async () => {
+    const { form, visits, sent } = mountOverlappingForm();
+    form.data.title = 'Sent';
+    (form.data.profile as { name: string }).name = 'Ann';
+    const submit = form.post();
+    form.data.title = 'Typed while in flight';
+    (form.data.profile as { name: string }).name = 'Typed';
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(sent).toEqual([{ title: 'Sent', profile: { name: 'Ann' } }]);
+    expect(form.data.title).toBe('Typed while in flight');
+    expect(form.hasChanges).toBe(true);
+    form.reset();
+    expect(form.data).toEqual({ title: 'Sent', profile: { name: 'Ann' } });
+  });
+
+  it('resetOnSuccess keeps an edit made during the submit', async () => {
+    const { form, visits } = mountOverlappingForm({ resetOnSuccess: true });
+    form.data.title = 'Sent';
+    const submit = form.post();
+    form.data.title = 'Typed while in flight';
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('Typed while in flight');
+    expect(form.hasChanges).toBe(true);
+    form.reset();
+    expect(form.data.title).toBe('');
+  });
+
+  it('resetOnSuccess clears the form when nothing changed during the submit', async () => {
+    const { form, visits } = mountOverlappingForm({ resetOnSuccess: true });
+    form.data.title = 'Sent';
+    const submit = form.post();
+
+    visits[0].resolve({});
+    await submit;
+
+    expect(form.data.title).toBe('');
+    expect(form.hasChanges).toBe(false);
+  });
+});
+
+describe('useIslandForm edits made during a submit', () => {
+  it('saves the values from when the submit started', async () => {
+    const { responses, reload } = stubIslandPage();
+    const form = useIslandForm({ title: '' });
+    form.data.title = 'Sent';
+    const submit = form.post('/island');
+    form.data.title = 'Typed while in flight';
+
+    responses[0].resolve(new Response('{}', { status: 200 }));
+    await submit;
+
+    expect(reload).toHaveBeenCalledTimes(1);
+    expect(form.data.title).toBe('Typed while in flight');
+    form.reset();
+    expect(form.data.title).toBe('Sent');
   });
 });
