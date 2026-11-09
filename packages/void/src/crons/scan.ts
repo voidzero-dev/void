@@ -3,7 +3,7 @@ import { join } from 'pathslash';
 import type { AstNode } from '../shared/ast.ts';
 import { listConventionFiles } from '../shared/convention-files.ts';
 import {
-  staticExportInitializers,
+  readStaticExports,
   staticLiteral,
   unwrapStaticExpression,
 } from '../shared/static-exports.ts';
@@ -23,7 +23,7 @@ function extractJobName(filePath: string): string {
 
 function extractCronExpressions(source: string, filePath: string): Array<string> {
   const initializer = unwrapStaticExpression(
-    staticExportInitializers(filePath, source, new Set(['cron'])).get('cron'),
+    readStaticExports(filePath, source, new Set(['cron'])).initializers.get('cron'),
   );
   if (!initializer) {
     throw new Error(

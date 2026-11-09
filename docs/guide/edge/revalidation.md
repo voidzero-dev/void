@@ -61,6 +61,8 @@ export const loader = defineHandler(async (c) => {
 });
 ```
 
+Use a whole-number literal such as `3600`. Void reads the value without running the file, so it ignores an expression such as `60 * 60` or a value re-exported from another module, and prints a warning.
+
 Per-page values take precedence over `void.config.ts` patterns.
 
 A page's `revalidate` export also applies to `routes/` handlers whose URLs match the page pattern. For example, if `pages/[...slug].server.ts` exports `revalidate`, Void can also cache the `GET` response of `routes/now.ts`. Void never caches paths under `/api`. To keep a route handler's response out of the cache, set `x-revalidate: 0` on it. See [Per-response TTL override](#per-response-ttl-override).

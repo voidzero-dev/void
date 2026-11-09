@@ -216,6 +216,8 @@ A named layout replaces the deepest default layout: in `[root, docs/layout]`, it
 
 Void uses the closest matching `_layouts/` file in the page's directory or an ancestor. A missing named layout fails the build.
 
+Declare `layout` in the page file itself with a string literal or `false`. Void reads it without running the page, so it ignores a computed or re-exported value and prints a warning.
+
 ## Shared Data
 
 Middleware can inject data available on every page via `c.set("shared", {...})`. Augment `CloudContextVariables` to type the shared data, and `useShared()` will infer the type automatically:
