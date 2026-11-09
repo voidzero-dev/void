@@ -134,7 +134,7 @@ describe("migrationPlugin in Vitest's server", () => {
         configFile: false,
         logLevel: 'silent',
         mode,
-        server: { middlewareMode: true, ws: false },
+        server: { middlewareMode: true, ws: false, watch: null },
         plugins,
       });
       await server.close();
