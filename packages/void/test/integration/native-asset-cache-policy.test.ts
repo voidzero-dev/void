@@ -643,11 +643,22 @@ describe('native output: "static" pages in real Workers', () => {
     // The `/proxy/*` route also answers `/proxy`, so this file must not.
     writeFileSync(join(assets, 'proxy.html'), '<h1>proxy file</h1>');
     writeFileSync(join(assets, 'assets/app-abcdefgh.js'), 'export const value = 1;');
+    // `/items/tags/:tag` and `/api/hello` sit under the rules of `/items/:id` and
+    // `/api/:name`. Miniflare rejects a list that names them too, as Cloudflare does.
+    const serverPatterns = [
+      '/products',
+      '/contact',
+      '/items/:id',
+      '/items/tags/:tag',
+      '/api/hello',
+      '/api/:name',
+      '/proxy/*',
+    ];
     const plan = resolveAssetWorkerBypass(
       bypassFacts({
-        patterns: ['/', '/about', '/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+        patterns: ['/', '/about', ...serverPatterns],
         immutableFiles: ['assets/app-abcdefgh.js'],
-        serverPatterns: ['/products', '/contact', '/items/:id', '/api/hello', '/proxy/*'],
+        serverPatterns,
       }),
     )!;
     writeFileSync(join(assets, '_headers'), plan.headers!);
@@ -713,7 +724,9 @@ describe('native output: "static" pages in real Workers', () => {
     expect(await action.text()).toBe('action ran');
     for (const path of [
       '/items/42',
+      '/items/tags/new',
       '/api/hello',
+      '/api/someone',
       '/proxy',
       '/proxy/a/b',
       '/missing',

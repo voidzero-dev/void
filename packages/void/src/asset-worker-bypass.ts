@@ -253,7 +253,10 @@ function resolveStaticPageBypass(
   } else if (files.length > 0) {
     headers = renderGeneratedAssetHeaders(files);
   }
-  const runWorkerFirst = [...VOID_INTERNAL_WORKER_FIRST, ...[...rules].sort()];
+  const runWorkerFirst = withoutRedundantRules([
+    ...VOID_INTERNAL_WORKER_FIRST,
+    ...[...rules].sort(),
+  ]);
   return fitsRunWorkerFirstLimits(runWorkerFirst) ? { runWorkerFirst, headers } : null;
 }
 
@@ -283,6 +286,18 @@ function workerPathRules(pattern: string): Array<string> | null {
   return dynamic === segments.length - 1 && segments[dynamic] === '*'
     ? ['/' + prefix, rule]
     : [rule];
+}
+
+/**
+ * Leaves out each rule that a `/prefix/*` rule in the list already matches.
+ * Cloudflare rejects a list with such a rule ("rule '/blog/*' makes it
+ * redundant"), and the wider rule already sends those paths to the Worker.
+ */
+function withoutRedundantRules(rules: Array<string>): Array<string> {
+  const prefixes = rules.filter((rule) => rule.endsWith('/*')).map((rule) => rule.slice(0, -1));
+  return rules.filter(
+    (rule) => !prefixes.some((prefix) => rule !== prefix + '*' && rule.startsWith(prefix)),
+  );
 }
 
 function fitsRunWorkerFirstLimits(rules: Array<string>): boolean {
