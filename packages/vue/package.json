@@ -47,7 +47,7 @@
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "void": "workspace:*",
-    "vue": "^3.5.44"
+    "vue": "catalog:"
   },
   "peerDependencies": {
     "vite": "^8.0.0",

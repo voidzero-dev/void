@@ -97,6 +97,8 @@ that change the process timezone also use forks, because threads cannot change N
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
 This keeps database engines from competing with all framework compilers at startup. Keep module
 isolation enabled: these suites mock globals, keep database state, and exercise real process/lock boundaries.
+Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
+can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
 The full verification command builds before running the platform's type-aware lint, so it also
 works without a pre-existing dashboard `.void/tsconfig.json`.
 

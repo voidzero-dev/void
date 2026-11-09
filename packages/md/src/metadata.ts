@@ -1,9 +1,9 @@
 import matter from 'gray-matter';
 import MarkdownExit from 'markdown-exit';
 import type { Token } from 'markdown-exit';
-import anchor from 'markdown-it-anchor';
 import footnote from 'markdown-it-footnote';
 import type { Heading } from './compile.ts';
+import { headingAnchorPlugin } from './plugins/heading-anchor.ts';
 
 let metadataCompiler: MarkdownExit | null = null;
 
@@ -18,9 +18,7 @@ function getMetadataCompiler(): MarkdownExit {
   // ids from `compile()`; otherwise `@void/md/pages` links break for such
   // headings. Registration order mirrors `createCompiler` in compile.ts.
   markdown.use(footnote);
-  markdown.use(anchor, {
-    permalink: anchor.permalink.ariaHidden({ placement: 'before' }),
-  });
+  markdown.use(headingAnchorPlugin);
   metadataCompiler = markdown;
   return markdown;
 }

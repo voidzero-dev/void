@@ -531,6 +531,7 @@ export default defineConfig({
           // schedule the longest files first and fill idle slots across package boundaries.
           name: 'parallel-integration',
           fsModuleCache: true,
+          pool: 'forks',
           // Bound simultaneous database engines and framework compilers locally.
           // Unit tests still fill unused integration workers in the same phase.
           sequence: { groupOrder: 2 },

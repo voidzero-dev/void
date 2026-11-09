@@ -23,97 +23,104 @@ allowBuilds:
   workerd: true
 
 catalog:
-  '@cloudflare/workers-types': ^5.20261102.1
-  '@cloudflare/workers-utils': ^0.50.2
+  '@cloudflare/workers-types': ^5.20261109.1
+  '@cloudflare/workers-utils': ^0.52.0
   '@types/node': ^26.6.6
-  '@voidzero-dev/vite-plus-prompts': 1.4.0
+  '@voidzero-dev/vite-plus-prompts': 1.5.0
   typescript: 7.0.2
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
-  vite: npm:@voidzero-dev/vite-plus-core@1.4.0
-  vite-plus: 1.4.0
-  vitest: 5.0.5
-  wrangler: ^4.156.1
-  cf: ^1.0.0-beta.26
+  vite: npm:@voidzero-dev/vite-plus-core@1.5.0
+  vite-plus: 1.5.0
+  vitest: 5.1.0
+  wrangler: ^4.158.0
+  cf: ^1.0.0-beta.28
   oauth4webapi: ^3.8.8
-  '@astryxdesign/core': 0.7.5
-  '@astryxdesign/theme-neutral': 0.7.5
+  '@astryxdesign/core': 0.7.11
+  '@astryxdesign/theme-neutral': 0.7.11
   '@stylexjs/stylex': 0.19.1
-  '@angular/build': ^22.2.5
-  '@astrojs/cloudflare': ^14.4.3
-  '@cloudflare/build-output-utils': ^0.9.7
-  '@cloudflare/codemods': ^0.7.1
-  '@cloudflare/config': ^0.29.1
-  '@cloudflare/vite-plugin': ^2.0.0-beta.v.9
-  '@cloudflare/workers-auth': ^0.15.4
-  '@nkzw/fate': 1.13.0
-  '@vitejs/plugin-react': ^6.1.2
-  '@vitejs/plugin-rsc': ^0.5.38
-  astro: ^7.4.4
+  '@angular/build': ^22.2.6
+  '@astrojs/cloudflare': ^14.4.6
+  '@cloudflare/build-output-utils': ^0.9.10
+  '@cloudflare/codemods': ^0.7.4
+  '@cloudflare/config': ^0.30.2
+  '@cloudflare/vite-plugin': ^2.0.0-beta.v.12
+  '@cloudflare/workers-auth': ^0.16.0
+  '@nkzw/fate': 1.15.0
+  '@vitejs/plugin-react': ^6.2.1
+  '@vitejs/plugin-rsc': ^0.5.39
+  astro: ^7.4.7
   magic-string: ^1.4.5
-  # Match Vite plugin v2 and Wrangler; cf beta.26 still requires the prior runtime.
-  miniflare: ^5.20261101.0-beta
-  nuxt: ^4.6.3
-  playwright: ^1.64.1
+  # Keep Miniflare aligned with the Vite plugin, Wrangler, and cf.
+  miniflare: ^5.20261104.0-beta
+  nuxt: ^4.6.4
+  playwright: ^1.65.0
   postal-mime: ^4.2.0
-  react-fate: 1.13.0
+  react-fate: 1.15.0
   reka-ui: 2.11.0
-  rolldown: ^1.2.16
+  rolldown: ^1.3.0
   solid-js: ^1.9.18
   svelte: ^5.57.2
-  shiki: ^4.5.0
-  '@analogjs/content': ^2.9.4
-  '@analogjs/platform': ^2.9.4
-  '@analogjs/router': ^2.9.4
-  '@analogjs/vite-plugin-angular': ^2.9.4
-  '@angular/common': ^22.2.4
-  '@angular/compiler': ^22.2.4
-  '@angular/compiler-cli': ^22.2.4
-  '@angular/core': ^22.2.4
-  '@angular/platform-browser': ^22.2.4
-  '@angular/platform-server': ^22.2.4
-  '@angular/router': ^22.2.4
-  '@electric-sql/pglite': 0.5.14
+  shiki: ^4.6.0
+  '@analogjs/content': ^2.9.6
+  '@analogjs/platform': ^2.9.6
+  '@analogjs/router': ^2.9.6
+  '@analogjs/vite-plugin-angular': ^2.9.6
+  '@angular/common': ^22.2.5
+  '@angular/compiler': ^22.2.5
+  '@angular/compiler-cli': ^22.2.5
+  '@angular/core': ^22.2.5
+  '@angular/platform-browser': ^22.2.5
+  '@angular/platform-server': ^22.2.5
+  '@angular/router': ^22.2.5
+  '@electric-sql/pglite': 0.5.15
   '@sveltejs/adapter-cloudflare': ^8.0.1
   '@sveltejs/kit': ^3.1.0
   '@tanstack/react-router': ^1.170.46
-  '@tanstack/react-start': ^1.169.4
-  better-auth: ^1.7.14
-  lucide-react: 1.66.0
+  '@tanstack/react-start': ^1.169.5
+  better-auth: ^1.7.18
+  lucide-react: 1.70.0
   react: ^19.3.1
   react-dom: ^19.3.1
   react-server-dom-webpack: 19.3.1
-  vinext: 1.4.0
+  vinext: 1.4.4
   vitepress-plugin-group-icons: ^1.8.1
   '@cloudflare/sandbox': ^1.0.3
   '@napi-rs/keyring': ^2.1.2
   happy-dom: ^21.0.4
-  '@iconify/vue': 5.0.4
+  '@iconify/vue': 5.0.5
   '@react-router/dev': ^8.5.1
   arktype: ^2.2.9
-  cron-parser: 5.10.3
-  hono: ^4.13.16
+  cron-parser: 5.10.4
+  hono: ^4.13.17
   ignore: ^7.0.14
-  jose: 6.2.14
+  jose: 6.2.15
   mime: ^4.1.2
   react-router: ^8.5.1
   smol-toml: ^1.9.1
   tslib: ^2.9.1
   vite-plugin-solid: ^2.11.15
+  '@hono/node-server': ^2.1.6
+  '@shikijs/engine-javascript': ^4.6.0
+  '@shikijs/transformers': ^4.6.0
+  markdown-exit: ^2.1.3
+  markdown-it-anchor: ^10.1.0
+  minimatch: ^11.0.5
+  vue: ^3.5.45
 
 catalogs:
   angular:
     typescript: 6.0.3
   platform:
-    '@cloudflare/workers-types': ^5.20261102.1
-    hono: 4.13.16
-    wrangler: ^4.156.1
+    '@cloudflare/workers-types': ^5.20261109.1
+    hono: 4.13.17
+    wrangler: ^4.158.0
   sveltekit:
     typescript: 6.0.3
 
 packageExtensions:
   # Analog's Nitro 2 plugin imports H3 v1 without declaring it.
-  '@analogjs/vite-plugin-nitro@2.9.4':
+  '@analogjs/vite-plugin-nitro@2.9.6':
     dependencies:
       h3: ^1.15.11
   # Analog imports TypeScript without declaring it; use the app's compiler.
@@ -123,13 +130,13 @@ packageExtensions:
 
 overrides:
   # Keep Vite+'s pinned Vitest internals on the same patch as the runner.
-  '@vitest/browser': 5.0.5
-  '@vitest/browser-preview': 5.0.5
-  '@vitest/mocker': 5.0.5
-  '@vitest/pretty-format': 5.0.5
-  '@vitest/snapshot': 5.0.5
-  '@vitest/spy': 5.0.5
-  '@vitest/utils': 5.0.5
+  '@vitest/browser': 5.1.0
+  '@vitest/browser-preview': 5.1.0
+  '@vitest/mocker': 5.1.0
+  '@vitest/pretty-format': 5.1.0
+  '@vitest/snapshot': 5.1.0
+  '@vitest/spy': 5.1.0
+  '@vitest/utils': 5.1.0
   esbuild: ^0.28.2
   react-server-dom-webpack: 19.3.1
   vite@*: 'catalog:'

@@ -417,9 +417,7 @@ describe('administrator plan dashboard', () => {
       expect(await page.locator('body').innerText()).toContain('31 existing accounts affected');
       await page.getByRole('button', { name: 'Apply changes', exact: true }).click();
       await page.getByRole('heading', { name: 'Edit Starter', exact: true }).waitFor();
-      const confirmation = page
-        .locator('.astryx-toast[role="status"]')
-        .filter({ hasText: 'Plan saved.' });
+      const confirmation = page.locator('.astryx-toast').filter({ hasText: 'Plan saved.' });
       await confirmation.waitFor();
       expect(await page.locator('input[name="requestsPerMonth"]').inputValue()).toBe('1000');
       expect(new URL(page.url()).pathname).toBe(`${home}/free/edit`);

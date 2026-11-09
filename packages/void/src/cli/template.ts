@@ -32,8 +32,8 @@ export const SCAFFOLD_BASE_DEV_DEPENDENCIES = {
 } as const;
 
 export const SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES = {
-  vite: 'npm:@voidzero-dev/vite-plus-core@^1.4.0',
-  'vite-plus': '^1.4.0',
+  vite: 'npm:@voidzero-dev/vite-plus-core@^1.5.0',
+  'vite-plus': '^1.5.0',
 } as const;
 
 export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
@@ -50,7 +50,7 @@ export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
 ] as const;
 
 const REACT_SCAFFOLD_COMPILER_DEV_DEPENDENCIES = {
-  'oxc-transform-react': '^0.152.0',
+  'oxc-transform-react': '>=0.152.0 <0.157.0',
 } as const;
 
 export const SCAFFOLD_FRAMEWORK_OPTIONS = [
