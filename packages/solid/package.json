@@ -25,6 +25,10 @@
     "./plugin": {
       "types": "./dist/plugin.d.mts",
       "import": "./dist/plugin.mjs"
+    },
+    "./pages-boundary": {
+      "types": "./dist/runtime/PageErrorBoundary.d.mts",
+      "import": "./dist/runtime/PageErrorBoundary.mjs"
     }
   },
   "publishConfig": {

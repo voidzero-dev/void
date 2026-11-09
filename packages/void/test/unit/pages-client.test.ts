@@ -174,7 +174,7 @@ describe('Pages serialization compatibility', () => {
       const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
       expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
       expect(requests).toHaveLength(1);
-      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe('1');
+      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe(PAGES_PROTOCOL_VERSION);
       expect(window.location.href).toBeUndefined();
     },
   );
@@ -944,6 +944,132 @@ describe('createVoidRouter', () => {
     await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { v: 2 } });
   });
 
+  it('reloads the destination when another deployment returns an unknown boundary plan', async () => {
+    stubClientGlobals();
+    vi.stubGlobal(
+      'fetch',
+      vi
+        .fn()
+        .mockResolvedValue(
+          pageJson({ component: '_void:boundary:new-build', props: { error: { status: 404 } } }),
+        ),
+    );
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+    });
+    await expect(router.visit('/users')).resolves.toBeUndefined();
+    expect(window.location.href).toBe('/users');
+  });
+  it('recovers a failed component import with an uncached, sanitized boundary', async () => {
+    stubClientGlobals();
+    const fetchMock = vi.fn().mockImplementation(() =>
+      Promise.resolve(
+        pageJson({
+          component: 'users',
+          props: {},
+          params: {},
+          shared: {},
+          url: '/users',
+          errors: null,
+        }),
+      ),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: {
+        home: loadComponent,
+        users: async () => {
+          throw new Error('SECRET_CHUNK');
+        },
+        error: loadComponent,
+      },
+      matchRoute: () => 'users',
+      boundaryManifest: {
+        plans: {
+          error: {
+            id: 'error',
+            componentId: '_error',
+            directory: '',
+            filePath: '_error.tsx',
+            kind: 'error',
+            source: 'users',
+            layouts: [],
+          },
+        },
+        pages: { users: { errors: ['error'], catches: [{ depth: 0, plan: 'error' }] } },
+      },
+      cacheVisitedPageData: true,
+    });
+    try {
+      await expect(router.visit('/users')).resolves.toMatchObject({
+        component: 'error',
+        props: { error: { status: 500, message: 'Internal Server Error' } },
+      });
+      await router.visit('/users');
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      router.flushAll();
+    }
+  });
+
+  it('retains cached success when background revalidation returns a boundary', async () => {
+    stubClientGlobals();
+    const failure = new Response(
+      JSON.stringify({ component: 'error-plan', props: { error: { status: 500 } } }),
+      { status: 500, headers: { 'X-VoidPages': 'true', 'Cache-Control': 'no-store' } },
+    );
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 1 } }))
+      .mockResolvedValue(failure);
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      prefetchDefaultCacheFor: { stale: 0, expires: 60_000 },
+    });
+    try {
+      await router.prefetch('/users');
+      await router.visit('/users');
+      await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 1 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    } finally {
+      router.flushAll();
+    }
+  });
+
+  it('refresh bypasses cached success and a superseded background result cannot restore it', async () => {
+    stubClientGlobals();
+    const background = controlledPromise<Response>();
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 1 } }))
+      .mockReturnValueOnce(background.promise)
+      .mockResolvedValueOnce(pageJson({ component: 'users', props: { version: 3 } }));
+    vi.stubGlobal('fetch', fetchMock);
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      prefetchDefaultCacheFor: { stale: 0, expires: 60_000 },
+      cacheVisitedPageData: true,
+    });
+    try {
+      await router.prefetch('/users');
+      await router.visit('/users');
+      window.location.pathname = '/users';
+      await expect(router.refresh()).resolves.toMatchObject({ props: { version: 3 } });
+      background.resolve(pageJson({ component: 'users', props: { version: 2 } }));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    } finally {
+      router.flushAll();
+    }
+  });
+
   it('reuses visited GET page shells while their refresh is pending when opted in', async () => {
     stubClientGlobals();
     let requests = 0;
@@ -978,7 +1104,7 @@ describe('createVoidRouter', () => {
 
     expect(finishRefresh).toBeTypeOf('function');
     finishRefresh!(pageJson({ component: 'users', props: { version: 3 } }));
-    await expect(router.prefetch('/users')).resolves.toMatchObject({ props: { version: 3 } });
+    await expect.poll(() => router.prefetch('/users')).toMatchObject({ props: { version: 3 } });
   });
 
   it('reuses the server-rendered initial page on a return visit', async () => {
@@ -1018,7 +1144,7 @@ describe('createVoidRouter', () => {
 
     await router.visit('/users');
     await expect(router.visit('/dashboard')).resolves.toMatchObject({ props: { version: 1 } });
-    await expect(router.prefetch('/dashboard')).resolves.toMatchObject({ props: { version: 3 } });
+    await expect.poll(() => router.prefetch('/dashboard')).toMatchObject({ props: { version: 3 } });
     expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 

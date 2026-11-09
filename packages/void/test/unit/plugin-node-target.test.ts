@@ -67,7 +67,9 @@ describe('nodeTargetPlugin request bridge', () => {
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('text/plain');
     expect(response.headers.getSetCookie()).toEqual(['session=abc; Path=/', 'csrf=xyz; Path=/']);
-    expect(app.fetch).toHaveBeenCalledWith(expect.any(Request));
+    expect(app.fetch).toHaveBeenCalledWith(expect.any(Request), {
+      ASSETS: { fetch: expect.any(Function) },
+    });
   });
 
   it('keeps every Set-Cookie header in preview', async () => {

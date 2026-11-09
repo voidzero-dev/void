@@ -1148,7 +1148,7 @@ describe('compileNodeApp', () => {
     expect(code).toContain('import { Hono } from "/resolved/hono/index.mjs"');
     expect(code).toContain('export default app');
     expect(code).toContain(
-      'import innerApp, { __voidCollectPrerenderPaths } from "virtual:void-routes"',
+      'import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes"',
     );
     expect(code).toContain('app.post("/__void/prerender-paths"');
     // Only the prerender runner passes the marker as the Hono env.
@@ -1187,12 +1187,12 @@ describe('compileNodeApp', () => {
     });
     expect(code).toContain('import "/abs/path/to/env.ts"');
     expect(code).toContain('import { _validateEnvOnce } from "/resolved/env-public.mjs"');
-    // Only path discovery can run without remote production secrets.
+    // Only trusted build-time rendering can run without remote production secrets.
     // Node/Bun read the application request environment from process.env.
     expect(code).toContain('app.use("*", async (c, next)');
     expect(code).toContain('await _validateEnvOnce(process.env)');
     expect(code).toContain(
-      'if (!(c.req.method === "POST" && c.req.path === "/__void/prerender-paths" && c.env?.__VOID_PRERENDER === "1")) await _validateEnvOnce(process.env)',
+      'if (!(((c.req.method === "POST" && c.req.path === "/__void/prerender-paths") || (c.req.method === "GET" && c.req.path === "/__void/static-not-found")) && c.env?.__VOID_PRERENDER === "1")) await _validateEnvOnce(process.env)',
     );
   });
 

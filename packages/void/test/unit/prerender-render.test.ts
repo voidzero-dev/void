@@ -8,6 +8,7 @@ import {
   outputFileForPath,
   readPrerenderPathsResponse,
   renderPrerenderPaths,
+  renderBoundary404,
 } from '../../src/prerender-render.ts';
 import { createAssetFallback } from '../../src/runtime/routing-worker.ts';
 
@@ -359,5 +360,39 @@ describe('assertNoPrerenderFailures', () => {
     expect(() => assertNoPrerenderFailures([{ path: '/throws', error: 'HTTP 500' }])).toThrow(
       '1 page(s) failed to prerender:\n  /throws: HTTP 500',
     );
+  });
+});
+
+describe('boundary 404 document', () => {
+  it('writes only a document and preserves an existing explicit 404', async () => {
+    const root = fixture();
+    await renderBoundary404(
+      root,
+      async () =>
+        new Response('<h1>Custom missing page</h1>', {
+          status: 404,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    );
+    expect(readFileSync(join(root, '404.html'), 'utf8')).toContain('Custom missing page');
+    expect(existsSync(join(root, '_void'))).toBe(false);
+    await renderBoundary404(root, async () => {
+      throw new Error('must not replace explicit document');
+    });
+  });
+  it.each([200, 500])('rejects a failed artifact (HTTP %s)', async (status) => {
+    const root = fixture();
+    await expect(
+      renderBoundary404(
+        root,
+        async () => new Response('failure', { status, headers: { 'Content-Type': 'text/html' } }),
+      ),
+    ).rejects.toThrow('not-found document');
+    expect(existsSync(join(root, '404.html'))).toBe(false);
+  });
+  it('does nothing for apps without a root boundary', async () => {
+    const root = fixture();
+    await renderBoundary404(root, async () => new Response(null, { status: 204 }));
+    expect(existsSync(join(root, '404.html'))).toBe(false);
   });
 });

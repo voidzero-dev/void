@@ -20,6 +20,9 @@ import {
   isAbortError,
   isCallSiteActionError,
   refreshPage,
+  pageBoundarySlots,
+  showTerminalPageError,
+  type BoundaryManifest,
   toUrlString,
   type PageNavigationResource,
   type PageNavigationResult,
@@ -39,6 +42,7 @@ import {
   SharedContext,
 } from './context.ts';
 import { DEFERRED_SHELL_END_ID } from './deferred-shell.ts';
+import { PageErrorBoundary } from './PageErrorBoundary.tsx';
 
 // oxlint-disable-next-line no-explicit-any -- component props are narrowed by generated route types
 type ComponentModule = { default: ComponentType<any> };
@@ -47,6 +51,8 @@ type ReactPageComponent = ComponentType<Record<string, unknown>>;
 type ReactLayoutComponent = ComponentType<{ children?: React.ReactNode }>;
 
 export type ReactPagesConfig = Readonly<{
+  boundaryManifest?: BoundaryManifest;
+  dev?: boolean;
   components: Record<string, () => Promise<ComponentModule>>;
   layoutTree: Record<string, Array<string>>;
   routeMeta: Record<string, { island?: boolean; prerender?: boolean }>;
@@ -111,6 +117,7 @@ const pendingVisitSettlers = new Map<number, VisitSettler>();
 const committedResources = new Set<number>();
 const EMPTY_PARAMS: Record<string, string> = {};
 
+let terminalResource: ReactPageResource | null = null;
 let activePendingNavigationId: number | null = null;
 // The URL the prerendered HTML was rendered with, while it differs from the browser URL. The
 // hydration commit clears it before effects run, so effects and later renders read the browser URL.
@@ -321,9 +328,13 @@ function createRouter(engine: Awaited<ReturnType<typeof createPageNavigationEngi
 function RouteResource({
   resource,
   onCommit,
+  config,
+  onFailure,
 }: {
   resource: ReactPageResource;
   onCommit(resource: ReactPageResource, result: PageNavigationResult): void;
+  config: ReactPagesConfig;
+  onFailure(url: string): void;
 }): React.ReactNode {
   const result = use(resource.shell);
   const outerRouter = React.useContext(RouterContext);
@@ -366,11 +377,40 @@ function RouteResource({
   }
 
   const PageComponent = result.component as ReactPageComponent;
-  let element = React.createElement(PageComponent, pageData.props);
+  const boundaries = pageBoundarySlots(
+    config.boundaryManifest,
+    pageData.component,
+    config.components,
+  );
+  const wrap = (element: React.ReactNode, depth: number) =>
+    boundaries
+      .filter((b) => b.depth === depth)
+      .reduce(
+        (child, boundary) =>
+          React.createElement(
+            PageErrorBoundary,
+            {
+              boundary,
+              key: boundary.key,
+              generation: resource.id,
+              dev: config.dev,
+              onFailure: () => {
+                onFailure(resource.fetchUrl);
+                if (resource.resolvedUrl) {
+                  onFailure(resource.resolvedUrl);
+                }
+              },
+            },
+            child,
+          ),
+        element,
+      );
+  let element: React.ReactNode = React.createElement(PageComponent, pageData.props);
   for (let i = result.layouts.length - 1; i >= 0; i--) {
     const Layout = result.layouts[i] as ReactLayoutComponent;
-    element = React.createElement(Layout, null, element);
+    element = React.createElement(Layout, null, wrap(element, i + 1));
   }
+  element = wrap(element, 0);
 
   return React.createElement(
     RouterContext.Provider,
@@ -409,11 +449,13 @@ function startViewTransition(
 }
 
 function App({
+  config,
   engine,
   router,
   viewTransitions,
   navigationFallback: NavigationFallback,
 }: {
+  config: ReactPagesConfig;
   engine: Awaited<ReturnType<typeof createPageNavigationEngine>>;
   router: VoidRouter;
   viewTransitions: boolean;
@@ -558,6 +600,9 @@ function App({
 
       const next: ReactPageResource = {
         ...prepared,
+        get resolvedUrl() {
+          return prepared.resolvedUrl;
+        },
         shell: prepared.shell.then(
           (result) => {
             if (!result) {
@@ -615,6 +660,7 @@ function App({
       };
       const navigation = navigationForResource(next);
 
+      terminalResource = next;
       pendingVisitSettlers.set(next.id, { resolve: resolveVisit, reject: rejectVisit });
       activePendingNavigationId = next.id;
       dispatch({ type: 'begin', resource: next, navigation });
@@ -719,6 +765,8 @@ function App({
         React.createElement(RouteResource, {
           resource: state.resource,
           onCommit: finishNavigation,
+          config,
+          onFailure: (url: string) => engine.flush(url),
         }),
       ),
     ),
@@ -726,6 +774,7 @@ function App({
 }
 
 export async function startReactPages(config: ReactPagesConfig): Promise<ReactPagesClient> {
+  terminalResource = null;
   viewTransitionWaiters.clear();
   pendingVisitSettlers.clear();
   committedResources.clear();
@@ -750,6 +799,13 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     prefetchDefaultCacheFor: config.prefetchDefaultCacheFor,
     prefetchDefaultStrategy: config.prefetchDefaultStrategy,
     cacheVisitedPageData: config.cacheVisitedPageData,
+    boundaryManifest: config.boundaryManifest,
+    dev: config.dev,
+  }).catch((error) => {
+    if (config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length) {
+      showTerminalPageError();
+    }
+    throw error;
   });
   const router = createRouter(engine);
   setActionRouter(router);
@@ -764,6 +820,7 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     prerenderedUrl = prerenderedRouteUrl(engine.initialPageData as ReactPageData);
   }
   const appRoot = React.createElement(App, {
+    config,
     engine,
     router,
     viewTransitions: config.viewTransitions,
@@ -780,10 +837,37 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
         )
       : appRoot;
   startTransition(() => {
+    const rootOptions =
+      config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length
+        ? {
+            onUncaughtError: (error: unknown) => {
+              const resource = terminalResource;
+              if (resource) {
+                resource.dispose();
+                engine.flush(resource.fetchUrl);
+                engine.flush(resource.resolvedUrl ?? resource.fetchUrl);
+              }
+              for (const settler of pendingVisitSettlers.values()) {
+                settler.reject(error);
+              }
+              pendingVisitSettlers.clear();
+              for (const resolve of viewTransitionWaiters.values()) {
+                resolve();
+              }
+              viewTransitionWaiters.clear();
+              activePendingNavigationId = null;
+              showTerminalPageError(
+                resource
+                  ? (resource.resolvedUrl ?? resource.fetchUrl + resource.hash)
+                  : currentUrl(),
+              );
+            },
+          }
+        : undefined;
     if (!isSsr) {
-      createRoot(appEl).render(app);
+      createRoot(appEl, rootOptions).render(app);
     } else {
-      hydrateRoot(appEl, app);
+      hydrateRoot(appEl, app, rootOptions);
     }
   });
   engine.start();

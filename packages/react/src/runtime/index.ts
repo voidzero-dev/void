@@ -18,3 +18,5 @@ export {
 } from './context.ts';
 export type { InferProps } from 'void';
 export type Deferred<T> = Promise<T>;
+
+export type { PageError, ErrorPageProps } from 'void/pages-client';

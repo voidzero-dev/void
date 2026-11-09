@@ -29,6 +29,8 @@ export function safeJsonStringify(value: unknown): string {
 }
 
 export type PageObject = {
+  /** Build-only server document; never bootstraps an interactive Pages root. */
+  documentOnly?: boolean;
   component: string;
   props: Record<string, unknown>;
   params: Record<string, string>;
@@ -67,6 +69,7 @@ type PageRenderOptions = {
   renderMode?: PageRenderMode;
   /** Dev server build: rejected deferred props keep their raw error message. */
   dev?: boolean;
+  boundaries?: { notFound?: string; notFoundErrors?: Array<string>; errors: Array<string> };
 };
 type AssetTags = {
   css: string;
@@ -329,20 +332,168 @@ async function runLoader(
   handler: PageHandler,
   c: CloudContext,
   render: (props: Record<string, unknown>) => Promise<Response>,
+  recover?: (error: unknown, response?: Response) => Promise<Response | undefined>,
 ): Promise<Response> {
   if (!handler) {
     return render({});
   }
   return runPageHandler(handler, c, async (leaf) => {
-    const result = await leaf(c);
+    let result: unknown;
+    try {
+      result = await leaf(c);
+    } catch (error) {
+      const recovered = await recover?.(error);
+      if (recovered) {
+        return recovered;
+      }
+      throw error;
+    }
     if (result instanceof Response && !isConvertedResponse(result)) {
+      if (
+        result.status === 404 &&
+        !result.headers.get('Content-Disposition')?.includes('attachment')
+      ) {
+        const recovered = await recover?.(undefined, result);
+        if (recovered) {
+          return recovered;
+        }
+      }
       const contentType = result.headers.get('content-type') || '';
       if (result.status >= 300 || !contentType.includes('application/json')) {
         return result;
       }
     }
-    return render(await extractProps(result));
+    let props: Record<string, unknown>;
+    try {
+      props = await extractProps(result);
+    } catch (error) {
+      const recovered = await recover?.(error);
+      if (recovered) {
+        return recovered;
+      }
+      throw error;
+    }
+    return render(props);
   });
+}
+
+/** Recover one completed GET operation without replaying its middleware or loader. */
+async function renderPageFailure(
+  c: CloudContext,
+  error: unknown,
+  original: Response | undefined,
+  renderFn: RenderPage,
+  getAssetTags: GetAssetTags,
+  configHead: HeadConfig | undefined,
+  options: PageRenderOptions | undefined,
+): Promise<Response | undefined> {
+  const httpError =
+    error &&
+    typeof error === 'object' &&
+    'getResponse' in error &&
+    typeof error.getResponse === 'function';
+  const explicit = httpError ? (error as { getResponse(): Response }).getResponse() : original;
+  if (explicit && (explicit.status !== 404 || explicit.headers.has('Content-Disposition'))) {
+    return undefined;
+  }
+  const notFound = explicit?.status === 404;
+  const candidates = notFound
+    ? [
+        options?.boundaries?.notFound,
+        ...(options?.boundaries?.notFoundErrors ?? options?.boundaries?.errors ?? []),
+      ]
+    : options?.boundaries?.errors;
+  if (!candidates?.[0]) {
+    return undefined;
+  }
+  let status = notFound ? 404 : 500;
+  let message = notFound
+    ? httpError && error instanceof Error
+      ? error.message
+      : 'Not Found'
+    : 'Internal Server Error';
+  if (!notFound && options?.dev && error instanceof Error) {
+    message = error.message;
+  }
+  if (error && !notFound) {
+    console.error(error);
+  }
+  const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
+  let head: HeadDescriptor | undefined;
+  // Invalid shared/head input is not repairable by trying another component.
+  try {
+    head = resolveHead(configHead, c.get('headDefaults') as HeadDescriptor | undefined, undefined);
+    serializePageData({ shared, head });
+  } catch (cause) {
+    throw new Error('Unable to render Pages error boundary', { cause });
+  }
+  const attempted = new Set<string>();
+  for (const component of candidates) {
+    if (!component || attempted.has(component)) {
+      continue;
+    }
+    attempted.add(component);
+    const page: PageObject = {
+      component,
+      props: { error: { status, message } },
+      shared,
+      params: requestParams(c),
+      url: requestPathWithSearch(c),
+      errors: null,
+      head: {
+        ...head,
+        title: head?.title ?? (status === 404 ? 'Not Found' : 'Internal Server Error'),
+      },
+    };
+    try {
+      let response: Response;
+      if (isPagesRequest(c) && options?.renderMode !== 'island') {
+        response = pageJsonResponse(c, page);
+      } else {
+        const { html, assetTags } = await renderPageHtml(
+          c,
+          page,
+          component,
+          options?.renderMode ?? 'server',
+          renderFn,
+          getAssetTags,
+        );
+        response = renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
+      }
+      const headers = new Headers(explicit?.headers);
+      for (const [key, value] of response.headers) {
+        if (key !== 'set-cookie') {
+          headers.set(key, value);
+        }
+      }
+      for (const cookie of response.headers.getSetCookie()) {
+        if (!headers.getSetCookie().includes(cookie)) {
+          headers.append('Set-Cookie', cookie);
+        }
+      }
+      for (const key of [
+        'Content-Length',
+        'Content-Encoding',
+        'Content-Range',
+        'ETag',
+        'Last-Modified',
+      ]) {
+        headers.delete(key);
+        c.header(key, undefined);
+      }
+      headers.set('Cache-Control', 'no-store');
+      if (original) {
+        await original.body?.cancel();
+      }
+      return new Response(c.req.method === 'HEAD' ? null : response.body, { status, headers });
+    } catch (failure) {
+      console.error(failure);
+      status = 500;
+      message =
+        options?.dev && failure instanceof Error ? failure.message : 'Internal Server Error';
+    }
+  }
+  throw new Error('Unable to render Pages error boundary');
 }
 
 /**
@@ -527,128 +678,146 @@ async function runPageGet(
     return legacyPageResponse(c);
   }
 
-  // Redirect/error responses from the loader are returned before rendering
-  return runLoader(handler, c, async (props) => {
-    // Read at render time so per-route middleware can set them before next()
-    const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-    const pageHead = headFn ? headFn(c, props) : undefined;
-    const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
-    const head = resolveHead(configHead, middlewareHead, pageHead);
-    if (renderMode !== 'island') {
-      varyPagesResponse(c);
-    }
+  const recover = (error: unknown, response?: Response) =>
+    renderPageFailure(c, error, response, renderFn, getAssetTags, configHead, options);
+  // Recovery runs within the loader leaf, leaving composed middleware in control.
+  return runLoader(
+    handler,
+    c,
+    async (props) => {
+      try {
+        // Read at render time so per-route middleware can set them before next()
+        const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
+        const pageHead = headFn ? headFn(c, props) : undefined;
+        const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
+        const head = resolveHead(configHead, middlewareHead, pageHead);
+        if (renderMode !== 'island') {
+          varyPagesResponse(c);
+        }
 
-    const { immediateProps, deferredMap } = separateDeferred(props);
-    const hasDeferred = Object.keys(deferredMap).length > 0;
+        const { immediateProps, deferredMap } = separateDeferred(props);
+        const hasDeferred = Object.keys(deferredMap).length > 0;
+        if (hasDeferred && (options?.boundaries?.notFound || options?.boundaries?.errors.length)) {
+          c.header('Cache-Control', 'no-store');
+        }
 
-    // Build key-to-group mapping for the client
-    const deferredKeys: Record<string, string> = {};
-    for (const [group, { keys }] of Object.entries(deferredMap)) {
-      for (const key of keys) {
-        deferredKeys[key] = group;
-      }
-    }
+        // Build key-to-group mapping for the client
+        const deferredKeys: Record<string, string> = {};
+        for (const [group, { keys }] of Object.entries(deferredMap)) {
+          for (const key of keys) {
+            deferredKeys[key] = group;
+          }
+        }
 
-    const pageObj: PageObject = {
-      component: componentId,
-      props: immediateProps,
-      params: requestParams(c),
-      shared,
-      url: requestPathWithSearch(c),
-      errors: null,
-      ...(head && { head }),
-      ...(hasDeferred && {
-        deferred: Object.keys(deferredMap),
-        deferredKeys,
-      }),
-    };
-
-    // Island pages always render HTML — no Inertia JSON navigation
-    if (renderMode !== 'island' && isPagesRequest(c)) {
-      // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
-      const isPrefetch = c.req.header('purpose') === 'prefetch';
-      if (isPrefetch && hasDeferred) {
-        const resolvedProps: Record<string, unknown> = { ...immediateProps };
-        let deferredErrors: Record<string, string> | undefined;
-        await Promise.all(
-          Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
-            try {
-              const data = await resolver(c);
-              if (keys.length === 1) {
-                resolvedProps[keys[0]] = data ?? null;
-              } else {
-                const obj =
-                  typeof data === 'object' && data !== null
-                    ? (data as Record<string, unknown>)
-                    : {};
-                for (const key of keys) {
-                  resolvedProps[key] = obj[key];
-                }
-              }
-            } catch (err) {
-              (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
-              for (const key of keys) {
-                delete resolvedProps[key];
-              }
-            }
+        const pageObj: PageObject = {
+          component: componentId,
+          props: immediateProps,
+          params: requestParams(c),
+          shared,
+          url: requestPathWithSearch(c),
+          errors: null,
+          ...(head && { head }),
+          ...(hasDeferred && {
+            deferred: Object.keys(deferredMap),
+            deferredKeys,
           }),
+        };
+
+        // Island pages always render HTML — no Inertia JSON navigation
+        if (renderMode !== 'island' && isPagesRequest(c)) {
+          // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
+          const isPrefetch = c.req.header('purpose') === 'prefetch';
+          if (isPrefetch && hasDeferred) {
+            const resolvedProps: Record<string, unknown> = { ...immediateProps };
+            let deferredErrors: Record<string, string> | undefined;
+            await Promise.all(
+              Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
+                try {
+                  const data = await resolver(c);
+                  if (keys.length === 1) {
+                    resolvedProps[keys[0]] = data ?? null;
+                  } else {
+                    const obj =
+                      typeof data === 'object' && data !== null
+                        ? (data as Record<string, unknown>)
+                        : {};
+                    for (const key of keys) {
+                      resolvedProps[key] = obj[key];
+                    }
+                  }
+                } catch (err) {
+                  (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
+                  for (const key of keys) {
+                    delete resolvedProps[key];
+                  }
+                }
+              }),
+            );
+            return pageJsonResponse(c, {
+              ...pageObj,
+              props: resolvedProps,
+              deferred: undefined,
+              ...(deferredErrors && { deferredErrors }),
+            });
+          }
+
+          if (!hasDeferred) {
+            return pageJsonResponse(c, pageObj);
+          }
+          // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
+          c.header('X-VoidPages', 'true');
+          c.header('X-VoidPages-Version', PAGES_PROTOCOL_VERSION);
+          return streamDeferredResponse(
+            serializePageData(pageObj) + '\n',
+            deferredMap,
+            c,
+            'application/x-ndjson',
+            options?.dev === true,
+            (group, data) => serializePageData({ __deferred: group, data }) + '\n',
+            (group, error) => serializePageData({ __deferred: group, error }) + '\n',
+          );
+        }
+
+        const { html, assetTags } = await renderPageHtml(
+          c,
+          pageObj,
+          componentId,
+          renderMode,
+          renderFn,
+          getAssetTags,
         );
-        return pageJsonResponse(c, {
-          ...pageObj,
-          props: resolvedProps,
-          deferred: undefined,
-          ...(deferredErrors && { deferredErrors }),
-        });
+
+        if (!hasDeferred) {
+          return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
+        }
+
+        // Stream HTML followed by deferred <script> tags
+        return streamDeferredResponse(
+          html,
+          deferredMap,
+          c,
+          'text/html; charset=utf-8',
+          options?.dev === true,
+          (group, data) => {
+            const g = safeJsonStringify(group);
+            return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d,true):(window.__deferredQueue??=[]).push([${g},d,0,true])})(${serializePageData(data)})</script>`;
+          },
+          (group, error) => {
+            const g = safeJsonStringify(group);
+            return `\n<script>(function(e){window.__rejectDeferred?window.__rejectDeferred(${g},e):(window.__deferredQueue??=[]).push([${g},0,e])})(${safeJsonStringify(error)})</script>`;
+          },
+          assetTags,
+        );
+      } catch (error) {
+        const recovered = await recover(error);
+        if (recovered) {
+          return recovered;
+        }
+        throw error;
       }
-
-      if (!hasDeferred) {
-        return pageJsonResponse(c, pageObj);
-      }
-      // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
-      c.header('X-VoidPages', 'true');
-      c.header('X-VoidPages-Version', PAGES_PROTOCOL_VERSION);
-      return streamDeferredResponse(
-        serializePageData(pageObj) + '\n',
-        deferredMap,
-        c,
-        'application/x-ndjson',
-        options?.dev === true,
-        (group, data) => serializePageData({ __deferred: group, data }) + '\n',
-        (group, error) => serializePageData({ __deferred: group, error }) + '\n',
-      );
-    }
-
-    const { html, assetTags } = await renderPageHtml(
-      c,
-      pageObj,
-      componentId,
-      renderMode,
-      renderFn,
-      getAssetTags,
-    );
-
-    if (!hasDeferred) {
-      return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
-    }
-
-    // Stream HTML followed by deferred <script> tags
-    return streamDeferredResponse(
-      html,
-      deferredMap,
-      c,
-      'text/html; charset=utf-8',
-      options?.dev === true,
-      (group, data) => {
-        const g = safeJsonStringify(group);
-        return `\n<script>(function(d){window.__resolveDeferred?window.__resolveDeferred(${g},d,true):(window.__deferredQueue??=[]).push([${g},d,0,true])})(${serializePageData(data)})</script>`;
-      },
-      (group, error) => {
-        const g = safeJsonStringify(group);
-        return `\n<script>(function(e){window.__rejectDeferred?window.__rejectDeferred(${g},e):(window.__deferredQueue??=[]).push([${g},0,e])})(${safeJsonStringify(error)})</script>`;
-      },
-      assetTags,
-    );
-  });
+    },
+    recover,
+  );
 }
 
 function isSameOriginAction(request: Request): boolean {

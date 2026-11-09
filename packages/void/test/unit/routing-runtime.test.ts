@@ -537,6 +537,25 @@ describe('typed Worker fetch execution', () => {
     expect(await runner.json()).toEqual({ paths: ['/page'] });
     expect(validateEnv).toHaveBeenCalledTimes(4);
   });
+  it('renders a build-only 404 only for the trusted prerender environment', async () => {
+    const staticNotFound = vi.fn(
+      async () =>
+        new Response('<h1>Missing</h1>', { status: 404, headers: { 'Content-Type': 'text/html' } }),
+    );
+    const validateEnv = vi.fn(async () => {});
+    const fetch = worker({ staticNotFound, validateEnv });
+    const request = new Request('http://localhost/__void/static-not-found', {
+      headers: { 'x-void-internal': '1' },
+    });
+    await fetch(request, {}, context);
+    expect(staticNotFound).not.toHaveBeenCalled();
+    expect(validateEnv).toHaveBeenCalledTimes(1);
+    const response = await fetch(request, { __VOID_PRERENDER: '1' }, context);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('<h1>Missing</h1>');
+    expect(staticNotFound).toHaveBeenCalledTimes(1);
+    expect(validateEnv).toHaveBeenCalledTimes(1);
+  });
   it('returns a getPrerenderPaths() error to the prerender runner', async () => {
     const fetch = worker({
       collectPrerenderPaths: async () => {
@@ -998,6 +1017,29 @@ describe('typed Pages and SSR execution', () => {
       expect(missing.headers.has('location')).toBe(false);
     }
   });
+  it.each([
+    [{ Accept: 'text/html' }, true],
+    [{}, true],
+    [{ Accept: 'application/json' }, false],
+    [{ Accept: '*/*', 'Sec-Fetch-Dest': 'image' }, false],
+    [{ Accept: 'application/json', 'X-VoidPages': 'true' }, true],
+  ] as const)(
+    'uses the app not-found component only for page requests: %j',
+    async (headers, page) => {
+      const app = new Hono();
+      const routing = createRoutingRuntime(app, { nodeTarget: true });
+      app.notFound(
+        createPagesFallback({
+          routing,
+          errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+          pageNotFound: async (c) => c.html('<h1>App not found</h1>', 404),
+        }),
+      );
+      const response = await app.request('https://app.test/missing', { headers });
+      expect(response.status).toBe(404);
+      expect((await response.text()).includes('App not found')).toBe(page);
+    },
+  );
   it('serves static files before canonicalizing dynamic trailing-slash Pages URLs', async () => {
     const app = new Hono();
     const routing = createRoutingRuntime(app, { nodeTarget: true });

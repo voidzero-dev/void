@@ -103,7 +103,12 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
 
       // Skip the pages-client bundle when all pages are island pages
       const pageScan = await scan();
-      if (!pageScan?.pages.some((page) => !page.island)) {
+      if (
+        !pageScan?.pages.some((page) => !page.island) &&
+        !pageScan?.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        )
+      ) {
         return;
       }
 
@@ -223,6 +228,8 @@ function generateClientEntry(
 	  components,
 	  layoutTree,
 	  routeMeta,
+  boundaryManifest,
+  dev: import.meta.env.DEV,
 	  matchRoute,
 	  staticPageData: ${!!staticPageData?.enabled},
 	  staticPageDataFastPath: ${!!staticPageData?.fastPath},

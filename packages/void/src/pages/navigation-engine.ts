@@ -3,6 +3,8 @@
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
+import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
+import type { BoundaryManifest } from './boundary-plans.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
 import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
@@ -80,10 +82,12 @@ export type VoidRouterAdapter = {
 };
 
 export type PageNavigationEngineConfig = {
+  boundaryManifest?: BoundaryManifest;
+  dev?: boolean;
   adapter: VoidRouterAdapter;
   components: Record<string, () => Promise<PageComponentModule>>;
   layoutTree: Record<string, Array<string>>;
-  routeMeta: Record<string, { island?: boolean; prerender?: boolean }>;
+  routeMeta: Record<string, { island?: boolean; prerender?: boolean; boundary?: boolean }>;
   /** Page id for a decoded pathname (see `decodePagePath`). */
   matchRoute(path: string): string | null;
   staticPageData?: boolean;
@@ -108,6 +112,8 @@ export type PageNavigationResource = {
   url: string;
   fetchUrl: string;
   hash: string;
+  /** Destination after redirects, including its query and hash. */
+  readonly resolvedUrl?: string;
   method: string;
   options: VisitOptions;
   immediate: boolean;
@@ -263,7 +269,9 @@ export async function createPageNavigationEngine(
   const matchRoute = (url: string) =>
     config.matchRoute(decodePagePath(new URL(url, 'http://x').pathname));
 
+  const hasBoundaries = Object.keys(config.boundaryManifest?.plans ?? {}).length > 0;
   const _prefetchCache = new PrefetchCache();
+  const uncachedPayloads = new WeakSet<object>();
   let _nextNavigationId = 0;
   // The newest visit whose URL is in the address bar: the last commit, or a back/forward
   // visit, which the browser has already moved to. An older visit must not commit over it.
@@ -289,6 +297,33 @@ export async function createPageNavigationEngine(
   async function resolveLayouts(componentId: string): Promise<Array<unknown>> {
     const ids = layoutTree[componentId] || [];
     return Promise.all(ids.map(async (id: string) => (await components[id]()).default));
+  }
+
+  async function recoverImportFailure(
+    page: PageData,
+    error: unknown,
+  ): Promise<PageNavigationResult> {
+    for (const boundary of pageBoundarySlots(config.boundaryManifest, page.component, components)) {
+      const pageData: PageData = {
+        ...page,
+        component: boundary.id,
+        props: { error: clientPageError(error, config.dev) },
+        deferred: undefined,
+        deferredKeys: undefined,
+        deferredErrors: undefined,
+        errors: null,
+      };
+      try {
+        const [component, layouts] = await Promise.all([
+          resolveComponent(boundary.id),
+          resolveLayouts(boundary.id),
+        ]);
+        return { pageData, component, layouts };
+      } catch {
+        /* A failed fallback import or layout tries its parent. */
+      }
+    }
+    throw error;
   }
 
   function getStaticPageDataUrl(url: string): string {
@@ -583,7 +618,11 @@ export async function createPageNavigationEngine(
             null
           );
         }
-        return decodePageData<PageData>(await r.json());
+        const data = decodePageData<PageData>(await r.json());
+        if (!r.ok || /no-store/i.test(r.headers.get('Cache-Control') ?? '')) {
+          uncachedPayloads.add(data);
+        }
+        return data;
       });
     });
   }
@@ -685,6 +724,9 @@ export async function createPageNavigationEngine(
     }
 
     let pageData: PageData | undefined;
+    if (options._refresh) {
+      _prefetchCache.flush(fetchUrl, method);
+    }
     const cacheEntry = method === 'GET' ? _prefetchCache.get(fetchUrl, method) : null;
 
     if (cacheEntry) {
@@ -698,10 +740,24 @@ export async function createPageNavigationEngine(
       pageData = clonePageData(cachedPageData as PageData);
       deferredRegistry.setup(pageData, true);
       if (!_prefetchCache.isFresh(cacheEntry)) {
-        const bgFetch = fetchPrefetchPageData(fetchUrl);
-        // Drop the stale entry so the revalidated data lands (set() won't overwrite a usable one).
-        _prefetchCache.flush(fetchUrl, method);
-        _prefetchCache.set(fetchUrl, method, bgFetch, PREFETCH_DEFAULT_CACHE_FOR);
+        void fetchPrefetchPageData(fetchUrl)
+          .then((data) => {
+            if (
+              data &&
+              typeof data === 'object' &&
+              !uncachedPayloads.has(data) &&
+              _prefetchCache.get(fetchUrl, method) === cacheEntry
+            ) {
+              _prefetchCache.flush(fetchUrl, method);
+              _prefetchCache.set(
+                fetchUrl,
+                method,
+                Promise.resolve(data),
+                PREFETCH_DEFAULT_CACHE_FOR,
+              );
+            }
+          })
+          .catch(() => {});
       }
     } else {
       if (method === 'GET' && STATIC_PAGE_DATA_ENABLED && STATIC_PAGE_DATA_FAST_PATH) {
@@ -841,6 +897,7 @@ export async function createPageNavigationEngine(
         CACHE_VISITED_PAGE_DATA &&
         method === 'GET' &&
         response?.ok &&
+        !/no-store/i.test(response.headers.get('Cache-Control') ?? '') &&
         response.headers.get('X-VoidPages') &&
         pageData?.component === matchRoute(fetchUrl) &&
         !pageData.deferredKeys
@@ -865,12 +922,38 @@ export async function createPageNavigationEngine(
 
     // Reuse the preload only if the response selects the matched page; redirects
     // or rewrites may select another. Cancellation stops waiting for the imports.
-    const [component, layouts] = await Promise.race([
-      matchedComponentId === pageData.component && preloadComponentPromise
-        ? preloadComponentPromise
-        : Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
-      abortSignalPromise(signal),
-    ]);
+    if (!components[pageData.component]) {
+      window.location.href = url;
+      return undefined;
+    }
+    let component: unknown;
+    let layouts: Array<unknown>;
+    try {
+      [component, layouts] = await Promise.race([
+        matchedComponentId === pageData.component && preloadComponentPromise
+          ? preloadComponentPromise
+          : Promise.all([resolveComponent(pageData.component), resolveLayouts(pageData.component)]),
+        abortSignalPromise(signal),
+      ]);
+    } catch (error) {
+      if (isAbortError(error) || signal.aborted || method !== 'GET' || !hasBoundaries) {
+        throw error;
+      }
+      _prefetchCache.flush(fetchUrl);
+      try {
+        const recovered = await Promise.race([
+          recoverImportFailure(pageData, error),
+          abortSignalPromise(signal),
+        ]);
+        ({ pageData, component, layouts } = recovered);
+        deferredRegistry.setup(pageData);
+      } catch (failure) {
+        if (!signal.aborted && !isAbortError(failure)) {
+          showTerminalPageError(url);
+        }
+        throw failure;
+      }
+    }
 
     if (id !== _nextNavigationId && signal.aborted) {
       throw abortError();
@@ -985,11 +1068,26 @@ export async function createPageNavigationEngine(
     };
   }
 
-  const initialPageData = readInitialPageData();
-  const [initialComponent, initialLayouts] = await Promise.all([
-    resolveComponent(initialPageData.component),
-    resolveLayouts(initialPageData.component),
-  ]);
+  let initialPageData = readInitialPageData();
+  let initialComponent: unknown;
+  let initialLayouts: Array<unknown>;
+  try {
+    [initialComponent, initialLayouts] = await Promise.all([
+      resolveComponent(initialPageData.component),
+      resolveLayouts(initialPageData.component),
+    ]);
+  } catch (error) {
+    if (!hasBoundaries) {
+      throw error;
+    }
+    const recovered = await recoverImportFailure(initialPageData, error);
+    ({
+      pageData: initialPageData,
+      component: initialComponent,
+      layouts: initialLayouts,
+    } = recovered);
+    document.getElementById('app')?.setAttribute('data-void-ssr', 'false');
+  }
 
   if (
     CACHE_VISITED_PAGE_DATA &&
@@ -1099,6 +1197,9 @@ export async function createPageNavigationEngine(
         url,
         fetchUrl: effectiveFetchUrl,
         hash,
+        get resolvedUrl() {
+          return commitTarget.fetchUrl + commitTarget.hash;
+        },
         method,
         options,
         immediate: false,
@@ -1161,7 +1262,17 @@ export async function createPageNavigationEngine(
         return existing.response;
       }
       const ttl = options.cacheFor ? parseCacheFor(options.cacheFor) : PREFETCH_DEFAULT_CACHE_FOR;
-      const fetchPromise = fetchPrefetchPageData(prefetchUrl);
+      const fetchPromise = fetchPrefetchPageData(prefetchUrl).then((data) => {
+        if (
+          data &&
+          typeof data === 'object' &&
+          uncachedPayloads.has(data) &&
+          _prefetchCache.get(prefetchUrl, method)?.response === fetchPromise
+        ) {
+          _prefetchCache.flush(prefetchUrl, method);
+        }
+        return data;
+      });
       _prefetchCache.set(prefetchUrl, method, fetchPromise, ttl);
       return fetchPromise;
     },

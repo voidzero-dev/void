@@ -281,7 +281,10 @@ export async function renderIslandPage(pageObj, assetTags) {
     }
   });
 
+  let renderFailure;
+  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= error; };
   const html = await renderToString(app);
+  if (renderFailure) throw renderFailure;
   // Islands hydrate as separate roots. Send the page frontmatter so their
   // useFrontmatter() returns the same value in the browser.
   const __frontmatterScript = __pagesNeedingClientJS.has(pageObj.component) && html.includes("data-island=")

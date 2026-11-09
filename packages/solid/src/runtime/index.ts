@@ -17,3 +17,5 @@ export {
   FrontmatterContext,
 } from './context.ts';
 export type { DeferredState as Deferred, InferProps } from 'void';
+
+export type { PageError, ErrorPageProps } from 'void/pages-client';

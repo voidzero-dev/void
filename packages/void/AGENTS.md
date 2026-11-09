@@ -47,6 +47,8 @@ Pages navigation payloads keep `url` as a path and query string. The render call
 
 Pages clients and prerender requests send `X-VoidPages: true` with `X-VoidPages-Version` set to the shared `PAGES_PROTOCOL_VERSION` from `@void/edge` for devalue payloads. Missing or unsupported versions receive an uncached, empty `200 text/plain` response without `X-VoidPages`, which makes released clients load the document. Run legacy mutations once before that response; return validation errors as plain `422` JSON so forms retain their input. Native and hosted ISR must bypass JSON cache reads for unsupported versions without evicting current entries. HTML and JSON responses vary by both headers.
 
+Pages `_not-found`/`_error` recovery uses finite render plans that retain logical layout slots. Never serialize original exceptions through framework hydration helpers, rerun a failed loader/action, or cache an error document. Native client boundaries reset on every visit/refresh and preserve healthy ancestor layouts.
+
 **Hono** is used as the runtime framework. The generated virtual module creates a Hono app with file-based routes and middleware. Route handlers receive a Hono `Context` object (`c`) and can use the full Hono API (`c.json()`, `c.text()`, `c.req.param()`, etc.) plus the Hono middleware ecosystem.
 
 - `defineHandler(fn)` — wraps a route handler `(c: CloudContext) => R`, returns `TypedHandler<{}, R>`

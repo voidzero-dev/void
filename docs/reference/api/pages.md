@@ -6,6 +6,17 @@ outline: deep
 
 Framework adaptors for [Pages Routing](../../guide/pages-routing/overview). Each adaptor provides a Vite plugin and client-side runtime.
 
+## Error components
+
+All four adapters export `PageError` and `ErrorPageProps` for [`_not-found` and `_error` components](../../guide/pages-routing/errors):
+
+```ts
+// Also exported by @void/react, @void/vue, @void/svelte, and @void/solid.
+import type { ErrorPageProps, PageError } from 'void/pages';
+```
+
+`PageError` has a numeric `status` and a string `message`. `ErrorPageProps` contains `{ error: PageError }`.
+
 ## Navigation destinations {#navigation-destinations}
 
 All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`, which has the type [`Href`](./types.md#route-types).

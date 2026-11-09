@@ -41,6 +41,7 @@ import type {
   LayoutDefinition,
   NamedLayoutDefinition,
   PageScanResult,
+  PageBoundaryDefinition,
   SsrMode,
 } from './types.ts';
 
@@ -351,10 +352,54 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   const pages: Array<PageDefinition> = [];
   const layouts: Array<LayoutDefinition> = [];
   const namedLayouts: Array<NamedLayoutDefinition> = [];
+  const boundaries: Array<PageBoundaryDefinition> = [];
 
   // Glob traversal order can vary between identical scans. Keep layout inventories stable too.
   for (const file of files.sort()) {
     const segments = file.split('/');
+    const boundary = /^_(error|not-found)(?:\.(dev|prod))?(\.island)?\.(tsx|jsx|vue|svelte)$/.exec(
+      segments.at(-1)!,
+    );
+    if (boundary && !segments.slice(0, -1).some((segment) => segment.startsWith('_'))) {
+      const env = boundary[2] as RouteEnvironment | undefined;
+      if (options?.environment && env && env !== options.environment) {
+        continue;
+      }
+      const base = file.slice(0, -extname(file).length);
+      if (
+        boundary[3] ||
+        ROUTE_EXTENSIONS.some((ext) => existsSync(join(pagesDir, `${base}.server.${ext}`))) ||
+        deriveFromSource(join(pagesDir, file), 'page-boundary-layout', (source) =>
+          scriptBlocks(source, file).some((script) =>
+            staticExportInitializers(script.filename, script.source, new Set(['layout'])).has(
+              'layout',
+            ),
+          ),
+        )
+      ) {
+        throw new Error(
+          `pages: Boundary '${file}' cannot be an island, select a layout, or have a .server companion.`,
+        );
+      }
+      const directory = segments.slice(0, -1).join('/');
+      for (const prior of boundaries) {
+        const priorEnv = /^_(?:error|not-found)\.(dev|prod)\./.exec(basename(prior.filePath))?.[1];
+        if (
+          prior.directory === directory &&
+          prior.kind === boundary[1] &&
+          (!env || !priorEnv || env === priorEnv)
+        ) {
+          throw new Error(`pages: Ambiguous boundary files '${prior.filePath}' and '${file}'.`);
+        }
+      }
+      boundaries.push({
+        kind: boundary[1] as PageBoundaryDefinition['kind'],
+        directory,
+        componentId: base,
+        filePath: file,
+      });
+      continue;
+    }
     // Skip files starting with _ in any segment (except _layouts/)
     if (segments.some((s) => s.startsWith('_') && s !== '_layouts')) {
       continue;
@@ -562,7 +607,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
   }
 
-  return { pages, layouts, namedLayouts };
+  return { pages, layouts, namedLayouts, ...(boundaries.length ? { boundaries } : {}) };
 }
 
 function compareText(left: string, right: string): number {

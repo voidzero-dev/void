@@ -1,4 +1,4 @@
-import type { Context, MiddlewareHandler } from 'hono';
+import { Context, type MiddlewareHandler } from 'hono';
 import { markActionKey } from '../pages/action-key.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import { decodePagePath } from '../pages/url.ts';
@@ -80,7 +80,16 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
     if (!preparePageRequest(context, options)) {
       return context.notFound();
     }
-    const mod = options.load ? await options.load() : { head: options.head };
+    let mod: PageModule;
+    try {
+      mod = options.load ? await options.load() : { head: options.head };
+    } catch (error) {
+      mod = {
+        loader: () => {
+          throw error;
+        },
+      };
+    }
     return handlePageGet(
       mod.loader,
       mod.head,
@@ -92,6 +101,19 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
       options.renderOptions,
     );
   });
+}
+
+/** Build-only rendering bypasses application middleware and serializes no request data. */
+export function createStaticNotFound(
+  options: PageRouteOptions,
+): (request: Request, env: Record<string, unknown>) => Promise<Response> {
+  const handle = createPageGetHandler({
+    ...options,
+    renderOptions: { ...options.renderOptions, renderMode: 'server' },
+    render: (page, assets, url) =>
+      options.render({ ...page, documentOnly: true }, { ...assets, body: '', preloads: '' }, url),
+  });
+  return (request, env) => handle(new Context(new Request(new URL('/404', request.url)), { env }));
 }
 export function createPageMutationHandler(
   options: PageRouteOptions,
@@ -139,6 +161,7 @@ export function createPageMutationHandler(
 }
 
 export function createPagesFallback(options: {
+  pageNotFound?: (c: Context) => Promise<Response>;
   trailingSlash?: boolean;
   pagePatterns?: Array<RegExp>;
   routing: RoutingRuntime;
@@ -213,9 +236,17 @@ export function createPagesFallback(options: {
       url.pathname = options.trailingSlash ? `${path}/` : path.slice(0, -1);
       return Response.redirect(url.href, 301);
     }
+    const destination = c.req.header('Sec-Fetch-Dest');
+    const accept = c.req.header('Accept');
+    const pageRequest =
+      c.req.header('X-VoidPages') === 'true' ||
+      ((!destination || destination === 'document' || destination === 'empty') &&
+        (!accept || accept.includes('text/html') || accept.includes('*/*')));
     return options.routing.markNoMatch(
       c.req.raw,
-      await options.errors.serveCustomPage(c, 404, 'Not Found'),
+      await (options.pageNotFound && pageRequest
+        ? options.pageNotFound(c)
+        : options.errors.serveCustomPage(c, 404, 'Not Found')),
     );
   };
 }

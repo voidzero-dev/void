@@ -28,6 +28,10 @@
     "./deferred": {
       "types": "./dist/runtime/use-deferred.d.mts",
       "import": "./dist/runtime/use-deferred.mjs"
+    },
+    "./pages-boundary": {
+      "types": "./dist/runtime/PageErrorBoundary.d.mts",
+      "import": "./dist/runtime/PageErrorBoundary.mjs"
     }
   },
   "publishConfig": {

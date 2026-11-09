@@ -73,7 +73,18 @@ export type PageScanResult = {
   pages: Array<PageDefinition>;
   layouts: Array<LayoutDefinition>;
   namedLayouts: Array<NamedLayoutDefinition>;
+  boundaries?: Array<PageBoundaryDefinition>;
 };
+
+export type PageBoundaryDefinition = {
+  kind: 'error' | 'not-found';
+  directory: string;
+  componentId: string;
+  filePath: string;
+};
+
+export type PageError = Readonly<{ status: number; message: string }>;
+export type ErrorPageProps = Readonly<{ error: PageError }>;
 
 export type DevCssAsset = {
   /** Vite client URL used to request the CSS module. */

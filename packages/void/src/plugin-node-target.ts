@@ -31,6 +31,7 @@ type NodeTarget = 'node' | 'bun' | 'deno';
  */
 function honoMiddleware(
   getApp: () => Promise<{ fetch: (req: Request) => Promise<Response> } | null>,
+  isViteFile?: (request: Request) => Promise<boolean>,
 ) {
   return async (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => {
     try {
@@ -71,9 +72,14 @@ function honoMiddleware(
 
       const response = await app.fetch(request);
 
-      // If Hono returned 404 (no matching route), fall through to Vite
-      // so static assets and dev-time resources are served normally.
-      if (response.status === 404) {
+      // Preserve rendered not-found pages and Pages navigation payloads. Unhandled
+      // requests still fall through so Vite can serve assets and dev resources.
+      if (
+        response.status === 404 &&
+        ((await isViteFile?.(request)) ||
+          (!response.headers.get('content-type')?.includes('text/html') &&
+            !response.headers.has('X-VoidPages')))
+      ) {
         next();
         return;
       }
@@ -261,13 +267,21 @@ export function nodeTargetPlugin(
       // The honoMiddleware helper skips /@, /__, and /node_modules/ paths
       // so Vite's HMR and module serving still work normally.
       server.middlewares.use(
-        honoMiddleware(async () => {
-          const mod = await server.ssrLoadModule('virtual:void-routes');
-          if (!options.trailingSlash) {
-            return mod.default;
-          }
-          return { fetch: (request: Request) => mod.default.fetch(request, { ASSETS: assets }) };
-        }),
+        honoMiddleware(
+          async () => {
+            const mod = await server.ssrLoadModule('virtual:void-routes');
+            return { fetch: (request: Request) => mod.default.fetch(request, { ASSETS: assets }) };
+          },
+          async (request) => {
+            try {
+              const pathname = decodeURIComponent(new URL(request.url).pathname);
+              const file = resolve(server.config.root, '.' + pathname);
+              return isFileServingAllowed(server.config, file) && (await stat(file)).isFile();
+            } catch {
+              return false;
+            }
+          },
+        ),
       );
     },
 

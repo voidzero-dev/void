@@ -642,3 +642,12 @@ export {
   type FormSubmitOptions,
   type IslandFormState,
 } from './form-presentation.ts';
+
+export type { PageError, ErrorPageProps } from './types.ts';
+export {
+  pageBoundarySlots,
+  clientPageError,
+  showTerminalPageError,
+  type ClientPageBoundary,
+} from './boundary-client.ts';
+export type { BoundaryManifest } from './boundary-plans.ts';

@@ -75,7 +75,14 @@ it('keeps useParams reactive without notifying unchanged values', async () => {
     logLevel: 'silent',
     appType: 'custom',
     server: { port: 0, host: '127.0.0.1' },
-    resolve: { alias: { '@void/solid': join(import.meta.dirname, '../../src/runtime/index.ts') } },
+    resolve: {
+      alias: [
+        {
+          find: /^@void\/solid$/,
+          replacement: join(import.meta.dirname, '../../src/runtime/index.ts'),
+        },
+      ],
+    },
     plugins: [
       solid(),
       pagesPlugin(pages, { root }),
