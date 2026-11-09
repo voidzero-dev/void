@@ -1437,7 +1437,13 @@ const clientAssets = () => {
     // Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
     const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
     const assetApp = new Hono();
-    assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
+    assetApp.get("*", serveStatic({
+      root: clientRoot,
+      allowPercentInPath: true,
+      // Windows permits a trailing separator when opening a regular file.
+      // Directory URLs must look up an index so they cannot alias those files.
+      rewriteRequestPath: (path) => path.endsWith("/") ? path + "index.html" : path,
+    }));
     fileAssets = { fetch: (request) => assetApp.fetch(request) };
   }
   return fileAssets;
