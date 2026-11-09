@@ -56,6 +56,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | SSR and caching                            | `docs/guide/ssr.md`, `docs/guide/edge/*.md`                                               |
 | HTTPS, rewrites, redirects, fallbacks      | `docs/guide/edge/rewrites.md`, `docs/guide/edge/redirects.md`, `docs/reference/config.md` |
 | Static site generation                     | `docs/guide/ssg.md`                                                                       |
+| Testing an app with Vitest (`vp test`)     | `docs/guide/testing.md`                                                                   |
 | Connected apps and artifact preparation    | `docs/guide/platform/administration/connected-apps.md`, `docs/reference/api/deploy.md`    |
 | Deployment and CI                          | `docs/guide/deployment.md`, `docs/reference/cli/deploy.md`                                |
 | Install or maintain a company platform     | `docs/guide/self-hosted-platform.md`, `docs/reference/cli/platform-installation.md`       |

@@ -43,6 +43,7 @@ import {
   isViteBuildOrPreview,
   getOrCreateDevTriggerToken,
   devTriggerSecretGuardPlugin,
+  isVitestServer,
   selectVoidCloudflareLogin,
 } from './plugin-dev-config.ts';
 import { devTriggersHintPlugin } from './plugin-dev-triggers-hint.ts';
@@ -542,7 +543,9 @@ export function voidPlugin(options?: {
             );
           });
         } else if (credentials.status === 'no-project') {
-          if (process.stdin.isTTY) {
+          // A test run must not stop for questions, and Vitest's watch mode reads keys from
+          // the terminal, so Vitest's server gets the hint below.
+          if (process.stdin.isTTY && !isVitestServer(server.config)) {
             // Fire-and-forget interactive setup
             afterServerReady(server, () => {
               console.log();

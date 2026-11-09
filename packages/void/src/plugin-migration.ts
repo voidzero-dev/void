@@ -4,7 +4,7 @@ import type { Plugin } from 'vite';
 import { devAuthConfigImporter } from './auth/config.ts';
 import type { DatabaseDialect } from './config.ts';
 import { voidLog, voidError } from './log.ts';
-import { afterServerReady } from './plugin-dev-config.ts';
+import { afterServerReady, isVitestServer } from './plugin-dev-config.ts';
 import { readProjectPaths } from './project-paths.ts';
 import { loadLocalEnv } from './shared/env.ts';
 
@@ -34,7 +34,9 @@ export function migrationPlugin(
 ): Plugin {
   return {
     name: 'void:migrations',
-    apply: 'serve',
+    // Not in Vitest's server: tests run in Node.js without the app's database bindings, and
+    // running them must not change the local database or the one in `.env`.
+    apply: (config, { command }) => command === 'serve' && !isVitestServer(config),
 
     async configureServer(server) {
       const paths = readProjectPaths(root);

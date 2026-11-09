@@ -232,7 +232,7 @@ Remove the deprecated `sendInDev` option to use the local inbox. Deploy the app 
 Use the test harness to assert on outgoing messages without mocking the binding:
 
 ```ts
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect } from 'vite-plus/test';
 import { sendEmail } from 'void/email';
 import { createEmailTestHarness } from 'void/email/testing';
 
@@ -254,6 +254,6 @@ describe('signup flow', () => {
 });
 ```
 
-The harness intercepts every `sendEmail` call until `dispose()` is called. `clear()` empties the captured list without releasing the sink.
+The harness intercepts every `sendEmail` call until `dispose()` is called. `clear()` empties the captured list without releasing the sink. [Testing](../testing.md) explains how to run tests and how to test code that uses other bindings.
 
 To handle incoming messages, see [Receiving Email](./receiving.md).

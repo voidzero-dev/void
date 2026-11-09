@@ -12,7 +12,14 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { getWorkerAssetsDir, readBuildOutput } from '@cloudflare/build-output-utils';
-import { createBuilder, createServer, normalizePath, preview, resolveConfig } from 'vite';
+import {
+  createBuilder,
+  createServer,
+  normalizePath,
+  preview,
+  resolveConfig,
+  type InlineConfig,
+} from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/deploy.ts';
 import {
@@ -363,6 +370,33 @@ export default {
     await resolveConfig({ root, configFile: false, plugins }, 'serve');
     expect(existsSync(join(root, 'cloudflare.config.ts'))).toBe(false);
     expect(existsSync(join(root, '.gitignore'))).toBe(false);
+  });
+
+  it("starts no Worker in Vitest's server, in any mode, but keeps it in servers that tests start", async () => {
+    const root = project();
+    const plugins = () =>
+      cloudflare({
+        config: () => ({
+          name: 'app',
+          main: 'virtual:entry',
+          compatibility_date: '2026-02-24',
+          compatibility_flags: ['nodejs_compat'],
+        }),
+        viteEnvironment: { name: 'ssr' },
+      });
+    const pluginNames = async (config: InlineConfig) =>
+      (await resolveConfig({ root, configFile: false, ...config }, 'serve')).plugins.map(
+        (plugin) => plugin.name,
+      );
+    // Vitest adds plugins of its own to the server that runs the tests.
+    const vitest = { name: 'vitest:config' };
+    for (const mode of ['test', 'staging']) {
+      const names = await pluginNames({ mode, plugins: [vitest, plugins()] });
+      expect(names.filter((name) => name.includes('cloudflare'))).toEqual([]);
+    }
+    expect(await pluginNames({ mode: 'test', plugins: plugins() })).toContain(
+      'vite-plugin-cloudflare',
+    );
   });
 
   it('builds native output and the existing dist layout, then previews the native artifact', async () => {
