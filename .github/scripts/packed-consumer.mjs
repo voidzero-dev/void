@@ -239,8 +239,8 @@ try {
           )
             .trim()
             .split('\n'),
-          ['node_modules/dependency', '.env', '.env.local', '.env.production'],
-          'Init must ignore local environment files while allowing the example',
+          ['node_modules/dependency', '.env', '.env.local', '.env.production', '.env.example'],
+          'Init must ignore local environment files',
         );
         writeFileSync(
           join(fixture, '.npmrc'),

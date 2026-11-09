@@ -98,6 +98,16 @@ describe('void env check (subprocess)', () => {
     expect(status).toBe(1);
     expect(stdout).toContain('only .env is supported');
     expect(stdout).toContain('.env.local');
+    expect(stdout).not.toContain('env.ts lists the keys');
+  });
+
+  it('points .env.example users at env.ts', () => {
+    const root = createProject('{ STRIPE_KEY: string() }');
+    writeFileSync(join(root, '.env.example'), 'STRIPE_KEY=\n');
+    const { stdout, status } = runVoid(root, ['env', 'check']);
+    expect(status).toBe(1);
+    expect(stdout).toContain('Remove .env.example');
+    expect(stdout).toContain('env.ts lists the keys');
   });
 });
 
