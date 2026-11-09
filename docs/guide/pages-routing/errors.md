@@ -77,7 +77,7 @@ import { defineHandler } from 'void/handler';
 export const loader = defineHandler((c) => c.notFound());
 ```
 
-`_error` handles unexpected loader and rendering failures. Production messages are generic; server details stay in your logs. Development shows the error message. Explicit responses such as redirects, authentication failures, and API errors keep their existing behavior.
+`_error` handles unexpected loader and rendering failures. Unexpected errors use generic production messages; server details stay in your logs. Development shows the error message. Action errors that reach a client boundary retain their HTTP status and public message. Explicit responses such as redirects, authentication failures, and API errors keep their existing behavior.
 
 ## Nested errors
 

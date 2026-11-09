@@ -5,6 +5,8 @@ import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
+import { clientPageError } from '../../src/pages/boundary-client.ts';
 import { createBoundaryManifest } from '../../src/pages/boundary-plans.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { scanPages } from '../../src/pages/scan.ts';
@@ -27,6 +29,35 @@ afterEach(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
+});
+
+describe('client boundary errors', () => {
+  it.each([
+    [401, 'Unauthorized', 'Please sign in', 'Please sign in'],
+    [403, 'Forbidden', 'Access denied', 'Access denied'],
+    [
+      503,
+      'Service Unavailable',
+      'SECRET_SERVER_DETAILS',
+      'Action failed with 503 Service Unavailable',
+    ],
+  ] as const)(
+    'preserves the public action error for HTTP %s',
+    async (status, statusText, body, message) => {
+      const error = await createActionErrorFromResponse(
+        new Response(body, { status, statusText, headers: { 'Content-Type': 'text/plain' } }),
+        '/settings',
+      );
+      expect(clientPageError(error)).toEqual({ status, message });
+      expect(clientPageError({ ...error, message: error.message })).toEqual({ status, message });
+    },
+  );
+
+  it('keeps unexpected production errors private', () => {
+    const error = new Error('SECRET_COMPONENT_DETAILS');
+    expect(clientPageError(error)).toEqual({ status: 500, message: 'Internal Server Error' });
+    expect(clientPageError(error, true)).toEqual({ status: 500, message: error.message });
+  });
 });
 
 describe('Pages boundary inventory', () => {

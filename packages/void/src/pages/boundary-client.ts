@@ -1,3 +1,4 @@
+import { isVoidActionError } from './action-result.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
 import type { PageError } from './types.ts';
 
@@ -36,6 +37,9 @@ export function pageBoundarySlots(
 }
 
 export function clientPageError(error: unknown, dev = false): PageError {
+  if (isVoidActionError(error)) {
+    return { status: error.status, message: error.message };
+  }
   return {
     status: 500,
     message: dev && error instanceof Error ? error.message : 'Internal Server Error',
