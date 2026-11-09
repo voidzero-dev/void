@@ -13,6 +13,7 @@ import {
   type HeadDescriptor,
   type HeadConfig,
 } from './head.ts';
+import { withLoaderNotFoundBoundary } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
 import type { DevCssAsset, PageRenderMode } from './types.ts';
@@ -333,6 +334,7 @@ async function runLoader(
   c: CloudContext,
   render: (props: Record<string, unknown>) => Promise<Response>,
   recover?: (error: unknown, response?: Response) => Promise<Response | undefined>,
+  recoverNotFound = false,
 ): Promise<Response> {
   if (!handler) {
     return render({});
@@ -340,7 +342,7 @@ async function runLoader(
   return runPageHandler(handler, c, async (leaf) => {
     let result: unknown;
     try {
-      result = await leaf(c);
+      result = recoverNotFound ? await withLoaderNotFoundBoundary(c, () => leaf(c)) : await leaf(c);
     } catch (error) {
       const recovered = await recover?.(error);
       if (recovered) {
@@ -826,6 +828,7 @@ async function runPageGet(
       }
     },
     recover,
+    options?.boundaries?.notFound !== undefined,
   );
 }
 

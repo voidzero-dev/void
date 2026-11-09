@@ -79,7 +79,7 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     );
     write(
       'middleware/shared.ts',
-      `import { defineMiddleware } from 'void/handler'; export default defineMiddleware(async (c,next)=>{c.set('shared',{viewer:'alice'}); c.header('X-Security','retained'); const guard=c.req.header('X-Test-Guard'); if(guard==='not-found') return c.notFound(); if(guard==='explicit') return c.text('Hidden by guard',404); await next(); if(guard==='after-not-found') c.res=await c.notFound();});`,
+      `import { defineMiddleware } from 'void/handler'; export default defineMiddleware(async (c,next)=>{c.set('shared',{viewer:'alice',...(c.req.header('X-Test-No-Root') ? { noRoot: true } : {})}); c.header('X-Security','retained'); const guard=c.req.header('X-Test-Guard'); if(guard==='not-found') return c.notFound(); if(guard==='explicit') return c.text('Hidden by guard',404); await next(); if(guard==='after-not-found') c.res=await c.notFound();});`,
     );
     write('pages/style.css', 'nav { color: rgb(20, 80, 100); }');
     const nav =
@@ -102,13 +102,19 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     );
     write(
       `pages/_not-found.${extension}`,
-      component('<h1>Missing page</h1><p>{error.message}</p>'),
+      component(
+        '<h1>Missing page</h1><p>{error.message}</p>',
+        "if(shared.noRoot) throw new Error('UNUSED_ROOT_BOUNDARY');",
+      ),
     );
     write(`pages/_error.${extension}`, component('<h1>Error page</h1><p>{error.message}</p>'));
     if (framework === 'vue') {
       write(
         `pages/_not-found.${extension}`,
-        component('<h1>Missing page</h1><p>{{error.message}}</p>'),
+        component(
+          '<h1>Missing page</h1><p>{{error.message}}</p>',
+          "if(shared.noRoot) throw new Error('UNUSED_ROOT_BOUNDARY');",
+        ),
       );
       write(`pages/_error.${extension}`, component('<h1>Error page</h1><p>{{error.message}}</p>'));
     }
@@ -189,10 +195,7 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     );
     write(`pages/nested/other.${extension}`, component('<h1>Other nested page</h1>'));
     write(`pages/islands/index.island.${extension}`, component('<h1>Island document</h1>'));
-    write(
-      'pages/islands/index.server.ts',
-      'export const loader = () => new Response(null,{status:404});',
-    );
+    write('pages/islands/index.server.ts', 'export const loader = c => c.notFound();');
     write(`pages/islands/_not-found.${extension}`, component('<h1>Missing island page</h1>'));
     const counter =
       framework === 'react'
@@ -285,6 +288,12 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
       }
     },
   );
+
+  it('renders a loader not-found without attempting an unused root boundary', async () => {
+    const response = await fetch(base + '/islands', { headers: { 'X-Test-No-Root': 'true' } });
+    expect(response.status).toBe(404);
+    expect(await response.text()).toContain('Missing island page');
+  });
 
   it('returns status-correct documents and marked error payloads without exposing secrets', async () => {
     for (const [path, status] of [

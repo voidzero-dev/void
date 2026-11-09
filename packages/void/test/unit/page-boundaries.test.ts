@@ -12,7 +12,9 @@ import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { scanPages } from '../../src/pages/scan.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 import { defineHandler } from '../../src/runtime/handler.ts';
-import { createPageGetHandler } from '../../src/runtime/routing-pages.ts';
+import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { createPageGetHandler, createPagesFallback } from '../../src/runtime/routing-pages.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing.ts';
 
 const roots: Array<string> = [];
 function fixture(files: Record<string, string>) {
@@ -275,6 +277,104 @@ describe('Pages loader boundary protocol', () => {
       'middleware=yes; HttpOnly',
     ]);
   });
+});
+
+describe('loader not-found dispatch', () => {
+  it('preserves a custom app not-found redirect', async () => {
+    const app = new Hono();
+    app.notFound((c) => c.redirect('/login'));
+    app.get(
+      '/',
+      createPageGetHandler({
+        componentId: 'index',
+        load: async () => ({ loader: (c) => c.notFound() }),
+        render: async () => '<main>Missing page</main>',
+        assets: async () => ({ css: '', body: '', preloads: '' }),
+        headConfig: null,
+        renderOptions: { boundaries: { notFound: 'missing', errors: [] } },
+      }),
+    );
+    const response = await app.request('https://app.test/');
+    expect(response.status).toBe(302);
+    expect(response.headers.get('Location')).toBe('/login');
+  });
+
+  it.each([
+    { pages: false, boundary: true },
+    { pages: true, boundary: true },
+    { pages: false, boundary: false },
+  ])(
+    'renders a loader not-found once (Pages: $pages, boundary: $boundary)',
+    async ({ pages, boundary }) => {
+      let rootCalls = 0;
+      let loaderCalls = 0;
+      const rendered: Array<string> = [];
+      const app = new Hono();
+      app.notFound(
+        createPagesFallback({
+          routing: createRoutingRuntime(app, { nodeTarget: true }),
+          errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+          pageNotFound: createPageGetHandler({
+            componentId: 'root',
+            load: async () => ({ loader: () => new Response(null, { status: 404 }) }),
+            render: async () => {
+              rootCalls++;
+              return '<main>Root not found</main>';
+            },
+            assets: async () => ({ css: '', body: '', preloads: '' }),
+            headConfig: null,
+            renderOptions: { boundaries: { notFound: 'root/not-found', errors: [] } },
+          }),
+        }),
+      );
+      app.get(
+        '/items/:id',
+        createPageGetHandler({
+          componentId: 'items/item',
+          load: async () => ({
+            loader: defineHandler(
+              async (c, next) => {
+                const notFound = c.notFound;
+                await next();
+                expect(c.notFound).toBe(notFound);
+              },
+              async (c) => {
+                loaderCalls++;
+                await Promise.resolve();
+                return c.notFound();
+              },
+            ),
+          }),
+          render: async (page) => {
+            rendered.push(page.component);
+            return '<main>' + page.component + '</main>';
+          },
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+          headConfig: null,
+          renderOptions: boundary
+            ? { boundaries: { notFound: 'items/not-found', errors: [] } }
+            : undefined,
+        }),
+      );
+      const response = await app.request('https://app.test/items/1', {
+        headers: pages
+          ? { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+          : {},
+      });
+      expect(response.status).toBe(404);
+      expect(rootCalls).toBe(boundary ? 0 : 1);
+      expect(loaderCalls).toBe(1);
+      expect(rendered).toEqual(pages || !boundary ? [] : ['items/not-found']);
+      const body = await response.text();
+      if (pages) {
+        expect(deserializePageData(body)).toMatchObject({ component: 'items/not-found' });
+      } else {
+        expect(body).toBe(
+          boundary ? '<main>items/not-found</main>' : '<main>Root not found</main>',
+        );
+      }
+    },
+  );
 });
 
 describe('boundary recovery failures', () => {

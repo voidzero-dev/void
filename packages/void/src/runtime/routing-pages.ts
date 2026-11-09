@@ -1,5 +1,6 @@
 import { Context, type MiddlewareHandler } from 'hono';
 import { markActionKey } from '../pages/action-key.ts';
+import { handlesPageLoaderNotFound } from '../pages/not-found-context.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import { decodePagePath } from '../pages/url.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
@@ -171,6 +172,10 @@ export function createPagesFallback(options: {
 }): (c: Context) => Promise<Response> {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   return async (c) => {
+    // The loader's boundary owns this 404; skip root rendering and asset fallbacks.
+    if (handlesPageLoaderNotFound(c)) {
+      return c.newResponse(null, 404);
+    }
     const path = c.req.path;
     if (
       path === '/api' ||
