@@ -6,6 +6,7 @@ import { connect, type AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
+import timers from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   getWorkerAssetsDir,
@@ -2524,6 +2525,17 @@ it.each([
 ] as const)('preserves pinned Sandbox image and application lifecycle: %s', async (mode) => {
   const { prepared, requests, counts, existing, expectedImages, apiBaseUrl } =
     await containerApi(mode);
+  // Only this fake API's two fixed polling waits are scheduled immediately.
+  // Real HTTP, subprocess deadlines and the separate timeout regressions retain
+  // their clocks. Assert the requested waits as well as both polling attempts.
+  const delay = timers.setTimeout;
+  const polling =
+    mode === 'pending'
+      ? vi.spyOn(timers, 'setTimeout').mockImplementation((ms, value, options) => {
+          expect(ms).toBe(2_000);
+          return delay(0, value, options);
+        })
+      : undefined;
   // cf 1.0.0-beta.21 and later print the pushed image on stderr.
   const runCf = vi.fn(() => ({
     status: 0,
@@ -2616,6 +2628,7 @@ it.each([
       }
       expect(requests.at(-1)?.method).toBe('GET');
       if (mode === 'pending') {
+        expect(polling).toHaveBeenCalledTimes(2);
         expect(counts.imageAttempts).toBe(2);
         expect(counts.versionVisibleAttempts).toBe(2);
       }
