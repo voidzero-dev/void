@@ -29,6 +29,7 @@ export function useIslandForm(
 
   let defaults_ = { ...defaults };
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = ref(false);
   watch(
@@ -68,6 +69,7 @@ export function useIslandForm(
   }
 
   async function submit(url: RouteUrl, method: string) {
+    const requestId = ++latestRequestId;
     pending.value = true;
     wasSuccessful.value = false;
     recentlySuccessful.value = false;
@@ -79,6 +81,10 @@ export function useIslandForm(
 
     try {
       const result = await submitIslandAction(url, method, data);
+      // A newer submit owns the form's state and decides whether the page changes.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (result.kind === 'redirect') {
         window.location.href = result.url;
@@ -99,7 +105,9 @@ export function useIslandForm(
         error.value = result.error;
       }
     } finally {
-      pending.value = false;
+      if (requestId === latestRequestId) {
+        pending.value = false;
+      }
     }
   }
 

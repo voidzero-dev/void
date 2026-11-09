@@ -25,6 +25,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
 
   let defaults_ = { ...defaults };
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = createMemo(() => {
     return Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key]));
@@ -63,6 +64,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
   }
 
   async function submit(url: string, method: string) {
+    const requestId = ++latestRequestId;
     setPending(true);
     setWasSuccessful(false);
     setRecentlySuccessful(false);
@@ -74,6 +76,10 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
 
     try {
       const result = await submitIslandAction(url, method, data);
+      // A newer submit owns the form's state and decides whether the page changes.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (result.kind === 'redirect') {
         window.location.href = result.url;
@@ -92,7 +98,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
         setError(result.error);
       }
     } finally {
-      setPending(false);
+      if (requestId === latestRequestId) {
+        setPending(false);
+      }
     }
   }
 

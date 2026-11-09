@@ -79,6 +79,7 @@ export function useForm(
 
   const [defaults_, setDefaults] = createSignal<Record<string, unknown>>(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = createMemo(() => {
     const current = defaults_();
@@ -123,6 +124,7 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
     setPending(true);
     setWasSuccessful(false);
     setRecentlySuccessful(false);
@@ -144,6 +146,10 @@ export function useForm(
         data: { ...data },
         ...opts,
       });
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
@@ -172,7 +178,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      setPending(false);
+      if (requestId === latestRequestId) {
+        setPending(false);
+      }
     }
   }
 

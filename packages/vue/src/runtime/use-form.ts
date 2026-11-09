@@ -45,6 +45,7 @@ export function useForm(
 
   const defaults_ = shallowRef(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   let dataSnapshot = cloneFormValue(initialDefaults);
   watch(
@@ -98,6 +99,7 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
     pending.value = true;
     wasSuccessful.value = false;
     recentlySuccessful.value = false;
@@ -119,6 +121,10 @@ export function useForm(
         data: { ...data },
         ...opts,
       });
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
         const validationErrors = getValidationErrors(result.error.body);
@@ -147,7 +153,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      pending.value = false;
+      if (requestId === latestRequestId) {
+        pending.value = false;
+      }
     }
   }
 
