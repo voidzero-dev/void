@@ -145,7 +145,10 @@ repeat those production builds. `vpr test:all` runs the same artifact check loca
 
 Integration sharding uses [measured duration estimates](test/integration-timings.ts), rather than
 filename hashes. [The sequencer](test/sequencer.ts) packs the longest files first and starts costly
-fixtures early. Estimates affect scheduling only: new files receive a fallback estimate. Refresh
+fixtures early. Within a scheduling phase, cached file durations take priority across project
+names, so costly SDK units can overlap framework builds. Failed files retain priority and phase
+barriers stay intact. Cold runs use fixture estimates and a five-second fallback. These costs
+affect ordering only: every selected test still executes. Refresh
 the estimates when the suite's costs change materially. Seeded file shuffling remains available
 for isolation checks.
 
