@@ -180,21 +180,27 @@ function usesUnboundedMySqlText(
 }
 
 /**
- * The default of a required field when the database can store it as a literal.
+ * The default of a field when it can be written as a literal.
  * Function, date and JSON defaults have none.
  */
-function resolveFixedDefault(
-  field: DBFieldAttribute,
-): Pick<VoidAuthMigrationField, 'defaultValue'> {
-  if (field.required === false || field.type === 'date' || isJsonField(field)) {
-    return {};
+function resolveLiteralDefault(field: DBFieldAttribute): string | number | boolean | undefined {
+  if (field.type === 'date' || isJsonField(field)) {
+    return undefined;
   }
   const value = field.defaultValue;
   return typeof value === 'string' ||
     typeof value === 'boolean' ||
     (typeof value === 'number' && Number.isFinite(value))
-    ? { defaultValue: value }
-    : {};
+    ? value
+    : undefined;
+}
+
+/** The default of a required field when the database can store it as a literal. */
+function resolveFixedDefault(
+  field: DBFieldAttribute,
+): Pick<VoidAuthMigrationField, 'defaultValue'> {
+  const value = field.required === false ? undefined : resolveLiteralDefault(field);
+  return value === undefined ? {} : { defaultValue: value };
 }
 
 function resolveReferenceFieldName(
@@ -301,7 +307,23 @@ function createColumnBuilder(
   }
 }
 
+function hasBuiltInUpdateHook(options: BetterAuthOptions, model: string, field: string): boolean {
+  if (
+    field !== 'updatedAt' ||
+    (model !== 'user' && model !== 'session' && model !== 'account' && model !== 'verification')
+  ) {
+    return false;
+  }
+  // Only Better Auth's built-in hooks are known to mean the current time.
+  // A configured field replaces that definition, including its callback.
+  return (
+    options[model]?.additionalFields?.updatedAt === undefined &&
+    !options.plugins?.some((plugin) => plugin.schema?.[model]?.fields.updatedAt !== undefined)
+  );
+}
+
 function createColumnDefinition(
+  options: BetterAuthOptions,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   schema: BetterAuthDBSchema,
   idStrategy: AuthIdStrategy,
@@ -359,6 +381,19 @@ function createColumnDefinition(
   }
   if (field.unique && actualFieldName !== 'id') {
     parts.push('.unique()');
+  }
+  // Better Auth applies these on its own writes. Direct Drizzle writes need them on the column,
+  // and these runtime-only modifiers leave the DDL, and so existing migrations, unchanged.
+  const literalDefault = resolveLiteralDefault(field);
+  if (literalDefault !== undefined) {
+    parts.push(`.$defaultFn(() => ${JSON.stringify(literalDefault)})`);
+  }
+  if (
+    field.onUpdate &&
+    field.type === 'date' &&
+    hasBuiltInUpdateHook(options, defaultModelName, defaultFieldName)
+  ) {
+    parts.push('.$onUpdate(() => new Date())');
   }
 
   return parts.join('');
@@ -466,6 +501,7 @@ export function generateVoidAuthDrizzleSchema(
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(
+        options,
         runtime.dialect,
         schema,
         idStrategy,
@@ -477,6 +513,7 @@ export function generateVoidAuthDrizzleSchema(
       ...fieldEntries.map(([defaultFieldName, field]) => {
         const actualFieldName = resolveFieldName(defaultFieldName, field);
         return `  ${JSON.stringify(actualFieldName)}: ${createColumnDefinition(
+          options,
           runtime.dialect,
           schema,
           idStrategy,
