@@ -28,7 +28,7 @@ Use this reference to find public imports, signatures, and return types. For set
 | [Deployment artifacts](./api/deploy.md)            | Package built apps for managed deployment.                      |
 | [Types](./api/types.md)                            | Typed URLs, route types, handler context, and head metadata.    |
 | [Environment variables](./api/env.md)              | Validated environment values and binding types.                 |
-| [Pages adapters](./api/pages.md)                   | React, Vue, Svelte, Solid, and Markdown.                        |
+| [Pages adapters](./api/pages.md)                   | React, Vue, Svelte, Solid, Hono, and Markdown.                  |
 
 ## User-Facing Imports {#user-facing-imports}
 

@@ -11,6 +11,7 @@ import {
 } from 'vite';
 import { pageFileEnvironment, resolvePagesDir } from 'void/pages';
 import type { CompileOptions } from './compile.ts';
+import { emitHonoComponent } from './emit-hono.ts';
 import { emitReactComponent } from './emit-react.ts';
 import { emitSolidComponent } from './emit-solid.ts';
 import { emitSvelteComponent } from './emit-svelte.ts';
@@ -20,13 +21,14 @@ import { extractMetadata } from './metadata.ts';
 
 const MD_CLIENT_ENTRY_ID = 'virtual:void-md-client';
 
-type FrameworkAdapter = 'vue' | 'react' | 'svelte' | 'solid';
+type FrameworkAdapter = 'vue' | 'react' | 'svelte' | 'solid' | 'hono';
 
 const ADAPTER_PLUGIN_NAMES: Record<string, FrameworkAdapter> = {
   'void-vue:pages': 'vue',
   'void-react:pages': 'react',
   'void-svelte:pages': 'svelte',
   'void-solid:pages': 'solid',
+  'void-hono:pages': 'hono',
 };
 
 const SVELTE_VIRTUAL_PREFIX = '/@void-md-svelte/';
@@ -219,7 +221,7 @@ export function voidMarkdown(options?: MarkdownOptions): Array<Plugin> {
         }
         if (!adapter) {
           throw new Error(
-            'void-md: No framework adapter detected. Install @void/vue, @void/react, @void/svelte, or @void/solid.',
+            'void-md: No framework adapter detected. Install @void/vue, @void/react, @void/svelte, @void/solid, or @void/hono.',
           );
         }
       },
@@ -334,7 +336,7 @@ import { inject } from "vue";
 export function useFrontmatter() { return inject("__void_frontmatter", {}); }
 `;
             }
-            // React and Solid match contexts by identity. The adapter owns the
+            // React, Solid and Hono JSX match contexts by identity. The adapter owns the
             // context so its island renderer can provide it above the layouts.
             if (adapter === 'react') {
               return `
@@ -356,6 +358,14 @@ export function useFrontmatter() { return getContext(FRONTMATTER_KEY) ?? {}; }
               return `
 import { useContext } from "solid-js";
 import { FrontmatterContext } from "@void/solid";
+export { FrontmatterContext };
+export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
+`;
+            }
+            if (adapter === 'hono') {
+              return `
+import { useContext } from "hono/jsx";
+import { FrontmatterContext } from "@void/hono";
 export { FrontmatterContext };
 export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; }
 `;
@@ -413,6 +423,10 @@ export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; 
               code: `export { default, frontmatter, headings } from ${JSON.stringify(virtualId)};`,
               map: null,
             };
+          }
+
+          if (adapter === 'hono') {
+            return { code: emitHonoComponent(result, islands), map: null };
           }
 
           throw new Error(`void-md: Unsupported adapter '${adapter}'.`);

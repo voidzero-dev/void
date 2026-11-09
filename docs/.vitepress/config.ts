@@ -183,7 +183,7 @@ export default extendConfig(
     },
 
     vite: {
-      plugins: [groupIconVitePlugin()],
+      plugins: [groupIconVitePlugin({ customIcon: { hono: 'logos:hono' } })],
     },
 
     themeConfig: {

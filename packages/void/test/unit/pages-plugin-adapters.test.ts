@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import type { Plugin } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { pagesPlugin as honoPagesPlugin } from '../../../hono/src/plugin-pages.ts';
 import { pagesPlugin as reactPagesPlugin } from '../../../react/src/plugin-pages.ts';
 import { pagesPlugin as solidPagesPlugin } from '../../../solid/src/plugin-pages.ts';
 import { pagesPlugin as sveltePagesPlugin } from '../../../svelte/src/plugin-pages.ts';
@@ -23,6 +24,7 @@ function handler<T>(hook: Hook<T>): T {
 }
 
 const adapters = [
+  { name: 'hono', extension: 'tsx', create: honoPagesPlugin, scansBuild: true },
   { name: 'react', extension: 'tsx', create: reactPagesPlugin, scansBuild: true },
   { name: 'solid', extension: 'tsx', create: solidPagesPlugin, scansBuild: true },
   { name: 'svelte', extension: 'svelte', create: sveltePagesPlugin, scansBuild: false },

@@ -130,7 +130,10 @@ const HELP_TREE: HelpTree = {
       { command: '--git', description: 'Initialize a Git repository without prompting' },
       { command: '--no-git', description: 'Skip Git repository initialization' },
       { command: '--toolchain <name>', description: 'Scaffold with vite-plus or vite' },
-      { command: '--framework <name>', description: 'Scaffold with react, vue, svelte, or solid' },
+      {
+        command: '--framework <name>',
+        description: 'Scaffold with react, vue, svelte, solid, or hono',
+      },
       {
         command: '--starter <name>',
         description: 'Scaffold the sqlite, postgresql, mysql, or static starter',

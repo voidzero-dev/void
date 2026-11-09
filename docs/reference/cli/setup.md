@@ -39,7 +39,7 @@ Pass your choices as flags to scaffold from a script or coding agent:
 | Flag          | Values                                    |
 | ------------- | ----------------------------------------- |
 | `--toolchain` | `vite-plus`, `vite`                       |
-| `--framework` | `react`, `vue`, `svelte`, `solid`         |
+| `--framework` | `react`, `vue`, `svelte`, `solid`, `hono` |
 | `--starter`   | `sqlite`, `postgresql`, `mysql`, `static` |
 | `--deploy`    | `cloudflare`, `void`, `none`              |
 

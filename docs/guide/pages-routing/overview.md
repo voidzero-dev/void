@@ -4,7 +4,7 @@ outline: deep
 
 # Pages Routing
 
-Put UI components in `pages/` to make them routes. A page's server loader returns data, and the component receives it as props. This pattern is inspired by [Inertia.js](https://inertiajs.com/) and works with React, Vue, Svelte, and Solid.
+Put UI components in `pages/` to make them routes. A page's server loader returns data, and the component receives it as props. This pattern is inspired by [Inertia.js](https://inertiajs.com/) and works with React, Vue, Svelte, Solid, and Hono.
 
 Pages mode starts when a `pages/` directory exists. It can live alongside `routes/`: use pages for UI and routes for APIs. Page components normally run on the server for the first render and in the browser for navigation and interaction.
 
@@ -12,7 +12,7 @@ You can also use your own client-side router and call Void's APIs with [typed fe
 
 ## Setup
 
-In an empty project, `void init` can set up Pages for you. Choose Vite+ or plain Vite, then React, Vue, Svelte, or Solid and a database or static starter. The generated app includes the matching Vite config and page files.
+In an empty project, `void init` can set up Pages for you. Choose Vite+ or plain Vite, then React, Vue, Svelte, Solid, or Hono and a database or static starter. The generated app includes the matching Vite config and page files.
 
 If you're adding Pages mode manually, install a framework adapter alongside `void`:
 
@@ -32,6 +32,10 @@ npm install @void/svelte
 
 ```sh [Solid]
 npm install @void/solid
+```
+
+```sh [Hono]
+npm install @void/hono hono
 ```
 
 :::
@@ -84,9 +88,20 @@ export default defineConfig({
 });
 ```
 
+```ts [Hono]
+// vite.config.ts
+import { voidHono } from '@void/hono/plugin';
+import { defineConfig } from 'vite';
+import { voidPlugin } from 'void';
+
+export default defineConfig({
+  plugins: [voidPlugin(), voidHono()],
+});
+```
+
 :::
 
-Each adapter includes its framework's Vite plugin. Pass framework plugin options via `voidReact({ react: { ... } })`, `voidVue({ vue: { ... } })`, `voidSvelte({ svelte: { ... } })`, or `voidSolid({ solid: { ... } })` if needed.
+Each adapter includes its framework's Vite plugin. Pass framework plugin options via `voidReact({ react: { ... } })`, `voidVue({ vue: { ... } })`, `voidSvelte({ svelte: { ... } })`, or `voidSolid({ solid: { ... } })` if needed. The Hono adapter compiles JSX with `hono/jsx` and needs no other plugin; for type checking, set `"jsx": "react-jsx"` and `"jsxImportSource": "hono/jsx"` in `tsconfig.json`.
 
 ## Directory Structure
 
@@ -197,6 +212,14 @@ import { routeUrl } from 'void/routes';
 
 <Link href="/users">Users</Link>
 <Link href={routeUrl('/users/[id]', { params: { id } })}>View</Link>
+```
+
+```tsx [Hono]
+import { Link } from "@void/hono";
+import { routeUrl } from 'void/routes';
+
+<Link href="/users">Users</Link>
+<Link href={routeUrl('/users/:id', { params: { id } })}>View</Link>
 ```
 
 :::
@@ -312,7 +335,7 @@ If a deployment changes Void's page-data format, already-open tabs reload on the
 For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
 ```ts
-import { useRouter } from '@void/vue'; // or "@void/react", "@void/svelte", "@void/solid"
+import { useRouter } from '@void/vue'; // or "@void/react", "@void/svelte", "@void/solid", "@void/hono"
 import type { RouteDestination } from 'void/routes';
 
 const router = useRouter();
@@ -431,6 +454,15 @@ A link is active only on its own path by default. Set `activeMatch="prefix"` to 
 </nav>
 ```
 
+```tsx [Hono]
+<nav>
+  <Link href="/">Home</Link>
+  <Link href="/users" activeMatch="prefix">
+    Users
+  </Link>
+</nav>
+```
+
 :::
 
 | Current URL     | `href="/users"` | `href="/users" activeMatch="prefix"` |
@@ -530,6 +562,12 @@ router.visit('/users', { preserveScroll: true });
 ```
 
 ```tsx [Solid]
+<Link href="/users" preserveScroll>
+  Users
+</Link>
+```
+
+```tsx [Hono]
 <Link href="/users" preserveScroll>
   Users
 </Link>

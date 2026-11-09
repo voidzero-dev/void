@@ -141,6 +141,28 @@ export default function CreateUser() {
 }
 ```
 
+```tsx [Hono]
+// pages/users/index.tsx
+import { Form, useForm } from '@void/hono';
+
+export default function CreateUser() {
+  const form = useForm('/users', { name: '', email: '' });
+  const value = (e: Event) => (e.target as HTMLInputElement).value;
+
+  return (
+    <Form form={form}>
+      <input value={form.data.name} onInput={(e) => form.setData('name', value(e))} />
+      {form.errors.name && <span>{form.errors.name}</span>}
+
+      <input value={form.data.email} onInput={(e) => form.setData('email', value(e))} />
+      {form.errors.email && <span>{form.errors.email}</span>}
+
+      <button disabled={form.pending}>Create</button>
+    </Form>
+  );
+}
+```
+
 :::
 
 The types are inferred from your action's `withValidator()` schema in the companion `.server.ts` file. If no validator is defined, the body type falls back to `Record<string, unknown>`, and you still get URL autocomplete.
@@ -167,7 +189,7 @@ The types are inferred from your action's `withValidator()` schema in the compan
 
 Use `setError()` for client-side validation. Editing a field clears its error automatically.
 
-For a native React form, use `form.post`, `form.put`, `form.patch`, or `form.delete` as a native form action. For an awaitable mutation, use `action()`. In Vue, Svelte, and Solid, form submissions return `Promise<void>`; catch thrown errors or use your framework's error handling.
+For a native React form, use `form.post`, `form.put`, `form.patch`, or `form.delete` as a native form action. For an awaitable mutation, use `action()`. In Vue, Svelte, Solid, and Hono, form submissions return `Promise<void>`; catch thrown errors or use your framework's error handling.
 
 For dynamic routes, pass `params` in the options:
 
@@ -200,7 +222,7 @@ const form = useForm(
 
 If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
 
-Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
+Vue, Svelte, Solid, and Hono submissions return a promise instead; use `await form.post()` to run work after a submission.
 
 ### Scroll after submission
 
@@ -216,7 +238,7 @@ await action('/users/[id]?update', {
 });
 ```
 
-In React, set `preserveScroll` in the third argument to `useForm()`. In Vue, Svelte, and Solid, pass it to the submit method, such as `form.post({ preserveScroll: false })`.
+In React, set `preserveScroll` in the third argument to `useForm()`. In Vue, Svelte, Solid, and Hono, pass it to the submit method, such as `form.post({ preserveScroll: false })`.
 
 ## Named Actions
 
@@ -280,7 +302,7 @@ Each named action has its own validator schema, which supplies types for its URL
 Use `action()` for a button or other mutation that does not need form state. It updates the page after a successful request:
 
 ```ts
-import { action } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+import { action } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid", "@void/hono"
 
 const result = await action('/users/[id]?delete', {
   params: { id: '42' },
@@ -306,7 +328,7 @@ Authentication errors (`401`, `403`), server errors (`500`, `502`), and unexpect
 Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
 
 ```ts
-import { isVoidActionError } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+import { isVoidActionError } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid", "@void/hono"
 
 function describeError(error: unknown) {
   if (isVoidActionError(error)) {
@@ -407,6 +429,23 @@ export default function Upload() {
     <Form form={form}>
       <input value={form.data.title} onInput={(e) => form.setData('title', e.target.value)} />
       <input type="file" onChange={(e) => form.setData('photo', e.target.files?.[0] ?? null)} />
+      <button disabled={form.pending}>Upload</button>
+    </Form>
+  );
+}
+```
+
+```tsx [Hono]
+import { Form, useForm } from '@void/hono';
+
+export default function Upload() {
+  const form = useForm('/photos', { title: '', photo: null as File | null });
+  const input = (e: Event) => e.target as HTMLInputElement;
+
+  return (
+    <Form form={form}>
+      <input value={form.data.title} onInput={(e) => form.setData('title', input(e).value)} />
+      <input type="file" onChange={(e) => form.setData('photo', input(e).files?.[0] ?? null)} />
       <button disabled={form.pending}>Upload</button>
     </Form>
   );

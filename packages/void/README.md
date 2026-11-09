@@ -8,7 +8,7 @@ Void brings together three open-source tools for you and your coding agents:
 - **Void CLI:** Build your app, provision the Cloudflare resources it uses, apply migrations, and deploy with one command. Manage resources, inspect logs, and roll back through the same CLI.
 - **Void Platform:** Install a shared deployment environment in your Cloudflare account for your team or customers, with access controls, resource limits, and usage reporting.
 
-The SDK's features are optional and composable. Use React, Vue, Svelte, or Solid for Void pages, or keep a [supported application framework](https://void.cloud/integrations/frameworks/overview) for routing and rendering while Void handles resource APIs, migrations, and deployment.
+The SDK's features are optional and composable. Use React, Vue, Svelte, Solid, or Hono for Void pages, or keep a [supported application framework](https://void.cloud/integrations/frameworks/overview) for routing and rendering while Void handles resource APIs, migrations, and deployment.
 
 ## Getting Started
 

@@ -44,7 +44,7 @@ features:
     title: Use Your Favorite Framework
     details: Build with Void's adapters or keep your existing Vite framework.
     highlights:
-      - Ships with adapters for Async React, Vue, Svelte, and Solid
+      - Ships with adapters for Async React, Vue, Svelte, Solid, and Hono
       - Supports TanStack Start, SvelteKit, Nuxt, and more
       - Build APIs, SPAs, or server-rendered pages
     guide:

@@ -23,7 +23,7 @@ export default defineConfig({
 });
 ```
 
-Create `.md` files in `pages/`. The plugin also works with React, Svelte, and Solid.
+Create `.md` files in `pages/`. The plugin also works with React, Svelte, Solid, and Hono.
 
 ## Documentation
 

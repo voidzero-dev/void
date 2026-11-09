@@ -149,9 +149,11 @@ assert(managers.every((manager) => ['npm', 'pnpm'].includes(manager)));
 const frameworks = process.env.VOID_PACKED_FRAMEWORK
   ? [process.env.VOID_PACKED_FRAMEWORK]
   : full
-    ? ['react', 'vue', 'svelte', 'solid']
+    ? ['react', 'vue', 'svelte', 'solid', 'hono']
     : ['react'];
-assert(frameworks.every((framework) => ['react', 'vue', 'svelte', 'solid'].includes(framework)));
+assert(
+  frameworks.every((framework) => ['react', 'vue', 'svelte', 'solid', 'hono'].includes(framework)),
+);
 const pages = {
   react: `import { useState } from 'react';
 import { Link } from '@void/react';
@@ -175,6 +177,12 @@ import { Link } from '@void/solid';
 export default function Page(props: { message: string }) {
   const [count, setCount] = createSignal(0);
   return <><h1>{props.message}</h1><button onClick={() => setCount(count() + 1)}>Count {count()}</button><Link href="/next">Next page</Link></>;
+}`,
+  hono: `import { useState } from 'hono/jsx';
+import { Link } from '@void/hono';
+export default function Page({ message }: { message: string }) {
+  const [count, setCount] = useState(0);
+  return <><h1>{message}</h1><button onClick={() => setCount(count + 1)}>Count {count}</button><Link href="/next">Next page</Link></>;
 }`,
 };
 

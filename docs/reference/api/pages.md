@@ -19,7 +19,7 @@ import type { ErrorPageProps, PageError } from 'void/pages';
 
 ## Navigation destinations {#navigation-destinations}
 
-All four adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`, which has the type [`Href`](./types.md#route-types).
+All five adapters support typed URLs through [`routeUrl()`](./types.md#routeurl-path-options). Pass the returned string to `Link`'s `href`, which has the type [`Href`](./types.md#route-types).
 
 The router's `visit(destination, options?)`, `prefetch(destination, options?)`, and `flush(destination, method?)` accept [`RouteUrlInput`](./types.md#route-types): a string, `URL`, or typed destination object.
 
@@ -170,9 +170,9 @@ React deferred props returned from `defer()` are Suspense resources. Read them
 with React's `use()` inside a `<Suspense>` boundary. React Pages requires React
 19 and uses streaming SSR for the initial deferred shell. Rejections throw from
 `use()`, so use a normal React error boundary for custom deferred error UI. Vue,
-Svelte, and Solid keep the `{ loading, value, error }` deferred state object.
+Svelte, Solid, and Hono keep the `{ loading, value, error }` deferred state object.
 When explicitly annotating props, import `Deferred` from the framework adapter
-package (`@void/react`, `@void/vue`, `@void/svelte`, or `@void/solid`) so the
+package (`@void/react`, `@void/vue`, `@void/svelte`, `@void/solid`, or `@void/hono`) so the
 type matches that adapter's client runtime shape.
 
 ### React navigation completion {#react-navigation-completion}
@@ -299,6 +299,73 @@ Imported from `"@void/solid"`.
 Solid `Link` GET `data` is merged into the rendered `href` query string. Primitive values are serialized with `String(value)`, arrays become repeated keys, `null` and `undefined` are omitted, and nested objects throw. `prefetch` and `reloadDocument` are GET-only and throw for mutation links.
 
 Solid re-creates the page on GET navigation and whenever the route or its params change, so `useForm()` picks up the destination record's URL and defaults; layouts persist. Within the same record, back/forward, mutations, and `router.refresh()` keep the page and update its props in place, as do resolved deferred props, so read props inside JSX or memos instead of copying them in the component body. Set `preserveState` explicitly to override the default for navigation within the same record.
+
+## `@void/hono` {#void-hono}
+
+### `voidHono(options?)` {#voidhono-options}
+
+Imported from `"@void/hono/plugin"`. Returns an array of Vite plugins that handle SSR and hydration entry generation for Hono JSX. It compiles JSX with `hono/jsx`, so no other framework plugin is needed. Requires Hono 4.13 or later.
+
+```ts
+import { voidHono } from '@void/hono/plugin';
+
+export default defineConfig({
+  plugins: [voidPlugin(), voidHono()],
+});
+```
+
+For type checking, set the JSX import source in `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "jsxImportSource": "hono/jsx"
+  }
+}
+```
+
+**Signature:**
+
+```ts
+function voidHono(options?: VoidHonoOptions): Plugin[];
+```
+
+**Options:**
+
+```ts
+interface VoidHonoOptions {
+  viewTransitions?: boolean; // enable View Transitions API
+  prefetch?: {
+    defaultStrategy?: boolean | LinkPrefetchStrategy | LinkPrefetchStrategy[]; // default: false
+    hoverDelay?: number; // default: 75 (ms)
+    cacheFor?: number | string | [string, string]; // default: '30s'
+  };
+}
+```
+
+### Hono Runtime {#hono-runtime}
+
+Imported from `"@void/hono"`. Import hooks such as `useState` from `"hono/jsx"`.
+
+| Export                             | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ---------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Link`                             | Hono JSX component for SPA navigation. Renders `<a>` for GET, `<button>` for non-GET methods. Props: `href`, `method`, `data`, `prefetch`, `cacheFor`, `preserveScroll`, `preserveState`, `replace`, `reloadDocument`, `viewTransition`, `activeMatch`, `onNavigate`. Adds `aria-current="page"` and `data-void-active` to the link to the current page ([active links](../../guide/pages-routing/overview.md#active-links)), and `data-void-pending` to links to a page while it loads ([pending links](../../guide/pages-routing/overview.md#pending-links)). |
+| `useForm(url, defaults, options?)` | Form helper using Hono JSX hooks. Returns `{ data, setData, post, put, patch, delete, pending, errors, error, hasChanges, wasSuccessful, recentlySuccessful, reset, setError, clearErrors, clearError }`.                                                                                                                                                                                                                                                                                                                                                       |
+| `useIslandForm(defaults)`          | Form helper for island components. Same form state as `useForm()`. `post(url)`, `put(url)`, `patch(url)`, and `delete(url)` take the action URL and submit with `fetch()`.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `action(url, options?)`            | Awaitable one-shot page action helper. Uses `POST` by default and accepts `{ data, method, params, preserveScroll }`, where `method` can be `"PUT"`, `"PATCH"`, or `"DELETE"`. Returns an `ActionResult`.                                                                                                                                                                                                                                                                                                                                                       |
+| `isVoidActionError(error)`         | Returns `true` when `error` is a `VoidActionError` at any status, such as a thrown `401`, `403`, or `500`. Narrows `error` to `VoidActionError`. See [handling thrown errors](../../guide/pages-routing/actions-and-forms.md#validation-errors).                                                                                                                                                                                                                                                                                                                |
+| `isCallSiteActionError(error)`     | Returns `true` only for the expected `VoidActionError` statuses that `action()` returns, such as `409` or `422`.                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `useShared()`                      | Returns shared data. Middleware sets it with `c.set("shared", {...})`; a loader or action can update it. See [Shared data](../../guide/pages-routing/layouts.md#shared-data).                                                                                                                                                                                                                                                                                                                                                                                   |
+| `useRouter()`                      | Returns the Void Router with current route state (`url`, `path`, `query`, `params`) and navigation methods: `visit`, `refresh`, awaitable `prefetch`, `flush`, `flushAll`.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `useParams()`                      | Returns dynamic route params for the page currently being rendered. Pass the page's pattern as the type argument, such as `useParams<'/users/:id'>()`, to type them.                                                                                                                                                                                                                                                                                                                                                                                            |
+| `useNavigation()`                  | Returns pending navigation state: `{ state, location, method }`, where `state` is `"idle"`, `"loading"`, or `"submitting"` and `location` is the pending destination.                                                                                                                                                                                                                                                                                                                                                                                           |
+
+Hono `Link` GET `data` is merged into the rendered `href` query string. Primitive values are serialized with `String(value)`, arrays become repeated keys, `null` and `undefined` are omitted, and nested objects throw. `prefetch` and `reloadDocument` are GET-only and throw for mutation links.
+
+Hono re-creates the page on GET navigation and whenever the route or its params change, so `useForm()` picks up the destination record's URL and defaults; layouts persist. Within the same record, back/forward, mutations, and `router.refresh()` keep the page and render it again with the new props, as do resolved deferred props. Set `preserveState` explicitly to override the default for navigation within the same record.
+
+In development, editing an island component replaces the mounted islands without reloading the page and resets their state. Other edits reload the page.
 
 ## Markdown Package {#markdown-package}
 

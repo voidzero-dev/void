@@ -97,6 +97,24 @@ export default function UsersPage(props: Props) {
 }
 ```
 
+```tsx [Hono]
+// pages/users/index.tsx
+import type { Props } from './index.server';
+
+export default function UsersPage(props: Props) {
+  return (
+    <>
+      <h1>Users</h1>
+      <ul>
+        {props.users.map((u) => (
+          <li key={u.id}>{u.name}</li>
+        ))}
+      </ul>
+    </>
+  );
+}
+```
+
 :::
 
 ## Deferred Props
@@ -163,7 +181,7 @@ In production, an unexpected error in a deferred prop reaches the page as
 `Internal Server Error`; throw an
 [`HTTPException`](../../integrations/hono.md#utilities) to show your own message.
 
-In Vue, Svelte, and Solid, `Deferred<T>` behaves as a [discriminated union](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions) with three states:
+In Vue, Svelte, Solid, and Hono, `Deferred<T>` behaves as a [discriminated union](https://www.typescriptlang.org/docs/handbook/2/narrowing.html#discriminated-unions) with three states:
 
 ```ts
 type Deferred<T> =
@@ -211,6 +229,25 @@ const { projects, usage } = defineProps<Props>();
 ```
 
 ```tsx [Solid]
+import type { Props } from './dashboard.server';
+
+export default function Dashboard(props: Props) {
+  return (
+    <div>
+      <h1>Projects ({props.projects.length})</h1>
+      {props.usage.loading ? (
+        <p>Loading usage...</p>
+      ) : props.usage.error ? (
+        <p>Failed: {props.usage.error.message}</p>
+      ) : (
+        <p>{props.usage.value.requests} requests</p>
+      )}
+    </div>
+  );
+}
+```
+
+```tsx [Hono]
 import type { Props } from './dashboard.server';
 
 export default function Dashboard(props: Props) {
