@@ -412,7 +412,7 @@ async function renderPageFailure(
   let status = notFound ? 404 : 500;
   let message = notFound
     ? httpError && error instanceof Error
-      ? error.message
+      ? error.message || 'Not Found'
       : 'Not Found'
     : 'Internal Server Error';
   if (!notFound && options?.dev && error instanceof Error) {

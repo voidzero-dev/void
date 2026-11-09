@@ -165,7 +165,7 @@ describe('boundary render plans', () => {
 });
 
 describe('Pages loader boundary protocol', () => {
-  it.each(['returned', 'thrown', 'unexpected'])(
+  it.each(['returned', 'thrown', 'empty-message', 'unexpected'])(
     'renders %s failures as marked, uncached Pages data',
     async (kind) => {
       const app = new Hono<{ Variables: { shared: Record<string, unknown> } }>();
@@ -182,8 +182,11 @@ describe('Pages loader boundary protocol', () => {
           componentId: 'items/item',
           load: async () => ({
             loader: defineHandler((c) => {
-              if (kind === 'thrown') {
-                throw new HTTPException(404, { message: 'Deleted item' });
+              if (kind === 'thrown' || kind === 'empty-message') {
+                throw new HTTPException(
+                  404,
+                  kind === 'thrown' ? { message: 'Deleted item' } : undefined,
+                );
               }
               if (kind === 'unexpected') {
                 throw new Error('SECRET_DATABASE_PASSWORD');
@@ -218,6 +221,17 @@ describe('Pages loader boundary protocol', () => {
       const data = deserializePageData(text);
       expect(data).toMatchObject({
         component: kind === 'unexpected' ? 'error-plan' : 'not-found-plan',
+        props: {
+          error: {
+            status: kind === 'unexpected' ? 500 : 404,
+            message:
+              kind === 'thrown'
+                ? 'Deleted item'
+                : kind === 'unexpected'
+                  ? 'Internal Server Error'
+                  : 'Not Found',
+          },
+        },
         shared: { viewer: 'alice' },
         url: '/items/1',
       });
