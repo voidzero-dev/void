@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   generateVoidAuthDatabaseModule,
   generateVoidAuthDrizzleSchema,
@@ -150,6 +150,95 @@ describe('Better Auth Drizzle codegen', () => {
     expect(generateVoidAuthDrizzleSchema({ dialect: 'mysql', providers: null })).toContain(
       '"updatedAt": timestamp("updatedAt", { mode: "date", fsp: 3 }).notNull().$onUpdate(() => new Date())',
     );
+  });
+
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'leaves custom date update hooks out of the generated %s schema',
+    (dialect) => {
+      const onUpdate = vi.fn(() => new Date('2035-01-01T00:00:00.000Z'));
+      const code = generateVoidAuthDrizzleSchema({
+        dialect,
+        providers: null,
+        userConfig: ({ defaults }) => ({
+          ...defaults,
+          user: {
+            additionalFields: {
+              expiresAt: { type: 'date', required: false, onUpdate },
+            },
+          },
+          plugins: [
+            {
+              id: 'custom-dates',
+              schema: {
+                audit: {
+                  fields: { updatedAt: { type: 'date', onUpdate } },
+                },
+              },
+            },
+          ],
+        }),
+      });
+
+      expect(code.split('\n').find((line) => line.includes('"expiresAt":'))).not.toContain(
+        '.$onUpdate',
+      );
+      const audit = code.slice(code.indexOf('export const auditTable'));
+      expect(audit.split('\n').find((line) => line.includes('"updatedAt":'))).not.toContain(
+        '.$onUpdate',
+      );
+      expect(code.match(/\.\$onUpdate\(/g)).toHaveLength(4);
+      expect(onUpdate).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(['user', 'session', 'account', 'verification'] as const)(
+    'does not replace a configured %s.updatedAt hook',
+    (model) => {
+      const onUpdate = vi.fn(() => new Date('2035-01-01T00:00:00.000Z'));
+      for (const source of ['additionalFields', 'plugin'] as const) {
+        const field = { type: 'date' as const, onUpdate };
+        const code = generateVoidAuthDrizzleSchema({
+          dialect: 'sqlite',
+          providers: null,
+          userConfig: ({ defaults }) => ({
+            ...defaults,
+            ...(source === 'additionalFields'
+              ? { [model]: { additionalFields: { updatedAt: field } } }
+              : {
+                  plugins: [
+                    {
+                      id: 'custom-updated-at',
+                      schema: { [model]: { fields: { updatedAt: field } } },
+                    },
+                  ],
+                }),
+          }),
+        });
+
+        const table = code.slice(code.indexOf(`export const ${model}Table`));
+        expect(table.split('\n').find((line) => line.includes('"updatedAt":'))).not.toContain(
+          '.$onUpdate',
+        );
+        expect(code.match(/\.\$onUpdate\(/g)).toHaveLength(3);
+      }
+      expect(onUpdate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('keeps the built-in update hook when its table and column are renamed', () => {
+    const code = generateVoidAuthDrizzleSchema({
+      dialect: 'sqlite',
+      providers: null,
+      userConfig: ({ defaults }) => ({
+        ...defaults,
+        user: { modelName: 'members', fields: { updatedAt: 'modifiedAt' } },
+      }),
+    });
+
+    expect(code).toContain(
+      '"modifiedAt": integer("modifiedAt", { mode: "timestamp_ms" }).notNull().$onUpdate(() => new Date())',
+    );
+    expect(code.match(/\.\$onUpdate\(/g)).toHaveLength(4);
   });
 
   it('keeps optional defaults out of the migration metadata', () => {

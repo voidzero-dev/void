@@ -307,7 +307,23 @@ function createColumnBuilder(
   }
 }
 
+function hasBuiltInUpdateHook(options: BetterAuthOptions, model: string, field: string): boolean {
+  if (
+    field !== 'updatedAt' ||
+    (model !== 'user' && model !== 'session' && model !== 'account' && model !== 'verification')
+  ) {
+    return false;
+  }
+  // Only Better Auth's built-in hooks are known to mean the current time.
+  // A configured field replaces that definition, including its callback.
+  return (
+    options[model]?.additionalFields?.updatedAt === undefined &&
+    !options.plugins?.some((plugin) => plugin.schema?.[model]?.fields.updatedAt !== undefined)
+  );
+}
+
 function createColumnDefinition(
+  options: BetterAuthOptions,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   schema: BetterAuthDBSchema,
   idStrategy: AuthIdStrategy,
@@ -372,7 +388,11 @@ function createColumnDefinition(
   if (literalDefault !== undefined) {
     parts.push(`.$defaultFn(() => ${JSON.stringify(literalDefault)})`);
   }
-  if (field.onUpdate && field.type === 'date') {
+  if (
+    field.onUpdate &&
+    field.type === 'date' &&
+    hasBuiltInUpdateHook(options, defaultModelName, defaultFieldName)
+  ) {
     parts.push('.$onUpdate(() => new Date())');
   }
 
@@ -481,6 +501,7 @@ export function generateVoidAuthDrizzleSchema(
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(
+        options,
         runtime.dialect,
         schema,
         idStrategy,
@@ -492,6 +513,7 @@ export function generateVoidAuthDrizzleSchema(
       ...fieldEntries.map(([defaultFieldName, field]) => {
         const actualFieldName = resolveFieldName(defaultFieldName, field);
         return `  ${JSON.stringify(actualFieldName)}: ${createColumnDefinition(
+          options,
           runtime.dialect,
           schema,
           idStrategy,
