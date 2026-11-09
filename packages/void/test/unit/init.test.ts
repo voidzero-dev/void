@@ -2620,7 +2620,7 @@ export default config;
       expect(gitignore).toContain('.wrangler');
       expect(gitignore).toContain('.env');
       expect(gitignore.split('\n')).toContain('.env.*');
-      expect(gitignore.split('\n')).toContain('!.env.example');
+      expect(gitignore.split('\n')).not.toContain('!.env.example');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

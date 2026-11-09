@@ -180,6 +180,16 @@ describe('envSchemaPlugin auto-discovery', () => {
     writeFileSync(join(root, '.env.production'), 'API_URL=https://example.com\n');
 
     await expect(runConfig(envSchemaPlugin(root))).rejects.toThrow('supports one local file: .env');
+    await expect(runConfig(envSchemaPlugin(root))).rejects.not.toThrow('env.ts lists the keys');
+  });
+
+  it('points .env.example users at env.ts', async () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, '.env.example'), 'API_URL=\n');
+
+    await expect(runConfig(envSchemaPlugin(root))).rejects.toThrow(
+      'Remove .env.example and follow the env migration guide. env.ts lists the keys',
+    );
   });
 
   it('removes local .env client values from production builds', async () => {
