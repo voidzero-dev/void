@@ -315,7 +315,7 @@ export function hasSharedCacheOptOut(response: Response): boolean {
       ?.split(',')
       .some((name) => {
         const header = name.trim().toLowerCase();
-        return header !== '' && header !== 'x-voidpages';
+        return header !== '' && header !== 'x-voidpages' && header !== 'x-voidpages-version';
       })
   ) {
     return true;

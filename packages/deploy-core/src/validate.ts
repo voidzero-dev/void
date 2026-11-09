@@ -131,6 +131,13 @@ export function validateManifestShape(manifest: unknown): string | null {
   if (manifest.emailProtocolVersion !== undefined && manifest.emailProtocolVersion !== 1) {
     return 'invalid manifest shape: emailProtocolVersion must be 1';
   }
+  if (
+    manifest.migrationMode !== undefined &&
+    manifest.migrationMode !== 'apply' &&
+    manifest.migrationMode !== 'skip'
+  ) {
+    return 'invalid manifest shape: migrationMode must be apply or skip';
+  }
 
   if (!isRecord(manifest.bindings)) {
     return 'invalid manifest shape: bindings must be an object';

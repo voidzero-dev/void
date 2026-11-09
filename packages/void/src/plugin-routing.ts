@@ -265,6 +265,7 @@ export function routingPlugin(
   }
   const runtimeEmailPath = resolveFile('#self/email');
   const compileOptions: CompileOptions = {
+    trailingSlash: options.routing?.trailingSlash,
     honoPath: resolveFile('hono'),
     honoRoutePath: resolveFile('hono/route'),
     runtimeEnvPath: resolveFile('#self/_env'),
@@ -461,7 +462,13 @@ export function routingPlugin(
   }
 
   function getPagesCompileOptions(): PagesCompileOptions | null {
-    if (!scan || scan.pages.pages.length === 0) {
+    if (
+      !scan ||
+      (scan.pages.pages.length === 0 &&
+        !scan.pages.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        ))
+    ) {
       return null;
     }
     const hasIslandPages = scan.pages.pages.some((p) => p.island);
@@ -485,7 +492,11 @@ export function routingPlugin(
     const { pages, routes, websockets = [], middleware } = scan!;
     return resolveAssetRoutingPolicy({
       isSsr: Boolean(ssr),
-      hasPages: pages.pages.length > 0,
+      hasPages:
+        pages.pages.length > 0 ||
+        !!pages.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        ),
       hasApiRoutes:
         hasApiRoutes(routes) || hasApiRoutes(websockets) || compileOptions.auth !== null,
       hasDocumentRoutes: hasDocumentRoutes(routes),

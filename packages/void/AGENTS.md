@@ -39,11 +39,15 @@ voidPlugin() → [routingPlugin, prerenderPlugin, nodeTargetPlugin()]
 
 Non-CF targets disable CF-only bindings (`void/db`, `void/kv`, `void/auth`, `void/storage`, `void/ai`, `void/sandbox`, `void/env`; `CF_ONLY_IMPORTS`) at compile time. `void/ws` stays importable for client code. The `nodeTargetPlugin` provides a binding guard (compile-time errors for CF imports), a Vite dev server middleware (SSR-loads the Hono app), and a build entry generator for the target runtime. Its dev server, Vitest and build inline `void`, `@void/*` and installed packages that depend on either (`ssr.noExternal`), as a workspace link does. Vite externalizes a bare import that resolves into node_modules before any plugin sees it: an installed `void/kv` would skip the guard, and a build would load a second void beside the copy the generated routes bundle, so a `ValidationError` from `void/handler` fails their `instanceof` check. The build keeps a dynamic `cloudflare:` import external, as Void's runtime loads one only in workerd, and fails on a static one, which Node cannot load. `findVoidDependentPackages` reads the app's dependencies and recurses only into packages that depend on void, as vite-plugin-svelte does for Svelte libraries. A Yarn Plug'n'Play install has no node_modules, so there it asks the PnP runtime that `yarn` loads (`findPnpApi` on `node:module`) for each package directory. Vite's module runner cannot evaluate CommonJS, so it keeps a package only when the file an import loads (`exports` ".", where Vite also matches `development` or, when NODE_ENV is production, `production`; then `module`, then `main`) is an ES module (`.mjs`, or `.js` in a `type: "module"` scope) that imports no relative CommonJS file, unlike the wrapper in Node's dual-package guide. A build bundles a bare import that does not resolve from the app root, so with pnpm an inlined package's own dependencies are bundled too; the Node target docs ask users to list one that loads a native addon or reads files next to its code in the app's dependencies, which leaves it to Node (`ssr.external` alone fails at runtime, as Node cannot find the package from `dist/ssr`).
 
-Production non-CF Pages pass a filesystem-backed `ASSETS` provider to the generated routes so manifest loading, hydration tags, public assets, and prerendering share the production path. `nodeTargetPlugin.renderChunk` resolves the client directory relative to the actual emitted chunk (including shared chunks under `ssr/assets/`), independently of `process.cwd()`. Keep `dist/ssr` and `dist/client` together.
+Production non-CF Pages pass a filesystem-backed `ASSETS` provider to the generated routes so manifest loading, hydration tags, public assets, and prerendering share the production path. A server that passes its own `ASSETS` in the Hono env (an embedded client build, as in a single executable) replaces it for every one of those; the filesystem provider is created on first use, so such a server never touches `dist/client`. `nodeTargetPlugin.renderChunk` resolves the client directory relative to the actual emitted chunk (including shared chunks under `ssr/assets/`), independently of `process.cwd()`. Keep `dist/ssr` and `dist/client` together.
 
 ### Runtime Framework
 
 Pages navigation payloads keep `url` as a path and query string. The render callback receives the full request URL separately; preserve its origin through each adapter's SSR router and router facade.
+
+Pages clients and prerender requests send `X-VoidPages: true` with `X-VoidPages-Version` set to the shared `PAGES_PROTOCOL_VERSION` from `@void/edge` for devalue payloads. Missing or unsupported versions receive an uncached, empty `200 text/plain` response without `X-VoidPages`, which makes released clients load the document. Run legacy mutations once before that response; return validation errors as plain `422` JSON so forms retain their input. Native and hosted ISR must bypass JSON cache reads for unsupported versions without evicting current entries. HTML and JSON responses vary by both headers.
+
+Pages `_not-found`/`_error` recovery uses finite render plans that retain logical layout slots. Never serialize original exceptions through framework hydration helpers, rerun a failed loader/action, or cache an error document. Native client boundaries reset on every visit/refresh and preserve healthy ancestor layouts.
 
 **Hono** is used as the runtime framework. The generated virtual module creates a Hono app with file-based routes and middleware. Route handlers receive a Hono `Context` object (`c`) and can use the full Hono API (`c.json()`, `c.text()`, `c.req.param()`, etc.) plus the Hono middleware ecosystem.
 
@@ -163,6 +167,11 @@ Applied in order to a path relative to `routes/`:
 4. Remove route group dirs `(groupname)`
 5. Convert `[param]` → `:param`, `[...param]` → `:param{.+}`, `[...]` → `*`
 6. Prefix with `/`
+
+Keep these compiled patterns for internal matching. Generated public route maps use
+bracket patterns (`/users/[id]`, `/files/[...path]`, `/files/[...]`) and retain the
+original patterns as deprecated aliases with identical types. HTTP, WebSocket,
+page-action and URL clients share `interpolateRouteParams()` for both syntaxes.
 
 HTTP methods are determined by **named exports** in each file (detected by `detect-exports.ts` via `parseSync`), not by filename suffixes. Files/dirs starting with `_` are ignored by the scanner.
 

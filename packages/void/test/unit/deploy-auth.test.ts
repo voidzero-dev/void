@@ -22,6 +22,7 @@ const mockIsOidcAvailable = vi.fn();
 const mockExchangeOidc = vi.fn();
 const mockMaskSecret = vi.fn();
 const mockClientCtor = vi.fn();
+const mockMigrationSkipSupport = vi.fn();
 
 const originalIsTTY = process.stdin.isTTY;
 let savedVoidToken: string | undefined;
@@ -61,6 +62,9 @@ vi.mock('../../src/cli/client', () => ({
     constructor(...args: Array<unknown>) {
       mockClientCtor(...args);
     }
+    requireMigrationSkipSupport() {
+      return mockMigrationSkipSupport();
+    }
     listProjects() {
       throw new Error('deploy unexpectedly loaded the full project list');
     }
@@ -97,6 +101,7 @@ beforeEach(() => {
   mockExchangeOidc.mockReset();
   mockMaskSecret.mockReset();
   mockClientCtor.mockReset();
+  mockMigrationSkipSupport.mockReset();
 
   mockGetToken.mockReturnValue('token');
   mockGetTokenSource.mockReturnValue('manual');
@@ -121,6 +126,16 @@ beforeEach(() => {
 });
 
 describe('runDeploy auth failures', () => {
+  it('rejects migration skipping on an older platform before resolving or creating a project', async () => {
+    mockMigrationSkipSupport.mockRejectedValue(
+      new Error('platform does not support --skip-migrations'),
+    );
+    await expect(
+      runDeploy(process.cwd(), { platform: 'void', projectSlug: 'my-app', skipMigrations: true }),
+    ).rejects.toThrow('does not support --skip-migrations');
+    expect(mockProjectLookup).not.toHaveBeenCalled();
+  });
+
   it('rejects an unconnected platform before reading credentials or exchanging OIDC tokens', async () => {
     mockGetApiUrl.mockImplementation(() => {
       throw new Error('platform: Run `void connect <url>` first.');

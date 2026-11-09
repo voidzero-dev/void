@@ -419,6 +419,7 @@ export function createHttpRouteHandler(
 
 export {
   createPageGetHandler,
+  createStaticNotFound,
   createPageMutationHandler,
   createPagesFallback,
   createNamedActionMarker,

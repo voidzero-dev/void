@@ -1,6 +1,6 @@
 {
   "name": "void",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Full-stack framework and deployment CLI for Cloudflare Workers, powered by Vite.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -366,6 +366,7 @@
     "better-sqlite3": "^13.0.3",
     "blake3-jit": "^1.1.0",
     "cf": "catalog:",
+    "devalue": "^6.0.3",
     "drizzle-arktype": "^0.1.3",
     "drizzle-kit": "^0.31.11",
     "drizzle-orm": "^0.45.4",
@@ -379,7 +380,7 @@
     "jsonc-parser": "^3.3.1",
     "mime": "catalog:",
     "miniflare": "catalog:",
-    "minimatch": "^11.0.3",
+    "minimatch": "catalog:",
     "mysql2": "^3.24.6",
     "pg": "^8.23.1",
     "postal-mime": "catalog:",
@@ -400,6 +401,7 @@
     "estree-walker": "^3.0.3",
     "fast-wrap-ansi": "^0.2.2",
     "magic-string": "catalog:",
+    "nitro": "^3.0.261103-rc",
     "ofetch": "2.0.0-alpha.3",
     "pathslash": "catalog:",
     "pglite-server": "0.1.5",

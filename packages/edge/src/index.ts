@@ -1,4 +1,5 @@
 export type { ProjectZeroTrustRouting } from './access.ts';
+export { PAGES_PROTOCOL_VERSION } from './pages-protocol.ts';
 export { redirectToHttps } from './https.ts';
 export {
   applyHeaderRules,

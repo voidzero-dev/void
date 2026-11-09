@@ -9,10 +9,10 @@ import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from '../../../../test/browser-helpers.ts';
 import { openIslandPage, type IslandPageVisit } from '../../../../test/island-page-browser.ts';
 import { voidMarkdown } from '../../../md/src/plugin.ts';
+import { islandFrontmatterScript } from '../../../void/src/pages/serialize.ts';
 import { islandsPlugin } from '../../src/plugin-islands.ts';
 
-const ISLAND_FRONTMATTER_SCRIPT =
-  '<script type="application/json" id="__void_frontmatter">{"title":"Hello from frontmatter"}</script>';
+const ISLAND_FRONTMATTER_SCRIPT = islandFrontmatterScript({ title: 'Hello from frontmatter' });
 
 type IslandRenderer = {
   renderIslandPage(

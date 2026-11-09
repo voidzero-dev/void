@@ -28,18 +28,18 @@ export function interpolateRouteParams(
   const suffix = suffixIndex === -1 ? '' : path.slice(suffixIndex);
   let leadingName: string | undefined;
   const replaced = pathname.replace(
-    /(^|\/)(?::([^/{}]+)(\{\.\+\})?|\*)(?=\/|$)/g,
+    /(^|\/)(?::([^/{}]+)(\{\.\+\})?|\[(\.\.\.)?([^/[\]]*)\]|\*)(?=\/|$)/g,
     (
       token: string,
       prefix: string,
       name: string | undefined,
       catchAll: string | undefined,
+      bracketCatchAll: string | undefined,
+      bracketName: string | undefined,
       offset: number,
     ) => {
+      name ??= bracketName || undefined;
       const anonymous = name === undefined;
-      if (anonymous && !requireParams) {
-        return token;
-      }
       name ??= '*';
       if (!params || !Object.hasOwn(params, name)) {
         if (requireParams) {
@@ -51,12 +51,15 @@ export function interpolateRouteParams(
         leadingName = name;
       }
       const value = params[name];
+      if (anonymous && value === '' && pathname.slice(offset + token.length) === '/') {
+        return '';
+      }
       if (requireParams && !anonymous && value === '') {
         throw new TypeError(`Route param "${name}" must not be empty.`);
       }
       return (
         prefix +
-        (catchAll || anonymous
+        (catchAll || bracketCatchAll || anonymous
           ? value
               .split('/')
               .map((segment) => encodeSegment(name, segment))
@@ -77,17 +80,19 @@ export function interpolateRouteParams(
 /** Known page, HTTP and WebSocket route patterns. */
 export type RoutePath = keyof RoutePathMap & string;
 
-// With `routing.typedRoutes`, each `:name`, `:name{.+}` or `*` segment of a
-// pattern matches any text, so `/users/:id` accepts `/users/${string}`. Template
+// Dynamic segments in either public or legacy patterns match any text,
+// so `/users/[id]` accepts `/users/${string}`. Template
 // literal types cannot exclude empty or `/`-leading text without per-character unions.
-type RouteUrlSegment<S extends string> = S extends `:${string}` | '*' ? string : S;
+type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | '*' ? string : S;
 type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`
   ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`
   : RouteUrlSegment<P>;
 // A trailing `/*` also matches the bare prefix, as in Hono: `/docs/*` matches `/docs`.
-type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`
-  ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
-  : RouteSegmentsUrl<P>;
+type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[...]'}/`
+  ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`
+  : P extends `${infer Prefix}/${'*' | '[...]'}`
+    ? (Prefix extends '' ? '/' : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`
+    : RouteSegmentsUrl<P>;
 // Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
 type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
 type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;

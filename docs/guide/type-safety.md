@@ -127,8 +127,8 @@ form.errors.foo; // ✗ TypeScript error
 [Named actions](./pages-routing/actions-and-forms#named-actions) work the same way. The `?actionName` suffix selects the right types for that action:
 
 ```ts
-const updateForm = useForm('/users/:id?update', { name: '' }, { params: { id } });
-const deleteForm = useForm('/users/:id?delete', { id: '' }, { params: { id } });
+const updateForm = useForm('/users/[id]?update', { name: '' }, { params: { id } });
+const deleteForm = useForm('/users/[id]?delete', { id: '' }, { params: { id } });
 // Each form's data and errors are typed from their respective validators
 ```
 
@@ -136,12 +136,12 @@ The `action()` helper gets the same type checking. See [Actions & Forms](./pages
 
 ## Typed URLs and Navigation
 
-Use `routeUrl()` from `void/routes` to build URLs from your app's page, HTTP, and WebSocket route patterns. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/:id`:
+Use `routeUrl()` from `void/routes` to build URLs from your app's page, HTTP, and WebSocket route patterns. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/[id]`:
 
 ```ts
 import { routeUrl } from 'void/routes';
 
-const url = routeUrl('/users/:id', {
+const url = routeUrl('/users/[id]', {
   params: { id: 42 },
   query: { tab: 'activity' },
   hash: 'details',
@@ -151,13 +151,15 @@ const url = routeUrl('/users/:id', {
 
 Your editor autocompletes route patterns and parameter names. TypeScript checks that the route exists and all required parameters are supplied. Parameter values accept strings or numbers; Void encodes them for the URL. Query keys are chosen by your app, and values can be strings, numbers, booleans, or arrays of those values. Arrays become repeated query parameters; `null` and `undefined` values are omitted.
 
+Use bracket patterns with `routeUrl()`, typed `fetch()`, WebSocket `connect()`, page actions, and `useParams()`.
+
 Pass the returned string to `Link`, a plain `<a>`, or `c.redirect()`. For programmatic navigation and `c.rewrite()`, you can pass a destination object directly:
 
 ```ts
 import type { RouteDestination } from 'void/routes';
 
 const profile = {
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
   hash: 'details',
@@ -166,35 +168,42 @@ const profile = {
 
 Destination objects use the same parameter checking and URL encoding as `routeUrl()`. See [Pages Routing](./pages-routing/overview.md#typed-navigation) for links and router methods, and [Rewrites](../reference/api/rewrites.md#c-rewrite-destination) for server navigation.
 
-For a catch-all page such as `pages/files/[...path].tsx`, `.vue`, or `.svelte`, use `/files/:path{.+}` and pass the full path as one value:
+For a catch-all page such as `pages/files/[...path].tsx`, `.vue`, or `.svelte`, use `/files/[...path]` and pass the full path as one value:
 
 ```ts
-routeUrl('/files/:path{.+}', { params: { path: 'docs/get started' } });
+routeUrl('/files/[...path]', { params: { path: 'docs/get started' } });
+// /files/docs/get%20started
+```
+
+For an unnamed catch-all (`[...]`), pass its value under the `'*'` key:
+
+```ts
+routeUrl('/files/[...]', { params: { '*': 'docs/get started' } });
 // /files/docs/get%20started
 ```
 
 ### Page params
 
-Pass a page's URL pattern as the type argument of `useParams()` to type the params it reads. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/:id`:
+Pass a page's URL pattern as the type argument of `useParams()` to type the params it reads. For a page at `pages/users/[id].tsx`, `.vue`, or `.svelte`, the pattern is `/users/[id]`:
 
 ::: code-group
 
 ```tsx [React]
 import { useParams } from '@void/react';
 
-const { id } = useParams<'/users/:id'>(); // id: string
-useParams<'/users/:id'>().idd; // Type error: no such param
-useParams<'/userz/:id'>(); // Type error: no page matches
+const { id } = useParams<'/users/[id]'>(); // id: string
+useParams<'/users/[id]'>().idd; // Type error: no such param
+useParams<'/userz/[id]'>(); // Type error: no page matches
 ```
 
 ```vue [Vue]
 <script setup lang="ts">
 import { useParams } from '@void/vue';
 
-const params = useParams<'/users/:id'>();
+const params = useParams<'/users/[id]'>();
 params.id; // string
 params.idd; // Type error: no such param
-useParams<'/userz/:id'>(); // Type error: no page matches
+useParams<'/userz/[id]'>(); // Type error: no page matches
 </script>
 ```
 
@@ -202,20 +211,20 @@ useParams<'/userz/:id'>(); // Type error: no page matches
 <script lang="ts">
   import { useParams } from '@void/svelte';
 
-  const params = useParams<'/users/:id'>();
+  const params = useParams<'/users/[id]'>();
   params.id; // string
   params.idd; // Type error: no such param
-  useParams<'/userz/:id'>(); // Type error: no page matches
+  useParams<'/userz/[id]'>(); // Type error: no page matches
 </script>
 ```
 
 ```tsx [Solid]
 import { useParams } from '@void/solid';
 
-const params = useParams<'/users/:id'>();
+const params = useParams<'/users/[id]'>();
 params.id; // string
 params.idd; // Type error: no such param
-useParams<'/userz/:id'>(); // Type error: no page matches
+useParams<'/userz/[id]'>(); // Type error: no page matches
 ```
 
 :::
@@ -229,7 +238,7 @@ On the server, `c.req.param('slug')` accepts any name. Read the params object th
 ```ts
 import type { PageParams } from 'void/routes';
 
-const { slug } = c.req.param() as PageParams<'/posts/:slug'>;
+const { slug } = c.req.param() as PageParams<'/posts/[slug]'>;
 ```
 
 ### Prerender paths
@@ -240,7 +249,7 @@ On a dynamic page, annotate `getPrerenderPaths()` with `PageParams` for that pag
 // pages/blog/[slug].server.ts
 import type { PageParams } from 'void/routes';
 
-export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> {
+export async function getPrerenderPaths(): Promise<PageParams<'/blog/[slug]'>[]> {
   return [{ slug: 'hello-world' }];
 }
 ```
@@ -282,7 +291,7 @@ import { routeUrl } from 'void/routes';
 
 <Link href="/about">About</Link>
 <Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>Profile</Link>
 <Link href="/abuot">About</Link> // Type error: no route matches
 ```
 
@@ -295,7 +304,7 @@ import { routeUrl } from 'void/routes';
 <template>
   <Link href="/about">About</Link>
   <Link :href="`/users/${user.id}?tab=activity`">Profile</Link>
-  <Link :href="routeUrl('/users/:id', { params: { id } })">Profile</Link>
+  <Link :href="routeUrl('/users/[id]', { params: { id } })">Profile</Link>
   <!-- Type error: no route matches -->
   <Link href="/abuot">About</Link>
 </template>
@@ -309,7 +318,7 @@ import { routeUrl } from 'void/routes';
 
 <Link href="/about">About</Link>
 <Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>Profile</Link>
 <!-- Type error: no route matches -->
 <Link href="/abuot">About</Link>
 ```
@@ -320,13 +329,13 @@ import { routeUrl } from 'void/routes';
 
 <Link href="/about">About</Link>
 <Link href={`/users/${user.id}?tab=activity`}>Profile</Link>
-<Link href={routeUrl('/users/:id', { params: { id } })}>Profile</Link>
+<Link href={routeUrl('/users/[id]', { params: { id } })}>Profile</Link>
 <Link href="/abuot">About</Link> // Type error: no route matches
 ```
 
 :::
 
-Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/:id` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
+Links can also point to the current page (`?page=2`, `#comments`) and to `http://`, `https://`, `mailto:`, and `tel:` URLs. Relative paths such as `../settings` are rejected; use the absolute path. A fixed part with spaces or non-ASCII characters can be written as is (`/café menu`) or percent-encoded in uppercase, as `routeUrl()` returns it (`/caf%C3%A9%20menu`). A dynamic segment matches any text, including none, so `/users/[id]` also accepts `/users/` and `/users/42/edit`. With a root dynamic page such as `pages/[slug].tsx`, `.vue`, or `.svelte`, a protocol-relative URL like `//example.com` passes too.
 
 The [SSE](./sse.md#client) and [live stream](./live.md#subscribe-from-the-browser) clients, `connectEventStream()` and `connectLiveStream()`, take one of your routes or an `http://` or `https://` URL for a stream on another origin. They reject same-page, `mailto:`, `tel:`, and `ws://` URLs. Cast a stream URL that TypeScript can't check with `as RouteUrl`; the cast turns off the check for that URL.
 
@@ -339,8 +348,8 @@ declare const id: string;
 declare const dynamic: string;
 
 c.redirect('/about');
-c.redirect(routeUrl('/users/:id', { params: { id } }));
-c.redirect({ pathname: '/users/:id', params: { id } });
+c.redirect(routeUrl('/users/[id]', { params: { id } }));
+c.redirect({ pathname: '/users/[id]', params: { id } });
 c.redirect('https://example.com/login');
 c.redirect(new URL('https://example.com/login'));
 c.redirect(dynamic as Href);
@@ -456,6 +465,48 @@ export default defineMiddleware(async (c, next) => {
 ```
 
 Now `c.get("requestId")` returns `string` everywhere, with no assertion needed. Multiple augmentations across files are [merged together](https://www.typescriptlang.org/docs/handbook/declaration-merging.html).
+
+## Custom Binding Types
+
+On the Cloudflare target, Void generates types for bindings declared under `cloudflare` in `void.config.ts`. For example, configure a [Cloudflare rate limiter](https://developers.cloudflare.com/workers/runtime-apis/bindings/rate-limit/):
+
+```ts
+// void.config.ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  cloudflare: {
+    ratelimits: [
+      { name: 'MY_RATE_LIMITER', namespace_id: '1001', simple: { limit: 10, period: 60 } },
+    ],
+  },
+});
+```
+
+Run `void prepare`, or start the dev server, to use the binding without a type assertion:
+
+```ts
+import { defineHandler } from 'void';
+
+export const GET = defineHandler(async (c) => {
+  const { success } = await c.env.MY_RATE_LIMITER.limit({ key: 'example' });
+  return { success };
+});
+```
+
+Service bindings use `Fetcher`, Durable Objects use `DurableObjectNamespace`, and other bindings use their standard Cloudflare types. For RPC methods or other specialized types, augment `CloudBindings` in a file included by your tsconfig:
+
+```ts
+import type {} from 'void';
+
+declare module 'void' {
+  interface CloudBindings {
+    AUTH: Fetcher & { check(): Promise<boolean> };
+  }
+}
+```
+
+The declaration can refine a generated binding or type a binding that is not declared in `cloudflare`. Fixed values and secrets declared in `env.ts` retain their schema types. These types apply to Void's `c.env`; use your framework's Cloudflare type setup when accessing bindings through `cloudflare:workers`.
 
 ## Setup
 

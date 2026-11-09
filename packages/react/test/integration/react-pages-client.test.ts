@@ -18,6 +18,8 @@ import {
   defineSharedIslandHmrTests,
   defineSharedIslandTests,
 } from '../../../../test/pages-island-contract.ts';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { decodePageData, deserializePageData } from '../../../void/src/pages/serialize.ts';
 
 declare global {
   interface Window {
@@ -249,7 +251,9 @@ function defineTransitionAwaitTests(getBase: () => string) {
               })(),
             ]);
             expect(response.status()).toBe(200);
-            expect((await response.json()).props.revision).toBe('updated');
+            expect(
+              decodePageData<{ props: { revision: string } }>(await response.json()).props.revision,
+            ).toBe('updated');
             await expect
               .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
               .toBe('complete');
@@ -297,7 +301,9 @@ function defineTransitionAwaitTests(getBase: () => string) {
           })(),
         ]);
         expect(response.status()).toBe(200);
-        expect((await response.json()).props.revision).toBe('updated');
+        expect(
+          decodePageData<{ props: { revision: string } }>(await response.json()).props.revision,
+        ).toBe('updated');
 
         // The server has finished. Awaiting its result must not keep React's
         // Action pending forever or prevent the new page from committing.
@@ -649,7 +655,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
 
       const text = await page.textContent('[data-testid="deferred-resolved"]');
-      expect(text).toBe('Count: 42');
+      expect(text).toContain('Count: 42');
       expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
       expect(page.url()).toBe(BASE + '/deferred');
     } finally {
@@ -1028,11 +1034,11 @@ describe('react-pages client (dev)', () => {
     expect(userHtml).toContain('<meta property="og:title" content="Alice">');
 
     const inertiaRoot = await fetch(`${DEV_BASE}/`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaRoot.status).toBe(200);
     expect(inertiaRoot.headers.get('X-VoidPages')).toBe('true');
-    const rootPage = (await inertiaRoot.json()) as {
+    const rootPage = decodePageData(await inertiaRoot.json()) as {
       component: string;
       props: Record<string, unknown>;
       shared: Record<string, unknown>;
@@ -1052,10 +1058,10 @@ describe('react-pages client (dev)', () => {
     );
 
     const inertiaUsers = await fetch(`${DEV_BASE}/users`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUsers.status).toBe(200);
-    const usersPage = (await inertiaUsers.json()) as {
+    const usersPage = decodePageData(await inertiaUsers.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
     };
@@ -1070,11 +1076,15 @@ describe('react-pages client (dev)', () => {
 
     const postValid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: 'Charlie', email: 'charlie@example.com' }),
     });
     expect(postValid.status).toBe(200);
-    const validPage = (await postValid.json()) as {
+    const validPage = decodePageData(await postValid.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
@@ -1085,11 +1095,15 @@ describe('react-pages client (dev)', () => {
 
     const postInvalid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: '', email: '' }),
     });
     expect(postInvalid.status).toBe(200);
-    const invalidPage = (await postInvalid.json()) as {
+    const invalidPage = decodePageData(await postInvalid.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
@@ -1100,10 +1114,10 @@ describe('react-pages client (dev)', () => {
     expect(invalidPage.props.users.length).toBeGreaterThanOrEqual(2);
 
     const inertiaUser = await fetch(`${DEV_BASE}/users/1`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUser.status).toBe(200);
-    const userPage = (await inertiaUser.json()) as {
+    const userPage = decodePageData(await inertiaUser.json()) as {
       component: string;
       props: { user: { id: number; name: string; email: string } };
       head: PageHead;
@@ -1113,10 +1127,10 @@ describe('react-pages client (dev)', () => {
     expect(userPage.head.title).toBe('Alice | React Pages Demo');
 
     const inertiaCharlie = await fetch(`${DEV_BASE}/users/3`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaCharlie.status).toBe(200);
-    const charliePage = (await inertiaCharlie.json()) as {
+    const charliePage = decodePageData(await inertiaCharlie.json()) as {
       component: string;
       props: { user: { id: number; name: string; email: string } };
     };
@@ -1125,7 +1139,7 @@ describe('react-pages client (dev)', () => {
     expect(charliePage.props.user.email).toBe('charlie@example.com');
 
     const inertiaBlog = await fetch(`${DEV_BASE}/blog`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaBlog.status).toBe(200);
     expect(inertiaBlog.headers.get('content-type')).toContain('text/html');
@@ -1153,19 +1167,31 @@ describe('react-pages client (dev)', () => {
     expect(validBlog.success).toBe(true);
 
     const deferredInertia = await fetch(`${DEV_BASE}/deferred`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(deferredInertia.headers.get('content-type')).toContain('application/x-ndjson');
     const ndjsonText = await deferredInertia.text();
     const ndjsonLines = ndjsonText.trim().split('\n');
     expect(ndjsonLines.length).toBe(2);
-    const pageObj = JSON.parse(ndjsonLines[0]);
+    const pageObj = deserializePageData<{
+      component: string;
+      props: { title: string };
+      deferredKeys: Record<string, string>;
+      __deferred: string;
+      data: unknown;
+    }>(ndjsonLines[0]);
     expect(pageObj.component).toBe('deferred');
     expect(pageObj.props.title).toBe('Deferred Page');
     expect(pageObj.deferredKeys).toEqual({ stats: 'stats' });
-    const deferredLine = JSON.parse(ndjsonLines[1]);
+    const deferredLine = deserializePageData<{
+      component: string;
+      props: { title: string };
+      deferredKeys: Record<string, string>;
+      __deferred: string;
+      data: unknown;
+    }>(ndjsonLines[1]);
     expect(deferredLine.__deferred).toBe('stats');
-    expect(deferredLine.data).toEqual({ count: 42 });
+    expect(deferredLine.data).toEqual({ count: 42, date: new Date('2026-11-08T00:00:00Z') });
 
     const deferredHtml = await (await fetch(`${DEV_BASE}/deferred`)).text();
     expect(deferredHtml).toContain('Deferred Page');

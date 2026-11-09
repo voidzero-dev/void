@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vite-plus/test';
+import { deserializePageData } from 'void/pages-server';
 import { updateBuildStatus } from '../../src/db.ts';
 import { app } from '../../src/index.ts';
 import { builds } from '../../src/schema.ts';
@@ -345,7 +346,11 @@ describe('GET /admin/builds/:id (build page)', () => {
     expect(html).toContain('cafebab');
     // The React log panel receives the build ID and starts with its loading state.
     expect(html).toContain('id="build-log"');
-    expect(html).toContain('"component":"buildDetail"');
+    expect(
+      deserializePageData(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ),
+    ).toMatchObject({ component: 'buildDetail' });
     expect(html).toContain('Loading logs...');
     // No external GitHub link for a container build.
     expect(html).not.toContain('View logs on GitHub');

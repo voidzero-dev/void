@@ -10,7 +10,13 @@ vi.mock('better-auth', () => ({
   betterAuth: mocks.betterAuth,
 }));
 
-import { requireAuth, type AuthState, type AuthUser } from '../../src/runtime/auth.ts';
+import {
+  getAuth,
+  getUser,
+  requireAuth,
+  type AuthState,
+  type AuthUser,
+} from '../../src/runtime/auth.ts';
 import {
   createVoidAuthRuntime,
   privateCachePolicy,
@@ -50,6 +56,34 @@ afterEach(() => {
 });
 
 describe('runVoidAuthMiddleware response headers', () => {
+  it('exposes the current request instance to anonymous routes and plugin helpers', async () => {
+    const app = createApp({ response: null, headers: new Headers() });
+    const instances: Array<unknown> = [];
+    app.get('/plugin', async (c) => {
+      await Promise.resolve();
+      const auth = getAuth(c);
+      instances.push(auth);
+      expect(auth).toBe(mocks.betterAuth.mock.results.at(-1)?.value);
+      return c.json({ anonymous: getUser() === null });
+    });
+    for (let i = 0; i < 2; i++) {
+      const response = await app.request('/plugin', undefined, { BETTER_AUTH_SECRET: 'secret' });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ anonymous: true });
+    }
+    expect(instances).toHaveLength(2);
+    expect(mocks.betterAuth).toHaveBeenCalledTimes(2);
+  });
+
+  it('explains when no auth instance is available on the request', async () => {
+    const app = new Hono();
+    app.get('/', (c) => {
+      expect(() => getAuth(c)).toThrow('Better Auth is not available for this request');
+      return c.text('ok');
+    });
+    expect((await app.request('/')).status).toBe(200);
+  });
+
   it('adds auth headers to an immutable response without changing its body or status', async () => {
     const authHeaders = new Headers();
     authHeaders.set('x-auth-refresh', 'refreshed');

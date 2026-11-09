@@ -90,6 +90,9 @@ or hanging tests when they occur instead of routinely increasing timeouts.
 Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
 process deadlines can overlap database work. The remaining SDK unit and integration files then
 share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
+The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
+not serialize the whole runner suite. Both files use the same fixture helpers with per-file
+isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
 Unit files and most API integration files use isolated worker threads to reduce startup time. On Linux and macOS,
 API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-pglite`) use forks to isolate PGlite's
 WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
@@ -97,6 +100,8 @@ that change the process timezone also use forks, because threads cannot change N
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
 This keeps database engines from competing with all framework compilers at startup. Keep module
 isolation enabled: these suites mock globals, keep database state, and exercise real process/lock boundaries.
+Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
+can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
 The full verification command builds before running the platform's type-aware lint, so it also
 works without a pre-existing dashboard `.void/tsconfig.json`.
 
@@ -106,6 +111,13 @@ Persistent `fsModuleCache` is enabled to reuse transformations across invocation
 cache test results or remove per-file module isolation. The first run primes it; compare repeated
 runs with the same selection and machine load. For a control use `--no-fsModuleCache`; use
 `vp test --clearCache` only when diagnosing cache problems, not before ordinary tests.
+
+Forks and real Node subprocesses also reuse Node's JavaScript/TypeScript compile cache under
+`node_modules/.cache/node-compile`. This reuses compilation, while every test and subprocess
+still executes with its existing isolation. Compare cold and warm runs when changing subprocess
+startup. Use `NODE_DISABLE_COMPILE_CACHE=1 vp test run <file>` for a control. Vitest disables
+the cache for V8 coverage, and `NODE_V8_COVERAGE` disables it too, to preserve precise coverage
+([Node's compile-cache guidance](https://nodejs.org/download/release/v24.15.0/docs/api/module.html#module-compile-cache)).
 
 ## Profiling slow tests
 
@@ -143,7 +155,10 @@ repeat those production builds. `vpr test:all` runs the same artifact check loca
 
 Integration sharding uses [measured duration estimates](test/integration-timings.ts), rather than
 filename hashes. [The sequencer](test/sequencer.ts) packs the longest files first and starts costly
-fixtures early. Estimates affect scheduling only: new files receive a fallback estimate. Refresh
+fixtures early. Within a scheduling phase, cached file durations take priority across project
+names, so costly SDK units can overlap framework builds. Failed files retain priority and phase
+barriers stay intact. Cold runs use fixture estimates and a five-second fallback. These costs
+affect ordering only: every selected test still executes. Refresh
 the estimates when the suite's costs change materially. Seeded file shuffling remains available
 for isolation checks.
 

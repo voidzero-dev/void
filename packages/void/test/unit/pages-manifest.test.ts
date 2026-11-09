@@ -37,6 +37,14 @@ function matchRouteFor(pattern: string): (url: string) => string | null {
 }
 
 describe('generated Pages client route manifest', () => {
+  it('matches an empty anonymous catch-all with trailing slashes', () => {
+    const matchRoute = matchRouteFor('/docs/*/');
+    for (const path of ['/docs/', '/docs/a/', '/docs/a/b/']) {
+      expect(matchRoute(path), path).toBe('docs/[...slug]');
+    }
+    expect(matchRoute('/docs/a')).toBeNull();
+  });
+
   it('matches named catch-all pages across path segments', () => {
     const matchRoute = matchRouteFor('/docs/:slug{.+}');
 

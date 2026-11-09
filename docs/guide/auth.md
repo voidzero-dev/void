@@ -118,6 +118,7 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `getUser()` returns the current `AuthUser | null`
 - `getSession()` returns `{ user, session } | null`
 - `requireAuth(c)` returns the authenticated user or throws `401`
+- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, with plugin APIs inferred from `auth.ts`, for use with Better Auth helpers.
 
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 

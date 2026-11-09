@@ -1,6 +1,8 @@
+import { win32 } from 'node:path';
 import { compilePattern as sharedCompilePattern, matchPatternCaptures } from '@void/edge';
 /* oxlint-disable typescript-eslint/no-explicit-any -- these tests wire the void context augmentations by hand (`c.rewrite`, `c.originalUrl`, `c.isRewritten`) to exercise generated code paths directly; `as any` is the least noisy way to assign/read those members without re-declaring the full Hono context shape per test. */
 import { Hono } from 'hono';
+import { serveStatic } from 'hono/serve-static';
 import { parseSync } from 'vite';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -1093,13 +1095,60 @@ describe('compileWorkerEntry', () => {
 });
 
 describe('compileNodeApp', () => {
+  it.each(['node', 'bun', 'deno'] as const)(
+    'distinguishes files from directory indexes on Windows for %s',
+    async (target) => {
+      const files = new Map([
+        ['C:\\client\\index.html', 'home'],
+        ['C:\\client\\about\\index.html', 'about'],
+        ['C:\\client\\terms.html', 'terms'],
+        ['C:\\client\\LICENSE', 'license'],
+      ]);
+      // Windows accepts a trailing separator in a file lookup. Exercise the
+      // generated asset handler with those semantics on every test host.
+      const lookup = (path: string) => win32.normalize(path).replace(/\\+$/, '');
+      const innerApp = new Hono<{
+        Bindings: { ASSETS: { fetch(request: Request): Promise<Response> } };
+      }>();
+      innerApp.get('*', (c) => c.env.ASSETS.fetch(c.req.raw));
+      const code = compileNodeApp(target, 'hono')
+        .replace(/^import .*;$/gm, '')
+        .replace('import.meta.voidClientDirectory', '"client"')
+        .replace('export default app;', 'return app;');
+      const app: Hono = new Function('Hono', 'innerApp', 'fileURLToPath', 'serveStatic', code)(
+        Hono,
+        innerApp,
+        () => 'C:\\client',
+        (options: Parameters<typeof serveStatic>[0]) =>
+          serveStatic({
+            ...options,
+            join: win32.join,
+            isDir: (path) => files.has(win32.join(lookup(path), 'index.html')),
+            getContent: async (path) => files.get(lookup(path)) ?? null,
+          }),
+      );
+      for (const [path, body] of [
+        ['/', 'home'],
+        ['/about', 'about'],
+        ['/about/', 'about'],
+        ['/terms.html', 'terms'],
+        ['/LICENSE', 'license'],
+      ]) {
+        expect(await (await app.request(`http://app.test${path}`)).text(), path).toBe(body);
+      }
+      for (const path of ['/terms.html/', '/LICENSE/']) {
+        expect((await app.request(`http://app.test${path}`)).status, path).toBe(404);
+      }
+    },
+  );
+
   it('generates node app with serveStatic and default export', () => {
     const code = compileNodeApp('node', '/resolved/hono/index.mjs');
     expect(code).toContain('import { serveStatic } from "@hono/node-server/serve-static"');
     expect(code).toContain('import { Hono } from "/resolved/hono/index.mjs"');
     expect(code).toContain('export default app');
     expect(code).toContain(
-      'import innerApp, { __voidCollectPrerenderPaths } from "virtual:void-routes"',
+      'import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes"',
     );
     expect(code).toContain('app.post("/__void/prerender-paths"');
     // Only the prerender runner passes the marker as the Hono env.
@@ -1138,12 +1187,12 @@ describe('compileNodeApp', () => {
     });
     expect(code).toContain('import "/abs/path/to/env.ts"');
     expect(code).toContain('import { _validateEnvOnce } from "/resolved/env-public.mjs"');
-    // Only path discovery can run without remote production secrets.
+    // Only trusted build-time rendering can run without remote production secrets.
     // Node/Bun read the application request environment from process.env.
     expect(code).toContain('app.use("*", async (c, next)');
     expect(code).toContain('await _validateEnvOnce(process.env)');
     expect(code).toContain(
-      'if (!(c.req.method === "POST" && c.req.path === "/__void/prerender-paths" && c.env?.__VOID_PRERENDER === "1")) await _validateEnvOnce(process.env)',
+      'if (!(((c.req.method === "POST" && c.req.path === "/__void/prerender-paths") || (c.req.method === "GET" && c.req.path === "/__void/static-not-found")) && c.env?.__VOID_PRERENDER === "1")) await _validateEnvOnce(process.env)',
     );
   });
 

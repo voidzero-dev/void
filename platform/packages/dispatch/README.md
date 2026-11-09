@@ -8,7 +8,7 @@ Edge router for deployed Void apps. It routes requests to user workers, serves s
 2. Read routing data from `ROUTING` KV.
 3. Reject suspended projects with `429`.
 4. Apply `redirectRules` (pre-asset) before any worker invocation. Redirects short-circuit with a `Location` header; status-200 entries are "force" rewrites that mutate `url.pathname` and continue.
-5. Serve hashed assets from edge cache when possible.
+5. Serve hashed assets from edge cache when possible, honoring worker-first asset routing.
 6. For static/SPA projects, serve current direct-upload assets from `STATIC_ASSETS_R2`; preserve `STATIC_ASSETS` KV reads for assets carried forward from legacy deploys. Storage reads get one delayed hedge within the existing 10-second request budget, then use `assetConfig` path resolution.
 7. Apply `fallbackRules` (post-asset) only when static asset resolution misses — instead of returning 404, match the pathname against fallback rules (status=200 only) and rewrite. Intended for SPA shells (`/* → /index.html`) and default-locale catch-alls. On static deployments, a matched fallback serves the resolved asset directly without dispatching to a user worker, so `X-Void-Original-URL` is never set, `c.originalUrl()` is unavailable, and the response is not ISR-cached (see `packages/dispatch/test/unit/fallback-rules.test.ts`).
 8. For `/api/*`, forward to the user worker in the dispatch namespace with plan-specific CPU/subrequest limits. Foreground worker responses, including SSR and ISR cache misses, have no default wall-time deadline while the client remains connected.
@@ -110,6 +110,11 @@ SSR deployments, a dotted URL is cached there only when the deployment's asset
 manifest contains that exact path. Unknown legacy assets render through the
 worker without entering this shared cache. Hashed assets use their earlier
 content-addressed cache path.
+
+Worker-backed paths covered by `assetConfig.run_worker_first` bypass both static
+caches, including previously stored entries. Cloudflare-style `!` exclusions take
+precedence regardless of rule order. Excluded paths and static-only deployments
+retain asset caching. ISR follows its configured revalidation policies separately.
 
 Not cached:
 

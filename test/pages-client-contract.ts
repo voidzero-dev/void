@@ -1,5 +1,11 @@
 import type { Page, Request } from 'playwright';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../packages/edge/src/pages-protocol.ts';
+import {
+  decodePageData,
+  deserializePageData,
+  serializePageData,
+} from '../packages/void/src/pages/serialize.ts';
 
 type TestWindow = Window & {
   __SPA_MARKER?: boolean;
@@ -37,7 +43,9 @@ export function registerSharedDevSsrTest({
     expect(probeMatch).not.toBeNull();
     const probeJson = probeMatch![1];
     expect(probeJson).not.toMatch(/<\/script/i);
-    expect(JSON.parse(probeJson).shared.scriptProbe).toBe(probe);
+    expect(
+      deserializePageData<{ shared: { scriptProbe: string } }>(probeJson).shared.scriptProbe,
+    ).toBe(probe);
     expect(rootHtml).toContain(`This is the ${framework} Pages playground.`);
 
     const usersRes = await fetch(`${base}/users`);
@@ -77,7 +85,9 @@ export function registerSharedDevSsrTest({
     expect(deferredHtml).toContain('__VOID_PAGE_DATA__');
     expect(deferredHtml).toContain('Deferred Page');
     expect(deferredHtml).toContain('window.__resolveDeferred("stats"');
-    expect(deferredHtml).toContain('"count":42');
+    expect(deferredHtml).toContain(
+      serializePageData({ count: 42, date: new Date('2026-11-08T00:00:00Z') }),
+    );
   });
 }
 
@@ -213,9 +223,9 @@ export function registerSharedClientTests({
       expect(hydrationErrors).toEqual([]);
 
       // The request origin is render context; serialized navigation URLs stay relative.
-      const pageUrl = await page.evaluate(
-        () => JSON.parse(document.getElementById('__VOID_PAGE_DATA__')!.textContent!).url,
-      );
+      const pageUrl = deserializePageData<{ url: string }>(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ).url;
       expect(pageUrl).toBe('/link-behavior');
       await page.getByTestId('query-only-link').click();
       await page.waitForURL(BASE + '/link-behavior?view=compact');
@@ -454,6 +464,47 @@ export function registerSharedClientTests({
     }
   });
 
+  it('hard-reloads a legacy navigation and resumes current-client navigation', async () => {
+    const page = await newPage();
+    let legacyRequests = 0;
+    const versions: Array<string | undefined> = [];
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    try {
+      await page.route('**/users', async (route) => {
+        const headers = route.request().headers();
+        if (headers['x-voidpages'] === 'true') {
+          versions.push(headers['x-voidpages-version']);
+          delete headers['x-voidpages-version'];
+          legacyRequests++;
+        }
+        await route.continue({ headers });
+      });
+      await page.goto(BASE + '/');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/users"]');
+      await page.waitForURL(BASE + '/users');
+      await waitForHydration(page);
+      expect(legacyRequests).toBeGreaterThan(0);
+      expect(versions.every((version) => version === PAGES_PROTOCOL_VERSION)).toBe(true);
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBeUndefined();
+      expect(await page.textContent('body')).toContain('Alice');
+      await page.unroute('**/users');
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/"]');
+      await page.waitForURL(BASE + '/');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('replaces shared data when a page response omits a previous key', async () => {
     const page = await newPage();
     await page.route('**/users', async (route) => {
@@ -462,10 +513,10 @@ export function registerSharedClientTests({
         return;
       }
       const response = await route.fetch();
-      const pageData = (await response.json()) as Record<string, unknown>;
+      const pageData = decodePageData<Record<string, unknown>>(await response.json());
       await route.fulfill({
         response,
-        body: JSON.stringify({ ...pageData, shared: {} }),
+        body: serializePageData({ ...pageData, shared: {} }),
       });
     });
 
@@ -483,6 +534,21 @@ export function registerSharedClientTests({
       await page.click('a[href="/"]');
       await page.waitForFunction(() =>
         document.querySelector('nav span')?.textContent?.includes('Pages Demo'),
+      );
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('hydrates rich page props and streamed deferred results', async () => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/deferred');
+      await waitForHydration(page);
+      await page.getByTestId('deferred-date').waitFor();
+      expect(await page.getByTestId('page-date').textContent()).toBe('2026-11-08T00:00:00.000Z');
+      expect(await page.getByTestId('deferred-date').textContent()).toBe(
+        '2026-11-08T00:00:00.000Z',
       );
     } finally {
       await page.context().close();
@@ -514,6 +580,10 @@ export function registerSharedClientTests({
         await page.click('a[href="/deferred"]');
         await page.waitForFunction(() =>
           document.querySelector('[data-testid="deferred-resolved"]')?.textContent?.includes('42'),
+        );
+        expect(await page.getByTestId('page-date').textContent()).toBe('2026-11-08T00:00:00.000Z');
+        expect(await page.getByTestId('deferred-date').textContent()).toBe(
+          '2026-11-08T00:00:00.000Z',
         );
         expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
         await page.click('a[href="/"]');

@@ -27,7 +27,10 @@ function hasNonIslandPages(dir: string): boolean {
         continue;
       }
       const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.')) {
+      if (
+        (name.startsWith('_') && !/^_not-found(?:\.(?:dev|prod))?\./.test(name)) ||
+        name.startsWith('layout.')
+      ) {
         continue;
       }
       if (name.endsWith('.svelte') && !name.includes('.island.')) {
@@ -107,6 +110,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
   const { html, head } = render(App, {
     props: {
       page: PageComponent,
+      pageId: pageObj.component, boundaryManifest, components, server: true,
       layouts: layoutComponents,
       pageProps: pageObj.props,
       shared: pageObj.shared || {},
@@ -127,7 +131,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 <html\${htmlAttrs}>
 <head>\${headHtml}\${head}\${assetTags.css}\${assetTags.preloads}</head>
 <body\${bodyAttrs}>
-  <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
+  \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
   \${assetTags.body}
 </body>
@@ -149,12 +153,14 @@ import { hydrate, mount, tick } from "svelte";
 import { writable } from "svelte/store";
 import App from "@void/svelte/App.svelte";
 import { setActionRouter } from "@void/svelte";
-import { createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
+import { showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
 ${generateComponentManifest(scan, pagesDir)}
 
 const pageStore = writable(null);
+const boundaryGenerationStore = writable(0);
+const pageIdStore = writable("");
 const propsStore = writable({});
 const layoutsStore = writable([]);
 const sharedStore = writable({});
@@ -172,6 +178,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       rejectDeferred(ref, error) { return { value: null, loading: false, error: new Error(error) }; },
       isLoading: (ref) => ref.loading,
       applyUpdate(pageData, comp, layouts) {
+        boundaryGenerationStore.update(n => n + 1);
+        pageIdStore.set(pageData.component);
         propsStore.set(pageData.props);
         sharedStore.set(pageData.shared || {});
         routeParams = pageData.params || {};
@@ -183,7 +191,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         propsStore.set({ ...props });
       },
     },
-    components, layoutTree, routeMeta, matchRoute,
+    components, layoutTree, routeMeta, matchRoute, boundaryManifest, dev: import.meta.env.DEV,
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
@@ -197,12 +205,13 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     onNavigationChange(navigation) {
       navigationStore.set(navigation);
     },
-  });
+  }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
 const reactiveRouter = createRouterFacade(router, () => routeUrl, () => routeParams);
 
 setActionRouter(router);
 
+pageIdStore.set(initialPageData.component);
 pageStore.set(initialComponent);
 propsStore.set(initialPageData.props);
 layoutsStore.set(initialLayouts);
@@ -216,6 +225,7 @@ const appOptions = {
   target: appEl,
   props: {
     page: initialComponent,
+    pageId: initialPageData.component, boundaryManifest, components, dev: import.meta.env.DEV,
     layouts: initialLayouts,
     pageProps: initialPageData.props,
     shared: initialPageData.shared || {},
@@ -225,6 +235,8 @@ const appOptions = {
     navigation: idleNavigationState(),
     stores: {
       page: pageStore,
+      pageId: pageIdStore,
+      boundaryGeneration: boundaryGenerationStore,
       props: propsStore,
       layouts: layoutsStore,
       shared: sharedStore,

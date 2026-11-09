@@ -14,6 +14,7 @@ import {
 
 declare module 'void/routes' {
   interface PageActionMap {
+    '/__action-test/users/[id]': PageActionMap['/__action-test/users/:id'];
     '/__action-test/static': { body: { name: string } };
     '/__action-test/users/:id': {
       params: { id: string };
@@ -248,23 +249,26 @@ describe('action clients', () => {
     });
   });
 
-  it('encodes path parameters while preserving named actions and submission options', async () => {
-    const client = createActionClient();
-    const visit = vi.fn(async () => ({ props: {} }));
-    client.setActionRouter(routerWithVisit(visit));
+  it.each(['/__action-test/users/[id]?save', '/__action-test/users/:id?save'] as const)(
+    'encodes params and preserves named actions in %s',
+    async (url) => {
+      const client = createActionClient();
+      const visit = vi.fn(async () => ({ props: {} }));
+      client.setActionRouter(routerWithVisit(visit));
 
-    await client.action('/__action-test/users/:id?save', {
-      params: { id: 'a/b?c' },
-      method: 'PATCH',
-      data: { name: 'Alice' },
-    });
+      await client.action(url, {
+        params: { id: 'a/b?c' },
+        method: 'PATCH',
+        data: { name: 'Alice' },
+      });
 
-    expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
-      method: 'PATCH',
-      data: { name: 'Alice' },
-      preserveScroll: undefined,
-    });
-  });
+      expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
+        method: 'PATCH',
+        data: { name: 'Alice' },
+        preserveScroll: undefined,
+      });
+    },
+  );
 
   it('preserves validation errors as action results', async () => {
     const client = createActionClient();

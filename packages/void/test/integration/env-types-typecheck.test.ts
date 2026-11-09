@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { generateBindingTypes } from '../../src/codegen/binding-types.ts';
 import { generateEnvTypes } from '../../src/codegen/env-types.ts';
 
 const workspaceRoot = join(import.meta.dirname, '..', '..', '..', '..');
@@ -36,12 +37,33 @@ describe('generated env types in a consumer project', () => {
     );
     writeFileSync(join(outDir, 'env.d.ts'), generateEnvTypes(envFile, outDir).dts);
     writeFileSync(
+      join(outDir, 'bindings.d.ts'),
+      generateBindingTypes({
+        cloudflare: {
+          ratelimits: [{ name: 'MY_RATE_LIMITER' }],
+          services: [{ binding: 'AUTH' }],
+        },
+      })!,
+    );
+    writeFileSync(
       join(root, 'handler.ts'),
       'import { defineHandler } from "void";\n' +
+        'import type { CloudBindings } from "void";\n' +
+        'declare module "void" { interface CloudBindings { AUTH: Fetcher & { check(): Promise<boolean> } } }\n' +
         'import { env } from "void/env";\n' +
         'const direct: string = env.API_SECRET;\n' +
         'export const GET = defineHandler((c) => c.text(direct + c.env.API_SECRET.toUpperCase()));\n' +
         'export const POST = defineHandler((c) => c.env.ASSETS.fetch(c.req.raw));\n' +
+        'export const PATCH = defineHandler(c => {\n' +
+        '  c.env.MY_RATE_LIMITER.limit({ key: "me" });\n' +
+        '  c.env.AUTH.check();\n' +
+        '  // @ts-expect-error the key must be a string\n' +
+        '  c.env.MY_RATE_LIMITER.limit({ key: 123 });\n' +
+        '  // @ts-expect-error undeclared bindings remain unknown\n' +
+        '  c.env.MISSING.fetch(c.req.raw);\n' +
+        '  return {};\n' +
+        '});\n' +
+        'export const rate = (env: CloudBindings) => env.MY_RATE_LIMITER.limit({ key: "me" });\n' +
         '// @ts-expect-error Node, Bun and Deno targets fetch assets only by Request.\n' +
         'export const PUT = defineHandler((c) => c.env.ASSETS.fetch("/logo.png"));\n' +
         'export const fetchAsset = (bindings: Cloudflare.Env) => bindings.ASSETS.fetch("https://app.test/");\n' +
@@ -58,7 +80,7 @@ describe('generated env types in a consumer project', () => {
           skipLibCheck: true,
           noEmit: true,
         },
-        files: ['env.ts', '.void/env.d.ts', 'handler.ts'],
+        files: ['env.ts', '.void/env.d.ts', '.void/bindings.d.ts', 'handler.ts'],
       }),
     );
 

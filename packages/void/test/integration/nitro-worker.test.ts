@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { createServer as createPgServer } from 'pglite-server';
@@ -272,10 +272,17 @@ type NitroBuildApi = {
   createNitro(config: Record<string, unknown>): Promise<NitroInstance>;
   prepare(nitro: NitroInstance): Promise<void>;
   build(nitro: NitroInstance): Promise<void>;
+  createDevServer(nitro: NitroInstance): {
+    fetch(request: Request): Response | Promise<Response>;
+    close(): Promise<void>;
+  };
 };
 
 /** Nitro's build API, from the Nitro that the Nuxt playground's Nuxt installs. */
-async function importNitro(): Promise<NitroBuildApi> {
+async function importNitro(version: 2 | 3 = 2): Promise<NitroBuildApi> {
+  if (version === 3) {
+    return import('nitro/builder') as unknown as Promise<NitroBuildApi>;
+  }
   let require = createRequire(
     join(import.meta.dirname, '../../../../playground/nuxt/package.json'),
   );
@@ -293,6 +300,8 @@ async function importNitro(): Promise<NitroBuildApi> {
 async function buildNitroWorker(
   database: 'pg' | 'mysql',
   nitroConfig: Record<string, unknown> = {},
+  version: 2 | 3 = 2,
+  devRequests?: (fetch: (request: Request) => Response | Promise<Response>) => Promise<void>,
 ): Promise<string> {
   // Windows runners report a short-name temp path, which the bundler refuses to serve.
   const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-nitro-worker-')));
@@ -311,7 +320,7 @@ export const users = ${table}('users', { id: ${id}('id').primaryKey(), name: tex
   );
   write(
     'routes/users.ts',
-    `import { users } from '@schema';
+    `${version === 3 ? 'import { defineHandler as defineEventHandler } from "nitro/h3";\n' : ''}import { users } from '@schema';
 import { db } from 'void/db';
 
 export default defineEventHandler(async () => {
@@ -322,7 +331,7 @@ export default defineEventHandler(async () => {
   );
   write(
     'routes/hash.ts',
-    `import { createHash } from 'node:crypto';
+    `${version === 3 ? 'import { defineHandler as defineEventHandler } from "nitro/h3";\n' : ''}import { createHash } from 'node:crypto';
 
 export default defineEventHandler(() => ({ hash: createHash('sha256').update('void').digest('hex') }));
 `,
@@ -334,12 +343,30 @@ export default defineEventHandler(() => ({ hash: createHash('sha256').update('vo
     join(root, 'node_modules', 'void'),
     'junction',
   );
+  if (version === 3) {
+    symlinkSync(
+      dirname(createRequire(import.meta.url).resolve('nitro/package.json')),
+      join(root, 'node_modules/nitro'),
+      'junction',
+    );
+    const require = createRequire(fileURLToPath(import.meta.resolve('@cloudflare/vite-plugin')));
+    for (const dependency of ['miniflare', 'wrangler']) {
+      symlinkSync(
+        dirname(require.resolve(`${dependency}/package.json`)),
+        join(root, 'node_modules', dependency),
+        'junction',
+      );
+    }
+  }
 
   const trace = createBuildTrace(root);
   await withinStepTimeout(
     'The Nitro build',
     async () => {
-      const { createNitro, prepare, build } = await trace.step('import Nitro', importNitro);
+      const { createNitro, prepare, build, createDevServer } = await trace.step(
+        'import Nitro',
+        () => importNitro(version),
+      );
       const nitro = await trace.step('createNitro', () =>
         createNitro({
           rootDir: root,
@@ -350,13 +377,24 @@ export default defineEventHandler(() => ({ hash: createHash('sha256').update('vo
           logLevel: 0,
           minify: false,
           sourceMap: false,
+          ...(version === 3 ? { serverDir: root } : {}),
           ...nitroConfig,
         }),
       );
       trace.attach(nitro);
       try {
         await trace.step('prepare', () => prepare(nitro));
-        await trace.step('build', () => build(nitro));
+        if (devRequests) {
+          const server = createDevServer(nitro);
+          try {
+            await trace.step('build dev', () => build(nitro));
+            await trace.step('dev requests', () => devRequests((request) => server.fetch(request)));
+          } finally {
+            await server.close();
+          }
+        } else {
+          await trace.step('build', () => build(nitro));
+        }
       } finally {
         await trace.step('close', () => nitro.close());
       }
@@ -400,6 +438,39 @@ async function fetchNitroWorker(
   }
 }
 
+async function fetchNitroDevelopment(
+  database: 'pg' | 'mysql',
+  connectionString: string,
+  paths: Array<string>,
+  builder: 'rolldown' | false = 'rolldown',
+): Promise<Array<{ status: number; body: unknown }>> {
+  let responses: Array<{ status: number; body: unknown }> = [];
+  await buildNitroWorker(
+    database,
+    {
+      dev: true,
+      builder,
+      cloudflare: {
+        wrangler: {
+          compatibility_date: '2026-02-24',
+          compatibility_flags: ['nodejs_compat'],
+          vars: { DATABASE_URL: connectionString },
+        },
+      },
+    },
+    3,
+    async (fetch) => {
+      responses = await Promise.all(
+        paths.map(async (path) => {
+          const response = await fetch(new Request(`http://localhost${path}`));
+          return { status: response.status, body: await response.json() };
+        }),
+      );
+    },
+  );
+  return responses;
+}
+
 // Each case runs a Nitro build and starts workerd.
 describe('a Nitro Worker with void/nitro', () => {
   const requests = ['/users', '/users', '/users', '/hash'];
@@ -409,46 +480,75 @@ describe('a Nitro Worker with void/nitro', () => {
     { status: 200, body: { hash } },
   ];
 
-  it('runs PostgreSQL queries in workerd on one connection per request', async () => {
-    const serverDir = await buildNitroWorker('pg');
-    const pglite = new PGlite();
-    await withinStepTimeout('PGlite startup', async () => {
-      // pglite-server does not wait for PGlite: a query that arrives during startup spins
-      // forever.
-      await pglite.waitReady;
-      await pglite.exec(
-        "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO users (name) VALUES ('alice');",
-      );
-    });
-    const server = createPgServer(pglite);
-    let connections = 0;
-    server.on('connection', () => connections++);
-    try {
-      server.listen(0, '127.0.0.1');
-      await once(server, 'listening');
-      const { port } = server.address() as AddressInfo;
-      const url = `postgresql://postgres@127.0.0.1:${port}/postgres`;
-      expect(await fetchNitroWorker(serverDir, url, requests)).toEqual(expected);
-      expect(connections).toBe(3);
-    } finally {
-      server.close();
-      await pglite.close();
-    }
-  });
+  it.each(['rolldown', false] as const)(
+    'runs Nitro 3 development queries (builder: %s) on one connection per request',
+    async (builder) => {
+      const mysql = await startFakeMySqlServer([{ id: 1, name: 'alice' }]);
+      try {
+        const url = `mysql://void@127.0.0.1:${mysql.port}/app`;
+        expect(await fetchNitroDevelopment('mysql', url, requests, builder)).toEqual(expected);
+        expect(mysql.acceptedConnections()).toBe(3);
+      } finally {
+        await mysql.close();
+      }
+    },
+  );
+
+  it.each([
+    [2, false],
+    [3, false],
+    [3, true],
+  ] as const)(
+    'runs PostgreSQL queries with Nitro %s (dev: %s) in workerd on one connection per request',
+    async (version, dev) => {
+      const serverDir = dev ? undefined : await buildNitroWorker('pg', {}, version);
+      const pglite = new PGlite();
+      await withinStepTimeout('PGlite startup', async () => {
+        // pglite-server does not wait for PGlite: a query that arrives during startup spins
+        // forever.
+        await pglite.waitReady;
+        await pglite.exec(
+          "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL); INSERT INTO users (name) VALUES ('alice');",
+        );
+      });
+      const server = createPgServer(pglite);
+      let connections = 0;
+      server.on('connection', () => connections++);
+      try {
+        server.listen(0, '127.0.0.1');
+        await once(server, 'listening');
+        const { port } = server.address() as AddressInfo;
+        const url = `postgresql://postgres@127.0.0.1:${port}/postgres`;
+        expect(
+          await (dev
+            ? fetchNitroDevelopment('pg', url, requests)
+            : fetchNitroWorker(serverDir!, url, requests)),
+        ).toEqual(expected);
+        expect(connections).toBe(3);
+      } finally {
+        server.close();
+        await pglite.close();
+      }
+    },
+  );
 
   // Nitro's `commonJS.strictRequires` wraps every CommonJS module, mysql2 included.
   it.each([
-    ['', {}],
-    [' when Nitro wraps every CommonJS module', { commonJS: { strictRequires: true } }],
-  ])('runs MySQL queries in workerd on one connection per request%s', async (_, nitroConfig) => {
-    const serverDir = await buildNitroWorker('mysql', nitroConfig);
-    const mysql = await startFakeMySqlServer([{ id: 1, name: 'alice' }]);
-    try {
-      const url = `mysql://void@127.0.0.1:${mysql.port}/app`;
-      expect(await fetchNitroWorker(serverDir, url, requests)).toEqual(expected);
-      expect(mysql.acceptedConnections()).toBe(3);
-    } finally {
-      await mysql.close();
-    }
-  });
+    ['', {}, 2],
+    [' when Nitro wraps every CommonJS module', { commonJS: { strictRequires: true } }, 2],
+    [' with Nitro 3', {}, 3],
+  ] as const)(
+    'runs MySQL queries in workerd on one connection per request%s',
+    async (_, nitroConfig, version) => {
+      const serverDir = await buildNitroWorker('mysql', nitroConfig, version);
+      const mysql = await startFakeMySqlServer([{ id: 1, name: 'alice' }]);
+      try {
+        const url = `mysql://void@127.0.0.1:${mysql.port}/app`;
+        expect(await fetchNitroWorker(serverDir, url, requests)).toEqual(expected);
+        expect(mysql.acceptedConnections()).toBe(3);
+      } finally {
+        await mysql.close();
+      }
+    },
+  );
 });

@@ -13,6 +13,7 @@ import {
   findLegacyEnvFiles,
   findReservedEnvKeys,
   isClientEnvKey,
+  legacyEnvExampleHint,
   loadLocalEnv,
   LOCAL_ENV_FILE,
   reservedEnvKeysMessage,
@@ -328,7 +329,7 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
       const legacyFiles = findLegacyEnvFiles(root);
       if (legacyFiles.length > 0) {
         throw new Error(
-          `void/env supports one local file: .env. Remove ${legacyFiles.join(', ')} and follow the env migration guide.`,
+          `void/env supports one local file: .env. Remove ${legacyFiles.join(', ')} and follow the env migration guide.${legacyEnvExampleHint(legacyFiles)}`,
         );
       }
       // Every mode (serve, build, preview), with or without env.ts. Only the

@@ -4,6 +4,7 @@ import { createServer, type ViteDevServer } from 'vite';
 import { afterAll, beforeAll, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 
 const FIXTURE = join(import.meta.dirname, '..', 'fixtures', 'navigation-fallback');
 let server: ViteDevServer;
@@ -95,7 +96,7 @@ it('shows the destination fallback before page data resolves', async () => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       body: JSON.stringify({
         component: 'dashboard',
         props: {},
@@ -132,7 +133,7 @@ it('restores the previous page when the destination request fails', async () => 
     await route.fulfill({
       status: 500,
       contentType: 'application/json',
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       body: 'invalid json',
     });
   });
@@ -169,7 +170,7 @@ it('returns to the initial page before its shell refresh finishes', async () => 
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       body: JSON.stringify({
         component: path === '/' ? 'home' : 'dashboard',
         props: {},
@@ -235,7 +236,7 @@ it('shows a visited page without remounting the fallback while refreshing it', a
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       body: JSON.stringify({
         component: 'dashboard',
         props: {},

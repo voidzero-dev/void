@@ -8,6 +8,7 @@ import { getDatabaseCasing, readConfig } from '../config.ts';
 import { discoverSchema } from '../drizzle/discover.ts';
 import { loadLocalEnv } from '../shared/env.ts';
 import { generateAuthTypes } from './auth-types.ts';
+import { generateBindingTypes } from './binding-types.ts';
 import { generateDbDts } from './db-types.ts';
 import { findEnvFileForPaths, generateEnvTypes } from './env-types.ts';
 import { ensureProjectTsconfig } from './project-tsconfig.ts';
@@ -47,6 +48,13 @@ export async function prepareProject(root: string): Promise<PrepareProjectResult
   const outDir = join(root, '.void');
   const written: Array<string> = [];
   const removed: Array<string> = [];
+
+  const bindingTypes = generateBindingTypes(config);
+  if (bindingTypes) {
+    writeGeneratedFile(outDir, 'bindings.d.ts', bindingTypes, written);
+  } else {
+    removeGeneratedFile(outDir, 'bindings.d.ts', removed);
+  }
 
   const envFile = findEnvFileForPaths(root, paths);
   if (envFile) {

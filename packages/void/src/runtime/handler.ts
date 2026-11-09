@@ -354,13 +354,18 @@ export namespace defineHandler {
     return <R>(
       handler: (c: CloudContext, input: HandlerInput<V>) => R,
     ): TypedHandler<V, Exclude<Awaited<R>, Response>> => {
-      return (async (c: CloudContext) => {
+      const leaf = async (c: CloudContext) => {
         const result = await runValidation(validators, c);
         if (!result.ok) {
           return result.response;
         }
-        return convertReturnValue(await handler(c, result.input));
-      }) as TypedHandler<V, Exclude<Awaited<R>, Response>>;
+        return handler(c, result.input);
+      };
+      return setHandlerComposition(
+        async (c: CloudContext) => convertReturnValue(await leaf(c)),
+        [],
+        leaf,
+      ) as TypedHandler<V, Exclude<Awaited<R>, Response>>;
     };
   }
 }

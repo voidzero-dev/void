@@ -283,8 +283,18 @@ app.post('/*', async (context, next) => {
   }
 });
 
-// AI usage limit check — only applies to AI routes
+// Check the installation capability before spending quota or calling AI.
 app.post('/ai/*', async (context, next) => {
+  if (!proxyCapabilityEnabled(context.env.PLATFORM_CAPABILITIES, 'ai')) {
+    return context.json(
+      {
+        error: 'platform capability unavailable',
+        capability: 'ai',
+        message: 'This Void platform does not enable AI.',
+      },
+      501,
+    );
+  }
   if (await context.env.ROUTING.get(`ai-block:${context.get('projectId')}`, { cacheTtl: 60 })) {
     return usageLimitResponse({
       code: 'usage_limit',

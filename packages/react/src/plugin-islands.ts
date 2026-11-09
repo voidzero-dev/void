@@ -161,7 +161,7 @@ export function islandsPlugin(
               `var ${name} = function ${name}(props) {` +
                 ` return _React_island.createElement("div", {` +
                 ` "data-island": ${JSON.stringify(islandId)},` +
-                ` "data-props": JSON.stringify(props),` +
+                ` "data-props": _serializeIslandProps(props),` +
                 ` "data-hydrate": ${JSON.stringify(strategy)}` +
                 ` }, _React_island.createElement(${rawName}, props));` +
                 ` };`,
@@ -171,7 +171,8 @@ export function islandsPlugin(
           if (wrappers.length > 0) {
             // Prepend a React import for the wrapper functions
             return editIslandSource(code, edits, {
-              prepend: 'import _React_island from "react";\n',
+              prepend:
+                'import _React_island from "react";\nimport { serializePageData as _serializeIslandProps } from "void/pages-server";\n',
               append: '\n' + wrappers.join('\n'),
             });
           }

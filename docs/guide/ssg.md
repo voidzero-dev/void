@@ -19,6 +19,23 @@ When `output` is `"static"`:
 - Dynamic pages without `getPrerenderPaths()` are implicitly not prerendered (the paths aren't known at build time).
 - The build output is self-contained and works for direct Cloudflare deployment, self-hosting, or `void deploy`.
 
+## Trailing slashes and directory indexes
+
+For hosts such as GitHub Pages, enable trailing-slash Pages URLs and directory-style HTML output:
+
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  output: 'static',
+  routing: { trailingSlash: true },
+});
+```
+
+`/posts/` is written to `posts/index.html`, and `/posts/hello/` to `posts/hello/index.html`. Pages URLs without the slash redirect to their trailing-slash URL in development and when served by Void. Use trailing slashes in your page links; generated route types follow this setting. API routes keep their existing URLs.
+
+Omitting the option or setting it to `false` preserves the default `posts.html` output. Static builds keep `404.html` at the output root. On Cloudflare, use the default HTML handling or `force-trailing-slash`; `drop-trailing-slash` conflicts with this option. Third-party frameworks retain their own URL configuration.
+
 ## Per-page overrides
 
 Individual pages can opt out of prerendering:
@@ -34,7 +51,7 @@ Dynamic pages with `getPrerenderPaths()` are prerendered for the returned param 
 // pages/blog/[slug].server.ts
 import type { PageParams } from 'void/routes';
 
-export async function getPrerenderPaths(): Promise<PageParams<'/blog/:slug'>[]> {
+export async function getPrerenderPaths(): Promise<PageParams<'/blog/[slug]'>[]> {
   return [{ slug: 'hello-world' }, { slug: 'getting-started' }];
 }
 ```

@@ -241,6 +241,7 @@ export default extendConfig(
                   { text: 'Layouts & Shared Data', link: '/guide/pages-routing/layouts' },
                   { text: 'Loaders & Props', link: '/guide/pages-routing/loaders' },
                   { text: 'Actions & Forms', link: '/guide/pages-routing/actions-and-forms' },
+                  { text: 'Not Found & Errors', link: '/guide/pages-routing/errors' },
                   { text: 'View Transitions', link: '/guide/pages-routing/view-transitions' },
                   { text: 'Head Management', link: '/guide/pages-routing/head' },
                   { text: 'Islands', link: '/guide/pages-routing/islands' },

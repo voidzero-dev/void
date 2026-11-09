@@ -40,6 +40,7 @@ export default defineDurableState({
 import Counter from ${JSON.stringify(definition)};
 export const scheduled = async () => {};
 export const __voidCollectPrerenderPaths = async () => [];
+export const __voidRenderStaticNotFound = async () => new Response(null, { status: 204 });
 export const __voidHandleInternalRoute = async () => null;
 export const __withRawEnv = (_env, fn) => fn();
 export default { async fetch(request) {

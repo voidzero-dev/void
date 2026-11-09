@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join, dirname, basename, extname, toSlash } from 'pathslash';
 import { glob } from 'tinyglobby';
 import { parseSync } from 'vite';
+import { readConfig } from '../config.ts';
 import { voidWarn } from '../log.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
 import {
@@ -23,7 +24,12 @@ import {
 } from '../shared/ast.ts';
 import { ROUTE_EXTENSIONS, ROUTE_EXTENSIONS_SET } from '../shared/route-extensions.ts';
 import { deriveFromSource } from '../shared/source-analysis-cache.ts';
-import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
+import {
+  mayExportAll,
+  readStaticExports,
+  staticExports,
+  staticLiteral,
+} from '../shared/static-exports.ts';
 import { MARKDOWN_SCRIPT_RE, scriptBlocks } from './island-imports.ts';
 import { resolveNamedLayout } from './layout-resolution.ts';
 import { patternToRegex } from './manifest.ts';
@@ -35,6 +41,7 @@ import type {
   LayoutDefinition,
   NamedLayoutDefinition,
   PageScanResult,
+  PageBoundaryDefinition,
   SsrMode,
 } from './types.ts';
 
@@ -46,6 +53,23 @@ export const MAX_REVALIDATE = 31536000; // 1 year in seconds
 const warnedLayoutPaths = new Set<string>();
 /** Unreachable pages already reported, for the same reason. */
 const warnedShadowedPages = new Set<string>();
+/** Ignored page settings already reported, for the same reason. */
+const warnedPageSettings = new Set<string>();
+
+/**
+ * Page settings (layout, revalidate, prerender, ssr) are read from the source
+ * without running it. One the source does not show keeps its default, as
+ * before, with a warning: a hard error would break builds that already ship it.
+ */
+function warnPageSettings(pagesDir: string, warnings: ReadonlyArray<string>): void {
+  for (const warning of warnings) {
+    const key = `${pagesDir}\0${warning}`;
+    if (!warnedPageSettings.has(key)) {
+      warnedPageSettings.add(key);
+      voidWarn(warning);
+    }
+  }
+}
 
 type PageRenderingSource = {
   componentPath: string;
@@ -59,6 +83,7 @@ type PageRenderingSource = {
 };
 
 type PageScanOptions = {
+  trailingSlash?: boolean;
   output?: 'server' | 'static';
   paths?: ProjectPaths;
   pagesDir?: string;
@@ -81,27 +106,62 @@ type PageServerMetadata = {
   prerender?: ExplicitBoolean;
   ssr?: ExplicitBoolean;
   hasGetPrerenderPaths?: boolean;
+  /** Settings the scan ignores, reported once by scanPages. */
+  warnings: Array<string>;
 };
 
-function componentLayout(source: string, filename: string): string | false | undefined {
-  if (!source.includes('layout')) {
-    return undefined;
+type ComponentLayout = {
+  layout: string | false | undefined;
+  /** Layout exports the scan ignores, reported once by scanPages. */
+  warnings: Array<string>;
+};
+
+const LAYOUT_EXPORT: ReadonlySet<string> = new Set(['layout']);
+
+function mayExportLayout(source: string): boolean {
+  return source.includes('layout') || mayExportAll(source);
+}
+
+/** The first script block that declares a readable layout wins; warnings only apply when none does. */
+function componentLayout(source: string, filename: string): ComponentLayout {
+  if (!mayExportLayout(source)) {
+    return { layout: undefined, warnings: [] };
   }
+  let ignored: string | undefined;
+  let exportsAll = false;
   for (const script of scriptBlocks(source, filename)) {
-    if (!script.source.includes('layout')) {
+    if (!mayExportLayout(script.source)) {
       continue;
     }
-    const initializer = staticExportInitializers(
-      script.filename,
-      script.source,
-      new Set(['layout']),
-    ).get('layout');
+    const exports = readStaticExports(script.filename, script.source, LAYOUT_EXPORT);
+    const initializer = exports.initializers.get('layout');
     const value = staticLiteral(initializer);
     if (typeof value === 'string' || value === false) {
-      return value;
+      return { layout: value, warnings: [] };
+    }
+    // `export let layout` in a Svelte instance script declares a prop of that name.
+    if (script.instance) {
+      continue;
+    }
+    exportsAll ||= exports.exportsAll;
+    if (exports.unreadable.has('layout')) {
+      ignored ??= `pages: layout in '${filename}' is ignored. Declare it in that file as \`export const layout = '<name>'\`; re-exported layouts and other export forms are not read.`;
+    } else if (initializer) {
+      ignored ??= `pages: layout in '${filename}' is ignored. It must be a string literal or \`false\`, such as \`export const layout = 'landing'\`.`;
     }
   }
-  return undefined;
+  if (ignored) {
+    return { layout: undefined, warnings: [ignored] };
+  }
+  if (exportsAll) {
+    return {
+      layout: undefined,
+      warnings: [
+        `pages: '${filename}' uses \`export * from\`. Void does not read a layout export through it, so declare layout in that file with \`export const\`.`,
+      ],
+    };
+  }
+  return { layout: undefined, warnings: [] };
 }
 
 const TRANSPARENT_EXPRESSION_TYPES = new Set([
@@ -119,8 +179,58 @@ function readLiteral(node: AstNode | null | undefined): unknown {
   return isLiteral(node) ? node.value : undefined;
 }
 
+const PAGE_SETTINGS = ['revalidate', 'prerender', 'ssr'] as const;
+const PAGE_SETTING_SET: ReadonlySet<string> = new Set(PAGE_SETTINGS);
+const PAGE_SETTING_PLACEHOLDERS = {
+  revalidate: '<seconds>',
+  prerender: '<boolean>',
+  ssr: '<boolean>',
+} as const;
+
+/** Read revalidate, prerender and ssr from a page's server file, collecting warnings for values it cannot read. */
+function readPageSettings(
+  program: AstProgram,
+  filename: string,
+  metadata: PageServerMetadata,
+): void {
+  const settings = staticExports(program, PAGE_SETTING_SET);
+  for (const name of PAGE_SETTINGS) {
+    if (settings.unreadable.has(name)) {
+      metadata.warnings.push(
+        `pages: ${name} in '${filename}' is ignored. Declare it in that file as \`export const ${name} = ${PAGE_SETTING_PLACEHOLDERS[name]}\`; re-exported settings and other export forms are not read.`,
+      );
+      continue;
+    }
+    const initializer = settings.initializers.get(name);
+    if (!initializer) {
+      continue;
+    }
+    const value = readLiteral(initializer);
+    if (name === 'revalidate') {
+      if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
+        metadata.revalidate = value;
+      } else {
+        metadata.warnings.push(
+          `pages: revalidate in '${filename}' is ignored. It must be a nonnegative integer literal, such as \`export const revalidate = 3600\`.`,
+        );
+      }
+    } else if (typeof value === 'boolean') {
+      metadata[name] = value;
+    } else {
+      metadata.warnings.push(
+        `pages: ${name} in '${filename}' is ignored. It must be \`true\` or \`false\`.`,
+      );
+    }
+  }
+  if (settings.exportsAll) {
+    metadata.warnings.push(
+      `pages: '${filename}' uses \`export * from\`. Void does not see page exports through it, so export loader, action, actions and getPrerenderPaths by name, and declare revalidate, prerender and ssr in that file with \`export const\`.`,
+    );
+  }
+}
+
 function detectPageServerMetadata(source: string, filename: string): PageServerMetadata {
-  const metadata: PageServerMetadata = { methods: [] };
+  const metadata: PageServerMetadata = { methods: [], warnings: [] };
   let parsed: ReturnType<typeof parseSync>;
   try {
     parsed = parseSync(filename, source);
@@ -148,20 +258,6 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
             metadata.hasGetPrerenderPaths = true;
           }
         }
-        if (isIdentifier(variable.id) && variables.kind === 'const') {
-          const name = variable.id.name;
-          if (name === 'revalidate') {
-            const value = readLiteral(variable.init);
-            if (typeof value === 'number' && Number.isInteger(value) && value >= 0) {
-              metadata.revalidate = value;
-            }
-          } else if (name === 'prerender' || name === 'ssr') {
-            const value = readLiteral(variable.init);
-            if (typeof value === 'boolean') {
-              metadata[name] = value;
-            }
-          }
-        }
       }
     } else if (declaration?.type === 'FunctionDeclaration') {
       const functionName = (declaration as AstFunctionDeclaration).id;
@@ -185,6 +281,7 @@ function detectPageServerMetadata(source: string, filename: string): PageServerM
       }
     }
   }
+  readPageSettings(program, filename, metadata);
   return metadata;
 }
 
@@ -243,6 +340,7 @@ export function pageFileEnvironment(relativePath: string): RouteEnvironment | nu
 }
 
 export async function scanPages(root: string, options?: PageScanOptions): Promise<PageScanResult> {
+  const trailingSlash = options?.trailingSlash ?? readConfig(root).routing?.trailingSlash;
   const pagesDir = options?.pagesDir ?? options?.paths?.pagesDir ?? readProjectPaths(root).pagesDir;
   if (!existsSync(pagesDir)) {
     return { pages: [], layouts: [], namedLayouts: [] };
@@ -254,10 +352,54 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
   const pages: Array<PageDefinition> = [];
   const layouts: Array<LayoutDefinition> = [];
   const namedLayouts: Array<NamedLayoutDefinition> = [];
+  const boundaries: Array<PageBoundaryDefinition> = [];
 
   // Glob traversal order can vary between identical scans. Keep layout inventories stable too.
   for (const file of files.sort()) {
     const segments = file.split('/');
+    const boundary = /^_(error|not-found)(?:\.(dev|prod))?(\.island)?\.(tsx|jsx|vue|svelte)$/.exec(
+      segments.at(-1)!,
+    );
+    if (boundary && !segments.slice(0, -1).some((segment) => segment.startsWith('_'))) {
+      const env = boundary[2] as RouteEnvironment | undefined;
+      if (options?.environment && env && env !== options.environment) {
+        continue;
+      }
+      const base = file.slice(0, -extname(file).length);
+      if (
+        boundary[3] ||
+        ROUTE_EXTENSIONS.some((ext) => existsSync(join(pagesDir, `${base}.server.${ext}`))) ||
+        deriveFromSource(join(pagesDir, file), 'page-boundary-layout', (source) =>
+          scriptBlocks(source, file).some((script) =>
+            readStaticExports(script.filename, script.source, new Set(['layout'])).initializers.has(
+              'layout',
+            ),
+          ),
+        )
+      ) {
+        throw new Error(
+          `pages: Boundary '${file}' cannot be an island, select a layout, or have a .server companion.`,
+        );
+      }
+      const directory = segments.slice(0, -1).join('/');
+      for (const prior of boundaries) {
+        const priorEnv = /^_(?:error|not-found)\.(dev|prod)\./.exec(basename(prior.filePath))?.[1];
+        if (
+          prior.directory === directory &&
+          prior.kind === boundary[1] &&
+          (!env || !priorEnv || env === priorEnv)
+        ) {
+          throw new Error(`pages: Ambiguous boundary files '${prior.filePath}' and '${file}'.`);
+        }
+      }
+      boundaries.push({
+        kind: boundary[1] as PageBoundaryDefinition['kind'],
+        directory,
+        componentId: base,
+        filePath: file,
+      });
+      continue;
+    }
     // Skip files starting with _ in any segment (except _layouts/)
     if (segments.some((s) => s.startsWith('_') && s !== '_layouts')) {
       continue;
@@ -348,6 +490,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         prerender = metadata.prerender;
         ssr = metadata.ssr;
         hasGetPrerenderPaths = metadata.hasGetPrerenderPaths;
+        warnPageSettings(pagesDir, metadata.warnings);
         break;
       }
     }
@@ -383,13 +526,15 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         layout: extractFrontmatterLayout(source, matter),
       })));
     } else {
-      layout = deriveFromSource(join(pagesDir, file), 'page-layout', (source) =>
+      const component = deriveFromSource(join(pagesDir, file), 'page-layout', (source) =>
         componentLayout(source, file),
       );
+      layout = component.layout;
+      warnPageSettings(pagesDir, component.warnings);
     }
 
     pages.push({
-      pattern: route.pattern,
+      pattern: trailingSlash && route.pattern !== '/' ? `${route.pattern}/` : route.pattern,
       params: route.params,
       catchAll: route.catchAll,
       componentPath: file,
@@ -462,7 +607,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
     }
   }
 
-  return { pages, layouts, namedLayouts };
+  return { pages, layouts, namedLayouts, ...(boundaries.length ? { boundaries } : {}) };
 }
 
 function compareText(left: string, right: string): number {

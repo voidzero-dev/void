@@ -74,6 +74,7 @@ async function readiness(entry: string, env: Record<string, unknown>): Promise<R
     '__filterInternalBindings',
     '__voidHandleInternalRoute',
     '__voidCollectPrerenderPaths',
+    '__voidRenderStaticNotFound',
     `return (${source});`,
   )(
     createWorkerFetch,
@@ -84,6 +85,7 @@ async function readiness(entry: string, env: Record<string, unknown>): Promise<R
     (bindings: object) => bindings,
     async () => null,
     async () => [],
+    async () => new Response(null, { status: 204 }),
   ) as ReturnType<typeof createWorkerFetch>;
   return fetch(
     new Request('https://app.test/__void/ready', {

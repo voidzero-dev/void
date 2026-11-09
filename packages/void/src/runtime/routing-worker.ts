@@ -188,6 +188,7 @@ export type WorkerFetchOptions = {
     env: RuntimeEnvironment,
     ctx: ExecutionContext,
   ) => Promise<Array<string>>;
+  staticNotFound?: (request: Request, env: RuntimeEnvironment) => Promise<Response>;
   emailReceipt?: (
     request: Request,
     env: RuntimeEnvironment,
@@ -231,7 +232,11 @@ export function createWorkerFetch(
       request.method === 'POST' &&
       url.pathname === '/__void/prerender-paths' &&
       originalEnv.__VOID_PRERENDER === '1';
-    if (options.validateEnv && !discovery) {
+    const staticNotFound =
+      request.method === 'GET' &&
+      url.pathname === '/__void/static-not-found' &&
+      originalEnv.__VOID_PRERENDER === '1';
+    if (options.validateEnv && !discovery && !staticNotFound) {
       await options.validateEnv(originalEnv);
     }
     const env =
@@ -257,6 +262,11 @@ export function createWorkerFetch(
               ? { headers: { 'cache-control': 'no-store' } }
               : undefined,
           );
+        }
+        if (staticNotFound) {
+          return options.staticNotFound
+            ? options.staticNotFound(request, env)
+            : new Response(null, { status: 204 });
         }
         const internal = await options.internalRoute(request, env, ctx);
         if (internal) {

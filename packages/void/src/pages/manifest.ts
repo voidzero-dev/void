@@ -1,4 +1,5 @@
 import { routeSegmentKind } from '../router/route-order.ts';
+import { createBoundaryManifest } from './boundary-plans.ts';
 import { resolveLayoutIds, toLayoutId } from './layout-resolution.ts';
 import type { PageScanResult } from './types.ts';
 
@@ -81,6 +82,15 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
       `components[${JSON.stringify(layoutKey(toLayoutId(layout)))}] = ${load(layout.filePath)};`,
     );
   }
+  for (const boundary of scan.boundaries ?? []) {
+    lines.push(`components[${JSON.stringify(boundary.componentId)}] = ${load(boundary.filePath)};`);
+  }
+  const boundaryManifest = createBoundaryManifest(scan);
+  lines.push(`const boundaryManifest = ${JSON.stringify(boundaryManifest)};`);
+  for (const plan of Object.values(boundaryManifest.plans)) {
+    lines.push(`components[${JSON.stringify(plan.id)}] = ${load(plan.filePath)};`);
+    lines.push(`layoutTree[${JSON.stringify(plan.id)}] = ${JSON.stringify(plan.layouts)};`);
+  }
 
   // Sparse route metadata: only flags that differ from the defaults.
   lines.push('const routeMeta = {');
@@ -97,6 +107,9 @@ for (const [pattern, id, load, chain] of __voidDynamicRoutes) {
     }
   }
   lines.push('};');
+  for (const plan of Object.values(boundaryManifest.plans)) {
+    lines.push(`routeMeta[${JSON.stringify(plan.id)}] = { boundary: true };`);
+  }
 
   lines.push(`function matchRoute(path) {
   const id = __voidStaticRouteIds.get(path);
@@ -131,7 +144,9 @@ function isStaticPattern(pattern: string): boolean {
 
 /** The RegExp literal a page pattern matches with, the same on the client and the server. */
 export function patternToRegex(pattern: string): string {
-  const regexSource = pattern
+  // An empty anonymous catch-all uses the prefix's slash as its final separator.
+  const trailingWildcard = pattern.endsWith('/*/');
+  const regexSource = (trailingWildcard ? pattern.slice(0, -2) : pattern)
     .split('/')
     .map((segment) => {
       const group = captureGroup(segment);
@@ -145,5 +160,5 @@ export function patternToRegex(pattern: string): string {
       return literal;
     })
     .join('\\/');
-  return `/^${regexSource}$/`;
+  return `/^${regexSource}${trailingWildcard ? '(?:(.*)\\/)?' : ''}$/`;
 }

@@ -5,8 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { readConfig } from '../../src/config.ts';
+import { decodePageData } from '../../src/pages/serialize.ts';
 import { compileRouteTable, compileWorkerEntry } from '../../src/router/compile.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
@@ -297,9 +299,9 @@ renderPage.preambleScript = ${JSON.stringify(preambleScript)};`;
       expect(clientOnlyHtml).toContain('data-void-ssr="false"');
       expect(clientOnlyHtml.includes('window.__fixturePreamble = true')).toBe(dev);
       const protocol = await runtime.dispatchFetch('https://app.test/', {
-        headers: { 'x-voidpages': 'true' },
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       });
-      expect(((await protocol.json()) as { props: unknown }).props).toEqual({
+      expect((decodePageData(await protocol.json()) as { props: unknown }).props).toEqual({
         title: 'real page loader',
       });
       expect(

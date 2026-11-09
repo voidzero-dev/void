@@ -2228,6 +2228,103 @@ const PROVISIONED_D1 = {
   ],
 };
 
+describe('native deployment migration opt-out', () => {
+  it('keeps migration validation before upload when SQL execution is skipped', async () => {
+    const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+    const { deps, wranglerArgs } = harness({
+      assertMigrationsDeployable: () => {
+        throw new Error('invalid journal');
+      },
+    });
+    await expect(
+      runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      ),
+    ).rejects.toBeInstanceOf(ExitError);
+    expect(wranglerArgs.some((args) => args[0] === 'deploy' || args[0] === 'd1')).toBe(false);
+  });
+
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'skips %s SQL, preserves validation, and leaves pending files for the next deploy',
+    async (dialect) => {
+      vi.stubEnv('DATABASE_URL', 'postgresql://prod.example/app');
+      const root = d1Project(
+        dialect === 'sqlite'
+          ? PROVISIONED_D1
+          : {
+              account_id: 'acc123',
+              name: 'myapp',
+              hyperdrive: [{ binding: 'HYPERDRIVE', id: REAL_KV_ID }],
+            },
+        {
+          ...INIT_MIGRATION,
+          'void.json': JSON.stringify(
+            dialect === 'sqlite' ? {} : { database: dialect === 'mysql' ? 'mysql' : 'pg' },
+          ),
+        },
+      );
+      const apply = vi.fn(async () => ['0000_init.sql']);
+      const { deps, trace, wranglerArgs } = harness({
+        applyPostgresMigrations: apply,
+        applyMySqlMigrations: apply,
+      });
+      const activate = vi.fn(deps.activateVersion!);
+      deps.activateVersion = activate;
+      await runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      );
+      expect(apply).not.toHaveBeenCalled();
+      expect(wranglerArgs.some((a) => a[0] === 'd1')).toBe(false);
+      expect(trace).toContain('migrate-gate');
+      expect(parseCloudflareVersionMessage(activate.mock.calls[0][0].message)).toMatchObject({
+        migrations: null,
+      });
+      expect(readFileSync(join(root, 'db/migrations/0000_init.sql'), 'utf8')).toContain(
+        'CREATE TABLE',
+      );
+
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+      if (dialect === 'sqlite') {
+        expect(wranglerArgs.some((a) => a[0] === 'd1' && a[2] === 'apply')).toBe(true);
+      } else {
+        expect(apply).toHaveBeenCalledOnce();
+      }
+      expect(parseCloudflareVersionMessage(activate.mock.calls[1][0].message)).toMatchObject({
+        migrations: ['0000_init.sql'],
+      });
+    },
+  );
+
+  it.each(['pg', 'mysql'] as const)(
+    'does not require DATABASE_URL to skip %s migrations',
+    async (database) => {
+      vi.stubEnv('DATABASE_URL', undefined);
+      const root = d1Project(
+        {
+          account_id: 'acc123',
+          name: 'myapp',
+          hyperdrive: [{ binding: 'HYPERDRIVE', id: REAL_KV_ID }],
+        },
+        { ...INIT_MIGRATION, 'void.json': JSON.stringify({ database }) },
+      );
+      const { deps, trace } = harness();
+      await runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      );
+      expect(trace).toContain('wrangler:deploy');
+    },
+  );
+});
+
 /**
  * The non-id bindings a real Class-A build emits into `dist/ssr/wrangler.json` (see
  * `playground/kitchen-sink/dist/ssr/wrangler.json`): `ai`, `queues`, `durable_objects`,

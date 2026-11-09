@@ -62,6 +62,16 @@ export function findLegacyEnvFiles(root: string): Array<string> {
 }
 
 /**
+ * Sentence to append to a legacy-file error when `.env.example` is among the
+ * files, since it is usually added out of habit to document expected keys.
+ */
+export function legacyEnvExampleHint(legacyFiles: ReadonlyArray<string>): string {
+  return legacyFiles.includes('.env.example')
+    ? ' env.ts lists the keys this app expects, so .env.example is not needed.'
+    : '';
+}
+
+/**
  * Resolve whether the plugin should run in "remote" mode (proxy real
  * D1/KV/R2 via the platform) based on the project config plus an optional
  * `VOID_REMOTE` env override.

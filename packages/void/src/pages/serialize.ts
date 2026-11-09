@@ -1,13 +1,38 @@
+import { stringify, unflatten } from 'devalue';
 import { escapeScriptJson } from './script-json.ts';
 
 /**
- * Escape JSON for embedding inside an inline `<script type="application/json">`
- * tag. Replaces `<`, `>`, `&`, U+2028, U+2029 with their `\uXXXX` JSON escape
- * sequences so the script tag cannot be closed early and the payload survives
- * `JSON.parse` on hydration.
+ * Serialize Pages data without losing supported JavaScript values. The envelope
+ * keeps deferred metadata visible to existing ISR caches, which must not cache
+ * an initial payload whose deferred groups still need to stream.
  */
 export function serializePageData(pageObj: unknown): string {
-  return escapeScriptJson(JSON.stringify(pageObj));
+  const { deferred, deferredKeys } = (pageObj ?? {}) as {
+    deferred?: unknown;
+    deferredKeys?: unknown;
+  };
+  const pending = deferred !== undefined || deferredKeys !== undefined;
+  return escapeScriptJson(
+    `{"__void":"devalue","data":${stringify(pageObj)}${pending ? ',"deferred":true' : ''}}`,
+  );
+}
+
+/** Decode a parsed Pages payload, also accepting cached pre-devalue JSON. */
+export function decodePageData<T = unknown>(value: unknown): T {
+  if (
+    value &&
+    typeof value === 'object' &&
+    '__void' in value &&
+    value.__void === 'devalue' &&
+    'data' in value
+  ) {
+    return unflatten(value.data as Array<unknown> | number) as T;
+  }
+  return value as T;
+}
+
+export function deserializePageData<T = unknown>(text: string): T {
+  return decodePageData<T>(JSON.parse(text));
 }
 
 /** Element id of the Markdown page frontmatter that islands read when they hydrate. */

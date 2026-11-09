@@ -95,7 +95,10 @@ function hasNonIslandPages(dir: string): boolean {
         continue;
       }
       const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.')) {
+      if (
+        (name.startsWith('_') && !/^_not-found(?:\.(?:dev|prod))?\./.test(name)) ||
+        name.startsWith('layout.')
+      ) {
         continue;
       }
       if (name.endsWith('.vue') && !name.includes('.island.')) {
@@ -231,7 +234,10 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
     }
   });
 
+  let renderFailure;
+  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
   const html = await renderToString(app);
+  if (renderFailure) throw renderFailure.error;
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -241,7 +247,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 <html\${htmlAttrs}>
 <head>\${headHtml}\${assetTags.css}\${assetTags.preloads}</head>
 <body\${bodyAttrs}>
-  <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
+  \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
   \${assetTags.body}
 </body>
@@ -262,7 +268,8 @@ function generateClientEntry(
 import { createApp, createSSRApp, h, reactive, provide, shallowRef, nextTick, ref } from "vue";
 import { createDeferred, resolveDeferred, rejectDeferred } from "@void/vue/deferred";
 import { setActionRouter } from "@void/vue";
-import { createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
+import { PageErrorBoundary } from "@void/vue/pages-boundary";
+import { pageBoundarySlots, showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -273,6 +280,8 @@ const currentComponent = shallowRef(null);
 const currentLayouts = shallowRef([]);
 const currentProps = shallowRef({});
 const currentPageKey = ref(0);
+const boundaryGeneration = ref(0);
+let currentPageId = "";
 const routeUrl = ref(window.location.pathname + window.location.search + window.location.hash);
 const navigation = reactive(idleNavigationState());
 
@@ -291,6 +300,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       rejectDeferred(ref, error) { rejectDeferred(ref, error); return ref; },
       isLoading: (ref) => ref.loading,
       applyUpdate(pageData, comp, layouts, options) {
+        currentPageId = pageData.component;
+        boundaryGeneration.value++;
         if (!options?.preserveState) currentPageKey.value++;
         replaceRecord(shared, pageData.shared || {});
         replaceRecord(params, pageData.params || {});
@@ -300,7 +311,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         return nextTick();
       },
     },
-    components, layoutTree, routeMeta, matchRoute,
+    components, layoutTree, routeMeta, matchRoute, boundaryManifest, dev: import.meta.env.DEV,
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
@@ -315,7 +326,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       navigation.location = next.location;
       navigation.method = next.method;
     },
-  });
+  }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
 const reactiveRouter = createRouterFacade(router, () => routeUrl.value, () => params);
 
@@ -323,6 +334,7 @@ setActionRouter(reactiveRouter);
 
 Object.assign(shared, initialPageData.shared || {});
 replaceRecord(params, initialPageData.params || {});
+currentPageId = initialPageData.component;
 currentProps.value = initialPageData.props;
 currentComponent.value = initialComponent;
 currentLayouts.value = initialLayouts;
@@ -340,15 +352,18 @@ const app = createVoidApp({
     return () => {
       if (!currentComponent.value) return null;
       patchProps(currentComponent.value, currentProps.value);
+      const boundaries = pageBoundarySlots(boundaryManifest, currentPageId, components);
+      const wrap = (node, depth) => boundaries.filter(b => b.depth === depth).reduce((child, boundary) => h(PageErrorBoundary, { boundary, generation: boundaryGeneration.value, dev: import.meta.env.DEV, onFailure: () => router.flush(routeUrl.value) }, { default: () => child }), node);
       let vnode = h(currentComponent.value, { ...currentProps.value, key: currentPageKey.value });
       for (let i = currentLayouts.value.length - 1; i >= 0; i--) {
-        const inner = vnode;
+        const inner = wrap(vnode, i + 1);
         vnode = h(currentLayouts.value[i], null, { default: () => inner });
       }
-      return vnode;
+      return wrap(vnode, 0);
     };
   }
 });
+if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = () => showTerminalPageError(routeUrl.value);
 
 app.mount(appEl);
 appEl.setAttribute("data-hydrated", "true");

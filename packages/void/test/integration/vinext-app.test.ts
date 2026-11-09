@@ -1,4 +1,4 @@
-import { readFileSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
@@ -73,11 +73,38 @@ describe('playground/vinext-app build', () => {
     }
   });
 
-  it.each([['voidPlugin(), vinext()'], ['vinext(), voidPlugin()']])(
-    'builds the Void worker entry with plugins [%s]',
-    async (order) => {
-      const playground = createIsolatedPlayground(ROOT, PLAYGROUND);
+  it.each([
+    { fixture: PLAYGROUND, order: 'voidPlugin(), vinext()', middleware: true },
+    { fixture: PLAYGROUND, order: 'vinext(), voidPlugin()', middleware: false },
+    { fixture: 'playground/vinext-pages', order: 'voidPlugin(), vinext()', middleware: true },
+    { fixture: 'playground/vinext-pages', order: 'vinext(), voidPlugin()', middleware: false },
+  ])(
+    'builds $fixture with plugins [$order] (middleware: $middleware)',
+    async ({ fixture, order, middleware }) => {
+      const playground = createIsolatedPlayground(ROOT, fixture);
       playgrounds.push(playground);
+      mkdirSync(join(playground.root, 'public/reports'), { recursive: true });
+      for (const name of ['allowed', 'hidden', 'forbidden', 'redirect']) {
+        writeFileSync(join(playground.root, `public/reports/${name}.txt`), 'private report');
+      }
+      if (middleware) {
+        writeFileSync(
+          join(playground.root, 'middleware.ts'),
+          `
+import { NextResponse } from 'next/server';
+export function middleware(request: Request) {
+  const path = new URL(request.url).pathname;
+  if (path.endsWith('/hidden.txt')) return new Response('Hidden', { status: 404 });
+  if (path.endsWith('/forbidden.txt')) return new Response('Forbidden', { status: 403 });
+  if (path.endsWith('/redirect.txt')) return NextResponse.redirect(new URL('/login', request.url));
+  const response = NextResponse.next();
+  response.headers.set('X-Middleware', 'ran');
+  return response;
+}
+export const config = { matcher: ['/reports/:path*'] };
+`,
+        );
+      }
       writeFileSync(
         join(playground.root, 'vite.config.ts'),
         `import vinext from 'vinext';
@@ -107,8 +134,14 @@ export default defineConfig({
 
       // A worker whose entry is vinext's bare RSC handler (a function default
       // export) never reaches Void's wrapper and cannot serve requests.
-      const serverDir = join(playground.root, 'dist', 'server');
+      const serverDir = join(playground.root, 'dist', fixture === PLAYGROUND ? 'server' : 'ssr');
       const config = JSON.parse(readFileSync(join(serverDir, 'wrangler.json'), 'utf8'));
+      if (middleware) {
+        expect(config.assets.binding).toBe('ASSETS');
+        expect(config.assets.run_worker_first).toEqual(['/*']);
+      } else {
+        expect(config.assets.run_worker_first).toBeUndefined();
+      }
       const files = collectWorkerFiles(serverDir);
       const modulePaths = [
         config.main,
@@ -128,12 +161,43 @@ export default defineConfig({
           modulesRoot: serverDir,
           d1Databases: ['DB'],
           kvNamespaces: ['KV'],
+          assets: {
+            directory: join(playground.root, 'dist/client'),
+            binding: config.assets.binding,
+            run_worker_first: config.assets.run_worker_first,
+            routerConfig: { has_user_worker: true },
+            assetConfig: { not_found_handling: 'none' },
+          },
         }),
       );
       const response = await runtime.dispatchFetch('http://localhost/');
       const html = await response.text();
       expect(response.status, html.slice(0, 500)).toBe(200);
-      expect(html).toContain('vinext App Router + Void');
+      expect(html).toContain(
+        fixture === PLAYGROUND ? 'vinext App Router + Void' : 'vinext Pages Router + Void',
+      );
+      for (const method of ['GET', 'HEAD']) {
+        for (const [name, status] of [
+          ['hidden', 404],
+          ['forbidden', 403],
+          ['redirect', 307],
+        ] as const) {
+          const denied = await runtime.dispatchFetch(`http://localhost/reports/${name}.txt`, {
+            method,
+            redirect: 'manual',
+          });
+          expect(denied.status, `${method} ${name}`).toBe(middleware ? status : 200);
+          if (middleware) {
+            expect(await denied.text()).not.toContain('private report');
+          }
+        }
+        const allowed = await runtime.dispatchFetch('http://localhost/reports/allowed.txt', {
+          method,
+        });
+        expect(allowed.status).toBe(200);
+        expect(allowed.headers.get('X-Middleware')).toBe(middleware ? 'ran' : null);
+        expect(await allowed.text()).toBe(method === 'HEAD' ? '' : 'private report');
+      }
     },
     180_000,
   );

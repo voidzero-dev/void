@@ -1,6 +1,17 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
 
+describe('migration execution mode', () => {
+  it.each(['apply', 'skip', undefined])('accepts %s', (migrationMode) => {
+    expect(validateManifestShape({ version: 3, bindings: {}, migrationMode })).toBeNull();
+  });
+  it.each([true, null, 'disabled', {}])('rejects %s', (migrationMode) => {
+    expect(validateManifestShape({ version: 3, bindings: {}, migrationMode })).toContain(
+      'migrationMode must be apply or skip',
+    );
+  });
+});
+
 describe('alwaysUseHttps', () => {
   it.each([true, false, undefined])('accepts %s', (alwaysUseHttps) => {
     expect(validateManifestShape({ version: 3, bindings: {}, alwaysUseHttps })).toBeNull();

@@ -1,8 +1,10 @@
 import { existsSync } from 'node:fs';
+import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { pathToFileURL } from 'node:url';
-import { dirname, join, relative } from 'pathslash';
-import type { Plugin } from 'vite';
+import mime from 'mime';
+import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
+import { isFileServingAllowed, type Plugin } from 'vite';
 import { findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 
@@ -29,6 +31,7 @@ type NodeTarget = 'node' | 'bun' | 'deno';
  */
 function honoMiddleware(
   getApp: () => Promise<{ fetch: (req: Request) => Promise<Response> } | null>,
+  isViteFile?: (request: Request) => Promise<boolean>,
 ) {
   return async (req: IncomingMessage, res: ServerResponse, next: (err?: unknown) => void) => {
     try {
@@ -69,9 +72,14 @@ function honoMiddleware(
 
       const response = await app.fetch(request);
 
-      // If Hono returned 404 (no matching route), fall through to Vite
-      // so static assets and dev-time resources are served normally.
-      if (response.status === 404) {
+      // Preserve rendered not-found pages and Pages navigation payloads. Unhandled
+      // requests still fall through so Vite can serve assets and dev resources.
+      if (
+        response.status === 404 &&
+        ((await isViteFile?.(request)) ||
+          (!response.headers.get('content-type')?.includes('text/html') &&
+            !response.headers.has('X-VoidPages')))
+      ) {
         next();
         return;
       }
@@ -114,7 +122,10 @@ function honoMiddleware(
  * 4. Build — dual-environment build (client + SSR) for pages apps,
  *    single SSR build for API-only apps
  */
-export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
+export function nodeTargetPlugin(
+  target: NodeTarget,
+  options: { trailingSlash?: boolean } = {},
+): Array<Plugin> {
   const unavailable = (id: string, root: string, importer: string | undefined) => {
     // The import can come from an installed package, so name the file.
     const source = importer ? ` Imported by ${relative(root, importer)}.` : '';
@@ -214,15 +225,63 @@ export function nodeTargetPlugin(target: NodeTarget): Array<Plugin> {
     },
 
     configureServer(server) {
+      // The Pages fallback needs the same public-file lookup as production before
+      // deciding whether a URL belongs to a dynamic page.
+      const assets = {
+        async fetch(request: Request): Promise<Response> {
+          try {
+            const root = server.config.publicDir;
+            if (!root) {
+              return new Response(null, { status: 404 });
+            }
+            const pathname = new URL(request.url).pathname;
+            let file = resolve(root, '.' + decodeURIComponent(pathname));
+            const rel = relative(root, file);
+            if (rel === '..' || rel.startsWith('../') || isAbsolute(rel)) {
+              return new Response(null, { status: 404 });
+            }
+            let entry = await stat(file);
+            if (pathname.endsWith('/') && !entry.isDirectory()) {
+              return new Response(null, { status: 404 });
+            }
+            if (entry.isDirectory()) {
+              file = join(file, 'index.html');
+              entry = await stat(file);
+            }
+            if (!entry.isFile() || !isFileServingAllowed(server.config, file)) {
+              return new Response(null, { status: 404 });
+            }
+            return new Response(
+              request.method === 'HEAD' ? null : new Uint8Array(await readFile(file)),
+              {
+                headers: { 'Content-Type': mime.getType(file) ?? 'application/octet-stream' },
+              },
+            );
+          } catch {
+            return new Response(null, { status: 404 });
+          }
+        },
+      };
       // Middleware runs BEFORE Vite's built-in middleware so API routes
       // and SSR pages are handled before Vite's SPA fallback sends a 404.
       // The honoMiddleware helper skips /@, /__, and /node_modules/ paths
       // so Vite's HMR and module serving still work normally.
       server.middlewares.use(
-        honoMiddleware(async () => {
-          const mod = await server.ssrLoadModule('virtual:void-routes');
-          return mod.default;
-        }),
+        honoMiddleware(
+          async () => {
+            const mod = await server.ssrLoadModule('virtual:void-routes');
+            return { fetch: (request: Request) => mod.default.fetch(request, { ASSETS: assets }) };
+          },
+          async (request) => {
+            try {
+              const pathname = decodeURIComponent(new URL(request.url).pathname);
+              const file = resolve(server.config.root, '.' + pathname);
+              return isFileServingAllowed(server.config, file) && (await stat(file)).isFile();
+            } catch {
+              return false;
+            }
+          },
+        ),
       );
     },
 

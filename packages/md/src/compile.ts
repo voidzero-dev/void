@@ -8,7 +8,6 @@ import {
 } from '@shikijs/transformers';
 import MarkdownExit from 'markdown-exit';
 import type { RuleCore, Token } from 'markdown-exit';
-import anchor from 'markdown-it-anchor';
 import attrs from 'markdown-it-attrs';
 import { full as emoji } from 'markdown-it-emoji';
 import footnote from 'markdown-it-footnote';
@@ -16,6 +15,7 @@ import { createHighlighter, bundledLanguages, isSpecialLang, type BundledLanguag
 import { extractHeadings, parseFrontmatter } from './metadata.ts';
 import { containerPlugin } from './plugins/containers.ts';
 import { gitHubAlertsPlugin } from './plugins/github-alerts.ts';
+import { headingAnchorPlugin } from './plugins/heading-anchor.ts';
 import { imagePlugin } from './plugins/image.ts';
 import { lineNumberPlugin } from './plugins/line-numbers.ts';
 import { linkPlugin } from './plugins/link.ts';
@@ -128,9 +128,7 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   // heading-anchor targets.
   markdown.use(footnote);
 
-  markdown.use(anchor, {
-    permalink: anchor.permalink.ariaHidden({ placement: 'before' }),
-  });
+  markdown.use(headingAnchorPlugin);
 
   markdown.use(tocPlugin);
 

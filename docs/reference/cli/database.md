@@ -130,6 +130,8 @@ The command saves `DATABASE_URL` in `.env`. When authenticated with a linked Voi
 
 Provider-created credentials are never printed. For direct Cloudflare deploys, configure the same URL as a protected `DATABASE_URL` in the shell or CI environment that runs deploy.
 
+For an existing PostgreSQL database migrated by Drizzle, [adopt its applied migration history](../../guide/database.md#adopt-existing-drizzle) before the first Void deployment.
+
 ## `void db set-url` {#void-db-set-url}
 
 Update the PostgreSQL or MySQL connection string for deployment. Available for projects with `"database": "pg"` or `"database": "mysql"`.

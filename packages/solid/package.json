@@ -1,6 +1,6 @@
 {
   "name": "@void/solid",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "SolidJS pages, server rendering, forms, and navigation for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -25,6 +25,10 @@
     "./plugin": {
       "types": "./dist/plugin.d.mts",
       "import": "./dist/plugin.mjs"
+    },
+    "./pages-boundary": {
+      "types": "./dist/runtime/PageErrorBoundary.d.mts",
+      "import": "./dist/runtime/PageErrorBoundary.mjs"
     }
   },
   "publishConfig": {

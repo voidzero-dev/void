@@ -36,7 +36,7 @@ function readCliVersion(): string | null {
 const VOID_CLI_VERSION = readCliVersion();
 
 /** The oldest Void platform release this CLI supports. */
-export const MIN_PLATFORM_VERSION = '1.6.0';
+export const MIN_PLATFORM_VERSION = '1.7.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -717,6 +717,24 @@ export class PlatformClient {
       probe = await this.probePlatformVersion();
     }
     return probe.kind === 'version' && probe.directWorkerUpload;
+  }
+
+  /** Older servers otherwise ignore the execution mode and apply SQL anyway. */
+  async requireMigrationSkipSupport(): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/capabilities`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      await throwPlatformApiError('Failed to check migration capabilities', response, 'deploy');
+    }
+    const capabilities = response.ok
+      ? ((await response.json()) as { skipMigrations?: unknown })
+      : null;
+    if (capabilities?.skipMigrations !== true) {
+      throw new Error(
+        'deploy: This Void platform does not support --skip-migrations. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+    }
   }
 
   /** Reads the platform version from public discovery, without credentials. */

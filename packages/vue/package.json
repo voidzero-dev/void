@@ -1,6 +1,6 @@
 {
   "name": "@void/vue",
-  "version": "1.6.2",
+  "version": "1.7.0",
   "description": "Vue pages, server rendering, forms, and navigation for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -28,6 +28,10 @@
     "./deferred": {
       "types": "./dist/runtime/use-deferred.d.mts",
       "import": "./dist/runtime/use-deferred.mjs"
+    },
+    "./pages-boundary": {
+      "types": "./dist/runtime/PageErrorBoundary.d.mts",
+      "import": "./dist/runtime/PageErrorBoundary.mjs"
     }
   },
   "publishConfig": {
@@ -47,7 +51,7 @@
     "vite": "catalog:",
     "vite-plus": "catalog:",
     "void": "workspace:*",
-    "vue": "^3.5.44"
+    "vue": "catalog:"
   },
   "peerDependencies": {
     "vite": "^8.0.0",

@@ -415,6 +415,14 @@ export default defineConfig({
   resolve: { alias: platformAlias },
   test: {
     fsModuleCache: true,
+    // Reuse Node's compiled JS/TypeScript across real subprocesses and forks.
+    // Vitest disables it for V8 coverage; also honor standalone Node coverage.
+    env: {
+      NODE_COMPILE_CACHE:
+        process.env.NODE_COMPILE_CACHE ??
+        fileURLToPath(new URL('./node_modules/.cache/node-compile', import.meta.url)),
+      ...(process.env.NODE_V8_COVERAGE ? { NODE_DISABLE_COMPILE_CACHE: '1' } : {}),
+    },
     silent: 'passed-only',
     sequence: { sequencer: SuiteSequencer },
     // Node 24 bundles undici 7. Its fetch() calls socket.setTypeOfService() on each new
@@ -531,6 +539,7 @@ export default defineConfig({
           // schedule the longest files first and fill idle slots across package boundaries.
           name: 'parallel-integration',
           fsModuleCache: true,
+          pool: 'forks',
           // Bound simultaneous database engines and framework compilers locally.
           // Unit tests still fill unused integration workers in the same phase.
           sequence: { groupOrder: 2 },

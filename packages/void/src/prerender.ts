@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { dirname, join, relative } from 'pathslash';
 import pc from 'picocolors';
 import { getApiUrl, getProxyUrl, getToken } from './cli/auth.ts';
@@ -12,6 +13,7 @@ import {
   outputFileForPath,
   readPrerenderPathsResponse,
   renderPrerenderPaths,
+  renderBoundary404,
   type PrerenderResult,
 } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
@@ -297,7 +299,12 @@ async function createCloudflarePrerenderRunner(options: {
     },
     async fetchPageData(path: string): Promise<Response> {
       return mf.dispatchFetch(`http://localhost${path}`, {
-        headers: { Accept: 'application/json', Purpose: 'prefetch', 'X-VoidPages': 'true' },
+        headers: {
+          Accept: 'application/json',
+          Purpose: 'prefetch',
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        },
       });
     },
     async close() {
@@ -350,6 +357,9 @@ export async function prerenderPages(options: {
   try {
     const paths = await runner.collectPaths();
     if (paths.length === 0) {
+      await renderBoundary404(options.clientDir, () =>
+        runner.fetchPath('/__void/static-not-found'),
+      );
       return { paths, rendered: [], failed: [] };
     }
 
@@ -366,6 +376,7 @@ export async function prerenderPages(options: {
         }
       },
     );
+    await renderBoundary404(options.clientDir, () => runner.fetchPath('/__void/static-not-found'));
     ensureStatic404(options.clientDir);
     return { paths, ...result };
   } finally {
@@ -385,7 +396,7 @@ async function runNodePrerenderRunner<T>(root: string, config: NodeRunnerConfig)
     `
 import { pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
-import { readPrerenderPathsResponse, renderPrerenderPaths } from ${JSON.stringify(nodeRendererUrl)};
+import { readPrerenderPathsResponse, renderPrerenderPaths, renderBoundary404 } from ${JSON.stringify(nodeRendererUrl)};
 
 const config = JSON.parse(process.argv[2]);
 const { mode, ssrDir, clientDir } = config;
@@ -415,7 +426,7 @@ async function renderPaths(paths) {
     paths, clientDir,
     (path) => fetch(new Request("http://localhost" + path)),
     (path) => fetch(new Request("http://localhost" + path, {
-      headers: { "Accept": "application/json", "Purpose": "prefetch", "X-VoidPages": "true" },
+      headers: { "Accept": "application/json", "Purpose": "prefetch", "X-VoidPages": "true", "X-VoidPages-Version": ${JSON.stringify(PAGES_PROTOCOL_VERSION)} },
     })),
     undefined,
     "node",
@@ -427,6 +438,7 @@ if (mode === "collect") {
 } else {
   const paths = await collectPaths();
   const result = await renderPaths(paths);
+  if (clientDir) await renderBoundary404(clientDir, () => fetch(new Request("http://localhost/__void/static-not-found"), { __VOID_PRERENDER: "1" }));
   process.stdout.write(JSON.stringify({ paths, ...result }));
 }
 `,

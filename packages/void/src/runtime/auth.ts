@@ -33,6 +33,13 @@ export type InferAuthSession<T> = [unknown] extends [T]
 export type AuthUser = VoidAuthTypes extends { user: infer U } ? U : User;
 export type AuthSession = VoidAuthTypes extends { session: infer S } ? S : Session;
 
+/** Better Auth's instance, including plugins configured by the app. */
+export type InferAuthInstance<T> = [unknown] extends [T]
+  ? Auth<BetterAuthOptions>
+  : Auth<Extract<T extends (...args: Array<never>) => infer R ? R : T, BetterAuthOptions>>;
+
+export type AuthInstance = VoidAuthTypes extends { auth: infer A } ? A : Auth<BetterAuthOptions>;
+
 export type AuthState = {
   session: AuthSession;
   user: AuthUser;
@@ -79,6 +86,17 @@ export function getUser(): AuthUser | null {
 
 export function getSession(): AuthState | null {
   return authContext.getStore()?.state ?? null;
+}
+
+/** Returns the instance created by Void's auth middleware for this request. */
+export function getAuth(c: Context): AuthInstance {
+  const auth = c.get('__voidAuth') as AuthInstance | undefined;
+  if (!auth) {
+    throw new Error(
+      'Better Auth is not available for this request. Enable auth in void.config.ts.',
+    );
+  }
+  return auth;
 }
 
 export function requireAuth<E extends Env & { Variables: { user: AuthUser | null } }>(

@@ -135,7 +135,7 @@ export async function renderReactPage({
 <html${htmlAttrs}>
 <head>${headHtml}${preambleScript}${assetTags.css}${assetTags.preloads}</head>
 <body${bodyAttrs}>
-  <script id="__VOID_PAGE_DATA__" type="application/json">${pageData}</script>
+  ${pageObj.documentOnly ? '' : `<script id="__VOID_PAGE_DATA__" type="application/json">${pageData}</script>`}
   <div id="app">`),
     renderedAppStream,
     textStream(`</div>

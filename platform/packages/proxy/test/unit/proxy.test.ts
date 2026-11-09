@@ -1399,6 +1399,94 @@ describe('proxy worker', () => {
     });
   });
 
+  describe('AI platform capability', () => {
+    it.each(
+      ['/ai/run', '/ai/models', '/ai/toMarkdown', '/ai/provider'].flatMap((path) =>
+        ['project token', 'user token'].map((credential) => ({ path, credential })),
+      ),
+    )('denies $path with a valid $credential when AI is disabled', async ({ path, credential }) => {
+      const env = { ...createEnv(), PLATFORM_CAPABILITIES: '{"ai":false}' };
+      const res = await worker.fetch(
+        post(
+          path,
+          {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          },
+          credential === 'user token' ? { authorization: `Bearer ${validToken}` } : undefined,
+        ),
+        env,
+      );
+
+      expect(res.status).toBe(501);
+      expect(await res.json()).toEqual({
+        error: 'platform capability unavailable',
+        capability: 'ai',
+        message: 'This Void platform does not enable AI.',
+      });
+      for (const binding of Object.values(env.AI)) {
+        expect(binding).not.toHaveBeenCalled();
+      }
+      expect(env.ROUTING.get.mock.calls.some(([key]) => key.startsWith('ai-block:'))).toBe(false);
+    });
+
+    it.each(['{}', '{"email":true}', '{"ai":"true"}', 'null', '[]', 'invalid JSON'])(
+      'denies AI when its capability is not enabled in %s',
+      async (capabilities) => {
+        const env = { ...createEnv(), PLATFORM_CAPABILITIES: capabilities };
+        const res = await worker.fetch(
+          post('/ai/run', {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          }),
+          env,
+        );
+
+        expect(res.status).toBe(501);
+        expect(env.AI.run).not.toHaveBeenCalled();
+      },
+    );
+
+    it('authenticates before checking the AI capability', async () => {
+      const env = { ...createEnv(), PLATFORM_CAPABILITIES: '{"ai":false}' };
+      const res = await worker.fetch(
+        post('/ai/run', {
+          model: 'test-model',
+          inputs: {},
+          projectId: 'proj_000000000001',
+          aiToken: 'invalid-token',
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(403);
+      expect(env.AI.run).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, '', '{"ai":true}'])(
+      'allows AI with enabled or unspecified capabilities (%s)',
+      async (capabilities) => {
+        const env = { ...createEnv(), PLATFORM_CAPABILITIES: capabilities };
+        const res = await worker.fetch(
+          post('/ai/run', {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          }),
+          env,
+        );
+
+        expect(res.status).toBe(200);
+        expect(env.AI.run).toHaveBeenCalledOnce();
+      },
+    );
+  });
+
   describe('AI: /ai/run', () => {
     it('replaces a serialized signal with native request cancellation', async () => {
       const env = createEnv();

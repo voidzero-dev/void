@@ -73,7 +73,7 @@ const browserFetch = createRouteFetch((...args) => globalThis.fetch(...args));
  * import { fetch } from "void/client";
  *
  * const users = await fetch("/api/users"); // typed!
- * const user = await fetch("/api/users/:id", { params: { id: "1" } });
+ * const user = await fetch("/api/users/[id]", { params: { id: "1" } });
  * ```
  */
 export function fetch<P extends keyof RouteMap & string>(

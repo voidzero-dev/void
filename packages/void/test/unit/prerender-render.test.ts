@@ -2,12 +2,13 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
-import { serializePageData } from '../../src/pages/serialize.ts';
+import { deserializePageData, serializePageData } from '../../src/pages/serialize.ts';
 import {
   assertNoPrerenderFailures,
   outputFileForPath,
   readPrerenderPathsResponse,
   renderPrerenderPaths,
+  renderBoundary404,
 } from '../../src/prerender-render.ts';
 import { createAssetFallback } from '../../src/runtime/routing-worker.ts';
 
@@ -26,6 +27,31 @@ afterEach(() => {
 });
 
 describe('prerender pool', () => {
+  it('writes directory indexes and page data for trailing-slash paths', async () => {
+    const root = fixture();
+    const paths = ['/', '/posts/', '/posts/hello/', '/caf%C3%A9/'];
+    const result = await renderPrerenderPaths(
+      paths,
+      root,
+      async (path) => new Response(pageHtml({ path })),
+    );
+    expect(result.failed).toEqual([]);
+    for (const file of [
+      'index.html',
+      'posts/index.html',
+      'posts/hello/index.html',
+      'café/index.html',
+    ]) {
+      expect(existsSync(join(root, file)), file).toBe(true);
+    }
+    expect(
+      deserializePageData(readFileSync(join(root, '_void/pages/posts/index.json'), 'utf8')),
+    ).toEqual({
+      path: '/posts/',
+    });
+    expect(outputFileForPath('/404/')).toBe('404.html');
+  });
+
   it.each([301, 302, 303, 307, 308])(
     'skips HTTP %i redirects without emitting HTML or page data',
     async (status) => {
@@ -91,10 +117,12 @@ describe('prerender pool', () => {
     expect(result.rendered).toEqual(paths.filter((path) => path !== '/page-3'));
     expect(result.failed).toEqual([{ path: '/page-3', error: 'HTTP 503' }]);
     expect(dataRequests).toEqual([]);
-    expect(readFileSync(join(root, '_void/pages/page-11.json'), 'utf8')).toBe(
-      JSON.stringify(escapedPage),
-    );
-    expect(JSON.parse(readFileSync(join(root, '_void/pages/page-10.json'), 'utf8'))).toEqual({
+    expect(
+      deserializePageData(readFileSync(join(root, '_void/pages/page-11.json'), 'utf8')),
+    ).toEqual(escapedPage);
+    expect(
+      deserializePageData(readFileSync(join(root, '_void/pages/page-10.json'), 'utf8')),
+    ).toEqual({
       path: '/page-10',
     });
   });
@@ -125,7 +153,9 @@ describe('prerender pool', () => {
     );
     expect(result).toEqual({ rendered: ['/deferred', '/island'], failed: [] });
     expect(dataRequests).toEqual(['/deferred']);
-    expect(JSON.parse(readFileSync(join(root, '_void/pages/deferred.json'), 'utf8'))).toEqual({
+    expect(
+      deserializePageData(readFileSync(join(root, '_void/pages/deferred.json'), 'utf8')),
+    ).toEqual({
       component: 'deferred',
       props: { stats: 1 },
       deferredKeys: { stats: 'stats' },
@@ -235,7 +265,7 @@ describe('prerender pool', () => {
       ]) {
         expect(readFileSync(join(clientDir, `${file}.html`), 'utf8')).toBe(pageHtml({ path }));
         expect(
-          JSON.parse(readFileSync(join(clientDir, `_void/pages/${file}.json`), 'utf8')),
+          deserializePageData(readFileSync(join(clientDir, `_void/pages/${file}.json`), 'utf8')),
         ).toEqual({ path });
       }
     },
@@ -254,9 +284,9 @@ describe('prerender pool', () => {
       );
       expect(result).toEqual({ rendered: [path], failed: [] });
       expect(readFileSync(join(clientDir, 't/a#b?c.html'), 'utf8')).toBe(pageHtml({ path }));
-      expect(JSON.parse(readFileSync(join(clientDir, '_void/pages/t/a#b?c.json'), 'utf8'))).toEqual(
-        { path },
-      );
+      expect(
+        deserializePageData(readFileSync(join(clientDir, '_void/pages/t/a#b?c.json'), 'utf8')),
+      ).toEqual({ path });
     },
   );
 
@@ -295,7 +325,9 @@ describe('prerender pool', () => {
     expect(existsSync(join(clientDir, 'data-escape.html'))).toBe(false);
     expect(existsSync(join(clientDir, '_void/client/data-escape.json'))).toBe(false);
     expect(readFileSync(join(clientDir, 'ok.html'), 'utf8')).toBe(pageHtml({ path: '/ok' }));
-    expect(JSON.parse(readFileSync(join(clientDir, '_void/pages/ok.json'), 'utf8'))).toEqual({
+    expect(
+      deserializePageData(readFileSync(join(clientDir, '_void/pages/ok.json'), 'utf8')),
+    ).toEqual({
       path: '/ok',
     });
   });
@@ -328,5 +360,39 @@ describe('assertNoPrerenderFailures', () => {
     expect(() => assertNoPrerenderFailures([{ path: '/throws', error: 'HTTP 500' }])).toThrow(
       '1 page(s) failed to prerender:\n  /throws: HTTP 500',
     );
+  });
+});
+
+describe('boundary 404 document', () => {
+  it('writes only a document and preserves an existing explicit 404', async () => {
+    const root = fixture();
+    await renderBoundary404(
+      root,
+      async () =>
+        new Response('<h1>Custom missing page</h1>', {
+          status: 404,
+          headers: { 'Content-Type': 'text/html' },
+        }),
+    );
+    expect(readFileSync(join(root, '404.html'), 'utf8')).toContain('Custom missing page');
+    expect(existsSync(join(root, '_void'))).toBe(false);
+    await renderBoundary404(root, async () => {
+      throw new Error('must not replace explicit document');
+    });
+  });
+  it.each([200, 500])('rejects a failed artifact (HTTP %s)', async (status) => {
+    const root = fixture();
+    await expect(
+      renderBoundary404(
+        root,
+        async () => new Response('failure', { status, headers: { 'Content-Type': 'text/html' } }),
+      ),
+    ).rejects.toThrow('not-found document');
+    expect(existsSync(join(root, '404.html'))).toBe(false);
+  });
+  it('does nothing for apps without a root boundary', async () => {
+    const root = fixture();
+    await renderBoundary404(root, async () => new Response(null, { status: 204 }));
+    expect(existsSync(join(root, '404.html'))).toBe(false);
   });
 });

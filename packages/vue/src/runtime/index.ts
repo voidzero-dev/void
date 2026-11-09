@@ -9,3 +9,5 @@ export { useIslandForm } from './use-island-form.ts';
 export { action, setActionRouter } from './action.ts';
 export { isCallSiteActionError, isVoidActionError, type VoidActionError } from 'void/pages-client';
 export type { DeferredState as Deferred, InferProps } from 'void';
+
+export type { PageError, ErrorPageProps } from 'void/pages-client';

@@ -25,6 +25,8 @@ TanStack Start and React Router use the Cloudflare Vite plugin provided by Void.
 
 Detection is automatic. The CLI reads your `package.json` dependencies.
 
+In vinext apps, `middleware.ts` and `proxy.ts` also apply to files in `public/`. When either file is present, static requests go through the Worker and count toward its request usage. Apps without middleware keep static asset delivery.
+
 ## Feature Support
 
 With `voidPlugin()` added to the framework's Vite config, frameworks get most of the same backend/platform features as [Void apps](../../guide/app-types.md#void-apps):

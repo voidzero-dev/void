@@ -148,6 +148,10 @@
           "type": "boolean",
           "description": "Redirect HTTP requests to HTTPS with a permanent 308 redirect. Omitted or false means off. Requires the Cloudflare target; localhost stays on HTTP."
         },
+        "trailingSlash": {
+          "type": "boolean",
+          "description": "Use trailing-slash Pages URLs and directory indexes for prerendered HTML. Omitted or false preserves URLs without trailing slashes."
+        },
         "isr": {
           "type": "boolean",
           "description": "Enable inferred ISR caching. Set false to disable ISR and edge prerendering, including per-page prerender and revalidate policies. Does not disable output: static build-time prerendering."

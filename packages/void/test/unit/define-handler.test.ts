@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
+import { objectToFormData } from '../../src/pages/navigation-engine.ts';
 import {
   defineHandler,
   defineMiddleware,
@@ -349,5 +350,275 @@ describe('defineHandler.withValidator', () => {
       params: { id: '42' },
       body: { name: 'Bob' },
     });
+  });
+
+  it('passes a multipart file to the schema and the handler', async () => {
+    const photo = new File(['hello'], 'photo.png', { type: 'image/png' });
+    let seenBySchema: unknown;
+    const handler = defineHandler.withValidator({
+      body: {
+        '~standard': {
+          version: 1,
+          vendor: 'test',
+          validate(value: unknown) {
+            seenBySchema = value;
+            const uploaded = (value as { photo?: unknown }).photo;
+            if (!(uploaded instanceof File)) {
+              return { issues: [{ message: 'expected a file', path: ['photo'] }] };
+            }
+            return { value };
+          },
+        },
+      },
+    })((_c, { body }) => {
+      const received = body as { title: string; photo: File };
+      return {
+        title: received.title,
+        name: received.photo.name,
+        type: received.photo.type,
+        size: received.photo.size,
+      };
+    });
+
+    const app = createValidatedApp('post', '/test', handler);
+    const res = await app.request(
+      new Request('http://localhost/test', {
+        method: 'POST',
+        body: objectToFormData({ title: 'Sunset', photo }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      title: 'Sunset',
+      name: 'photo.png',
+      type: 'image/png',
+      size: photo.size,
+    });
+    const parsed = seenBySchema as { title: string; photo: File };
+    expect(parsed.title).toBe('Sunset');
+    expect(parsed.photo).toBeInstanceOf(File);
+    expect(parsed.photo.name).toBe('photo.png');
+    expect(await parsed.photo.text()).toBe('hello');
+  });
+
+  it('restores nested bracket keys from form bodies', async () => {
+    const handler = defineHandler.withValidator({
+      body: passSchema(),
+    })((_c, { body }) => ({ received: body }));
+    const app = createValidatedApp('post', '/test', handler);
+    const takenAt = new Date('2020-01-02T03:04:05.000Z');
+    const multipart = objectToFormData({
+      profile: { name: 'Ada' },
+      tags: ['work', 'urgent'],
+      album: { photos: [{ name: 'a.png' }] },
+      published: true,
+      count: 2,
+      takenAt,
+      note: null,
+    });
+    multipart.append('photos[]', 'one');
+    multipart.append('photos[]', 'two');
+    multipart.append('__proto__[polluted]', 'yes');
+
+    const multipartRes = await app.request(
+      new Request('http://localhost/test', { method: 'POST', body: multipart }),
+    );
+    expect(multipartRes.status).toBe(200);
+    expect(await multipartRes.json()).toEqual({
+      received: {
+        profile: { name: 'Ada' },
+        tags: ['work', 'urgent'],
+        album: { photos: [{ name: 'a.png' }] },
+        published: '1',
+        count: '2',
+        takenAt: '2020-01-02T03:04:05.000Z',
+        note: '',
+        photos: ['one', 'two'],
+        ['__proto__']: { polluted: 'yes' },
+      },
+    });
+    expect('polluted' in Object.prototype).toBe(false);
+
+    const params = new URLSearchParams();
+    params.append('profile[name]', 'Ada');
+    params.append('tags[0]', 'work');
+    params.append('tags[1]', 'urgent');
+    params.append('photos[]', 'one');
+    params.append('photos[]', 'two');
+    const urlencodedRes = await app.request(
+      new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: params.toString(),
+      }),
+    );
+    expect(urlencodedRes.status).toBe(200);
+    expect(await urlencodedRes.json()).toEqual({
+      received: {
+        profile: { name: 'Ada' },
+        tags: ['work', 'urgent'],
+        photos: ['one', 'two'],
+      },
+    });
+  });
+
+  it.each(['multipart', 'urlencoded'])(
+    'preserves prototype-named form fields as ordinary own properties in %s bodies',
+    async (encoding) => {
+      let received: unknown;
+      const handler = defineHandler.withValidator({ body: passSchema() })((_c, { body }) => {
+        received = body;
+        return body;
+      });
+      const app = createValidatedApp('post', '/test', handler);
+      const fields = ['__proto__', 'constructor', 'prototype', 'toString', 'hasOwnProperty'];
+      const form = encoding === 'multipart' ? new FormData() : new URLSearchParams();
+      for (const field of fields) {
+        form.append(`${field}[value]`, field);
+      }
+      form.append('constructor[prototype][polluted]', 'form value');
+      const res = await app.request(
+        new Request('http://localhost/test', { method: 'POST', body: form }),
+      );
+
+      expect(res.status).toBe(200);
+      expect(await res.json()).toEqual({
+        ...Object.fromEntries(fields.map((field) => [field, { value: field }])),
+        constructor: { value: 'constructor', prototype: { polluted: 'form value' } },
+      });
+      const parsed = received as Record<string, unknown>;
+      expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+      for (const field of fields) {
+        expect(Object.hasOwn(parsed, field)).toBe(true);
+        expect(Object.getPrototypeOf(parsed[field])).toBe(Object.prototype);
+      }
+      expect(Object.hasOwn(Object.prototype, 'polluted')).toBe(false);
+    },
+  );
+
+  it.each([
+    ['multipart', 'indexed'],
+    ['urlencoded', 'indexed'],
+    ['multipart', 'appended'],
+    ['urlencoded', 'appended'],
+  ] as const)(
+    'rejects excessive aggregate array growth in %s bodies (%s)',
+    async (encoding, kind) => {
+      const validate = vi.fn((value: unknown) => ({ value }));
+      const handler = defineHandler.withValidator({
+        body: { '~standard': { version: 1, vendor: 'test', validate } },
+      })(() => ({ ok: true }));
+      const app = createValidatedApp('post', '/test', handler);
+      const form = new FormData();
+      if (kind === 'indexed') {
+        // Few containers, but each inner array allocates 1,001 slots.
+        for (let i = 0; i < 20; i++) {
+          form.append(`items[${i}][1000]`, 'value');
+        }
+      } else {
+        // Append syntax must share the same allocation budget across arrays.
+        for (let i = 0; i < 6_000; i++) {
+          form.append('first[]', 'value');
+          form.append('second[]', 'value');
+        }
+      }
+      const body =
+        encoding === 'multipart'
+          ? form
+          : new URLSearchParams(Array.from(form, ([key, value]) => [key, String(value)]));
+      const response = await app.request(
+        new Request('http://localhost/test', { method: 'POST', body }),
+      );
+
+      expect(response.status).toBe(400);
+      expect(await response.json()).toEqual({ error: 'Invalid form body' });
+      expect(validate).not.toHaveBeenCalled();
+    },
+  );
+
+  it('allows filling already allocated array slots in any order', async () => {
+    const handler = defineHandler.withValidator({ body: passSchema() })((_c, { body }) => {
+      const { items } = body as { items: Array<string> };
+      return { length: items.length, first: items[0], filled: items[1000], last: items[8999] };
+    });
+    const app = createValidatedApp('post', '/test', handler);
+    const form = new FormData();
+    form.append('items[8999]', 'last');
+    for (let i = 0; i <= 1000; i++) {
+      form.append(`items[${i}]`, 'filled');
+    }
+    const response = await app.request(
+      new Request('http://localhost/test', { method: 'POST', body: form }),
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({
+      length: 9000,
+      first: 'filled',
+      filled: 'filled',
+      last: 'last',
+    });
+  });
+
+  it('keeps JSON body validation unchanged', async () => {
+    const handler = defineHandler.withValidator({
+      body: passSchema(),
+    })((_c, { body }) => ({ received: body }));
+    const app = createValidatedApp('post', '/test', handler);
+
+    const res = await app.request(
+      new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          profile: { name: 'Ada' },
+          tags: ['work'],
+          published: true,
+          count: 2,
+          note: null,
+        }),
+      }),
+    );
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      received: {
+        profile: { name: 'Ada' },
+        tags: ['work'],
+        published: true,
+        count: 2,
+        note: null,
+      },
+    });
+  });
+
+  it('does not report a bad form body as invalid JSON', async () => {
+    const handler = defineHandler.withValidator({
+      body: failSchema('title is required'),
+    })(() => ({ ok: true }));
+    const app = createValidatedApp('post', '/test', handler);
+
+    const malformed = await app.request(
+      new Request('http://localhost/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'multipart/form-data; boundary=----bad' },
+        body: 'not a multipart body',
+      }),
+    );
+    expect(malformed.status).toBe(400);
+    expect(((await malformed.json()) as { error: string }).error).toBe('Invalid form body');
+
+    const invalid = await app.request(
+      new Request('http://localhost/test', {
+        method: 'POST',
+        body: objectToFormData({ title: '' }),
+      }),
+    );
+    expect(invalid.status).toBe(400);
+    const json = (await invalid.json()) as ValidationIssueBody;
+    expect(json.error).toBe('Validation failed');
+    expect(json.issues[0]?.slot).toBe('body');
+    expect(json.issues[0]?.issues[0]?.message).toBe('title is required');
   });
 });
