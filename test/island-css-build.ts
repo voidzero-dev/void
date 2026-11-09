@@ -17,6 +17,8 @@ type IslandCssApp = {
   expectedCss: Array<string>;
   /** Extra assertions for each page. */
   check?: (page: { file: string; html: string; css: string }) => void;
+  /** Extra assertions against this same production build. */
+  checkBuild?: (build: ReturnType<typeof buildIslandApp>) => void;
 };
 
 /** The stylesheet links of a page, without a regular expression. */
@@ -32,7 +34,7 @@ function stylesheetHrefs(html: string): Array<string> {
  * Builds the app for production with the built Void packages. The app has no
  * package.json, so `@void/<adapter>` resolves to the adapter package itself.
  */
-export function buildIslandApp(app: Omit<IslandCssApp, 'expectedCss' | 'check'>): {
+export function buildIslandApp(app: Omit<IslandCssApp, 'expectedCss' | 'check' | 'checkBuild'>): {
   root: string;
   page(file: string): { html: string; css: string };
   /** The text of every built file under `dist/<dir>`, by path. */
@@ -120,6 +122,7 @@ export function defineIslandCssBuildTest(app: IslandCssApp): void {
       for (const rule of app.expectedCss) {
         expect(countOf(clientCss, rule), rule).toBe(1);
       }
+      app.checkBuild?.(build);
     } finally {
       build.cleanup();
     }

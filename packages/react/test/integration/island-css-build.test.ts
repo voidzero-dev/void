@@ -30,6 +30,14 @@ export default function Layout({ children }) { return <Shell>{children}</Shell>;
 export default function BadgePage() { return <Badge />; }`,
   },
   expectedCss: ['.shell{outline-offset:7px}', '{text-indent:9px}', '.badge{word-spacing:5px}'],
+  checkBuild(build) {
+    // Badge hydrates, so this build also covers the client/server entry boundary.
+    expect(build.page('badge.html').html).toContain('<script');
+    for (const [file, text] of build.output('ssr')) {
+      expect(file).not.toContain('islands-client');
+      expect(text.includes('hydrateRoot'), file).toBe(false);
+    }
+  },
 });
 
 it('builds island pages without CSS or JavaScript with no stylesheet, script or client runtime', () => {
@@ -52,28 +60,6 @@ it('builds island pages without CSS or JavaScript with no stylesheet, script or 
     }
     // No page loads the islands entry, so it carries no hydration code.
     for (const [file, text] of build.output('client')) {
-      expect(text.includes('hydrateRoot'), file).toBe(false);
-    }
-  } finally {
-    build.cleanup();
-  }
-}, 120_000);
-
-it('keeps the islands client entry out of the server build', () => {
-  const build = buildIslandApp({
-    packageDir,
-    pluginName: 'voidReact',
-    files: {
-      'tsconfig.json': tsconfig,
-      'src/Counter.tsx': 'export default function Counter() { return <button>0</button>; }',
-      'pages/index.island.tsx': `import Counter from '../src/Counter' with { island: 'load' };
-export default function Home() { return <Counter />; }`,
-    },
-  });
-  try {
-    expect(build.page('index.html').html).toContain('<script');
-    for (const [file, text] of build.output('ssr')) {
-      expect(file).not.toContain('islands-client');
       expect(text.includes('hydrateRoot'), file).toBe(false);
     }
   } finally {
