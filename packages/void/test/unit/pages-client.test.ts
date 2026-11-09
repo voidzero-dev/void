@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import {
   createRouterFacade,
   createVoidRouter,
@@ -13,9 +14,12 @@ import {
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { createPageNavigationEngine } from '../../src/pages/navigation-engine.ts';
 import { parseCacheFor } from '../../src/pages/prefetch.ts';
+import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import type { PageDefinition } from '../../src/pages/types.ts';
+import type { CloudContext } from '../../src/runtime/handler.ts';
 import {
+  createPageGetHandler,
   createPageMutationHandler,
   createRoutingRuntime,
   type RoutingContext,
@@ -127,6 +131,111 @@ function createTestRouter({ adapter, ...config }: TestRouterConfig = {}) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+describe('Pages serialization compatibility', () => {
+  function server(validation = false) {
+    const app = new Hono();
+    const loader = vi.fn(() => ({ date: new Date('2026-11-08'), count: 42n }));
+    const action = vi.fn((c: CloudContext) => {
+      if (validation) {
+        throw new ValidationError({ name: 'Required' });
+      }
+      c.header('Set-Cookie', 'saved=yes; Path=/');
+    });
+    const options = {
+      componentId: 'home',
+      load: async () => ({ loader, action }),
+      render: async () => '<html></html>',
+      assets: async () => ({ css: '', body: '', preloads: '' }),
+      headConfig: undefined,
+      renderOptions: {},
+    };
+    app.get('/next', createPageGetHandler(options));
+    app.post('/next', createPageMutationHandler(options));
+    return { app, loader, action };
+  }
+
+  it.each(['navigation', 'prefetch', 'action'] as const)(
+    'advertises the new serialization during %s and retains rich data',
+    async (operation) => {
+      stubClientGlobals();
+      const { app } = server();
+      const requests: Array<Request> = [];
+      vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+        const request = new Request(new URL(url, 'http://localhost'), init);
+        requests.push(request);
+        return app.fetch(request);
+      });
+      const { router } = await createTestRouter();
+      if (operation === 'prefetch') {
+        await router.prefetch('/next');
+      }
+      const result = await router.visit('/next', operation === 'action' ? { method: 'POST' } : {});
+      expect(result).toMatchObject({ props: { date: new Date('2026-11-08'), count: 42n } });
+      expect(requests).toHaveLength(1);
+      expect(requests[0]!.headers.get('X-VoidPages-Version')).toBe('1');
+      expect(window.location.href).toBeUndefined();
+    },
+  );
+
+  it.each(['navigation', 'prefetch', 'action'] as const)(
+    'hard-reloads a legacy %s without parsing the new payload or replaying an action',
+    async (operation) => {
+      stubClientGlobals();
+      const { app, loader, action } = server();
+      const applyUpdate = vi.fn();
+      const responses: Array<Response> = [];
+      vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+        const request = new Request(new URL(url, 'http://localhost'), init);
+        // Reproduce a deployed client that only sends X-VoidPages: true.
+        request.headers.delete('X-VoidPages-Version');
+        const response = await app.fetch(request);
+        responses.push(response.clone());
+        return response;
+      });
+      const { router } = await createTestRouter({ adapter: { applyUpdate } });
+      if (operation === 'prefetch') {
+        await router.prefetch('/next');
+      }
+      expect(
+        await router.visit('/next', operation === 'action' ? { method: 'POST' } : {}),
+      ).toBeUndefined();
+      expect(window.location.href).toBe('/next');
+      expect(applyUpdate).not.toHaveBeenCalled();
+      expect(loader).not.toHaveBeenCalled();
+      expect(action).toHaveBeenCalledTimes(operation === 'action' ? 1 : 0);
+      expect(responses).toHaveLength(1);
+      expect(responses[0]!.status).toBe(200);
+      expect(responses[0]!.headers.has('X-VoidPages')).toBe(false);
+      expect(responses[0]!.headers.get('Content-Type')).toContain('text/plain');
+      expect(responses[0]!.headers.get('Cache-Control')).toBe('no-store');
+      expect(responses[0]!.headers.get('Vary')).toContain('X-VoidPages-Version');
+      expect(await responses[0]!.text()).toBe('');
+      if (operation === 'action') {
+        expect(responses[0]!.headers.get('Set-Cookie')).toContain('saved=yes');
+      }
+    },
+  );
+
+  it('keeps legacy validation errors available to the form without a reload', async () => {
+    stubClientGlobals();
+    const { app, loader, action } = server(true);
+    vi.stubGlobal('fetch', (url: string, init: RequestInit) => {
+      const request = new Request(new URL(url, 'http://localhost'), init);
+      request.headers.delete('X-VoidPages-Version');
+      return app.fetch(request);
+    });
+    const { router } = await createTestRouter();
+    const result = await submitAction(router, '/next', { method: 'POST' });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { status: 422, body: { errors: { name: 'Required' } } },
+    });
+    expect(window.location.href).toBeUndefined();
+    expect(loader).not.toHaveBeenCalled();
+    expect(action).toHaveBeenCalledOnce();
+  });
 });
 
 describe('createVoidRouter', () => {
@@ -1408,7 +1517,13 @@ describe('createVoidRouter', () => {
     await router.visit('/next', { preserveState: true });
     expect(fetchMock).toHaveBeenCalledWith(
       '/next',
-      expect.objectContaining({ headers: { 'X-VoidPages': 'true', Accept: 'application/json' } }),
+      expect.objectContaining({
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          Accept: 'application/json',
+        },
+      }),
     );
     expect(applyUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ component: 'next' }),
@@ -1502,7 +1617,13 @@ describe('createVoidRouter', () => {
 
     expect(fetchMock).toHaveBeenCalledWith(
       '/docs',
-      expect.objectContaining({ headers: { 'X-VoidPages': 'true', Accept: 'application/json' } }),
+      expect.objectContaining({
+        headers: {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          Accept: 'application/json',
+        },
+      }),
     );
     expect(applyUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ component: 'docs' }),

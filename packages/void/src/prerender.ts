@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { dirname, join, relative } from 'pathslash';
 import pc from 'picocolors';
 import { getApiUrl, getProxyUrl, getToken } from './cli/auth.ts';
@@ -297,7 +298,12 @@ async function createCloudflarePrerenderRunner(options: {
     },
     async fetchPageData(path: string): Promise<Response> {
       return mf.dispatchFetch(`http://localhost${path}`, {
-        headers: { Accept: 'application/json', Purpose: 'prefetch', 'X-VoidPages': 'true' },
+        headers: {
+          Accept: 'application/json',
+          Purpose: 'prefetch',
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        },
       });
     },
     async close() {
@@ -415,7 +421,7 @@ async function renderPaths(paths) {
     paths, clientDir,
     (path) => fetch(new Request("http://localhost" + path)),
     (path) => fetch(new Request("http://localhost" + path, {
-      headers: { "Accept": "application/json", "Purpose": "prefetch", "X-VoidPages": "true" },
+      headers: { "Accept": "application/json", "Purpose": "prefetch", "X-VoidPages": "true", "X-VoidPages-Version": ${JSON.stringify(PAGES_PROTOCOL_VERSION)} },
     })),
     undefined,
     "node",

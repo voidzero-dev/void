@@ -1,5 +1,6 @@
 import { isrEdgeCacheUrl } from '@void/isr';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../../../../../packages/edge/src/pages-protocol.ts';
 import type { Env } from '../../src/env.ts';
 import app, { rebuildRequest } from '../../src/index.ts';
 import {
@@ -3357,6 +3358,34 @@ describe('ISR JSON edge cache (pages protocol)', () => {
   const pageHtml = (payload = pageData) =>
     `<html><body><script id="__VOID_PAGE_DATA__" type="application/json">${payload}</script><div id="app">rendered</div></body></html>`;
 
+  it.each([undefined, '0', String(Number(PAGES_PROTOCOL_VERSION) + 1)])(
+    'lets the backend negotiate serialization version %s even with a warm JSON cache',
+    async (version) => {
+      const key = 'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy';
+      edgeCacheStore.set(
+        key,
+        currentSharedCacheResponse(Response.json({ __void: 'devalue', data: [] })),
+      );
+      const { env, workerFetch } = createEnv({
+        routing: isrRouting,
+        workerResponse: new Response('', {
+          headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' },
+        }),
+      });
+      const response = await app.fetch(
+        new Request('https://my-app.void.app/dashboard', {
+          headers: { 'X-VoidPages': 'true', ...(version && { 'X-VoidPages-Version': version }) },
+        }),
+        env,
+        createCtx(),
+      );
+      expect(workerFetch).toHaveBeenCalledOnce();
+      expect(response.headers.has('X-VoidPages')).toBe(false);
+      expect(await response.text()).toBe('');
+      expect(edgeCacheStore.has(key)).toBe(true);
+    },
+  );
+
   it('pages request serves from JSON edge cache when populated', async () => {
     // Pre-populate JSON edge cache
     edgeCacheStore.set(
@@ -3372,7 +3401,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/dashboard', {
-        headers: { 'X-VoidPages': 'true' },
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       }),
       env,
       createCtx(),
@@ -3394,7 +3423,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
 
     const response = await app.fetch(
       new Request('https://my-app.void.app/dashboard', {
-        headers: { 'X-VoidPages': 'true' },
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       }),
       env,
       createCtx(),
@@ -3410,7 +3439,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     const { env, workerFetch } = createEnv({
       routing: isrRouting,
       workerResponse: new Response(pageHtml(), {
-        headers: { 'Content-Type': 'text/html' },
+        headers: { 'Content-Type': 'text/html', Vary: 'X-VoidPages, X-VoidPages-Version' },
       }),
     });
 
@@ -3440,15 +3469,17 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     );
     expect(jsonCached).toBeDefined();
     expect(jsonCached!.headers.get('X-VoidPages')).toBe('true');
-    expect(jsonCached!.headers.get('Vary')).toBe('X-VoidPages');
+    expect(jsonCached!.headers.get('Vary')).toBe('X-VoidPages, X-VoidPages-Version');
     const navigation = await app.fetch(
-      new Request('https://my-app.void.app/dashboard', { headers: { 'X-VoidPages': 'true' } }),
+      new Request('https://my-app.void.app/dashboard', {
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
       env,
       createCtx(),
     );
     expect(workerFetch).toHaveBeenCalledOnce();
     expect(navigation.headers.get('X-VoidPages')).toBe('true');
-    expect(navigation.headers.get('Vary')).toBe('X-VoidPages');
+    expect(navigation.headers.get('Vary')).toBe('X-VoidPages, X-VoidPages-Version');
     expect(await navigation.json()).toEqual(JSON.parse(pageData));
   });
 
@@ -3475,7 +3506,9 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     expect(await html.text()).toBe(pageHtml());
 
     const json = await app.fetch(
-      new Request('https://my-app.void.app/dashboard', { headers: { 'X-VoidPages': 'true' } }),
+      new Request('https://my-app.void.app/dashboard', {
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
       env,
       createCtx(),
     );
@@ -3516,7 +3549,7 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     );
     expect(jsonCached).toBeDefined();
     expect(jsonCached!.headers.get('X-VoidPages')).toBe('true');
-    expect(jsonCached!.headers.get('Vary')).toBe('X-VoidPages');
+    expect(jsonCached!.headers.get('Vary')).toBe('X-VoidPages, X-VoidPages-Version');
     expect(await jsonCached!.text()).toBe(pageData);
     expect(jsonCached!.headers.get('x-isr-cache')).toBe('HIT');
   });

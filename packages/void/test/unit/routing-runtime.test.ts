@@ -4,6 +4,7 @@ import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
@@ -952,7 +953,7 @@ describe('typed Pages and SSR execution', () => {
       const response = await createNamedActionApp().fetch(
         new Request('https://app.test/named?save&page=2', {
           method: 'POST',
-          headers: { 'x-voidpages': 'true' },
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
       expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
@@ -968,7 +969,9 @@ describe('typed Pages and SSR execution', () => {
       }),
     );
     const response = await app.fetch(
-      new Request('https://app.test/page', { headers: { 'x-voidpages': 'true' } }),
+      new Request('https://app.test/page', {
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
     );
     expect((decodePageData(await response.json()) as { props: unknown }).props).toEqual({
       title: 'loaded',
@@ -1523,14 +1526,19 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     app.post('/db', createPageMutationHandler({ ...pageOptions, load, namedActions: true }));
     return app;
   }
-  const get = (app: Hono, headers: Record<string, string> = { 'X-VoidPages': 'true' }) =>
-    app.fetch(new Request('https://app.test/db', { headers }));
+  const get = (
+    app: Hono,
+    headers: Record<string, string> = {
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+    },
+  ) => app.fetch(new Request('https://app.test/db', { headers }));
   const post = (app: Hono, body: unknown, pages = true) =>
     app.fetch(
       new Request('https://app.test/db?create', {
         method: 'POST',
         headers: {
-          ...(pages && { 'X-VoidPages': 'true' }),
+          ...(pages && { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }),
           Origin: 'https://app.test',
           'Content-Type': 'application/json',
         },
@@ -1602,7 +1610,15 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const json = (await get(app)).headers.get('ETag')!;
     const html = (await get(app, {})).headers.get('ETag')!;
     expect(json).not.toBe(html);
-    expect((await get(app, { 'X-VoidPages': 'true', 'If-None-Match': json })).status).toBe(304);
+    expect(
+      (
+        await get(app, {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'If-None-Match': json,
+        })
+      ).status,
+    ).toBe(304);
     expect((await get(app, { 'If-None-Match': html })).status).toBe(304);
   });
 

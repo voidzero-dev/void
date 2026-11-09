@@ -1,4 +1,4 @@
-import { matchSegmentPattern } from '@void/edge';
+import { matchSegmentPattern, PAGES_PROTOCOL_VERSION } from '@void/edge';
 import {
   buildVariantOriginalUrl,
   decodeIsrCacheEntry,
@@ -333,7 +333,8 @@ function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS')
       // Match the live Pages JSON response: the client parses JSON only when
       // `X-VoidPages` is present, and otherwise reloads the whole page.
       'X-VoidPages': 'true',
-      Vary: 'X-VoidPages',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      Vary: 'X-VoidPages, X-VoidPages-Version',
       'Cache-Control': `public, s-maxage=${ttl}, max-age=0, must-revalidate`,
       'x-isr-cache': state,
     },
@@ -419,10 +420,11 @@ async function deleteSharedIsrVariants(
   await safeCacheDelete(cache, keys.jsonKey);
 }
 
-/** Copy a request without its `X-VoidPages` header. */
+/** Copy a request without its Pages protocol headers. */
 export function cloneWithoutVoidPages(request: Request): Request {
   const headers = new Headers(request.headers);
   headers.delete('X-VoidPages');
+  headers.delete('X-VoidPages-Version');
   // Construct from the Request, not its URL string, so workerd keeps `request.cf`.
   return new Request(request, { headers });
 }
@@ -564,6 +566,11 @@ async function handleIsrInternal(
 
   // Pages protocol: JSON edge cache only (cold colo re-renders JSON).
   if (request.headers.has('X-VoidPages')) {
+    // The app decides how to serve older clients. A cached rich payload would
+    // bypass its reload response; a legacy request must not evict the new cache.
+    if (request.headers.get('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION) {
+      return render(request);
+    }
     let jsonCached: Response | undefined;
     try {
       jsonCached = await cache?.match(jsonKey);

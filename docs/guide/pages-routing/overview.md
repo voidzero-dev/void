@@ -305,6 +305,8 @@ import { Link } from '@void/solid';
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
+If a deployment changes Void's page-data format, already-open tabs reload on their next page navigation to load the matching client.
+
 For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
 ```ts

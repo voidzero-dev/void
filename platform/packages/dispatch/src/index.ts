@@ -1,4 +1,9 @@
-import { matchLiteralPattern, redirectToHttps, type ProjectZeroTrustRouting } from '@void/edge';
+import {
+  matchLiteralPattern,
+  PAGES_PROTOCOL_VERSION,
+  redirectToHttps,
+  type ProjectZeroTrustRouting,
+} from '@void/edge';
 import { clientRevalidateResponse, isEventStreamResponse } from '@void/isr/runtime';
 import {
   PLATFORM_HEALTH_HOSTNAME_LABEL,
@@ -206,7 +211,8 @@ function jsonCacheResponse(pageData: string, ttl: number, state: 'HIT' | 'MISS')
     headers: {
       'content-type': 'application/json',
       'X-VoidPages': 'true',
-      Vary: 'X-VoidPages',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      Vary: 'X-VoidPages, X-VoidPages-Version',
       'Cache-Control': `public, s-maxage=${ttl}, max-age=0, must-revalidate`,
       'x-isr-cache': state,
     },
@@ -1192,6 +1198,9 @@ const dispatcher = {
         isrTtl > 0 &&
         request.method === 'GET' &&
         !request.headers.has('Range') &&
+        // Let the app negotiate older clients instead of serving a rich JSON cache hit.
+        (!request.headers.has('X-VoidPages') ||
+          request.headers.get('X-VoidPages-Version') === PAGES_PROTOCOL_VERSION) &&
         !shouldBypassIsr(request)
       ) {
         const isPagesRequest = request.headers.has('X-VoidPages');
@@ -2363,13 +2372,14 @@ async function revalidateInBackground(
   try {
     const worker = getWorker(env, routing);
     const revalidationStartedAt = Date.now();
-    // Strip X-VoidPages so the worker always returns HTML.
+    // Strip Pages protocol headers so the worker always returns HTML.
     // Use rebuildRequest so request.cf (country/colo/botManagement/tlsClientAuth)
     // survives the rebuild — otherwise the background re-render runs with
     // cf === undefined and writes wrong-geo/wrong-bot HTML into the ISR cache.
-    const cleanRequest = rebuildRequest(request, request.url, (headers) =>
-      headers.delete('X-VoidPages'),
-    );
+    const cleanRequest = rebuildRequest(request, request.url, (headers) => {
+      headers.delete('X-VoidPages');
+      headers.delete('X-VoidPages-Version');
+    });
     let response = await withTimeout(
       worker.fetch(cleanRequest),
       remainingTimeoutBudget(revalidationStartedAt, timeoutMs, 'dispatch'),

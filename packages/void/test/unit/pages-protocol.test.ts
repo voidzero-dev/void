@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { HTTPException } from 'hono/http-exception';
 import { describe, expect, it, vi } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import {
   handlePageGet,
@@ -103,7 +104,7 @@ describe('handlePageGet', () => {
       expect(render).toHaveBeenCalledOnce();
       const c = await createTestContext('POST', '/rich', {
         shared: values,
-        headers: { 'x-voidpages': 'true' },
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       });
       const response = await handlePageMutation(
         () => undefined,
@@ -152,17 +153,28 @@ describe('handlePageGet', () => {
         ),
       );
       const response = await app.request('/users', {
-        headers: { 'Accept-Language': 'de', ...(spa ? { 'x-voidpages': 'true' } : {}) },
+        headers: {
+          'Accept-Language': 'de',
+          ...(spa ? { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION } : {}),
+        },
       });
       await response.text();
       expect(response.headers.get('Content-Type')).toBe(contentType);
-      expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages');
+      expect(response.headers.get('Vary')).toBe(
+        'Accept-Language, X-VoidPages, X-VoidPages-Version',
+      );
     });
 
     it.each([
-      { existing: undefined, expected: 'X-VoidPages' },
-      { existing: 'Accept-Language', expected: 'Accept-Language, X-VoidPages' },
-      { existing: 'Accept-Language, x-voidpages', expected: 'Accept-Language, x-voidpages' },
+      { existing: undefined, expected: 'X-VoidPages, X-VoidPages-Version' },
+      {
+        existing: 'Accept-Language',
+        expected: 'Accept-Language, X-VoidPages, X-VoidPages-Version',
+      },
+      {
+        existing: 'Accept-Language, x-voidpages',
+        expected: 'Accept-Language, x-voidpages, X-VoidPages-Version',
+      },
       { existing: '*', expected: '*' },
     ])(
       'sets Vary without losing or duplicating existing values ($existing)',
@@ -184,7 +196,9 @@ describe('handlePageGet', () => {
           ),
         );
         const response = await app.request('/users', {
-          headers: spa ? { 'x-voidpages': 'true' } : {},
+          headers: spa
+            ? { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+            : {},
         });
         // Consume streams even if a header assertion fails.
         await response.text();
@@ -196,7 +210,9 @@ describe('handlePageGet', () => {
   });
 
   it.each([false, true])('does not vary HTML-only island pages (deferred=%s)', async (deferred) => {
-    const c = await createTestContext('GET', '/users', { headers: { 'x-voidpages': 'true' } });
+    const c = await createTestContext('GET', '/users', {
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
     const response = await handlePageGet(
       () => (deferred ? { users: defer(async () => []) } : { users: [] }),
       undefined,
@@ -214,7 +230,7 @@ describe('handlePageGet', () => {
 
   it('returns JSON page object when X-VoidPages header present', async () => {
     const c = await createTestContext('GET', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const handler = vi.fn(() => ({ users: [1, 2, 3] }));
@@ -228,7 +244,7 @@ describe('handlePageGet', () => {
     );
 
     expect(response.headers.get('X-VoidPages')).toBe('true');
-    expect(response.headers.get('Vary')).toBe('X-VoidPages');
+    expect(response.headers.get('Vary')).toBe('X-VoidPages, X-VoidPages-Version');
     const body = await json<PageResponse>(response);
     expect(body.component).toBe('users');
     expect(body.props).toEqual({ users: [1, 2, 3] });
@@ -239,7 +255,7 @@ describe('handlePageGet', () => {
 
   it('preserves headers set by loaders on X-VoidPages JSON responses', async () => {
     const c = await createTestContext('GET', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const handler = vi.fn((ctx: CloudContext) => {
@@ -261,7 +277,7 @@ describe('handlePageGet', () => {
 
   it('includes route params in page objects without requiring loader props', async () => {
     const c = await createTestContext('GET', '/posts/abc-123?preview=true', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       routePattern: '/posts/:id',
     });
 
@@ -363,7 +379,7 @@ describe('handlePageGet', () => {
 
   it('island=true always renders HTML even with X-VoidPages header', async () => {
     const c = await createTestContext('GET', '/', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const renderFn = vi.fn(async () => '<html>island</html>');
@@ -505,7 +521,7 @@ describe('handlePageGet', () => {
 
   it('includes shared data from context', async () => {
     const c = await createTestContext('GET', '/', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       shared: { auth: { user: { name: 'Test' } } },
     });
 
@@ -524,7 +540,7 @@ describe('handlePageGet', () => {
 
   it('uses shared data the loader updates', async () => {
     const c = await createTestContext('GET', '/', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       shared: { count: 2 },
     });
 
@@ -545,7 +561,11 @@ describe('handlePageGet', () => {
 
   it('prefetch request — resolves deferred props inline as plain JSON', async () => {
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
+      headers: {
+        'x-voidpages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        purpose: 'prefetch',
+      },
     });
 
     const handler = vi.fn(() => ({
@@ -580,7 +600,11 @@ describe('handlePageGet', () => {
     async ({ dev, message }) => {
       const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
       const c = await createTestContext('GET', '/dashboard', {
-        headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
+        headers: {
+          'x-voidpages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          purpose: 'prefetch',
+        },
       });
       const error = new Error('db down');
 
@@ -618,7 +642,11 @@ describe('handlePageGet', () => {
   it('prefetch request — resolves empty deferred results like the stream does', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true', purpose: 'prefetch' },
+      headers: {
+        'x-voidpages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        purpose: 'prefetch',
+      },
     });
 
     try {
@@ -667,16 +695,21 @@ describe('handlePageMutation', () => {
       );
       const response = await app.request('/users', {
         method: 'POST',
-        headers: { 'Accept-Language': 'de', ...(spa ? { 'x-voidpages': 'true' } : {}) },
+        headers: {
+          'Accept-Language': 'de',
+          ...(spa ? { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION } : {}),
+        },
       });
       await response.text();
-      expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages');
+      expect(response.headers.get('Vary')).toBe(
+        'Accept-Language, X-VoidPages, X-VoidPages-Version',
+      );
     },
   );
 
   it.each([false, true])('varies re-rendered action pages by X-VoidPages (spa=%s)', async (spa) => {
     const c = await createTestContext('POST', '/users', {
-      headers: spa ? { 'x-voidpages': 'true' } : {},
+      headers: spa ? { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION } : {},
     });
     const response = await handlePageMutation(
       () => undefined,
@@ -691,7 +724,7 @@ describe('handlePageMutation', () => {
       mockGetAssetTags,
     );
     await response.text();
-    expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages');
+    expect(response.headers.get('Vary')).toBe('Accept-Language, X-VoidPages, X-VoidPages-Version');
   });
 
   it.each<Record<string, string>>([
@@ -757,7 +790,7 @@ describe('handlePageMutation', () => {
 
   it('void return — re-runs GET, returns fresh props', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const mutationHandler = vi.fn(() => undefined);
@@ -780,7 +813,7 @@ describe('handlePageMutation', () => {
 
   it('includes the request query string in mutation page object URLs', async () => {
     const c = await createTestContext('POST', '/users?page=2', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const response = await handlePageMutation(
@@ -799,7 +832,7 @@ describe('handlePageMutation', () => {
 
   it('Response redirect — passes through', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const redirect = new Response(null, {
@@ -824,7 +857,7 @@ describe('handlePageMutation', () => {
 
   it('ValidationError thrown — re-runs GET with errors', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const mutationHandler = vi.fn(() => {
@@ -851,7 +884,9 @@ describe('handlePageMutation', () => {
     'sends shared data the action updates (page JSON: %s)',
     async (pagesRequest) => {
       const c = await createTestContext('POST', '/users', {
-        headers: pagesRequest ? { 'x-voidpages': 'true' } : {},
+        headers: pagesRequest
+          ? { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+          : {},
         shared: { count: 2 },
       });
       const render = vi.fn(async (_page: { shared: unknown }) => '<html></html>');
@@ -877,7 +912,7 @@ describe('handlePageMutation', () => {
 
   it('keeps the shared data an action updated before a ValidationError', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       shared: { count: 2 },
     });
 
@@ -901,7 +936,7 @@ describe('handlePageMutation', () => {
 
   it('keeps the middleware shared data when the action leaves it alone', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       shared: { count: 2 },
     });
 
@@ -950,7 +985,7 @@ describe('handlePageMutation', () => {
 
   it('Response 400 (withValidator) — extracts errors, re-runs GET', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const validationResponse = Response.json(
@@ -994,7 +1029,7 @@ describe('handlePageMutation', () => {
     },
   ])('Response 400 with $name passes through unchanged', async ({ response, body }) => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     const getHandler = vi.fn(() => ({ users: [] }));
 
@@ -1022,7 +1057,7 @@ describe('handlePageMutation', () => {
   }>([
     {
       name: 'void action passes through a loader redirect',
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       action: () => undefined,
       loader: (c: CloudContext) => c.redirect('/posts'),
       status: 302,
@@ -1036,7 +1071,7 @@ describe('handlePageMutation', () => {
     },
     {
       name: 'ValidationError passes through a loader redirect',
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
       action: () => {
         throw new ValidationError({ title: 'required' });
       },
@@ -1064,7 +1099,7 @@ describe('handlePageMutation', () => {
 
   it('Response 204 (void from withValidator) — re-runs GET', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const voidResponse = new Response(null, { status: 204 });
@@ -1114,7 +1149,7 @@ describe('handlePageMutation', () => {
 
   it('re-throws non-ValidationError errors', async () => {
     const c = await createTestContext('POST', '/users', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const mutationHandler = vi.fn(() => {
@@ -1242,7 +1277,7 @@ describe('handlePageMutation', () => {
 describe('handlePageGet with deferred props', () => {
   it('SPA — streams NDJSON with immediate props first, then deferred', async () => {
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const handler = vi.fn(() => ({
@@ -1283,7 +1318,7 @@ describe('handlePageGet with deferred props', () => {
 
   it('SPA — streams null for a deferred resolver that returns undefined', async () => {
     const c = await createTestContext('GET', '/post', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const response = await handlePageGet(
@@ -1306,7 +1341,7 @@ describe('handlePageGet with deferred props', () => {
   it('SPA — dev streams the raw error for a failed deferred resolver', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const handler = vi.fn(() => ({
@@ -1343,7 +1378,7 @@ describe('handlePageGet with deferred props', () => {
   it('SPA — production streams a generic error and logs the original', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     const error = new Error('db 10.0.0.5 refused');
 
@@ -1401,7 +1436,7 @@ describe('handlePageGet with deferred props', () => {
   it('SPA — production keeps HTTPException messages for deferred props', async () => {
     const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     try {
@@ -1527,7 +1562,7 @@ describe('handlePageGet with deferred props', () => {
 
   it('deferred named group — resolves all keys together', async () => {
     const c = await createTestContext('GET', '/dashboard', {
-      headers: { 'x-voidpages': 'true' },
+      headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
 
     const analyticsResolver = () =>

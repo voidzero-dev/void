@@ -1,5 +1,6 @@
 import type { Page, Request } from 'playwright';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../packages/edge/src/pages-protocol.ts';
 import {
   decodePageData,
   deserializePageData,
@@ -458,6 +459,47 @@ export function registerSharedClientTests({
       await page.getByRole('heading', { name: 'Scroll restoration' }).waitFor();
       await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(3500);
       expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('hard-reloads a legacy navigation and resumes current-client navigation', async () => {
+    const page = await newPage();
+    let legacyRequests = 0;
+    const versions: Array<string | undefined> = [];
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    try {
+      await page.route('**/users', async (route) => {
+        const headers = route.request().headers();
+        if (headers['x-voidpages'] === 'true') {
+          versions.push(headers['x-voidpages-version']);
+          delete headers['x-voidpages-version'];
+          legacyRequests++;
+        }
+        await route.continue({ headers });
+      });
+      await page.goto(BASE + '/');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/users"]');
+      await page.waitForURL(BASE + '/users');
+      await waitForHydration(page);
+      expect(legacyRequests).toBeGreaterThan(0);
+      expect(versions.every((version) => version === PAGES_PROTOCOL_VERSION)).toBe(true);
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBeUndefined();
+      expect(await page.textContent('body')).toContain('Alice');
+      await page.unroute('**/users');
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/"]');
+      await page.waitForURL(BASE + '/');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+      expect(errors).toEqual([]);
     } finally {
       await page.context().close();
     }

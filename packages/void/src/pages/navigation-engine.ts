@@ -1,5 +1,6 @@
 /// <reference lib="dom" />
 
+import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import { searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { initClientHead, applyClientHead } from './head-client.ts';
@@ -560,6 +561,7 @@ export async function createPageNavigationEngine(
   function fetchPrefetchPageData(url: string): Promise<unknown> {
     const headers = {
       'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       Accept: 'application/json',
       Purpose: 'prefetch',
     };
@@ -668,6 +670,7 @@ export async function createPageNavigationEngine(
 
     const headers: Record<string, string> = {
       'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       Accept: 'application/json',
     };
     const fetchOptions: PageFetchOptions = { method, headers, signal };

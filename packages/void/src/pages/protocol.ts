@@ -1,3 +1,4 @@
+import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import type { Context } from 'hono';
 import { executeComposedHandler, getHandlerComposition } from '../runtime/handler-composition.ts';
 import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
@@ -88,11 +89,34 @@ function isPagesRequest(c: CloudContext): boolean {
   return c.req.header('x-voidpages') === 'true';
 }
 
+function needsPageReload(c: CloudContext): boolean {
+  return isPagesRequest(c) && c.req.header('X-VoidPages-Version') !== PAGES_PROTOCOL_VERSION;
+}
+
+/** Old clients reload a successful non-Pages response; form errors stay readable. */
+function legacyPageResponse(
+  c: CloudContext,
+  errors: Record<string, string> | null = null,
+): Response {
+  const headers = pageResponseHeaders(c, {
+    'Content-Type': errors ? 'application/json' : 'text/plain; charset=utf-8',
+    'Cache-Control': 'no-store',
+    Vary: 'X-VoidPages, X-VoidPages-Version',
+  });
+  headers.delete('X-VoidPages');
+  return new Response(errors ? JSON.stringify({ errors }) : null, {
+    status: errors ? 422 : 200,
+    headers,
+  });
+}
+
 function pageResponseHeaders(c: CloudContext, headers: Record<string, string>): Headers {
   const out = new Headers(c.res.headers);
   for (const [key, value] of Object.entries(headers)) {
     if (key.toLowerCase() === 'vary') {
-      appendVary(out, value);
+      for (const name of value.split(',')) {
+        appendVary(out, name.trim());
+      }
     } else {
       out.set(key, value);
     }
@@ -114,6 +138,7 @@ function appendVary(headers: Headers, name: string): void {
 function varyPagesResponse(c: CloudContext): void {
   const headers = new Headers(c.res.headers);
   appendVary(headers, 'X-VoidPages');
+  appendVary(headers, 'X-VoidPages-Version');
   c.header('Vary', headers.get('Vary')!);
 }
 
@@ -262,8 +287,9 @@ function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
   return new Response(serializePageData(pageObj), {
     headers: pageResponseHeaders(c, {
       'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       'Content-Type': 'application/json',
-      Vary: 'X-VoidPages',
+      Vary: 'X-VoidPages, X-VoidPages-Version',
       ...POWERED_BY,
     }),
   });
@@ -497,6 +523,10 @@ async function runPageGet(
 ): Promise<Response> {
   const renderMode = options?.renderMode ?? 'server';
 
+  if (renderMode !== 'island' && needsPageReload(c)) {
+    return legacyPageResponse(c);
+  }
+
   // Redirect/error responses from the loader are returned before rendering
   return runLoader(handler, c, async (props) => {
     // Read at render time so per-route middleware can set them before next()
@@ -576,6 +606,7 @@ async function runPageGet(
       }
       // Stream NDJSON: first line is PageObject, subsequent lines are deferred groups
       c.header('X-VoidPages', 'true');
+      c.header('X-VoidPages-Version', PAGES_PROTOCOL_VERSION);
       return streamDeferredResponse(
         serializePageData(pageObj) + '\n',
         deferredMap,
@@ -709,6 +740,9 @@ async function runPageMutation(
 
   /** Re-run the GET loader and respond with the page, optionally carrying validation errors. */
   async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
+    if (needsPageReload(c)) {
+      return legacyPageResponse(c, errors);
+    }
     try {
       return await runLoader(getHandler, c, async (props) => {
         const pageObj = buildMutationPageObj(stripDeferred(props), errors);

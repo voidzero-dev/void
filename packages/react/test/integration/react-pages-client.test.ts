@@ -18,6 +18,7 @@ import {
   defineSharedIslandHmrTests,
   defineSharedIslandTests,
 } from '../../../../test/pages-island-contract.ts';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { decodePageData, deserializePageData } from '../../../void/src/pages/serialize.ts';
 
 declare global {
@@ -1033,7 +1034,7 @@ describe('react-pages client (dev)', () => {
     expect(userHtml).toContain('<meta property="og:title" content="Alice">');
 
     const inertiaRoot = await fetch(`${DEV_BASE}/`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaRoot.status).toBe(200);
     expect(inertiaRoot.headers.get('X-VoidPages')).toBe('true');
@@ -1057,7 +1058,7 @@ describe('react-pages client (dev)', () => {
     );
 
     const inertiaUsers = await fetch(`${DEV_BASE}/users`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUsers.status).toBe(200);
     const usersPage = decodePageData(await inertiaUsers.json()) as {
@@ -1075,7 +1076,11 @@ describe('react-pages client (dev)', () => {
 
     const postValid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: 'Charlie', email: 'charlie@example.com' }),
     });
     expect(postValid.status).toBe(200);
@@ -1090,7 +1095,11 @@ describe('react-pages client (dev)', () => {
 
     const postInvalid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: '', email: '' }),
     });
     expect(postInvalid.status).toBe(200);
@@ -1105,7 +1114,7 @@ describe('react-pages client (dev)', () => {
     expect(invalidPage.props.users.length).toBeGreaterThanOrEqual(2);
 
     const inertiaUser = await fetch(`${DEV_BASE}/users/1`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUser.status).toBe(200);
     const userPage = decodePageData(await inertiaUser.json()) as {
@@ -1118,7 +1127,7 @@ describe('react-pages client (dev)', () => {
     expect(userPage.head.title).toBe('Alice | React Pages Demo');
 
     const inertiaCharlie = await fetch(`${DEV_BASE}/users/3`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaCharlie.status).toBe(200);
     const charliePage = decodePageData(await inertiaCharlie.json()) as {
@@ -1130,7 +1139,7 @@ describe('react-pages client (dev)', () => {
     expect(charliePage.props.user.email).toBe('charlie@example.com');
 
     const inertiaBlog = await fetch(`${DEV_BASE}/blog`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaBlog.status).toBe(200);
     expect(inertiaBlog.headers.get('content-type')).toContain('text/html');
@@ -1158,7 +1167,7 @@ describe('react-pages client (dev)', () => {
     expect(validBlog.success).toBe(true);
 
     const deferredInertia = await fetch(`${DEV_BASE}/deferred`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(deferredInertia.headers.get('content-type')).toContain('application/x-ndjson');
     const ndjsonText = await deferredInertia.text();
