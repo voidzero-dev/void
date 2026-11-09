@@ -109,45 +109,63 @@ export const action = (c) => c.json({ value: c.req.param(${JSON.stringify(name)}
       'about-title',
     );
   });
-  it('redirects to the page URL in dev and production and leaves API routes alone', async () => {
-    for (const { base, mode } of servers) {
-      const redirect = await fetch(`${base}/about?test=1`, { redirect: 'manual' });
-      expect([301, 307, 308], mode).toContain(redirect.status);
-      expect(new URL(redirect.headers.get('location')!, base).href, mode).toBe(
-        `${base}/about/?test=1`,
-      );
-      await redirect.text();
-      const page = await fetch(`${base}/about/`);
-      expect(page.status).toBe(200);
-      expect(await page.text()).toContain('about-title');
-      for (const [path, value] of [
-        ['posts/hello', 'hello'],
-        ['files/guides/intro', 'guides/intro'],
-      ]) {
-        const dynamicRedirect = await fetch(`${base}/${path}`, { redirect: 'manual' });
-        expect([301, 307, 308], `${mode}: ${path}`).toContain(dynamicRedirect.status);
-        await dynamicRedirect.text();
-        const dynamicPage = await fetch(`${base}/${path}/`);
-        expect(dynamicPage.status, `${mode}: ${path}`).toBe(200);
-        expect(await dynamicPage.text()).toContain(`<h1>${value}</h1>`);
+  it.each(['GET', 'HEAD'])(
+    'redirects %s to the page URL and leaves API routes alone',
+    async (method) => {
+      for (const { base, mode } of servers) {
+        const redirect = await fetch(`${base}/about?test=1`, { method, redirect: 'manual' });
+        expect([301, 307, 308], mode).toContain(redirect.status);
+        expect(new URL(redirect.headers.get('location')!, base).href, mode).toBe(
+          `${base}/about/?test=1`,
+        );
+        await redirect.text();
+        const page = await fetch(`${base}/about/`, { method });
+        expect(page.status).toBe(200);
+        const html = await page.text();
+        if (method === 'HEAD') {
+          expect(html).toBe('');
+        } else {
+          expect(html).toContain('about-title');
+        }
+        for (const [path, value] of [
+          ['posts/hello', 'hello'],
+          ['files/guides/intro', 'guides/intro'],
+        ]) {
+          const dynamicRedirect = await fetch(`${base}/${path}`, { method, redirect: 'manual' });
+          expect([301, 307, 308], `${mode}: ${path}`).toContain(dynamicRedirect.status);
+          await dynamicRedirect.text();
+          const dynamicPage = await fetch(`${base}/${path}/`, { method });
+          expect(dynamicPage.status, `${mode}: ${path}`).toBe(200);
+          const html = await dynamicPage.text();
+          if (method === 'HEAD') {
+            expect(html).toBe('');
+          } else {
+            expect(html).toContain(`<h1>${value}</h1>`);
+          }
+        }
+        const api = await fetch(`${base}/api/hello`, { method, redirect: 'manual' });
+        expect(api.status).toBe(200);
+        await api.text();
       }
-      const api = await fetch(`${base}/api/hello`, { redirect: 'manual' });
-      expect(api.status).toBe(200);
-      await api.text();
-    }
-  });
-  it('keeps public files accessible beside a catch-all page', async () => {
-    for (const { base, mode } of servers) {
-      for (const file of ['asset.js', 'favicon.ico', 'LICENSE']) {
-        const response = await fetch(`${base}/${file}`, { redirect: 'manual' });
-        expect(response.status, `${mode}: ${file}`).toBe(200);
-        expect(await response.text(), `${mode}: ${file}`).toBe('public file');
+    },
+  );
+  it.each(['GET', 'HEAD'])(
+    'keeps public files accessible to %s beside a catch-all page',
+    async (method) => {
+      for (const { base, mode } of servers) {
+        for (const file of ['asset.js', 'favicon.ico', 'LICENSE']) {
+          const response = await fetch(`${base}/${file}`, { method, redirect: 'manual' });
+          expect(response.status, `${mode}: ${file}`).toBe(200);
+          expect(await response.text(), `${mode}: ${file}`).toBe(
+            method === 'HEAD' ? '' : 'public file',
+          );
+        }
+        const html = await fetch(`${base}/terms.html`, { method });
+        expect(html.status, mode).toBe(200);
+        expect(await html.text(), mode).toBe(method === 'HEAD' ? '' : 'public file');
       }
-      const html = await fetch(`${base}/terms.html`);
-      expect(html.status, mode).toBe(200);
-      expect(await html.text(), mode).toBe('public file');
-    }
-  });
+    },
+  );
   it('preserves catch-all parameters in actions and supports empty anonymous catch-alls', async () => {
     for (const { base, mode } of servers) {
       const action = await fetch(`${base}/files/guides/intro/`, {

@@ -177,7 +177,16 @@ export function createPagesFallback(options: {
     ) {
       const url = new URL(c.req.url);
       url.pathname += '/';
-      const index = await assets.fetch(new Request(url, c.req.raw));
+      // Node adapters can expose Request wrappers whose native getters cannot
+      // be read as RequestInit. Copy only what this GET/HEAD probe needs.
+      const index = await assets.fetch(
+        new Request(url, {
+          method: c.req.method,
+          headers: c.req.raw.headers,
+          redirect: c.req.raw.redirect,
+          signal: c.req.raw.signal,
+        }),
+      );
       directoryIndex = index.status === 200;
       await index.body?.cancel();
     }
