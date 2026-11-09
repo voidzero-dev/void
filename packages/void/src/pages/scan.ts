@@ -371,7 +371,7 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
         ROUTE_EXTENSIONS.some((ext) => existsSync(join(pagesDir, `${base}.server.${ext}`))) ||
         deriveFromSource(join(pagesDir, file), 'page-boundary-layout', (source) =>
           scriptBlocks(source, file).some((script) =>
-            staticExportInitializers(script.filename, script.source, new Set(['layout'])).has(
+            readStaticExports(script.filename, script.source, new Set(['layout'])).initializers.has(
               'layout',
             ),
           ),
