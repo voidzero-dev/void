@@ -973,6 +973,24 @@ async function postWorkersApi(
   };
 }
 
+/** An error that keeps the first few reasons Cloudflare gave, so the user can act on them. */
+function workersApiFailure(action: string, response: { status: number; body: Json | null }): Error {
+  const errors = Array.isArray(response.body?.errors) ? response.body.errors : [];
+  const reasons = errors.slice(0, 3).flatMap((error: unknown) => {
+    if (!error || typeof error !== 'object') {
+      return [];
+    }
+    const { code, message } = error as Json;
+    if (typeof message !== 'string' || !message) {
+      return [];
+    }
+    return [`${typeof code === 'number' ? `code ${code}: ` : ''}${message.slice(0, 300)}`];
+  });
+  return new Error(
+    [`Cloudflare did not ${action} (HTTP ${response.status}).`, ...reasons].join('\n'),
+  );
+}
+
 function workerWithoutDeploymentMessage(worker: string): string {
   return [
     `Cloudflare Worker "${worker}" exists but has no deployment, so Void cannot set its secrets.`,
@@ -1011,7 +1029,7 @@ async function setSecretsOnWorkerWithoutCode(
     return result(1, '', workerWithoutDeploymentMessage(worker));
   }
   if (created.status !== 200 || created.body?.success !== true) {
-    throw new Error(`Cloudflare did not create the Worker (HTTP ${created.status}).`);
+    throw workersApiFailure('create the Worker', created);
   }
   const { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } =
     await import('@void/deploy-cloudflare');
@@ -1029,7 +1047,7 @@ async function setSecretsOnWorkerWithoutCode(
     annotations: { 'workers/message': VOID_SECRET_DRAFT_MESSAGE },
   });
   if (uploaded.status !== 200 || uploaded.body?.success !== true) {
-    throw new Error(`Cloudflare did not deploy the secret placeholder (HTTP ${uploaded.status}).`);
+    throw workersApiFailure('deploy the secret placeholder', uploaded);
   }
   return result(0);
 }

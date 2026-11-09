@@ -1,168 +1,27 @@
-import { execFile, spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
-import { createServer } from 'node:http';
-import type { AddressInfo } from 'node:net';
-import { tmpdir } from 'node:os';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer, type IncomingHttpHeaders } from 'node:http';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import {
   VOID_SECRET_DRAFT_MESSAGE,
   VOID_SECRET_DRAFT_SOURCE,
   type CloudflareOperation,
 } from '@void/deploy-cloudflare';
 import { expect, it } from 'vite-plus/test';
+import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
 import {
-  decodeCloudflareOperationResult,
-  encodeCloudflareOperation,
-} from '../../src/cli/cloudflare-process.ts';
-
-function runSecretBulk(
-  input: string,
-  options?: { preloadBody?: string; recordCallsPath?: string },
-) {
-  const directory = mkdtempSync(join(tmpdir(), 'void-cf-secret-bulk-test-'));
-  try {
-    const config = join(directory, 'wrangler.json');
-    const capture = join(directory, 'cf-args.json');
-    const bulkBody = join(directory, 'bulk-body.json');
-    const callLog = join(directory, 'cf-call-log.json');
-    const preload = join(directory, 'capture-cf.mjs');
-    writeFileSync(config, JSON.stringify({ name: 'my-worker', account_id: 'test-account' }));
-    writeFileSync(
-      preload,
-      options?.preloadBody ??
-        `import child from 'node:child_process';
-import { readFileSync, writeFileSync } from 'node:fs';
-import { syncBuiltinESMExports } from 'node:module';
-const originalSpawnSync = child.spawnSync.bind(child);
-child.spawnSync = (binary, args, options) => {
-  const isCfCli = Array.isArray(args) && typeof args[0] === 'string' && /(?:\\/|^)cf$/.test(args[0]);
-  if (!isCfCli) {
-    return originalSpawnSync(binary, args, options);
-  }
-  writeFileSync(process.env.VOID_TEST_CF_CAPTURE, JSON.stringify(args));
-  const fileIndex = args.indexOf('--file');
-  if (fileIndex >= 0) {
-    writeFileSync(process.env.VOID_TEST_BULK_BODY, readFileSync(args[fileIndex + 1], 'utf8'));
-  }
-  return { status: 0, stdout: '{}', stderr: '' };
-};
-syncBuiltinESMExports();
-`,
-    );
-    const entry = join(
-      import.meta.dirname,
-      '..',
-      '..',
-      'src',
-      'cli',
-      'cloudflare-operation-process.ts',
-    );
-    const operation: CloudflareOperation = {
-      type: 'secret.bulk',
-      configPath: config,
-      workerName: 'my-worker',
-    };
-    const child = spawnSync(
-      process.execPath,
-      ['--import', pathToFileURL(preload).href, entry, ...encodeCloudflareOperation(operation)],
-      {
-        env: {
-          ...process.env,
-          VOID_TEST_CF_CAPTURE: capture,
-          VOID_TEST_BULK_BODY: bulkBody,
-          VOID_TEST_CALL_LOG: callLog,
-          CLOUDFLARE_ACCOUNT_ID: 'test-account',
-        },
-        encoding: 'utf8',
-        input,
-      },
-    );
-    const result = decodeCloudflareOperationResult({
-      status: child.status,
-      stdout: child.stdout,
-      stderr: child.stderr,
-    });
-    return {
-      cfArgs: existsSync(capture)
-        ? (JSON.parse(readFileSync(capture, 'utf8')) as Array<string>).slice(1)
-        : undefined,
-      bulkPayload: existsSync(bulkBody)
-        ? (JSON.parse(readFileSync(bulkBody, 'utf8')) as unknown)
-        : undefined,
-      calls: existsSync(callLog)
-        ? (JSON.parse(readFileSync(callLog, 'utf8')) as Array<string>)
-        : [],
-      result,
-    };
-  } finally {
-    rmSync(directory, { recursive: true, force: true });
-  }
-}
-
-it('wraps Workers secrets bulk payload in a secrets object', () => {
-  const { cfArgs, bulkPayload, result } = runSecretBulk(
-    JSON.stringify({ ONE: 'first', TWO: 'second' }),
-  );
-  expect(result.status, result.stderr).toBe(0);
-  expect(cfArgs!.slice(0, -1)).toEqual([
-    'workers',
-    'secrets',
-    'bulk',
-    '--worker',
-    'my-worker',
-    '--file',
-  ]);
-  expect(cfArgs!.at(-1)).toMatch(/body\.json$/);
-  expect(bulkPayload).toEqual({
-    secrets: {
-      ONE: { type: 'secret_text', text: 'first' },
-      TWO: { type: 'secret_text', text: 'second' },
-    },
-  });
-});
+  listen,
+  runOperation,
+  temporaryDirectory,
+  tokenEnv,
+} from '../helpers/cloudflare-operation-process.ts';
 
 type CfReply = { status: number; stdout?: string; stderr?: string };
 type ApiReply = { status: number; body: unknown };
+type CfCall = { label: string; file?: string };
 
-/**
- * Run a secret operation with cf replaced by scripted replies (matched by command prefix, in call
- * order) and the Cloudflare API served by a local server.
- */
-async function runSecretScenario(options: {
-  operation: CloudflareOperation;
-  input: string;
-  cf: Record<string, Array<CfReply>>;
-  api?: (method: string, path: string) => ApiReply;
-  env?: Record<string, string>;
-}) {
-  const directory = mkdtempSync(join(tmpdir(), 'void-cf-secret-create-test-'));
-  const apiCalls: Array<{ method: string; path: string; body: unknown }> = [];
-  const apiHeaders: Array<Record<string, unknown>> = [];
-  const server = createServer(async (request, response) => {
-    let text = '';
-    for await (const chunk of request) {
-      text += chunk;
-    }
-    const method = request.method ?? '';
-    const path = (request.url ?? '').replace('/client/v4/accounts/test-account', '');
-    apiCalls.push({ method, path, body: text ? JSON.parse(text) : undefined });
-    apiHeaders.push(request.headers);
-    const reply = options.api?.(method, path) ?? { status: 500, body: { success: false } };
-    response.writeHead(reply.status, { 'Content-Type': 'application/json' });
-    response.end(JSON.stringify(reply.body));
-  });
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  try {
-    const config = join(directory, 'wrangler.json');
-    const preload = join(directory, 'scripted-cf.mjs');
-    const callLog = join(directory, 'cf-calls.json');
-    const script = join(directory, 'cf-script.json');
-    writeFileSync(config, JSON.stringify({ name: 'my-worker', account_id: 'test-account' }));
-    writeFileSync(script, JSON.stringify(options.cf));
-    writeFileSync(
-      preload,
-      `import child from 'node:child_process';
+// Replaces cf with replies scripted by command prefix, served in call order. Each call is logged
+// with the contents of its `--file` argument, which cf would read before the scratch file goes.
+const SCRIPTED_CF = `import child from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
 const originalSpawnSync = child.spawnSync.bind(child);
@@ -171,76 +30,72 @@ child.spawnSync = (binary, args, options) => {
     return originalSpawnSync(binary, args, options);
   }
   const label = args.slice(1).join(' ');
-  const calls = existsSync(process.env.VOID_TEST_CALL_LOG)
-    ? JSON.parse(readFileSync(process.env.VOID_TEST_CALL_LOG, 'utf8'))
-    : [];
-  calls.push(label);
-  writeFileSync(process.env.VOID_TEST_CALL_LOG, JSON.stringify(calls));
+  const fileIndex = args.indexOf('--file');
+  const log = process.env.VOID_TEST_CALL_LOG;
+  const calls = existsSync(log) ? JSON.parse(readFileSync(log, 'utf8')) : [];
+  calls.push({ label, ...(fileIndex >= 0 ? { file: readFileSync(args[fileIndex + 1], 'utf8') } : {}) });
+  writeFileSync(log, JSON.stringify(calls));
   const script = JSON.parse(readFileSync(process.env.VOID_TEST_CF_SCRIPT, 'utf8'));
   const prefix = Object.keys(script).find((key) => label.startsWith(key));
   if (!prefix) {
     return { status: 1, stdout: '', stderr: 'Unscripted cf call: ' + label };
   }
-  const seen = calls.filter((call) => call.startsWith(prefix)).length;
+  const seen = calls.filter((call) => call.label.startsWith(prefix)).length;
   const replies = script[prefix];
   return { stdout: '', stderr: '', ...replies[Math.min(seen, replies.length) - 1] };
 };
 syncBuiltinESMExports();
-`,
-    );
-    const entry = join(
-      import.meta.dirname,
-      '..',
-      '..',
-      'src',
-      'cli',
-      'cloudflare-operation-process.ts',
-    );
-    const port = (server.address() as AddressInfo).port;
-    const child = await new Promise<{ status: number | null; stdout: string; stderr: string }>(
-      (resolve) => {
-        const spawned = execFile(
-          process.execPath,
-          [
-            '--import',
-            pathToFileURL(preload).href,
-            entry,
-            ...encodeCloudflareOperation({ ...options.operation, configPath: config }),
-          ],
-          {
-            env: {
-              PATH: process.env.PATH,
-              SYSTEMROOT: process.env.SYSTEMROOT,
-              CI: 'true',
-              CLOUDFLARE_API_TOKEN: 'synthetic-token',
-              CLOUDFLARE_ACCOUNT_ID: 'test-account',
-              CLOUDFLARE_API_BASE_URL: `http://127.0.0.1:${port}/client/v4`,
-              VOID_TEST_CALL_LOG: callLog,
-              VOID_TEST_CF_SCRIPT: script,
-              ...options.env,
-            },
-            encoding: 'utf8',
-            timeout: 20_000,
-          },
-          (error, stdout, stderr) =>
-            resolve({ status: error ? Number(error.code) || 1 : 0, stdout, stderr }),
-        );
-        spawned.stdin!.end(options.input);
-      },
-    );
-    return {
-      result: decodeCloudflareOperationResult(child),
-      cfCalls: existsSync(callLog)
-        ? (JSON.parse(readFileSync(callLog, 'utf8')) as Array<string>)
-        : [],
-      apiCalls,
-      apiHeaders,
-    };
-  } finally {
-    server.close();
-    server.closeAllConnections();
-    rmSync(directory, { recursive: true, force: true });
-  }
+`;
+
+/** Run a secret operation with scripted cf replies and the Cloudflare API on a local server. */
+async function runSecretScenario(options: {
+  operation: CloudflareOperation;
+  input: string;
+  cf: Record<string, Array<CfReply>>;
+  api?: (method: string, path: string) => ApiReply;
+  env?: NodeJS.ProcessEnv;
+}) {
+  const directory = temporaryDirectory('void-cf-secret-test-');
+  const apiCalls: Array<{ method: string; path: string; body: unknown }> = [];
+  const apiHeaders: Array<IncomingHttpHeaders> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let text = '';
+      for await (const chunk of request) {
+        text += chunk;
+      }
+      const method = request.method ?? '';
+      const path = (request.url ?? '').replace('/client/v4/accounts/test-account', '');
+      apiCalls.push({ method, path, body: text ? JSON.parse(text) : undefined });
+      apiHeaders.push(request.headers);
+      const reply = options.api?.(method, path) ?? { status: 500, body: { success: false } };
+      response.writeHead(reply.status, { 'Content-Type': 'application/json' });
+      response.end(JSON.stringify(reply.body));
+    }),
+  );
+  const config = join(directory, 'wrangler.json');
+  const preload = join(directory, 'scripted-cf.mjs');
+  const callLog = join(directory, 'cf-calls.json');
+  const script = join(directory, 'cf-script.json');
+  writeFileSync(config, JSON.stringify({ name: 'my-worker', account_id: 'test-account' }));
+  writeFileSync(script, JSON.stringify(options.cf));
+  writeFileSync(preload, SCRIPTED_CF);
+  const child = await runOperation(
+    directory,
+    { ...options.operation, configPath: config },
+    {
+      ...tokenEnv(api),
+      VOID_TEST_CALL_LOG: callLog,
+      VOID_TEST_CF_SCRIPT: script,
+      ...options.env,
+    },
+    preload,
+    options.input,
+  );
+  const cfCalls: Array<CfCall> = existsSync(callLog)
+    ? (JSON.parse(readFileSync(callLog, 'utf8')) as Array<CfCall>)
+    : [];
+  return { result: decodeCloudflareOperationResult(child), cfCalls, apiCalls, apiHeaders };
 }
 
 const putOperation: CloudflareOperation = {
@@ -276,6 +131,25 @@ function workersApi(replies: { create: ApiReply; upload?: ApiReply }) {
     return { status: 500, body: {} };
   };
 }
+
+it('wraps Workers secrets bulk payload in a secrets object', async () => {
+  const { result, cfCalls } = await runSecretScenario({
+    operation: bulkOperation,
+    input: JSON.stringify({ ONE: 'first', TWO: 'second' }),
+    cf: { 'workers secrets bulk': [ok] },
+  });
+  expect(result.status, result.stderr).toBe(0);
+  expect(cfCalls).toHaveLength(1);
+  expect(cfCalls[0]!.label).toMatch(
+    /^workers secrets bulk --worker my-worker --file \S+body\.json$/,
+  );
+  expect(JSON.parse(cfCalls[0]!.file!)).toEqual({
+    secrets: {
+      ONE: { type: 'secret_text', text: 'first' },
+      TWO: { type: 'secret_text', text: 'second' },
+    },
+  });
+});
 
 const isUpload = (call: { method: string; path: string }) =>
   call.method === 'POST' && call.path.endsWith('/versions?deploy=true');
@@ -322,7 +196,7 @@ it('sets the secret on a Worker deployed after the 10007 without deploying the p
     api: workersApi({ create: exists }),
   });
   expect(result.status, result.stderr).toBe(0);
-  expect(cfCalls.filter((call) => call.startsWith('workers secrets update'))).toHaveLength(2);
+  expect(cfCalls.filter((call) => call.label.startsWith('workers secrets update'))).toHaveLength(2);
   expect(apiCalls.some(isUpload)).toBe(false);
 });
 
@@ -374,6 +248,15 @@ it('sends the API token when a Global API Key is also set, as cf does', async ()
 it.each([
   ['the Worker create returns an error status', { create: { status: 500, body: {} } }],
   [
+    'the Worker create is refused',
+    {
+      create: {
+        status: 403,
+        body: { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+      },
+    },
+  ],
+  [
     'the Worker create returns an unsuccessful body',
     { create: { status: 200, body: { success: false } } },
   ],
@@ -398,10 +281,20 @@ it('returns a non-zero status when the placeholder deploy fails after Worker 100
     operation: bulkOperation,
     input: JSON.stringify({ ONE: 'first' }),
     cf: { 'workers secrets bulk': [missing] },
-    api: workersApi({ create: success, upload: { status: 400, body: { success: false } } }),
+    api: workersApi({
+      create: success,
+      upload: {
+        status: 400,
+        body: {
+          success: false,
+          errors: [{ code: 10021, message: 'Invalid compatibility_date "2025-13-01".' }],
+        },
+      },
+    }),
   });
   expect(result.status).toBe(1);
-  expect(result.stderr).toContain('Cloudflare did not deploy the secret placeholder');
+  expect(result.stderr).toContain('Cloudflare did not deploy the secret placeholder (HTTP 400).');
+  expect(result.stderr).toContain('code 10021: Invalid compatibility_date "2025-13-01".');
   expect(apiCalls.filter(isUpload)).toHaveLength(1);
 });
 
@@ -427,7 +320,7 @@ it('sets bulk secrets on a Worker deployed after the 10007 without deploying the
     api: workersApi({ create: exists }),
   });
   expect(result.status, result.stderr).toBe(0);
-  expect(cfCalls.filter((call) => call.startsWith('workers secrets bulk'))).toHaveLength(2);
+  expect(cfCalls.filter((call) => call.label.startsWith('workers secrets bulk'))).toHaveLength(2);
   expect(apiCalls.some(isUpload)).toBe(false);
 });
 
