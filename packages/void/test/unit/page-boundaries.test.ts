@@ -141,6 +141,8 @@ describe('Pages loader boundary protocol', () => {
       app.use('*', async (c, next) => {
         c.set('shared', { viewer: 'alice' });
         c.header('X-Security', 'retained');
+        c.header('Cache-Control', 'public, max-age=3600');
+        c.header('Vary', 'Accept-Language');
         await next();
       });
       app.get(
@@ -173,6 +175,8 @@ describe('Pages loader boundary protocol', () => {
       expect(response.status).toBe(kind === 'unexpected' ? 500 : 404);
       expect(response.headers.get('X-VoidPages')).toBe('true');
       expect(response.headers.get('Cache-Control')).toBe('no-store');
+      expect(response.headers.get('Vary')).toContain('Accept-Language');
+      expect(response.headers.get('Vary')).toContain('X-VoidPages-Version');
       expect(response.headers.get('X-Security')).toBe('retained');
       expect(response.headers.has('ETag')).toBe(false);
       if (kind === 'returned') {
@@ -188,6 +192,44 @@ describe('Pages loader boundary protocol', () => {
       });
     },
   );
+  it('keeps both middleware and thrown not-found response cookies', async () => {
+    const app = new Hono();
+    app.use('*', async (c, next) => {
+      c.header('Set-Cookie', 'middleware=yes; HttpOnly');
+      c.header('Cache-Control', 'public, max-age=3600');
+      c.header('Vary', 'Accept-Language');
+      await next();
+    });
+    app.get(
+      '/',
+      createPageGetHandler({
+        componentId: 'index',
+        load: async () => ({
+          loader: () => {
+            throw new HTTPException(404, {
+              res: new Response('Missing', {
+                status: 404,
+                headers: { 'Set-Cookie': 'loader=yes; HttpOnly' },
+              }),
+            });
+          },
+        }),
+        render: async () => '<main>Missing</main>',
+        assets: async () => ({ css: '', body: '', preloads: '' }),
+        headConfig: null,
+        renderOptions: { boundaries: { notFound: 'missing', errors: [] } },
+      }),
+    );
+    const response = await app.request('https://app.test/');
+    expect(response.status).toBe(404);
+    expect(response.headers.get('Cache-Control')).toBe('no-store');
+    expect(response.headers.get('Vary')).toContain('Accept-Language');
+    expect(response.headers.get('Vary')).toContain('X-VoidPages-Version');
+    expect(response.headers.getSetCookie().sort()).toEqual([
+      'loader=yes; HttpOnly',
+      'middleware=yes; HttpOnly',
+    ]);
+  });
 });
 
 describe('boundary recovery failures', () => {

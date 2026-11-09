@@ -406,6 +406,9 @@ async function renderPageFailure(
   if (!candidates?.[0]) {
     return undefined;
   }
+  if (options?.renderMode !== 'island') {
+    varyPagesResponse(c);
+  }
   let status = notFound ? 404 : 500;
   let message = notFound
     ? httpError && error instanceof Error
@@ -482,6 +485,12 @@ async function renderPageFailure(
         c.header(key, undefined);
       }
       headers.set('Cache-Control', 'no-store');
+      // Hono merges its current headers into the returned Response at finalization.
+      c.header('Cache-Control', 'no-store');
+      c.header('Set-Cookie', undefined);
+      for (const cookie of headers.getSetCookie()) {
+        c.header('Set-Cookie', cookie, { append: true });
+      }
       if (original) {
         await original.body?.cancel();
       }

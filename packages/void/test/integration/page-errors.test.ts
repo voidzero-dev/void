@@ -113,6 +113,9 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
       write(`pages/_error.${extension}`, component('<h1>Error page</h1><p>{{error.message}}</p>'));
     }
     write(`pages/items/[id].${extension}`, component('<h1>Item</h1>'));
+    for (const name of ['falsy', 'island-falsy.island']) {
+      write(`pages/${name}.${extension}`, component('<h1>Broken view</h1>', 'throw undefined;'));
+    }
     write(
       'pages/items/[id].server.ts',
       `import { defineHandler } from 'void/handler'; import { HTTPException } from 'hono/http-exception'; export const loader = defineHandler(c=>{const id=c.req.param('id'); if(id==='returned') return c.notFound(); if(id==='thrown') throw new HTTPException(404,{message:'Deleted item'}); if(id==='unexpected') throw Object.assign(new Error('SECRET_SERVER_MARKER'),{secret:'SECRET_CUSTOM_MARKER'}); return {};});`,
@@ -278,11 +281,19 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
         }
       }
     }
-    for (const path of ['/nested/server', '/nested/deep/server', '/nested/layout']) {
+    for (const path of [
+      '/nested/server',
+      '/nested/deep/server',
+      '/nested/layout',
+      '/falsy',
+      '/island-falsy',
+    ]) {
       const document = await fetch(base + path);
       expect(document.status, path).toBe(500);
       const html = await document.text();
-      expect(html).toContain(path.endsWith('/layout') ? 'Error page' : 'Nested error');
+      expect(html).toContain(
+        path.endsWith('/layout') || path.includes('falsy') ? 'Error page' : 'Nested error',
+      );
       expect(html).not.toContain('SECRET_');
     }
     const response = await fetch(base + '/api/missing');
@@ -506,6 +517,8 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
       'pages/client-only.' + extension,
       'pages/client-only.server.ts',
       'pages/items',
+      'pages/falsy.' + extension,
+      'pages/island-falsy.island.' + extension,
     ]) {
       rmSync(join(fixture.root, path), { recursive: true, force: true });
     }

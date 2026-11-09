@@ -235,9 +235,9 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
   });
 
   let renderFailure;
-  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= error; };
+  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
   const html = await renderToString(app);
-  if (renderFailure) throw renderFailure;
+  if (renderFailure) throw renderFailure.error;
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
