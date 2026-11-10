@@ -307,6 +307,7 @@ export function generateRouteTypes(
   lines.push('');
   lines.push('  type ActionFormBaseOptions = {');
   lines.push('    resetOnSuccess?: boolean;');
+  lines.push('    throwOnError?: boolean;');
   lines.push('  };');
   lines.push('');
   lines.push('  export type ActionFormOptions<U extends string> = ActionFormBaseOptions &');

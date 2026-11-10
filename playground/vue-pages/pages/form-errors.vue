@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { Form, useForm } from '@void/vue';
-const form = useForm('/form-errors', { email: '', name: '', profile: { name: '' }, tags: [] });
+const form = useForm(
+  '/form-errors',
+  { email: '', name: '', profile: { name: '' }, tags: [] },
+  { throwOnError: false },
+);
 
 function setErrors() {
   form.setError('email', 'Email invalid');
@@ -24,6 +28,7 @@ function editEmail(event: Event) {
 <template>
   <Form :form="form">
     <output data-testid="errors">{{ JSON.stringify(form.errors) }}</output>
+    <output data-testid="action-error">{{ form.error?.status ?? '' }}</output>
     <label>Email<input :value="form.data.email" @input="editEmail" /></label>
     <label>Name<input v-model="form.data.name" /></label>
     <label>Profile<input v-model="form.data.profile.name" /></label>

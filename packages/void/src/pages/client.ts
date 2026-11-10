@@ -7,6 +7,7 @@ import {
   VoidActionError,
   isAbortError,
   isCallSiteActionError,
+  isVoidActionError,
   type ActionResult,
 } from './action-result.ts';
 import {
@@ -283,6 +284,7 @@ export async function submitAction(
   router: VoidRouter,
   url: string,
   options: VisitOptions,
+  errorOptions?: { throwOnError?: boolean },
 ): Promise<ActionResult> {
   try {
     const pageData = await router.visit(url, options);
@@ -304,7 +306,10 @@ export async function submitAction(
     }
     return { ok: true, pageData: pageData as PageData };
   } catch (error) {
-    if (isCallSiteActionError(error)) {
+    if (
+      isCallSiteActionError(error) ||
+      (errorOptions?.throwOnError === false && isVoidActionError(error))
+    ) {
       return { ok: false, error };
     }
     throw error;

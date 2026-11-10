@@ -1,7 +1,11 @@
 import { Form, useForm } from '@void/react';
 
 export default function FormErrorsPage() {
-  const form = useForm('/form-errors', { email: '', name: '', profile: { name: '' }, tags: [] });
+  const form = useForm(
+    '/form-errors',
+    { email: '', name: '', profile: { name: '' }, tags: [] },
+    { throwOnError: false },
+  );
 
   function setErrors() {
     form.setError('email', 'Email invalid');
@@ -17,6 +21,7 @@ export default function FormErrorsPage() {
   return (
     <Form form={form}>
       <output data-testid="errors">{JSON.stringify(form.errors)}</output>
+      <output data-testid="action-error">{form.error?.status ?? ''}</output>
       <label>
         Email
         <input

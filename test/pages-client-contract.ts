@@ -762,6 +762,56 @@ export function registerSharedClientTests({
       return page;
     }
 
+    it('keeps authentication and server failures inline and allows retrying with the draft intact', async () => {
+      const page = await openForm();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      let status = 401;
+      await page.route('**/form-errors', async (route) => {
+        if (route.request().method() !== 'POST' || status === 200) {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status,
+          contentType: 'application/json',
+          body: JSON.stringify({ errors: { email: 'Not a validation failure' } }),
+        });
+      });
+      try {
+        await page.getByLabel('Email', { exact: true }).fill('draft@example.com');
+        await page.getByLabel('Name', { exact: true }).fill('Keep this draft');
+        for (const failureStatus of [401, 403, 503]) {
+          status = failureStatus;
+          await page.getByRole('button', { name: 'Save', exact: true }).click();
+          await expect
+            .poll(() => page.getByTestId('action-error').textContent())
+            .toBe(String(status));
+          expect(await page.getByLabel('Email', { exact: true }).inputValue()).toBe(
+            'draft@example.com',
+          );
+          expect(await page.getByLabel('Name', { exact: true }).inputValue()).toBe(
+            'Keep this draft',
+          );
+          expect(await page.getByTestId('errors').textContent()).toBe('{}');
+        }
+        status = 200;
+        const retry = page.waitForResponse(
+          (response) =>
+            response.url() === BASE + '/form-errors' && response.request().method() === 'POST',
+        );
+        await page.getByRole('button', { name: 'Save', exact: true }).click();
+        expect((await retry).status()).toBe(200);
+        await expect
+          .poll(() => page.getByRole('button', { name: 'Save', exact: true }).isEnabled())
+          .toBe(true);
+        await expect.poll(() => page.getByTestId('action-error').textContent()).toBe('');
+        expect(errors).toEqual([]);
+      } finally {
+        await page.context().close();
+      }
+    });
+
     it('preserves new client validation errors and clears only edited fields', async ({
       expect,
     }) => {

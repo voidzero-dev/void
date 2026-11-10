@@ -154,6 +154,7 @@ The types are inferred from your action's `withValidator()` schema in the compan
 | `data` / `setData`               | Current form values, typed to match the action's body schema.                                                                                                                                            |
 | `errors`                         | Field-level validation errors, keys typed to body field names.                                                                                                                                           |
 | `error`                          | Action error, or `null`.                                                                                                                                                                                 |
+| `throwOnError` (option)          | Set to `false` to keep authentication and server failures in `form.error` instead of throwing them.                                                                                                      |
 | `post`, `put`, `patch`, `delete` | Submit the form with that method. In React these are native form action callbacks.                                                                                                                       |
 | `pending`                        | `true` while the submission is in flight.                                                                                                                                                                |
 | `hasChanges`                     | `true` if form data differs from the current defaults. After a successful submit, defaults update to the submitted values, so `hasChanges` becomes `false` unless the form was edited during the submit. |
@@ -301,7 +302,17 @@ A successful call returns `{ ok: true, pageData }`. Expected errors, such as val
 
 Expected errors such as `400`, `404`, `409`, `422`, and `429` stay with the form or action call. `useForm` stores them in `form.errors` or `form.error`; `action()` returns `{ ok: false, error }`.
 
-Authentication errors (`401`, `403`), server errors (`500`, `502`), and unexpected failures are thrown. Handle them with your framework's error boundary or error handling.
+By default, authentication errors (`401`, `403`) and server errors (`500`, `502`) are thrown. Handle them with your framework's error boundary or error handling.
+
+To handle all HTTP failures inline, pass `throwOnError: false` to `useForm()`. Validation errors still populate `form.errors`; other HTTP failures populate `form.error`, keeping the form and its input visible. The `Form` component displays the error automatically. In React, `onError` also receives these failures.
+
+```ts
+import { useForm } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+
+const form = useForm('/users', { name: '', email: '' }, { throwOnError: false });
+```
+
+Unexpected failures, such as network errors, still throw. Cancelled submissions do not set a form error.
 
 Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
 

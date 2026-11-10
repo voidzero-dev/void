@@ -13,6 +13,7 @@ import {
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
+  isCallSiteActionError,
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
@@ -65,6 +66,7 @@ type FormReturn<TData> = FormState<TData, 'setters'> &
 type FormOptions = {
   params?: Record<string, string>;
   resetOnSuccess?: boolean;
+  throwOnError?: boolean;
   preserveScroll?: boolean;
   onSuccess?: () => void | Promise<void>;
   onError?: (error: Record<string, string> | VoidActionError) => void | Promise<void>;
@@ -116,12 +118,17 @@ export function useForm(
       try {
         // Params are filled in on submit, so a param that would change the
         // request path (such as "..") fails this submit, not the page render.
-        result = await submitAction(router, interpolateRouteParams(url, options?.params), {
-          method: payload.method,
-          data: payload.snapshot,
-          preserveScroll: options?.preserveScroll,
-          _resolveOnShell: true,
-        });
+        result = await submitAction(
+          router,
+          interpolateRouteParams(url, options?.params),
+          {
+            method: payload.method,
+            data: payload.snapshot,
+            preserveScroll: options?.preserveScroll,
+            _resolveOnShell: true,
+          },
+          options,
+        );
       } catch (submitError) {
         if (isAbortError(submitError)) {
           return { status: 'idle', defaults: previousOutcome.defaults };
@@ -130,7 +137,9 @@ export function useForm(
       }
 
       if (!result.ok) {
-        const validationErrors = getValidationErrors(result.error.body);
+        const validationErrors = isCallSiteActionError(result.error)
+          ? getValidationErrors(result.error.body)
+          : null;
         if (validationErrors) {
           return runErrorCallback(
             {

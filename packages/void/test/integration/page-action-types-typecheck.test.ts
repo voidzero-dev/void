@@ -103,8 +103,8 @@ function typecheck(pages: Array<PageDefinition>, files: Record<string, string>) 
 
 // The same constraint every adapter's useForm puts on its URL.
 const useForm = [
-  "import type { ActionUrl, ResolveActionBody } from 'void/routes';",
-  'declare function useForm<U extends ActionUrl & string>(url: U, body: ResolveActionBody<U>): void;',
+  "import type { ActionFormOptions, ActionUrl, ResolveActionBody } from 'void/routes';",
+  'declare function useForm<U extends ActionUrl & string>(url: U, body: ResolveActionBody<U>, options?: ActionFormOptions<U>): void;',
 ];
 
 it('accepts query parameters on generated named action URLs without losing body or route params', () => {
@@ -117,6 +117,9 @@ export const actions = { save: defineHandler.withValidator({ body })(() => ({ ok
         ...useForm,
         "import type { ParseActionUrl, ResolveActionParams } from 'void/routes';",
         "useForm('/contact/[id]?save&tab=profile&page=2', { title: 'Saved' });",
+        "useForm('/contact/[id]?save', { title: 'Saved' }, { params: { id: '1' }, throwOnError: false });",
+        '// @ts-expect-error the error-handling option is boolean',
+        "useForm('/contact/[id]?save', { title: 'Saved' }, { params: { id: '1' }, throwOnError: 'false' });",
         "useForm('/contact/:id?save&tab=profile', { title: 'Saved' });",
         "const name: ParseActionUrl<'/contact/[id]?save&tab=profile'>['action'] = 'save';",
         "const params: ResolveActionParams<'/contact/[id]?save&tab=profile'> = { id: '1' };",

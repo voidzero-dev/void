@@ -109,6 +109,55 @@ async function submitPost(form: TestForm) {
 }
 
 describe('useForm callbacks', () => {
+  it.each([401, 403, 503])(
+    'keeps HTTP %s inline with input intact and calls onError when throwing is disabled',
+    async (status) => {
+      const failure = new VoidActionError({
+        body: { errors: { title: 'Not a validation failure' } },
+        status,
+        statusText: '',
+        url: actionUrl,
+      });
+      const onError = vi.fn();
+      const onCaughtError = vi.fn();
+      let form!: TestForm;
+      class Boundary extends Component<{ children: ReactNode }, { failed: boolean }> {
+        state = { failed: false };
+        static getDerivedStateFromError() {
+          return { failed: true };
+        }
+        render() {
+          return this.state.failed ? 'Boundary replaced the form' : this.props.children;
+        }
+      }
+      function App() {
+        form = useForm(actionUrl, { title: 'Keep this draft' }, { throwOnError: false, onError });
+        return createElement('div', null, form.data.title);
+      }
+      const container = await mountApp(
+        createElement(
+          RouterContext.Provider,
+          {
+            value: routerWithVisit(async () => {
+              throw failure;
+            }),
+          },
+          createElement(Boundary, null, createElement(App)),
+        ),
+        { onCaughtError },
+      );
+
+      await submitPost(form);
+
+      expect(onCaughtError).not.toHaveBeenCalled();
+      expect(onError).toHaveBeenCalledExactlyOnceWith(failure);
+      expect(form.error).toBe(failure);
+      expect(form.errors).toEqual({});
+      expect(form.pending).toBe(false);
+      expect(container.textContent).toBe('Keep this draft');
+    },
+  );
+
   it.each([true, false])('forwards preserveScroll: %s from useForm()', async (preserveScroll) => {
     const visit = vi.fn(async () => ({}));
     const { formRef } = await mountForm(visit, { preserveScroll });

@@ -6,6 +6,7 @@ import {
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
+  isCallSiteActionError,
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
@@ -35,7 +36,7 @@ export function useForm<U extends ActionUrl & string>(
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean; throwOnError?: boolean },
 ): FormReturn<Record<string, unknown>> {
   const router = useContext(RouterContext);
   // ErrorsContext provides the errors signal accessor — a reactive function
@@ -143,18 +144,25 @@ export function useForm(
 
       // Params are filled in on submit, so a param that would change the
       // request path (such as "..") fails this submit, not the page render.
-      const result = await submitAction(router, interpolateRouteParams(url, options?.params), {
-        method,
-        data: submittedData,
-        ...opts,
-      });
+      const result = await submitAction(
+        router,
+        interpolateRouteParams(url, options?.params),
+        {
+          method,
+          data: submittedData,
+          ...opts,
+        },
+        options,
+      );
       // A newer submit owns the form's state, even if this one still completed.
       if (requestId !== latestRequestId) {
         return;
       }
 
       if (!result.ok) {
-        const validationErrors = getValidationErrors(result.error.body);
+        const validationErrors = isCallSiteActionError(result.error)
+          ? getValidationErrors(result.error.body)
+          : null;
         if (validationErrors) {
           replaceErrors(validationErrors);
         } else {

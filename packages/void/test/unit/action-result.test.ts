@@ -107,23 +107,58 @@ describe('action result handling', () => {
     expect(result).toEqual({ ok: false, error });
   });
 
-  it('throws structurally equivalent boundary action errors', async () => {
-    const error = {
-      body: 'Boom',
-      message: 'Action failed with 500 Internal Server Error',
-      name: 'VoidActionError',
-      status: 500,
-      statusText: 'Internal Server Error',
-      url: '/users',
-    } as VoidActionError;
-    const router = routerWithVisit(
-      vi.fn(async () => {
-        throw error;
-      }),
-    );
+  it.each([undefined, true])(
+    'throws structurally equivalent boundary action errors with throwOnError: %s',
+    async (throwOnError) => {
+      const error = {
+        body: 'Boom',
+        message: 'Action failed with 500 Internal Server Error',
+        name: 'VoidActionError',
+        status: 500,
+        statusText: 'Internal Server Error',
+        url: '/users',
+      } as VoidActionError;
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
 
-    await expect(submitAction(router, '/users', { method: 'POST' })).rejects.toBe(error);
-  });
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError }),
+      ).rejects.toBe(error);
+    },
+  );
+
+  it.each([401, 403, 405, 428, 500, 503])(
+    'returns HTTP %s inline when throwing is disabled',
+    async (status) => {
+      const error = new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
+
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError: false }),
+      ).resolves.toEqual({ ok: false, error });
+    },
+  );
+
+  it.each([new Error('Network failed'), new DOMException('Aborted', 'AbortError')])(
+    'still throws non-action errors with throwing disabled ($name)',
+    async (error) => {
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError: false }),
+      ).rejects.toBe(error);
+    },
+  );
 
   it('recognizes action errors at every status', () => {
     for (const status of [401, 403, 409, 422, 500]) {

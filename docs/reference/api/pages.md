@@ -327,3 +327,5 @@ See [Markdown Pages](../../guide/pages-routing/markdown.md) for setup and framew
 ## Form
 
 Each Pages adapter exports `Form`. Pass the object returned by `useForm()` as `form`; `method` defaults to `post`. It renders validation and action errors, preserves controlled input, and respects known quota retry deadlines without submitting automatically. `renderError` customizes action-error presentation; Svelte uses a snippet. See [Actions and Forms](../../guide/pages-routing/actions-and-forms.md).
+
+All four adapters accept `{ throwOnError: false }` in the third argument to `useForm()`. Authentication and server HTTP failures then populate `form.error` instead of throwing; validation failures still populate `form.errors`. React also calls `onError`. Unexpected failures still throw, and cancelled submissions do not set a form error. The default HTTP error handling is unchanged. See [handling action errors](../../guide/pages-routing/actions-and-forms.md#validation-errors).
