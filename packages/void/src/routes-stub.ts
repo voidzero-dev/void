@@ -56,9 +56,9 @@ export type RewriteDestination = RouteName | (string & {});
 /** Stub interface for page action types — augmented by generated routes.d.ts */
 export interface PageActionMap {}
 
-/** Parse "/path?action" into base path and action name */
+/** Parse "/path?action&key=value" into base path and action name. */
 export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer Action}`
-  ? { base: Base; action: Action }
+  ? { base: Base; action: Action extends `${infer Name}&${string}` ? Name : Action }
   : { base: U; action: never };
 
 /** Resolve body type for a useForm URL (single action or named action) */
@@ -110,7 +110,7 @@ export type ActionFormOptions<U extends string> = ActionFormBaseOptions &
 type PageActionUrl<K extends string, P> = P extends { body: unknown }
   ? K
   : P extends { actions: infer A }
-    ? `${K}?${keyof A & string}`
+    ? `${K}?${keyof A & string}${'' | `&${string}`}`
     : never;
 
 /** Valid useForm URLs — single-action pages + "page?name" combos + default actions */

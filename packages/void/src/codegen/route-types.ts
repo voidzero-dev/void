@@ -258,7 +258,7 @@ export function generateRouteTypes(
     '  export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer Action}` ? {',
   );
   lines.push('    base: Base;');
-  lines.push('    action: Action;');
+  lines.push('    action: Action extends `${infer Name}&${string}` ? Name : Action;');
   lines.push('  } : {');
   lines.push('    base: U;');
   lines.push('    action: never;');
@@ -281,7 +281,7 @@ export function generateRouteTypes(
   lines.push('  type PageActionUrl<K extends string, P> = P extends { body: any }');
   lines.push('    ? K');
   lines.push('    : P extends { actions: infer A }');
-  lines.push('      ? `${K}?${keyof A & string}`');
+  lines.push("      ? `${K}?${keyof A & string}${'' | `&${string}`}`");
   lines.push('      : never;');
   lines.push('');
   lines.push('  export type ResolveActionBody<U extends string> =');

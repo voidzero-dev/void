@@ -78,12 +78,14 @@ function typecheck(pages: Array<PageDefinition>, files: Record<string, string>) 
         allowImportingTsExtensions: true,
         paths: {
           void: [join(voidDist, 'index.d.mts')],
-          'void/routes': [join(voidDist, 'routes-stub.d.mts')],
+          // Shipped helper aliases must not hide defects in the generated helpers.
+          'void/routes': [join(root, 'routes-base.d.ts')],
         },
       },
       files: ['.void/routes.d.ts', 'check.ts'],
     }),
     '.void/routes.d.ts': dts,
+    'routes-base.d.ts': 'export {};',
     ...files,
   };
   for (const [path, content] of Object.entries(all)) {
@@ -104,6 +106,34 @@ const useForm = [
   "import type { ActionUrl, ResolveActionBody } from 'void/routes';",
   'declare function useForm<U extends ActionUrl & string>(url: U, body: ResolveActionBody<U>): void;',
 ];
+
+it('accepts query parameters on generated named action URLs without losing body or route params', () => {
+  const result = typecheck(
+    [{ ...page('dev', ['actions']), pattern: '/contact/:id', params: ['id'] }],
+    {
+      'pages/contact.dev.server.ts': `${schema('{ title: string }')}
+export const actions = { save: defineHandler.withValidator({ body })(() => ({ ok: true })) };`,
+      'check.ts': [
+        ...useForm,
+        "import type { ParseActionUrl, ResolveActionParams } from 'void/routes';",
+        "useForm('/contact/[id]?save&tab=profile&page=2', { title: 'Saved' });",
+        "useForm('/contact/:id?save&tab=profile', { title: 'Saved' });",
+        "const name: ParseActionUrl<'/contact/[id]?save&tab=profile'>['action'] = 'save';",
+        "const params: ResolveActionParams<'/contact/[id]?save&tab=profile'> = { id: '1' };",
+        '// @ts-expect-error the body remains typed',
+        "useForm('/contact/[id]?save&tab=profile', { title: 1 });",
+        '// @ts-expect-error only declared actions are accepted',
+        "useForm('/contact/[id]?remove&tab=profile', { title: 'Saved' });",
+        '// @ts-expect-error route parameters remain typed',
+        "const wrongParams: ResolveActionParams<'/contact/[id]?save&tab=profile'> = { other: '1' };",
+        '// @ts-expect-error the first query segment is the action name',
+        "useForm('/contact/[id]?tab=profile&save', { title: 'Saved' });",
+      ].join('\n'),
+    },
+  );
+  expect(result.stdout + result.stderr).toBe('');
+  expect(result.status).toBe(0);
+});
 
 describe('page action types for a .dev + .prod page pair', () => {
   it('accepts the body of each page when the two bodies differ', () => {
