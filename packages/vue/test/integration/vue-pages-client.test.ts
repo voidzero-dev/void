@@ -137,6 +137,21 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     }
   });
 
+  it('renders an optional typed prop during navigation that preserves page state', async () => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/optional-props/first');
+      await waitForHydration(page);
+      await page.getByLabel('Draft').fill('Keep this draft');
+      await page.getByRole('link', { name: 'Show note' }).click();
+      await page.getByText('Optional note', { exact: true }).waitFor();
+      expect(await page.locator('#optional-props').getAttribute('note')).toBeNull();
+      expect(await page.getByLabel('Draft').inputValue()).toBe('Keep this draft');
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('hydrates without Vue warnings', async () => {
     const page = await newPage();
     const warnings: Array<string> = [];
