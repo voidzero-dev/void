@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { VoidRouter } from 'void/pages-client';
 import { createSSRApp, defineComponent, h, nextTick } from 'vue';
 import { renderToString } from 'vue/server-renderer';
@@ -222,6 +222,10 @@ function validationResponse(errors: Record<string, string>): Response {
     headers: { 'Content-Type': 'application/json' },
   });
 }
+
+beforeEach(() => {
+  vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

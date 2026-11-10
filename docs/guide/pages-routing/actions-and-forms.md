@@ -203,6 +203,12 @@ If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 
 
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
+### Query parameters after submission
+
+An action or form that posts to the current page keeps the page's query parameters. From `/items?page=2&search=foo`, `action('/items?vote')` posts to `/items?vote&page=2&search=foo`, so the action and loader see `page` and `search`. The URL, scroll position, and history entry stay as they are. A parameter written in the action URL takes precedence over the page's: `action('/items?vote&page=1')` posts with `page=1`.
+
+A redirect from the action does not receive the page's query parameters. To clear them after an action, return `c.redirect('/items')`.
+
 ### Scroll after submission
 
 Actions and forms keep the current scroll position when updating the page in place. Redirects and submissions that open another page scroll to the top, or to the destination's hash target.
@@ -248,7 +254,7 @@ export const actions = {
 };
 ```
 
-Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
+Named actions use a `?actionName` suffix, such as `/users/42?update`. `useForm` and `action()` handle this automatically. After a POST action renders the page or uses a default `c.redirect()`, the page URL keeps the action URL's ordinary query parameters: `/users/42?update&tab=profile` becomes `/users/42?tab=profile`. See [redirect query parameters](../../reference/api/rewrites.md#c-rewrite-destination) for redirects that preserve the request method.
 
 Use `action` or `actions` in a file, not both.
 

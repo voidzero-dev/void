@@ -10,6 +10,7 @@ const form = useForm('/scroll-restoration?touch', {});
     <h1>Scroll restoration</h1>
     <p>Scroll down, follow a link, then use the browser Back button.</p>
     <output data-testid="scroll-request">{{ requestId }}</output>
+    <output data-testid="scroll-page">{{ page }}</output>
     <section v-for="row in 80" :key="row" :data-testid="`scroll-row-${row}`" style="height: 120px">
       <h2 style="margin: 0">Row {{ row }}</h2>
       <a href="/users">Go to Users</a>

@@ -1,7 +1,7 @@
 /// <reference lib="dom" />
 
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
-import { searchWithoutActionKey } from './action-key.ts';
+import { PRESERVED_QUERY_HEADER, searchWithoutActionKey } from './action-key.ts';
 import { createActionErrorFromResponse, isAbortError } from './action-result.ts';
 import { pageBoundarySlots, clientPageError, showTerminalPageError } from './boundary-client.ts';
 import type { BoundaryManifest } from './boundary-plans.ts';
@@ -66,6 +66,8 @@ export type VisitOptions = {
   _popstate?: boolean;
   /** @internal Used by router.refresh() to refetch the current URL even when it has a hash */
   _refresh?: boolean;
+  /** @internal Used by actions: the page query they added to the URL, which redirects leave out */
+  _preservedQuery?: string;
 };
 
 export type PrefetchOptions = {
@@ -712,6 +714,9 @@ export async function createPageNavigationEngine(
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       Accept: 'application/json',
     };
+    if (options._preservedQuery && method !== 'GET') {
+      headers[PRESERVED_QUERY_HEADER] = options._preservedQuery;
+    }
     const fetchOptions: PageFetchOptions = { method, headers, signal };
 
     if (options.data && method !== 'GET') {

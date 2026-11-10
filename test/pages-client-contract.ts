@@ -108,18 +108,19 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
-  it('keeps action and form scroll in place, with resets for overrides and redirects', async ({
+  it('keeps the page query and scroll for actions and forms, with resets for overrides and redirects', async ({
     expect,
   }) => {
     const page = await newPage();
     try {
       await page.setViewportSize({ width: 1280, height: 800 });
-      await page.goto(BASE + '/scroll-restoration');
+      await page.goto(BASE + '/scroll-restoration?page=2');
       await waitForHydration(page);
       await page.evaluate(() => {
         (window as TestWindow).__SPA_MARKER = true;
       });
       const row = page.getByTestId('scroll-row-30');
+      const historyLength = await page.evaluate(() => history.length);
       for (const [button, preserved] of [
         ['Update action', true],
         ['Update form', true],
@@ -141,8 +142,15 @@ export function registerSharedClientTests({
           (scrollY) => Math.abs(window.scrollY - scrollY) < 0.5,
           preserved ? before : 0,
         );
+        if (button !== 'Redirect action') {
+          expect(page.url()).toBe(BASE + '/scroll-restoration?page=2');
+          expect(await page.getByTestId('scroll-page').textContent()).toBe('2');
+          expect(await page.evaluate(() => history.length)).toBe(historyLength);
+        }
       }
+      // The page query only re-renders the page in place; a redirect does not carry it.
       expect(page.url()).toBe(BASE + '/scroll-restoration?redirected=1');
+      expect(await page.getByTestId('scroll-page').textContent()).toBe('');
       expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
     } finally {
       await page.context().close();
