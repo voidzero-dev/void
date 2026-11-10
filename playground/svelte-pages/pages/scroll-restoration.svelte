@@ -1,7 +1,7 @@
 <script lang="ts">
   import { action, Form, Link, useForm } from "@void/svelte";
   import type { Props } from "./scroll-restoration.server.ts";
-  let { requestId }: Props = $props();
+  let { requestId, page }: Props = $props();
   const form = useForm("/scroll-restoration?touch", {});
   const rows = Array.from({ length: 80 }, (_, index) => index + 1);
 </script>
@@ -10,6 +10,7 @@
   <h1>Scroll restoration</h1>
   <p>Scroll down, follow a link, then use the browser Back button.</p>
   <output data-testid="scroll-request">{requestId}</output>
+  <output data-testid="scroll-page">{page}</output>
   {#each rows as row (row)}
     <section data-testid={`scroll-row-${row}`} style="height: 120px">
       <h2 style="margin: 0">Row {row}</h2>

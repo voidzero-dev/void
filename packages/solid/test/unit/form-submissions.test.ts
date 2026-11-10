@@ -1,5 +1,5 @@
 import { createComponent, createRoot } from 'solid-js';
-import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { VoidRouter } from 'void/pages-client';
 import { RouterContext } from '../../src/runtime/context.ts';
 import { useForm as typedUseForm } from '../../src/runtime/use-form.ts';
@@ -52,6 +52,10 @@ function validationResponse(errors: Record<string, string>): Response {
 }
 
 const disposers: Array<() => void> = [];
+
+beforeEach(() => {
+  vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
+});
 
 afterEach(() => {
   vi.unstubAllGlobals();

@@ -928,6 +928,44 @@ describe('typed Pages and SSR execution', () => {
       expect(response.headers.get('location')).toBe(location);
     });
 
+    it.each([
+      ['/named?delete&page=2', 'page=2', 'a redirect', '/named'],
+      ['/named?update&tab=a&page=2&q=x', 'page=2&q=x', 'a 303 redirect', '/named?tab=a'],
+      ['/named?move&page=2', 'page=2', 'a 307 redirect', '/named-v2?move'],
+      ['/named?moveTab&page=2', 'page=2', 'a 307 redirect', '/named-v2?moveTab&tab=details'],
+      ['/named?delete&page=2', 'page=2', 'middleware', '/login'],
+      ['/named?go&page=2', 'page=2', 'a rewrite', '/done'],
+      ['/named?delete&page=2', 'page=3', 'a redirect', '/named?page=2'],
+    ])(
+      'POST %s that preserves %s through %s redirects to %s',
+      async (path, preserved, through, location) => {
+        const response = await createNamedActionApp().fetch(
+          new Request('https://app.test' + path, {
+            method: path.includes('update') ? 'PUT' : 'POST',
+            headers: {
+              'X-VoidPages-Preserved-Query': preserved,
+              ...(through === 'middleware' ? { 'x-anon': '1' } : {}),
+            },
+          }),
+        );
+        expect(response.headers.get('location')).toBe(location);
+      },
+    );
+
+    it('keeps the preserved query in the page URL when the action renders the page again', async () => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test/named?save&page=2', {
+          method: 'POST',
+          headers: {
+            'x-voidpages': 'true',
+            'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+            'X-VoidPages-Preserved-Query': 'page=2',
+          },
+        }),
+      );
+      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+    });
+
     it('marks the request for a one-argument middleware that answers first', async () => {
       const app = new Hono();
       const runtime = createRoutingRuntime(app, { nodeTarget: true });

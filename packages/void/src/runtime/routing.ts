@@ -11,10 +11,13 @@ import type { TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RouteDestination, RouteUrlInput } from 'void/routes';
 import {
+  PRESERVED_QUERY_HEADER,
   actionKeySegment,
   hasActionKey,
   markActionKey,
+  queryKey,
   searchWithoutActionKey,
+  searchWithoutPreservedQuery,
 } from '../pages/action-key.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { VoidAssetRewriteError, type CloudContext } from './handler.ts';
@@ -325,7 +328,11 @@ function redirectLocation(
   status: RedirectStatusCode | undefined,
 ): string {
   const url = new URL(request.url);
-  const search = url.search;
+  // The page query that action() added only re-renders the page in place.
+  const search = searchWithoutPreservedQuery(
+    url.search,
+    request.headers.get(PRESERVED_QUERY_HEADER),
+  );
   if (!hasActionKey(request)) {
     return mergeQueryIntoLocation(location, search);
   }
@@ -375,10 +382,6 @@ function redirectLocation(
   return (
     base.slice(0, q === -1 ? base.length : q) + '?' + first + (rest ? '&' + rest : '') + fragment
   );
-}
-
-function queryKey(segment: string): string | undefined {
-  return new URLSearchParams(segment).keys().next().value;
 }
 
 /** A rewrite that keeps the query keeps the action key in it too. */

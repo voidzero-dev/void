@@ -11,6 +11,7 @@ export default function ScrollRestorationPage(props: Props) {
       <h1>Scroll restoration</h1>
       <p>Scroll down, follow a link, then use the browser Back button.</p>
       <output data-testid="scroll-request">{props.requestId}</output>
+      <output data-testid="scroll-page">{props.page}</output>
       <For each={rows}>
         {(row) => (
           <section data-testid={`scroll-row-${row}`} style={{ height: '120px' }}>

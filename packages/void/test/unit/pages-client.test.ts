@@ -424,6 +424,34 @@ describe('createVoidRouter', () => {
     },
   );
 
+  it('keeps the page query, scroll and history entry for an in-place action', async () => {
+    stubClientGlobals();
+    window.location.pathname = '/editor';
+    window.location.search = '?page=2&search=foo';
+    window.scrollY = 1800;
+    const fetch = vi.fn(async () =>
+      pageJson({ component: 'home', props: {}, url: '/editor?page=2&search=foo', errors: null }),
+    );
+    vi.stubGlobal('fetch', fetch);
+    const { router } = await createTestRouter();
+
+    await submitAction(router, '/editor?save', { method: 'POST' });
+
+    expect(fetch).toHaveBeenCalledWith(
+      '/editor?save&page=2&search=foo',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-VoidPages-Preserved-Query': 'page=2&search=foo' }),
+      }),
+    );
+    expect(window.scrollTo).not.toHaveBeenCalled();
+    expect(history.pushState).not.toHaveBeenCalled();
+    expect(history.replaceState).toHaveBeenCalledWith(
+      expect.anything(),
+      '',
+      '/editor?page=2&search=foo',
+    );
+  });
+
   it.each([
     ['/editor', false, undefined],
     ['/destination', false, undefined],

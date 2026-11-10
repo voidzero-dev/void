@@ -1,5 +1,5 @@
 import { HTTPException } from 'hono/http-exception';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
 import {
   VoidActionError,
@@ -45,6 +45,13 @@ function routerWithVisit(visit: VoidRouter['visit']): VoidRouter {
     flushAll: vi.fn(),
   };
 }
+
+function stubLocation(pathname: string, search = '') {
+  vi.stubGlobal('window', { location: { pathname, search } });
+}
+
+beforeEach(() => stubLocation('/'));
+afterEach(() => vi.unstubAllGlobals());
 
 describe('action result handling', () => {
   it('categorizes expected client errors as call-site errors', () => {
@@ -313,6 +320,64 @@ describe('action clients', () => {
       ok: false,
       error: { status: 422, body: { errors: { name: 'Required' } } },
     });
+  });
+});
+
+describe('the page query', () => {
+  it.each([
+    ['/items?vote', '/items?vote&page=2&search=foo', 'page=2&search=foo'],
+    ['/items', '/items?page=2&search=foo', 'page=2&search=foo'],
+    ['/items?', '/items?page=2&search=foo', 'page=2&search=foo'],
+    ['/items?vote&page=3', '/items?vote&page=3&search=foo', 'search=foo'],
+    ['/items?vote&page=3&search=bar', '/items?vote&page=3&search=bar', undefined],
+    ['/items?vote#row-1', '/items?vote&page=2&search=foo#row-1', 'page=2&search=foo'],
+    ['/items/1?vote', '/items/1?vote', undefined],
+    ['/other?vote', '/other?vote', undefined],
+  ])('posts %s from /items?page=2&search=foo to %s', async (url, requested, preserved) => {
+    stubLocation('/items', '?page=2&search=foo');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), url, { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith(requested, {
+      method: 'POST',
+      ...(preserved === undefined ? {} : { _preservedQuery: preserved }),
+    });
+  });
+
+  it('keeps encoded parameters as the page sent them', async () => {
+    stubLocation('/items', '?q=a+b%26c&&tag=x%20y');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), '/items?vote&tag=z', { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith('/items?vote&tag=z&q=a+b%26c', {
+      method: 'POST',
+      _preservedQuery: 'q=a+b%26c',
+    });
+  });
+
+  it('leaves the URL alone on a page without a query', async () => {
+    stubLocation('/items');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), '/items?vote', { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith('/items?vote', { method: 'POST' });
+  });
+
+  it('adds the page query to an action() call on the current page', async () => {
+    stubLocation('/__action-test/users/a%2Fb', '?tab=profile');
+    const client = createActionClient();
+    const visit = vi.fn(async () => ({ props: {} }));
+    client.setActionRouter(routerWithVisit(visit));
+
+    await client.action('/__action-test/users/:id?save', { params: { id: 'a/b' } });
+
+    expect(visit).toHaveBeenCalledWith(
+      '/__action-test/users/a%2Fb?save&tab=profile',
+      expect.objectContaining({ _preservedQuery: 'tab=profile' }),
+    );
   });
 });
 

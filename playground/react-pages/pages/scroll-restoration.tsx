@@ -2,13 +2,14 @@ import { action, Form, Link, useForm } from '@void/react';
 import { startTransition } from 'react';
 import type { Props } from './scroll-restoration.server.ts';
 
-export default function ScrollRestorationPage({ requestId }: Props) {
+export default function ScrollRestorationPage({ requestId, page }: Props) {
   const form = useForm('/scroll-restoration?touch', {});
   return (
     <div>
       <h1>Scroll restoration</h1>
       <p>Scroll down, follow a link, then use the browser Back button.</p>
       <output data-testid="scroll-request">{requestId}</output>
+      <output data-testid="scroll-page">{page}</output>
       {Array.from({ length: 80 }, (_, index) => {
         const row = index + 1;
         return (
