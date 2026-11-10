@@ -474,6 +474,14 @@ export function compileRouteTable(
     lines.push('');
   }
 
+  const trackAssetMisses = !options.nodeTarget && !managedDispatch;
+  const registerNotFound = (handler: string): void => {
+    const tracked = trackAssetMisses ? `__routingRuntime.trackNotFound(${handler})` : handler;
+    lines.push(`app.notFound(${tracked});`);
+  };
+  if (trackAssetMisses) {
+    lines.push('app.notFound(__routingRuntime.trackNotFound());');
+  }
   if (
     pages &&
     (scan.pages.pages.length > 0 ||
@@ -484,8 +492,8 @@ export function compileRouteTable(
     const pagePatterns = options.trailingSlash
       ? `[${scan.pages.pages.map((page) => patternToRegex(page.pattern)).join(', ')}]`
       : 'undefined';
-    lines.push(
-      `app.notFound(__createPagesFallback({ ${createBoundaryManifest(scan.pages).root ? 'pageNotFound: __voidRootNotFound, ' : ''}routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, trailingSlash: ${options.trailingSlash === true}, pagePatterns: ${pagePatterns} }));`,
+    registerNotFound(
+      `__createPagesFallback({ ${createBoundaryManifest(scan.pages).root ? 'pageNotFound: __voidRootNotFound, ' : ''}routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, trailingSlash: ${options.trailingSlash === true}, pagePatterns: ${pagePatterns} })`,
     );
   }
 
@@ -495,8 +503,8 @@ export function compileRouteTable(
     lines.push(
       `const getClientAssetTags = __createClientAssetTags(${JSON.stringify({ entryId: ssr.clientEntryRelativePath, entryUrl: '/' + ssr.clientEntryRelativePath, kind: 'ssr', dev: options.dev === true, reactRefresh: options.reactRefresh })});`,
     );
-    lines.push(
-      `app.notFound(__createSsrFallback({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, load: () => import(${JSON.stringify(ssr.serverEntryPath)}), assets: getClientAssetTags }));`,
+    registerNotFound(
+      `__createSsrFallback({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, load: () => import(${JSON.stringify(ssr.serverEntryPath)}), assets: getClientAssetTags })`,
     );
   } else if (
     emitEdgeRules &&
@@ -511,8 +519,8 @@ export function compileRouteTable(
         ))
     )
   ) {
-    lines.push(
-      `app.notFound(__createAssetNotFound({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} }));`,
+    registerNotFound(
+      `__createAssetNotFound({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} })`,
     );
   }
 

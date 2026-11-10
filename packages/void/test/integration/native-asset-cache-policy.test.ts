@@ -162,6 +162,16 @@ beforeAll(async () => {
     join(assets, '.vite/manifest.json'),
     JSON.stringify({ ...manifest, stable: stableEntry }),
   );
+  mkdirSync(join(assets, 'api'));
+  writeFileSync(join(assets, 'api/data.json'), '{"static":"api"}');
+  mkdirSync(join(assets, 'api/files'));
+  writeFileSync(join(assets, 'api/files/open.json'), '{"static":"api miss"}');
+  writeFileSync(join(assets, 'api/files/hidden.json'), '{"static":"hidden"}');
+  writeFileSync(join(assets, 'api/files/probe.json'), '{"static":"probe"}');
+  writeFileSync(join(assets, 'api/files/clone.json'), '{"static":"clone"}');
+  writeFileSync(join(assets, 'rewrite-miss'), 'rewrite asset');
+  mkdirSync(join(assets, 'files'));
+  writeFileSync(join(assets, 'files/open.json'), '{"static":"open"}');
   mkdirSync(join(assets, 'static'), { recursive: true });
   for (const file of ['app-settings.json', 'client.js', 'page-abcdefgh.html']) {
     writeFileSync(
@@ -194,11 +204,35 @@ beforeAll(async () => {
         ] }]));
         app.get('/health', (c) => c.text('healthy', 200, { 'cache-control': 'private, no-store' }));
       }
-      app.notFound(mode === 'pages'
+      app.notFound(routing.trackNotFound(mode === 'pages'
         ? createPagesFallback({ routing, assetsDir: 'static', errors: createErrorRenderer({ projectRoot: '/fixture', homeDir: '/home' }) })
         : mode === 'ssr'
           ? createSsrFallback({ routing, assetsDir: 'static', load: async () => ({ render: () => new Response('document') }), assets: async () => ({ css: '', body: '', preloads: '' }) })
-          : createAssetNotFound({ routing, assetsDir: 'static' }));
+          : createAssetNotFound({ routing, assetsDir: 'static' })));
+      if (mode === 'pages') {
+        app.use('/rewrite-miss', async (c, next) => {
+          c.res.headers.set('X-Previous-Header', 'present');
+          await next();
+          c.header('X-Route-Probe', 'configured');
+        });
+        app.get('/rewrite-miss', (c) => c.rewrite('/api/no-route/missing'));
+        app.use('/api/files/clone.json', async (c, next) => {
+          await next();
+          c.header('X-Route-Probe', 'configured');
+          c.res = c.res.clone();
+        });
+        app.use('/api/files/probe.json', async (c, next) => {
+          await c.rewrite('/api/probe');
+          await next();
+        });
+        app.use('/api/files/hidden.json', async (c, next) => {
+          await next();
+          if (c.res.status === 404) {
+            c.res = c.text('Hidden', 404);
+          }
+        });
+        app.get('/api/:name', (c) => c.json({ error: 'missing' }, 404));
+      }
       apps[mode] = app;
     }
     const outer = createAssetFallback({ assetsDir: 'static' });
@@ -214,6 +248,9 @@ beforeAll(async () => {
         return Response.json({ immutable, originalContentType: original.headers.get('content-type'), resultContentType: result.headers.get('content-type'), originalPolicy: original.headers.get('cache-control'), resultPolicy: result.headers.get('cache-control'), body: [...new Uint8Array(await result.arrayBuffer())] });
       }
       const mode = url.searchParams.get('mode') ?? 'pages';
+      if (mode === 'native') {
+        return outer(request, env, await apps.pages.fetch(request, env, context));
+      }
       return mode === 'outer'
         ? outer(request, env, new Response('not found', { status: 404 }))
         : apps[mode].fetch(request, env, context);
@@ -745,3 +782,25 @@ describe('native output: "static" pages in real Workers', () => {
     await response.arrayBuffer();
   });
 });
+
+it.each(['GET', 'HEAD'])(
+  'preserves intentional 404s and serves real asset misses for %s',
+  async (method) => {
+    const cases = [
+      ['/api/data.json', 404, '{"error":"missing"}'],
+      ['/api/files/hidden.json', 404, 'Hidden'],
+      ['/api/files/open.json', 200, '{"static":"api miss"}'],
+      ['/api/files/probe.json', 200, '{"static":"probe"}'],
+      ['/api/files/clone.json', 200, '{"static":"clone"}'],
+      ['/rewrite-miss', 200, 'rewrite asset'],
+      ['/files/open.json', 200, '{"static":"open"}'],
+    ] as const;
+    for (const [path, status, body] of cases) {
+      const response = await runtime!.dispatchFetch('https://app.test' + path + '?mode=native', {
+        method,
+      });
+      expect(response.status, path).toBe(status);
+      expect(await response.text(), path).toBe(method === 'GET' ? body : '');
+    }
+  },
+);
