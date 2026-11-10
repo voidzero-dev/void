@@ -49,45 +49,30 @@ it.each([
   async ({ method, fallback }) => {
     const page = await browser.newPage();
     const destination = '/dashboard?tab=traffic#details';
+    await page.route('**/dashboard?tab=traffic', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        body: JSON.stringify({
+          component: 'dashboard',
+          props: {},
+          params: {},
+          shared: {},
+          url: '/dashboard?tab=traffic',
+          errors: null,
+        }),
+      }),
+    );
     try {
       await page.goto(new URL(fallback ? '/' : '/?fallback=off', base).href);
       await page.locator('#app[data-hydrated="true"]').waitFor();
       await page.evaluate(
-        ({ destination, method, protocolVersion }) => {
-          // Exercise the data-ready reveal, without a network round trip racing its first frame.
-          const fetch = window.fetch;
-          window.fetch = (input, init) => {
-            const url = new URL(
-              input instanceof Request ? input.url : String(input),
-              location.href,
-            );
-            if (url.pathname + url.search !== '/dashboard?tab=traffic') {
-              return fetch(input, init);
-            }
-            return Promise.resolve(
-              new Response(
-                JSON.stringify({
-                  component: 'dashboard',
-                  props: {},
-                  params: {},
-                  shared: {},
-                  url: '/dashboard?tab=traffic',
-                  errors: null,
-                }),
-                {
-                  headers: {
-                    'Content-Type': 'application/json',
-                    'X-VoidPages': 'true',
-                    'X-VoidPages-Version': protocolVersion,
-                  },
-                },
-              ),
-            );
-          };
+        async ({ destination, method }) => {
           window.__navigationSnapshots = [];
           window.__navigateInAction(destination, method);
         },
-        { destination, method, protocolVersion: PAGES_PROTOCOL_VERSION },
+        { destination, method },
       );
       await page.waitForFunction(() => typeof window.__finishAction === 'function');
       await expect

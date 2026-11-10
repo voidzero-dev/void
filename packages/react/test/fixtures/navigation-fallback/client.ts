@@ -114,7 +114,24 @@ void startReactPages({
   router = client.router;
   window.__navigateInAction = (destination, method) => {
     React.startTransition(async () => {
-      await router.visit(destination, { method, _resolveOnShell: true });
+      // This fixture exercises the data-ready reveal. Hold its frame until the shell arrives,
+      // so network latency cannot select the separate network-bound fallback path.
+      const frames: Array<FrameRequestCallback> = [];
+      const requestFrame = window.requestAnimationFrame;
+      let navigation: ReturnType<VoidRouter['visit']>;
+      try {
+        window.requestAnimationFrame = (callback) => {
+          frames.push(callback);
+          return 0;
+        };
+        navigation = router.visit(destination, { method, _resolveOnShell: true });
+      } finally {
+        window.requestAnimationFrame = requestFrame;
+      }
+      await navigation;
+      for (const callback of frames) {
+        requestFrame.call(window, callback);
+      }
       await new Promise<void>((resolve) => {
         window.__finishAction = resolve;
       });

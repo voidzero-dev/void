@@ -762,7 +762,9 @@ export function registerSharedClientTests({
       return page;
     }
 
-    it('keeps authentication and server failures inline and allows retrying with the draft intact', async () => {
+    it('keeps authentication and server failures inline and allows retrying with the draft intact', async ({
+      expect,
+    }) => {
       const page = await openForm();
       const errors: Array<string> = [];
       page.on('pageerror', (error) => errors.push(error.message));
