@@ -46,8 +46,13 @@ export type { DrizzleD1Database } from 'drizzle-orm/d1';
  * Create a Drizzle D1 instance from a custom D1 binding.
  * Use this when you have multiple D1 databases or need a non-default binding.
  */
-export function createDb(d1: D1Database): DrizzleD1Database {
-  return _drizzle(d1.withSession('first-unconstrained') as unknown as D1Database);
+export function createDb(
+  d1: D1Database,
+  options?: { session?: D1SessionConstraint },
+): DrizzleD1Database {
+  return _drizzle(
+    d1.withSession(options?.session ?? 'first-unconstrained') as unknown as D1Database,
+  );
 }
 
 function createPrimaryDb(d1: D1Database): DrizzleD1Database {

@@ -36,6 +36,8 @@ import { createDb } from 'void/db';
 const db = createDb(env.MY_OTHER_DB);
 ```
 
+Pass `{ session: 'first-primary' }` to start the D1 session with a query on the primary, keeping your app's schema and query types. Create this client inside the request that needs a fresh read. The default is `'first-unconstrained'`, which allows the first query to use a replica. See [read replication](../../guide/database/d1.md#read-replication).
+
 For PostgreSQL and MySQL projects, pass a connection string.
 
 ```ts
@@ -48,7 +50,10 @@ const db = createDb('postgres://user:password@host:5432/app');
 
 ```ts
 // D1
-function createDb(d1: D1Database): DrizzleD1Database<Schema>;
+function createDb(
+  d1: D1Database,
+  options?: { session?: D1SessionConstraint },
+): DrizzleD1Database<Schema>;
 
 // PostgreSQL
 function createDb(connectionString: string): NodePgDatabase<Schema>;

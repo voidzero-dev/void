@@ -53,7 +53,10 @@ type ExecutableDbModule = {
     query(expectedOwner: string): Promise<number>;
     transaction<T>(callback: (tx: { instanceId: number }) => T | Promise<T>): Promise<T>;
   };
-  createDb(connectionString: string): ExecutableDbModule['db'];
+  createDb(
+    connectionString: string,
+    options?: { session?: D1SessionConstraint },
+  ): ExecutableDbModule['db'];
   withEnv<T>(env: Record<string, unknown>, callback: () => T): T;
 };
 
@@ -307,6 +310,21 @@ describe('drizzlePlugin db typing generation', () => {
     expect(state.clients[2]).toEqual({ constraint: 'first-unconstrained', owner: 'other' });
   });
 
+  it('lets an explicit D1 client start on primary without changing the default request session', async () => {
+    const { module, state } = await loadExecutableDbModule('sqlite');
+    const binding = { withSession: (constraint: string) => ({ constraint }) };
+
+    module.withEnv({ DB: binding }, () => {
+      module.createDb(binding as unknown as string, { session: 'first-primary' });
+      void module.db.instanceId;
+    });
+
+    expect(state.clients).toEqual([
+      { constraint: 'first-primary' },
+      { constraint: 'first-unconstrained' },
+    ]);
+  });
+
   it('uses a primary D1 session when a framework handler has no Void request scope', async () => {
     const { module, state } = await loadExecutableDbModule('sqlite');
     const previousEnv = (globalThis as Record<string, unknown>).__env__;
@@ -407,6 +425,8 @@ describe('drizzlePlugin db typing generation', () => {
 
     const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
     expect(dts).toContain('import type { DrizzleD1Database } from "void/_db";');
+    expect(dts).toContain('options?: { session?: D1SessionConstraint }');
+    expect(dts).toContain('): DrizzleD1Database<Schema>;');
     expect(dts).not.toContain('void/_db-pg');
   });
 

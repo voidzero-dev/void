@@ -168,6 +168,20 @@ describe('ProxyD1Database', () => {
   });
 
   describe('createDb()', () => {
+    it.each([
+      { options: undefined, constraint: 'first-unconstrained' },
+      { options: {}, constraint: 'first-unconstrained' },
+      { options: { session: 'first-primary' as const }, constraint: 'first-primary' },
+      { options: { session: 'first-unconstrained' as const }, constraint: 'first-unconstrained' },
+    ])('starts the requested D1 session ($constraint)', ({ options, constraint }) => {
+      const binding = new ProxyD1Database(createClient(), 'DB');
+      const withSession = vi.spyOn(binding, 'withSession');
+
+      createDb(binding as unknown as D1Database, options);
+
+      expect(withSession).toHaveBeenCalledExactlyOnceWith(constraint);
+    });
+
     it('runs Drizzle queries through the remote binding', async () => {
       const users = sqliteTable('users', { id: integer('id').primaryKey(), name: text('name') });
       const fetchMock = mockFetch({ columns: ['id', 'name'], results: [[1, 'Alice']] });

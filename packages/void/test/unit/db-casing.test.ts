@@ -24,7 +24,10 @@ type Db = {
   insert(table: unknown): { values(row: Record<string, unknown>): PromiseLike<unknown> };
   $client: { end(): Promise<void> };
 };
-type DbModule = { db: Db; createDb(client: unknown): Db };
+type DbModule = {
+  db: Db;
+  createDb(client: unknown, options?: { session?: D1SessionConstraint }): Db;
+};
 
 const roots: Array<string> = [];
 // The generated module imports the built runtime env; tests share the source one.
@@ -129,6 +132,9 @@ describe('void/db with database.casing', () => {
       // Outside a request, such as in a cron job or at startup, `db` reads from the primary.
       expect(await envContext.run({ DB: binding }, () => db.select().from(users))).toEqual([ADA]);
       expect(await createDb(binding).select().from(users)).toEqual([ADA]);
+      expect(await createDb(binding, { session: 'first-primary' }).select().from(users)).toEqual([
+        ADA,
+      ]);
       expect(
         (await binding.prepare('SELECT first_name, created_at FROM users').all()).results,
       ).toEqual([{ first_name: 'Ada', created_at: 1815 }]);
