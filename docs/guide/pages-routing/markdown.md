@@ -195,7 +195,6 @@ export default function DocsLayout({ children }) {
 import { useFrontmatter } from '@void/md';
 
 const fm = useFrontmatter();
-// fm.title, fm.description, etc.
 </script>
 
 <template>
