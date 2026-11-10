@@ -14,6 +14,7 @@
     "reka-ui": "catalog:",
     "vitepress": "2.0.0-alpha.20",
     "vitepress-plugin-group-icons": "catalog:",
+    "vitepress-plugin-llms": "catalog:",
     "void": "workspace:*",
     "vue": "catalog:",
     "wrangler": "catalog:"

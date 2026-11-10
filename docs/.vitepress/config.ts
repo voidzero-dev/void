@@ -1,7 +1,65 @@
 import type { IconOption } from '@voidzero-dev/vitepress-theme';
 import { extendConfig } from '@voidzero-dev/vitepress-theme/config';
-import { defineConfig } from 'vitepress';
+import { defineConfig, type DefaultTheme } from 'vitepress';
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons';
+import llmstxt from 'vitepress-plugin-llms';
+
+type SidebarItem = DefaultTheme.SidebarItem;
+
+function hasDocumentLink(items: Array<SidebarItem>): boolean {
+  return items.some((item) => {
+    if (typeof item.link === 'string' && !item.link.includes('#')) {
+      return true;
+    }
+    return item.items ? hasDocumentLink(item.items) : false;
+  });
+}
+
+// The same platform sidebar is registered on several paths, and some reference
+// groups only contain in-page anchors. Normalize that for the llms.txt index.
+function llmsSidebarItems(items: Array<SidebarItem>): Array<SidebarItem> {
+  const prepared: Array<SidebarItem> = [];
+  for (const item of items) {
+    const children = item.items ? llmsSidebarItems(item.items) : undefined;
+    const link = item.link;
+    const hashOnly = typeof link === 'string' && link.includes('#');
+    if (hashOnly && (!children || children.length === 0)) {
+      continue;
+    }
+
+    let next: SidebarItem = children ? { ...item, items: children } : { ...item };
+    if (typeof link === 'string' && !hashOnly && children && !hasDocumentLink(children)) {
+      next = { ...next, items: [{ text: item.text, link }, ...children] };
+    }
+    if (next.items?.length === 0 && !next.link) {
+      continue;
+    }
+    prepared.push(next);
+  }
+  return prepared;
+}
+
+function llmsSidebar(sidebar: DefaultTheme.Sidebar | undefined): DefaultTheme.Sidebar | undefined {
+  if (!sidebar) {
+    return sidebar;
+  }
+  if (Array.isArray(sidebar)) {
+    return llmsSidebarItems(sidebar);
+  }
+
+  const seen = new Set<unknown>();
+  const unique: DefaultTheme.SidebarMulti = {};
+  for (const [path, entry] of Object.entries(sidebar)) {
+    if (seen.has(entry)) {
+      continue;
+    }
+    seen.add(entry);
+    unique[path] = Array.isArray(entry)
+      ? llmsSidebarItems(entry)
+      : { ...entry, items: llmsSidebarItems(entry.items) };
+  }
+  return unique;
+}
 
 const referenceItems = [
   {
@@ -187,7 +245,13 @@ export default extendConfig(
     },
 
     vite: {
-      plugins: [groupIconVitePlugin()],
+      plugins: [
+        groupIconVitePlugin(),
+        llmstxt({
+          domain: 'https://void.cloud',
+          sidebar: llmsSidebar,
+        }),
+      ],
     },
 
     themeConfig: {
