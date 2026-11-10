@@ -9,6 +9,7 @@ import React, {
   useMemo,
   useReducer,
   useState,
+  useSyncExternalStore,
   useTransition,
   type ComponentType,
 } from 'react';
@@ -502,6 +503,28 @@ function App({
     navigation: idleNavigationState(),
   });
   const [isTransitionPending, startTransition] = useTransition();
+  const [navigationStore] = useState(() => {
+    let snapshot = idleNavigationState();
+    const listeners = new Set<() => void>();
+    return {
+      getSnapshot: () => snapshot,
+      subscribe(listener: () => void) {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
+      set(navigation: NavigationState) {
+        snapshot = navigation;
+        for (const listener of listeners) {
+          listener();
+        }
+      },
+    };
+  });
+  const lastNavigation = useSyncExternalStore(
+    navigationStore.subscribe,
+    navigationStore.getSnapshot,
+    navigationStore.getSnapshot,
+  );
 
   const finishNavigation = useCallback(
     (resource: ReactPageResource, result: PageNavigationResult) => {
@@ -569,6 +592,7 @@ function App({
         prepared.options.resolveOn === 'data' || prepared.options._resolveOnShell;
       if (prepared.immediate) {
         const navigation = navigationForResource(prepared);
+        navigationStore.set(navigation);
 
         activePendingNavigationId = prepared.id;
         dispatch({ type: 'begin', resource: prepared, navigation });
@@ -659,6 +683,7 @@ function App({
         ),
       };
       const navigation = navigationForResource(next);
+      navigationStore.set(navigation);
 
       terminalResource = next;
       pendingVisitSettlers.set(next.id, { resolve: resolveVisit, reject: rejectVisit });
@@ -711,7 +736,7 @@ function App({
       );
       return pagePromise;
     },
-    [engine, NavigationFallback, startTransition, viewTransitions],
+    [engine, NavigationFallback, navigationStore, startTransition, viewTransitions],
   );
 
   useInsertionEffect(() => {
@@ -733,12 +758,13 @@ function App({
     if (state.navigation.state !== 'idle' || !isTransitionPending) {
       return state.navigation;
     }
+    // Action transitions can delay the reducer's begin and finish updates. Keep
+    // the latest destination available synchronously throughout those renders.
     return {
+      ...lastNavigation,
       state: 'loading',
-      location: null,
-      method: 'GET',
     };
-  }, [isTransitionPending, state.navigation]);
+  }, [isTransitionPending, lastNavigation, state.navigation]);
 
   const routerValue = useMemo(
     () =>

@@ -40,6 +40,68 @@ afterAll(async () => {
   await server?.close();
 });
 
+it.each([
+  { method: 'POST', fallback: true },
+  { method: 'GET', fallback: false },
+  { method: 'POST', fallback: false },
+])(
+  'retains the pending destination and $method through rendering (fallback: $fallback)',
+  async ({ method, fallback }) => {
+    const page = await browser.newPage();
+    const destination = '/dashboard?tab=traffic#details';
+    await page.route('**/dashboard?tab=traffic', (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        body: JSON.stringify({
+          component: 'dashboard',
+          props: {},
+          params: {},
+          shared: {},
+          url: '/dashboard?tab=traffic',
+          errors: null,
+        }),
+      }),
+    );
+    try {
+      await page.goto(new URL(fallback ? '/' : '/?fallback=off', base).href);
+      await page.locator('#app[data-hydrated="true"]').waitFor();
+      await page.evaluate(
+        async ({ destination, method }) => {
+          window.__navigationSnapshots = [];
+          window.__navigateInAction(destination, method);
+        },
+        { destination, method },
+      );
+      await page.waitForFunction(() => typeof window.__finishAction === 'function');
+      await page.evaluate(async () => {
+        await new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        );
+      });
+      const snapshots = await page.evaluate(() => window.__navigationSnapshots);
+      const pending = snapshots.filter((navigation) => navigation.state !== 'idle');
+      expect(pending.length).toBeGreaterThan(0);
+      expect(pending).toEqual(
+        pending.map((navigation) => ({
+          ...navigation,
+          location: new URL(destination, base).href,
+          method,
+        })),
+      );
+      expect(snapshots.at(-1)?.state).toBe('loading');
+      await page.evaluate(() => window.__finishAction!());
+      await expect
+        .poll(() => page.evaluate(() => window.__navigationSnapshots.at(-1)?.state))
+        .toBe('idle');
+    } finally {
+      await page.evaluate(() => window.__finishAction?.());
+      await page.close();
+    }
+  },
+);
+
 it('restores document history scroll after the initial Suspense content commits', async () => {
   const page = await browser.newPage();
   const releasePage = async () => {
