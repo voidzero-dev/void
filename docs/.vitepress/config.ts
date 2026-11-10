@@ -170,6 +170,9 @@ export default extendConfig(
     title: 'Void',
     description: 'Build with Vite. Deploy with Void.',
     cleanUrls: true,
+    sitemap: {
+      hostname: 'https://void.cloud',
+    },
     head: [['link', { rel: 'icon', type: 'image/svg+xml', href: '/icon.svg' }]],
     appearance: 'dark',
 
