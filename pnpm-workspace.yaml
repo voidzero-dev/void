@@ -85,6 +85,7 @@ catalog:
   react-server-dom-webpack: 19.3.1
   vinext: 1.4.4
   vitepress-plugin-group-icons: ^1.8.1
+  vitepress-plugin-llms: ^1.14.0
   '@cloudflare/sandbox': ^1.0.3
   '@napi-rs/keyring': ^2.1.2
   happy-dom: ^21.0.4
