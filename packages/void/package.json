@@ -154,6 +154,11 @@
       "import": "./dist/runtime/ws.mjs",
       "require": "./dist/runtime/ws.mjs"
     },
+    "./ws/server": {
+      "types": "./dist/runtime/ws-room.d.mts",
+      "import": "./dist/runtime/ws-room.mjs",
+      "require": "./dist/runtime/ws-room.mjs"
+    },
     "./db": {
       "types": "./dist/runtime/db.d.mts",
       "import": "./dist/runtime/db.mjs",

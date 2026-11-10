@@ -87,6 +87,7 @@ export default defineConfig({
       'src/runtime/auth.ts',
       'src/runtime/auth-client.ts',
       'src/runtime/ws.ts',
+      'src/runtime/ws-room.ts',
       'src/runtime/auth-client-react.ts',
       'src/runtime/auth-client-vue.ts',
       'src/runtime/auth-client-svelte.ts',

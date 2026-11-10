@@ -384,6 +384,14 @@ export function generateRouteTypes(
     lines.push(
       `      server: ${imports.map((source) => `ExtractOutput<${source}["server"]>`).join(' | ')};`,
     );
+    const roomSources = sources.filter((route) => route.mode === 'room');
+    if (roomSources.length > 0) {
+      const actions = roomSources.map((route) => {
+        const importPath = relative(outDir, `${routesDir}/${route.filePath}`);
+        return `NonNullable<(typeof import(${JSON.stringify(importPath)}))["default"]["actions"]>`;
+      });
+      lines.push(`      actions: ${actions.join(' | ')};`);
+    }
     lines.push('    };');
     legacyRouteAlias(lines, 'WebSocketRouteMap', pattern);
   }
