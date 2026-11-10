@@ -1,4 +1,5 @@
 import { Hono } from 'hono';
+import { matchedRoutes } from 'hono/route';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { RouteDestination } from 'void/routes';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
@@ -21,6 +22,7 @@ import type { CloudContext } from '../../src/runtime/handler.ts';
 import {
   createPageGetHandler,
   createPageMutationHandler,
+  createNamedActionMarker,
   createRoutingRuntime,
   type RoutingContext,
 } from '../../src/runtime/routing.ts';
@@ -451,6 +453,58 @@ describe('createVoidRouter', () => {
       '/editor?page=2&search=foo',
     );
   });
+
+  it.each(['?page=2&search=foo', '?delete=confirm&page=2'])(
+    'keeps the default action selected when preserving the page query %s',
+    async (search) => {
+      stubClientGlobals();
+      window.location.pathname = '/editor';
+      window.location.search = search;
+      window.scrollY = 1800;
+      const query = Object.fromEntries(new URLSearchParams(search));
+      const action = vi.fn((c: CloudContext) => {
+        expect(c.req.query()).toEqual(query);
+      });
+      const deleteAction = vi.fn();
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.post(
+        '/editor',
+        createPageMutationHandler({
+          componentId: 'home',
+          namedActions: true,
+          load: async () => ({
+            actions: { default: action, delete: deleteAction },
+            loader: (c: CloudContext) => ({ query: c.req.query() }),
+          }),
+          render: async () => '<html></html>',
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+          headConfig: undefined,
+          renderOptions: { renderMode: 'server' },
+        }),
+      );
+      vi.stubGlobal('fetch', (url: string, init: RequestInit) =>
+        app.fetch(new Request(new URL(url, window.location.origin), init)),
+      );
+      const applyUpdate = vi.fn();
+      const { router } = await createTestRouter({ adapter: { applyUpdate } });
+
+      const result = await submitAction(router, '/editor', { method: 'POST' });
+
+      expect(result.ok).toBe(true);
+      expect(action).toHaveBeenCalledOnce();
+      expect(deleteAction).not.toHaveBeenCalled();
+      expect(applyUpdate.mock.calls[0][0]).toMatchObject({
+        props: { query },
+        url: '/editor' + search,
+      });
+      expect(history.pushState).not.toHaveBeenCalled();
+      expect(history.replaceState).toHaveBeenCalledWith(expect.anything(), '', '/editor' + search);
+      expect(window.scrollTo).not.toHaveBeenCalled();
+    },
+  );
 
   it.each([
     ['/editor', false, undefined],

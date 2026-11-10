@@ -152,7 +152,7 @@ export function createRoutingRuntime(
         }
         const request = new Request(rewriteUrl.toString(), c.req.raw);
         rememberOriginal(request, c);
-        keepActionKey(c.req.raw, request, search);
+        keepActionQuery(c.req.raw, request, search);
         if (fallback) {
           fallbackHandled.add(request);
           fallbackServed.add(c.req.raw);
@@ -205,7 +205,7 @@ export function createRoutingRuntime(
       }
       const request = new Request(url.toString(), c.req.raw);
       rememberOriginal(request, c);
-      keepActionKey(c.req.raw, request, search);
+      keepActionQuery(c.req.raw, request, search);
       return dispatch(request, c, `c.rewrite -> ${path} (middleware)`);
     };
     const redirect = context.redirect.bind(context);
@@ -384,9 +384,11 @@ function redirectLocation(
   );
 }
 
-/** A rewrite that keeps the query keeps the action key in it too. */
-function keepActionKey(from: Request, to: Request, destinationSearch: string): void {
-  if (!destinationSearch && hasActionKey(from)) {
+/** Action metadata follows a rewrite only when it keeps the request query. */
+function keepActionQuery(from: Request, to: Request, destinationSearch: string): void {
+  if (destinationSearch) {
+    to.headers.delete(PRESERVED_QUERY_HEADER);
+  } else if (hasActionKey(from)) {
     markActionKey(to);
   }
 }

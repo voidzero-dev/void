@@ -1,5 +1,9 @@
 import { Context, type MiddlewareHandler } from 'hono';
-import { markActionKey } from '../pages/action-key.ts';
+import {
+  PRESERVED_QUERY_HEADER,
+  markActionKey,
+  searchWithoutPreservedQuery,
+} from '../pages/action-key.ts';
 import { handlesPageLoaderNotFound } from '../pages/not-found-context.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import { decodePagePath } from '../pages/url.ts';
@@ -45,8 +49,13 @@ function preparePageRequest(c: Context, options: PageRouteOptions): boolean {
   }
   return true;
 }
-function actionNameOf(url: string): string | undefined {
-  return new URL(url).searchParams.keys().next().value;
+function actionNameOf(request: Request): string | undefined {
+  // The copied page query is data for the action and loader, not an action selector.
+  const search = searchWithoutPreservedQuery(
+    new URL(request.url).search,
+    request.headers.get(PRESERVED_QUERY_HEADER),
+  );
+  return new URLSearchParams(search).keys().next().value;
 }
 const routeHandlers = new WeakSet<Function>();
 const namedActionHandlers = new WeakSet<Function>();
@@ -70,7 +79,7 @@ export function createNamedActionMarker(
     const answer = matchedRoutes(c)
       .slice(c.req.routeIndex + 1)
       .find((route) => routeHandlers.has(route.handler));
-    if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.url)) {
+    if (answer && namedActionHandlers.has(answer.handler) && actionNameOf(c.req.raw)) {
       markActionKey(c.req.raw);
     }
     await next();
@@ -124,7 +133,7 @@ export function createPageMutationHandler(
       return context.notFound();
     }
     const mod = options.load ? await options.load() : {};
-    const actionName = options.namedActions ? actionNameOf(context.req.url) : undefined;
+    const actionName = options.namedActions ? actionNameOf(context.req.raw) : undefined;
     // The name comes from the query string, so only own function properties
     // count; `?constructor` or `?valueOf` must not reach Object.prototype.
     const name = actionName || 'default';

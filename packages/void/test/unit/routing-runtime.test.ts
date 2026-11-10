@@ -979,6 +979,72 @@ describe('typed Pages and SSR execution', () => {
       expect(response.headers.get('location')).toBe('/maintenance?page=2');
     });
 
+    it('does not mark preserved page parameters as an action before a middleware redirect', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use('/named', async (c) => c.redirect('/login?tab=profile', 307));
+      app.post('/named', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+
+      const response = await app.fetch(
+        new Request('https://app.test/named?delete=confirm&page=2', {
+          method: 'POST',
+          headers: { 'X-VoidPages-Preserved-Query': 'delete=confirm&page=2' },
+        }),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toBe('/login?tab=profile');
+    });
+
+    it.each([
+      ['middleware', '/named', 'default'],
+      ['middleware', '/named?delete=confirm', 'delete'],
+      ['rule', '/named', 'default'],
+      ['rule', '/named?delete=confirm', 'delete'],
+    ])(
+      'a %s rewrite to %s selects %s with a preserved page query',
+      async (kind, destination, action) => {
+        const app = new Hono();
+        const runtime = createRoutingRuntime(app, { nodeTarget: true });
+        app.use(runtime.contextMiddleware);
+        app.use(createNamedActionMarker(matchedRoutes));
+        if (kind === 'middleware') {
+          app.use('/source', (c) => (c as RoutingContext).rewrite(destination));
+        } else {
+          app.use(
+            runtime.routingMiddleware([
+              { source: '/source', destination, status: 200, force: true },
+            ]),
+          );
+        }
+        app.post(
+          '/named',
+          createPageMutationHandler({
+            ...pageOptions,
+            namedActions: true,
+            load: async () => ({
+              actions: {
+                default: () => new Response('default'),
+                delete: () => new Response('delete'),
+              },
+            }),
+          }),
+        );
+
+        const response = await app.fetch(
+          new Request('https://app.test/source?delete=confirm', {
+            method: 'POST',
+            headers: { 'X-VoidPages-Preserved-Query': 'delete=confirm' },
+          }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(action);
+      },
+    );
+
     it('sends the given location when another route answers a catch-all page pattern', async () => {
       const response = await createNamedActionApp('/*').fetch(
         new Request('https://app.test/api/x?return=/a&page=2', { method: 'POST' }),
