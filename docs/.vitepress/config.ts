@@ -170,6 +170,7 @@ export default extendConfig(
     title: 'Void',
     description: 'Build with Vite. Deploy with Void.',
     cleanUrls: true,
+    lastUpdated: true,
     sitemap: {
       hostname: 'https://void.cloud',
     },
@@ -190,6 +191,11 @@ export default extendConfig(
     },
 
     themeConfig: {
+      editLink: {
+        pattern: 'https://github.com/voidzero-dev/void/edit/main/docs/:path',
+        text: 'Suggest changes to this page',
+      },
+
       search: {
         provider: 'local',
       },
