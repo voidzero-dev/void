@@ -1,4 +1,5 @@
 ---
+description: 'Manage platform users, their projects, and the plans assigned to their accounts.'
 outline: deep
 ---
 

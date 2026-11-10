@@ -1,4 +1,5 @@
 ---
+description: 'Redirect requests from void.config.ts. Map a source pattern to a destination and an optional status code.'
 outline: deep
 ---
 

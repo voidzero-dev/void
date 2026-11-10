@@ -1,4 +1,5 @@
 ---
+description: 'Void detects the Cloudflare resources your code uses and provisions the matching bindings. Manual configuration is optional.'
 outline: deep
 ---
 

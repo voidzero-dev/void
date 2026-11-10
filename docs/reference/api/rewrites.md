@@ -1,4 +1,5 @@
 ---
+description: 'Serve another route without changing the browser URL, and read the URL that was originally requested.'
 outline: deep
 ---
 

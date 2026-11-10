@@ -1,4 +1,5 @@
 ---
+description: 'Set a page title and metadata with head(), middleware, or site-wide defaults.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Save the credentials an installation asks for, and see which values belong in a password manager or the shell.'
 outline: deep
 ---
 

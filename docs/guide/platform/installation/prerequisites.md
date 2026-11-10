@@ -1,4 +1,5 @@
 ---
+description: 'Check the Cloudflare account, domain, and API token permissions you need before installing a Void platform.'
 outline: deep
 ---
 

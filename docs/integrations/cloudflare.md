@@ -1,4 +1,5 @@
 ---
+description: 'Deploy to Cloudflare Workers. Void detects the resources your app uses, creates bindings, and publishes the Worker.'
 outline: deep
 ---
 

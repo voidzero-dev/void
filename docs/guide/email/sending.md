@@ -1,4 +1,5 @@
 ---
+description: 'Send transactional email with sendEmail. Void captures messages in a local inbox during development.'
 outline: deep
 ---
 

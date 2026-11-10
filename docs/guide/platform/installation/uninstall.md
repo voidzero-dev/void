@@ -1,4 +1,5 @@
 ---
+description: 'Disable a platform without deleting its data, or uninstall it and remove its Cloudflare resources.'
 outline: deep
 ---
 

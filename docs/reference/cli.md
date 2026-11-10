@@ -1,4 +1,5 @@
 ---
+description: 'Commands for creating a project, deploying it, and managing databases, secrets, domains, and a platform.'
 outline: deep
 ---
 

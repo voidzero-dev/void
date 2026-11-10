@@ -1,4 +1,5 @@
 ---
+description: 'Define tables in TypeScript and query them with Drizzle. Use the same schema with D1, PostgreSQL, or MySQL.'
 outline: deep
 ---
 

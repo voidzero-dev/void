@@ -1,4 +1,5 @@
 ---
+description: 'Add Markdown files in pages/ as routes. They inherit layouts and ship JavaScript only for islands and client scripts.'
 outline: deep
 ---
 

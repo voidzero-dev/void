@@ -1,4 +1,5 @@
 ---
+description: 'Add interactive components to a server-rendered page. Only those islands send JavaScript to the browser.'
 outline: deep
 ---
 

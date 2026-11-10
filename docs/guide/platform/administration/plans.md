@@ -1,4 +1,5 @@
 ---
+description: 'Define resource limits for accounts on your platform. Plans do not bill users or purchase Cloudflare services.'
 outline: deep
 ---
 

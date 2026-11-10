@@ -1,4 +1,5 @@
 ---
+description: 'Send typed messages between the server and connected clients. Each route keeps its state in a Durable Object.'
 outline: deep
 ---
 

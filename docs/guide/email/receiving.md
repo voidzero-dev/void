@@ -1,4 +1,5 @@
 ---
+description: 'Receive mail with handlers in email/. Inbound email is available in native Void apps.'
 outline: deep
 ---
 

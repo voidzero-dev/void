@@ -1,4 +1,5 @@
 ---
+description: 'Stream events from a route handler to the browser. Void formats the messages, sends keepalives, and closes the stream.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Turn files in pages/ into routes. A server loader returns data, and the page component receives it as props.'
 outline: deep
 ---
 

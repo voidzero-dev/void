@@ -1,4 +1,5 @@
 ---
+description: 'Share typed state across requests with a Durable Object, such as a cart, room, or rate limiter.'
 outline: deep
 ---
 

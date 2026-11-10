@@ -1,4 +1,5 @@
 ---
+description: 'Call your routes from client code with a typed fetch. Paths and response types come from the generated route map.'
 outline: deep
 ---
 

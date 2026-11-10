@@ -1,4 +1,5 @@
 ---
+description: 'Clients for KV, object storage, AI, cache revalidation, and logs.'
 outline: deep
 ---
 

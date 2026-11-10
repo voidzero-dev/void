@@ -1,4 +1,5 @@
 ---
+description: 'Install or update a Void platform from CI after you have configured it once interactively.'
 outline: deep
 ---
 

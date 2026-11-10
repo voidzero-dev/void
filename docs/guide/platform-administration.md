@@ -1,4 +1,5 @@
 ---
+description: 'Manage people, projects, deployment logs, and platform health from the terminal with void platform.'
 outline: deep
 ---
 

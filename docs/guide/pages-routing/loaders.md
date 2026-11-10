@@ -1,4 +1,5 @@
 ---
+description: "Load a page's data in a companion .server.ts file. The component receives that data as typed props."
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Add Better Auth to your app, including its database, API routes, and client. Start with email and password or a social provider.'
 outline: deep
 ---
 

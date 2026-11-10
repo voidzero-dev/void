@@ -1,4 +1,5 @@
 ---
+description: 'Link a directory to a hosted project, then inspect deployments, logs, access, and rollbacks.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Void is a full-stack framework for Cloudflare Workers, powered by Vite. It connects routing, data, and deployment in one project.'
 outline: deep
 ---
 

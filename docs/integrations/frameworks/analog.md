@@ -1,4 +1,5 @@
 ---
+description: 'Add Void to an Analog app for resource detection, typed database queries, migrations, and deployment.'
 outline: deep
 ---
 

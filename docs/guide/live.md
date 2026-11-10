@@ -1,4 +1,5 @@
 ---
+description: 'Subscribe a browser to several topics over one SSE connection, and publish events from routes, jobs, or queues.'
 outline: deep
 ---
 

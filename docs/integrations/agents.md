@@ -1,4 +1,5 @@
 ---
+description: "Set up coding agents with void init, including project instructions and links to Void's docs and skills."
 outline: deep
 ---
 

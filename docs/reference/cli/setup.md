@@ -1,4 +1,5 @@
 ---
+description: 'Create a project with void init, prepare generated files, and inspect inferred resources.'
 outline: deep
 ---
 

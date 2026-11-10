@@ -1,4 +1,5 @@
 ---
+description: 'Animate navigation with the View Transition API. Pages cross-fade by default, and CSS customizes the animation.'
 outline: deep
 ---
 

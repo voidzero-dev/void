@@ -1,4 +1,5 @@
 ---
+description: 'Build a Void server for Node.js, Bun, or Deno, and run it on your own machine, in a container, or with another host.'
 outline: deep
 ---
 

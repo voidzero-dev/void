@@ -1,4 +1,5 @@
 ---
+description: 'Call your API from the client with a typed fetch that checks paths, request bodies, and response types.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Read and write JSON in Cloudflare Workers KV. Give each collection its own key prefix and value type.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Schedule work in crons/. Each file sets a cron expression and a handler that Void registers on deploy.'
 outline: deep
 ---
 

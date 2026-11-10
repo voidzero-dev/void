@@ -1,4 +1,5 @@
 ---
+description: 'Test a Void app with Vitest. With Vite+, run the tests through vp test.'
 outline: deep
 ---
 

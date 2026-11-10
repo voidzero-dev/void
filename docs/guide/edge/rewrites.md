@@ -1,4 +1,5 @@
 ---
+description: 'Serve one route at another URL without changing the address in the browser.'
 outline: deep
 ---
 

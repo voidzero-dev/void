@@ -1,4 +1,5 @@
 ---
+description: 'Build a Void app, keep a meta framework, or deploy a static site. Void provisions resources and deploys each of them.'
 outline: deep
 ---
 

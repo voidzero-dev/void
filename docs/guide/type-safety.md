@@ -1,4 +1,5 @@
 ---
+description: 'Carry types from your database schema through route handlers and page loaders to the UI.'
 outline: deep
 ---
 

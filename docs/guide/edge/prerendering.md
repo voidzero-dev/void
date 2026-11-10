@@ -1,4 +1,5 @@
 ---
+description: 'Prerender pages at deploy time so the first visitor receives cached HTML.'
 outline: deep
 ---
 

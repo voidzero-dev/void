@@ -1,4 +1,5 @@
 ---
+description: 'Show not-found and error states inside your layouts with _not-found and _error components.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Resume, repair, upgrade, or recover an installation, including when the keychain or API is unavailable.'
 outline: deep
 ---
 

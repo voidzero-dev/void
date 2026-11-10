@@ -1,4 +1,5 @@
 ---
+description: 'Build an app, provision its resources, apply migrations, and publish it.'
 outline: deep
 ---
 

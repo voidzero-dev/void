@@ -1,4 +1,5 @@
 ---
+description: 'List, set, and remove production secrets. Secret values are never printed.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: "Keep your framework's routes and rendering, and use Void for databases, storage, jobs, and deployment."
 outline: deep
 ---
 

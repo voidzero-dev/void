@@ -1,4 +1,5 @@
 ---
+description: 'Define HTTP handlers, middleware, validation, scheduled jobs, queues, and rendering.'
 outline: deep
 ---
 
