@@ -1,4 +1,5 @@
 ---
+description: 'Store files in Cloudflare R2, and upload, download, and read metadata through void/storage.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Install a Void platform from the CLI, set its domain, and run its lifecycle commands.'
 outline: deep
 ---
 

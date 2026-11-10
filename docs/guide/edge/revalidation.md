@@ -1,4 +1,5 @@
 ---
+description: 'Cache rendered pages and refresh them in the background, so visitors keep reading while a new version renders.'
 outline: deep
 ---
 

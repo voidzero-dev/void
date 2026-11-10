@@ -1,4 +1,5 @@
 ---
+description: 'Add Void to Vite. The plugin sets up routing, migrations, and the Cloudflare Workers runtime.'
 outline: deep
 ---
 

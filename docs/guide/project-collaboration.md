@@ -1,4 +1,5 @@
 ---
+description: 'Invite readers, collaborators, and project administrators to a hosted project. Direct Cloudflare deploys stay single-user.'
 outline: deep
 ---
 

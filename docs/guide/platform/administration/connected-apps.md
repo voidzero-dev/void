@@ -1,3 +1,7 @@
+---
+description: 'Register a separate application as an OAuth client so its users can sign in on Void and choose whether to connect it.'
+---
+
 # Connected apps
 
 A connected app is a separate application registered as an OAuth client on your Void installation. Users sign in on Void and decide whether to connect it. The application operator may be different from the platform administrator.

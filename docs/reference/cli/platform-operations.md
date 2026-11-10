@@ -1,4 +1,5 @@
 ---
+description: 'Inspect deployments, logs, and platform health, and preview changes before applying them.'
 outline: deep
 ---
 

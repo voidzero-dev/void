@@ -1,4 +1,5 @@
 ---
+description: 'Configure routing, inference, output, and the deployment target in void.config.ts.'
 outline: deep
 ---
 

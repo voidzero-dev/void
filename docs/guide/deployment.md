@@ -1,4 +1,5 @@
 ---
+description: 'Deploy with void deploy. It builds your app, provisions resources, applies migrations, and publishes to Cloudflare or a team platform.'
 outline: deep
 ---
 

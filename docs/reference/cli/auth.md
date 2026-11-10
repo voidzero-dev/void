@@ -1,4 +1,5 @@
 ---
+description: 'Connect the CLI to Cloudflare or a Void platform, and sign in to the account that receives deploys.'
 outline: deep
 ---
 

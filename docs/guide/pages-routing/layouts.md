@@ -1,4 +1,5 @@
 ---
+description: 'Share navigation and other UI across pages. Layouts nest with your directories and keep their state during navigation.'
 outline: deep
 ---
 

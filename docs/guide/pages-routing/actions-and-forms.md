@@ -1,4 +1,5 @@
 ---
+description: 'Change server data from a form or button with a page action. Actions accept POST, PUT, PATCH, and DELETE.'
 outline: deep
 ---
 

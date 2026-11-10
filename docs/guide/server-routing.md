@@ -1,4 +1,5 @@
 ---
+description: 'Add an endpoint by creating a file in routes/ and exporting a handler for each HTTP method.'
 outline: deep
 ---
 

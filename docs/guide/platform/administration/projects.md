@@ -1,4 +1,5 @@
 ---
+description: 'Find users, inspect their projects and usage, and change the plan assigned to an account.'
 outline: deep
 ---
 

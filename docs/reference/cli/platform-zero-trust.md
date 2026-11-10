@@ -1,4 +1,5 @@
 ---
+description: 'Turn Cloudflare Access on or off for project hostnames from an administrator session.'
 outline: deep
 ---
 

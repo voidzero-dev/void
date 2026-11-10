@@ -1,4 +1,5 @@
 ---
+description: 'Set custom response headers from void.config.ts. Match URL patterns to header names and values.'
 outline: deep
 ---
 

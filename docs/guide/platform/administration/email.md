@@ -1,4 +1,5 @@
 ---
+description: 'Manage platform email, including the shared sender, who mail may reach, and project sending domains.'
 outline: deep
 ---
 

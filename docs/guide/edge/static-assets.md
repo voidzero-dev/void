@@ -1,4 +1,5 @@
 ---
+description: "Cache static assets on Cloudflare's edge. Hashed build files stay reusable across deploys."
 outline: deep
 ---
 

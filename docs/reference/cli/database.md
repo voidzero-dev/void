@@ -1,4 +1,5 @@
 ---
+description: 'Generate migrations, apply them, and update the local database from your Drizzle schema.'
 outline: deep
 ---
 

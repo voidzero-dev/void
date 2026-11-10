@@ -1,4 +1,5 @@
 ---
+description: 'Sessions, users, and auth clients from void/auth, plus the browser helpers in void/client.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Vite plugins and client runtimes for React, Vue, Svelte, and Solid pages.'
 outline: deep
 ---
 

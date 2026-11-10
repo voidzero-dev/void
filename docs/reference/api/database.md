@@ -1,4 +1,5 @@
 ---
+description: 'Query D1, PostgreSQL, or MySQL with the Drizzle client from void/db, and seed data from a script.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Add, remove, and check custom domains for a hosted project or a direct Cloudflare deploy.'
 outline: deep
 ---
 

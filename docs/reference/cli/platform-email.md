@@ -1,4 +1,5 @@
 ---
+description: 'Administer platform email, including the shared sender and project recipient rules.'
 outline: deep
 ---
 

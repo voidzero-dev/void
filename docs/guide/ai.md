@@ -1,4 +1,5 @@
 ---
+description: 'Run Workers AI models and provider APIs from server code. Provider requests go through Cloudflare AI Gateway.'
 outline: deep
 ---
 

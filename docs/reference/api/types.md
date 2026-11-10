@@ -1,4 +1,5 @@
 ---
+description: 'Shared types for handler context, routes, URLs, and head metadata.'
 outline: deep
 ---
 

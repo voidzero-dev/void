@@ -1,4 +1,5 @@
 ---
+description: 'Create a Void app, run it locally, and deploy it. You can also add Void to an existing Vite app.'
 outline: deep
 ---
 

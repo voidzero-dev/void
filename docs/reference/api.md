@@ -1,4 +1,5 @@
 ---
+description: 'Look up public imports, signatures, and return types. The guides cover setup and examples.'
 outline: deep
 ---
 

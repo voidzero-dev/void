@@ -1,4 +1,5 @@
 ---
+description: 'Void route handlers run on Hono. Add hono to your app when your code imports from it directly.'
 outline: deep
 ---
 

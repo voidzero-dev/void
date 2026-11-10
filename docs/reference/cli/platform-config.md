@@ -1,4 +1,5 @@
 ---
+description: 'Create and edit platform plans and their limits from an administrator session.'
 outline: deep
 ---
 

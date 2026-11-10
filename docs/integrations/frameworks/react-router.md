@@ -1,4 +1,5 @@
 ---
+description: 'Add Void beside the React Router Vite plugin for databases, storage, and deployment, without a separate Cloudflare adapter.'
 outline: deep
 ---
 

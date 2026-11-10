@@ -1,4 +1,5 @@
 ---
+description: 'Process work asynchronously with a consumer in queues/, then send it typed messages from your app.'
 outline: deep
 ---
 

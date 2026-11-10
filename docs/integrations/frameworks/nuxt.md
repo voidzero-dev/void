@@ -1,4 +1,5 @@
 ---
+description: 'Add Void to a Nuxt app for resource detection, typed database queries, migrations, and deployment.'
 outline: deep
 ---
 

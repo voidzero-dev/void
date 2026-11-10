@@ -1,4 +1,5 @@
 ---
+description: 'Install a Void platform and choose how administrators and developers sign in.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Prerender every page at build time by setting the static output mode in void.config.ts.'
 outline: deep
 ---
 
