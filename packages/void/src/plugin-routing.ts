@@ -402,6 +402,7 @@ export function routingPlugin(
         dialect: compileOptions.auth.dialect,
         schemaImportPath: authSchemaPath,
         drizzleAdapterPath,
+        d1BindingName: options.bindingNames?.d1,
       }),
     );
 

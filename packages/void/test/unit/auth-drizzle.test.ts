@@ -267,9 +267,9 @@ describe('Better Auth Drizzle codegen', () => {
     }
   });
 
-  it('lazily creates an auth database adapter that reuses void/db', () => {
+  it.each(['postgresql', 'mysql'] as const)('lazily reuses void/db for %s auth', (dialect) => {
     const code = generateVoidAuthDatabaseModule({
-      dialect: 'postgresql',
+      dialect,
       schemaImportPath: '/project/.void/better-auth-schema.ts',
       drizzleAdapterPath: '/resolved/better-auth/adapters/drizzle.mjs',
     });
@@ -285,5 +285,6 @@ describe('Better Auth Drizzle codegen', () => {
     expect(code).toContain('return __voidAuthDatabaseInstance(options);');
     expect(code).not.toContain('export const __voidAuthDatabase = drizzleAdapter(__voidDb');
     expect(code).not.toContain('import pg from');
+    expect(code).not.toContain('first-primary');
   });
 });

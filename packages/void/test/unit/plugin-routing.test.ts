@@ -175,6 +175,19 @@ describe('routingPlugin', () => {
     );
   });
 
+  it('uses the configured D1 binding for the auth database', async () => {
+    const root = createTempRoot();
+    const plugin = createRoutingPlugin(root, {
+      isAuthEnabled: () => true,
+      bindingNames: { d1: 'AUTH_DB' },
+    });
+    resolveConfig(plugin, 'build');
+    await runBuildStart(plugin);
+
+    const database = readFileSync(join(root, '.void', 'better-auth-db.ts'), 'utf8');
+    expect(database).toContain('requireRuntimeBinding<D1Database>("AUTH_DB")');
+  });
+
   it('resolves extensionless and Vite alias imports in auth.ts during a build', async () => {
     const root = createTempRoot();
     mkdirSync(join(root, 'lib'));
