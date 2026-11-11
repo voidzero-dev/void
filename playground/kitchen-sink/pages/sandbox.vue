@@ -86,10 +86,7 @@ async function runCode() {
     <div v-if="error" style="color: red; margin-top: 10px"><strong>Error:</strong> {{ error }}</div>
 
     <h2>Result</h2>
-    <p v-if="exitCode !== null">
-      Exit <code>{{ exitCode }}</code
-      >, {{ duration }}ms
-    </p>
+    <p v-if="exitCode !== null">Exit <code>{{ exitCode }}</code>, {{ duration }}ms</p>
     <pre style="white-space: pre-wrap; background: #f5f5f5; padding: 10px; min-height: 60px">{{
       result ? JSON.stringify(result, null, 2) : '(run the analyzer)'
     }}</pre>

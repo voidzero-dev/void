@@ -81,7 +81,7 @@ describe('init dependency installation (real subprocesses)', () => {
     expect(calls()).toEqual([
       {
         command: 'npx',
-        args: ['--yes', '--package=vite-plus@^1.5.0', 'vp', 'install', '--no-frozen-lockfile'],
+        args: ['--yes', '--package=vite-plus@^1.6.0', 'vp', 'install', '--no-frozen-lockfile'],
         cwd: root,
       },
     ]);

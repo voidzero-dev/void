@@ -30,7 +30,6 @@
     "@void/platform": "workspace:*",
     "playwright": "catalog:",
     "typescript": "catalog:",
-    "vite-plus": "catalog:",
-    "vitest": "catalog:"
+    "vite-plus": "catalog:"
   }
 }
