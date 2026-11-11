@@ -97,6 +97,16 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/[\p{So}\p{No}\p{Nl}]/u, 'Noto Sans Symbols 2'],
 ];
 
+// The fallback families Google Fonts serves only at weight 400. Every other
+// family above is a variable font with a 100–900 weight axis, and is asked
+// for as that range: Google then serves `font-weight: 100 900`, Takumi leaves
+// the face without a fixed weight, and `font-weight: 700` drives the axis.
+// Asked for at a single 400, a variable face is pinned to 400 and bold text is
+// only thickened, so 700 and 900 look the same. Asking for a range from these
+// two fails the whole request with HTTP 400, which would lose the family.
+// Found by asking css2 for each family with `wght@100..900`.
+const SINGLE_WEIGHT_FAMILIES = new Set(['Noto Sans Math', 'Noto Sans Symbols 2']);
+
 // What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
 // by rendering each code point with takumi-js 2.18: some accented letters and
 // combining marks, spaces, format characters and variation selectors, quotes,
@@ -354,7 +364,9 @@ async function fallbackFonts(
     [...families].map(async (family) => {
       try {
         return await googleFonts({
-          families: [family],
+          families: [
+            SINGLE_WEIGHT_FAMILIES.has(family) ? family : { name: family, weight: '100..900' },
+          ],
           fetch: images?.fetch,
           timeout: images?.timeout,
         });
