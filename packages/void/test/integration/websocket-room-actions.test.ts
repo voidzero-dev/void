@@ -18,6 +18,9 @@ const roomRuntimePath = join(root, 'packages/void/src/runtime/ws-room.ts');
 type MiniflareInstance = {
   ready: Promise<URL>;
   dispatchFetch(input: string, init?: RequestInit): Promise<Response>;
+  getQueueProducer<Body = unknown>(
+    bindingName: string,
+  ): Promise<{ send(body: Body): Promise<void> }>;
   dispose(): Promise<void>;
 };
 
@@ -134,6 +137,64 @@ export async function GET(c) {
     writeFileSync(join(routesDir, 'stats.ts'), handler('stats()'));
     writeFileSync(join(routesDir, 'unknown.ts'), handler('missingAction()'));
 
+    const roomImport = `import { getRoom } from ${JSON.stringify(roomRuntimePath)};`;
+    writeFileSync(
+      join(routesDir, 'assimilate.ts'),
+      `${roomImport}
+export async function GET(c) {
+  const accountId = new URL(c.req.url).searchParams.get("accountId");
+  const room = getRoom("/relay/:accountId", { params: { accountId } });
+  const awaited = await room.actions;
+  const resolved = await Promise.resolve(room.actions);
+  return Response.json({ awaited: awaited === room.actions, resolved: resolved === room.actions });
+}
+`,
+    );
+    writeFileSync(
+      join(routesDir, 'helpers.ts'),
+      `export async function GET(c) {
+  const namespace = c.env.RELAY_WS;
+  const stub = namespace.get(namespace.idFromName("accountId=acct_1"));
+  const errors = {};
+  for (const name of ["context", "handleFetch", "handleWebSocketMessage", "handleWebSocketClose"]) {
+    try {
+      await stub[name]();
+      errors[name] = "callable";
+    } catch (error) {
+      errors[name] = error.message;
+    }
+  }
+  const stats = await stub.__voidRoomAction({
+    name: "stats",
+    args: [],
+    id: "accountId=acct_1",
+    params: { accountId: "acct_1" },
+  });
+  return Response.json({ errors, stats });
+}
+`,
+    );
+    writeFileSync(
+      join(temporary, 'cron.ts'),
+      `${roomImport}
+export const cron = "*/5 * * * *";
+export default async function () {
+  const room = getRoom("/relay/:accountId", { params: { accountId: "acct_8" } });
+  await room.actions.broadcast("from cron");
+}
+`,
+    );
+    writeFileSync(
+      join(temporary, 'queue.ts'),
+      `${roomImport}
+export default async function (batch) {
+  const body = batch.messages[0].body;
+  const room = getRoom("/relay/:accountId", { params: { accountId: body.accountId } });
+  await room.actions.broadcast(body.text);
+}
+`,
+    );
+
     const routeFile = (pattern: string, filePath: string) => ({
       pattern,
       methods: ['GET'],
@@ -148,6 +209,8 @@ export async function GET(c) {
         routeFile('/broadcast', 'broadcast.ts'),
         routeFile('/stats', 'stats.ts'),
         routeFile('/unknown', 'unknown.ts'),
+        routeFile('/assimilate', 'assimilate.ts'),
+        routeFile('/helpers', 'helpers.ts'),
       ],
       websockets: [
         {
@@ -164,8 +227,8 @@ export async function GET(c) {
         },
       ],
       middleware: [],
-      jobs: [],
-      queues: [],
+      jobs: [{ filePath: 'cron.ts', name: 'cron', crons: ['*/5 * * * *'] }],
+      queues: [{ filePath: 'queue.ts', name: 'relay-jobs', bindingName: 'QUEUE_RELAY_JOBS' }],
       pages: { pages: [], layouts: [], namedLayouts: [] },
     };
 
@@ -184,7 +247,7 @@ export async function GET(c) {
     );
     writeFileSync(
       workerPath,
-      compileWorkerEntry({ webSocketClasses: ['RelayWs'], runtimeEnvPath }),
+      compileWorkerEntry({ webSocketClasses: ['RelayWs'], runtimeEnvPath, hasQueues: true }),
     );
 
     await build({
@@ -216,7 +279,10 @@ export async function GET(c) {
         modules: true,
         modulesRoot: output,
         scriptPath: join(output, 'worker.mjs'),
+        bindings: { __VOID_PROXY_TOKEN: 'test-token' },
         durableObjects: { RELAY_WS: { className: 'RelayWs', useSQLite: true } },
+        queueProducers: { JOBS: 'relay-jobs' },
+        queueConsumers: { 'relay-jobs': { maxBatchTimeout: 0.05 } },
       }),
     ) as unknown as MiniflareInstance;
   }, 30_000);
@@ -298,6 +364,60 @@ export async function GET(c) {
     second.socket.close(1000, 'done');
     other.socket.close(1000, 'done');
     await Promise.all([first.closed, second.closed, other.closed]);
+  });
+
+  it('keeps internal helpers off the RPC surface while intended RPC still works', async () => {
+    const url = await miniflare.ready;
+    const response = await call(url, '/helpers', {});
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as {
+      errors: Record<string, string>;
+      stats: { messages: number; hasBinding: boolean };
+    };
+    for (const name of [
+      'context',
+      'handleFetch',
+      'handleWebSocketMessage',
+      'handleWebSocketClose',
+    ]) {
+      expect(body.errors[name]).toMatch(/does not implement the method/i);
+    }
+    expect(body.stats.hasBinding).toBe(true);
+    expect(typeof body.stats.messages).toBe('number');
+  });
+
+  it('stays out of Promise assimilation inside the worker', async () => {
+    const url = await miniflare.ready;
+    const response = await call(url, '/assimilate', { accountId: 'acct_1' });
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ awaited: true, resolved: true });
+  });
+
+  it('runs actions from cron and queue handlers', async () => {
+    const url = await miniflare.ready;
+    const target = await connect(url, 'acct_8', 'session_1');
+    const messages: Array<string> = [];
+    target.socket.addEventListener('message', (event) => messages.push(String(event.data)));
+
+    const scheduled = await miniflare.dispatchFetch(new URL('/__void/scheduled', url).toString(), {
+      method: 'POST',
+      headers: { 'x-void-internal': 'test-token' },
+      body: JSON.stringify({ cron: '*/5 * * * *', scheduledTime: Date.now() }),
+    });
+    expect(scheduled.status).toBe(200);
+    expect(await waitFor(() => messages.length === 1)).toBe(true);
+
+    const producer = await miniflare.getQueueProducer<{ accountId: string; text: string }>('JOBS');
+    await producer.send({ accountId: 'acct_8', text: 'from queue' });
+    expect(await waitFor(() => messages.length === 2)).toBe(true);
+
+    expect(messages).toEqual([
+      JSON.stringify({ type: 'relay.message', text: 'from cron' }),
+      JSON.stringify({ type: 'relay.message', text: 'from queue' }),
+    ]);
+
+    target.socket.close(1000, 'done');
+    await target.closed;
   });
 
   it('reports unknown actions without running anything', async () => {
