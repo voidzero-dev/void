@@ -350,12 +350,13 @@ export function createWebSocketDurableObject(
 
     constructor(state: DurableObjectState, env: Record<string, unknown>) {
       // Extending `DurableObject` enables RPC, which is how `getRoom()` reaches actions.
+      // Every other method stays `#`-private so it never joins that RPC surface.
       super(state, env);
       this.state = state;
     }
 
     fetch(request: Request): Promise<Response> {
-      return withRuntimeEnv(this.env, () => this.handleFetch(request));
+      return withRuntimeEnv(this.env, () => this.#handleFetch(request));
     }
 
     async __voidRoomAction(request: RoomActionRequest): Promise<unknown> {
@@ -378,7 +379,7 @@ export function createWebSocketDurableObject(
       });
     }
 
-    private context(
+    #context(
       request: Request,
       webSocket: WebSocket,
       stored: StoredConnection,
@@ -386,7 +387,7 @@ export function createWebSocketDurableObject(
       return createHookContext(definition, this.state, this.env, request, webSocket, stored);
     }
 
-    private async handleFetch(request: Request): Promise<Response> {
+    async #handleFetch(request: Request): Promise<Response> {
       const params = getRouteMatch(request, route) ?? {};
       const roomId = buildWebSocketInstanceId(instanceRoute, params);
       const authState =
@@ -409,7 +410,7 @@ export function createWebSocketDurableObject(
         };
         setStoredConnection(server, stored);
 
-        const beforeConnectCtx = this.context(request, server, stored);
+        const beforeConnectCtx = this.#context(request, server, stored);
         const decision = await withAuthState(authState, () =>
           definition.onBeforeConnect?.(beforeConnectCtx as never),
         );
@@ -419,7 +420,7 @@ export function createWebSocketDurableObject(
 
         this.state.acceptWebSocket(server);
 
-        const connectCtx = this.context(request, server, stored);
+        const connectCtx = this.#context(request, server, stored);
         await withAuthState(authState, () => definition.onConnect?.(connectCtx as never));
 
         return new Response(null, { status: 101, webSocket: client });
@@ -436,7 +437,7 @@ export function createWebSocketDurableObject(
         user,
         authState,
       };
-      const ctx = this.context(request, new WebSocketPair()[1], stored);
+      const ctx = this.#context(request, new WebSocketPair()[1], stored);
       return withAuthState(authState, () => definition.onRequest!(ctx as never));
     }
 
@@ -444,10 +445,10 @@ export function createWebSocketDurableObject(
       webSocket: WebSocket,
       message: string | ArrayBuffer | ArrayBufferView,
     ): Promise<void> {
-      return withRuntimeEnv(this.env, () => this.handleWebSocketMessage(webSocket, message));
+      return withRuntimeEnv(this.env, () => this.#handleWebSocketMessage(webSocket, message));
     }
 
-    private async handleWebSocketMessage(
+    async #handleWebSocketMessage(
       webSocket: WebSocket,
       message: string | ArrayBuffer | ArrayBufferView,
     ): Promise<void> {
@@ -469,7 +470,7 @@ export function createWebSocketDurableObject(
       }
 
       const request = new Request(`https://void.local${route.pattern}`);
-      const ctx = this.context(request, webSocket, stored);
+      const ctx = this.#context(request, webSocket, stored);
       await withAuthState(stored.authState ?? null, () =>
         definition.onMessage?.(ctx as never, result.value as never),
       );
@@ -482,11 +483,11 @@ export function createWebSocketDurableObject(
       wasClean: boolean,
     ): Promise<void> {
       return withRuntimeEnv(this.env, () =>
-        this.handleWebSocketClose(webSocket, code, reason, wasClean),
+        this.#handleWebSocketClose(webSocket, code, reason, wasClean),
       );
     }
 
-    private async handleWebSocketClose(
+    async #handleWebSocketClose(
       webSocket: WebSocket,
       code: number,
       reason: string,
@@ -495,7 +496,7 @@ export function createWebSocketDurableObject(
       completeWebSocketClose(webSocket, code, reason);
       const stored = getStoredConnection(webSocket);
       const request = new Request(`https://void.local${route.pattern}`);
-      const ctx = this.context(request, webSocket, stored);
+      const ctx = this.#context(request, webSocket, stored);
       await withAuthState(stored.authState ?? null, () =>
         definition.onClose?.(ctx as never, { code, reason, wasClean }),
       );
