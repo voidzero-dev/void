@@ -7,6 +7,7 @@ import type {
   PrefetchConfig,
   StaticPageDataBuildOptions,
 } from 'void/pages';
+import { babelParse, parse, type SFCScriptCompileOptions } from 'vue/compiler-sfc';
 
 export type { PrefetchConfig } from 'void/pages';
 
@@ -54,37 +55,116 @@ function isVuePageFile(id: string, pagesDir: string): boolean {
   return basename !== 'layout.vue' && !basename.endsWith('.island.vue');
 }
 
-function stripDefinePropsTypeArgument(code: string): string | null {
-  // Find defineProps<...>( and strip the generic using bracket counting
-  // to handle nested generics like InferProps<typeof loader>
-  const match = /\bdefineProps\s*</.exec(code);
-  if (!match) {
+type BabelParserPlugins = SFCScriptCompileOptions['babelParserPlugins'];
+
+function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): string | null {
+  if (!code.includes('defineProps')) {
     return null;
   }
-
-  const start = match.index + match[0].length - 1; // position of '<'
-  let depth = 0;
-  let end = -1;
-  let newlineCount = 0;
-  for (let i = start; i < code.length; i++) {
-    const ch = code[i];
-    if (ch === '\n') {
-      newlineCount++;
-    } else if (ch === '<') {
-      depth++;
-    } else if (ch === '>') {
-      depth--;
-      if (depth === 0) {
-        end = i;
-        break;
+  const { scriptSetup } = parse(code).descriptor;
+  if (!scriptSetup || (scriptSetup.lang !== 'ts' && scriptSetup.lang !== 'tsx')) {
+    return null;
+  }
+  const isTsx = scriptSetup.lang === 'tsx';
+  const pluginName = (plugin: NonNullable<BabelParserPlugins>[number]) =>
+    Array.isArray(plugin) ? plugin[0] : plugin;
+  const custom = (parserPlugins ?? []).filter((plugin) => isTsx || pluginName(plugin) !== 'jsx');
+  const names = new Set(custom.map(pluginName));
+  // Use Vue's TS parser defaults before applying caller options.
+  const plugins: NonNullable<BabelParserPlugins> = ['typescript', 'explicitResourceManagement'];
+  if (!names.has('importAssertions') && !names.has('importAttributes')) {
+    plugins.push('importAttributes');
+  }
+  if (!names.has('decorators')) {
+    plugins.push('decorators-legacy');
+  }
+  if (isTsx) {
+    plugins.push('jsx');
+  }
+  let script: ReturnType<typeof babelParse>;
+  try {
+    script = babelParse(scriptSetup.content, {
+      sourceType: 'module',
+      plugins: [...plugins, ...custom],
+    });
+  } catch {
+    // Let the Vue plugin report the original syntax error.
+    return null;
+  }
+  for (const statement of script.program.body) {
+    const expressions =
+      statement.type === 'ExpressionStatement'
+        ? [statement.expression]
+        : statement.type === 'VariableDeclaration'
+          ? statement.declarations.map((declaration) => declaration.init)
+          : [];
+    for (let expression of expressions) {
+      // Vue unwraps TypeScript assertions before looking for macros.
+      while (
+        expression?.type === 'TSAsExpression' ||
+        expression?.type === 'TSTypeAssertion' ||
+        expression?.type === 'TSNonNullExpression' ||
+        expression?.type === 'TSInstantiationExpression' ||
+        expression?.type === 'TSSatisfiesExpression'
+      ) {
+        expression = expression.expression;
       }
+      const withDefaults =
+        expression?.type === 'CallExpression' &&
+        expression.callee.type === 'Identifier' &&
+        expression.callee.name === 'withDefaults'
+          ? expression
+          : undefined;
+      const call = withDefaults ? withDefaults.arguments[0] : expression;
+      if (
+        call?.type !== 'CallExpression' ||
+        call.callee.type !== 'Identifier' ||
+        call.callee.name !== 'defineProps'
+      ) {
+        continue;
+      }
+      const parameters = call.typeParameters ?? call.typeArguments;
+      if (
+        parameters?.type !== 'TSTypeParameterInstantiation' ||
+        parameters.start == null ||
+        parameters.end == null ||
+        call.end == null
+      ) {
+        continue;
+      }
+      const type = parameters.params[0];
+      const names =
+        type?.type === 'TSTypeLiteral'
+          ? type.members.map((member) => {
+              if (member.type !== 'TSPropertySignature' || member.computed) {
+                return;
+              }
+              if (member.key.type === 'Identifier') {
+                return member.key.name;
+              }
+              if (member.key.type === 'StringLiteral') {
+                return member.key.value;
+              }
+            })
+          : undefined;
+      const literal = names?.every((name) => name !== undefined) === true;
+      if (withDefaults && literal) {
+        // Vue needs the typed macro to merge defaults into its declaration.
+        return null;
+      }
+      const offset = scriptSetup.loc.start.offset;
+      const start = offset + parameters.start;
+      const end = offset + parameters.end;
+      const close = offset + call.end - 1;
+      const newlines = code.slice(start, end).replace(/[^\n]/g, '');
+      // Neutral declarations preserve optional keys without introducing coercion.
+      const declaration = literal && call.arguments.length === 0 ? JSON.stringify(names) : '';
+      return (
+        code.slice(0, start) + newlines + code.slice(end, close) + declaration + code.slice(close)
+      );
     }
   }
-  if (end === -1) {
-    return null;
-  }
-
-  return code.slice(0, start) + '\n'.repeat(newlineCount) + code.slice(end + 1);
+  return null;
 }
 
 /** Check if the pages directory has any non-island Vue page files. */
@@ -111,7 +191,11 @@ function hasNonIslandPages(dir: string): boolean {
   return false;
 }
 
-export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): ReadonlyArray<Plugin> {
+export function pagesPlugin(
+  pagesDir: string,
+  options?: PagesPluginOptions,
+  parserPlugins?: BabelParserPlugins,
+): ReadonlyArray<Plugin> {
   const normalizedPagesDir = normalizePath(pagesDir);
   return [
     {
@@ -124,7 +208,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
           if (!isVuePageFile(normalizePath(id), normalizedPagesDir)) {
             return;
           }
-          const transformed = stripDefinePropsTypeArgument(code);
+          const transformed = rewriteDefineProps(code, parserPlugins);
           if (!transformed) {
             return;
           }
@@ -143,7 +227,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
           // Vue reparses raw SFC source during HMR, so apply the same rewrite here.
           ctx.read = async () => {
             const code = await read();
-            return stripDefinePropsTypeArgument(code) ?? code;
+            return rewriteDefineProps(code, parserPlugins) ?? code;
           };
         },
       },
