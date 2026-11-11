@@ -8,6 +8,8 @@ import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
+import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env-public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env.ts';
 import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
 import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
@@ -555,6 +557,88 @@ describe('typed Worker fetch execution', () => {
     expect(await response.text()).toBe('<h1>Missing</h1>');
     expect(staticNotFound).toHaveBeenCalledTimes(1);
     expect(validateEnv).toHaveBeenCalledTimes(1);
+  });
+  // An async Standard Schema validator, like zod's async refine.
+  const upper = {
+    '~standard': {
+      version: 1 as const,
+      vendor: 'test',
+      validate: async (value: unknown) => ({ value: String(value).toUpperCase() }),
+    },
+  };
+  // The entry validates before it opens the request scope that the app's reads run in.
+  it('serves an env.ts value with an async validator to app requests', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      const app = new Hono();
+      app.get('/token', (c) => c.json({ token: env.TOKEN }));
+      const fetch = worker({ app, validateEnv: _validateEnvOnce, withRuntimeEnv });
+      for (const rawEnv of [{ TOKEN: 'sk_test' }, { TOKEN: 'sk_test' }]) {
+        const response = await fetch(new Request('https://app.test/token'), rawEnv, context);
+        expect(await response.json()).toEqual({ token: 'SK_TEST' });
+      }
+    } finally {
+      defineEnv({});
+    }
+  });
+  // Remote dev mode replaces the env with a copy before it opens the request scope.
+  it('serves an env.ts value with an async validator to remote dev requests', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      const app = new Hono();
+      app.get('/token', (c) => c.json({ token: env.TOKEN }));
+      const fetch = worker({
+        app,
+        validateEnv: _validateEnvOnce,
+        withRuntimeEnv,
+        remoteEnv: (original) => ({ ...original }),
+      });
+      const response = await fetch(
+        new Request('https://app.test/token'),
+        { TOKEN: 'sk_test', __VOID_REMOTE: '1' },
+        context,
+      );
+      expect(await response.json()).toEqual({ token: 'SK_TEST' });
+    } finally {
+      defineEnv({});
+    }
+  });
+  // Cloudflare can keep an isolate running when only its bindings change, so a request that
+  // holds the old values can overlap one that holds the new values.
+  it('serves each of two overlapping requests the async value of its own env', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      // Both requests validate before either reads.
+      let waiting = 0;
+      let release = () => {};
+      const bothValidated = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const app = new Hono();
+      app.get('/token', async (c) => {
+        if (++waiting === 2) {
+          release();
+        }
+        await bothValidated;
+        return c.json({ token: env.TOKEN });
+      });
+      const fetch = worker({ app, validateEnv: _validateEnvOnce, withRuntimeEnv });
+      const responses = await Promise.all(
+        ['a', 'b'].map((value) =>
+          fetch(new Request('https://app.test/token'), { TOKEN: value }, context),
+        ),
+      );
+      expect(
+        await Promise.all(
+          responses.map(async (response) => [response.status, await response.text()]),
+        ),
+      ).toEqual([
+        [200, '{"token":"A"}'],
+        [200, '{"token":"B"}'],
+      ]);
+    } finally {
+      defineEnv({});
+    }
   });
   it('returns a getPrerenderPaths() error to the prerender runner', async () => {
     const fetch = worker({
