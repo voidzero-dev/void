@@ -4,7 +4,7 @@ outline: deep
 
 # Open Graph Images
 
-Use `ImageResponse` from `void/og` to generate Open Graph and social preview images in a route handler. It takes the same arguments as `ImageResponse` from `next/og` and draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
+Use `ImageResponse` from `void/og` to generate Open Graph and social preview images in a route handler. It draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
 
 ## Create an image route
 
@@ -102,7 +102,7 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
-Chinese characters are drawn in the Japanese style, as in `next/og`, unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text, so a Chinese title with a katakana word keeps the Chinese style:
+Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text, so a Chinese title with a katakana word keeps the Chinese style:
 
 ```ts
 return new ImageResponse(`<div lang="zh-TW" style="display: flex">${title}</div>`);
@@ -110,7 +110,7 @@ return new ImageResponse(`<div lang="zh-TW" style="display: flex">${title}</div>
 
 One style applies to all Chinese characters in an image, so an image cannot mix Japanese and Chinese styles through `lang` on inner elements.
 
-To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data, as in `next/og`:
+To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data:
 
 ```ts
 return new ImageResponse(postCard(post), {
@@ -121,7 +121,7 @@ return new ImageResponse(postCard(post), {
 });
 ```
 
-Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too.
+Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entry's `lang` is accepted but does not choose the font for a language; use the `lang` option or attribute for Chinese characters instead.
 
 ## Add the image to a page
 
@@ -165,22 +165,6 @@ Void never caches paths under `/api`, so serve images from another path, such as
 ## Worker size
 
 On Cloudflare, importing `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4 MB, or 1.7 MB compressed. Cloudflare limits a Worker to 3 MB compressed on Workers Free and 10 MB on Workers Paid (see [Worker size](https://developers.cloudflare.com/workers/platform/limits/#worker-size)), so on Workers Free the rest of your app has about 1.3 MB. Apps that do not import `void/og` do not include the renderer.
-
-## Coming from `next/og`
-
-Change the import:
-
-```ts
-import { ImageResponse } from 'next/og'; // [!code --]
-import { ImageResponse } from 'void/og'; // [!code ++]
-```
-
-Then:
-
-- Move `app/api/og/route.tsx` to a route file outside `/api`, such as `routes/og.tsx`, so its images can be [cached](#cache-generated-images).
-- Read the request from Hono's context: `c.req.url`, `c.req.param()`, and `c.req.query()`.
-- Void draws images with Takumi rather than Satori, so layout can differ slightly. See [Takumi vs. Satori](https://takumi.kane.tw/docs/comparison-to-satori).
-- A font's `lang` is accepted but does not choose the font for a language. Use the `lang` option or attribute for Chinese characters instead.
 
 ## Node.js, Bun, and Deno
 
