@@ -6,7 +6,7 @@ import { toSlash } from 'pathslash';
 import { render } from 'takumi-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import voidManifest from '../../package.json' with { type: 'json' };
-import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
+import { findVoidPackageDir, nodeTargetPlugin } from '../../src/plugin-node-target.ts';
 import { ImageResponse } from '../../src/runtime/og.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
@@ -415,5 +415,19 @@ describe('void/og on Node.js targets', () => {
   it('leaves takumi-js that the app imports itself alone', () => {
     installTakumi('3.0.0');
     expect(resolveRenderer(toSlash(join(root!, 'src', 'image.ts')))).toBeUndefined();
+  });
+
+  it("finds void's package.json wherever the bundler places the plugin", () => {
+    root = toSlash(mkdtempSync(join(tmpdir(), 'void-og-node-')));
+    const voidDir = `${root}/node_modules/void`;
+    mkdirSync(`${voidDir}/dist/chunks`, { recursive: true });
+    writeFileSync(`${voidDir}/package.json`, JSON.stringify({ name: 'void' }));
+    // A package.json without void's name, such as a nested `type` marker, is skipped.
+    writeFileSync(`${voidDir}/dist/package.json`, JSON.stringify({ type: 'module' }));
+    expect(findVoidPackageDir(`${voidDir}/dist/index.mjs`)).toBe(voidDir);
+    expect(findVoidPackageDir(`${voidDir}/dist/chunks/plugin-abc.mjs`)).toBe(voidDir);
+    expect(() => findVoidPackageDir(`${root}/elsewhere/index.mjs`)).toThrow(
+      "could not find void's package.json",
+    );
   });
 });
