@@ -5,6 +5,7 @@ import { parseSync } from 'vite';
 import { staticModuleReferences } from './shared/module-references.ts';
 
 type PackageManifest = {
+  readonly name?: string;
   readonly version?: string;
   readonly type?: string;
   readonly module?: unknown;
