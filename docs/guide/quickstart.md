@@ -34,7 +34,7 @@ bun add -D void
 bunx void init
 ```
 
-```sh [vite+]
+```sh [vp]
 vp add -D void
 vpx void init
 ```
@@ -67,7 +67,7 @@ yarn run dev
 bun run dev
 ```
 
-```sh [vite+]
+```sh [vp]
 vpr dev
 ```
 
