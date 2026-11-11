@@ -381,8 +381,8 @@ export default function Upload() {
 
 ```vue [Vue]
 <script setup lang="ts">
-import { ref } from 'vue';
 import { Form, useForm } from '@void/vue';
+import { ref } from 'vue';
 
 const form = useForm('/photos', { title: '', photo: null as File | null });
 const fileInput = ref<HTMLInputElement>();
