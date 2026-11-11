@@ -6,7 +6,7 @@ import {
   recordInstallationStep,
   transitionInstallation,
 } from '@void/platform';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 const now = '2026-09-14T00:00:00.000Z';
 

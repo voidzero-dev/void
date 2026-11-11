@@ -137,6 +137,10 @@ export default defineConfig({
     },
     jsPlugins: [
       {
+        name: 'vite-plus',
+        specifier: 'vite-plus/oxlint-plugin',
+      },
+      {
         name: 'react-hooks-js',
         specifier: 'eslint-plugin-react-hooks',
       },
@@ -406,6 +410,8 @@ export default defineConfig({
       'unicorn/prefer-set-size': 'error',
       'use-isnan': 'error',
       'valid-typeof': 'error',
+      // Import test APIs from `vite-plus/test`, not `vitest`.
+      'vite-plus/prefer-vite-plus-imports': 'error',
     },
     options: {
       typeAware: false,
