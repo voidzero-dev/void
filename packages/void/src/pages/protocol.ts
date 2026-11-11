@@ -290,6 +290,11 @@ async function renderPageHtml(
 
 function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
   return new Response(serializePageData(pageObj), {
+    // Hono's lazy c.res getter ignores the private status set by c.status().
+    // Use its response factory to read that status without changing our header merging.
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L403-L407
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L652-L659
+    status: c.newResponse(null).status,
     headers: pageResponseHeaders(c, {
       'X-VoidPages': 'true',
       'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
@@ -599,6 +604,11 @@ function renderedResponse(
   assetTags?: AssetTags,
 ): Response {
   return new Response(result, {
+    // Hono's lazy c.res getter ignores the private status set by c.status().
+    // Use its response factory to read that status without changing our header merging.
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L403-L407
+    // https://github.com/honojs/hono/blob/v4.13.17/src/context.ts#L652-L659
+    status: c.newResponse(null).status,
     headers: adjustDevCssCsp(
       pageResponseHeaders(c, {
         'content-type': contentType,

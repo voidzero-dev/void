@@ -1860,10 +1860,12 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     (format) => {
       it.each(
         ([403, 503] as const).flatMap((status) =>
-          (['loader', 'app middleware', 'handler middleware'] as const).map((source) => ({
-            status,
-            source,
-          })),
+          (['loader', 'validated loader', 'app middleware', 'handler middleware'] as const).map(
+            (source) => ({
+              status,
+              source,
+            }),
+          ),
         ),
       )('renders the page with HTTP $status set by $source', async ({ status, source }) => {
         const message = status === 403 ? 'Your account is banned' : 'Down for maintenance';
@@ -1873,7 +1875,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
           await next();
         });
         const loader = vi.fn((c: CloudContext) => {
-          if (source === 'loader') {
+          if (source === 'loader' || source === 'validated loader') {
             c.status(status);
             c.header('Retry-After', '120');
           }
@@ -1884,15 +1886,25 @@ describe('page loaders and actions composed with defineHandler middleware', () =
             loader:
               source === 'handler middleware'
                 ? defineHandler(setStatus, loader)
-                : defineHandler(loader),
+                : source === 'validated loader'
+                  ? defineHandler.withValidator({})(loader)
+                  : defineHandler(loader),
           },
-          source === 'app middleware' ? setStatus : undefined,
+          async (c, next) => {
+            c.header('Set-Cookie', 'session=renewed; HttpOnly', { append: true });
+            c.header('Set-Cookie', 'locale=en', { append: true });
+            if (source === 'app middleware') {
+              return setStatus(c, next);
+            }
+            await next();
+          },
         );
         const response = await get(app, format === 'HTML' ? {} : undefined);
         const body = await response.text();
 
         expect(loader).toHaveBeenCalledTimes(1);
         expect(response.headers.get('Retry-After')).toBe('120');
+        expect(response.headers.getSetCookie()).toEqual(['session=renewed; HttpOnly', 'locale=en']);
         if (format === 'Pages JSON') {
           expect(response.headers.get('X-VoidPages')).toBe('true');
           expect(decodePageData(JSON.parse(body))).toMatchObject({
@@ -1905,8 +1917,49 @@ describe('page loaders and actions composed with defineHandler middleware', () =
         }
         expect(response.status).toBe(status);
       });
+
+      it('preserves the loader status while streaming deferred props', async () => {
+        const app = createPageApp({
+          loader: defineHandler((c) => {
+            c.status(429);
+            return { slow: defer(async () => 'Try again later') };
+          }),
+        });
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+        expect(response.status).toBe(429);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(body).toContain(
+            serializePageData({ __deferred: 'slow', data: 'Try again later' }),
+          );
+        } else {
+          expect(body).toContain('__resolveDeferred');
+          expect(body).toContain('Try again later');
+        }
+      });
     },
   );
+
+  it('preserves the loader status when prefetching deferred page data', async () => {
+    const app = createPageApp({
+      loader: defineHandler((c) => {
+        c.status(503);
+        return { slow: defer(async () => 'Try again later') };
+      }),
+    });
+    const response = await get(app, {
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      Purpose: 'prefetch',
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(decodePageData(await response.json())).toMatchObject({
+      props: { slow: 'Try again later' },
+    });
+  });
 
   it('re-renders the page after an action with middleware, or shows its field errors', async () => {
     const action = (message?: string) =>

@@ -134,6 +134,16 @@ export default defineMiddleware(async (c, next) => {
       write(`pages/_error.${extension}`, component('<h1>Error page</h1><p>{{error.message}}</p>'));
     }
     write(`pages/items/[id].${extension}`, component('<h1>Item</h1>'));
+    write(`pages/status/[code].${extension}`, component('<h1>Status page</h1>'));
+    write(
+      'pages/status/[code].server.ts',
+      `import { defineHandler } from 'void/handler';
+export const loader = defineHandler(c => {
+  c.status(c.req.param('code') === '403' ? 403 : 503);
+  c.header('Retry-After', '120');
+  return {};
+});`,
+    );
     for (const name of ['falsy', 'island-falsy.island']) {
       write(`pages/${name}.${extension}`, component('<h1>Broken view</h1>', 'throw undefined;'));
     }
@@ -399,6 +409,39 @@ export default defineMiddleware(async (c, next) => {
     expect(response.status).toBe(404);
     expect(await response.text()).toBe('API missing');
   });
+  it('renders application-defined error statuses on document loads and client visits', async () => {
+    const page = await browser.newPage();
+    page.setDefaultTimeout(8_000);
+    try {
+      for (const status of [403, 503]) {
+        const path = `/status/${status}`;
+        const documentResponse = await fetch(base + path);
+        expect(documentResponse.status).toBe(status);
+        expect(documentResponse.headers.get('Retry-After')).toBe('120');
+        expect(await documentResponse.text()).toContain('Status page');
+
+        await page.goto(base);
+        await page.waitForSelector('#app[data-hydrated="true"]');
+        await page.evaluate(() =>
+          document.querySelector('nav')!.setAttribute('data-retained', 'yes'),
+        );
+        const navigation = page.waitForResponse(
+          (response) =>
+            response.url() === base + path &&
+            response.request().headers()['x-voidpages'] === 'true',
+        );
+        await page.evaluate(`window.testRouter.visit(${JSON.stringify(path)})`);
+        const response = await navigation;
+        expect(response.status()).toBe(status);
+        expect(response.headers()['x-voidpages']).toBe('true');
+        await expect.poll(() => page.locator('h1').textContent()).toBe('Status page');
+        expect(await page.locator('nav').getAttribute('data-retained')).toBe('yes');
+      }
+    } finally {
+      await page.close();
+    }
+  });
+
   it('keeps the app and outer layout mounted across 404s and client errors', async () => {
     const page = await browser.newPage();
     const errors: Array<string> = [];
