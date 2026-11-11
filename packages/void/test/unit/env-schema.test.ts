@@ -1,4 +1,4 @@
-import { afterEach, describe, it, expect, beforeEach } from 'vite-plus/test';
+import { afterEach, describe, it, expect, beforeEach, vi } from 'vite-plus/test';
 import { boolean, email, json, number, oneOf, string, url } from '../../src/runtime/env-helpers.ts';
 import {
   defineEnv,
@@ -8,9 +8,11 @@ import {
   _getRegisteredSchema,
   _getSchemaDefaults,
   _hasRegisteredSchema,
+  _prepareEnv,
   _validateEnvOnce,
 } from '../../src/runtime/env-public.ts';
 import { getRuntimeBinding, requireRuntimeBinding, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { ENV_REGISTRY_KEY } from '../../src/shared/env-registry.ts';
 
 // Reset schema between tests so order doesn't leak state.
 function resetSchema() {
@@ -634,6 +636,209 @@ describe('_validateEnvOnce — internal bindings stay hidden from void/env', () 
       expect(requireRuntimeBinding('ISR_CACHE')).toEqual(fakeIsrKv);
 
       expect(env.API_KEY).toBe('sk_live');
+    });
+  });
+});
+
+/** An async validator that upper-cases a string, with the number of times it ran. */
+function asyncUpper() {
+  const calls = { count: 0 };
+  const validator = {
+    '~standard': {
+      version: 1 as const,
+      vendor: 'test',
+      validate: async (value: unknown) => {
+        calls.count++;
+        await Promise.resolve();
+        return typeof value === 'string'
+          ? { value: value.toUpperCase() }
+          : { issues: [{ message: 'must be a string' }] };
+      },
+    },
+  };
+  return { validator, calls };
+}
+
+describe('_prepareEnv (framework Worker entries)', () => {
+  beforeEach(resetSchema);
+
+  it('serves defaults, converted values and async results to synchronous reads', async () => {
+    defineEnv({ PORT: number().default(48213), DEBUG: boolean(), TOKEN: asyncUpper().validator });
+    const rawEnv = { DEBUG: 'false', TOKEN: 'sk_test' };
+    await _prepareEnv(rawEnv);
+    withRuntimeEnv(rawEnv, () => {
+      expect([env.PORT, env.DEBUG, env.TOKEN]).toEqual([48213, false, 'SK_TEST']);
+    });
+  });
+
+  it('resolves with invalid keys, and fails only the reads of those keys', async () => {
+    const crash = new Error('validator crashed');
+    defineEnv({
+      PORT: number().default(3000),
+      STRIPE_KEY: string(),
+      TOKEN: asyncUpper().validator,
+      CRASH: {
+        '~standard': {
+          version: 1 as const,
+          vendor: 'test',
+          validate: async () => {
+            throw crash;
+          },
+        },
+      },
+    });
+    const rawEnv = {};
+    await expect(_prepareEnv(rawEnv)).resolves.toBeUndefined();
+    withRuntimeEnv(rawEnv, () => {
+      expect(env.PORT).toBe(3000);
+      expect(() => env.STRIPE_KEY).toThrow(EnvValidationError);
+      // A read cannot run an async validator, but it throws the failure that validation found.
+      expect(() => env.TOKEN).toThrow('Invalid env "TOKEN": must be a string');
+      expect(() => env.CRASH).toThrow(crash);
+    });
+  });
+
+  it('redacts the raw value from the failure of an async validator', async () => {
+    defineEnv({
+      TOKEN: {
+        '~standard': {
+          version: 1 as const,
+          vendor: 'test',
+          validate: async (value: unknown) => ({
+            issues: [{ message: `rejected ${String(value)}` }],
+          }),
+        },
+      },
+    });
+    const rawEnv = { TOKEN: 'sk_live_abc123' };
+    await _prepareEnv(rawEnv);
+    withRuntimeEnv(rawEnv, () => {
+      expect(() => env.TOKEN).toThrow('Invalid env "TOKEN": rejected <redacted>');
+    });
+  });
+
+  it('validates once for the same raw values, and again for other values', async () => {
+    const { validator, calls } = asyncUpper();
+    defineEnv({ TOKEN: validator });
+    await _prepareEnv({ TOKEN: 'a' });
+    // A dev server can hand each request a new env object.
+    const same = { TOKEN: 'a' };
+    await _prepareEnv(same);
+    expect(calls.count).toBe(1);
+    const other = { TOKEN: 'b' };
+    await _prepareEnv(other);
+    expect(calls.count).toBe(2);
+    withRuntimeEnv(same, () => {
+      expect(env.TOKEN).toBe('A');
+    });
+    withRuntimeEnv(other, () => {
+      expect(env.TOKEN).toBe('B');
+    });
+  });
+
+  // A lookup that a validator makes can fail once and succeed for a later request.
+  it('runs a validator that threw again on the next call', async () => {
+    const lookupFailed = new Error('lookup failed');
+    let calls = 0;
+    defineEnv({
+      TOKEN: {
+        '~standard': {
+          version: 1 as const,
+          vendor: 'test',
+          validate: async (value: unknown) => {
+            calls++;
+            if (calls === 1) {
+              throw lookupFailed;
+            }
+            return { value };
+          },
+        },
+      },
+    });
+    const rawEnv = { TOKEN: 'sk_test' };
+    await _prepareEnv(rawEnv);
+    withRuntimeEnv(rawEnv, () => {
+      expect(() => env.TOKEN).toThrow(lookupFailed);
+    });
+    await _prepareEnv(rawEnv);
+    withRuntimeEnv(rawEnv, () => {
+      expect(env.TOKEN).toBe('sk_test');
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('resolves without an env, as in a prerender in Node', async () => {
+    defineEnv({ STRIPE_KEY: string() });
+    await expect(_prepareEnv(undefined)).resolves.toBeUndefined();
+  });
+
+  // A D1 app's handler receives one env object, and its reads use another: the
+  // `cloudflare:workers` env. Nuxt's global env stands in for it here.
+  describe('outside a request scope', () => {
+    const globalScope = globalThis as { __env__?: unknown };
+
+    afterEach(() => {
+      delete globalScope.__env__;
+    });
+
+    it('serves the results, failures included, while that env holds the same values', async () => {
+      defineEnv({
+        PORT: number().default(3000),
+        TOKEN: asyncUpper().validator,
+        SECRET: asyncUpper().validator,
+      });
+      const outside = { TOKEN: 'sk_test' };
+      globalScope.__env__ = outside;
+      await _prepareEnv({ TOKEN: 'sk_test' });
+      expect(env.PORT).toBe(3000);
+      expect(env.TOKEN).toBe('SK_TEST');
+      expect(() => env.SECRET).toThrow('Invalid env "SECRET": must be a string');
+      outside.TOKEN = 'other';
+      expect(() => env.TOKEN).toThrow(/Async validator for 'TOKEN'/);
+    });
+  });
+});
+
+describe('several copies of void/env in one Worker', () => {
+  // `void deploy` bundles a framework app's cron and queue jobs with a copy of their own.
+  const registry = () =>
+    (globalThis as Record<symbol, { prepare?: typeof _prepareEnv } | undefined>)[
+      Symbol.for(ENV_REGISTRY_KEY)
+    ];
+
+  async function secondCopy() {
+    vi.resetModules();
+    return await import('../../src/runtime/env-public.ts');
+  }
+
+  beforeEach(resetSchema);
+
+  it('reads the values that the copy holding the schema prepared', async () => {
+    const copy = await secondCopy();
+    expect(copy.defineEnv).not.toBe(defineEnv);
+    defineEnv({ TOKEN: asyncUpper().validator, PORT: number().default(48213) });
+    const rawEnv = { TOKEN: 'sk_test' };
+    await registry()?.prepare?.(rawEnv);
+    withRuntimeEnv(rawEnv, () => {
+      expect([copy.env.TOKEN, copy.env.PORT]).toEqual(['SK_TEST', 48213]);
+    });
+  });
+
+  it('publishes the _prepareEnv of the copy that registered the schema', async () => {
+    const copy = await secondCopy();
+    defineEnv({ KEY: string() });
+    expect(registry()?.prepare).toBe(_prepareEnv);
+    copy.defineEnv({ KEY: string() });
+    expect(registry()?.prepare).toBe(copy._prepareEnv);
+  });
+
+  it('forgets results in every copy when a schema is registered again', async () => {
+    const copy = await secondCopy();
+    defineEnv({ PORT: number() });
+    withRuntimeEnv({ PORT: '3000' }, () => {
+      expect(copy.env.PORT).toBe(3000);
+      defineEnv({ PORT: string() });
+      expect(copy.env.PORT).toBe('3000');
     });
   });
 });

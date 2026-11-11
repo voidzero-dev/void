@@ -36,6 +36,7 @@ With `voidPlugin()` added to the framework's Vite config, frameworks get most of
 - **Typed database:** query types come from your Drizzle schema.
 - **Migrations:** local D1 is updated on dev startup, and migrations are validated and deployed with `void deploy`.
 - **Runtime helpers:** `void/db`, `void/kv`, `void/storage`, and `void/ai` give you typed access to Cloudflare bindings in dev and production.
+- **Environment variables:** in TanStack Start, React Router, and vinext apps, `env` from `void/env` returns the values of your [`env.ts`](../../guide/env-vars.md) schema in dev and production, with defaults, type conversions, and async validators applied. A missing or invalid value fails only the requests that read it.
 - **Auth:** Void-managed auth is not supported in framework mode yet. For now, use Better Auth's official integration for your framework.
 - **Cron jobs:** scheduled handlers via the `crons/` directory.
 - **Queue consumers:** typed producers and consumers via the `queues/` directory.
