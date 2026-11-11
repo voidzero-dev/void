@@ -109,6 +109,7 @@ import domains from './routes/domains.ts';
 import emailConfirm from './routes/email-confirm.ts';
 import emailRoutes from './routes/email.ts';
 import { githubProjectRoutes, githubRoutes } from './routes/github.ts';
+import internalAiLogging from './routes/internal-ai-logging.ts';
 import internalEmailActions from './routes/internal-email-actions.ts';
 import internalEmailDomainCredential from './routes/internal-email.ts';
 import internalGitHubWebhook from './routes/internal-github-webhook.ts';
@@ -567,6 +568,7 @@ const app = new Hono<ApiEnv>()
   .use('/internal/github-webhook', capabilityMiddleware('managedBuilds'))
   .route('/internal/github-webhook', internalGitHubWebhook)
   .route('/internal/resolve-resource', internalResolveResource)
+  .route('/internal/ai-logging', internalAiLogging)
   .route('/internal/resolve-worker', internalResolveWorker)
   .route('/internal/verify-owner', internalVerifyOwner)
   .route('/internal/verify-prerender-build', internalVerifyPrerenderBuild)

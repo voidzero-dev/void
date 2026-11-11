@@ -26,6 +26,16 @@ Project details include resources, domains, and recent builds and deployments. T
 
 In the admin dashboard, open a project to view its team. Search for a platform user and choose a role to add them immediately; an email address is not required. You can also change or remove existing members. Pending invitations created through other project workflows remain visible until accepted or revoked. If email is unavailable for a pending invitation, share its ID so the user can accept it with `void project team accept <invitation-id>`. The owner cannot be removed from the team; transfer ownership first. Removing a collaborator or admin, changing one to reader, or suspending or deleting their account [replaces the project's platform credentials](../../project-collaboration.md#change-or-remove-access), the same as the CLI.
 
+### AI Logging
+
+Keep prompt and response bodies out of a project's AI Gateway logs while retaining request metadata:
+
+```sh
+void platform project ai-logging <project-id> metadata
+```
+
+Only platform administrators can change this setting. It applies to AI requests through the platform, including calls with an app's own provider key. Other projects keep their own settings. Use `inherit` to restore the gateway default, `off` to disable log collection, or `full` to include bodies. Inspect the saved mode with `void platform project show <project-id> --json`. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for the modes and Cloudflare's billing and Logpush behavior.
+
 ### Transferring Project Ownership
 
 Only an installation administrator can change a project's owner. The new owner must already have an account on this platform. In the dashboard, search for the new owner on the project page and preview the transfer before applying it. The CLI accepts a user ID:

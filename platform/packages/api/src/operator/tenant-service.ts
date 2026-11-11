@@ -14,6 +14,7 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Context } from 'hono';
+import { readProjectAiLogging } from '../ai-logging.ts';
 import {
   type Db,
   ACTIVE_BUILD_STATUSES,
@@ -244,7 +245,8 @@ export async function getOperatorProject(db: Db, id: string) {
     getDomainsByProjectId(db, id),
     getProjectBuilds(db, id),
   ]);
-  return { project, deployments, resources, owner, domains, builds };
+  const aiLogging = await readProjectAiLogging(db, id);
+  return { project, deployments, resources, owner, domains, builds, aiLogging };
 }
 
 type OwnershipTransferBlocker = Readonly<{

@@ -1,3 +1,5 @@
+import type { AiLoggingMode } from '@voidcloud/api/ai-logging-policy';
+
 export type AiGatewayRequest = Readonly<{
   provider: string;
   endpoint: string;
@@ -74,5 +76,5 @@ export type JwtPayload = Readonly<{
 
 export type ProxyEnv = Readonly<{
   Bindings: Env;
-  Variables: { projectId: string; body: ProxyBody };
+  Variables: { projectId: string; body: ProxyBody; aiLoggingMode: AiLoggingMode };
 }>;

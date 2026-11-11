@@ -1,6 +1,8 @@
 import { isRecord } from '@void/deploy-core';
+import type { AiLoggingMode } from '@voidcloud/api/ai-logging-policy';
 import { deriveAiUsageTag } from '@voidcloud/api/proxy-token';
 import { Hono } from 'hono';
+import { applyAiLoggingHeaders, readAiLoggingMode } from './ai-logging.ts';
 import { asRecord, asString } from './body.ts';
 import type { ProxyEnv } from './types.ts';
 
@@ -28,6 +30,27 @@ type SerializedProviderBody = Readonly<
 class BadRequestError extends Error {}
 
 const ai = new Hono<ProxyEnv>();
+
+ai.use('*', async (context, next) => {
+  if (context.req.path === '/ai/models') {
+    return next();
+  }
+  try {
+    context.set(
+      'aiLoggingMode',
+      await readAiLoggingMode(context.env, context.get('projectId'), context.req.raw.signal),
+    );
+  } catch {
+    return context.json(
+      {
+        error: 'ai_logging_policy_unavailable',
+        message: 'AI is temporarily unavailable because its logging policy could not be verified.',
+      },
+      503,
+    );
+  }
+  await next();
+});
 
 function hasStreamFlag(value: unknown): value is { stream?: boolean } {
   return typeof value === 'object' && value !== null && 'stream' in value;
@@ -163,13 +186,13 @@ function providerAuthDefaults(provider: string): { header: string; prefix: strin
   return PROVIDER_AUTH_DEFAULTS[provider] ?? { header: 'authorization', prefix: 'Bearer ' };
 }
 
-// AI usage is counted from the platform gateway's log rows by their
+// AI usage is counted from the platform gateway's analytics by their
 // `projectId` metadata, which holds the signed project tag from
 // `deriveAiUsageTag`, so the platform owns the gateway id, its metadata and
-// logging. Cloudflare saves only the first five metadata entries, and
+// logging policy. Cloudflare saves only the first five metadata entries, and
 // integer-like keys always sort first, so caller metadata could push the
-// project out; `collectLog: false` would drop the row.
-const PLATFORM_GATEWAY_KEYS = new Set(['id', 'metadata', 'collectLog']);
+// project out. Applications cannot override an operator's logging decision.
+const PLATFORM_GATEWAY_KEYS = new Set(['id', 'metadata', 'collectLog', 'collectLogPayload']);
 // `cf-aig-*` request headers set the same metadata, logging and cost.
 const GATEWAY_CONTROL_HEADER = /^cf-aig-/i;
 // Provider-native calls keep the gateway headers that only shape their own
@@ -204,6 +227,7 @@ function gatewayOptions(
   projectId: string,
   usageTag: string,
   gatewayId: string,
+  loggingMode: AiLoggingMode,
 ): Record<string, unknown> {
   // JSON cannot carry cancellation state. Never pass a serialized signal to
   // a native binding, including when an older SDK still sends the field.
@@ -215,12 +239,30 @@ function gatewayOptions(
 
   const result: Record<string, unknown> = {
     ...options,
-    gateway: { ...gateway, id: gatewayId, metadata: { projectId: usageTag } },
+    gateway: {
+      ...gateway,
+      id: gatewayId,
+      metadata: { projectId: usageTag },
+      ...(loggingMode !== 'inherit' ? { collectLog: loggingMode !== 'off' } : {}),
+    },
   };
-  if ('extraHeaders' in options) {
-    result.extraHeaders = withoutKeys(asRecord(options.extraHeaders), (key) =>
+  if ('extraHeaders' in options || loggingMode !== 'inherit') {
+    const headers = withoutKeys(asRecord(options.extraHeaders), (key) =>
       GATEWAY_CONTROL_HEADER.test(key),
     );
+    if (loggingMode !== 'inherit') {
+      headers['cf-aig-collect-log-payload'] = String(loggingMode === 'full');
+    }
+    result.extraHeaders = headers;
+  }
+  if ('sessionOptions' in options) {
+    const session = { ...asRecord(options.sessionOptions) };
+    if ('extraHeaders' in session) {
+      session.extraHeaders = withoutKeys(asRecord(session.extraHeaders), (key) =>
+        GATEWAY_CONTROL_HEADER.test(key),
+      );
+    }
+    result.sessionOptions = session;
   }
   return result;
 }
@@ -404,6 +446,7 @@ ai.post('/run', async (context) => {
     projectId,
     await deriveAiUsageTag(context.env.JWT_SECRET, projectId),
     context.env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
+    context.get('aiLoggingMode'),
   );
 
   try {
@@ -455,6 +498,7 @@ ai.post('/provider', async (context) => {
       apiKeyPrefix,
       contentType: requestBody.contentType,
     });
+    applyAiLoggingHeaders(headers, context.get('aiLoggingMode'));
     const response = await fetch(gatewayEndpointUrl(baseUrl, path), {
       method,
       headers,
@@ -504,6 +548,7 @@ ai.post('/toMarkdown', async (context) => {
     projectId,
     await deriveAiUsageTag(context.env.JWT_SECRET, projectId),
     context.env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
+    context.get('aiLoggingMode'),
   );
   try {
     const result = await context.env.AI.toMarkdown(body.inputs, options);

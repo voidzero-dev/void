@@ -48,6 +48,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Authentication                             | `docs/guide/auth.md`, `docs/guide/env-vars.md`                                            |
 | Cloudflare runtime bindings and config     | `docs/integrations/cloudflare.md`, `docs/reference/config.md`, `docs/guide/env-vars.md`   |
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
+| Platform AI logging policy                 | `docs/reference/cli/platform-users.md#ai-gateway-logging`                                 |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |

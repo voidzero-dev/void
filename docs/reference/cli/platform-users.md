@@ -40,6 +40,7 @@ void platform project show <id>
 void platform project normalize <id> [--plan | --yes]
 void platform project delete <id>
 void platform project owner <project-id> <user-id>
+void platform project ai-logging <project-id> <inherit|off|metadata|full> [--plan | --yes]
 ```
 
 Search matches a project's slug, ID, or owner's login. `show` includes resources, domains, the latest 10 deployments, and the latest 20 builds. `delete` removes the project and its resources.
@@ -47,6 +48,27 @@ Search matches a project's slug, ID, or owner's login. `show` includes resources
 If deployment reports that a project requires normalization, an operator can preview `normalize <id> --plan`, then apply it with `--yes`. It verifies the serving deployment and any recorded queue names before updating project records. It leaves traffic and Cloudflare resources in place and refuses changes while deployment or recovery is active. If a verified queue name differs from the expected delivery routing name, normalization refuses the change; reconcile that queue routing before retrying. If the serving deployment cannot be verified, investigate the reported route before retrying. Finish interrupted deployment recovery on the previous compatible platform runtime before upgrading a project whose active deployment is missing.
 
 `owner` transfers a project to another registered user. Preview it with `--plan`; apply it interactively or with `--yes`. The preview reports active-work blockers and the account plan that will apply. The former owner becomes a project administrator, existing project-scoped CI deploy credentials are revoked, and usage already incurred remains with the former owner.
+
+### AI Gateway Logging
+
+Administrators can choose how AI Gateway logs a project's requests:
+
+| Mode       | Behavior                                                        |
+| ---------- | --------------------------------------------------------------- |
+| `inherit`  | Use the installation gateway's settings. This is the default.   |
+| `off`      | Disable gateway log collection for this project's requests.     |
+| `metadata` | Collect gateway logs without storing prompt or response bodies. |
+| `full`     | Collect gateway logs, including prompt and response bodies.     |
+
+```sh
+void platform project ai-logging <project-id> metadata --plan
+void platform project ai-logging <project-id> metadata --yes
+void platform project show <project-id> --json
+```
+
+`show` includes the saved `aiLogging.mode`. The setting applies to Workers AI inference, Markdown conversion, and provider calls through the platform. App-supplied logging options cannot override it. Changes apply to new requests without redeploying the app. If the platform cannot verify the saved policy, it refuses the AI request.
+
+The policy does not disable AI usage limits. `metadata` retains request metadata, including data used for metering; it suppresses bodies. Cloudflare can retain billing details for unified billing even in `off` mode. These controls do not change exports through separately configured Logpush. See [Cloudflare logging controls](https://developers.cloudflare.com/ai-gateway/observability/logging/).
 
 ## Signup Access {#operator-signup}
 

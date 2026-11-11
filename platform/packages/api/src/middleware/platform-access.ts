@@ -10,6 +10,7 @@ function internallyAuthenticated(method: string, path: string): boolean {
     return true;
   }
   return (
+    (method === 'GET' && /^\/internal\/ai-logging\/[^/]+$/.test(path)) ||
     ((method === 'GET' || method === 'POST') && path === '/email/destinations/confirm') ||
     (method === 'POST' &&
       (/^\/internal\/(?:resolve-resource|resolve-worker|verify-owner|verify-prerender-build)\/[^/]+$/.test(
