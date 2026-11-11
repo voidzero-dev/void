@@ -25,6 +25,7 @@ playground-local
 .vinext/
 next-env.d.ts
 docs/superpowers/
+.vitest/
 
 # Test temp dirs (unique per test; a Windows run may leave one behind when the OS has not
 # yet unmapped a terminated child process image — see provision.test.ts teardown).
