@@ -322,6 +322,56 @@ describe('ImageResponse fallback fonts', () => {
     ]);
   });
 
+  it('leaves out only the fallback files that fail to download', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // One subset per family. The Japanese file downloads; both symbol files are missing.
+    const requests = stubFetch((url) => {
+      if (url.startsWith('https://fonts.googleapis.com/')) {
+        const family = new URL(url).searchParams.get('family')!.split(':')[0]!;
+        const range = family === 'Noto Sans JP' ? 'U+65E5, U+672C' : 'U+2605';
+        const file = `https://fonts.gstatic.com/${family.replaceAll(' ', '-')}.woff2`;
+        return new Response(
+          `@font-face { font-family: '${family}'; src: url(${file}) format('woff2'); unicode-range: ${range}; }`,
+          { headers: { 'content-type': 'text/css' } },
+        );
+      }
+      return url.endsWith('Noto-Sans-JP.woff2')
+        ? new Response(new Uint8Array([0, 1, 0, 0]))
+        : new Response(null, { status: 404 });
+    });
+    // Stand in for Takumi's font loading, one file at a time, so the order of
+    // failures is fixed; the bytes above are not a real font to draw with.
+    const original = vi.mocked(render).getMockImplementation();
+    vi.mocked(render).mockClear();
+    vi.mocked(render).mockImplementation(async (_node, options) => {
+      for (const font of (await options?.fonts) ?? []) {
+        if (typeof font === 'object' && 'data' in font && typeof font.data === 'function') {
+          await font.data();
+        }
+      }
+      return new Uint8Array();
+    });
+    try {
+      await new ImageResponse('<div style="display:flex">日本 ★</div>').arrayBuffer();
+    } finally {
+      vi.mocked(render).mockImplementation(original!);
+    }
+    // Noto Sans JP, Symbols and Symbols 2. Each failure drops that file only,
+    // so the Japanese font stays, where the image used to lose every fallback.
+    const attempts = vi
+      .mocked(render)
+      .mock.calls.map(([, options]) =>
+        ((options?.fonts ?? []) as Array<{ name?: string }>).map((font) => font.name),
+      );
+    expect(attempts.map((fonts) => fonts.length)).toEqual([3, 2, 1]);
+    expect(attempts.at(-1)).toEqual(['void/og Noto Sans JP']);
+    // A file that failed is not requested again.
+    expect(
+      requests.filter((url) => url.includes('Symbols')).filter((url) => url.endsWith('.woff2')),
+    ).toHaveLength(2);
+    expect(warned).toHaveBeenCalledTimes(2);
+  });
+
   it('renders without fallback fonts when Google Fonts cannot be reached', async () => {
     const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
     stubFetch(() => {
