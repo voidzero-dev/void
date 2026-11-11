@@ -184,23 +184,34 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
       // https://github.com/kane50613/takumi/blob/takumi@2.18.2/takumi-helpers/src/renderer.ts#L280-L308
       fonts,
     });
+  // Keys of the fallback files that failed to download during this image.
+  const failed = new Set<string>();
   const [fonts, fallback] = await Promise.all([
     Promise.all(((await options.fonts) ?? []).map(keyedFont)),
-    fallbackFonts(node, options, images),
+    fallbackFonts(node, options, images, failed),
   ]);
   if (fallback.length === 0) {
     return renderNode(fonts);
   }
-  try {
-    return await renderNode([...fonts, ...fallback]);
-  } catch (error) {
-    // A font that fails to download leaves its glyphs missing rather than
-    // failing the image, as in @vercel/og `// src/og.ts`: loadDynamicAsset.
-    if (!(error instanceof FallbackFontError)) {
-      throw error;
+  // A font that fails to download leaves its glyphs missing rather than
+  // failing the image, as in @vercel/og `// src/og.ts`: loadDynamicAsset.
+  // Takumi downloads the files together and rejects the render on the first
+  // failure, so retry without the files that failed, and only those: a flaky
+  // symbol font must not also drop the Japanese one. Files that did download
+  // stay registered in Takumi, so a retry fetches none of them again.
+  let remaining = fallback;
+  for (;;) {
+    try {
+      return await renderNode([...fonts, ...remaining]);
+    } catch (error) {
+      if (!(error instanceof FallbackFontError)) {
+        throw error;
+      }
+      const rest = remaining.filter((subset) => !failed.has(subset.key));
+      // Each retry must drop a file, so the loop ends. A failure this image
+      // did not record would retry forever; drop every fallback font instead.
+      remaining = rest.length < remaining.length ? rest : [];
     }
-    console.warn(`${error.message} Rendering without it.`, error.cause);
-    return renderNode(fonts);
   }
 }
 
@@ -318,6 +329,7 @@ async function fallbackFonts(
   node: Node,
   options: RenderImageOptions,
   images: Exclude<RenderOptions['images'], Array<unknown>>,
+  failed: Set<string>,
 ): Promise<Array<FontSubset>> {
   const missing = Array.from(collectCodepoints(node))
     .filter((codepoint) => codepoint === 0xb5 || codepoint > 0xff)
@@ -376,6 +388,10 @@ async function fallbackFonts(
       key: `void/og ${subset.key}`,
       data: () =>
         subset.data().catch((cause: unknown) => {
+          // Record and report each failed file here: when several fail at
+          // once, Takumi's rejection carries only the first.
+          failed.add(`void/og ${subset.key}`);
+          console.warn(`void/og: could not download ${subset.name}. Rendering without it.`, cause);
           throw new FallbackFontError(`void/og: could not download ${subset.name}.`, { cause });
         }),
     };
