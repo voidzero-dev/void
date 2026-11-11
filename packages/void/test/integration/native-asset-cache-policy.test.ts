@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { gunzipSync } from 'node:zlib';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { build, type Manifest } from 'vite';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
@@ -162,6 +163,19 @@ beforeAll(async () => {
     join(assets, '.vite/manifest.json'),
     JSON.stringify({ ...manifest, stable: stableEntry }),
   );
+  mkdirSync(join(assets, 'api'));
+  writeFileSync(join(assets, 'api/data.json'), '{"static":"api"}');
+  mkdirSync(join(assets, 'api/files'));
+  writeFileSync(join(assets, 'api/files/open.json'), '{"static":"api miss"}');
+  writeFileSync(join(assets, 'api/files/hidden.json'), '{"static":"hidden"}');
+  writeFileSync(join(assets, 'api/files/probe.json'), '{"static":"probe"}');
+  writeFileSync(join(assets, 'api/files/clone.json'), '{"static":"clone"}');
+  writeFileSync(join(assets, 'api/files/compressed.json'), '{"static":"compressed"}');
+  writeFileSync(join(assets, 'api/files/clone-original.json'), '{"static":"clone original"}');
+  writeFileSync(join(assets, 'api/files/pipe.json'), '{"static":"pipe"}');
+  writeFileSync(join(assets, 'rewrite-miss'), 'rewrite asset');
+  mkdirSync(join(assets, 'files'));
+  writeFileSync(join(assets, 'files/open.json'), '{"static":"open"}');
   mkdirSync(join(assets, 'static'), { recursive: true });
   for (const file of ['app-settings.json', 'client.js', 'page-abcdefgh.html']) {
     writeFileSync(
@@ -178,12 +192,14 @@ beforeAll(async () => {
     entry,
     `
     import { Hono } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono')))};
+    import { compress } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono/compress')))};
     import { createPagesFallback, createSsrFallback, createAssetNotFound } from ${JSON.stringify(runtimeSource('routing-pages.ts'))};
     import { applyAssetCachePolicy, createAssetFallback } from ${JSON.stringify(runtimeSource('routing-worker.ts'))};
     import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing.ts'))};
     import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing-errors.ts'))};
     const apps = {};
-    for (const mode of ['pages', 'ssr', 'static', 'headers']) {
+    for (const mode of ['pages', 'ssr', 'static', 'headers', 'compressed']) {
+      const pages = mode === 'pages' || mode === 'compressed';
       const app = new Hono();
       const routing = createRoutingRuntime(app, {});
       app.use(routing.contextMiddleware);
@@ -194,11 +210,44 @@ beforeAll(async () => {
         ] }]));
         app.get('/health', (c) => c.text('healthy', 200, { 'cache-control': 'private, no-store' }));
       }
-      app.notFound(mode === 'pages'
+      app.notFound(routing.trackNotFound(pages
         ? createPagesFallback({ routing, assetsDir: 'static', errors: createErrorRenderer({ projectRoot: '/fixture', homeDir: '/home' }) })
         : mode === 'ssr'
           ? createSsrFallback({ routing, assetsDir: 'static', load: async () => ({ render: () => new Response('document') }), assets: async () => ({ css: '', body: '', preloads: '' }) })
-          : createAssetNotFound({ routing, assetsDir: 'static' }));
+          : createAssetNotFound({ routing, assetsDir: 'static' })));
+      if (pages) {
+        if (mode === 'compressed') app.use(compress());
+        app.use('/api/files/clone-original.json', async (c, next) => {
+          await next();
+          await c.res.clone().arrayBuffer();
+        });
+        app.use('/api/files/pipe.json', async (c, next) => {
+          await next();
+          c.res = new Response(c.res.body.pipeThrough(new TransformStream()), c.res);
+        });
+        app.use('/rewrite-miss', async (c, next) => {
+          c.res.headers.set('X-Previous-Header', 'present');
+          await next();
+          c.header('X-Route-Probe', 'configured');
+        });
+        app.get('/rewrite-miss', (c) => c.rewrite('/api/no-route/missing'));
+        app.use('/api/files/clone.json', async (c, next) => {
+          await next();
+          c.header('X-Route-Probe', 'configured');
+          c.res = c.res.clone();
+        });
+        app.use('/api/files/probe.json', async (c, next) => {
+          await c.rewrite('/api/probe');
+          await next();
+        });
+        app.use('/api/files/hidden.json', async (c, next) => {
+          await next();
+          if (c.res.status === 404) {
+            c.res = c.text('Hidden', 404);
+          }
+        });
+        app.get('/api/:name', (c) => c.json({ error: 'missing' }, 404));
+      }
       apps[mode] = app;
     }
     const outer = createAssetFallback({ assetsDir: 'static' });
@@ -214,6 +263,9 @@ beforeAll(async () => {
         return Response.json({ immutable, originalContentType: original.headers.get('content-type'), resultContentType: result.headers.get('content-type'), originalPolicy: original.headers.get('cache-control'), resultPolicy: result.headers.get('cache-control'), body: [...new Uint8Array(await result.arrayBuffer())] });
       }
       const mode = url.searchParams.get('mode') ?? 'pages';
+      if (mode === 'native' || mode === 'compressed') {
+        return outer(request, env, await apps[mode === 'native' ? 'pages' : mode].fetch(request, env, context));
+      }
       return mode === 'outer'
         ? outer(request, env, new Response('not found', { status: 404 }))
         : apps[mode].fetch(request, env, context);
@@ -744,4 +796,57 @@ describe('native output: "static" pages in real Workers', () => {
     expect(response.headers.has('x-void-worker')).toBe(false);
     await response.arrayBuffer();
   });
+});
+
+it.each(['GET', 'HEAD'])(
+  'preserves intentional 404s and serves real asset misses for %s',
+  async (method) => {
+    const cases = [
+      ['/api/data.json', 404, '{"error":"missing"}'],
+      ['/api/files/hidden.json', 404, 'Hidden'],
+      ['/api/files/open.json', 200, '{"static":"api miss"}'],
+      ['/api/files/probe.json', 200, '{"static":"probe"}'],
+      ['/api/files/clone.json', 200, '{"static":"clone"}'],
+      ['/rewrite-miss', 200, 'rewrite asset'],
+      ['/files/open.json', 200, '{"static":"open"}'],
+    ] as const;
+    for (const [path, status, body] of cases) {
+      const response = await runtime!.dispatchFetch('https://app.test' + path + '?mode=native', {
+        method,
+      });
+      expect(response.status, path).toBe(status);
+      expect(await response.text(), path).toBe(method === 'GET' ? body : '');
+    }
+  },
+);
+
+it('keeps asset misses and intentional 404s distinct through compression', async () => {
+  const cases = [
+    ['/api/files/compressed.json', 200, '{"static":"compressed"}'],
+    ['/api/files/clone.json', 200, '{"static":"clone"}'],
+    ['/api/files/clone-original.json', 200, '{"static":"clone original"}'],
+    ['/api/files/pipe.json', 200, '{"static":"pipe"}'],
+    ['/api/files/hidden.json', 404, 'Hidden'],
+    ['/api/data.json', 404, '{"error":"missing"}'],
+  ] as const;
+  for (const method of ['GET', 'HEAD']) {
+    for (const [path, status, body] of cases) {
+      const response = await runtime!.dispatchFetch(
+        'https://app.test' + path + '?mode=compressed',
+        {
+          method,
+          headers: { 'Accept-Encoding': 'gzip' },
+        },
+      );
+      expect(response.status, `${method} ${path}`).toBe(status);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+
+      // Intentional 404s keep the compressed body; successful fallbacks replace it with the asset.
+      const text =
+        method === 'GET' && status === 404
+          ? gunzipSync(bytes).toString()
+          : new TextDecoder().decode(bytes);
+      expect(text, `${method} ${path}`).toBe(method === 'GET' ? body : '');
+    }
+  }
 });

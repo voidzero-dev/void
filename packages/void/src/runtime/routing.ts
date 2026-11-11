@@ -6,7 +6,7 @@ import {
   mergeQueryIntoLocation,
   substituteParams,
 } from '@void/edge';
-import type { Context, Hono, MiddlewareHandler } from 'hono';
+import type { Context, Hono, MiddlewareHandler, NotFoundHandler } from 'hono';
 import type { TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RouteDestination, RouteUrlInput } from 'void/routes';
@@ -25,6 +25,7 @@ import { convertReturnValue } from './response.ts';
 import { toUrlString } from './route-url.ts';
 import { ASSET_EXTENSIONS } from './routing-assets.ts';
 import { markRouteHandler } from './routing-pages.ts';
+import { intentionalNotFoundRequests } from './routing-worker.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
 export { createErrorRenderer } from './routing-errors.ts';
 
@@ -50,6 +51,8 @@ export type RoutingContext = Context & {
 export type RoutingRuntime = {
   requestContext: AsyncLocalStorage<RequestContextStore>;
   contextMiddleware: MiddlewareHandler;
+  trackNotFound: (handler?: NotFoundHandler) => NotFoundHandler;
+  preserveNotFound: (response: Response) => Response;
   requestMiddleware: MiddlewareHandler;
   routingMiddleware: (rules: Array<RoutingRule>) => MiddlewareHandler;
   headerMiddleware: (rules: Array<RoutingHeaderRule>, phase?: 'auth-error') => MiddlewareHandler;
@@ -75,6 +78,102 @@ export function createRoutingRuntime(
   // Contexts whose inner header pass ran after next(). A handler that throws
   // past it, such as notFound, leaves the context out.
   const headerApplied = new WeakSet<Context>();
+  const explicitNotFound = new WeakSet<Context>();
+  let trackAssetMisses = false;
+  const intentionalResponses = new WeakSet<Response>();
+  const routeMisses = new WeakMap<Context, Array<Response>>();
+  const missBodies = new WeakMap<Context, WeakSet<ReadableStream>>();
+  const trackMissBody = (c: Context, body: ReadableStream | null): void => {
+    if (!body) {
+      return;
+    }
+    let bodies = missBodies.get(c);
+    if (!bodies) {
+      bodies = new WeakSet();
+      missBodies.set(c, bodies);
+    }
+    if (bodies.has(body)) {
+      return;
+    }
+    bodies.add(body);
+    // Middleware such as Hono's compress() replaces the body with a transform
+    // of this stream. That still carries a miss; an unrelated replacement does not.
+    if (Object.isExtensible(body)) {
+      const pipeThrough = body.pipeThrough;
+      Object.defineProperty(body, 'pipeThrough', {
+        configurable: true,
+        writable: true,
+        value(this: ReadableStream, ...args: Parameters<ReadableStream['pipeThrough']>) {
+          const transformed = pipeThrough.apply(this, args);
+          if (this === body) {
+            trackMissBody(c, transformed);
+          }
+          return transformed;
+        },
+      });
+    }
+  };
+  const recordMiss = (c: Context, response: Response): void => {
+    const misses = routeMisses.get(c) ?? [];
+    if (misses.includes(response)) {
+      return;
+    }
+    misses.push(response);
+    routeMisses.set(c, misses);
+    trackMissBody(c, response.body);
+    trackResponseCopies(c);
+    // Fetch's clone tees the body, so neither clone shares its former stream.
+    if (Object.isExtensible(response)) {
+      const clone = response.clone;
+      Object.defineProperty(response, 'clone', {
+        configurable: true,
+        writable: true,
+        value(this: Response) {
+          const copy = clone.call(this);
+          if (this === response) {
+            trackMissBody(c, this.body);
+            recordMiss(c, copy);
+          }
+          return copy;
+        },
+      });
+    }
+  };
+  const isRouteMiss = (c: Context, response: Response): boolean =>
+    routeMisses
+      .get(c)
+      ?.some((miss) => miss === response || (miss.body !== null && miss.body === response.body)) ===
+      true ||
+    (response.body !== null && missBodies.get(c)?.has(response.body) === true);
+  const tracksResponseCopies = new WeakSet<Context>();
+  const trackResponseCopies = (c: Context): void => {
+    if (tracksResponseCopies.has(c)) {
+      return;
+    }
+    tracksResponseCopies.add(c);
+    // Carry provenance to the response Hono exposes after assignment or a header edit.
+    const descriptor = Object.getOwnPropertyDescriptor(Object.getPrototypeOf(c), 'res');
+    if (descriptor?.get && descriptor.set) {
+      const set = descriptor.set;
+      Object.defineProperty(c, 'res', {
+        ...descriptor,
+        set(response: Response | undefined) {
+          set.call(c, response);
+          if (response && isRouteMiss(c, response) && c.res !== response) {
+            recordMiss(c, c.res);
+          }
+        },
+      });
+    }
+    const header = c.header.bind(c);
+    c.header = (...args) => {
+      const before = c.finalized ? c.res : undefined;
+      header(...args);
+      if (before && c.res !== before && isRouteMiss(c, before)) {
+        recordMiss(c, c.res);
+      }
+    };
+  };
   const warnedPatterns = new Set<string>();
   const requestContext = new AsyncLocalStorage<RequestContextStore>();
   const assetExtensions = options.blockedAssetExtensions ?? ASSET_EXTENSIONS;
@@ -103,6 +202,13 @@ export function createRoutingRuntime(
     if (authDependentRequests.has(request)) {
       // The enclosing response may depend on auth even if middleware clones or replaces it.
       authDependentRequests.add(c.req.raw);
+    }
+    if (trackAssetMisses && response.status === 404) {
+      if (intentionalNotFoundRequests.has(request)) {
+        intentionalResponses.add(response);
+      } else {
+        recordMiss(c, response);
+      }
     }
     return response;
   };
@@ -173,6 +279,19 @@ export function createRoutingRuntime(
   };
   const contextMiddleware: MiddlewareHandler = async (context, next) => {
     const c = context as RoutingContext;
+    if (trackAssetMisses) {
+      intentionalNotFoundRequests.delete(c.req.raw);
+      const notFound = c.notFound.bind(c);
+      // Hono calls its fallback directly when the router runs out of handlers.
+      c.notFound = () => {
+        explicitNotFound.add(c);
+        try {
+          return notFound();
+        } finally {
+          explicitNotFound.delete(c);
+        }
+      };
+    }
     if (options.managedDispatch && !originalUrls.has(c.req.raw)) {
       const original = c.req.raw.headers.get('X-Void-Original-URL');
       if (original != null) {
@@ -222,10 +341,38 @@ export function createRoutingRuntime(
     c.originalUrl = () => originalUrls.get(c.req.raw) ?? null;
     c.isRewritten = () => originalUrls.has(c.req.raw);
     await next();
+    if (!trackAssetMisses) {
+      return;
+    }
+    if (c.res.status === 404 && !isRouteMiss(c, c.res)) {
+      intentionalNotFoundRequests.add(c.req.raw);
+    }
   };
   return {
     requestContext,
     contextMiddleware,
+    trackNotFound: (handler = (c) => c.text('404 Not Found', 404)) => {
+      trackAssetMisses = true;
+      return (c) => {
+        const explicit = explicitNotFound.has(c);
+        const response = handler(c);
+        if (explicit) {
+          return response;
+        }
+        return Promise.resolve(response).then((miss) => {
+          if (miss.status === 404 && !intentionalResponses.has(miss)) {
+            recordMiss(c, miss);
+          }
+          return miss;
+        });
+      };
+    },
+    preserveNotFound: (response) => {
+      if (trackAssetMisses && response.status === 404) {
+        intentionalResponses.add(response);
+      }
+      return response;
+    },
     requestMiddleware: async (c, next) => {
       await requestContext.run(
         options.nodeTarget

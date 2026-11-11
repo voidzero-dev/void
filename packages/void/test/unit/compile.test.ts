@@ -102,7 +102,7 @@ describe('compileRouteTable', () => {
       testOptions,
     );
 
-    expect(code).toContain('app.notFound(__createSsrFallback(');
+    expect(code).toContain('app.notFound(__routingRuntime.trackNotFound(__createSsrFallback(');
     expect(code).toContain('load: () => import("/src/main.ssr.ts")');
     expect(code).toContain('"entryId":"src/main.client.tsx"');
     expect(code).toContain('"reactRefresh":true');
@@ -210,7 +210,7 @@ describe('compileRouteTable', () => {
       withPages.indexOf('app.get("/chat/:room", __createPageGetHandler'),
     );
     expect(withPages.indexOf(fallback)).toBeLessThan(
-      withPages.indexOf('app.notFound(__createPagesFallback'),
+      withPages.indexOf('app.notFound(__routingRuntime.trackNotFound(__createPagesFallback'),
     );
   });
 
@@ -806,7 +806,7 @@ describe('default-target dev parity', () => {
         fallbackRules,
       },
     );
-    expect(code).toContain('app.notFound(__createSsrFallback(');
+    expect(code).toContain('app.notFound(__routingRuntime.trackNotFound(__createSsrFallback(');
     expect(code).toContain('nodeTarget: false');
     expect(code).toContain('"source":"/docs/*"');
   });
@@ -1490,7 +1490,7 @@ describe('typed runtime metadata wiring', () => {
   it('looks rewrite destinations up in static assets', () => {
     const rewrite = [{ source: '/', destination: '/index.html', status: 200, force: true }];
     expect(compile({ dev: false, redirectRules: rewrite })).toContain(
-      'app.notFound(__createAssetNotFound',
+      'app.notFound(__routingRuntime.trackNotFound(__createAssetNotFound',
     );
   });
   it('wires fetch validation, opaque internal routes and optional ISR through runtime callbacks', () => {

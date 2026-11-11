@@ -317,7 +317,9 @@ export function createSsrFallback(options: {
     if (typeof render !== 'function') {
       throw new Error('ssr: Invalid entry. Export render(c, assetTags).');
     }
-    return render(c, await options.assets(c.req.raw, c.env));
+    return options.routing.preserveNotFound(
+      await render(c, await options.assets(c.req.raw, c.env)),
+    );
   };
 }
 export function createAssetNotFound(options: {

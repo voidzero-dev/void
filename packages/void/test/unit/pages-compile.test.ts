@@ -120,7 +120,7 @@ describe('Pages metadata wiring', () => {
       '__createErrorRenderer({"dev":true,"projectRoot":"/project","homeDir":"/Users/test"})',
     );
     expect(code).toContain('app.onError(__errorRenderer.onError)');
-    expect(code).toContain('app.notFound(__createPagesFallback(');
+    expect(code).toContain('app.notFound(__routingRuntime.trackNotFound(__createPagesFallback(');
     expect(code).not.toContain('function __voidRenderDevErrorOverlay');
   });
   it('keeps layout CSS roots in cascade order and includes island markdown metadata', () => {
