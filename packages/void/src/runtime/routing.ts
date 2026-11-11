@@ -82,6 +82,37 @@ export function createRoutingRuntime(
   let trackAssetMisses = false;
   const intentionalResponses = new WeakSet<Response>();
   const routeMisses = new WeakMap<Context, Array<Response>>();
+  const missBodies = new WeakMap<Context, WeakSet<ReadableStream>>();
+  const trackMissBody = (c: Context, body: ReadableStream | null): void => {
+    if (!body) {
+      return;
+    }
+    let bodies = missBodies.get(c);
+    if (!bodies) {
+      bodies = new WeakSet();
+      missBodies.set(c, bodies);
+    }
+    if (bodies.has(body)) {
+      return;
+    }
+    bodies.add(body);
+    // Middleware such as Hono's compress() replaces the body with a transform
+    // of this stream. That still carries a miss; an unrelated replacement does not.
+    if (Object.isExtensible(body)) {
+      const pipeThrough = body.pipeThrough;
+      Object.defineProperty(body, 'pipeThrough', {
+        configurable: true,
+        writable: true,
+        value(this: ReadableStream, ...args: Parameters<ReadableStream['pipeThrough']>) {
+          const transformed = pipeThrough.apply(this, args);
+          if (this === body) {
+            trackMissBody(c, transformed);
+          }
+          return transformed;
+        },
+      });
+    }
+  };
   const recordMiss = (c: Context, response: Response): void => {
     const misses = routeMisses.get(c) ?? [];
     if (misses.includes(response)) {
@@ -89,6 +120,7 @@ export function createRoutingRuntime(
     }
     misses.push(response);
     routeMisses.set(c, misses);
+    trackMissBody(c, response.body);
     trackResponseCopies(c);
     // Fetch's clone tees the body, so neither clone shares its former stream.
     if (Object.isExtensible(response)) {
@@ -99,6 +131,7 @@ export function createRoutingRuntime(
         value(this: Response) {
           const copy = clone.call(this);
           if (this === response) {
+            trackMissBody(c, this.body);
             recordMiss(c, copy);
           }
           return copy;
@@ -110,7 +143,8 @@ export function createRoutingRuntime(
     routeMisses
       .get(c)
       ?.some((miss) => miss === response || (miss.body !== null && miss.body === response.body)) ===
-    true;
+      true ||
+    (response.body !== null && missBodies.get(c)?.has(response.body) === true);
   const tracksResponseCopies = new WeakSet<Context>();
   const trackResponseCopies = (c: Context): void => {
     if (tracksResponseCopies.has(c)) {
