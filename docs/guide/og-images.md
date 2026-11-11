@@ -102,11 +102,13 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
-Chinese characters are drawn in the Japanese style, as in `next/og`, unless the text has Korean around them, or the `lang` option or the root element's `lang` attribute names the language:
+Chinese characters are drawn in the Japanese style, as in `next/og`, unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text, so a Chinese title with a katakana word keeps the Chinese style:
 
 ```ts
 return new ImageResponse(`<div lang="zh-TW" style="display: flex">${title}</div>`);
 ```
+
+One style applies to all Chinese characters in an image, so an image cannot mix Japanese and Chinese styles through `lang` on inner elements.
 
 To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data, as in `next/og`:
 

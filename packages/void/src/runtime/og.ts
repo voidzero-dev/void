@@ -286,16 +286,30 @@ async function keyedFont(font: Font): Promise<FontLoader> {
 // Satori's ja-JP code takes Han and comes first, so Han text is Japanese there
 // unless an element's `lang` moves another language first:
 // https://github.com/vercel/satori/blob/0.33.5/src/language.ts#L57-L84
+// Takumi takes the first font with a glyph and ignores `lang`, so one family
+// draws all Han text in an image, chosen from the `lang` option or the root
+// element's `lang`.
 function cjkFamily(text: string, lang = ''): string {
-  if (/[\p{sc=Hiragana}\p{sc=Katakana}]/u.test(text)) {
+  // An explicit language wins over the scripts in the text: a Traditional
+  // Chinese title with a katakana loanword (タワー) is still Chinese. Google's
+  // Noto Sans SC, TC and KR all include kana, so no character is left without
+  // a glyph.
+  const tag = lang.toLowerCase();
+  if (tag.startsWith('ja')) {
     return 'Noto Sans JP';
   }
-  const tag = lang.toLowerCase();
-  if (tag.startsWith('ko') || /\p{sc=Hangul}/u.test(text)) {
+  if (tag.startsWith('ko')) {
     return 'Noto Sans KR';
   }
   if (tag.startsWith('zh')) {
     return /hant|-tw|-hk|-mo/.test(tag) ? 'Noto Sans TC' : 'Noto Sans SC';
+  }
+  // Without one, kana marks Japanese and Hangul marks Korean, as in Satori.
+  if (/[\p{sc=Hiragana}\p{sc=Katakana}]/u.test(text)) {
+    return 'Noto Sans JP';
+  }
+  if (/\p{sc=Hangul}/u.test(text)) {
+    return 'Noto Sans KR';
   }
   return 'Noto Sans JP';
 }

@@ -268,6 +268,16 @@ describe('ImageResponse fallback fonts', () => {
     expect(await family('<div style="display:flex">漢字 한국어</div>')).toEqual([
       'Noto Sans KR:wght@400',
     ]);
+    // Kana alone marks Japanese only when no `lang` names the language.
+    expect(await family('<div style="display:flex">東京タワー</div>')).toEqual([
+      'Noto Sans JP:wght@400',
+    ]);
+    expect(await family('<div lang="zh-TW" style="display:flex">東京タワー</div>')).toEqual([
+      'Noto Sans TC:wght@400',
+    ]);
+    expect(await family('<div style="display:flex">咖啡コーヒー</div>', 'zh-CN')).toEqual([
+      'Noto Sans SC:wght@400',
+    ]);
   });
 
   it('draws emoji as images, fetched once per isolate, without a font', async () => {
