@@ -339,7 +339,7 @@ export function nodeTargetPlugin(
       filter: { id: /^takumi-js(?:\/|$)/ },
       handler(_id, importer) {
         // An app may also use takumi-js itself, at any version.
-        if (!importer || !realPath(importer).startsWith(`${VOID_PACKAGE_DIR}/`)) {
+        if (!importer || !realPath(importer).startsWith(`${getVoidPackageDir()}/`)) {
           return;
         }
         const range = readTakumiRange();
@@ -373,8 +373,27 @@ const RUNTIME_NAMES: Record<NodeTarget, string> = {
   deno: 'Deno',
 };
 
-// This module is one directory below the package root in src/ and in dist/.
-const VOID_PACKAGE_DIR = dirname(fileURLToPath(new URL('../package.json', import.meta.url)));
+let voidPackageDir: string | undefined;
+
+function getVoidPackageDir(): string {
+  return (voidPackageDir ??= findVoidPackageDir(toSlash(fileURLToPath(import.meta.url))));
+}
+
+/**
+ * The `void` package root above `file`. Walks up rather than assuming a depth, so the
+ * lookup holds wherever the bundler places this module in `dist/` (Bun's `node:module`
+ * has no `findPackageJSON`).
+ */
+export function findVoidPackageDir(file: string): string {
+  for (let dir = dirname(file); ; dir = dirname(dir)) {
+    if (readManifest(dir)?.name === 'void') {
+      return dir;
+    }
+    if (dirname(dir) === dir) {
+      throw new Error(`void/og: could not find void's package.json above ${file}.`);
+    }
+  }
+}
 
 /** Vite resolves symlinks in importer paths unless `resolve.preserveSymlinks` is set. */
 function realPath(path: string): string {
@@ -387,7 +406,7 @@ function realPath(path: string): string {
 
 /** The takumi-js range void/og is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
-  const range = readManifest(VOID_PACKAGE_DIR)?.dependencies?.['takumi-js'];
+  const range = readManifest(getVoidPackageDir())?.dependencies?.['takumi-js'];
   if (!range || !/^[~^]\d+\.\d+\.\d+$/.test(range)) {
     throw new Error(
       `void/og: expected a ^ or ~ takumi-js range in void's package.json, got ${range}.`,
