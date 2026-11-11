@@ -160,6 +160,10 @@ Each request renders the image again. A simple 1200 × 630 card takes around 10 
 
 Void never caches paths under `/api`, so serve images from another path, such as `/og/...`. The cache ignores query strings, so put values in the path, or list the query parameters in [`routing.revalidateQueryAllowlist`](../reference/config.md#routing-revalidatequeryallowlist).
 
+## Worker size
+
+On Cloudflare, importing `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4 MB, or 1.7 MB compressed. Cloudflare limits a Worker to 3 MB compressed on Workers Free and 10 MB on Workers Paid (see [Worker size](https://developers.cloudflare.com/workers/platform/limits/#worker-size)), so on Workers Free the rest of your app has about 1.3 MB. Apps that do not import `void/og` do not include the renderer.
+
 ## Coming from `next/og`
 
 Change the import:
