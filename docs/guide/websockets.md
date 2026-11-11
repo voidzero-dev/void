@@ -162,7 +162,7 @@ Connections from another origin are anonymous unless that origin is in your auth
 
 ## Server-side actions
 
-A room can declare named actions that other server code calls with typed arguments. An action runs inside the room's Durable Object, so it can close matching connections or broadcast without waiting for the next client frame.
+A room can declare named actions that other server code calls with typed arguments. An action runs inside the room's Durable Object, so it can close connections or broadcast without waiting for a client frame.
 
 ```ts
 // routes/relay/[accountId].ws.ts
@@ -176,7 +176,7 @@ const ServerMessage = v.object({ type: v.literal('relay.message'), text: v.strin
 export default defineRoom({
   messages: { client: ClientMessage, server: ServerMessage },
   onConnect(ctx) {
-    // The session comes from the request's authenticated session, not from client input.
+    // The id comes from the authenticated session, never from client input.
     const session = getSession()?.session;
     if (session) {
       ctx.connection.setState({ sessionId: session.id });
@@ -200,7 +200,7 @@ export default defineRoom({
 });
 ```
 
-Call the action from a route handler, an auth hook, a queue consumer or a cron job with `getRoom()` from `void/ws/server`:
+Call an action from a route handler, an auth hook, a queue consumer or a cron job with `getRoom()` from `void/ws/server`:
 
 ```ts
 import { getRoom } from 'void/ws/server';
@@ -210,25 +210,24 @@ const room = getRoom('/relay/[accountId]', { params: { accountId } });
 const { closed } = await room.actions.revokeSession(session.id, 4001);
 ```
 
-Match connections on server-verified state. Do not store a session id read from the URL, a query string or a client message: a client can send any value, so the revocation would close the wrong sockets and leave the real ones open. Derive the value from `getSession()` or your own records, and pass that same verified id from the code that revokes it.
+`getRoom()` addresses the same instance `connect()` reaches. Pass the route pattern and the same params, and a custom `key` is applied too.
 
-- `getRoom()` addresses the same instance `connect()` reaches. Pass the route pattern and the same params; a custom `key` is applied too.
-- Arguments and results are typed from the definition. Annotate each action parameter, because unannotated parameters are inferred as `never`.
-- Actions receive `ctx.id`, `ctx.params`, `ctx.env`, `ctx.storage` and `ctx.room`. There is no `ctx.request` or `ctx.user`: the caller is other server code, so authorize the decision where it is made.
-- Inside an action, `ctx.room.broadcast()` and connection `send()` accept any event. The server message schema still validates the event at runtime.
-- Arguments cross a Durable Object boundary. Pass structured-clone data, not callbacks or class instances.
-- Unknown action names and handler errors reject the call. An unknown route, a `defineWebSocket()` route or a missing param throws before any Durable Object is contacted.
+Match connections on server-verified state. A session id read from the URL, a query string or a client message can be any value a client sends, so the revocation would close the wrong sockets. Derive the id from `getSession()` or your own records, store it in `onConnect`, and pass that same id from the code that revokes it.
+
+- Annotate each action parameter. Arguments and results are typed from the definition, and an unannotated parameter is `never`.
+- Actions receive `ctx.id`, `ctx.params`, `ctx.env`, `ctx.storage` and `ctx.room`. There is no `ctx.request` or `ctx.user`: other server code is the caller, so authorize the decision where you make it.
+- `ctx.room.broadcast()` and connection `send()` accept any event inside an action. The server message schema still validates it at runtime.
+- Arguments cross a Durable Object boundary, so pass structured-clone data, not callbacks or class instances.
+- An unknown action name or a handler error rejects the call. An unknown route, a `defineWebSocket()` route or a missing param throws before any Durable Object is contacted.
 - Do not call an action from the same room's own hooks. Use `ctx.room` there; a call from inside the room waits on the room itself.
 
-Actions are not an endpoint. They are invoked over Durable Object RPC from your Worker, so a browser request or a WebSocket message cannot call one. A room without `onRequest()` still answers ordinary HTTP requests to its path with `426 Upgrade Required`.
+Actions are not an endpoint. They run over Durable Object RPC from your Worker, so a browser request or a WebSocket message cannot call one.
 
-`getRoom()` reads the current runtime env, so it works in any handler Void runs, including a route, a queue consumer, a cron job and an auth hook that runs inside one. In code that runs outside one, pass the bindings object you already hold:
+`getRoom()` reads the current runtime env, so it works in any handler Void runs. Outside one, pass the bindings object you already hold:
 
 ```ts
 getRoom('/relay/[accountId]', { params: { accountId }, env: bindings });
 ```
-
-`defineWebSocket()` routes have no actions. Actions are available in native Void apps only.
 
 ## Hooks
 
