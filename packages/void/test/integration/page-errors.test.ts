@@ -82,6 +82,21 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
       `import { defineMiddleware } from 'void/handler'; export default defineMiddleware(async (c,next)=>{c.set('shared',{viewer:'alice',...(c.req.header('X-Test-No-Root') ? { noRoot: true } : {})}); c.header('X-Security','retained'); const guard=c.req.header('X-Test-Guard'); if(guard==='not-found') return c.notFound(); if(guard==='explicit') return c.text('Hidden by guard',404); await next(); if(guard==='after-not-found') c.res=await c.notFound();});`,
     );
     write('pages/style.css', 'nav { color: rgb(20, 80, 100); }');
+    write(
+      'middleware/status.ts',
+      `import { defineMiddleware } from 'void/handler';
+import { HTTPException } from 'hono/http-exception';
+export default defineMiddleware(async (c, next) => {
+  const status = c.req.header('X-Test-Error-Status');
+  if (status === '403' || status === '503') {
+    c.header('Retry-After', '120');
+    throw new HTTPException(status === '403' ? 403 : 503, {
+      message: status === '403' ? 'Your account is banned' : 'Down for maintenance',
+    });
+  }
+  await next();
+});`,
+    );
     const nav =
       '<nav data-layout="root"><Link href="/">Home</Link><Link href="/items/returned">Returned</Link><Link href="/items/thrown">Thrown</Link><Link href="/items/unexpected">Unexpected</Link><Link href="/crash">Crash</Link><Link href="/nested/crash">Nested</Link><Link href="/nested/deep/crash">Deep</Link><Link href="/nested/layout">Layout</Link><Link href="/client-only">Client only</Link></nav>';
     let rootLayout = component(nav, '', true);
@@ -294,6 +309,46 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     expect(response.status).toBe(404);
     expect(await response.text()).toContain('Missing island page');
   });
+
+  it.each(
+    ([403, 503] as const).flatMap((status) =>
+      (['HTML', 'Pages JSON'] as const).map((format) => ({ status, format })),
+    ),
+  )(
+    'renders middleware errors through the root page boundary with HTTP $status ($format)',
+    async ({ status, format }) => {
+      const message = status === 403 ? 'Your account is banned' : 'Down for maintenance';
+      // This route throws a different error if its loader is reached.
+      const response = await fetch(base + '/items/unexpected', {
+        headers: {
+          'X-Test-Error-Status': String(status),
+          ...(format === 'Pages JSON'
+            ? { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+            : { Accept: 'text/html' }),
+        },
+      });
+      const body = await response.text();
+      expect(response.status).toBe(status);
+      expect(body).not.toContain('SECRET_');
+      if (format === 'Pages JSON') {
+        expect(response.headers.get('X-VoidPages')).toBe('true');
+        expect(deserializePageData(body)).toMatchObject({
+          props: { error: { status, message } },
+          shared: { viewer: 'alice' },
+          url: '/items/unexpected',
+        });
+      } else {
+        expect(response.headers.get('Content-Type')).toContain('text/html');
+        expect(body).toContain('Error page');
+        expect(body).toContain(message);
+        expect(body).toContain('data-layout="root"');
+        expect(body).toContain('stylesheet');
+      }
+      expect(response.headers.get('Retry-After')).toBe('120');
+      expect(response.headers.get('X-Security')).toBe('retained');
+      expect(response.headers.get('Cache-Control')).toBe('no-store');
+    },
+  );
 
   it('returns status-correct documents and marked error payloads without exposing secrets', async () => {
     for (const [path, status] of [
