@@ -4,7 +4,7 @@ import {
   createPlatformResourceNames,
   parsePlatformDeploymentManifest,
 } from '@void/platform';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 
 describe('platform deployment manifest', () => {
   it('creates isolated resource names', () => {
