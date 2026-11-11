@@ -40,6 +40,8 @@ export {
   min,
   max,
 } from 'drizzle-orm';
+export type { AnyColumn, SQL, SQLWrapper } from 'drizzle-orm';
+export type { BatchItem } from 'drizzle-orm/batch';
 export type { DrizzleD1Database } from 'drizzle-orm/d1';
 
 /**

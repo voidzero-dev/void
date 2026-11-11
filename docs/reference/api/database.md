@@ -73,6 +73,23 @@ import { db, eq, and, or, desc, like, inArray, sql } from 'void/db';
 
 **Full list:** `sql`, `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`, `desc`, `asc`, `like`, `ilike`, `notLike`, `inArray`, `notInArray`, `isNull`, `isNotNull`, `between`, `notBetween`, `exists`, `notExists`, `count`, `sum`, `avg`, `min`, `max`.
 
+It also exports the Drizzle types `SQL`, `SQLWrapper`, `AnyColumn`, and `BatchItem` for helpers that take part of a query:
+
+```ts
+import { posts } from '@schema';
+import { db, sql, type BatchItem, type SQL, type SQLWrapper } from 'void/db';
+
+function contains(column: SQLWrapper, text: string): SQL {
+  return sql`instr(${column}, ${text}) > 0`;
+}
+
+// D1 only: `db.batch()` takes at least one query.
+const writes: [BatchItem<'sqlite'>, ...Array<BatchItem<'sqlite'>>] = [
+  db.update(posts).set({ published: true }).where(contains(posts.title, 'void')),
+];
+await db.batch(writes);
+```
+
 ## Seeding {#seeding}
 
 Imported from `"void/seed"`.
