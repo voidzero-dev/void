@@ -1855,6 +1855,59 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     expect(await html.text()).toContain('{"notes":["a"]}');
   });
 
+  describe.each(['HTML', 'Pages JSON'] as const)(
+    'Application-defined page status codes (%s)',
+    (format) => {
+      it.each(
+        ([403, 503] as const).flatMap((status) =>
+          (['loader', 'app middleware', 'handler middleware'] as const).map((source) => ({
+            status,
+            source,
+          })),
+        ),
+      )('renders the page with HTTP $status set by $source', async ({ status, source }) => {
+        const message = status === 403 ? 'Your account is banned' : 'Down for maintenance';
+        const setStatus = defineMiddleware(async (c, next) => {
+          c.status(status);
+          c.header('Retry-After', '120');
+          await next();
+        });
+        const loader = vi.fn((c: CloudContext) => {
+          if (source === 'loader') {
+            c.status(status);
+            c.header('Retry-After', '120');
+          }
+          return { message };
+        });
+        const app = createPageApp(
+          {
+            loader:
+              source === 'handler middleware'
+                ? defineHandler(setStatus, loader)
+                : defineHandler(loader),
+          },
+          source === 'app middleware' ? setStatus : undefined,
+        );
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+
+        expect(loader).toHaveBeenCalledTimes(1);
+        expect(response.headers.get('Retry-After')).toBe('120');
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(decodePageData(JSON.parse(body))).toMatchObject({
+            component: 'page',
+            props: { message },
+          });
+        } else {
+          expect(response.headers.get('Content-Type')).toContain('text/html');
+          expect(body).toContain(message);
+        }
+        expect(response.status).toBe(status);
+      });
+    },
+  );
+
   it('re-renders the page after an action with middleware, or shows its field errors', async () => {
     const action = (message?: string) =>
       defineHandler(
