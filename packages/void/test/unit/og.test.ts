@@ -210,7 +210,7 @@ describe('ImageResponse fallback fonts', () => {
     expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
     const css = new URL(requests[0]!);
     expect(css.origin + css.pathname).toBe('https://fonts.googleapis.com/css2');
-    expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@400']);
+    expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@100..900']);
     // The subset that mixes ASCII with 日 still serves 日; the Latin subset and
     // the subset the text does not use are never fetched.
     expect(requests.slice(1).sort()).toEqual([
@@ -227,7 +227,36 @@ describe('ImageResponse fallback fonts', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse('<div style="display:flex">Łódź 5µs</div>').arrayBuffer();
-    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@400']);
+    expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@100..900']);
+  });
+
+  it('leaves variable fallback faces free to draw bold', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    // Google answers a weight range with `font-weight: 100 900`, and a single
+    // weight with that weight.
+    stubFetch((url) => {
+      if (!url.startsWith('https://fonts.googleapis.com/')) {
+        return new Response(null, { status: 404 });
+      }
+      const [family, weight] = new URL(url).searchParams.get('family')!.split(':wght@');
+      const range = family === 'Noto Sans JP' ? 'U+65E5' : 'U+2192';
+      return new Response(
+        `@font-face { font-family: '${family}'; font-weight: ${weight!.replace('..', ' ')}; src: url(https://fonts.gstatic.com/${weight}.woff2) format('woff2'); unicode-range: ${range}; }`,
+        { headers: { 'content-type': 'text/css' } },
+      );
+    });
+    vi.mocked(render).mockClear();
+    await new ImageResponse('<div style="display:flex;font-weight:700">日 → B</div>').arrayBuffer();
+    const [, options] = vi.mocked(render).mock.calls[0]!;
+    const weights = Object.fromEntries(
+      ((options?.fonts ?? []) as Array<{ name: string; weight?: number }>).map((font) => [
+        font.name,
+        font.weight,
+      ]),
+    );
+    // A face without a fixed weight follows `font-weight` along its axis; one
+    // pinned to 400 is only thickened for bold text.
+    expect(weights).toEqual({ 'void/og Noto Sans JP': undefined, 'void/og Noto Sans Math': 400 });
   });
 
   it('takes a whole font for a subset without ranges, beyond Latin-1', async () => {
@@ -257,26 +286,26 @@ describe('ImageResponse fallback fonts', () => {
       return new URL(requests[0]!).searchParams.getAll('family');
     };
     expect(await family('<div style="display:flex">東京都</div>')).toEqual([
-      'Noto Sans JP:wght@400',
+      'Noto Sans JP:wght@100..900',
     ]);
     expect(await family('<div style="display:flex">東京都</div>', 'zh-TW')).toEqual([
-      'Noto Sans TC:wght@400',
+      'Noto Sans TC:wght@100..900',
     ]);
     expect(await family('<div lang="zh" style="display:flex">东京都</div>')).toEqual([
-      'Noto Sans SC:wght@400',
+      'Noto Sans SC:wght@100..900',
     ]);
     expect(await family('<div style="display:flex">漢字 한국어</div>')).toEqual([
-      'Noto Sans KR:wght@400',
+      'Noto Sans KR:wght@100..900',
     ]);
     // Kana alone marks Japanese only when no `lang` names the language.
     expect(await family('<div style="display:flex">東京タワー</div>')).toEqual([
-      'Noto Sans JP:wght@400',
+      'Noto Sans JP:wght@100..900',
     ]);
     expect(await family('<div lang="zh-TW" style="display:flex">東京タワー</div>')).toEqual([
-      'Noto Sans TC:wght@400',
+      'Noto Sans TC:wght@100..900',
     ]);
     expect(await family('<div style="display:flex">咖啡コーヒー</div>', 'zh-CN')).toEqual([
-      'Noto Sans SC:wght@400',
+      'Noto Sans SC:wght@100..900',
     ]);
   });
 
@@ -317,8 +346,8 @@ describe('ImageResponse fallback fonts', () => {
     expect(families).toEqual([
       'Noto Sans Math:wght@400',
       'Noto Sans Symbols 2:wght@400',
-      'Noto Sans Symbols:wght@400',
-      'Noto Sans:wght@400',
+      'Noto Sans Symbols:wght@100..900',
+      'Noto Sans:wght@100..900',
     ]);
   });
 
