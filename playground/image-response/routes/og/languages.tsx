@@ -1,5 +1,5 @@
 import { defineHandler } from 'void';
-import { ImageResponse } from 'void/og';
+import { ImageResponse } from 'void/image';
 import { Card } from '../../src/card.tsx';
 
 export const GET = defineHandler((c) => {
@@ -13,6 +13,6 @@ export const GET = defineHandler((c) => {
       <div style={{ fontSize: 44 }}>مرحبا بالعالم</div>
       <div style={{ fontSize: 44 }}>สวัสดีชาวโลก</div>
     </Card>,
-    { lang, fallbackFonts: c.req.query('fallback') !== 'off' },
+    { width: 1200, height: 630, lang, fallbackFonts: c.req.query('fallback') !== 'off' },
   );
 });
