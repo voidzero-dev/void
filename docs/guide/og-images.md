@@ -98,7 +98,9 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, with only the characters the image uses, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
+Text uses Geist unless you pass `fonts`. Your fonts draw every character they have, and Geist draws only the characters they lack.
+
+When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads a font that has them from Google Fonts while rendering: the matching [Noto](https://fonts.google.com/noto) font, such as Noto Sans JP for Japanese, or Geist's own Cyrillic and accented letters. It asks for only the characters the image uses, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
 Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text, so a Chinese title with a katakana word keeps the Chinese style:
 
