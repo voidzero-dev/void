@@ -116,20 +116,23 @@ async function run(command, args, cwd, env = environment) {
   }
 }
 
-const packedImageRoute = `import { ImageResponse } from 'void/og';
-export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed</div>');
+const packedOgRoute = `import { OgImageResponse } from 'void/og';
+export const GET = () => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed OG</div>');
+`;
+const packedImageRoute = `import { ImageResponse } from 'void/image';
+export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed image</div>', { width: 600, height: 600 });
 `;
 
-/** Fetches the void/og route and checks for a 1200x630 PNG. */
-async function assertPackedImage(url, failure) {
+/** Fetches an image route and checks its PNG signature and dimensions. */
+async function assertPackedImage(url, dimensions, failure) {
   const response = await fetch(url);
   assert.equal(response.status, 200, failure());
   assert.equal(response.headers.get('content-type'), 'image/png', failure());
   // A render error arrives after the status, as a failed body.
   const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], failure());
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-  assert.deepEqual([...bytes.subarray(1, 4)], [80, 78, 71], failure());
-  assert.deepEqual([view.getUint32(16), view.getUint32(20)], [1200, 630], failure());
+  assert.deepEqual([view.getUint32(16), view.getUint32(20)], dimensions, failure());
 }
 
 const packages = [];
@@ -346,8 +349,9 @@ try {
           join(fixture, 'routes/api/packed-email.ts'),
           `import { defineHandler } from 'void';\nimport { sendEmail } from 'void/email';\nexport const GET = defineHandler(async () => { return sendEmail({ from: 'packed@example.com', to: 'inbox@example.com', subject: 'Packed', text: 'ok' }); });\n`,
         );
-        // void/og imports its renderer's Wasm, and React only when the app has it.
-        writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedImageRoute);
+        // Both image entry points import the renderer's Wasm, and React only when the app has it.
+        writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedOgRoute);
+        writeFileSync(join(fixture, 'routes/api/packed-image.ts'), packedImageRoute);
         mkdirSync(join(fixture, 'public'), { recursive: true });
         writeFileSync(join(fixture, 'public/packed.txt'), label);
         const vite = join(
@@ -440,7 +444,8 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
             } else {
               assert.equal(email.error?.code, 'BINDING_MISSING', emailBody);
             }
-            await assertPackedImage(`${base}/api/packed-og`, task.failure);
+            await assertPackedImage(`${base}/api/packed-og`, [1200, 630], task.failure);
+            await assertPackedImage(`${base}/api/packed-image`, [600, 600], task.failure);
             if (full && framework === 'react') {
               const markdown = await fetch(`${base}/markdown`);
               assert.equal(markdown.status, 200, task.failure());
@@ -483,7 +488,7 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
         if (framework === 'react') {
           // The Node target bundles the installed void into its build, so a ValidationError from
           // void/handler is the class that page actions check, as in dev.
-          // void/og renders with the app's own takumi-js on Node.js, as its guide says.
+          // Both image entry points render with the app's own takumi-js on Node.js.
           const takumi = `takumi-js@${voidManifest.dependencies['takumi-js']}`;
           await run(
             manager,
@@ -497,7 +502,8 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
           // KV and email are Cloudflare bindings.
           rmSync(join(fixture, 'routes'), { recursive: true });
           mkdirSync(join(fixture, 'routes/api'), { recursive: true });
-          writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedImageRoute);
+          writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedOgRoute);
+          writeFileSync(join(fixture, 'routes/api/packed-image.ts'), packedImageRoute);
           writeFileSync(
             join(fixture, 'pages/form.tsx'),
             'export default function Form() {\n  return <h1>Form</h1>;\n}\n',
@@ -531,13 +537,14 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
             const body = await response.text();
             assert.equal(response.status, 200, `${body}\n${task.failure()}`);
             assert(body.includes('Email already taken'), body);
-            await assertPackedImage(`${base}/api/packed-og`, task.failure);
+            await assertPackedImage(`${base}/api/packed-og`, [1200, 630], task.failure);
+            await assertPackedImage(`${base}/api/packed-image`, [600, 600], task.failure);
           } finally {
             await task.stop();
           }
         }
         console.log(
-          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, image, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
+          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, OG/image rendering, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
         );
       } catch (error) {
         failures.push({ fixture: label, error: String(error.stack ?? error) });

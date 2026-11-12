@@ -20,15 +20,15 @@ const CACHE_HEADER = 'public, max-age=0, must-revalidate';
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
-const OG_ROUTE = `import { ImageResponse } from 'void/og';
-export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello</div>');
+const OG_ROUTE = `import { OgImageResponse } from 'void/og';
+export const GET = () => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello</div>');
 `;
 // A .tsx route, as the guide shows.
-const CARD_ROUTE = `import { ImageResponse } from 'void/og';
+const CARD_ROUTE = `import { OgImageResponse } from 'void/og';
 function Card({ title }: { title: string }) {
   return <div style={{ display: 'flex', width: '100%', height: '100%', fontSize: 64 }}>{title}</div>;
 }
-export const GET = () => new ImageResponse(<Card title="Hello from JSX" />);
+export const GET = () => new OgImageResponse(<Card title="Hello from JSX" />);
 `;
 
 // Miniflare types its own Response, without Cloudflare's `cf`.
@@ -193,7 +193,7 @@ describe('void/og in a Cloudflare app without React', () => {
   });
 });
 
-describe('a Cloudflare app without void/og', () => {
+describe('a Cloudflare app without void/og or void/image', () => {
   it('bundles no image renderer', () => {
     const root = createApp({ 'routes/api/hello.ts': "export const GET = () => 'hello';\n" }, {});
     build(root);
@@ -245,7 +245,8 @@ describe('void/og on the Node.js target', () => {
     );
     const result = runBuild(root);
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toContain('void/og needs takumi-js@');
+    // OgImageResponse uses the same renderer as void/image.
+    expect(result.stderr).toContain('void/image needs takumi-js@');
     expect(result.stderr).toContain('npm install takumi-js@');
   });
 });

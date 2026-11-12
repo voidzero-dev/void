@@ -1,5 +1,5 @@
 /**
- * Fonts for `void/og`: the app's own fonts, keyed so each registers with
+ * Fonts for `void/image`: the app's own fonts, keyed so each registers with
  * Takumi once, and Google Fonts fallbacks for text that Takumi's built-in Geist
  * cannot draw.
  */
@@ -119,7 +119,7 @@ export async function keyedFont(font: Font): Promise<FontLoader> {
   }
   return {
     ...details,
-    key: `void/og ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${await hash}`,
+    key: `void/image ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${await hash}`,
     data: () => data,
   };
 }
@@ -198,7 +198,7 @@ export async function fallbackFonts(
           timeout,
         });
       } catch (error) {
-        console.warn(`void/og: could not load ${family} from Google Fonts.`, error);
+        console.warn(`void/image: could not load ${family} from Google Fonts.`, error);
         return [];
       }
     }),
@@ -222,15 +222,18 @@ export async function fallbackFonts(
       unicodeRange,
       // Private names: Takumi keeps fonts per process, so the app's own copy
       // of the family, Latin glyphs included, must not join this one.
-      name: `void/og ${subset.name}`,
-      key: `void/og ${subset.key}`,
+      name: `void/image ${subset.name}`,
+      key: `void/image ${subset.key}`,
       data: () =>
         subset.data().catch((cause: unknown) => {
           // Record and report each failed file here: when several fail at
           // once, Takumi's rejection carries only the first.
-          failed.add(`void/og ${subset.key}`);
-          console.warn(`void/og: could not download ${subset.name}. Rendering without it.`, cause);
-          throw new FallbackFontError(`void/og: could not download ${subset.name}.`, { cause });
+          failed.add(`void/image ${subset.key}`);
+          console.warn(
+            `void/image: could not download ${subset.name}. Rendering without it.`,
+            cause,
+          );
+          throw new FallbackFontError(`void/image: could not download ${subset.name}.`, { cause });
         }),
     };
   });

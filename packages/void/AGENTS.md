@@ -157,17 +157,18 @@ Vite/CLI dependency graph.
 `void/remote` stays exported only for semver. Generated code imports
 `#self/remote`. Remove the subpath in the next major version.
 
-`void/og` is a thin `ImageResponse` layer over `takumi-js`. Keep
-`ImageResponseOptions` declared in `og.ts` and map each option to Takumi:
+`void/image` is a thin `ImageResponse` layer over `takumi-js` with required
+width and height. `void/og` exports `OgImageResponse`, which extends it with
+standard sizes. Keep `ImageResponseOptions` declared in `image.ts` and map each option to Takumi:
 passing Takumi's options through would let a Takumi upgrade change the API.
 On Node.js, Bun and Deno, Takumi loads its renderer from files next to its
 code, which a bundle cannot carry, so `nodeTargetPlugin` fails a build unless
 the app resolves a `takumi-js` in void's range. takumi-js is on `~2.20`; skip
 2.19.0, which draws a word as boxes when the first font covering a character
 lacks its glyph. Before raising the range, render Japanese next to "Łódź" in
-a fresh process and check that Geist still draws `BUILT_IN` in `og-fonts.ts`,
+a fresh process and check that Geist still draws `BUILT_IN` in `image-fonts.ts`,
 then update the range, the install command and the Worker size in
-`docs/guide/og-images.md`.
+`docs/guide/image-generation.md` and `docs/guide/og-images.md`.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 

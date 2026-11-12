@@ -326,9 +326,9 @@ export function nodeTargetPlugin(
     },
   };
 
-  // void/og renders with takumi-js, which loads its renderer from files next to its own code (a
+  // void/image renders with takumi-js, which loads its renderer from files next to its own code (a
   // native addon on Node.js and Bun) that a bundle cannot carry. A build leaves a package that
-  // resolves from the app root to the runtime, so the app must install a version that void/og
+  // resolves from the app root to the runtime, so the app must install a version that void/image
   // supports. With pnpm, void's own copy does not resolve from the root and would be bundled.
   // The dev server resolves it from void, so there the check only warns.
   let warned = false;
@@ -350,7 +350,7 @@ export function nodeTargetPlugin(
         }
         const found = version ? ` The app has takumi-js ${version}.` : '';
         const message =
-          `void/og needs takumi-js@${range} in your app's dependencies with target '${target}', so ` +
+          `void/image needs takumi-js@${range} in your app's dependencies with target '${target}', so ` +
           `the build leaves it to ${RUNTIME_NAMES[target]}.${found} Install it, for example with ` +
           `\`npm install takumi-js@${range}\`.`;
         if (this.environment.config.command === 'build') {
@@ -390,7 +390,7 @@ export function findVoidPackageDir(file: string): string {
       return dir;
     }
     if (dirname(dir) === dir) {
-      throw new Error(`void/og: could not find void's package.json above ${file}.`);
+      throw new Error(`void/image: could not find void's package.json above ${file}.`);
     }
   }
 }
@@ -404,12 +404,12 @@ function realPath(path: string): string {
   }
 }
 
-/** The takumi-js range void/og is built and tested against, from void's package.json. */
+/** The takumi-js range void/image is built and tested against, from void's package.json. */
 function readTakumiRange(): string {
   const range = readManifest(getVoidPackageDir())?.dependencies?.['takumi-js'];
   if (!range || !/^[~^]\d+\.\d+\.\d+$/.test(range)) {
     throw new Error(
-      `void/og: expected a ^ or ~ takumi-js range in void's package.json, got ${range}.`,
+      `void/image: expected a ^ or ~ takumi-js range in void's package.json, got ${range}.`,
     );
   }
   return range;

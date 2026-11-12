@@ -1,5 +1,5 @@
 import { defineHandler } from 'void';
-import { ImageResponse, type ImageResponseOptions } from 'void/og';
+import { ImageResponse, type ImageResponseOptions } from 'void/image';
 import { Card } from '../../src/card.tsx';
 import { fontPresets } from '../../src/fonts.ts';
 
@@ -25,6 +25,6 @@ export const GET = defineHandler(async (c) => {
         </div>
       ))}
     </Card>,
-    { fonts, fallbackFonts: false },
+    { width: 1200, height: 630, fonts, fallbackFonts: false },
   );
 });

@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header>
         <nav aria-label="Playground">
           <Link href="/">ImageResponse Playground</Link> |{' '}
-          <a href="https://void.cloud/guide/og-images">ImageResponse guide</a>
+          <a href="https://void.cloud/guide/image-generation">ImageResponse guide</a>
         </nav>
       </header>
       <hr />

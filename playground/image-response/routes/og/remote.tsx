@@ -1,5 +1,5 @@
 import { defineHandler } from 'void';
-import { ImageResponse } from 'void/og';
+import { ImageResponse } from 'void/image';
 import { Card } from '../../src/card.tsx';
 
 // Fixed input: this demo never accepts arbitrary remote URLs from a request.
@@ -17,6 +17,8 @@ export const GET = defineHandler((c) => {
       <div style={{ fontSize: 28 }}>The text survives a lenient image failure.</div>
     </Card>,
     {
+      width: 1200,
+      height: 630,
       images: {
         allowUrl: (url) => url === avatar && (mode === 'allow' || mode === 'limit'),
         maxBytes: mode === 'limit' ? 64 : 1024 * 1024,
