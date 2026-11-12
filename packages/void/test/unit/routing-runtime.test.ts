@@ -1166,6 +1166,48 @@ describe('typed Pages and SSR execution', () => {
       expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
     });
   });
+  it.each([
+    ['middleware', 'GET', '/app/account?tab=1', '/maintenance', '/app/account?tab=1'],
+    ['rule', 'GET', '/app/account?tab=1', '/maintenance', '/app/account?tab=1'],
+    ['middleware', 'GET', '/app/caf%C3%A9', '/maintenance', '/app/café'],
+    ['middleware', 'GET', '/app/account?tab=1', '/maintenance?mode=read', '/app/account?tab=1'],
+    ['middleware', 'POST', '/app/account?save&tab=1', '/maintenance', '/app/account?tab=1'],
+    ['rule', 'POST', '/app/account?save&tab=1', '/maintenance', '/app/account?tab=1'],
+    // The destination's query selects the action; the original query has no key.
+    ['middleware', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
+    ['rule', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
+  ])(
+    'reports the requested URL after a %s rewrite of %s %s to %s',
+    async (kind, method, path, destination, url) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      if (kind === 'middleware') {
+        app.use('/app/*', (c) => (c as RoutingContext).rewrite(destination));
+      } else {
+        app.use(
+          runtime.routingMiddleware([{ source: '/app/*', destination, status: 200, force: true }]),
+        );
+      }
+      app.get('/maintenance', createPageGetHandler(pageOptions));
+      app.post(
+        '/maintenance',
+        createPageMutationHandler({
+          ...pageOptions,
+          load: async () => ({ actions: { save: () => undefined } }),
+          namedActions: true,
+        }),
+      );
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          method,
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      expect((decodePageData(await response.json()) as { url: string }).url).toBe(url);
+    },
+  );
   it('executes the real page loader and protocol', async () => {
     const app = new Hono();
     app.get(
