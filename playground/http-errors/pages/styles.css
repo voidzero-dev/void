@@ -1,0 +1,54 @@
+.example-container {
+  box-sizing: border-box;
+  max-width: 100rem;
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.example-container p {
+  max-width: 75ch;
+}
+
+.example-page-loaded-toast {
+  position: fixed;
+  inset: 1rem auto auto 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 0.75rem 1rem;
+  border: 1px solid;
+  border-radius: 0.25rem;
+  background: Canvas;
+  color: CanvasText;
+}
+
+.examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem 2rem;
+}
+
+.example {
+  min-width: 0;
+}
+
+@media (max-width: 72rem) {
+  .examples {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 48rem) {
+  .examples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.example pre {
+  white-space: pre-wrap;
+}
+
+.example pre,
+.example code {
+  overflow-wrap: anywhere;
+}
