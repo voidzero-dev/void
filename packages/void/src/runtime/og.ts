@@ -62,23 +62,21 @@ const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, an
  * HTML string, or a Takumi node tree. It renders a 1200×630 PNG by default,
- * which clients revalidate outside development.
+ * which clients revalidate on each use.
  */
 export class ImageResponse extends Response {
   constructor(element: RenderInput, options: ImageResponseOptions = {}) {
     const { status, statusText, headers, ...imageOptions } = options;
     // Set these two headers unless the caller's `headers` has them. A failed
     // render still ends as a complete response, so clients revalidate the
-    // image rather than cache it for long.
+    // image rather than cache it. With no validator, revalidating fetches it
+    // again, so the dev server needs no header of its own.
     const responseHeaders = new Headers(headers);
     if (!responseHeaders.has('content-type')) {
       responseHeaders.set('content-type', 'image/png');
     }
     if (!responseHeaders.has('cache-control')) {
-      responseHeaders.set(
-        'cache-control',
-        isDevelopment() ? 'no-cache, no-store' : 'public, max-age=0, must-revalidate',
-      );
+      responseHeaders.set('cache-control', 'public, max-age=0, must-revalidate');
     }
     // Render while the body streams, so a failure errors the body.
     const body = new ReadableStream<Uint8Array>({
@@ -189,8 +187,4 @@ function imageCache(): ImageFetchCache {
       emojiCache.delete(url);
     },
   };
-}
-
-function isDevelopment(): boolean {
-  return (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
 }

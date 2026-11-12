@@ -109,9 +109,10 @@ describe('ImageResponse', () => {
     expect(Title).toHaveBeenCalledOnce();
   });
 
-  // Builds send `public, max-age=0, must-revalidate`: test/integration/og-image.test.ts.
-  it('does not cache images during development', () => {
-    expect(new ImageResponse(card).headers.get('cache-control')).toBe('no-cache, no-store');
+  it('tells clients to revalidate the image on each use', () => {
+    expect(new ImageResponse(card).headers.get('cache-control')).toBe(
+      'public, max-age=0, must-revalidate',
+    );
   });
 
   it('keeps the status and headers it is given', () => {
