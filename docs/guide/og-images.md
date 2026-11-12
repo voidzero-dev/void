@@ -118,6 +118,8 @@ return new ImageResponse(postCard(post), {
 });
 ```
 
+A `weight` from 1 to 1000 makes the font draw only that weight. Leave it out for a variable font, so each element's `fontWeight` sets the weight, including values between the usual steps such as `550`.
+
 Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entry's `lang` is accepted but does not choose the font for a language; use the `lang` option or attribute for Chinese characters instead.
 
 ## Add the image to a page

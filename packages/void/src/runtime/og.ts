@@ -25,7 +25,12 @@ type Font =
   | {
       name: string;
       data: ArrayBuffer | Uint8Array;
-      weight?: 100 | 200 | 300 | 400 | 500 | 600 | 700 | 800 | 900;
+      /**
+       * The weight the font draws, from 1 to 1000. Leave it out for a variable
+       * font, so each element's `fontWeight` sets the weight; with it, the font
+       * draws only this weight.
+       */
+      weight?: number;
       style?: 'normal' | 'italic';
       /**
        * Accepted and ignored: text uses the first font that has the glyph. The
