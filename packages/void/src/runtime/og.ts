@@ -15,10 +15,9 @@ import { fromJsx } from 'takumi-js/helpers/jsx';
 import { FallbackFontError, fallbackFonts, keyedFont, type Font } from './og-fonts.ts';
 
 /**
- * Void declares these options rather than passing Takumi's render options
- * through, so a Takumi upgrade does not change this API.
+ * {@link renderImage} function options.
  */
-export interface ImageResponseOptions extends ResponseInit {
+export interface RenderImageOptions {
   /** Image width in pixels. Defaults to 1200. */
   width?: number;
   /** Image height in pixels. Defaults to 630. */
@@ -51,8 +50,11 @@ export interface ImageResponseOptions extends ResponseInit {
     throwOnError?: boolean;
   };
 }
-
-type ImageOptions = Omit<ImageResponseOptions, keyof ResponseInit>;
+/**
+ * Void declares these options rather than passing Takumi's render options
+ * through, so a Takumi upgrade does not change this API.
+ */
+export interface ImageResponseOptions extends ResponseInit, RenderImageOptions {}
 
 // Emoji come from jsDelivr by code point and never change, so keep them for the
 // life of the isolate; other images are fetched for each render.
@@ -95,7 +97,7 @@ export class ImageResponse extends Response {
   }
 }
 
-async function renderImage(element: RenderInput, options: ImageOptions): Promise<Uint8Array> {
+async function renderImage(element: RenderInput, options: RenderImageOptions): Promise<Uint8Array> {
   // Convert once, here: the fallback fonts depend on the final text, and
   // function components must not run twice. Emoji become images first, as in
   // the render, so their code points ask for no symbol font.
