@@ -95,6 +95,36 @@ describe('Cloudflare framework deployment', () => {
     );
   });
 
+  it.each([[['/__void', '/__void/*']], [false]])(
+    'writes the given run_worker_first over the value an earlier deploy wrote (%j)',
+    (runWorkerFirst) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-framework-config-'));
+      const configPath = join(root, 'wrangler.jsonc');
+      writeFileSync(
+        configPath,
+        JSON.stringify({ assets: { run_worker_first: true, not_found_handling: 'none' } }),
+      );
+      const input = {
+        configPath,
+        deployPointerPath: join(root, '.wrangler/deploy/config.json'),
+        name: 'framework-app',
+        accountId: 'account-id',
+        main: 'dist/server/entry.mjs',
+        assetsDirectory: 'dist/client',
+        compatibilityDate: '2026-09-11',
+        runWorkerFirst,
+      };
+      expect(writeCloudflareFrameworkDeployConfig(input)).toBe(true);
+      expect(writeCloudflareFrameworkDeployConfig(input)).toBe(false);
+      expect(parseRootWranglerConfig(configPath).assets).toEqual({
+        run_worker_first: runWorkerFirst,
+        not_found_handling: 'none',
+        directory: 'dist/client',
+        binding: 'ASSETS',
+      });
+    },
+  );
+
   it('removes stale cron schedules when the current source has none', () => {
     const root = mkdtempSync(join(tmpdir(), 'void-framework-config-'));
     const configPath = join(root, 'wrangler.jsonc');
