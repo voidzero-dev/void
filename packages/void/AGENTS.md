@@ -175,7 +175,7 @@ a character, and draws the whole word as boxes when that font lacks the glyph
 (Noto Sans JP's latin-ext subset has no Ł). Before raising the range, render
 Japanese next to "Łódź" with the new version in a fresh process, as 2.19.0 falls
 back to faces an earlier render loaded, and check that the built-in Geist still
-draws the code points `BUILT_IN` lists. Then raise the range, the install
+draws the code points `BUILT_IN` lists in `og-fonts.ts`. Then raise the range, the install
 command and the Worker size in `docs/guide/og-images.md`.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
