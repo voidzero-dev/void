@@ -108,10 +108,10 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
 const SINGLE_WEIGHT_FAMILIES = new Set(['Noto Sans Math', 'Noto Sans Symbols 2']);
 
 // What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
-// by rendering each code point with takumi-js 2.18: some accented letters and
-// combining marks, spaces, format characters and variation selectors, quotes,
-// dashes, € ™ − ↑ ↓. Number forms such as ⅓ stay missing: no served subset
-// has them.
+// by rendering each code point with takumi-js 2.18 (2.20 draws the same): some
+// accented letters and combining marks, spaces, format characters and variation
+// selectors, quotes, dashes, € ™ − ↑ ↓. Number forms such as ⅓ stay missing:
+// no served subset has them.
 /* eslint-disable no-misleading-character-class -- the marks and selectors are listed on their own */
 const BUILT_IN =
   /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{304}\u{308}\u{34F}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FE00}-\u{FE0F}\u{FEFF}]/u;
@@ -191,7 +191,7 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
       images: { fetchCache, ...images },
       // Takumi uses every font registered in the process when it gets no list,
       // which includes earlier images' fallback fonts:
-      // https://github.com/kane50613/takumi/blob/takumi@2.18.2/takumi-helpers/src/renderer.ts#L280-L308
+      // https://github.com/kane50613/takumi/blob/takumi@2.20.0/takumi-helpers/src/renderer.ts#L384-L412
       fonts,
     });
   // Keys of the fallback files that failed to download during this image.
