@@ -157,26 +157,17 @@ Vite/CLI dependency graph.
 `void/remote` stays exported only for semver. Generated code imports
 `#self/remote`. Remove the subpath in the next major version.
 
-`void/og` is a thin `ImageResponse` layer over `takumi-js`.
-`ImageResponseOptions` is declared in `og.ts` and mapped to Takumi's render
-options one by one. Do not
-pass Takumi's options through: a Takumi upgrade must not change the API. In workerd,
-Takumi resolves its Wasm backend, whose `.wasm` import the Cloudflare plugin
-loads as a compiled module in dev and builds. On Node.js, Bun and Deno, Takumi
-loads its renderer from files next to its code (a native addon on Node.js and
-Bun), which a bundle cannot carry, so `nodeTargetPlugin` fails a build unless
-the app root resolves a `takumi-js` in the range void declares. Takumi's JSX
-helper imports `react` as an optional peer; Vite stubs it in apps without
-React, and Takumi catches the failed import. Fallback fonts come from Google
-Fonts by the scripts in the text, under private family names, with Latin-1
-taken out so Latin text keeps Takumi's built-in Geist. takumi-js is on
-`~2.20`. Avoid 2.19.0: it loads only the first font whose `unicode-range` covers
-a character, and draws the whole word as boxes when that font lacks the glyph
-(Noto Sans JP's latin-ext subset has no Ł). Before raising the range, render
-Japanese next to "Łódź" with the new version in a fresh process, as 2.19.0 falls
-back to faces an earlier render loaded, and check that the built-in Geist still
-draws the code points `BUILT_IN` lists in `og-fonts.ts`. Then raise the range, the install
-command and the Worker size in `docs/guide/og-images.md`.
+`void/og` is a thin `ImageResponse` layer over `takumi-js`. Keep
+`ImageResponseOptions` declared in `og.ts` and map each option to Takumi:
+passing Takumi's options through would let a Takumi upgrade change the API.
+On Node.js, Bun and Deno, Takumi loads its renderer from files next to its
+code, which a bundle cannot carry, so `nodeTargetPlugin` fails a build unless
+the app resolves a `takumi-js` in void's range. takumi-js is on `~2.20`; skip
+2.19.0, which draws a word as boxes when the first font covering a character
+lacks its glyph. Before raising the range, render Japanese next to "Łódź" in
+a fresh process and check that Geist still draws `BUILT_IN` in `og-fonts.ts`,
+then update the range, the install command and the Worker size in
+`docs/guide/og-images.md`.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 
