@@ -691,7 +691,8 @@ describe('uninstall --purge-resources', () => {
     expect(confirm).toHaveBeenCalledOnce();
     expect(changes(fake)).toEqual([]);
     expect(listInstallationManifests()[0]?.status).toBe('installed');
-    expect(log.step).not.toHaveBeenCalled();
+    expect(log.step).toHaveBeenCalledWith('Checking platform projects');
+    expect(log.step).not.toHaveBeenCalledWith(`Uninstalling ${manifest.deployment.displayName}...`);
     expect(printSuccess).not.toHaveBeenCalled();
   });
 
