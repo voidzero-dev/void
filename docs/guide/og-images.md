@@ -78,6 +78,7 @@ The second argument sets the image and the response:
 | --------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                                                                                        |
 | `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                                                                                |
+| `fallbackFonts`                   | `true`        | Set to `false` to download no fonts from Google Fonts. See [Control font downloads](#control-font-downloads).                                |
 | `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`.                                                           |
 | `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                                   |
 | `debug`                           | `false`       | Draws a border around every box.                                                                                                             |
@@ -97,7 +98,7 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
+Text uses Geist unless you pass `fonts`. When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads the matching font from Google Fonts while rendering, with only the characters the image uses, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
 
 Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text, so a Chinese title with a katakana word keeps the Chinese style:
 
@@ -121,6 +122,21 @@ return new ImageResponse(postCard(post), {
 A `weight` from 1 to 1000 makes the font draw only that weight. Leave it out for a variable font, so each element's `fontWeight` sets the weight, including values between the usual steps such as `550`.
 
 Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entry's `lang` is accepted but does not choose the font for a language; use the `lang` option or attribute for Chinese characters instead.
+
+### Control font downloads
+
+Each server keeps the fonts it downloads in memory until it restarts. Every image with new text downloads a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render.
+
+To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fonts, and characters that neither your fonts nor Geist can draw are drawn as boxes:
+
+```ts
+return new ImageResponse(postCard(post), {
+  fonts: [{ name: 'Noto Sans JP', data: notoSansJp }],
+  fallbackFonts: false,
+});
+```
+
+A font passed as data loads once per server, however many images use it.
 
 ## Add the image to a page
 
