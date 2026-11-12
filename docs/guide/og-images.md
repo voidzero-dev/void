@@ -179,7 +179,7 @@ Void never caches paths under `/api`, so serve images from another path, such as
 
 ## Worker size
 
-On Cloudflare, importing `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4.3 MB, or 1.9 MB compressed. Cloudflare limits a Worker to 3 MB compressed on Workers Free and 10 MB on Workers Paid (see [Worker size](https://developers.cloudflare.com/workers/platform/limits/#worker-size)), so on Workers Free the rest of your app has about 1.1 MB. Apps that do not import `void/og` do not include the renderer.
+On Cloudflare, importing `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4.3 MB, or 1.9 MB compressed. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that do not import `void/og` do not include the renderer.
 
 ## Node.js, Bun, and Deno
 
