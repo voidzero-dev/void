@@ -95,6 +95,10 @@ import {
   writeWranglerPublishedTrafficSnapshot,
   writeProvisionedWranglerConfig,
 } from '../../src/cli/wrangler.ts';
+import {
+  materializeCloudflareConfig,
+  persistCloudflareConfig,
+} from '../../src/cloudflare-config.ts';
 import { readConfig } from '../../src/config.ts';
 
 // `runDeploy` calls `runCloudflareDeploy` without deps. A test that starts from `runDeploy` sets
@@ -7874,7 +7878,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       assets: {
         directory: '.svelte-kit/cloudflare',
         binding: 'ASSETS',
-        run_worker_first: true,
+        run_worker_first: ['/__void', '/__void/*'],
       },
       triggers: { crons: ['0 * * * *'] },
       secrets: { required: ['API_TOKEN'] },
@@ -7883,8 +7887,9 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
     expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// keep this comment');
   });
 
-  // SvelteKit's Worker directory is also its asset directory. In an ES module package, which is
-  // what `sv create` makes, Vite names the cron and queue bundle `__void_handlers.js`.
+  // SvelteKit's Worker directory is also its asset directory, and Cloudflare serves an uploaded
+  // file there without starting the Worker. In an ES module package, which is what `sv create`
+  // makes, Vite names the cron and queue bundle `__void_handlers.js`.
   it('keeps the modules it adds to an ES module SvelteKit Worker out of its assets', async () => {
     const root = makeProject({
       'package.json': JSON.stringify({
@@ -7892,7 +7897,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
         type: 'module',
         dependencies: { '@sveltejs/kit': '2.0.0' },
       }),
-      'void.json': JSON.stringify({}),
+      'void.json': JSON.stringify({ routing: { revalidate: { '/news/*': 60 } } }),
       'wrangler.jsonc': JSON.stringify({ name: 'skapp', account_id: 'acc123' }),
       '.svelte-kit/cloudflare/_worker.js':
         'export default { fetch() { return new Response("ok") } };\n',
@@ -7916,6 +7921,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
 
     const directory = join(root, '.svelte-kit/cloudflare');
     expect(existsSync(join(directory, '__void_handlers.js'))).toBe(true);
+    expect(existsSync(join(directory, '__void_isr.mjs'))).toBe(true);
     const ignored = ignore().add(readFileSync(join(directory, '.assetsignore'), 'utf-8'));
     const assets = readdirSync(directory, { recursive: true, encoding: 'utf8' })
       .map((file) => toSlash(file))
@@ -7923,6 +7929,78 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       .filter((file) => file !== '.assetsignore' && !ignored.ignores(file));
     expect(assets).toEqual(['_app/immutable/app.js']);
   });
+
+  // Astro's own Cloudflare config starts the Worker only for paths without a file. An older Void
+  // deploy wrote `run_worker_first: true` into the generated config, which void.lock.json can keep.
+  it('replaces the run_worker_first an older framework deploy recorded', async () => {
+    const preset = FRAMEWORK_PRESETS.astro!;
+    const root = makeProject({
+      'void.config.ts': `export default { cloudflare: { name: 'astro-app', account_id: 'acc123' } };\n`,
+      [`${preset.workerDir}/${preset.workerMain}`]:
+        'export default { fetch() { return new Response("page") } };\n',
+      [`${preset.assetsDir}/_astro/app.js`]: 'console.log("client");\n',
+    });
+    const configPath = materializeCloudflareConfig(root);
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...parseRootWranglerConfig(configPath),
+        assets: { run_worker_first: true },
+      }),
+    );
+    persistCloudflareConfig(root);
+    expect(parseRootWranglerConfig(materializeCloudflareConfig(root)).assets).toEqual({
+      run_worker_first: true,
+    });
+
+    await prepareCloudflareFrameworkArtifact({
+      root,
+      configPath,
+      accountId: 'acc123',
+      workerName: 'astro-app',
+      voidConfig: readConfig(root),
+      framework: { name: 'astro', class: 'c' },
+      preset,
+    });
+
+    expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+      run_worker_first: ['/__void', '/__void/*'],
+      not_found_handling: 'none',
+    });
+  });
+
+  it.each([[['/api/*']], [true], [false]])(
+    'writes the run_worker_first that void.config.ts sets for a framework Worker (%j)',
+    async (runWorkerFirst) => {
+      const preset = FRAMEWORK_PRESETS.astro!;
+      const cloudflare = {
+        name: 'astro-app',
+        account_id: 'acc123',
+        assets: { run_worker_first: runWorkerFirst },
+      };
+      const root = makeProject({
+        'void.config.ts': `export default { cloudflare: ${JSON.stringify(cloudflare)} };\n`,
+        [`${preset.workerDir}/${preset.workerMain}`]:
+          'export default { fetch() { return new Response("page") } };\n',
+        [`${preset.assetsDir}/_astro/app.js`]: 'console.log("client");\n',
+      });
+      const configPath = materializeCloudflareConfig(root);
+
+      await prepareCloudflareFrameworkArtifact({
+        root,
+        configPath,
+        accountId: 'acc123',
+        workerName: 'astro-app',
+        voidConfig: readConfig(root),
+        framework: { name: 'astro', class: 'c' },
+        preset,
+      });
+
+      expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+        run_worker_first: runWorkerFirst,
+      });
+    },
+  );
 
   it('prepares Class A wrapper handlers without replacing its generated config pointer', async () => {
     const root = makeProject({

@@ -149,6 +149,14 @@ export async function prepareCloudflareFrameworkArtifact(options: {
     requiredSecrets: requiredSecretNames,
     versionMetadataBinding,
     ...(ai ? { ai: { ...ai, gateway: voidConfig.ai?.gateway } } : {}),
+    // Like the framework's own Cloudflare config, let Cloudflare serve built files and
+    // prerendered pages without starting the Worker. Paths without a file still reach it through
+    // `not_found_handling: 'none'`; the rule also keeps Void's internal paths on it. Read the
+    // authored value: the generated config can still hold the `true` an older deploy wrote.
+    runWorkerFirst: voidConfig.cloudflare?.assets?.run_worker_first ?? [
+      ...VOID_INTERNAL_WORKER_FIRST,
+    ],
+    // Cloudflare serves any uploaded file without the Worker, so list every module Void adds here.
     ...(preset.workerDir === preset.assetsDir
       ? {
           assetsIgnore: [

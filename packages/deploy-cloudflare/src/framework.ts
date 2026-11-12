@@ -17,6 +17,12 @@ export type CloudflareFrameworkDeployConfig = Readonly<{
   requiredSecrets?: ReadonlyArray<string>;
   versionMetadataBinding?: string;
   ai?: Readonly<{ binding: string; gateway?: string }>;
+  /**
+   * `assets.run_worker_first`. Cloudflare serves a request it does not match
+   * from the asset directory when a file exists there, without starting the
+   * Worker. Defaults to `true`, which starts the Worker for every request.
+   */
+  runWorkerFirst?: boolean | ReadonlyArray<string>;
 }>;
 
 /**
@@ -54,7 +60,7 @@ export function writeCloudflareFrameworkDeployConfig(
   upsert(['no_bundle'], false);
   upsert(['assets', 'directory'], options.assetsDirectory);
   upsert(['assets', 'binding'], 'ASSETS');
-  upsert(['assets', 'run_worker_first'], true);
+  upsert(['assets', 'run_worker_first'], options.runWorkerFirst ?? true);
   upsert(['assets', 'not_found_handling'], 'none');
   if (options.crons !== undefined) {
     upsert(['triggers', 'crons'], [...options.crons]);
