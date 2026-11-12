@@ -16,8 +16,7 @@ import { killChild, startServer, waitForServer } from '../../../../test/integrat
 import { collectPrerenderWorkerModules } from '../../src/prerender.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
-const DEV_HEADER = 'no-cache, no-store';
-const BUILD_HEADER = 'public, max-age=0, must-revalidate';
+const CACHE_HEADER = 'public, max-age=0, must-revalidate';
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
@@ -171,16 +170,16 @@ describe('void/og in a Cloudflare app', () => {
         expectStatus: 200,
         diagnostics: server.output,
       });
-      await expectImage(await fetch(`${server.base}/api/og`), DEV_HEADER);
-      await expectImage(await fetch(`${server.base}/api/card`), DEV_HEADER);
+      await expectImage(await fetch(`${server.base}/api/og`), CACHE_HEADER);
+      await expectImage(await fetch(`${server.base}/api/card`), CACHE_HEADER);
     });
   });
 
   describe('build', () => {
     it('renders HTML and JSX in the built Worker', async () => {
       build(root);
-      await renderBuilt(root, '/api/og', BUILD_HEADER);
-      await renderBuilt(root, '/api/card', BUILD_HEADER);
+      await renderBuilt(root, '/api/og', CACHE_HEADER);
+      await renderBuilt(root, '/api/card', CACHE_HEADER);
     });
   });
 });
@@ -190,7 +189,7 @@ describe('void/og in a Cloudflare app without React', () => {
     // Takumi's JSX helper imports React as an optional peer; the HTML route needs none.
     const root = createApp({ 'routes/api/og.ts': OG_ROUTE }, {});
     build(root);
-    await renderBuilt(root, '/api/og', BUILD_HEADER);
+    await renderBuilt(root, '/api/og', CACHE_HEADER);
   });
 });
 
@@ -235,7 +234,7 @@ describe('void/og on the Node.js target', () => {
       });
       return child;
     }, 20_000);
-    await expectImage(await fetch(`${server.base}/api/og`), BUILD_HEADER);
+    await expectImage(await fetch(`${server.base}/api/og`), CACHE_HEADER);
   });
 
   it('fails the build without takumi-js', () => {
