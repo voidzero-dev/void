@@ -1134,6 +1134,53 @@ describe('handleIsr', () => {
     expect(tasks).toHaveLength(0);
   });
 
+  it('renders a text/markdown negotiation live instead of replaying the cached HTML', async () => {
+    const { kv, store } = createKvMock();
+    const env = makeEnv(kv);
+    const html = createRender(
+      () => new Response('<html>page</html>', { headers: { 'content-type': 'text/html' } }),
+    );
+    const fill = createCtx();
+    const miss = await handleIsr(
+      htmlRequest('/blog/post', { Accept: 'text/html' }),
+      env,
+      fill.ctx,
+      OPTS,
+      html.render,
+    );
+    expect(miss?.headers.get('x-isr-cache')).toBe('MISS');
+    await fill.flush();
+    expect(store.size).toBe(1);
+
+    // A markdown client asks for the same path. The HTML entry cannot answer it,
+    // and the live render must not replace that entry either.
+    const markdown = createRender(
+      () =>
+        new Response('# page', {
+          headers: {
+            'content-type': 'text/markdown; charset=utf-8',
+            'cache-control': 'no-store',
+            vary: 'Accept',
+          },
+        }),
+    );
+    const live = createCtx();
+    expect(
+      await handleIsr(
+        htmlRequest('/blog/post', { Accept: 'text/html, text/markdown' }),
+        env,
+        live.ctx,
+        OPTS,
+        markdown.render,
+      ),
+    ).toBeNull();
+    expect(markdown.spy).not.toHaveBeenCalled();
+    expect(live.tasks).toHaveLength(0);
+
+    const entry = await readIsrCache(env, HOST, '/blog/post');
+    expect(await new Response(entry!.body).text()).toBe('<html>page</html>');
+  });
+
   it('returns null (caller renders live) for non-GET, credentialed, and non-ISR paths', async () => {
     const { kv } = createKvMock();
     const env = makeEnv(kv);

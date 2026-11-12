@@ -256,23 +256,31 @@ export function resolveRevalidateTtl(response: Response, defaultTtl: number): nu
   return Number.isNaN(value) || value < 0 ? defaultTtl : value;
 }
 
-function acceptsEventStream(request: Request): boolean {
-  return (
-    request.headers
-      .get('Accept')
-      ?.toLowerCase()
-      .split(',')
-      .some((part) => part.split(';', 1)[0]?.trim() === 'text/event-stream') ?? false
-  );
+/**
+ * Representations a single cached entry per path cannot hold: the entry stores
+ * one body, so a request that negotiates one of these reads must render live.
+ */
+const LIVE_ONLY_MEDIA_TYPES = ['text/event-stream', 'text/markdown'] as const;
+
+function negotiatesLiveOnlyMediaType(request: Request): boolean {
+  const accept = request.headers.get('Accept')?.toLowerCase();
+  if (!accept) {
+    return false;
+  }
+  return accept
+    .split(',')
+    .some((part) =>
+      LIVE_ONLY_MEDIA_TYPES.some((mediaType) => part.split(';', 1)[0]?.trim() === mediaType),
+    );
 }
 
-/** Return whether credentials or EventSource semantics require an ISR bypass. */
+/** Return whether credentials or negotiated media types require an ISR bypass. */
 export function shouldBypassIsr(request: Request): boolean {
   return (
     request.headers.has('Cookie') ||
     request.headers.has('Authorization') ||
     request.headers.has('Cf-Access-Jwt-Assertion') ||
-    acceptsEventStream(request)
+    negotiatesLiveOnlyMediaType(request)
   );
 }
 

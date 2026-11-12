@@ -539,6 +539,13 @@ describe('shouldBypassIsr', () => {
     expect(shouldBypassIsr(request)).toBe(true);
   });
 
+  it('returns true when the request negotiates markdown', () => {
+    const request = new Request('https://example.com', {
+      headers: { Accept: 'text/markdown' },
+    });
+    expect(shouldBypassIsr(request)).toBe(true);
+  });
+
   it('returns false for plain GET request', () => {
     const request = new Request('https://example.com');
     expect(shouldBypassIsr(request)).toBe(false);
