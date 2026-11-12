@@ -1439,7 +1439,7 @@ describe('createVoidRouter', () => {
           const response = await app.fetch(new Request(new URL(url, window.location.origin), init));
           expect(response.status).toBe(200);
           expect(decodePageData(await response.clone().json())).toMatchObject({
-            url: '/books?category=internal',
+            url: '/books?category=public',
           });
           return response;
         }),

@@ -17,6 +17,7 @@ import { withLoaderNotFoundBoundary } from './not-found-context.ts';
 import { escapeScriptJson } from './script-json.ts';
 import { serializePageData } from './serialize.ts';
 import type { DevCssAsset, PageRenderMode } from './types.ts';
+import { decodePagePath } from './url.ts';
 import { ValidationError } from './validation-error.ts';
 
 export { ValidationError };
@@ -299,8 +300,16 @@ function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
   });
 }
 
-function requestPathWithSearch(c: CloudContext): string {
-  return c.req.path + new URL(c.req.url).search;
+/**
+ * The URL in the address bar, which a rewrite keeps while it serves another
+ * route. The path is decoded like c.req.path.
+ */
+function requestPathWithSearch(c: CloudContext, withoutActionKey = false): string {
+  // Build-time renders run without the routing middleware that adds originalUrl.
+  const original = c.originalUrl?.();
+  const path = original ? decodePagePath(original.pathname) : c.req.path;
+  const search = (original ?? new URL(c.req.url)).search;
+  return path + (withoutActionKey ? searchWithoutActionKey(search) : search);
 }
 
 function requestParams(c: CloudContext): Record<string, string> {
@@ -908,9 +917,7 @@ async function runPageMutation(
       props,
       params: requestParams(c),
       shared,
-      url: hasActionKey(c.req.raw)
-        ? c.req.path + searchWithoutActionKey(new URL(c.req.url).search)
-        : requestPathWithSearch(c),
+      url: requestPathWithSearch(c, hasActionKey(c.req.raw)),
       errors,
       ...(head && { head }),
     };
