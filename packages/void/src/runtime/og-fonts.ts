@@ -65,6 +65,20 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
 // Found by asking css2 for each family with `wght@100..900`.
 const SINGLE_WEIGHT_FAMILIES = new Set(['Noto Sans Math', 'Noto Sans Symbols 2']);
 
+// Google Fonts answers a `text` parameter with one file holding just those
+// characters, with the whole weight axis. Without it, a family comes as files
+// split by character range: a Japanese title needs about 20 of Noto Sans JP's
+// 124, 480 KB in all, against one 26 KB file. Past a query of about 7,500
+// characters (some 800 kanji), Google returns every range file instead, and
+// longer queries fail, so longer text asks for the range files.
+const GOOGLE_FONTS_CSS = 'https://fonts.googleapis.com/css2';
+const MAX_TEXT_QUERY = 6000;
+
+function cssUrl(characters: Array<string>): string | undefined {
+  const text = encodeURIComponent([...new Set(characters)].sort().join(''));
+  return text.length <= MAX_TEXT_QUERY ? `${GOOGLE_FONTS_CSS}?text=${text}` : undefined;
+}
+
 // What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
 // by rendering each code point with takumi-js 2.18 (2.20 draws the same): some
 // accented letters and combining marks, spaces, format characters and variation
@@ -153,26 +167,33 @@ export async function fallbackFonts(
     .filter((codepoint) => codepoint === 0xb5 || codepoint > 0xff)
     .map((codepoint) => String.fromCodePoint(codepoint))
     .filter((character) => !BUILT_IN.test(character));
-  const families = new Set(
-    FALLBACK_FONTS.filter(([script]) => missing.some((character) => script.test(character))).map(
-      ([, family]) => (family === 'Noto Sans JP' ? cjkFamily(missing.join(''), lang) : family),
-    ),
+  // The characters each family is asked to draw.
+  const families = new Map<string, Array<string>>();
+  for (const [script, name] of FALLBACK_FONTS) {
+    const characters = missing.filter((character) => script.test(character));
+    if (characters.length > 0) {
+      const family = name === 'Noto Sans JP' ? cjkFamily(missing.join(''), lang) : name;
+      families.set(family, characters);
+    }
+  }
+  const unmatched = missing.filter(
+    (character) => !FALLBACK_FONTS.some(([script]) => script.test(character)),
   );
-  if (missing.some((character) => !FALLBACK_FONTS.some(([script]) => script.test(character)))) {
-    families.add('Noto Sans');
+  if (unmatched.length > 0) {
+    families.set('Noto Sans', unmatched);
   }
   if (families.size === 0) {
     return [];
   }
-  // One request per family: takumi caches the CSS by URL, and a family's
-  // subsets are keyed alike whichever image asked for them.
+  // One request per family: takumi caches the CSS by URL.
   const subsets = await Promise.all(
-    [...families].map(async (family) => {
+    [...families].map(async ([family, characters]) => {
       try {
         return await googleFonts({
           families: [
             SINGLE_WEIGHT_FAMILIES.has(family) ? family : { name: family, weight: '100..900' },
           ],
+          baseUrl: cssUrl(characters),
           timeout,
         });
       } catch (error) {

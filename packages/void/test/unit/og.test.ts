@@ -277,6 +277,33 @@ describe('ImageResponse fallback fonts', () => {
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@100..900']);
   });
 
+  it('asks each family for only the characters it draws', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    await new ImageResponse('<div style="display:flex">本日 ★ 日本語 ★</div>').arrayBuffer();
+    const texts = Object.fromEntries(
+      requests.map((url) => {
+        const { searchParams } = new URL(url);
+        return [searchParams.get('family'), searchParams.get('text')];
+      }),
+    );
+    expect(texts).toEqual({
+      'Noto Sans JP:wght@100..900': '日本語',
+      'Noto Sans Symbols:wght@100..900': '★',
+      'Noto Sans Symbols 2:wght@400': '★',
+    });
+  });
+
+  it('asks for the whole family when the text is too long for one request', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    const kanji = Array.from({ length: 700 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join('');
+    await new ImageResponse(`<div style="display:flex">${kanji}</div>`).arrayBuffer();
+    const css = new URL(requests[0]!);
+    expect(css.searchParams.getAll('family')).toEqual(['Noto Sans JP:wght@100..900']);
+    expect(css.searchParams.has('text')).toBe(false);
+  });
+
   it('draws the marks ・ and ー with the Japanese family', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
