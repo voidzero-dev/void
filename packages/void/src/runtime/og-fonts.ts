@@ -172,8 +172,9 @@ export async function fallbackFonts(
   for (const [script, name] of FALLBACK_FONTS) {
     const characters = missing.filter((character) => script.test(character));
     if (characters.length > 0) {
+      // Han text can go to the same family as Hangul, so add to it.
       const family = name === 'Noto Sans JP' ? cjkFamily(missing.join(''), lang) : name;
-      families.set(family, characters);
+      families.set(family, [...(families.get(family) ?? []), ...characters]);
     }
   }
   const unmatched = missing.filter(
