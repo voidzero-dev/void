@@ -1,0 +1,4 @@
+interface:
+  display_name: 'Void Dependency Updates'
+  short_description: 'Update dependencies without install-size regressions'
+  default_prompt: 'Use $void-deps-updates to update Void dependencies and compare the fresh production install size.'
