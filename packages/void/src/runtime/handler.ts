@@ -1,7 +1,7 @@
 import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
-import type { HeadDescriptor } from '../pages/head.ts';
+import type { HeadConfig, HeadDescriptor } from '../pages/head.ts';
 import type { AuthSession, AuthUser } from './auth.ts';
 import { base64ToBytes } from './base64.ts';
 import { executeComposedHandler, setHandlerComposition } from './handler-composition.ts';
@@ -36,7 +36,7 @@ type RewritePath = TypedRoutes extends true ? RouteUrl : RewriteDestination;
 export interface CloudContextVariables {
   user: AuthUser | null;
   session: AuthSession | null;
-  headDefaults?: HeadDescriptor;
+  headDefaults?: HeadConfig;
   [key: string]: unknown;
 }
 
