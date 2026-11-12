@@ -27,6 +27,11 @@ export interface ImageResponseOptions extends ResponseInit {
   debug?: boolean;
   /** Fonts to draw text with, before the built-in Geist. */
   fonts?: Array<Font>;
+  /**
+   * Set to false to download no fonts from Google Fonts for characters that
+   * the built-in Geist cannot draw, leaving them to `fonts`. Defaults to true.
+   */
+  fallbackFonts?: boolean;
   /** The emoji images to draw. Defaults to `twemoji`. */
   emoji?: 'twemoji' | 'blobmoji' | 'noto' | 'openmoji' | 'fluent' | 'fluentFlat';
   /**
@@ -121,7 +126,9 @@ async function renderImage(element: RenderInput, options: ImageOptions): Promise
   const failed = new Set<string>();
   const [fonts, fallback] = await Promise.all([
     Promise.all((options.fonts ?? []).map(keyedFont)),
-    fallbackFonts(node, options.lang ?? node.lang, timeout, failed),
+    options.fallbackFonts === false
+      ? []
+      : fallbackFonts(node, options.lang ?? node.lang, timeout, failed),
   ]);
   if (fallback.length === 0) {
     return renderNode(fonts);
