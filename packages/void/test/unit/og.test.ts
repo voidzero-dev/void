@@ -310,6 +310,18 @@ describe('ImageResponse fallback fonts', () => {
     });
   });
 
+  it('asks the Korean family for both Han and Hangul in Korean text', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    await new ImageResponse('<div style="display:flex">中文・한국어</div>').arrayBuffer();
+    expect(
+      requests.map((url) => {
+        const { searchParams } = new URL(url);
+        return [searchParams.get('family'), searchParams.get('text')];
+      }),
+    ).toEqual([['Noto Sans KR:wght@100..900', [...'中文・한국어'].sort().join('')]]);
+  });
+
   it('asks for the whole family when the text is too long for one request', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
