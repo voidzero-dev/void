@@ -307,9 +307,18 @@ function pageJsonResponse(c: CloudContext, pageObj: PageObject): Response {
 function requestPathWithSearch(c: CloudContext, withoutActionKey = false): string {
   // Build-time renders run without the routing middleware that adds originalUrl.
   const original = c.originalUrl?.();
-  const path = original ? decodePagePath(original.pathname) : c.req.path;
-  const search = (original ?? new URL(c.req.url)).search;
-  return path + (withoutActionKey ? searchWithoutActionKey(search) : search);
+  const requestSearch = new URL(c.req.url).search;
+  if (!original) {
+    return c.req.path + (withoutActionKey ? searchWithoutActionKey(requestSearch) : requestSearch);
+  }
+  // The action key is in the query this request carries. It is also in the
+  // original query only when the rewrite kept that query; a destination with
+  // its own query leaves the original's parameters as they were.
+  const search =
+    withoutActionKey && original.search === requestSearch
+      ? searchWithoutActionKey(original.search)
+      : original.search;
+  return decodePagePath(original.pathname) + search;
 }
 
 function requestParams(c: CloudContext): Record<string, string> {
