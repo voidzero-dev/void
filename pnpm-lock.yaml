@@ -654,6 +654,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
+      '@void/isr':
+        specifier: workspace:*
+        version: link:../isr
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
