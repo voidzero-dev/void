@@ -194,6 +194,27 @@ describe('ImageResponse', () => {
     expect(await fontKey(new Uint8Array([1, 2, 4]))).not.toBe(key);
   });
 
+  it('passes any font weight to Takumi, and none when it is left out', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    const data = new Uint8Array([1, 2, 3]);
+    await new ImageResponse(card, {
+      fonts: [
+        { name: 'Medium', data, weight: 550 },
+        { name: 'Variable', data },
+      ],
+    })
+      .arrayBuffer()
+      .catch(() => {});
+    const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<{
+      name: string;
+      weight?: number;
+    }>;
+    expect(fonts.map(({ name, weight }) => [name, weight])).toEqual([
+      ['Medium', 550],
+      ['Variable', undefined],
+    ]);
+  });
+
   it('errors the body when the image cannot render', async () => {
     const data = new Uint8Array([1, 2, 3]);
     // A font entry may carry `lang`, which takumi does not take.
