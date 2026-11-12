@@ -44,6 +44,8 @@ export default defineConfig({
 
 TypeScript provides editor completion and checks. Void validates the config again when it runs, including values computed at runtime.
 
+Use relative imports or package names inside `void.config.ts`. TypeScript path aliases such as `@/lib/theme` are not supported.
+
 The shorter JSON fragments below show individual fields to place inside `defineConfig({ ... })`.
 
 ## Fields
