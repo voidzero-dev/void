@@ -277,6 +277,21 @@ describe('ImageResponse fallback fonts', () => {
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@100..900']);
   });
 
+  it('downloads no fallback font when fallbackFonts is false', async () => {
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    vi.mocked(render).mockClear();
+    const data = new Uint8Array([1, 2, 3]);
+    await new ImageResponse('<div style="display:flex">日本語 ★ Łódź</div>', {
+      fonts: [{ name: 'App', data }],
+      fallbackFonts: false,
+    })
+      .arrayBuffer()
+      .catch(() => {});
+    expect(requests).toEqual([]);
+    const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<{ name: string }>;
+    expect(fonts.map(({ name }) => name)).toEqual(['App']);
+  });
+
   it('asks each family for only the characters it draws', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
