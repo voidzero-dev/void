@@ -343,6 +343,11 @@
       "import": "./dist/runtime/limits/index.mjs",
       "require": "./dist/runtime/limits/index.mjs"
     },
+    "./image": {
+      "types": "./dist/runtime/image.d.mts",
+      "import": "./dist/runtime/image.mjs",
+      "require": "./dist/runtime/image.mjs"
+    },
     "./og": {
       "types": "./dist/runtime/og.d.mts",
       "import": "./dist/runtime/og.mjs",

@@ -1,5 +1,5 @@
 import { defineHandler } from 'void';
-import { ImageResponse, type ImageResponseOptions } from 'void/og';
+import { ImageResponse, type ImageResponseOptions } from 'void/image';
 import { Card } from '../../src/card.tsx';
 
 const styles = ['twemoji', 'blobmoji', 'noto', 'openmoji', 'fluent', 'fluentFlat'] as const;
@@ -16,6 +16,6 @@ export const GET = defineHandler((c) => {
         {c.req.query('sample') === 'joined' ? '👩‍💻 🎉 🌍 ❤️' : '😀 🎉 🌍 ❤️'}
       </div>
     </Card>,
-    { emoji, images: { timeout: 5000 } },
+    { width: 1200, height: 630, emoji, images: { timeout: 5000 } },
   );
 });
