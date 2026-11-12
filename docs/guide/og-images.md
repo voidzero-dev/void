@@ -74,18 +74,15 @@ export const GET = defineHandler(async (c) => {
 
 The second argument sets the image and the response:
 
-| Option                            | Default       | Description                                                                                                                  |
-| --------------------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                                                                        |
-| `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                                                                |
-| `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, `fluentFlat`, or `from-font` to draw emoji with the fonts. |
-| `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                   |
-| `debug`                           | `false`       | Draws a border around every box.                                                                                             |
-| `format`                          | `'png'`       | Image format: `png`, `jpeg`, `webp`, or `ico`.                                                                               |
-| `images`                          |               | Limits for remote images: `allowUrl`, `maxBytes`, and `timeout`. Set them when the markup includes request values.           |
-| `status`, `statusText`, `headers` |               | The response status and headers.                                                                                             |
-
-Takumi's other render options, such as `devicePixelRatio`, are passed through. See [Takumi's reference](https://takumi.kane.tw/docs/reference).
+| Option                            | Default       | Description                                                                                                                                  |
+| --------------------------------- | ------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `width`, `height`                 | `1200`, `630` | Image size in pixels.                                                                                                                        |
+| `fonts`                           | Geist         | Fonts to draw text with. See [Fonts](#fonts).                                                                                                |
+| `emoji`                           | `'twemoji'`   | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`.                                                           |
+| `lang`                            |               | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                                   |
+| `debug`                           | `false`       | Draws a border around every box.                                                                                                             |
+| `images`                          |               | Limits for remote images and emoji: `allowUrl`, `maxBytes`, `timeout`, and `throwOnError`. Set them when the markup includes request values. |
+| `status`, `statusText`, `headers` |               | The response status and headers.                                                                                                             |
 
 Responses have these headers unless you set them in `headers`:
 
