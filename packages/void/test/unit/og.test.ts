@@ -196,7 +196,7 @@ describe('ImageResponse', () => {
 
   it('errors the body when the image cannot render', async () => {
     const data = new Uint8Array([1, 2, 3]);
-    // A next/og font entry may carry Satori's `lang`, which takumi does not take.
+    // A font entry may carry `lang`, which takumi does not take.
     const response = new ImageResponse(card, {
       fonts: [{ name: 'Broken', data, weight: 400, lang: 'ja-JP' }],
     });
@@ -303,7 +303,7 @@ describe('ImageResponse fallback fonts', () => {
     ]);
   });
 
-  it('draws Han text as Japanese unless lang says otherwise, like next/og', async () => {
+  it('draws Han text as Japanese unless lang says otherwise', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     const family = async (html: string, lang?: string) => {

@@ -157,8 +157,7 @@ Vite/CLI dependency graph.
 `void/remote` stays exported only for semver. Generated code imports
 `#self/remote`. Remove the subpath in the next major version.
 
-`void/og` is a thin `next/og`-compatible layer over `takumi-js`; its source
-cites the @vercel/og, Satori and Next.js code each behavior follows.
+`void/og` is a thin `ImageResponse` layer over `takumi-js`.
 `ImageResponseOptions` is declared in `og.ts` and mapped to Takumi's render
 options one by one. Do not
 pass Takumi's options through: a Takumi upgrade must not change the API. In workerd,

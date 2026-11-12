@@ -1,16 +1,11 @@
 /**
- * `void/og` — the `ImageResponse` API of `next/og` and `@vercel/og`, rendered
- * by Takumi instead of Satori and resvg.
+ * `void/og` — an `ImageResponse` that renders JSX or HTML to an image with
+ * Takumi.
  *
  * Takumi does the rendering (Wasm on workerd, its native addon on Node). This
- * module adds what `@vercel/og` does around its renderer: a 1200×630 default
- * size, the response headers, `debug`, and Google Fonts fallbacks for text
- * that Takumi's built-in Geist cannot draw. Comments cite the upstream code:
- * - @vercel/og 1.0.3, published only as a bundle whose `// src/…` sections
- *   name its source files:
- *   https://cdn.jsdelivr.net/npm/@vercel/og@1.0.3/dist/index.edge.js
- * - Satori 0.33.5, the version @vercel/og 1.0.3 bundles.
- * - Next.js 16.4.2, whose `next/og` wraps a copy of @vercel/og.
+ * module adds what a route handler needs around it: a 1200×630 default size,
+ * the response headers, `debug`, and Google Fonts fallbacks for text that
+ * Takumi's built-in Geist cannot draw.
  */
 import { render, type FontLoader, type Node, type RenderInput } from 'takumi-js';
 import {
@@ -75,15 +70,10 @@ export interface ImageResponseOptions extends ResponseInit {
 
 type ImageOptions = Omit<ImageResponseOptions, keyof ResponseInit>;
 
-// Google Fonts families for text the default font cannot draw. Satori hands
-// @vercel/og the characters no loaded font has, with the languages their script
-// suggests, and @vercel/og downloads each language's Noto family:
-// - https://github.com/vercel/satori/blob/0.33.5/src/text/index.ts#L103-L115
-// - https://github.com/vercel/satori/blob/0.33.5/src/language.ts#L24-L45
-// - @vercel/og `// src/language/index.ts`: languageFontMap
-// Takumi has no such hook, so these families are matched by script before the
-// render. `cjkFamily` settles the first one; `Noto Sans` takes the rest, as
-// @vercel/og's `unknown` does.
+// Google Fonts families for text the default font cannot draw: each script's
+// Noto family. Takumi has no hook for characters that no font has, so these
+// families are matched by script before the render. `cjkFamily` settles the
+// first one; `Noto Sans` takes any other text.
 const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}　-〿＀-￯]/u, 'Noto Sans JP'],
   [/\p{sc=Hangul}/u, 'Noto Sans KR'],
@@ -123,25 +113,22 @@ const BUILT_IN =
   /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{304}\u{308}\u{34F}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FE00}-\u{FE0F}\u{FEFF}]/u;
 /* oxlint-enable no-misleading-character-class */
 
-// Emoji come from jsDelivr by code point, so keep them for the life of the
-// isolate, as @vercel/og does (`// src/og.ts`: assetCache); other images are
-// fetched for each render.
+// Emoji come from jsDelivr by code point and never change, so keep them for the
+// life of the isolate; other images are fetched for each render.
 const EMOJI_ORIGIN = 'https://cdn.jsdelivr.net/';
 const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, an
- * HTML string, or a Takumi node tree. Like `next/og`, it renders a 1200×630 PNG
- * by default, which clients revalidate outside development.
+ * HTML string, or a Takumi node tree. It renders a 1200×630 PNG by default,
+ * which clients revalidate outside development.
  */
 export class ImageResponse extends Response {
   constructor(element: RenderInput, options: ImageResponseOptions = {}) {
     const { status, statusText, headers, ...imageOptions } = options;
-    // next/og sets these two headers unless the caller's `headers` has them
-    // (@vercel/og itself spreads the caller's object over its defaults). A
-    // failed render still ends as a complete response, so the image is not
-    // cached for the year @vercel/og allows:
-    // https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L76-L86
+    // Set these two headers unless the caller's `headers` has them. A failed
+    // render still ends as a complete response, so clients revalidate the
+    // image rather than cache it for long.
     const responseHeaders = new Headers(headers);
     if (!responseHeaders.has('content-type')) {
       responseHeaders.set('content-type', 'image/png');
@@ -152,8 +139,7 @@ export class ImageResponse extends Response {
         isDevelopment() ? 'no-cache, no-store' : 'public, max-age=0, must-revalidate',
       );
     }
-    // Render while the body streams, as @vercel/og does, so a failure errors the
-    // body: https://github.com/vercel/next.js/blob/v16.4.2/packages/next/src/server/og/image-response.ts#L49-L72
+    // Render while the body streams, so a failure errors the body.
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         try {
@@ -185,7 +171,6 @@ async function renderImage(element: RenderInput, options: ImageOptions): Promise
   const fetchCache = imageCache();
   const renderNode = (fonts: Array<FontLoader>) =>
     render(node, {
-      // @vercel/og `// src/og.ts`: render() defaults to 1200×630 without debug.
       width: options.width ?? 1200,
       height: options.height ?? 630,
       drawDebugBorder: options.debug,
@@ -208,7 +193,7 @@ async function renderImage(element: RenderInput, options: ImageOptions): Promise
     return renderNode(fonts);
   }
   // A font that fails to download leaves its glyphs missing rather than
-  // failing the image, as in @vercel/og `// src/og.ts`: loadDynamicAsset.
+  // failing the image.
   // Takumi downloads the files together and rejects the render on the first
   // failure, so retry without the files that failed, and only those: a flaky
   // symbol font must not also drop the Japanese one. Files that did download
@@ -275,8 +260,8 @@ function hasBytes(font: Font): font is Exclude<Font, string> {
 const fontHashes = new WeakMap<ArrayBuffer | Uint8Array, Promise<string>>();
 
 // Takumi keeps every registered font for the life of the process and tells
-// them apart by buffer identity, so a font read anew for each request, as in
-// next/og's examples, would be registered again every time. Key it by content.
+// them apart by buffer identity, so a font read anew for each request would be
+// registered again every time. Key it by content.
 async function keyedFont(font: Font): Promise<FontLoader> {
   if (!hasBytes(font)) {
     return font;
@@ -300,12 +285,9 @@ async function keyedFont(font: Font): Promise<FontLoader> {
   };
 }
 
-// Satori's ja-JP code takes Han and comes first, so Han text is Japanese there
-// unless an element's `lang` moves another language first:
-// https://github.com/vercel/satori/blob/0.33.5/src/language.ts#L57-L84
-// Takumi takes the first font with a glyph and ignores `lang`, so one family
-// draws all Han text in an image, chosen from the `lang` option or the root
-// element's `lang`.
+// Han text is drawn as Japanese unless a language says otherwise. Takumi takes
+// the first font with a glyph and ignores `lang`, so one family draws all Han
+// text in an image, chosen from the `lang` option or the root element's `lang`.
 function cjkFamily(text: string, lang = ''): string {
   // An explicit language wins over the scripts in the text: a Traditional
   // Chinese title with a katakana loanword (タワー) is still Chinese. Google's
@@ -321,7 +303,7 @@ function cjkFamily(text: string, lang = ''): string {
   if (tag.startsWith('zh')) {
     return /hant|-tw|-hk|-mo/.test(tag) ? 'Noto Sans TC' : 'Noto Sans SC';
   }
-  // Without one, kana marks Japanese and Hangul marks Korean, as in Satori.
+  // Without one, kana marks Japanese and Hangul marks Korean.
   if (/[\p{sc=Hiragana}\p{sc=Katakana}]/u.test(text)) {
     return 'Noto Sans JP';
   }
@@ -369,11 +351,10 @@ async function fallbackFonts(
       }
     }),
   );
-  // Satori draws each character with the first loaded font that has it, and
-  // fallback fonts come after the default one, so Latin text keeps the default
-  // font: https://github.com/vercel/satori/blob/0.33.5/src/font.ts#L601-L679
-  // Takumi puts registered fonts before its built-in Geist, so take ASCII and
-  // Latin-1 but µ out of every subset. A subset without ranges is a whole font.
+  // Latin text should keep the default font, but Takumi draws each character
+  // with the first font that has it and puts registered fonts before its
+  // built-in Geist, so take ASCII and Latin-1 but µ out of every subset. A
+  // subset without ranges is a whole font.
   const stripped = subsets.flat().flatMap((subset) => {
     const unicodeRange = (
       subset.unicodeRange.length > 0 ? subset.unicodeRange : [[0x100, 0x10ffff] as const]
