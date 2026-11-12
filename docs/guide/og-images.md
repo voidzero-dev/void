@@ -190,3 +190,5 @@ npm install takumi-js@~2.20.0
 ```
 
 If the build cannot find a version of `takumi-js` that Void supports, it fails and prints the command to install one.
+
+The server keeps every font it downloads for text that Geist cannot draw until it restarts, so its memory grows with each image that has new text. If your images show many different titles in other scripts, pass your own fonts with `fallbackFonts: false`; see [Control font downloads](#control-font-downloads).
