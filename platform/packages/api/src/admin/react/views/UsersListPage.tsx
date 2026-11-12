@@ -25,7 +25,7 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
   const { users, search, page, totalPages, tz } = pageData;
   const [filter, setFilter] = useState(search ?? '');
   useEffect(() => setFilter(search ?? ''), [search]);
-  const selectedUser = users.find((user) => user.id === search);
+  const selectedUser = pageData.suggestions.find((item) => item.id === search);
   const columns: Array<TableColumn<UserRow>> = [
     {
       key: 'login',
@@ -88,15 +88,7 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
           value={filter}
           onChange={setFilter}
           initialValue={search}
-          initialSelection={
-            selectedUser
-              ? {
-                  id: selectedUser.id,
-                  label: selectedUser.login,
-                  description: [selectedUser.email, selectedUser.id].filter(Boolean).join(' · '),
-                }
-              : undefined
-          }
+          initialSelection={selectedUser}
         />
         <Table
           className="void-admin-users-table"

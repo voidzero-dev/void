@@ -57,3 +57,18 @@ it('keeps two identical minimal rows from one tail poll and drops them when poll
   expect(takeFreshTailEntries([row, { ...row }, { ...row }], seen)).toHaveLength(1);
   expect(takeFreshTailEntries([{ ...row, status: '500' }], seen)).toHaveLength(1);
 });
+
+it('ignores malformed members in untyped runtime log payloads', () => {
+  const markup = renderToStaticMarkup(
+    createElement(LogRow, {
+      entry: {
+        timestamp: 0,
+        outcome: 'ok',
+        logs: [null, 7, { level: 9, message: ['valid', 'message'] }],
+        exceptions: [null, 'bad', { name: 'TypeError', message: 'valid exception' }],
+      },
+    }),
+  );
+  expect(markup).toContain('valid message');
+  expect(markup).toContain('TypeError: valid exception');
+});

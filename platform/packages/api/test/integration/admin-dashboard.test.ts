@@ -12,6 +12,14 @@ import {
   vi,
 } from 'vite-plus/test';
 import { deserializePageData } from 'void/pages-server';
+import { createAdminFateClient } from '../../src/admin/fate/client.ts';
+import {
+  DeploymentDetailView,
+  DeploymentLogSettingsView,
+  UserSuggestionsView,
+  deploymentDetailRequest,
+  userSuggestionsRequest,
+} from '../../src/admin/fate/views.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
@@ -117,6 +125,58 @@ function fateQuery(name: string, path: string, select: Array<string>): RequestIn
 }
 
 describe('auth middleware', () => {
+  test('resolves client memo dependencies through the real Fate endpoint and keeps local mutations off the wire', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'client-fields-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const member = await createTestUser(env.db, 'client-fields-member');
+    await env.db.update(users).set({ email: 'member@example.com' }).where(eq(users.id, member.id));
+    const project = await createTestProject(env.db, admin.id, 'client-fields-project');
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const requests: Array<string> = [];
+    const client = createAdminFateClient({
+      url: 'http://localhost/admin/fate',
+      fetch: async (_input, init) => {
+        requests.push(String(init?.body));
+        return req('/admin/fate', admin.adminJwt, init);
+      },
+    });
+    const { usersPage } = await client.request(
+      userSuggestionsRequest('/admin/users?search=client-fields-member'),
+    );
+    expect(usersPage).toBeTruthy();
+    const suggestions = await client.readView(UserSuggestionsView, usersPage!);
+    expect(suggestions.data.suggestions).toEqual([
+      {
+        id: member.id,
+        label: 'client-fields-member',
+        description: `member@example.com · ${member.id}`,
+      },
+    ]);
+    const request = deploymentDetailRequest(`/admin/deployments/${deployment.id}`);
+    const { deploymentDetail } = await client.request(request);
+    expect(deploymentDetail).toBeTruthy();
+    const detail = await client.readView(DeploymentDetailView, deploymentDetail!);
+    expect(detail.data.manifestJson).toBe(JSON.stringify(detail.data.manifest, null, 2));
+    const before = requests.length;
+    await client.mutations.deploymentLogs.configure({
+      input: { id: String(detail.data.id), logFilter: 'error' },
+    });
+    expect(requests).toHaveLength(before);
+    await client.request(request, { mode: 'network-only' });
+    expect(client.peekView(DeploymentLogSettingsView, deploymentDetail!)?.data.logFilter).toBe(
+      'error',
+    );
+    expect(requests.join('\n')).not.toMatch(/suggestions|manifestJson|logFilter|logRange|logLimit/);
+    expect(requests[0]).toContain('users');
+    expect(requests[1]).toContain('manifest');
+  });
+
   test.each([
     ['/admin', '/admin/'],
     ['/admin?source=bookmark', '/admin/?source=bookmark'],
@@ -356,6 +416,75 @@ describe('auth middleware', () => {
     expect(navigation.headers.get('Vary')).toBe('X-VoidPages');
     expect(navigation.headers.get('Cache-Control')).toBe('private, no-store');
     expect(((await navigation.json()) as { component: string }).component).toBe('users');
+  });
+
+  test('keeps runtime-log client fields when navigating away and back', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'log-settings-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const project = await createTestProject(env.db, admin.id, 'log-settings-project');
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const client = await readFile(
+      new URL('../../dist/admin-assets/admin/client.js', import.meta.url),
+    );
+    const css = await readFile(new URL('../../dist/admin-assets/admin/style.css', import.meta.url));
+    const browser = await chromium.launch();
+    try {
+      const context = await browser.newContext();
+      await context.addCookies([
+        { name: 'admin_token', value: admin.adminJwt, url: 'http://localhost' },
+      ]);
+      const page = await context.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', async (route) => {
+        const incoming = route.request();
+        const url = new URL(incoming.url());
+        if (url.origin !== 'http://localhost') {
+          return route.abort();
+        }
+        if (url.pathname === '/admin/client.js' || url.pathname === '/admin/style.css') {
+          return route.fulfill({
+            contentType: url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css',
+            body: url.pathname.endsWith('.js') ? client : css,
+          });
+        }
+        const response = await app.fetch(
+          new Request(incoming.url(), {
+            method: incoming.method(),
+            headers: await incoming.allHeaders(),
+            ...(incoming.method() === 'POST' ? { body: incoming.postData() ?? '' } : {}),
+          }),
+          { ...env, DEV_AUTH_BYPASS: 'true' },
+        );
+        await route.fulfill({
+          status: response.status,
+          headers: Object.fromEntries(response.headers),
+          body: Buffer.from(await response.arrayBuffer()),
+        });
+      });
+      await page.goto(`http://localhost/admin/deployments/${deployment.id}`);
+      await page.locator('[data-hydrated="true"]').waitFor();
+      await page.getByPlaceholder('Filter logs').fill('remember-this-filter');
+      await page.locator(`a[href="/admin/projects/${project.id}"]`).first().click();
+      await page.getByRole('heading', { name: project.slug, exact: true }).waitFor();
+      await page.goBack();
+      await page
+        .getByRole('heading', { name: `Deployment ${deployment.id}`, exact: true })
+        .waitFor();
+      await page
+        .getByText('remember-this-filter', { exact: true })
+        .filter({ visible: true })
+        .waitFor();
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
   });
 
   test('keeps system-status geometry stable through loading, errors and failed refreshes', async () => {

@@ -3,14 +3,13 @@ import { Button } from '@astryxdesign/core/Button';
 import { useRouter } from '@void/react';
 import { useCallback } from 'react';
 import { useFateClient } from 'react-fate';
-import type { Deployment, User } from '../../../types.ts';
 import {
-  DeploymentsPageView,
-  deploymentsPageRequest,
-  ProjectsPageView,
-  projectsPageRequest,
-  UsersPageView,
-  usersPageRequest,
+  DeploymentSuggestionsView,
+  deploymentSuggestionsRequest,
+  ProjectSuggestionsView,
+  projectSuggestionsRequest,
+  UserSuggestionsView,
+  userSuggestionsRequest,
 } from '../../fate/views.ts';
 import { SearchTypeahead, type SearchSuggestion } from './SearchTypeahead.tsx';
 
@@ -37,53 +36,33 @@ export function SearchForm({
     async (query: string): Promise<ReadonlyArray<SearchSuggestion>> => {
       const path = `${action}?search=${encodeURIComponent(query)}`;
       if (kind === 'users') {
-        const { usersPage: ref } = await fate.request(usersPageRequest(path), {
+        const { usersPage: ref } = await fate.request(userSuggestionsRequest(path), {
           mode: 'network-only',
         });
         if (!ref) {
           return [];
         }
-        const { data } = (await fate.readView(UsersPageView, ref)) as unknown as {
-          data: { users: Array<Pick<User, 'id' | 'login' | 'email'>> };
-        };
-        return data.users.map((user) => ({
-          id: user.id,
-          label: user.login,
-          description: [user.email, user.id].filter(Boolean).join(' · '),
-        }));
+        const { data } = await fate.readView(UserSuggestionsView, ref);
+        return data.suggestions;
       }
       if (kind === 'projects') {
-        const { projectsPage: ref } = await fate.request(projectsPageRequest(path), {
+        const { projectsPage: ref } = await fate.request(projectSuggestionsRequest(path), {
           mode: 'network-only',
         });
         if (!ref) {
           return [];
         }
-        const { data } = (await fate.readView(ProjectsPageView, ref)) as unknown as {
-          data: { projects: Array<{ id: string; slug: string; owner_login: string | null }> };
-        };
-        return data.projects.map((project) => ({
-          id: project.id,
-          label: project.slug,
-          description: project.owner_login ?? undefined,
-        }));
+        const { data } = await fate.readView(ProjectSuggestionsView, ref);
+        return data.suggestions;
       }
-      const { deploymentsPage: ref } = await fate.request(deploymentsPageRequest(path), {
+      const { deploymentsPage: ref } = await fate.request(deploymentSuggestionsRequest(path), {
         mode: 'network-only',
       });
       if (!ref) {
         return [];
       }
-      const { data } = (await fate.readView(DeploymentsPageView, ref)) as unknown as {
-        data: {
-          deployments: Array<Pick<Deployment, 'id' | 'status'> & { project_slug: string | null }>;
-        };
-      };
-      return data.deployments.map((deployment) => ({
-        id: deployment.id,
-        label: deployment.id,
-        description: [deployment.project_slug, deployment.status].filter(Boolean).join(' · '),
-      }));
+      const { data } = await fate.readView(DeploymentSuggestionsView, ref);
+      return data.suggestions;
     },
     [action, fate, kind],
   );

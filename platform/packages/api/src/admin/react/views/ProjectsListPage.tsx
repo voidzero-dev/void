@@ -21,7 +21,7 @@ export function ProjectsListPage({ path, platformName, username }: AdminPageProp
   const { projects, search, page, totalPages, siteDomain, tz } = pageData;
   const [filter, setFilter] = useState(search ?? '');
   useEffect(() => setFilter(search ?? ''), [search]);
-  const selectedProject = projects.find((project) => project.id === search);
+  const selectedProject = pageData.suggestions.find((item) => item.id === search);
   return (
     <Layout platformName={platformName} title="Projects" username={username}>
       <SectionStack>
@@ -33,15 +33,7 @@ export function ProjectsListPage({ path, platformName, username }: AdminPageProp
           value={filter}
           onChange={setFilter}
           initialValue={search}
-          initialSelection={
-            selectedProject
-              ? {
-                  id: selectedProject.id,
-                  label: selectedProject.slug,
-                  description: selectedProject.owner_login ?? undefined,
-                }
-              : undefined
-          }
+          initialSelection={selectedProject}
         />
         <ProjectsTable projects={projects} siteDomain={siteDomain} tz={tz} />
         {page != null && totalPages != null && (

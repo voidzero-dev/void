@@ -7,13 +7,13 @@ import { neutralTheme } from '@astryxdesign/theme-neutral/built';
 import { Link, useShared } from '@void/react';
 import { useMemo, type ReactNode } from 'react';
 import { FateClient } from 'react-fate';
-import { createFateClient } from '../fate/client.generated.ts';
+import { createAdminFateClient } from '../fate/client.ts';
 import { AdminFateErrorBoundary } from './AdminFateErrorBoundary.tsx';
 
 type AdminShared = {
   platformName?: string;
   adminFateSession?: string;
-  adminFateSnapshot?: Parameters<ReturnType<typeof createFateClient>['hydrate']>[0];
+  adminFateSnapshot?: Parameters<ReturnType<typeof createAdminFateClient>['hydrate']>[0];
   adminPageUrl?: string;
 };
 
@@ -34,7 +34,7 @@ export function AdminProviders({ children }: { children: ReactNode }) {
   const shared = useShared<AdminShared>();
   const session = shared.adminFateSession ?? 'guest';
   const fate = useMemo(() => {
-    const client = createFateClient({
+    const client = createAdminFateClient({
       url: typeof window === 'undefined' ? 'http://localhost/admin/fate' : '/admin/fate',
       fetch: (input, init) =>
         fetch(input, {

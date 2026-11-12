@@ -1,15 +1,17 @@
 import { defer, view } from 'react-fate';
 import type {
+  AdminUsersPage,
+  AdminProjectsPage,
+  AdminDeploymentsPage,
+  AdminDeploymentDetail,
+} from './client.ts';
+import type {
   AdminPlans,
   AdminDashboard,
   AdminTopProject,
   AdminHealth,
-  AdminUsersPage,
-  AdminProjectsPage,
-  AdminDeploymentsPage,
   AdminUserDetail,
   AdminProjectDetail,
-  AdminDeploymentDetail,
   AdminBuildDetail,
   AdminCliVersions,
   AdminSignup,
@@ -78,6 +80,7 @@ export const deploymentLogsRequest = (id: string, since: string, limit: number) 
 export const UsersPageView = view<AdminUsersPage>()({
   id: true,
   users: true,
+  suggestions: true,
   search: true,
   page: true,
   totalPages: true,
@@ -86,6 +89,7 @@ export const UsersPageView = view<AdminUsersPage>()({
 export const ProjectsPageView = view<AdminProjectsPage>()({
   id: true,
   projects: true,
+  suggestions: true,
   search: true,
   page: true,
   totalPages: true,
@@ -95,6 +99,7 @@ export const ProjectsPageView = view<AdminProjectsPage>()({
 export const DeploymentsPageView = view<AdminDeploymentsPage>()({
   id: true,
   deployments: true,
+  suggestions: true,
   search: true,
   page: true,
   totalPages: true,
@@ -115,41 +120,50 @@ export const deploymentsPageRequest = (path: string) =>
   }) as const;
 
 export const UserDetailView = view<AdminUserDetail>()({
-  limits: true as never,
+  limits: true,
   plans: true,
   id: true,
-  user: true as never,
+  user: true,
   projects: true,
   deploysToday: true,
-  usage: true as never,
+  usage: true,
   tz: true,
 });
 export const ProjectDetailView = view<AdminProjectDetail>()({
   id: true,
-  project: true as never,
+  project: true,
   deployments: true,
   resources: true,
-  owner: true as never,
+  owner: true,
   teamMembers: true,
   pendingTeamInvitations: true,
   domains: true,
   builds: true,
-  zeroTrust: true as never,
+  zeroTrust: true,
   cfAccountId: true,
   deployUrl: true,
   tz: true,
 });
-export const DeploymentDetailView = view<AdminDeploymentDetail>()({
+export const DeploymentLogSettingsView = view<AdminDeploymentDetail>()({
   id: true,
-  deployment: true as never,
-  project: true as never,
-  manifest: true as never,
+  logRange: true,
+  logLimit: true,
+  logFilter: true,
+});
+
+export const DeploymentDetailView = view<AdminDeploymentDetail>()({
+  ...DeploymentLogSettingsView,
+  id: true,
+  deployment: true,
+  project: true,
+  manifest: true,
+  manifestJson: true,
   canCancel: true,
   tz: true,
 });
 export const BuildDetailView = view<AdminBuildDetail>()({
   id: true,
-  build: true as never,
+  build: true,
   tz: true,
 });
 
@@ -181,7 +195,7 @@ export const SignupView = view<AdminSignup>()({
   enabled: true,
   entries: true,
   directEntries: true,
-  admission: true as never,
+  admission: true,
   connections: true,
   initialized: true,
   revision: true,
@@ -219,8 +233,8 @@ export const invitationsRequest = (path: string) =>
 
 export const AuthSettingsView = view<AdminAuthSettings>()({
   id: true,
-  data: true as never,
-  tested: true as never,
+  data: true,
+  tested: true,
 });
 export const AuthNewView = view<AdminAuthNew>()({
   id: true,
@@ -230,7 +244,7 @@ export const AuthNewView = view<AdminAuthNew>()({
 });
 export const AuthEditView = view<AdminAuthEdit>()({
   id: true,
-  configuration: true as never,
+  configuration: true,
   label: true,
   revision: true,
   callbackUrl: true,
@@ -251,14 +265,14 @@ export const authEditRequest = (path: string) =>
 
 export const EmailSettingsView = view<AdminEmailSettings>()({
   id: true,
-  policy: true as never,
-  management: true as never,
+  policy: true,
+  management: true,
   senderDomain: true,
 });
 export const EmailProjectView = view<AdminEmailProject>()({
   id: true,
   projectId: true,
-  project: true as never,
+  project: true,
   month: true,
   attempts: true,
   received: true,
@@ -290,10 +304,10 @@ export const ZeroTrustView = view<AdminZeroTrust>()({
   identityProviderIds: true,
   policyIds: true,
   protectNewProjects: true,
-  operation: true as never,
+  operation: true,
   lastError: true,
   checked: true,
-  live: true as never,
+  live: true,
   projects: true,
 });
 
@@ -304,9 +318,19 @@ export const zeroTrustRequest = (path: string) =>
 
 export const PlansView = view<AdminPlans>()({
   id: true,
-  catalog: true as never,
+  catalog: true,
   accounts: true,
   selectedPlanId: true,
 });
 export const plansRequest = (path: string) =>
   ({ plans: { view: PlansView, args: { path } } }) as const;
+
+export const UserSuggestionsView = view<AdminUsersPage>()({ suggestions: true });
+export const ProjectSuggestionsView = view<AdminProjectsPage>()({ suggestions: true });
+export const DeploymentSuggestionsView = view<AdminDeploymentsPage>()({ suggestions: true });
+export const userSuggestionsRequest = (path: string) =>
+  ({ usersPage: { view: UserSuggestionsView, args: { path } } }) as const;
+export const projectSuggestionsRequest = (path: string) =>
+  ({ projectsPage: { view: ProjectSuggestionsView, args: { path } } }) as const;
+export const deploymentSuggestionsRequest = (path: string) =>
+  ({ deploymentsPage: { view: DeploymentSuggestionsView, args: { path } } }) as const;

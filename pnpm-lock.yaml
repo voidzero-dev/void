@@ -250,8 +250,8 @@ catalogs:
       specifier: ^2.1.2
       version: 2.1.2
     '@nkzw/fate':
-      specifier: 2.0.0
-      version: 2.0.0
+      specifier: 2.0.1
+      version: 2.0.1
     '@react-router/dev':
       specifier: ^8.5.1
       version: 8.5.1
@@ -364,8 +364,8 @@ catalogs:
       specifier: ^19.3.1
       version: 19.3.1
     react-fate:
-      specifier: 2.0.0
-      version: 2.0.0
+      specifier: 2.0.1
+      version: 2.0.1
     react-router:
       specifier: ^8.5.1
       version: 8.5.1
@@ -1003,7 +1003,7 @@ importers:
         version: 1.0.3
       '@nkzw/fate':
         specifier: 'catalog:'
-        version: 2.0.0(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))
+        version: 2.0.1(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))
       '@stylexjs/stylex':
         specifier: 'catalog:'
         version: 0.19.1
@@ -1063,7 +1063,7 @@ importers:
         version: 19.3.1(react@19.3.1)
       react-fate:
         specifier: 'catalog:'
-        version: 2.0.0(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
+        version: 2.0.1(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1)
       shiki:
         specifier: 'catalog:'
         version: 4.6.0
@@ -3788,8 +3788,8 @@ packages:
       '@emnapi/core': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
       '@emnapi/runtime': ^1.7.1 || 2.0.0-beta.2 || 2.0.0-beta.3
 
-  '@nkzw/fate@2.0.0':
-    resolution: {integrity: sha512-5NiQX4dHPo2E3exiCFSsXz9DxOqTvLqg0vp1dTVwV6EmJDtB9BFQr4wMnJ51v4VA5MGz7sKA2dpSXyT5WybbmA==}
+  '@nkzw/fate@2.0.1':
+    resolution: {integrity: sha512-DL/yy9+rC1tLPn8C8VpWG4RhL1v/bm+AxmxqJwEsq8CWZ5axYF5OqmqtbYOX0A/wuXDw9S9I1fkmHApfCoYmsA==}
     hasBin: true
     peerDependencies:
       '@trpc/client': ^11.6.0
@@ -9064,8 +9064,8 @@ packages:
     peerDependencies:
       react: ^19.3.1
 
-  react-fate@2.0.0:
-    resolution: {integrity: sha512-YLy3YqTGe0Ye2qqW55g+kMq2wM/z58OrkZqrV5LVPbICr5RbsJQQV0DwEjhWbE7knM3mCOFT73FSzzJrp+vX1A==}
+  react-fate@2.0.1:
+    resolution: {integrity: sha512-f0I8AoQeBXKrjJK5EqFe4YHGHf4v7Wt9CJ7b70h2CWhaqX6C8gA7VsdZdV5sGLAWv9yNgdbXRmczIrlLybTCJA==}
     hasBin: true
     peerDependencies:
       react: ^19.2.0
@@ -12211,7 +12211,7 @@ snapshots:
       '@tybys/wasm-util': 0.10.4
     optional: true
 
-  '@nkzw/fate@2.0.0(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))':
+  '@nkzw/fate@2.0.1(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))':
     dependencies:
       '@trpc/client': 11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2)
       superjson: 2.2.6
@@ -17678,9 +17678,9 @@ snapshots:
       react: 19.3.1
       scheduler: 0.28.0
 
-  react-fate@2.0.0(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
+  react-fate@2.0.1(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))(react-dom@19.3.1(react@19.3.1))(react@19.3.1):
     dependencies:
-      '@nkzw/fate': 2.0.0(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))
+      '@nkzw/fate': 2.0.1(@trpc/client@11.19.0(@trpc/server@11.19.0(typescript@7.0.2))(typescript@7.0.2))(@trpc/server@11.19.0(typescript@7.0.2))(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(drizzle-orm@0.45.4(@cloudflare/workers-types@5.20261110.1)(@electric-sql/pglite@0.5.16)(@types/better-sqlite3@9.6.0)(@types/pg@8.23.1)(better-sqlite3@13.0.3)(kysely@0.29.8)(mysql2@3.24.6(@types/node@26.6.6))(pg@8.23.1))
       react: 19.3.1
       react-dom: 19.3.1(react@19.3.1)
     transitivePeerDependencies:

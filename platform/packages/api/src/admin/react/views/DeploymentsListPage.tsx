@@ -21,7 +21,7 @@ export function DeploymentsListPage({ path, platformName, username }: AdminPageP
   const { deployments, search, page, totalPages, tz } = pageData;
   const [filter, setFilter] = useState(search ?? '');
   useEffect(() => setFilter(search ?? ''), [search]);
-  const selectedDeployment = deployments.find((deployment) => deployment.id === search);
+  const selectedDeployment = pageData.suggestions.find((item) => item.id === search);
   return (
     <Layout platformName={platformName} title="Deployments" username={username}>
       <SectionStack>
@@ -33,17 +33,7 @@ export function DeploymentsListPage({ path, platformName, username }: AdminPageP
           value={filter}
           onChange={setFilter}
           initialValue={search}
-          initialSelection={
-            selectedDeployment
-              ? {
-                  id: selectedDeployment.id,
-                  label: selectedDeployment.id,
-                  description: [selectedDeployment.project_slug, selectedDeployment.status]
-                    .filter(Boolean)
-                    .join(' · '),
-                }
-              : undefined
-          }
+          initialSelection={selectedDeployment}
         />
         <DeploymentTable deployments={deployments} showProject tz={tz} />
         {page != null && totalPages != null && (

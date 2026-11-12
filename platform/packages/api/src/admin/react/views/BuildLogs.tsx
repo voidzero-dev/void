@@ -33,14 +33,7 @@ export function BuildLogs({ build }: { build: Build }) {
         if (!ref) {
           return;
         }
-        const { data } = (await fate.readView(BuildLogsView, ref)) as unknown as {
-          data: {
-            lines: Array<LogLine>;
-            lastSeq: number;
-            terminal: boolean;
-            logsComplete: boolean | null;
-          };
-        };
+        const { data } = await fate.readView(BuildLogsView, ref);
         if (!active) {
           return;
         }

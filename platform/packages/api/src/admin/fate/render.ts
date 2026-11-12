@@ -4,7 +4,7 @@ import type { ApiEnv } from '../../env.ts';
 import { systemHealthCheckNames } from '../../operator/system-operations.ts';
 import { getPlatformDisplayName } from '../../platform-identity.ts';
 import { renderAdminPage } from '../react/server.ts';
-import { createFateClient } from './client.generated.ts';
+import { createAdminFateClient } from './client.ts';
 import { fateServer } from './server.ts';
 import {
   plansRequest,
@@ -33,7 +33,7 @@ import {
 } from './views.ts';
 
 function createServerClient(context: Context<ApiEnv>) {
-  return createFateClient({
+  return createAdminFateClient({
     url: new URL('/admin/fate', context.req.url),
     fetch: (input, init) => fateServer.handleRequest(new Request(input, init), context),
   });
@@ -183,35 +183,35 @@ export async function renderFateDetailPage(
         throw new FateRequestError('NOT_FOUND', 'User not found');
       }
       const { data } = await client.readView(UserDetailView, userDetail);
-      detailTitle = (data as unknown as { user: { login: string } }).user.login;
+      detailTitle = data.user.login;
     } else if (page === 'projectDetail') {
       const { projectDetail } = await client.request(projectDetailRequest(path));
       if (!projectDetail) {
         throw new FateRequestError('NOT_FOUND', 'Project not found');
       }
       const { data } = await client.readView(ProjectDetailView, projectDetail);
-      detailTitle = (data as unknown as { project: { slug: string } }).project.slug;
+      detailTitle = data.project.slug;
     } else if (page === 'deploymentDetail') {
       const { deploymentDetail } = await client.request(deploymentDetailRequest(path));
       if (!deploymentDetail) {
         throw new FateRequestError('NOT_FOUND', 'Deployment not found');
       }
       const { data } = await client.readView(DeploymentDetailView, deploymentDetail);
-      detailTitle = `Deployment ${(data as unknown as { deployment: { id: string } }).deployment.id}`;
+      detailTitle = `Deployment ${data.deployment.id}`;
     } else if (page === 'buildDetail') {
       const { buildDetail } = await client.request(buildDetailRequest(path));
       if (!buildDetail) {
         throw new FateRequestError('NOT_FOUND', 'Build not found');
       }
       const { data } = await client.readView(BuildDetailView, buildDetail);
-      detailTitle = `Build ${(data as unknown as { build: { id: string } }).build.id}`;
+      detailTitle = `Build ${data.build.id}`;
     } else {
       const { emailProject } = await client.request(emailProjectRequest(path));
       if (!emailProject) {
         throw new FateRequestError('NOT_FOUND', 'Project not found');
       }
       const { data } = await client.readView(EmailProjectView, emailProject);
-      detailTitle = `Email - ${(data as unknown as { project: { slug: string } }).project.slug}`;
+      detailTitle = `Email - ${data.project.slug}`;
     }
     return renderAdminPage(context, page, detailTitle, props, { fateSnapshot: client.dehydrate() });
   } catch (error) {

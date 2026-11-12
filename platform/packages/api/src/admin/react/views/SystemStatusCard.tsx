@@ -1,8 +1,8 @@
 /** @jsxImportSource react */
 import { Tooltip } from '@astryxdesign/core/Tooltip';
 import { Check, Minus, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
-import { useFateClient, useView, type ViewRef } from 'react-fate';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { useFateClient, useView } from 'react-fate';
 import { HealthView, healthRequest } from '../../fate/views.ts';
 import { LastCheckedTime, StatusCard } from './StatusCard.tsx';
 
@@ -16,36 +16,28 @@ const serviceLabels: Record<string, string> = {
 
 export function SystemStatusCard({ checkNames }: { checkNames: ReadonlyArray<string> }) {
   const client = useFateClient();
-  const [healthRef, setHealthRef] = useState<ViewRef<'AdminHealth'> | null>(null);
-  const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading');
-  const health = useView(HealthView, healthRef);
+  const observer = useMemo(
+    () => client.observeRequest(healthRequest, { mode: 'stale-while-revalidate' }),
+    [client],
+  );
+  const snapshot = useSyncExternalStore(
+    observer.subscribe,
+    observer.getSnapshot,
+    observer.getSnapshot,
+  );
+  const health = useView(HealthView, snapshot.data?.health);
+  const status =
+    snapshot.error || snapshot.status === 'missing' ? 'unavailable' : health ? 'ready' : 'loading';
   useEffect(() => {
-    let active = true;
-    const retained = client.retain(healthRequest);
-    const poll = async (mode: 'stale-while-revalidate' | 'network-only') => {
-      try {
-        const { health: ref } = await client.request(healthRequest, { mode });
-        if (!ref) {
-          throw new Error('Health data is unavailable.');
-        }
-        if (active) {
-          setHealthRef(ref);
-          setStatus('ready');
-        }
-      } catch {
-        if (active) {
-          setStatus('unavailable');
-        }
-      }
-    };
-    void poll('stale-while-revalidate');
-    const interval = setInterval(() => void poll('network-only'), 30_000);
-    return () => {
-      active = false;
-      clearInterval(interval);
-      retained.dispose();
-    };
-  }, [client]);
+    const interval = setInterval(() => {
+      // The observer retains cached data and exposes a failed refresh in its snapshot.
+      void observer
+        .getSnapshot()
+        .refetch()
+        .catch(() => {});
+    }, 30_000);
+    return () => clearInterval(interval);
+  }, [observer]);
   const checksByName = new Map(health?.checks.map((check) => [check.name, check]));
   const overallState =
     status !== 'ready'
