@@ -1,5 +1,5 @@
 import { defineHandler } from 'void';
-import { ImageResponse } from 'void/og';
+import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler(
   (c) =>
@@ -18,6 +18,6 @@ export const GET = defineHandler(
           <div tw="rounded-xl bg-blue-200 p-6 text-4xl font-bold text-indigo-950">Void</div>
         </div>
       </div>,
-      { debug: c.req.query('debug') === 'on' },
+      { width: 1200, height: 630, debug: c.req.query('debug') === 'on' },
     ),
 );
