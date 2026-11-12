@@ -14,7 +14,7 @@ import {
 } from '@void/platform';
 import { confirm, isCancel, log, outro, select } from '@voidzero-dev/vite-plus-prompts';
 import { ensurePlatformAccessToken } from './cf-access.ts';
-import { printSuccess, createSpinner, formatUrl, note, pc } from './output.ts';
+import { printSuccess, formatUrl, note, pc } from './output.ts';
 import { activatePlatformAccessCredentials } from './platform-access-setup.ts';
 import { turnOffInstalledProjectZeroTrust } from './platform-app-access.ts';
 import type { PlatformArgs } from './platform-args.ts';
@@ -72,6 +72,7 @@ import {
   resourceMarkerProblem,
   revalidatePlatformInstallAction,
 } from './platform-plan.ts';
+import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
   acquirePlatformLifecycleLock,
   listInstallationManifests,
@@ -280,6 +281,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     throw new Error(`platform: Unsupported lifecycle command ${args.subcommand}.`);
   }
   assertNoninteractivePlatformMutationAcknowledged(args, process.stdin.isTTY === true);
+  log.step(`Preparing platform ${args.subcommand}`);
   const timingStart = performance.now();
   let timingPrevious = timingStart;
   const markPhase = (phase: string) => {
@@ -297,17 +299,19 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
     savedManagementToken: readInstallationRecoverySecrets(manifest)?.managementApiToken,
   });
   const operatorClient = new PlatformCloudflareClient(operatorCredential.token);
-  await verifyPlatformCloudflareCredential(operatorClient, {
-    account: manifest.account,
-    source: operatorCredential.source,
-    r2Buckets:
-      args.subcommand === 'disable' || args.subcommand === 'uninstall'
-        ? []
-        : manifest.resources
-            .filter((resource) => resource.kind === 'r2-bucket')
-            .map((resource) => resource.name),
-    allowMissingR2Buckets: args.subcommand === 'repair',
-  });
+  await withPlatformProgress('Checking Cloudflare access', () =>
+    verifyPlatformCloudflareCredential(operatorClient, {
+      account: manifest.account,
+      source: operatorCredential.source,
+      r2Buckets:
+        args.subcommand === 'disable' || args.subcommand === 'uninstall'
+          ? []
+          : manifest.resources
+              .filter((resource) => resource.kind === 'r2-bucket')
+              .map((resource) => resource.name),
+      allowMissingR2Buckets: args.subcommand === 'repair',
+    }),
+  );
   markPhase('operator credential');
   const runtime =
     args.subcommand === 'uninstall' || args.subcommand === 'disable'
@@ -315,7 +319,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       : loadPlatformRuntime(args.runtime);
   const rollbackSourceRuntime =
     args.subcommand === 'rollback' ? loadPlatformRuntime(args.fromRuntime) : null;
-  let progress: ReturnType<typeof createSpinner> | undefined;
+  let progress: ReturnType<typeof createPlatformProgress> | undefined;
   let reportResult: (() => void) | undefined;
 
   const execute = async (
@@ -447,15 +451,17 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       installationSlug: deployment.installationSlug,
       zoneName: deployment.application.zoneName,
     };
-    const plan = await createPlatformInstallPlan(client, planInput, manifest, {
-      authoritativeProvisionIntents: databaseCheckpointExists,
-      repairMissing: args.subcommand === 'repair',
-      allowUnverifiedAiGateway: args.plan,
-      includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
-      enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
-      deploymentExecution: runtime!.manifest.deploymentExecution === 1,
-      allowRuntimeLogsChange: args.subcommand === 'upgrade',
-    });
+    const plan = await withPlatformProgress(`Preparing ${args.subcommand} plan`, () =>
+      createPlatformInstallPlan(client, planInput, manifest, {
+        authoritativeProvisionIntents: databaseCheckpointExists,
+        repairMissing: args.subcommand === 'repair',
+        allowUnverifiedAiGateway: args.plan,
+        includeEmailGateway: runtime!.manifest.artifacts.emailGateway !== undefined,
+        enableSandbox: runtime!.manifest.safetyProtocols.sandboxDrain >= 3,
+        deploymentExecution: runtime!.manifest.deploymentExecution === 1,
+        allowRuntimeLogsChange: args.subcommand === 'upgrade',
+      }),
+    );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime!.manifest);
     markPhase('plan');
     note(
@@ -669,14 +675,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
       command: platformLifecycleResumeCommand({ ...args, yes: false }, manifest.id),
     });
     markPhase('outside changes');
-    progress = createSpinner({
-      // Preserve the subprocess signal coordinator used by platform installs.
-      onCancel: () => {
-        if (!process.emit('SIGINT')) {
-          process.exit(130);
-        }
-      },
-    });
+    progress = createPlatformProgress();
     progress.start(
       args.subcommand === 'upgrade'
         ? 'Upgrading the platform'
@@ -863,10 +862,8 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
         'platform: DATABASE_URL is required to safely serialize lifecycle changes across hosts.',
       );
     }
-    const releaseDatabase = await acquirePlatformDatabaseLifecycleLock(
-      databaseUrl,
-      current.id,
-      current.ownershipNonce,
+    const releaseDatabase = await withPlatformProgress('Reading platform state', () =>
+      acquirePlatformDatabaseLifecycleLock(databaseUrl, current.id, current.ownershipNonce),
     );
     markPhase('database lock');
     try {
@@ -1077,7 +1074,9 @@ export async function disablePlatform(
   planOnly: boolean,
   dependencies: PlatformManagementDependencies = {},
 ): Promise<void> {
-  const manifest = await recoverDurablyMarkedProvisionIntents(client, initialManifest);
+  const manifest = await withPlatformProgress('Reading platform resources', () =>
+    recoverDurablyMarkedProvisionIntents(client, initialManifest),
+  );
   const saveCheckpoint = (state: PlatformInstallationManifest) =>
     writeLifecycleCheckpoint(client, state, dependencies.checkpoint);
   const saveRemoteManifest = (state: PlatformInstallationManifest) =>
@@ -1144,7 +1143,9 @@ export async function uninstallPlatform(
   args: Extract<PlatformArgs, { subcommand: 'uninstall' }>,
   dependencies: PlatformManagementDependencies = {},
 ): Promise<void> {
-  const manifest = await recoverDurablyMarkedProvisionIntents(client, initialManifest);
+  const manifest = await withPlatformProgress('Reading platform resources', () =>
+    recoverDurablyMarkedProvisionIntents(client, initialManifest),
+  );
   const saveCheckpoint = (state: PlatformInstallationManifest) =>
     writeLifecycleCheckpoint(client, state, dependencies.checkpoint);
   const saveRemoteManifest = (state: PlatformInstallationManifest) =>
@@ -1161,11 +1162,15 @@ export async function uninstallPlatform(
   const hasRoutingCheckpoint = routingKv?.state === 'ready' || reopenedRouting;
   const interactive = dependencies.interactive ?? process.stdin.isTTY;
   const confirmAction = dependencies.confirm ?? promptForConfirmation;
-  const zeroTrust = await assertProjectZeroTrustAllowsUninstall(dependencies.readProjectZeroTrust, {
-    canTurnOff: !!dependencies.turnOffProjectZeroTrust,
-  });
+  const zeroTrust = await withPlatformProgress('Checking project access', () =>
+    assertProjectZeroTrustAllowsUninstall(dependencies.readProjectZeroTrust, {
+      canTurnOff: !!dependencies.turnOffProjectZeroTrust,
+    }),
+  );
   if (purgeResources) {
-    await assertNoPlatformProjects(dependencies.readProjects);
+    await withPlatformProgress('Checking platform projects', () =>
+      assertNoPlatformProjects(dependencies.readProjects),
+    );
   }
   if (args.plan || (interactive && !args.yes)) {
     note(

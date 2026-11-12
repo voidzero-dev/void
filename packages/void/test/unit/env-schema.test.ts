@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach } from 'vite-plus/test';
+import { afterEach, describe, it, expect, beforeEach } from 'vite-plus/test';
 import { boolean, email, json, number, oneOf, string, url } from '../../src/runtime/env-helpers.ts';
 import {
   defineEnv,
@@ -373,7 +373,214 @@ describe('_validateEnvOnce (boot-time worker check)', () => {
       EnvValidationError,
     );
   });
+
+  describe('serving async values to reads', () => {
+    const upper = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate: async (v: unknown) => {
+          await Promise.resolve();
+          return { value: String(v).toUpperCase() };
+        },
+      },
+    };
+
+    // Void's Worker entry validates before it opens the request scope that reads run in.
+    it('serves them in a request scope opened after validation', async () => {
+      defineEnv({ TOKEN: upper });
+      const rawEnv = { TOKEN: 'sk_test' };
+      await _validateEnvOnce(rawEnv);
+      withRuntimeEnv(rawEnv, () => {
+        expect(env.TOKEN).toBe('SK_TEST');
+      });
+    });
+
+    // Reads can use an object that validation never received, such as the remote dev copy.
+    it('serves them to another env object that holds the same values', async () => {
+      defineEnv({ TOKEN: upper });
+      await _validateEnvOnce({ TOKEN: 'sk_test' });
+      withRuntimeEnv({ TOKEN: 'sk_test' }, () => {
+        expect(env.TOKEN).toBe('SK_TEST');
+      });
+    });
+
+    it('serves each key by its own raw value', async () => {
+      defineEnv({ PLAIN: string(), TOKEN: upper });
+      await _validateEnvOnce({ PLAIN: 'a', TOKEN: 'a' });
+      // TOKEN holds another value: the validated one is not served, and it has no async value.
+      withRuntimeEnv({ PLAIN: 'a', TOKEN: 'b' }, () => {
+        expect(env.PLAIN).toBe('a');
+        expect(() => env.TOKEN).toThrow(/Async validator for 'TOKEN'/);
+      });
+      // Only PLAIN holds another value: TOKEN's raw value is the validated one.
+      withRuntimeEnv({ PLAIN: 'b', TOKEN: 'a' }, () => {
+        expect([env.PLAIN, env.TOKEN]).toEqual(['b', 'A']);
+      });
+    });
+
+    // A validation is reused only for an env with the same values.
+    it('validates an env with other values again', async () => {
+      defineEnv({ PLAIN: string(), TOKEN: upper });
+      for (const value of ['a', 'b']) {
+        const rawEnv = { PLAIN: value, TOKEN: value };
+        await _validateEnvOnce(rawEnv);
+        withRuntimeEnv(rawEnv, () => {
+          expect([env.PLAIN, env.TOKEN]).toEqual([value, value.toUpperCase()]);
+        });
+      }
+    });
+
+    // Cloudflare can keep an isolate running when only its bindings change, so a request that
+    // holds the old values can still run when one with the new values validates.
+    it('keeps serving an env after an env with other values validates', async () => {
+      defineEnv({ TOKEN: upper });
+      const before = { TOKEN: 'a' };
+      // Another object with the same values reuses the validation of the first.
+      const reused = { TOKEN: 'a' };
+      const after = { TOKEN: 'b' };
+      await _validateEnvOnce(before);
+      await _validateEnvOnce(reused);
+      await _validateEnvOnce(after);
+      for (const rawEnv of [before, reused]) {
+        withRuntimeEnv(rawEnv, () => {
+          expect(env.TOKEN).toBe('A');
+        });
+      }
+      withRuntimeEnv(after, () => {
+        expect(env.TOKEN).toBe('B');
+      });
+    });
+
+    it('validates again once a failing value changes', async () => {
+      defineEnv({ TOKEN: string() });
+      await expect(_validateEnvOnce({})).rejects.toBeInstanceOf(EnvValidationError);
+      const fixed = { TOKEN: 'sk_test' };
+      await expect(_validateEnvOnce(fixed)).resolves.toBeUndefined();
+      withRuntimeEnv(fixed, () => {
+        expect(env.TOKEN).toBe('sk_test');
+      });
+    });
+
+    // Reads outside a request scope use an env of their own: in workerd, the
+    // `cloudflare:workers` env, which is not the object that handlers receive.
+    describe('outside a request scope', () => {
+      const globalScope = globalThis as { __env__?: unknown };
+
+      afterEach(() => {
+        delete globalScope.__env__;
+      });
+
+      it('serves them when that env holds the same values', async () => {
+        defineEnv({ TOKEN: upper });
+        globalScope.__env__ = { TOKEN: 'sk_test' };
+        await _validateEnvOnce({ TOKEN: 'sk_test' });
+        expect(env.TOKEN).toBe('SK_TEST');
+      });
+
+      it('does not serve them when that env holds other values', async () => {
+        defineEnv({ PLAIN: string(), TOKEN: upper });
+        globalScope.__env__ = { PLAIN: 'other', TOKEN: 'other' };
+        await _validateEnvOnce({ PLAIN: 'sk_test', TOKEN: 'sk_test' });
+        expect(env.PLAIN).toBe('other');
+        expect(() => env.TOKEN).toThrow(/Async validator for 'TOKEN'/);
+      });
+
+      it('stops serving them once that env holds another value', async () => {
+        defineEnv({ TOKEN: upper });
+        const outside = { TOKEN: 'sk_test' };
+        globalScope.__env__ = outside;
+        await _validateEnvOnce({ TOKEN: 'sk_test' });
+        expect(env.TOKEN).toBe('SK_TEST');
+        outside.TOKEN = 'other';
+        expect(() => env.TOKEN).toThrow(/Async validator for 'TOKEN'/);
+      });
+    });
+  });
+
+  it('runs a validator that throws again on the next call', async () => {
+    let calls = 0;
+    const flaky = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate: async (v: unknown) => {
+          calls++;
+          if (calls === 1) {
+            throw new Error('lookup failed');
+          }
+          return { value: v };
+        },
+      },
+    };
+    defineEnv({ TOKEN: flaky });
+    await expect(_validateEnvOnce({ TOKEN: 'sk_test' })).rejects.toThrow('lookup failed');
+    await expect(_validateEnvOnce({ TOKEN: 'sk_test' })).resolves.toBeUndefined();
+    expect(calls).toBe(2);
+  });
+
+  // In workerd, a validation that waits on the I/O of a canceled request never settles.
+  it('does not wait on a validation that another call left unfinished', async () => {
+    let calls = 0;
+    const stalls = {
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate: (value: unknown) => {
+          calls++;
+          return calls === 1 ? new Promise<never>(() => {}) : Promise.resolve({ value });
+        },
+      },
+    };
+    defineEnv({ TOKEN: stalls });
+    void _validateEnvOnce({ TOKEN: 'sk_test' });
+    await expect(settlesWithin(_validateEnvOnce({ TOKEN: 'sk_test' }), 1000)).resolves.toBe(
+      undefined,
+    );
+  });
+
+  // HMR can register a new schema while a validation awaits.
+  it('validates with a schema registered while it waited', async () => {
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const tagged = (tag: string, wait?: Promise<void>) => ({
+      '~standard': {
+        version: 1 as const,
+        vendor: 'test',
+        validate: async (value: unknown) => {
+          await wait;
+          return { value: `${tag}:${String(value)}` };
+        },
+      },
+    });
+    defineEnv({ TOKEN: tagged('old', gate) });
+    const rawEnv = { TOKEN: 'sk_test' };
+    const validating = _validateEnvOnce(rawEnv);
+    defineEnv({ TOKEN: tagged('new') });
+    release();
+    await validating;
+    withRuntimeEnv(rawEnv, () => {
+      expect(env.TOKEN).toBe('new:sk_test');
+    });
+  });
 });
+
+/** Rejects when `promise` is still pending after `ms`, rather than at the test timeout. */
+async function settlesWithin<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`still pending after ${ms}ms`)), ms);
+      }),
+    ]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 
 describe('_validateEnvOnce — internal bindings stay hidden from void/env', () => {
   beforeEach(() => {

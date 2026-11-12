@@ -123,13 +123,27 @@ function createMockApi(
       });
     }
 
+    if (url.includes('/internal/ai-logging/')) {
+      return Response.json({ mode: 'inherit' });
+    }
+
     // Default: generic success response
     return new Response(JSON.stringify({ purged: 1 }), {
       headers: { 'content-type': 'application/json' },
     });
   };
 
-  return { fetch: handler ?? defaultHandler };
+  return {
+    fetch: handler
+      ? async (input: string | Request, init?: RequestInit) => {
+          const url = typeof input === 'string' ? input : input.url;
+          if (url.includes('/internal/ai-logging/')) {
+            return Response.json({ mode: 'inherit' });
+          }
+          return handler(input, init);
+        }
+      : defaultHandler,
+  };
 }
 
 function createEnv(
@@ -738,7 +752,7 @@ describe('proxy worker', () => {
         env,
       );
       expect(allowed.status).toBe(200);
-      expect(apiFetch).toHaveBeenCalledTimes(1);
+      expect(apiFetch).toHaveBeenCalledTimes(2);
       expect(String(apiFetch.mock.calls[0]?.[0])).toContain(
         '/internal/verify-prerender-build/proj_000000000001',
       );
@@ -756,7 +770,7 @@ describe('proxy worker', () => {
         error: 'forbidden',
         message: expect.stringMatching(/does not match.*Restart the build/),
       });
-      expect(apiFetch).toHaveBeenCalledTimes(1);
+      expect(apiFetch).toHaveBeenCalledTimes(2);
       expect(env.AI.run).toHaveBeenCalledTimes(1);
     });
 
@@ -1483,6 +1497,134 @@ describe('proxy worker', () => {
 
         expect(res.status).toBe(200);
         expect(env.AI.run).toHaveBeenCalledOnce();
+      },
+    );
+  });
+
+  describe('operator-controlled AI logging', () => {
+    it('strips logging controls from binding session headers as well as request headers', async () => {
+      const env = createEnv(undefined, undefined, {
+        fetch: vi.fn(async () => Response.json({ mode: 'metadata' })),
+      });
+      await worker.fetch(
+        post('/ai/run', {
+          projectId: 'proj_000000000042',
+          aiToken: aiTokens['proj_000000000042'],
+          model: 'm',
+          inputs: {},
+          options: {
+            sessionOptions: {
+              extraHeaders: {
+                'CF-AIG-Collect-Log': 'false',
+                'cf-aig-collect-log-payload': 'true',
+                'cf-aig-metadata': '{"projectId":"forged"}',
+                'x-keep': 'session-header',
+              },
+            },
+          },
+        }),
+        env,
+      );
+      expect(env.AI.run).toHaveBeenCalledWith(
+        'm',
+        {},
+        expect.objectContaining({
+          sessionOptions: { extraHeaders: { 'x-keep': 'session-header' } },
+          extraHeaders: { 'cf-aig-collect-log-payload': 'false' },
+        }),
+      );
+    });
+    it.each(['off', 'metadata', 'full'])(
+      'enforces %s logging for inference and Markdown conversion',
+      async (mode) => {
+        const api = { fetch: vi.fn(async () => Response.json({ mode })) };
+        const env = createEnv(undefined, undefined, api);
+        for (const path of ['/ai/run', '/ai/toMarkdown']) {
+          const response = await worker.fetch(
+            post(path, {
+              projectId: 'proj_000000000042',
+              aiToken: aiTokens['proj_000000000042'],
+              model: 'm',
+              inputs: {},
+              options: {
+                gateway: { collectLog: mode === 'off', metadata: { projectId: 'forged' } },
+                extraHeaders: {
+                  'CF-AIG-Collect-Log-Payload': 'true',
+                  'cf-aig-collect-log': 'true',
+                  'x-keep': 'yes',
+                },
+              },
+            }),
+            env,
+          );
+          expect(response.status).toBe(200);
+        }
+        for (const method of [env.AI.run, env.AI.toMarkdown]) {
+          const options = method.mock.calls[0]!.at(-1);
+          expect(options).toMatchObject({
+            gateway: {
+              collectLog: mode !== 'off',
+              metadata: { projectId: usageTags['proj_000000000042'] },
+            },
+            extraHeaders: {
+              'cf-aig-collect-log-payload': String(mode === 'full'),
+              'x-keep': 'yes',
+            },
+          });
+        }
+        expect(api.fetch).toHaveBeenCalledTimes(2);
+      },
+    );
+
+    it.each(['off', 'metadata', 'full'])('enforces %s logging for provider calls', async (mode) => {
+      const env = createEnv(
+        {
+          gateway: vi.fn(() => ({
+            getUrl: async () => 'https://gateway.test/v1/account/void/openai',
+            run: vi.fn(),
+          })),
+        },
+        undefined,
+        { fetch: vi.fn(async () => Response.json({ mode })) },
+      );
+      const request = vi.spyOn(globalThis, 'fetch').mockResolvedValue(Response.json({ ok: true }));
+      const response = await worker.fetch(
+        post('/ai/provider', {
+          projectId: 'proj_000000000042',
+          aiToken: aiTokens['proj_000000000042'],
+          provider: 'openai',
+          providerKey: 'test-key',
+          path: 'chat/completions',
+          body: {},
+          headers: { 'CF-AIG-Collect-Log': 'true', 'cf-aig-collect-log-payload': 'true' },
+        }),
+        env,
+      );
+      expect(response.status).toBe(200);
+      const headers = new Headers(request.mock.calls[0]![1]!.headers);
+      expect(headers.get('cf-aig-collect-log')).toBe(String(mode !== 'off'));
+      expect(headers.get('cf-aig-collect-log-payload')).toBe(String(mode === 'full'));
+    });
+
+    it.each([null, { mode: 'invalid' }, { mode: false }])(
+      'refuses inference if the saved policy cannot be verified: %j',
+      async (policy) => {
+        const env = createEnv(undefined, undefined, {
+          fetch: vi.fn(async () =>
+            policy === null ? new Response(null, { status: 503 }) : Response.json(policy),
+          ),
+        });
+        const response = await worker.fetch(
+          post('/ai/run', {
+            projectId: 'proj_000000000042',
+            aiToken: aiTokens['proj_000000000042'],
+            model: 'm',
+            inputs: {},
+          }),
+          env,
+        );
+        expect(response.status).toBe(503);
+        expect(env.AI.run).not.toHaveBeenCalled();
       },
     );
   });

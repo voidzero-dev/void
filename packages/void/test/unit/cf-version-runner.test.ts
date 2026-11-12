@@ -1795,8 +1795,8 @@ it.each([
       expectSameJson(post.body.exports, {
         OldRoom: { type: 'durable-object', state: 'renamed', renamed_to: 'Room' },
         Removed: { type: 'durable-object', state: 'deleted' },
-        Sandbox: { type: 'durable-object', storage: 'sqlite', container: 'sandbox' },
         Room: { type: 'durable-object', storage: 'sqlite' },
+        Sandbox: { type: 'durable-object', storage: 'sqlite', container: 'sandbox' },
       });
       expect(requests.findIndex((row) => row.url.endsWith('/image-preparations'))).toBeLessThan(
         requests.indexOf(post),

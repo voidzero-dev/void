@@ -19,6 +19,56 @@ afterEach(async () => {
 });
 
 describe('platform database migrations', () => {
+  it.each(['1.6.0', '1.7.0'])(
+    'upgrades a released %s database before applying project AI logging policies',
+    async (version) => {
+      database = new PGlite();
+      await database.waitReady;
+      const runtime = readPlatformRuntimeManifest();
+      const connection = database as unknown as Parameters<
+        typeof preparePlatformDatabaseConnection
+      >[0];
+      const migrations = runtime.database.migrations.filter((migration) => migration.index < 64);
+      const previous = {
+        ...runtime.database,
+        migrations,
+        schemaDigest: platformDatabaseSchemaDigest(runtime.database.lineage, migrations),
+      };
+      expect(previous.schemaDigest).toBe(
+        '41c9f2abec1a793d64d2acd71aa2fd737c3b3a594bc3d1c3c19b9546da05263c',
+      );
+      await preparePlatformDatabaseConnection(
+        connection,
+        getPlatformRuntimeDirectory(),
+        previous,
+        null,
+        false,
+      );
+      await database.exec(
+        "INSERT INTO users (id, login) VALUES ('ai-owner', 'ai-owner'); INSERT INTO projects (id, user_id, slug) VALUES ('private-ai', 'ai-owner', 'private-ai')",
+      );
+      const upgraded = await preparePlatformDatabaseConnection(
+        connection,
+        getPlatformRuntimeDirectory(),
+        runtime.database,
+        version,
+        true,
+      );
+      expect(upgraded.appliedMigrations).toBe(
+        runtime.database.migrations.length - migrations.length,
+      );
+      expect((await database.query('SELECT * FROM project_ai_logging')).rows).toEqual([]);
+      await database.exec(
+        "INSERT INTO project_ai_logging (project_id, mode) VALUES ('private-ai', 'off')",
+      );
+      await expect(
+        database.exec("UPDATE project_ai_logging SET mode='invalid'"),
+      ).rejects.toMatchObject({ code: '23514' });
+      await database.exec("DELETE FROM projects WHERE id='private-ai'");
+      expect((await database.query('SELECT * FROM project_ai_logging')).rows).toEqual([]);
+    },
+  );
+
   it('applies and recognizes the complete packaged PostgreSQL schema', async () => {
     database = new PGlite();
     await database.waitReady;

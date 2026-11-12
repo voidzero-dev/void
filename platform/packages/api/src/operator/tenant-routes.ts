@@ -1,5 +1,10 @@
+import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
+import { isAiLoggingMode } from '../ai-logging-policy.ts';
+import { readProjectAiLogging, writeProjectAiLogging } from '../ai-logging.ts';
+import { requireUncachedAuthenticationDatabase } from '../auth/bootstrap.ts';
 import type { ApiEnv } from '../env.ts';
+import { projects } from '../schema.ts';
 import {
   allowOperatorSignup,
   getOperatorSignup,
@@ -94,6 +99,45 @@ tenantRoutes.get('/projects', async (context) =>
 tenantRoutes.get('/projects/:id', async (context) =>
   context.json(await getOperatorProject(context.get('db'), context.req.param('id'))),
 );
+tenantRoutes.get('/projects/:id/ai-logging', async (context) => {
+  const policy = await readProjectAiLogging(context.get('db'), context.req.param('id'));
+  if (!policy) {
+    throw new OperatorError(404, 'Project not found.');
+  }
+  return context.json(policy);
+});
+tenantRoutes.post('/projects/:id/ai-logging', async (context) => {
+  const body = await readBody(context);
+  const mode = body.mode;
+  if (!isAiLoggingMode(mode)) {
+    throw new OperatorError(
+      400,
+      'mode must be inherit, off, metadata, or full.',
+      'invalid_argument',
+    );
+  }
+  requireUncachedAuthenticationDatabase(context.env);
+  const projectId = context.req.param('id');
+  const result = await context.get('db').transaction(async (tx) => {
+    const [project] = await tx
+      .select()
+      .from(projects)
+      .where(eq(projects.id, projectId))
+      .for('update');
+    if (!project) {
+      throw new OperatorError(404, 'Project not found.');
+    }
+    if (project.status !== 'active') {
+      throw new OperatorError(409, 'Project is being deleted.');
+    }
+    if (dryRun(body)) {
+      return { dryRun: true, action: 'project.ai-logging', target: projectId, mode };
+    }
+    await writeProjectAiLogging(tx, projectId, mode);
+    return { mode };
+  });
+  return context.json(result);
+});
 tenantRoutes.post('/projects/:id/normalize', async (context) => {
   const body = await readBody(context);
   return context.json(

@@ -126,6 +126,14 @@ export const operatorCommands: Array<OperatorCommand> = [
   },
   {
     group: 'project',
+    action: 'ai-logging',
+    description: 'Set AI Gateway logging: inherit, off, metadata, or full',
+    path: '/projects/:id/ai-logging',
+    positional: ['id', 'mode'],
+    method: 'POST',
+  },
+  {
+    group: 'project',
     action: 'owner',
     description: 'Transfer project ownership to another registered user',
     path: '/projects/:id/owner',

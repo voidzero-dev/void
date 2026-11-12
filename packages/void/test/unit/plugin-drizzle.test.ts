@@ -443,6 +443,20 @@ describe('drizzlePlugin db typing generation', () => {
     );
   });
 
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'exports Drizzle query types from the %s database types',
+    (dialect) => {
+      const root = createProjectRoot();
+
+      drizzlePlugin(root, false, dialect);
+
+      const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
+      expect(dts).toContain(
+        'export type { AnyColumn, SQL, SQLWrapper, BatchItem } from "void/_db";',
+      );
+    },
+  );
+
   it('generates MySQL database types from the dedicated runtime entry', () => {
     const root = createProjectRoot();
 

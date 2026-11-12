@@ -36,11 +36,27 @@ import { getRuntimeEnv, isInternalBinding } from './env.ts';
 type AnyValidator = StandardSchemaV1<unknown, unknown>;
 type AnySchema = Record<string, AnyValidator>;
 
-type BootValidationState = { ok: true } | { ok: false; error: EnvValidationError };
+type BootValidationState =
+  | { ok: true; values: Map<string, unknown> }
+  | { ok: false; error: EnvValidationError };
+
+/** A completed whole-schema validation, with the raw value of each key that it checked. */
+type EnvValidation = {
+  inputs: Map<string, unknown>;
+  state: BootValidationState;
+};
+
 type EnvRegistryState = {
   schema: AnySchema | null;
   hasDefineEnvBeenCalled: boolean;
-  bootValidation: BootValidationState | null;
+  /**
+   * The latest completed whole-schema validation. An env with the same raw values reuses it,
+   * also when each request brings a new env object. An env with other values is validated
+   * again rather than given values validated for another. `readKey` serves a key's value from
+   * here to an env that was not validated itself, while it holds the raw value that the value
+   * came from.
+   */
+  validation?: EnvValidation | null;
 };
 
 // Tooling can load `void/env` through a different module instance than the Vite
@@ -53,18 +69,16 @@ const registryGlobal = globalThis as typeof globalThis & {
 const registry = (registryGlobal[ENV_REGISTRY_SYMBOL] ??= {
   schema: null,
   hasDefineEnvBeenCalled: false,
-  bootValidation: null,
 });
-const validatedCache = new WeakMap<object, Map<string, unknown>>();
-// WeakMap does not expose its values; keep a parallel list so defineEnv can clear them.
-const cacheList: Array<Map<string, unknown>> = [];
+// Replaced, not cleared, by defineEnv, so the cache of an env holds no reference once the env
+// is gone.
+let validatedCache = new WeakMap<object, Map<string, unknown>>();
 
 function getValidatedCache(rawEnv: object): Map<string, unknown> {
   let cache = validatedCache.get(rawEnv);
   if (!cache) {
     cache = new Map();
     validatedCache.set(rawEnv, cache);
-    cacheList.push(cache);
   }
   return cache;
 }
@@ -108,57 +122,85 @@ export function defineEnv<S extends AnySchema>(schema: S): InferEnv<S> {
   // swaps in an empty schema, we still know defineEnv was declared.
   registry.hasDefineEnvBeenCalled = true;
   // Drop any cached entries from a prior schema (HMR / re-import).
-  for (const map of cacheList) {
-    map.clear();
-  }
+  validatedCache = new WeakMap();
   // Reset boot-time validation state so a re-imported schema is re-checked.
-  registry.bootValidation = null;
+  registry.validation = null;
   return env as unknown as InferEnv<S>;
 }
 
 /**
- * Internal: validate the whole schema against the worker env once per isolate,
- * from the generated worker entry. Catches remote-secret values the deploy CLI
- * cannot see. Async validators are awaited here and their values cached, so
- * later synchronous `env.X` reads can serve them.
+ * Internal: validate the whole schema against the worker env, from the generated
+ * worker entry. Catches remote-secret values the deploy CLI cannot see. A
+ * completed validation is reused for the same raw values; an env with other
+ * values is validated again. Async validators are awaited here, and their values
+ * serve later synchronous `env.X` reads of the env this call receives, and of any
+ * other env that holds the same raw values.
  */
 export async function _validateEnvOnce(envValues: unknown): Promise<void> {
-  if (registry.bootValidation) {
-    if (!registry.bootValidation.ok) {
-      throw registry.bootValidation.error;
+  const schema = registry.schema;
+  if (!schema) {
+    return;
+  }
+  const inputs = readSchemaInputs(schema, envValues);
+  const last = registry.validation;
+  let state: BootValidationState;
+  if (last && sameInputs(last.inputs, inputs)) {
+    state = last.state;
+  } else {
+    // Each call awaits its own validation until one completes. In workerd, a promise that
+    // waits on another request's I/O never settles once that request is canceled.
+    state = await validateSchema(schema, inputs);
+    if (registry.schema !== schema) {
+      // defineEnv registered another schema while this call waited.
+      return _validateEnvOnce(envValues);
     }
-    return;
+    registry.validation = { inputs, state };
   }
-  if (!registry.schema) {
-    registry.bootValidation = { ok: true };
-    return;
+  if (!state.ok) {
+    throw state.error;
   }
+  // Keep the values with the env that passed. The registry holds the latest validation only,
+  // and an env with other values can validate while requests with this env still run:
+  // Cloudflare may keep an isolate running when only its bindings change.
+  seedValidated(envValues, state.values);
+}
+
+/** The raw value of each schema key that `readKey` would validate for this env. */
+function readSchemaInputs(schema: AnySchema, envValues: unknown): Map<string, unknown> {
+  const values = (typeof envValues === 'object' && envValues !== null ? envValues : {}) as Record<
+    string,
+    unknown
+  >;
   // Public values belong to this build, not to the remote secret store. Keep
   // server rendering and boot validation consistent with the browser bundle.
-  const values = {
-    ...((envValues ?? {}) as Record<string, unknown>),
-    ...getClientEnvValues(),
-  };
-  const report = await validateAllEnvWithValues(registry.schema, values);
-  if (report.valid) {
-    // Seed the per-key cache, keyed by the raw env as in `readKey`.
-    try {
-      const cacheKey = getRawRuntimeEnv() as object;
-      const cache = getValidatedCache(cacheKey);
-      for (const [key, value] of report.values) {
-        // Internal bindings stay hidden even when the schema declares them.
-        if (isInternalBinding(key, cacheKey as RuntimeEnv)) {
-          continue;
-        }
-        if (!cache.has(key)) {
-          cache.set(key, value);
-        }
-      }
-    } catch {
-      // No runtime env available — no proxy reads will happen, so no seeding needed.
+  const clientValues = getClientEnvValues();
+  return new Map(
+    Object.keys(schema).map((key) => [
+      key,
+      Object.hasOwn(clientValues, key) ? clientValues[key] : values[key],
+    ]),
+  );
+}
+
+function sameInputs(a: Map<string, unknown>, b: Map<string, unknown>): boolean {
+  if (a.size !== b.size) {
+    return false;
+  }
+  for (const [key, value] of a) {
+    if (!b.has(key) || !Object.is(b.get(key), value)) {
+      return false;
     }
-    registry.bootValidation = { ok: true };
-    return;
+  }
+  return true;
+}
+
+async function validateSchema(
+  schema: AnySchema,
+  inputs: Map<string, unknown>,
+): Promise<BootValidationState> {
+  const report = await validateAllEnvWithValues(schema, Object.fromEntries(inputs));
+  if (report.valid) {
+    return { ok: true, values: report.values };
   }
   const lines: Array<string> = ['Env validation failed at worker boot:'];
   for (const key of report.missing) {
@@ -168,9 +210,25 @@ export async function _validateEnvOnce(envValues: unknown): Promise<void> {
     // Messages are already redacted inside validateAllEnvWithValues.
     lines.push(`  • ${key}: ${messages.join('; ')}`);
   }
-  const error = new EnvValidationError('__init__', [{ message: lines.join('\n') }]);
-  registry.bootValidation = { ok: false, error };
-  throw error;
+  return {
+    ok: false,
+    error: new EnvValidationError('__init__', [{ message: lines.join('\n') }]),
+  };
+}
+
+/** Seed the per-key cache of `rawEnv`, where `readKey` looks first, with values validated for it. */
+function seedValidated(rawEnv: unknown, values: Map<string, unknown>): void {
+  if (typeof rawEnv !== 'object' || rawEnv === null || values.size === 0) {
+    return;
+  }
+  const cache = getValidatedCache(rawEnv);
+  for (const [key, value] of values) {
+    // Internal bindings stay hidden even when the schema declares them. A value that a read
+    // already returned stays the same object.
+    if (!isInternalBinding(key, rawEnv as RuntimeEnv) && !cache.has(key)) {
+      cache.set(key, value);
+    }
+  }
 }
 
 /** Internal: framework-only access to the registered schema (for plugin/CLI). */
@@ -263,6 +321,19 @@ function readKey(key: string): unknown {
   if (cache.has(key)) {
     return cache.get(key);
   }
+  // Validation seeds only the env object it receives. Reads also use objects it never
+  // received: the `cloudflare:workers` env outside a request scope, the remote dev copy. A
+  // validated value belongs to the raw value it came from, so the latest validation serves
+  // such an env while it holds that raw value. The value is not cached: this env can come to
+  // hold another.
+  const latest = registry.validation;
+  if (
+    latest?.state.ok &&
+    latest.state.values.has(key) &&
+    Object.is(latest.inputs.get(key), rawValue)
+  ) {
+    return latest.state.values.get(key);
+  }
   const result = validator['~standard'].validate(rawValue);
   if (result instanceof Promise) {
     throw new Error(
@@ -327,9 +398,8 @@ export type EnvValidationReport = {
   missing: Array<string>;
   invalid: Array<{ key: string; messages: Array<string> }>;
   /**
-   * Resolved values for keys that validated successfully. Used to seed the
-   * per-env cache after async pre-validation so sync `env.X` reads hit the
-   * cache.
+   * Resolved values for keys that validated successfully. After async
+   * pre-validation they serve sync `env.X` reads.
    */
   values: Map<string, unknown>;
 };
@@ -353,7 +423,7 @@ export async function validateAllEnv(
 
 /**
  * Internal: shared core that validates a schema against values and also
- * returns the resolved values (for cache seeding).
+ * returns the resolved values (for sync reads).
  */
 async function validateAllEnvWithValues(
   schema: AnySchema,

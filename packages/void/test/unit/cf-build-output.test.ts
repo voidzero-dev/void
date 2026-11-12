@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -467,7 +468,8 @@ it('rejects a mismatching explicit target account', async () => {
 it(
   'preserves additional module types from a real Cloudflare Vite build',
   async () => {
-    const root = mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-'));
+    // Vite canonicalizes root; use the same path for Cloudflare's output directory.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const assets = {

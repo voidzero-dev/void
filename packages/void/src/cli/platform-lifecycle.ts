@@ -15,7 +15,7 @@ import {
   text,
 } from '@voidzero-dev/vite-plus-prompts';
 import { resolve } from 'pathslash';
-import { printSuccess, cliCommandName, createSpinner, formatUrl, note, pc } from './output.ts';
+import { printSuccess, cliCommandName, formatUrl, note, pc } from './output.ts';
 import {
   selectInstallationAppAccess,
   prepareInstallationAppAccess,
@@ -61,6 +61,7 @@ import {
   revalidatePlatformInstallAction,
   type PlatformExternalHyperdrive,
 } from './platform-plan.ts';
+import { createPlatformProgress, withPlatformProgress } from './platform-progress.ts';
 import {
   acquirePlatformLifecycleLock,
   assertPlatformInstallationSlugAvailable,
@@ -154,16 +155,16 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     return;
   }
   if (commandArgs.subcommand === 'discover') {
+    log.step('Preparing platform discovery');
     const credential = await resolvePlatformCloudflareCredential();
     const client = new PlatformCloudflareClient(credential.token);
-    const accounts = await readAccounts(client);
+    const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
+      readAccounts(client),
+    );
     const accountId = await selectAccount(accounts, commandArgs.account);
     const { recoverPlatformInstallations } = await import('./platform-recovery.ts');
-    const recovered = await recoverPlatformInstallations(
-      client,
-      accountId,
-      undefined,
-      commandArgs.selector,
+    const recovered = await withPlatformProgress('Discovering platform installations', () =>
+      recoverPlatformInstallations(client, accountId, undefined, commandArgs.selector),
     );
     if (recovered.length === 0) {
       log.info(`No recoverable Void platform installations were found in ${accountId}.`);
@@ -191,6 +192,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   assertNoninteractivePlatformMutationAcknowledged(args, process.stdin.isTTY === true);
 
   console.log();
+  log.step('Preparing platform installation');
   let existing = args.resume ? resolveInstallationManifest(args.name) : null;
   let selectedInstall = false;
   let selectedDraft = false;
@@ -367,7 +369,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       return existing.deployment.installationSlug;
     });
   let client = new PlatformCloudflareClient(operatorCredential.token);
-  const accounts = await readAccounts(client);
+  const accounts = await withPlatformProgress('Reading Cloudflare accounts', () =>
+    readAccounts(client),
+  );
   const accountId = existing ? existing.account.id : await selectAccount(accounts, args.account);
   if (
     existing &&
@@ -463,20 +467,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     dedicatedZone = catchAll;
   }
   const release = args.plan ? null : acquirePlatformLifecycleLock(accountId, installationSlug);
-  let progress: ReturnType<typeof createSpinner> | undefined;
-  const startProgress = (message: string) => {
-    const active = createSpinner({
-      // Clack stops its animation on cancellation. Forward that cancellation
-      // to the CLI's existing signal coordinator (or normal process termination).
-      onCancel: () => {
-        if (!process.emit('SIGINT')) {
-          process.exit(130);
-        }
-      },
-    });
-    active.start(message);
-    return active;
-  };
+  let progress: ReturnType<typeof createPlatformProgress> | undefined;
   // Set while a step uses an unclaimed database URL, which a resume may still replace.
   let usingUnboundDatabase = false;
   try {
@@ -504,7 +495,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           'platform: DATABASE_URL is required to verify an interrupted installation before resuming it.',
         );
       }
-      progress = startProgress('Reading the saved installation');
+      progress = createPlatformProgress('Reading the saved installation');
       usingUnboundDatabase = !isPlatformInstallDatabaseBound(checkpoint, existing);
       const authoritative = await readPlatformDatabaseLifecycleManifest(
         databaseUrl,
@@ -760,7 +751,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       enableSandbox: runtime.manifest.safetyProtocols.sandboxDrain >= 3,
       deploymentExecution: runtime.manifest.deploymentExecution === 1,
     };
-    let plan = await createPlatformInstallPlan(client, planInput, existing, planOptions);
+    let plan = await withPlatformProgress('Preparing installation plan', () =>
+      createPlatformInstallPlan(client, planInput, existing, planOptions),
+    );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
@@ -1259,7 +1252,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       interactive: process.stdin.isTTY === true && process.stdout.isTTY === true && !args.yes,
       command: `${cliCommandName()} platform install --resume --name ${existing.id}`,
     });
-    progress = startProgress('Installing the platform');
+    progress = createPlatformProgress('Installing the platform');
     if (credentialSetup) {
       // Stop treating this as an untouched local draft before any database claim is attempted.
       saveValues({
@@ -1305,7 +1298,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
                 saveAuthenticationValues,
                 { client, ownershipNonce: manifest.ownershipNonce, yes: args.yes },
               );
-              progress = startProgress('Continuing platform installation');
+              progress = createPlatformProgress('Continuing platform installation');
               return {
                 ...result,
                 accessProvisioningJson: values.accessProvisioningJson,
@@ -1329,7 +1322,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
                 checkpoint: values,
                 save: saveAuthenticationValues,
               });
-              progress = startProgress('Continuing platform installation');
+              progress = createPlatformProgress('Continuing platform installation');
               return setupJson;
             },
           }

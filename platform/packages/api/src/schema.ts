@@ -423,6 +423,17 @@ export const projects = pgTable(
   ],
 );
 
+export const projectAiLogging = pgTable(
+  'project_ai_logging',
+  {
+    project_id: text('project_id')
+      .primaryKey()
+      .references(() => projects.id, { onDelete: 'cascade' }),
+    mode: text('mode').notNull().$type<'off' | 'metadata' | 'full'>(),
+  },
+  (table) => [check('project_ai_logging_mode', sql`${table.mode} IN ('off', 'metadata', 'full')`)],
+);
+
 export const previewTickets = pgTable('preview_tickets', {
   token_hash: text('token_hash').primaryKey(),
   project_id: text('project_id')

@@ -5,11 +5,12 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, expect, test } from 'vite-plus/test';
+import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
 import { getUser } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import { readPlanCatalog } from '../../src/plans.ts';
+import { deriveAiUsageTag, deriveProxyToken } from '../../src/proxy-token.ts';
 import {
   clearTables,
   createTestProject,
@@ -132,6 +133,79 @@ function run(args: Array<string>, input?: string) {
     child.stdin.end(input);
   });
 }
+
+test('built CLI configures the logging policy enforced by the actual AI proxy', async () => {
+  const proxyUrl = new URL('../../../proxy/src/index.ts', import.meta.url).href;
+  const { default: proxy } = (await import(/* @vite-ignore */ proxyUrl)) as {
+    default: { fetch(request: Request, env: unknown): Promise<Response> };
+  };
+  const owner = await createTestUser(env.db, 'ai-customer');
+  const project = await createTestProject(env.db, owner.id, 'private-ai');
+  const command = ['project', 'ai-logging', project.id, 'metadata'];
+  const preview = await run([...command, '--plan', '--json']);
+  expect(preview.code, preview.stderr).toBe(0);
+  expect(JSON.parse(preview.stdout)).toMatchObject({ dryRun: true, mode: 'metadata' });
+  const original = await run(['project', 'show', project.id, '--json']);
+  expect(JSON.parse(original.stdout)).toMatchObject({ aiLogging: { mode: 'inherit' } });
+  const saved = await run([...command, '--yes', '--json']);
+  expect(saved.code, saved.stderr).toBe(0);
+  expect(JSON.parse(saved.stdout)).toMatchObject({ mode: 'metadata' });
+
+  const ai = {
+    run: vi.fn(async () => ({ response: 'ok' })),
+    models: vi.fn(),
+    toMarkdown: vi.fn(),
+    gateway: vi.fn(),
+  };
+  const api = {
+    fetch: (input: string | Request, init?: RequestInit) =>
+      app.fetch(new Request(input, init), env),
+  };
+  const aiToken = await deriveProxyToken(env.JWT_SECRET, project.id, 0);
+  const request = () =>
+    new Request('https://ai-proxy/ai/run', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        projectId: project.id,
+        aiToken,
+        model: 'test-model',
+        inputs: { prompt: 'private' },
+        options: {
+          gateway: { collectLog: true },
+          extraHeaders: { 'cf-aig-collect-log-payload': 'true' },
+        },
+      }),
+    });
+  const bindings = { ...env, AI: ai, API: api as Fetcher };
+  expect((await proxy.fetch(request(), bindings)).status).toBe(200);
+  expect(ai.run).toHaveBeenLastCalledWith(
+    'test-model',
+    { prompt: 'private' },
+    expect.objectContaining({
+      gateway: {
+        id: 'void',
+        collectLog: true,
+        metadata: { projectId: await deriveAiUsageTag(env.JWT_SECRET, project.id) },
+      },
+      extraHeaders: { 'cf-aig-collect-log-payload': 'false' },
+    }),
+  );
+  // The same isolate must enforce a new policy without a deploy or stale cache.
+  const changed = await run(['project', 'ai-logging', project.id, 'off', '--yes', '--json']);
+  expect(changed.code, changed.stderr).toBe(0);
+  expect((await proxy.fetch(request(), bindings)).status).toBe(200);
+  expect(ai.run).toHaveBeenLastCalledWith(
+    'test-model',
+    { prompt: 'private' },
+    expect.objectContaining({
+      gateway: expect.objectContaining({ collectLog: false }),
+    }),
+  );
+  const audit = await run(['system', 'events', '--json']);
+  expect(audit.code, audit.stderr).toBe(0);
+  expect(JSON.stringify(JSON.parse(audit.stdout))).toContain(`projects/${project.id}/ai-logging`);
+});
 
 test('built CLI authenticates, previews, changes access, and reads the actual database audit', async () => {
   const status = await run(['auth', 'status', '--json']);

@@ -1,6 +1,6 @@
 {
   "name": "void",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Full-stack framework and deployment CLI for Cloudflare Workers, powered by Vite.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -397,7 +397,7 @@
     "@types/proper-lockfile": "^4.1.4",
     "@voidzero-dev/vite-plus-prompts": "catalog:",
     "arktype": "catalog:",
-    "ci-info": "^4.4.0",
+    "ci-info": "catalog:",
     "estree-walker": "^3.0.3",
     "fast-wrap-ansi": "^0.2.2",
     "magic-string": "catalog:",

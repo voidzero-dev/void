@@ -22,6 +22,7 @@ import {
 import * as dbModule from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
+import { deriveProxyInternalAuth, PROXY_INTERNAL_AUTH_HEADER } from '../../src/proxy-token.ts';
 import {
   builds,
   deployments,
@@ -104,6 +105,66 @@ function req(
 }
 
 type CounterCall = { ownerId: string; path: string; body: Record<string, unknown> };
+
+test('operators can preview and change per-project AI logging without app authority', async () => {
+  const owner = await createTestUser(env.db, 'ai-owner');
+  const project = await createTestProject(env.db, owner.id, 'private-ai');
+  const path = `/projects/${project.id}/ai-logging`;
+  const preview = await req(path, { mode: 'off', dryRun: true });
+  expect(preview.status).toBe(200);
+  expect(await preview.json()).toMatchObject({ dryRun: true, mode: 'off' });
+  expect(await (await req(path)).json()).toEqual({ mode: 'inherit' });
+  for (const mode of ['off', 'metadata', 'full', 'inherit']) {
+    expect((await req(path, { mode })).status).toBe(200);
+    expect(await (await req(path)).json()).toEqual({ mode });
+    expect(await (await req(`/projects/${project.id}`)).json()).toMatchObject({
+      aiLogging: { mode },
+    });
+  }
+  expect((await req(path, { mode: 'invalid' })).status).toBe(400);
+  const nonAdminToken = await createOperatorToken(env.db, owner);
+  const denied = await app.fetch(
+    new Request(`http://localhost/operator/v1${path}`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${nonAdminToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: 'full' }),
+    }),
+    env,
+  );
+  expect(denied.status).toBe(403);
+});
+
+test('AI policy readback requires a project- and purpose-bound proxy credential', async () => {
+  const owner = await createTestUser(env.db, 'private-owner');
+  const project = await createTestProject(env.db, owner.id, 'private-ai');
+  await req(`/projects/${project.id}/ai-logging`, { mode: 'metadata' });
+  const read = (auth?: string, bindings = env) =>
+    app.fetch(
+      new Request(`http://localhost/internal/ai-logging/${project.id}`, {
+        headers: auth ? { [PROXY_INTERNAL_AUTH_HEADER]: auth } : {},
+      }),
+      bindings,
+    );
+  expect((await read()).status).toBe(401);
+  const wrongPurpose = await deriveProxyInternalAuth(
+    env.JWT_SECRET,
+    'resolve-resource',
+    project.id,
+  );
+  expect((await read(wrongPurpose)).status).toBe(403);
+  const wrongProject = await deriveProxyInternalAuth(
+    env.JWT_SECRET,
+    'ai-logging',
+    'proj_000000000001',
+  );
+  expect((await read(wrongProject)).status).toBe(403);
+  const auth = await deriveProxyInternalAuth(env.JWT_SECRET, 'ai-logging', project.id);
+  const policy = await read(auth);
+  expect(policy.status).toBe(200);
+  expect(policy.headers.get('Cache-Control')).toContain('no-store');
+  expect(await policy.json()).toEqual({ mode: 'metadata' });
+  expect((await read(auth, { ...env, PLATFORM_AUTH_DATABASE_UNCACHED: 'false' })).status).toBe(503);
+});
 
 function captureUsageCounter(calls: Array<CounterCall>, failPath?: string) {
   return {
