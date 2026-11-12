@@ -1,6 +1,6 @@
 {
   "name": "@void/svelte",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "description": "Svelte pages, server rendering, forms, and navigation for Void.",
   "homepage": "https://void.cloud",
   "bugs": {
