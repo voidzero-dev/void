@@ -22,7 +22,7 @@ import { getHookHandler } from '../helpers/vite-hooks.ts';
 const roots: Array<string> = [];
 
 function createProjectRoot(): string {
-  const root = mkdtempSync(join(tmpdir(), 'void-vite-env-'));
+  const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-vite-env-')));
   roots.push(root);
   writeFileSync(
     join(root, 'package.json'),
