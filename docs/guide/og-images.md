@@ -113,7 +113,7 @@ To use your own fonts, pass `fonts`. An entry is either a font URL or an object 
 ```ts
 return new ImageResponse(postCard(post), {
   fonts: [
-    'https://example.com/fonts/Inter-Bold.woff2',
+    'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2',
     { name: 'Inter', data: interRegular, weight: 400, style: 'normal' },
   ],
 });
