@@ -277,6 +277,15 @@ describe('ImageResponse fallback fonts', () => {
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@100..900']);
   });
 
+  it('draws the marks ・ and ー with the Japanese family', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    await new ImageResponse('<div style="display:flex">東京・ラーメン</div>').arrayBuffer();
+    expect(requests.flatMap((url) => new URL(url).searchParams.getAll('family'))).toEqual([
+      'Noto Sans JP:wght@100..900',
+    ]);
+  });
+
   it('leaves variable fallback faces free to draw bold', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     // Google answers a weight range with `font-weight: 100 900`, and a single

@@ -80,7 +80,9 @@ type ImageOptions = Omit<ImageResponseOptions, keyof ResponseInit>;
 // families are matched by script before the render. `cjkFamily` settles the
 // first one; `Noto Sans` takes any other text.
 const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
-  [/[\p{sc=Han}\p{sc=Hiragana}\p{sc=Katakana}　-〿＀-￯]/u, 'Noto Sans JP'],
+  // Script extensions, so marks such as ・ and ー, which Unicode files under the
+  // Common script, stay with the family that draws the kana around them.
+  [/[\p{scx=Han}\p{scx=Hiragana}\p{scx=Katakana}　-〿＀-￯]/u, 'Noto Sans JP'],
   [/\p{sc=Hangul}/u, 'Noto Sans KR'],
   [/\p{sc=Thai}/u, 'Noto Sans Thai'],
   [/\p{sc=Arabic}/u, 'Noto Sans Arabic'],
