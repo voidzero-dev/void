@@ -127,11 +127,37 @@ describe('ImageResponse', () => {
     expect(response.headers.get('content-type')).toBe('image/png');
   });
 
-  it('labels other formats with their content type', async () => {
-    const response = new ImageResponse(card, { format: 'jpeg' });
-    expect(response.headers.get('content-type')).toBe('image/jpeg');
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    expect([...bytes.subarray(0, 2)]).toEqual([0xff, 0xd8]);
+  it('passes Takumi none of its options that ImageResponseOptions leaves out', async () => {
+    const response = new ImageResponse(card, {
+      emoji: 'noto',
+      lang: 'ja',
+      // Takumi takes these, but void/og does not.
+      format: 'jpeg',
+      devicePixelRatio: 2,
+      drawDebugBorder: true,
+      images: { maxBytes: 1024, throwOnError: false, fetch: () => {} },
+    } as never);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+    const options = vi.mocked(render).mock.lastCall![1]!;
+    expect(Object.keys(options).sort()).toEqual([
+      'css',
+      'drawDebugBorder',
+      'emoji',
+      'fonts',
+      'height',
+      'images',
+      'lang',
+      'width',
+    ]);
+    expect(options).toMatchObject({ drawDebugBorder: undefined, emoji: 'noto', lang: 'ja' });
+    expect(Object.keys(options.images!).sort()).toEqual([
+      'allowUrl',
+      'fetchCache',
+      'maxBytes',
+      'throwOnError',
+      'timeout',
+    ]);
   });
 
   it('keeps the default size for an undefined width or height', async () => {
@@ -145,12 +171,12 @@ describe('ImageResponse', () => {
     expect(debug).not.toEqual(plain);
   });
 
-  it('accepts css beside a style element', async () => {
+  it('applies a style element in the markup', async () => {
     const response = new ImageResponse(
       '<style>.card { background: #000 }</style><div class="card" style="display:flex">Hi</div>',
-      { css: '.card { padding: 8px }' },
     );
     expect(await pngSize(response)).toEqual({ width: 1200, height: 630 });
+    expect(vi.mocked(render).mock.lastCall![1]!.css).toEqual(['.card { background: #000 }']);
   });
 
   it('keys a font by its bytes, so a font read for each request registers once', async () => {

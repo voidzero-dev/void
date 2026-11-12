@@ -158,7 +158,10 @@ Vite/CLI dependency graph.
 `#self/remote`. Remove the subpath in the next major version.
 
 `void/og` is a thin `next/og`-compatible layer over `takumi-js`; its source
-cites the @vercel/og, Satori and Next.js code each behavior follows. In workerd,
+cites the @vercel/og, Satori and Next.js code each behavior follows.
+`ImageResponseOptions` is declared in `og.ts` and mapped to Takumi's render
+options one by one. Do not
+pass Takumi's options through: a Takumi upgrade must not change the API. In workerd,
 Takumi resolves its Wasm backend, whose `.wasm` import the Cloudflare plugin
 loads as a compiled module in dev and builds. On Node.js, Bun and Deno, Takumi
 loads its renderer from files next to its code (a native addon on Node.js and
