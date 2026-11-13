@@ -22,8 +22,9 @@ const CACHE_HEADER = 'public, max-age=0, must-revalidate';
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
-const IMAGE_ROUTE = `import { ImageResponse } from 'void/image';
-export const GET = (c) => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello Привет Ελληνικά Łódź</div>', { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
+const IMAGE_ROUTE = `import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+export const GET = (c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { ImageResponse } from 'void/image';
@@ -51,7 +52,11 @@ function createApp(
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'test-image-'));
   fixtures.push(root);
-  const packages = { 'vite-plus': 'node_modules/vite-plus', void: 'packages/void', ...links };
+  const packages = {
+    'vite-plus': 'node_modules/vite-plus',
+    void: 'packages/void',
+    ...links,
+  };
   for (const [name, source] of Object.entries(packages)) {
     mkdirSync(dirname(join(root, 'node_modules', name)), { recursive: true });
     symlinkSync(
@@ -95,11 +100,10 @@ function build(root: string) {
   expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
 }
 
-async function renderBuilt(root: string, path: string, cacheControl: string) {
+function builtRuntime(root: string) {
   const output = join(root, 'dist/ssr');
   const config = JSON.parse(readFileSync(join(output, 'wrangler.json'), 'utf8'));
   const modules = collectPrerenderWorkerModules(output, config.main);
-  expect(modules.filter((module) => module.type === 'CompiledWasm')).toHaveLength(1);
   const runtime = new Miniflare(
     convertV4MiniflareOptions({
       compatibilityDate: config.compatibility_date,
@@ -108,7 +112,13 @@ async function renderBuilt(root: string, path: string, cacheControl: string) {
       modulesRoot: output,
     }),
   ) as unknown as Runtime;
+  return { runtime, modules };
+}
+
+async function renderBuilt(root: string, path: string, cacheControl: string) {
+  const { runtime, modules } = builtRuntime(root);
   try {
+    expect(modules.filter((module) => module.type === 'CompiledWasm')).toHaveLength(1);
     if (path === '/api/image') {
       await expectFontSelection((query) =>
         runtime.dispatchFetch(`http://localhost${path}${query}`),
@@ -213,23 +223,43 @@ describe('void/image in a Cloudflare app without React', () => {
   });
 });
 
-describe.each(['cloudflare', 'node'] as const)('a %s app without void/image', (target) => {
-  it('bundles no image renderer', () => {
-    const root = createApp(
-      { 'routes/api/hello.ts': "export const GET = () => 'hello';\n" },
-      {},
-      `{ target: '${target}', cloudflare: { name: 'no-image', compatibility_date: '2026-07-01' } }`,
-    );
-    build(root);
-    const files = builtFiles(root);
-    expect(files.filter((file) => file.endsWith('.wasm'))).toEqual([]);
-    const code = files
-      .filter((file) => file.endsWith('.js'))
-      .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
-      .join('\n');
-    expect(code).not.toContain('takumi');
-  });
-});
+describe.each(['cloudflare', 'node'] as const)(
+  'a %s app with void/html but without void/image',
+  (target) => {
+    it('bundles no image renderer for escaped HTML', async () => {
+      const root = createApp(
+        {
+          'routes/api/hello.ts': `import { defineHandler } from 'void';
+import { html, raw } from 'void/html';
+export const GET = defineHandler(async (c) => c.html(await html\`<h1>\${Promise.resolve('<Hello>')}</h1>\${raw('<strong>Trusted</strong>')}\`));
+`,
+        },
+        {},
+        `{ target: '${target}', cloudflare: { name: 'no-image', compatibility_date: '2026-07-01' } }`,
+      );
+      build(root);
+      const files = builtFiles(root);
+      expect(files.filter((file) => file.endsWith('.wasm'))).toEqual([]);
+      const code = files
+        .filter((file) => file.endsWith('.js'))
+        .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
+        .join('\n');
+      expect(code).not.toContain('takumi');
+      if (target === 'node') {
+        return;
+      }
+      const { runtime } = builtRuntime(root);
+      try {
+        const response = await runtime.dispatchFetch('http://localhost/api/hello');
+        expect(response.status).toBe(200);
+        expect(response.headers.get('content-type')).toMatch(/^text\/html;/);
+        expect(await response.text()).toBe('<h1>&lt;Hello&gt;</h1><strong>Trusted</strong>');
+      } finally {
+        await runtime.dispose();
+      }
+    });
+  },
+);
 
 describe.each(['node', 'bun', 'deno'] as const)('void/image on the %s target', (target) => {
   let child: ReturnType<typeof spawn> | undefined;
