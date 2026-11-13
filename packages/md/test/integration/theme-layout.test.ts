@@ -14,7 +14,9 @@ beforeAll(async () => {
   const nested = await compile('- [ ] parent\n  - [x] child\n  - [ ] another child');
   const loose = await compile('- [ ] first paragraph\n\n  second paragraph\n\n- ordinary item');
   const code = await compile('## Heading\n\n```js\nconst x = 1;\n```');
-  html = `<style>${css}</style><main class="void-md" style="margin: 40px">
+  // A wide "#" (as some fonts draw it) must still end before the heading text.
+  html = `<style>${css}</style><style>#code .header-anchor { letter-spacing: 0.5em }</style>
+  <main class="void-md" style="margin: 40px">
     <section id="nested">${nested.html}</section>
     <section id="loose">${loose.html}</section>
     <section id="code">${code.html}</section>
