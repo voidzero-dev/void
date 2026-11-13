@@ -81,6 +81,8 @@ function getAuth(c: CloudContext): AuthInstance;
 
 Extracts the authenticated user from the request context. Throws a 401 `HTTPException` if no session is present.
 
+Use it in route handlers or actions when you want a `401` response. In a page loader, [redirect unauthenticated visitors to login](../../guide/auth.md#protect-a-server-route) instead; `requireAuth` sends a plain-text `401`, not an error page.
+
 ```ts
 import { defineHandler } from 'void';
 import { requireAuth } from 'void/auth';

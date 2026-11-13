@@ -38,9 +38,9 @@ await auth.signIn.email({
 });
 ```
 
-### 3. Protect a server route
+### 3. Protect a server route {#protect-a-server-route}
 
-Call `requireAuth` in a route handler or page loader that needs a signed-in user. It returns that user, or throws `401` if the request isn't authenticated:
+Call `requireAuth` in a route handler or action to get the signed-in user or reject unauthenticated requests with `401`:
 
 ```ts
 // routes/api/profile.ts
@@ -53,7 +53,7 @@ export const GET = defineHandler((c) => {
 });
 ```
 
-In a pages-mode loader, use `getUser` or `getSession` when you want to allow unauthenticated access:
+In a page loader, use `getUser` and redirect unauthenticated visitors to your login page. `requireAuth` sends a plain-text `401` instead of a redirect or an error page:
 
 ```ts
 // pages/dashboard.server.ts
@@ -62,11 +62,14 @@ import { getUser } from 'void/auth';
 
 export type Props = InferProps<typeof loader>;
 
-export const loader = defineHandler(() => {
+export const loader = defineHandler((c) => {
   const user = getUser();
+  if (!user) return c.redirect(`/login?next=${encodeURIComponent(c.req.path)}`);
   return { user };
 });
 ```
+
+To allow unauthenticated access, return the nullable user without redirecting. For a reusable auth guard, you can [throw a redirect](../integrations/hono.md#redirects) from a helper.
 
 ### 4. Sign out
 
