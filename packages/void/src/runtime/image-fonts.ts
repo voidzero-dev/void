@@ -1,6 +1,6 @@
 /**
- * Fonts for `void/image`: the app's own fonts, keyed so each registers with
- * Takumi once, bundled Inter, and Google Fonts fallbacks for missing glyphs.
+ * Fonts for `void/image`: the app's own fonts, keyed for reuse in Takumi,
+ * bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
 import type { FontLoader, Node } from 'takumi-js';
 import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
@@ -9,7 +9,7 @@ import { interCoverage, interData } from './image-inter.ts';
 export type DefaultFont = 'Inter' | 'Geist';
 
 // A private family keeps custom Inter faces separate from the bundled font.
-// A stable key lets Takumi reuse the registration; bytes decode only on first use.
+// A stable key lets Takumi reuse the registration until the renderer's cache is cleared.
 export const interFont: FontLoader = {
   name: 'void/image Inter',
   key: 'void/image Inter 4.1',
@@ -192,9 +192,8 @@ function hasBytes(font: Font): font is Exclude<Font, string> {
 
 const fontHashes = new WeakMap<ArrayBuffer | Uint8Array, Promise<string>>();
 
-// Takumi keeps every registered font for the life of the process and tells
-// them apart by buffer identity, so a font read anew for each request would be
-// registered again every time. Key it by content.
+// Takumi tells unkeyed fonts apart by buffer identity, so a font read anew for
+// each request would be registered again every time. Key it by content.
 export async function keyedFont(font: Font): Promise<FontLoader> {
   if (!hasBytes(font)) {
     return font;

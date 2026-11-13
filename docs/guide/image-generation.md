@@ -158,7 +158,7 @@ Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entr
 
 ### Control font downloads
 
-Each server keeps the fonts it downloads in memory until it restarts. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render.
+Void keeps a bounded in-memory font cache on every target. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title. Evicted fonts download again when needed. On Cloudflare Workers, these downloads count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to rendering.
 
 To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor the selected default font can draw are drawn as boxes:
 
@@ -174,7 +174,7 @@ return new ImageResponse(html`<div style="display: flex">こんにちは</div>`,
 });
 ```
 
-A font passed as data loads once per server, however many images use it.
+A font passed as data can be reused across images without downloading it. Keep its data at module scope to avoid reading the file for every request.
 
 ## Cache generated images
 

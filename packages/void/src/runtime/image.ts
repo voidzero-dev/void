@@ -18,6 +18,7 @@ import {
   keyedFont,
   type Font,
 } from './image-fonts.ts';
+import { withImageRenderer } from './image-renderer.ts';
 
 /** React JSX, a Takumi node tree, or HTML from the `void/html` template tag. */
 export type ImageInput = ReactElementLike | Node | HtmlEscapedString | Promise<HtmlEscapedString>;
@@ -113,19 +114,22 @@ async function renderImage(element: ImageInput, options: RenderImageOptions): Pr
   // One cache for both attempts below, so a retry fetches no image again.
   const fetchCache = imageCache();
   const renderNode = (fonts: Array<FontLoader>) =>
-    render(node, {
-      width: options.width,
-      height: options.height,
-      drawDebugBorder: options.debug,
-      lang: options.lang,
-      emoji,
-      css,
-      images: { fetchCache, allowUrl, maxBytes, timeout, throwOnError },
-      // Takumi uses every font registered in the process when it gets no list,
-      // which includes earlier images' fallback fonts:
-      // https://github.com/kane50613/takumi/blob/takumi@2.20.0/takumi-helpers/src/renderer.ts#L384-L412
-      fonts,
-    });
+    withImageRenderer((renderer) =>
+      render(node, {
+        width: options.width,
+        height: options.height,
+        drawDebugBorder: options.debug,
+        lang: options.lang,
+        emoji,
+        css,
+        images: { fetchCache, allowUrl, maxBytes, timeout, throwOnError },
+        // Takumi uses every font registered in the process when it gets no list,
+        // which includes earlier images' fallback fonts:
+        // https://github.com/kane50613/takumi/blob/takumi@2.20.0/takumi-helpers/src/renderer.ts#L384-L412
+        fonts,
+        renderer,
+      }),
+    );
   // Keys of the fallback files that failed to download during this image.
   const failed = new Set<string>();
   const defaultFont = options.defaultFont ?? 'Inter';
@@ -146,7 +150,7 @@ async function renderImage(element: ImageInput, options: RenderImageOptions): Pr
   // Takumi downloads the files together and rejects the render on the first
   // failure, so retry without the files that failed, and only those: a flaky
   // symbol font must not also drop the Japanese one. Files that did download
-  // stay registered in Takumi, so a retry fetches none of them again.
+  // can reuse their registration while the renderer's font cache holds them.
   let remaining = fallback;
   for (;;) {
     try {

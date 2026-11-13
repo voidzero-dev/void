@@ -187,6 +187,16 @@ in the published package. Custom fonts precede Inter. Fallback ranges subtract
 the selected default's coverage and use distinct family names/keys for each
 default, so registration reuse cannot leak glyphs between images.
 
+`image-renderer.ts` leases one renderer per active image and retains at most one
+idle renderer. Its font budget is 8 MiB of accounted decoded data or 128 loads;
+clear registrations between renders at either threshold. Takumi 2.20's font LRU
+evicts whole families and protects the newest family, so same-family subsets
+can exceed its budget indefinitely. Pin listed fonts for the active image so an
+oversized working set still draws correctly; wait for all font loads to settle
+before releasing the lease. Count WOFF/WOFF2's decoded SFNT size, and free spare
+renderers after concurrent images finish. These limits bound retained history,
+not active-image memory, glyph caches, or Wasm's high-water allocation.
+
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 
 ### Route Filename Parsing Rules

@@ -344,6 +344,9 @@ export function nodeTargetPlugin(
         const takumiDir = dirname(fileURLToPath(import.meta.resolve('takumi-js')));
         if (id !== '#backend') {
           const resolved = await this.resolve(id, importer, { skipSelf: true });
+          if (id === 'takumi-js/wasm' && resolved?.id.startsWith(`${takumiDir}/`)) {
+            return backendId;
+          }
           // noExternal lets this hook see hoisted Takumi too, but only Void's version should
           // be bundled. Leave an app's different version and its native dependencies intact.
           if (
@@ -377,8 +380,12 @@ export function nodeTargetPlugin(
         }
         return `import { readFile } from 'node:fs/promises';
 import { init, Renderer, setGlyphCacheMaxBytes } from ${JSON.stringify(bindings)};
-export async function loadBackend() {
+export { init, Renderer, setGlyphCacheMaxBytes };
+export default async function initialize() {
   await init({ module_or_path: await readFile(${source}) });
+}
+export async function loadBackend() {
+  await initialize();
   return { Renderer, setGlyphCacheMaxBytes };
 }`;
       },
