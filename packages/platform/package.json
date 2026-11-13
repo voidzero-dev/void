@@ -33,6 +33,10 @@
       "types": "./dist/plans.d.mts",
       "import": "./dist/plans.mjs"
     },
+    "./ai-logging": {
+      "types": "./dist/ai-logging.d.mts",
+      "import": "./dist/ai-logging.mjs"
+    },
     "./browser-page": {
       "types": "./dist/browser-page.d.mts",
       "import": "./dist/browser-page.mjs"
