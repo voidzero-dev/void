@@ -249,6 +249,11 @@ describe('ImageResponse', () => {
       format: 'jpeg',
       devicePixelRatio: 2,
       drawDebugBorder: true,
+      renderer: {
+        render: () => {
+          throw new Error('caller renderer must not run');
+        },
+      },
       images: { maxBytes: 1024, throwOnError: false, fetch: () => {} },
     } as never);
     expect(response.headers.get('content-type')).toBe('image/png');
@@ -262,6 +267,7 @@ describe('ImageResponse', () => {
       'height',
       'images',
       'lang',
+      'renderer',
       'width',
     ]);
     expect(options).toMatchObject({ drawDebugBorder: undefined, emoji: 'noto', lang: 'ja' });
@@ -351,6 +357,35 @@ describe('ImageResponse', () => {
 });
 
 describe('ImageResponse fallback fonts', () => {
+  it('evicts old subsets even when every image uses the same fallback family', async () => {
+    const requests = stubFetch((url) => {
+      if (url.startsWith('https://fonts.googleapis.com/')) {
+        const point = new URL(url).searchParams.get('text')!.codePointAt(0)!.toString(16);
+        return new Response(
+          `@font-face { font-family: 'Geist'; src: url(https://fonts.gstatic.com/cache-regression/${point}.woff2); unicode-range: U+${point}; }`,
+        );
+      }
+      return new Response(new Uint8Array(interData()));
+    });
+    const renderTitle = (point: number) =>
+      imageBytes(html`<div style="font-size:24px">${String.fromCodePoint(point)}</div>`, {
+        width: 80,
+        height: 40,
+        defaultFont: 'Geist',
+      });
+    const first = await renderTitle(0x410);
+    // Reuse a warm subset, then exceed the retained-font budget with different
+    // subsets of the SAME family. A family-level LRU alone cannot evict these.
+    expect(await renderTitle(0x410)).toEqual(first);
+    const firstUrl = 'https://fonts.gstatic.com/cache-regression/410.woff2';
+    expect(requests.filter((url) => url === firstUrl)).toHaveLength(1);
+    for (let point = 0x411; point < 0x430; point++) {
+      await renderTitle(point);
+    }
+    expect(await renderTitle(0x410)).toEqual(first);
+    expect(requests.filter((url) => url === firstUrl)).toHaveLength(2);
+  });
+
   it('requests no font for text the built-in font draws', async () => {
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse(card, { width: 320, height: 168 }).arrayBuffer();
@@ -694,29 +729,16 @@ describe('ImageResponse fallback fonts', () => {
         );
       }
       return url.endsWith('Noto-Sans-JP.woff2')
-        ? new Response(new Uint8Array([0, 1, 0, 0]))
+        ? new Response(new Uint8Array(interData()))
         : new Response(null, { status: 404 });
     });
-    // Stand in for Takumi's font loading, one file at a time, so the order of
-    // failures is fixed; the bytes above are not a real font to draw with.
-    const original = vi.mocked(render).getMockImplementation();
     vi.mocked(render).mockClear();
-    vi.mocked(render).mockImplementation(async (_node, options) => {
-      for (const font of (await options?.fonts) ?? []) {
-        if (typeof font === 'object' && 'data' in font && typeof font.data === 'function') {
-          await font.data();
-        }
-      }
-      return new Uint8Array();
-    });
-    try {
-      await new ImageResponse(html`<div style="display:flex">日本 ♜</div>`, {
+    await expectPng(
+      new ImageResponse(html`<div style="display:flex">日本 ♜</div>`, {
         width: 320,
         height: 168,
-      }).arrayBuffer();
-    } finally {
-      vi.mocked(render).mockImplementation(original!);
-    }
+      }),
+    );
     // Noto Sans JP, Symbols and Symbols 2. Each failure drops that file only,
     // so the Japanese font stays, where the image used to lose every fallback.
     const attempts = vi
@@ -724,12 +746,13 @@ describe('ImageResponse fallback fonts', () => {
       .mock.calls.map(([, options]) =>
         ((options?.fonts ?? []) as Array<{ name?: string }>).map((font) => font.name),
       );
-    expect(attempts.map((fonts) => fonts.length)).toEqual([4, 3, 2]);
+    expect(attempts.map((fonts) => fonts.length)).toEqual([4, 2]);
     expect(attempts.at(-1)).toEqual(['void/image Inter', 'void/image Inter fallback Noto Sans JP']);
     // A file that failed is not requested again.
     expect(
       requests.filter((url) => url.includes('Symbols')).filter((url) => url.endsWith('.woff2')),
     ).toHaveLength(2);
+    expect(requests.filter((url) => url.endsWith('Noto-Sans-JP.woff2'))).toHaveLength(1);
     expect(warned).toHaveBeenCalledTimes(2);
   });
 
