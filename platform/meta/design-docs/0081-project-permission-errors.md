@@ -24,33 +24,3 @@ already provide some guidance; the remaining paths should meet the same standard
   fallbacks for older APIs. Preserve structured error properties for callers and
   specialized invitation/account guidance. Do not print JSON or HTML as ordinary
   permission-error copy.
-
-## Work and verification
-
-1. Audit API capability checks, direct rejection branches and CLI formatting
-   exceptions. Inventory permission-specific UI fallback behavior.
-2. Implement additive server messages, consistent CLI formatting and dashboard
-   recovery copy without changing permission decisions or widening access.
-3. Run focused CLI/dashboard tests and API integration cases covering every
-   project capability, owner-only actions, scope rejection and access changes
-   during operations. Verify rejected writes do not change project state.
-4. Run workspace typechecking, formatting/lint and the final full test suite.
-   Investigate failures or slow/hanging tests rather than treating them as green.
-5. Update user guidance only where recovery steps or workflows need explanation.
-
-## Progress
-
-- Confirmed raw permission formatting in PlatformApiError and dashboard helpers.
-- Found additional formatting bypasses in deployment streams, GitHub commands,
-  transaction rechecks, email operations and administrator middleware.
-- Added capability-specific API guidance, credential and invitation recovery,
-  consistent CLI/dashboard formatting, remote proxy messages, and admin recovery
-  links. Existing access decisions, HTTP statuses and JSON error codes remain.
-- Regression coverage checks reader mutation denials, owner-only credentials,
-  transaction and deployment rechecks, unchanged state after rejected writes,
-  old API responses, malformed bodies and command-specific formatting.
-- `vp run check` passed. Final `vpr test:all` passed all 563 test files:
-  10,840 tests passed and 21 skipped, together with builds, lint and formatting.
-  Validation temporarily excluded an obsolete ignored scratch fixture and used a
-  fresh kitchen-sink local D1 database; both original fixtures were restored.
-- No deployment or package release is part of this change's validation.

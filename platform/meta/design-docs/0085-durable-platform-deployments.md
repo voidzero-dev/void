@@ -75,43 +75,6 @@ executor requires an authenticated drain proof after admission closes and before
 changing Queue consumers or resources. Missing proof or pending operations blocks
 the downgrade. This prevents retiring the executor while it owns work.
 
-## Work units and verification
-
-1. Receipt-aware CLI submission and reconnectable observation, with legacy-platform compatibility.
-2. Platform journal, admission, Queue execution, conservative recovery and installation lifecycle wiring.
-3. E2E installation rollout and real static/Worker deployment, disconnect, retry and rollback verification.
-
-Focused tests cover replay/conflict, duplicate delivery, SQL-clock leases, exact
-placeholder execution, no-op receipt survival, authorization, Worker bytes, corrupt
-input, bounded cursor pages, cancellation, send loss, protected recovery, cleanup
-retry, committed SQL preservation and downgrade fences. Final verification includes
-package checks and the full repository gate. Live results are recorded after testing.
-
-### Verification completed
-
-The full repository gate passed: 630 test files, 11,761 passing tests and 25 skipped
-tests, including formatting, lint, builds and workspace typechecking.
-
-The existing workers.dev E2E installation was upgraded through the supported
-installer. Its API, proxy, dispatch and PostgreSQL health checks passed. Provider
-read-back confirmed the deployment Queue consumer and two-minute outbox schedule;
-the authenticated execution probe reported protocol one and no pending operations.
-
-Live tests passed for a normal CLI static deploy, disconnect immediately after
-admission, identical submission replay, conflicting input rejection, static no-op
-receipt survival, and the production client's reconnect after a deliberately broken
-response stream. A Worker deployment loaded its staged module bytes and completed
-after its observer disconnected. Cancellation preserved the previous live Worker.
-HTTP checks verified new static and Worker content, retained static rollback, Worker
-update and retained Worker rollback. The pre-existing application's active deployment
-and HTTP response bytes remained identical.
-
-Hard invocation expiry, lost acknowledgements, interrupted cutover, compensation,
-authorization changes and deletion races are exercised by automated integration
-tests. The live tests did not forcibly expire a Queue invocation. Recovery waits
-until the eighteen-minute lease expires and reconciles or fails the candidate;
-it never automatically reruns application SQL.
-
-The two synthetic E2E app hostnames received explicitly approved Access bypass
-applications for HTTP verification. Test projects and those applications remain
-available for reuse. Void Cloud production was not deployed.
+Recovery after hard invocation expiry is covered by automated integration tests;
+the original live checks did not force a Queue invocation to expire. Recovery
+waits for the eighteen-minute lease and never reruns application SQL.
