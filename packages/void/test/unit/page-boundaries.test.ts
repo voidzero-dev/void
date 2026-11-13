@@ -375,6 +375,49 @@ describe('loader not-found dispatch', () => {
       }
     },
   );
+
+  it('keeps a static file at the same path out of a loader not-found', async () => {
+    const fetched: Array<string> = [];
+    const rendered: Array<string> = [];
+    const app = new Hono();
+    app.notFound(
+      createPagesFallback({
+        routing: createRoutingRuntime(app, { nodeTarget: true }),
+        errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+      }),
+    );
+    app.get(
+      '/docs/:name',
+      createPageGetHandler({
+        componentId: 'docs/name',
+        load: async () => ({ loader: (c) => c.notFound() }),
+        render: async (page) => {
+          rendered.push(JSON.stringify(page.props));
+          return '<main>docs page</main>';
+        },
+        assets: async () => ({ css: '', body: '', preloads: '' }),
+        headConfig: null,
+        renderOptions: { boundaries: { errors: [] } },
+      }),
+    );
+    const assets = {
+      fetch: async (request: Request): Promise<Response> => {
+        const path = new URL(request.url).pathname;
+        fetched.push(path);
+        return path === '/docs/readme.json'
+          ? new Response('{"static":"docs"}', {
+              headers: { 'Content-Type': 'application/json' },
+            })
+          : new Response('Not Found', { status: 404 });
+      },
+    };
+    const response = await app.request('https://app.test/docs/readme.json', {}, { ASSETS: assets });
+    expect(response.status).toBe(404);
+    // The loader's `c.notFound()` decides the response, never the asset's bytes.
+    expect(fetched).not.toContain('/docs/readme.json');
+    expect(rendered).toEqual([]);
+    expect(await response.text()).not.toContain('static');
+  });
 });
 
 describe('boundary recovery failures', () => {

@@ -4,7 +4,10 @@ import {
   markActionKey,
   searchWithoutPreservedQuery,
 } from '../pages/action-key.ts';
-import { handlesPageLoaderNotFound } from '../pages/not-found-context.ts';
+import {
+  handlesPageLoaderNotFound,
+  ownsLoaderNotFoundBoundary,
+} from '../pages/not-found-context.ts';
 import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
 import { decodePagePath } from '../pages/url.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
@@ -181,8 +184,8 @@ export function createPagesFallback(options: {
 }): (c: Context) => Promise<Response> {
   const cachePolicy = createAssetCachePolicy(options.assetsDir);
   return async (c) => {
-    // The loader's boundary owns this 404; skip root rendering and asset fallbacks.
-    if (handlesPageLoaderNotFound(c)) {
+    // The loader's own boundary owns this 404; skip root rendering and asset fallbacks.
+    if (ownsLoaderNotFoundBoundary(c)) {
       return c.newResponse(null, 404);
     }
     const path = c.req.path;
@@ -194,8 +197,12 @@ export function createPagesFallback(options: {
       return c.text('Not Found', 404);
     }
     const assets = c.env?.ASSETS;
-    const assetResponse: Response =
-      assets && typeof assets.fetch === 'function'
+    // A loader that called `c.notFound()` already claimed this URL. Serving a
+    // static file that happens to share the path would turn its bytes into the
+    // loader's return value, so answer from the not-found path instead.
+    const assetResponse: Response = handlesPageLoaderNotFound(c)
+      ? new Response('Not Found', { status: 404 })
+      : assets && typeof assets.fetch === 'function'
         ? await assets.fetch(c.req.raw)
         : options.routing.markNoMatch(c.req.raw, new Response('Not Found', { status: 404 }));
     const filePath = path.includes('/.') || path.substring(path.lastIndexOf('/') + 1).includes('.');
