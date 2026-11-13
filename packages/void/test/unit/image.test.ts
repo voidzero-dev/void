@@ -1,12 +1,8 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { toSlash } from 'pathslash';
 import { render } from 'takumi-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import voidManifest from '../../package.json' with { type: 'json' };
-import { findVoidPackageDir, nodeTargetPlugin } from '../../src/plugin-node-target.ts';
+import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
 import { ImageResponse } from '../../src/runtime/image.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
@@ -578,14 +574,6 @@ describe('ImageResponse fallback fonts', () => {
 });
 
 describe('void/image on Node.js targets', () => {
-  let root: string | undefined;
-  afterEach(() => {
-    if (root) {
-      rmSync(root, { recursive: true, force: true });
-      root = undefined;
-    }
-  });
-
   function rendererPlugin() {
     return nodeTargetPlugin('node').find(
       (candidate) => candidate.name === 'void:node-target-image-renderer',
@@ -593,92 +581,25 @@ describe('void/image on Node.js targets', () => {
   }
 
   function resolveRenderer(
-    importer = toSlash(fileURLToPath(new URL('../../src/runtime/image.ts', import.meta.url))),
+    importer = fileURLToPath(import.meta.resolve('takumi-js')),
     plugin = rendererPlugin(),
   ) {
     const resolveId = plugin.resolveId as {
-      handler: (this: unknown, id: string, importer: string) => unknown;
+      handler: (this: unknown, id: string, importer: string) => Promise<unknown>;
     };
-    return resolveId.handler.call(
-      { environment: { config: { root, command } }, warn },
-      'takumi-js/helpers',
-      importer,
-    );
+    return resolveId.handler.call({}, '#backend', importer);
   }
-  let command = 'build';
-  const warn = vi.fn();
-
-  // The range void/image declares; the app must install a version in it.
-  const range = voidManifest.dependencies['takumi-js'];
-
-  function installTakumi(version: string) {
-    root ??= mkdtempSync(join(tmpdir(), 'void-image-node-'));
-    mkdirSync(join(root, 'node_modules', 'takumi-js'), { recursive: true });
-    writeFileSync(
-      join(root, 'node_modules', 'takumi-js', 'package.json'),
-      JSON.stringify({ name: 'takumi-js', version }),
-    );
-  }
-
-  it('fails the build when the app cannot load takumi-js itself', () => {
-    root = mkdtempSync(join(tmpdir(), 'void-image-node-'));
-    expect(resolveRenderer).toThrow(
-      `void/image needs takumi-js@${range} in your app's dependencies with target 'node'`,
-    );
+  it("selects WASM for Void's Takumi", async () => {
+    await expect(resolveRenderer()).resolves.toBe('\0void:image-wasm-backend');
+    await expect(
+      resolveRenderer(join(dirname(fileURLToPath(import.meta.resolve('takumi-js'))), 'render.mjs')),
+    ).resolves.toBe('\0void:image-wasm-backend');
   });
 
-  it('fails the build when the app has a takumi-js that void/image does not support', () => {
-    installTakumi('2.15.2');
-    expect(resolveRenderer).toThrow('The app has takumi-js 2.15.2.');
-    installTakumi('3.0.0');
-    expect(resolveRenderer).toThrow('The app has takumi-js 3.0.0.');
-    installTakumi('2.18.2');
-    expect(resolveRenderer).toThrow('The app has takumi-js 2.18.2.');
-    installTakumi('2.20.1-beta.1');
-    expect(resolveRenderer).toThrow('The app has takumi-js 2.20.1-beta.1.');
-    // takumi-js 2.19.0 draws boxes for text its first matching font lacks.
-    installTakumi('2.19.0');
-    expect(resolveRenderer).toThrow('The app has takumi-js 2.19.0.');
-  });
-
-  it('warns once in the dev server instead', () => {
-    root = mkdtempSync(join(tmpdir(), 'void-image-node-'));
-    const plugin = rendererPlugin();
-    command = 'serve';
-    warn.mockClear();
-    try {
-      expect(resolveRenderer(undefined, plugin)).toBeUndefined();
-      expect(resolveRenderer(undefined, plugin)).toBeUndefined();
-    } finally {
-      command = 'build';
-    }
-    expect(warn).toHaveBeenCalledOnce();
-    expect(warn.mock.calls[0]![0]).toContain(`npm install takumi-js@${range}`);
-  });
-
-  it("leaves a supported takumi-js in the app's dependencies to Node.js", () => {
-    installTakumi(range.replace(/^[~^]/, ''));
-    expect(resolveRenderer()).toBeUndefined();
-    installTakumi('2.20.9');
-    expect(resolveRenderer()).toBeUndefined();
-  });
-
-  it('leaves takumi-js that the app imports itself alone', () => {
-    installTakumi('3.0.0');
-    expect(resolveRenderer(toSlash(join(root!, 'src', 'image.ts')))).toBeUndefined();
-  });
-
-  it("finds void's package.json wherever the bundler places the plugin", () => {
-    root = toSlash(mkdtempSync(join(tmpdir(), 'void-image-node-')));
-    const voidDir = `${root}/node_modules/void`;
-    mkdirSync(`${voidDir}/dist/chunks`, { recursive: true });
-    writeFileSync(`${voidDir}/package.json`, JSON.stringify({ name: 'void' }));
-    // A package.json without void's name, such as a nested `type` marker, is skipped.
-    writeFileSync(`${voidDir}/dist/package.json`, JSON.stringify({ type: 'module' }));
-    expect(findVoidPackageDir(`${voidDir}/dist/index.mjs`)).toBe(voidDir);
-    expect(findVoidPackageDir(`${voidDir}/dist/chunks/plugin-abc.mjs`)).toBe(voidDir);
-    expect(() => findVoidPackageDir(`${root}/elsewhere/index.mjs`)).toThrow(
-      "could not find void's package.json",
-    );
+  it('leaves other packages and separately installed Takumi copies alone', async () => {
+    await expect(
+      resolveRenderer('/app/node_modules/takumi-js/dist/render.mjs'),
+    ).resolves.toBeUndefined();
+    await expect(resolveRenderer('/app/src/image.ts')).resolves.toBeUndefined();
   });
 });

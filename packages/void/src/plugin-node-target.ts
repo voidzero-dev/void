@@ -1,15 +1,11 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import mime from 'mime';
-import { dirname, isAbsolute, join, relative, resolve, toSlash } from 'pathslash';
+import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import { isFileServingAllowed, type Plugin } from 'vite';
-import {
-  findInstalledPackage,
-  findVoidDependentPackages,
-  readManifest,
-} from './installed-packages.ts';
+import { findVoidDependentPackages } from './installed-packages.ts';
 import { readProjectPaths } from './project-paths.ts';
 
 /** Imports that require CF bindings and are not available in Node.js mode. */
@@ -175,7 +171,15 @@ export function nodeTargetPlugin(
       // and installed packages that import void in the dev server, Vitest and the build alike,
       // as with a workspace link.
       const ssr = {
-        noExternal: ['void', /^@void\//, ...findVoidDependentPackages(root)],
+        noExternal: [
+          'void',
+          /^@void\//,
+          // Keep the renderer bundled even when npm hoists these to the app root.
+          'takumi-js',
+          '@takumi-rs/wasm',
+          '@takumi-rs/helpers',
+          ...findVoidDependentPackages(root),
+        ],
       };
       if (command !== 'build') {
         return { ssr };
@@ -184,6 +188,7 @@ export function nodeTargetPlugin(
       const voidDir = join(root, '.void');
       const ssrBuildOptions = {
         outDir: 'dist/ssr',
+        emitAssets: true,
         rollupOptions: {
           input: {
             app: join(voidDir, 'app.ts'),
@@ -326,114 +331,64 @@ export function nodeTargetPlugin(
     },
   };
 
-  // void/image renders with takumi-js, which loads its renderer from files next to its own code (a
-  // native addon on Node.js and Bun) that a bundle cannot carry. A build leaves a package that
-  // resolves from the app root to the runtime, so the app must install a version that void/image
-  // supports. With pnpm, void's own copy does not resolve from the root and would be bundled.
-  // The dev server resolves it from void, so there the check only warns.
-  let warned = false;
+  // Keep Takumi's renderer portable: bundle its WASM bindings, not its native addon or the
+  // package-relative filesystem loader. Resolve only Void's copy; an app can use its own Takumi.
+  const backendId = '\0void:image-wasm-backend';
+  let wasmReference: string | undefined;
   const imageRendererPlugin: Plugin = {
     name: 'void:node-target-image-renderer',
     enforce: 'pre',
     resolveId: {
-      filter: { id: /^takumi-js(?:\/|$)/ },
-      handler(_id, importer) {
-        // An app may also use takumi-js itself, at any version.
-        if (!importer || !realPath(importer).startsWith(`${getVoidPackageDir()}/`)) {
-          return;
+      filter: { id: /^(?:#backend|takumi-js(?:\/.*)?)$/ },
+      async handler(id, importer) {
+        const takumiDir = dirname(fileURLToPath(import.meta.resolve('takumi-js')));
+        if (id !== '#backend') {
+          const resolved = await this.resolve(id, importer, { skipSelf: true });
+          // noExternal lets this hook see hoisted Takumi too, but only Void's version should
+          // be bundled. Leave an app's different version and its native dependencies intact.
+          if (
+            this.environment.config.command === 'build' &&
+            resolved &&
+            !resolved.id.startsWith(`${takumiDir}/`)
+          ) {
+            return { id, external: true };
+          }
+          return resolved;
         }
-        const range = readTakumiRange();
-        const installed = findInstalledPackage('takumi-js', this.environment.config.root);
-        const version = installed && readManifest(installed)?.version;
-        if (version && satisfiesRange(version, range)) {
-          return;
-        }
-        const found = version ? ` The app has takumi-js ${version}.` : '';
-        const message =
-          `void/image needs takumi-js@${range} in your app's dependencies with target '${target}', so ` +
-          `the build leaves it to ${RUNTIME_NAMES[target]}.${found} Install it, for example with ` +
-          `\`npm install takumi-js@${range}\`.`;
-        if (this.environment.config.command === 'build') {
-          throw new Error(message);
-        }
-        if (!warned) {
-          warned = true;
-          this.warn(message);
+        if (importer && dirname(importer) === takumiDir) {
+          return backendId;
         }
       },
+    },
+    load: {
+      filter: { id: /^\0void:image-wasm-backend$/ },
+      async handler() {
+        const { default: wasmUrl } = await import('takumi-js/wasm-url');
+        const bindings = fileURLToPath(import.meta.resolve('takumi-js/wasm/no-init'));
+        this.addWatchFile(fileURLToPath(wasmUrl));
+        let source = `new URL(${JSON.stringify(wasmUrl.href)})`;
+        if (this.environment.config.command === 'build') {
+          wasmReference = this.emitFile({
+            type: 'asset',
+            name: 'takumi.wasm',
+            source: await readFile(wasmUrl),
+          });
+          source = `import.meta.ROLLUP_FILE_URL_${wasmReference}`;
+        }
+        return `import { readFile } from 'node:fs/promises';
+import { init, Renderer, setGlyphCacheMaxBytes } from ${JSON.stringify(bindings)};
+export async function loadBackend() {
+  await init({ module_or_path: await readFile(${source}) });
+  return { Renderer, setGlyphCacheMaxBytes };
+}`;
+      },
+    },
+    resolveFileUrl({ referenceId, relativePath }) {
+      if (referenceId === wasmReference) {
+        return `new URL(${JSON.stringify(relativePath)}, import.meta.url)`;
+      }
     },
   };
 
   return [guardPlugin, cloudflareModulesPlugin, imageRendererPlugin];
-}
-
-const RUNTIME_NAMES: Record<NodeTarget, string> = {
-  node: 'Node.js',
-  bun: 'Bun',
-  deno: 'Deno',
-};
-
-let voidPackageDir: string | undefined;
-
-function getVoidPackageDir(): string {
-  return (voidPackageDir ??= findVoidPackageDir(toSlash(fileURLToPath(import.meta.url))));
-}
-
-/**
- * The `void` package root above `file`. Walks up rather than assuming a depth, so the
- * lookup holds wherever the bundler places this module in `dist/` (Bun's `node:module`
- * has no `findPackageJSON`).
- */
-export function findVoidPackageDir(file: string): string {
-  for (let dir = dirname(file); ; dir = dirname(dir)) {
-    if (readManifest(dir)?.name === 'void') {
-      return dir;
-    }
-    if (dirname(dir) === dir) {
-      throw new Error(`void/image: could not find void's package.json above ${file}.`);
-    }
-  }
-}
-
-/** Vite resolves symlinks in importer paths unless `resolve.preserveSymlinks` is set. */
-function realPath(path: string): string {
-  try {
-    return toSlash(realpathSync(path));
-  } catch {
-    return path;
-  }
-}
-
-/** The takumi-js range void/image is built and tested against, from void's package.json. */
-function readTakumiRange(): string {
-  const range = readManifest(getVoidPackageDir())?.dependencies?.['takumi-js'];
-  if (!range || !/^[~^]\d+\.\d+\.\d+$/.test(range)) {
-    throw new Error(
-      `void/image: expected a ^ or ~ takumi-js range in void's package.json, got ${range}.`,
-    );
-  }
-  return range;
-}
-
-/** Whether `version` is in the `^` or `~` `range` (a major version above 0, as takumi-js uses). */
-function satisfiesRange(version: string, range: string): boolean {
-  const parse = (value: string) => /^[~^]?(\d+)\.(\d+)\.(\d+)$/.exec(value)?.slice(1).map(Number);
-  // A prerelease is outside the range.
-  const actual = parse(version);
-  const minimum = parse(range);
-  // `~` also fixes the minor version.
-  const fixed = range.startsWith('~') ? 2 : 1;
-  if (
-    !actual ||
-    !minimum ||
-    actual.slice(0, fixed).some((part, index) => part !== minimum[index])
-  ) {
-    return false;
-  }
-  for (const part of [1, 2]) {
-    if (actual[part] !== minimum[part]) {
-      return actual[part]! > minimum[part]!;
-    }
-  }
-  return true;
 }

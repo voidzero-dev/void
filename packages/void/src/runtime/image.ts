@@ -2,9 +2,8 @@
  * `void/image` — an `ImageResponse` that renders JSX or HTML to an image with
  * Takumi.
  *
- * Takumi does the rendering (Wasm on workerd, its native addon on Node). This
- * module adds what a route handler needs around it: the response headers,
- * `debug`, and Google Fonts fallbacks for text that
+ * Takumi does the rendering. This module adds what a route handler needs around it:
+ * the response headers, `debug`, and Google Fonts fallbacks for text that
  * Takumi's built-in Geist cannot draw.
  */
 import { render, type FontLoader, type Node, type RenderInput } from 'takumi-js';

@@ -161,13 +161,15 @@ Vite/CLI dependency graph.
 width and height. `void/og` exports `OgImageResponse`, which extends it with
 standard sizes. Keep `ImageResponseOptions` declared in `image.ts` and map each option to Takumi:
 passing Takumi's options through would let a Takumi upgrade change the API.
-On Node.js, Bun and Deno, Takumi loads its renderer from files next to its
-code, which a bundle cannot carry, so `nodeTargetPlugin` fails a build unless
-the app resolves a `takumi-js` in void's range. takumi-js is on `~2.20`; skip
+On Node.js, Bun and Deno, `nodeTargetPlugin` selects WASM for Void's Takumi,
+bundles its bindings, and emits the binary as an SSR asset. Keep SSR asset
+emission enabled and resolve the binary relative to its emitted chunk, not
+the working directory. Apps need no direct Takumi dependency. Cloudflare
+keeps Takumi's workerd backend. takumi-js is on `~2.20`; skip
 2.19.0, which draws a word as boxes when the first font covering a character
 lacks its glyph. Before raising the range, render Japanese next to "Łódź" in
 a fresh process and check that Geist still draws `BUILT_IN` in `image-fonts.ts`,
-then update the range, the install command and the Worker size in
+then update the range and the Worker size in
 `docs/guide/image-generation.md` and `docs/guide/og-images.md`.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).

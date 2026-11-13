@@ -488,13 +488,7 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
         if (framework === 'react') {
           // The Node target bundles the installed void into its build, so a ValidationError from
           // void/handler is the class that page actions check, as in dev.
-          // Both image entry points render with the app's own takumi-js on Node.js.
-          const takumi = `takumi-js@${voidManifest.dependencies['takumi-js']}`;
-          await run(
-            manager,
-            [manager === 'npm' ? 'install' : 'add', '@hono/node-server', takumi],
-            fixture,
-          );
+          await run(manager, [manager === 'npm' ? 'install' : 'add', '@hono/node-server'], fixture);
           writeFileSync(
             join(fixture, 'void.config.ts'),
             "import { defineConfig } from 'void/config';\nexport default defineConfig({ target: 'node' });\n",

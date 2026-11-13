@@ -93,7 +93,7 @@ These Void features work identically across all targets:
 - [Custom headers](../guide/edge/headers.md) (`routing.headers`)
 - [Redirects](../guide/edge/redirects.md) (`routing.redirects`)
 - [Static site generation](../guide/ssg.md)
-- [Image generation](../guide/image-generation.md) (`void/image`) and [Open Graph images](../guide/og-images.md) (`void/og`), with `takumi-js` installed as described below
+- [Image generation](../guide/image-generation.md) (`void/image`) and [Open Graph images](../guide/og-images.md) (`void/og`)
 - [Vite preview](https://vite.dev/guide/cli#vite-preview) for testing production builds locally
 
 ## What's Different
@@ -111,11 +111,7 @@ Both image APIs work on Node.js, Bun, and Deno:
 - [`ImageResponse` from `void/image`](../guide/image-generation.md) generates images with required `width` and `height` options.
 - [`OgImageResponse` from `void/og`](../guide/og-images.md) extends `ImageResponse` for Open Graph and social previews, defaulting to 1200 × 630 pixels.
 
-For either API, add `takumi-js` to your app's `dependencies` (not `devDependencies`, so production installs include it):
-
-```sh
-npm install takumi-js@~2.20.0
-```
+Neither API requires additional dependencies. Deploy the complete `dist/ssr` directory, including its image renderer assets.
 
 See the [image generation guide](../guide/image-generation.md#node-js-bun-and-deno) for production setup and font memory considerations.
 
