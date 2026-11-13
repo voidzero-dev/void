@@ -74,21 +74,15 @@ const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, a
  * `void/html` template, or a Takumi node tree. It renders a PNG at the given size,
- * which clients revalidate on each use.
+ * without choosing a cache policy.
  */
 export class ImageResponse extends Response {
   constructor(element: ImageInput, options: ImageResponseOptions) {
     const { status, statusText, headers, ...imageOptions } = options;
-    // Set these two headers unless the caller's `headers` has them. A failed
-    // render still ends as a complete response, so clients revalidate the
-    // image rather than cache it. With no validator, revalidating fetches it
-    // again, so the dev server needs no header of its own.
+    // Leave caching to the caller; only default the rendered image's type.
     const responseHeaders = new Headers(headers);
     if (!responseHeaders.has('content-type')) {
       responseHeaders.set('content-type', 'image/png');
-    }
-    if (!responseHeaders.has('cache-control')) {
-      responseHeaders.set('cache-control', 'public, max-age=0, must-revalidate');
     }
     // Render while the body streams, so a failure errors the body.
     const body = new ReadableStream<Uint8Array>({
