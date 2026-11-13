@@ -6,6 +6,7 @@ import { isConvertedResponse } from '../runtime/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
 import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
 import {
+  absolutizeHead,
   resolveHead,
   renderBodyAttrs,
   renderHeadToString,
@@ -447,7 +448,12 @@ async function renderPageFailure(
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
-    head = resolveHead(configHead, c.get('headDefaults') as HeadConfig | undefined, undefined);
+    head = resolveRequestHead(
+      c,
+      configHead,
+      c.get('headDefaults') as HeadConfig | undefined,
+      undefined,
+    );
     serializePageData({ shared, head });
   } catch (cause) {
     throw new Error('Unable to render Pages error boundary', { cause });
@@ -693,6 +699,23 @@ export async function handlePageGet(
   );
 }
 
+/**
+ * Resolve the head for this request and make the crawler-only tags absolute.
+ * A prerender renders on a placeholder origin, so it keeps relative values.
+ */
+function resolveRequestHead(
+  c: CloudContext,
+  configHead: HeadConfig | undefined,
+  middlewareHead: HeadConfig | undefined,
+  pageHead: HeadDescriptor | undefined,
+): HeadDescriptor | undefined {
+  const head = resolveHead(configHead, middlewareHead, pageHead);
+  return absolutizeHead(
+    head,
+    c.env?.__VOID_PRERENDER === '1' ? undefined : (c.originalUrl?.()?.href ?? c.req.url),
+  );
+}
+
 async function runPageGet(
   handler: PageHandler,
   headFn: PageHeadHandler,
@@ -721,7 +744,7 @@ async function runPageGet(
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
         const pageHead = headFn ? headFn(c, props) : undefined;
         const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
-        const head = resolveHead(configHead, middlewareHead, pageHead);
+        const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
         if (renderMode !== 'island') {
           varyPagesResponse(c);
         }
@@ -922,7 +945,7 @@ async function runPageMutation(
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
     const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
     const pageHead = headFn ? headFn(c, props) : undefined;
-    const head = resolveHead(configHead, middlewareHead, pageHead);
+    const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
     return {
       component: componentId,
       props,

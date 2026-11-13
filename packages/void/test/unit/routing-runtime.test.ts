@@ -1177,7 +1177,7 @@ describe('typed Pages and SSR execution', () => {
     ['middleware', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
     ['rule', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
   ])(
-    'reports the requested URL after a %s rewrite of %s %s to %s',
+    'preserves public page and head URLs after a %s rewrite of %s %s to %s',
     async (kind, method, path, destination, url) => {
       const app = new Hono();
       const runtime = createRoutingRuntime(app, { nodeTarget: true });
@@ -1190,11 +1190,15 @@ describe('typed Pages and SSR execution', () => {
           runtime.routingMiddleware([{ source: '/app/*', destination, status: 200, force: true }]),
         );
       }
-      app.get('/maintenance', createPageGetHandler(pageOptions));
+      const options = {
+        ...pageOptions,
+        headConfig: { meta: [{ property: 'og:image', content: 'preview.png' }] },
+      };
+      app.get('/maintenance', createPageGetHandler(options));
       app.post(
         '/maintenance',
         createPageMutationHandler({
-          ...pageOptions,
+          ...options,
           load: async () => ({ actions: { save: () => undefined } }),
           namedActions: true,
         }),
@@ -1205,7 +1209,12 @@ describe('typed Pages and SSR execution', () => {
           headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      expect((decodePageData(await response.json()) as { url: string }).url).toBe(url);
+      expect(decodePageData(await response.json())).toMatchObject({
+        url,
+        head: {
+          meta: [{ property: 'og:image', content: 'https://app.test/app/preview.png' }],
+        },
+      });
     },
   );
   it('executes the real page loader and protocol', async () => {
