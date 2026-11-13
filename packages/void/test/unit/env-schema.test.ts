@@ -827,6 +827,7 @@ describe('several copies of void/env in one Worker', () => {
   it('publishes the _prepareEnv of the copy that registered the schema', async () => {
     const copy = await secondCopy();
     defineEnv({ KEY: string() });
+    expect(registry()?.prepare).toBeTypeOf('function');
     expect(registry()?.prepare).toBe(_prepareEnv);
     copy.defineEnv({ KEY: string() });
     expect(registry()?.prepare).toBe(copy._prepareEnv);
