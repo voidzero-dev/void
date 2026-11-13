@@ -26,6 +26,7 @@ function injectWorkersTypesReferencePlugin() {
         // Patch declaration entrypoints whose source uses Cloudflare globals.
         const targets = new Set([
           'runtime/handler.d.mts',
+          'runtime/db.d.mts',
           'runtime/env-public.d.mts',
           'runtime/sandbox.d.mts',
           'runtime/sandbox-container.d.mts',
@@ -98,6 +99,7 @@ export default defineConfig({
       'src/runtime/env-public.ts',
       'src/runtime/env-public-client.ts',
       'src/runtime/db.ts',
+      'src/runtime/db-session.ts',
       'src/runtime/db-pg.ts',
       'src/runtime/db-mysql.ts',
       'src/runtime/durable.ts',

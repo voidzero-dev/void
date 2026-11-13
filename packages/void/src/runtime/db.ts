@@ -6,6 +6,7 @@
  * This stub exists for the published npm package and type declarations.
  */
 import { drizzle as _drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
+import { createD1SessionAccess } from './db-session.ts';
 import { getRuntimeBinding, getRuntimeRequestResource, requireRuntimeBinding } from './env.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
@@ -48,15 +49,25 @@ export type { DrizzleD1Database } from 'drizzle-orm/d1';
  */
 export function createDb(
   d1: D1Database,
-  options?: { session?: D1SessionConstraint },
+  options?: { session?: D1SessionConstraint | D1SessionBookmark },
 ): DrizzleD1Database {
   return _drizzle(
     d1.withSession(options?.session ?? 'first-unconstrained') as unknown as D1Database,
   );
 }
 
-function createPrimaryDb(d1: D1Database): DrizzleD1Database {
-  return _drizzle(d1.withSession('first-primary') as unknown as D1Database);
+const sessions = createD1SessionAccess('DB');
+
+/** Set the default D1 session's starting bookmark or constraint before using db. */
+export function setSession(start: D1SessionConstraint | D1SessionBookmark): void {
+  sessions.setSession(start);
+}
+
+/** Read the default request session's bookmark, or that of an explicit D1 client. */
+export function getBookmark<TSchema extends Record<string, unknown>>(
+  client?: DrizzleD1Database<TSchema>,
+): D1SessionBookmark | null {
+  return sessions.getBookmark((client as object | undefined) === db ? undefined : client);
 }
 
 const requestDbKey = {};
@@ -86,10 +97,16 @@ export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
   get(_, prop) {
     const instance = getRuntimeRequestResource(
       requestDbKey,
-      () => createDb(requireD1()),
+      () => {
+        requireD1();
+        return _drizzle(sessions.getSession() as unknown as D1Database);
+      },
       // Framework adapters do not always enter Void's request scope. Without a
       // shared session, each operation starts on primary to preserve fresh reads.
-      () => createPrimaryDb(requireD1()),
+      () => {
+        requireD1();
+        return _drizzle(sessions.getSession() as unknown as D1Database);
+      },
     );
     return Reflect.get(instance, prop);
   },

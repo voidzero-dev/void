@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { Hono } from 'hono';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
@@ -33,10 +34,15 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
   const path = join(root, 'db.mjs');
   writeFileSync(
     path,
-    load('\0virtual:void-db').replace(
-      JSON.stringify(fileURLToPath(import.meta.resolve('#self/_env'))),
-      JSON.stringify(new URL('../../src/runtime/env.ts', import.meta.url).href),
-    ),
+    load('\0virtual:void-db')
+      .replace(
+        JSON.stringify(fileURLToPath(import.meta.resolve('#self/_env'))),
+        JSON.stringify(new URL('../../src/runtime/env.ts', import.meta.url).href),
+      )
+      .replace(
+        JSON.stringify(fileURLToPath(import.meta.resolve('#self/runtime/db-session'))),
+        JSON.stringify(new URL('../../src/runtime/db-session.ts', import.meta.url).href),
+      ),
   );
   return import(pathToFileURL(path).href);
 }
@@ -49,7 +55,6 @@ const BEFORE_SAVE = 'test-bookmark-before-save';
 const AFTER_SAVE = 'test-bookmark-after-save';
 
 function laggingBinding(primary: D1Database, replica: D1Database) {
-  const sessions: Array<D1DatabaseSession> = [];
   const withSession = vi.fn((start: string = 'first-unconstrained') => {
     if (!['first-unconstrained', 'first-primary', BEFORE_SAVE, AFTER_SAVE].includes(start)) {
       throw new Error(`Unexpected test session start: ${start}`);
@@ -84,19 +89,20 @@ function laggingBinding(primary: D1Database, replica: D1Database) {
         return statement([]);
       },
     } as unknown as D1DatabaseSession;
-    sessions.push(session);
     return session;
   });
   // Only the D1 operations used by this reproduction are implemented.
-  return { binding: { withSession } as unknown as D1Database, withSession, sessions };
+  return { binding: { withSession } as unknown as D1Database, withSession };
 }
 
+const clients = [
+  { module: 'runtime', bindingName: 'DB' },
+  { module: 'generated', bindingName: 'DB' },
+  { module: 'generated', bindingName: 'APP_DB' },
+];
+
 describe('D1 cross-request bookmark reproduction (#783)', () => {
-  it.each([
-    { module: 'runtime', bindingName: 'DB' },
-    { module: 'generated', bindingName: 'DB' },
-    { module: 'generated', bindingName: 'APP_DB' },
-  ])(
+  it.each(clients)(
     '$module / $bindingName: preserves read-your-writes at the next request',
     async (testCase) => {
       const miniflare = new Miniflare(
@@ -115,33 +121,49 @@ describe('D1 cross-request bookmark reproduction (#783)', () => {
             .run();
           await database.prepare("INSERT INTO profile VALUES (1, 'Old name')").run();
         }
-        const { binding, withSession, sessions } = laggingBinding(
+        const { binding, withSession } = laggingBinding(
           primary as unknown as D1Database,
           replica as unknown as D1Database,
         );
-        const { db, createDb } =
+        const { db, createDb, setSession, getBookmark } =
           testCase.module === 'runtime' ? runtimeDb : await loadGeneratedDb(testCase.bindingName);
         const env = { [testCase.bindingName]: binding };
         const readProfile = () => db.select().from(profile);
 
+        const app = new Hono();
+        app.use(async (c, next) => {
+          setSession(c.req.header('X-DB-Bookmark') ?? 'first-unconstrained');
+          await next();
+          const bookmark = getBookmark();
+          if (bookmark) {
+            c.header('X-DB-Bookmark', bookmark);
+          }
+        });
         // Request A: POST /profile. The write and subsequent read share a session.
-        await withRuntimeEnv(env, async () => {
+        app.post('/profile', async (c) => {
           expect(await readProfile()).toEqual([{ id: 1, name: 'Old name' }]);
           await db.update(profile).set({ name: 'Alice' }).run();
           expect(await readProfile()).toEqual([{ id: 1, name: 'Alice' }]);
+          return c.redirect('/profile', 303);
         });
+        app.get('/profile', async (c) => c.json(await readProfile()));
+        const saved = await withRuntimeEnv(env, () => app.request('/profile', { method: 'POST' }));
+        expect(saved.status).toBe(303);
+        expect(saved.headers.get('Location')).toBe('/profile');
         expect(withSession).toHaveBeenCalledExactlyOnceWith('first-unconstrained');
-        // Test instrumentation captures what Void currently has no public helper to expose.
-        const bookmark = sessions[0]!.getBookmark();
+        const bookmark = saved.headers.get('X-DB-Bookmark');
         expect(bookmark).toBe(AFTER_SAVE);
 
         // Request B: GET /profile after the redirect should observe the saved profile.
-        // Red reproduction: bookmark propagation is missing. Keep running the controls
-        // below so the failure also demonstrates that carrying the bookmark would help.
-        expect.soft(await withRuntimeEnv(env, readProfile)).toEqual([{ id: 1, name: 'Alice' }]);
+        const loaded = await withRuntimeEnv(env, () =>
+          app.request('/profile', {
+            headers: { 'X-DB-Bookmark': bookmark! },
+          }),
+        );
+        expect(await loaded.json()).toEqual([{ id: 1, name: 'Alice' }]);
         expect(withSession.mock.calls.map(([start]) => start)).toEqual([
           'first-unconstrained',
-          'first-unconstrained',
+          AFTER_SAVE,
         ]);
 
         // Control: starting on primary avoids the stale read.
@@ -149,13 +171,10 @@ describe('D1 cross-request bookmark reproduction (#783)', () => {
           await createDb(binding, { session: 'first-primary' }).select().from(profile),
         ).toEqual([{ id: 1, name: 'Alice' }]);
 
-        // Control: a carried bookmark also avoids it. The cast deliberately bypasses
-        // today's public type restriction; db-session.typecheck.ts records that gap.
-        expect(
-          await createDb(binding, { session: bookmark as D1SessionConstraint })
-            .select()
-            .from(profile),
-        ).toEqual([{ id: 1, name: 'Alice' }]);
+        // Explicit clients accept the same carried bookmark without casts.
+        const explicit = createDb(binding, { session: bookmark! });
+        expect(getBookmark(explicit)).toBe(AFTER_SAVE);
+        expect(await explicit.select().from(profile)).toEqual([{ id: 1, name: 'Alice' }]);
         expect(withSession).toHaveBeenLastCalledWith(AFTER_SAVE);
 
         // Neither control secretly caught up the stale replica.
@@ -166,4 +185,102 @@ describe('D1 cross-request bookmark reproduction (#783)', () => {
     },
     30_000,
   );
+});
+
+describe.each(clients)('$module / $bindingName session lifecycle', (testCase) => {
+  async function loadClient() {
+    return testCase.module === 'runtime' ? runtimeDb : loadGeneratedDb(testCase.bindingName);
+  }
+
+  function mockBinding() {
+    const withSession = vi.fn((start: string) => ({
+      getBookmark: () => (start === 'first-unconstrained' ? null : start),
+    }));
+    return { withSession, env: { [testCase.bindingName]: { withSession } } };
+  }
+
+  it('does not open a D1 session when middleware configures or inspects an unused db', async () => {
+    const { db, getBookmark, setSession } = await loadClient();
+    const { withSession, env } = mockBinding();
+    withRuntimeEnv(env, () => {
+      expect(getBookmark()).toBeNull();
+      expect(getBookmark(db)).toBeNull();
+      setSession(AFTER_SAVE);
+      expect(getBookmark()).toBeNull();
+    });
+    expect(withSession).not.toHaveBeenCalled();
+    expect(withRuntimeEnv(env, getBookmark)).toBeNull();
+  });
+
+  it('rejects reconfiguration after db is used and keeps the original session', async () => {
+    const { db, getBookmark, setSession } = await loadClient();
+    const { withSession, env } = mockBinding();
+    withRuntimeEnv(env, () => {
+      setSession(AFTER_SAVE);
+      void db.select();
+      expect(() => setSession(BEFORE_SAVE)).toThrow('before the first use of db');
+      expect(getBookmark()).toBe(AFTER_SAVE);
+      expect(getBookmark(db)).toBe(AFTER_SAVE);
+    });
+    expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
+  });
+
+  it('keeps overlapping requests and explicit clients independent', async () => {
+    const { db, createDb, getBookmark, setSession } = await loadClient();
+    const { withSession, env } = mockBinding();
+    let resume!: () => void;
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    const first = withRuntimeEnv(env, async () => {
+      setSession(AFTER_SAVE);
+      void db.select();
+      await resumed;
+      expect(getBookmark()).toBe(AFTER_SAVE);
+      expect(() => setSession(BEFORE_SAVE)).toThrow('before the first use of db');
+    });
+    try {
+      await withRuntimeEnv(env, async () => {
+        setSession(BEFORE_SAVE);
+        const explicit = createDb(env[testCase.bindingName] as unknown as D1Database, {
+          session: AFTER_SAVE,
+        });
+        await Promise.resolve();
+        expect(getBookmark(explicit)).toBe(AFTER_SAVE);
+        expect(getBookmark()).toBeNull();
+        void db.select();
+        expect(getBookmark()).toBe(BEFORE_SAVE);
+      });
+    } finally {
+      resume();
+      await first;
+    }
+    withRuntimeEnv(env, () => {
+      expect(getBookmark()).toBeNull();
+      void db.select();
+      expect(getBookmark()).toBeNull();
+    });
+    expect(withSession.mock.calls.map(([start]) => start)).toEqual([
+      AFTER_SAVE,
+      AFTER_SAVE,
+      BEFORE_SAVE,
+      'first-unconstrained',
+    ]);
+  });
+
+  it('requires a Void request scope for the default-session middleware helpers', async () => {
+    const { getBookmark, setSession } = await loadClient();
+    expect(() => setSession(AFTER_SAVE)).toThrow('outside a runtime handler');
+    expect(() => getBookmark()).toThrow('outside a runtime handler');
+  });
+
+  it('reads an explicit client bookmark without a Void request scope', async () => {
+    const { createDb, getBookmark } = await loadClient();
+    const { withSession, env } = mockBinding();
+    const client = createDb(env[testCase.bindingName] as unknown as D1Database, {
+      session: AFTER_SAVE,
+    });
+    expect(getBookmark(client)).toBe(AFTER_SAVE);
+    expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
+  });
 });

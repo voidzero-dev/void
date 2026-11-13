@@ -183,6 +183,10 @@ export function drizzle(config) {
     /^import \{ ((?:getRuntimeBinding|getRuntimeRequestResource|requireRuntimeBinding)[^}]*) \} from .*;$/m,
     (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
   );
+  code = code.replace(
+    /^import \{ createD1SessionAccess \} from .*;$/m,
+    `import { createD1SessionAccess } from ${JSON.stringify(new URL('../../src/runtime/db-session.ts', import.meta.url).href)};`,
+  );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
   writeFileSync(
     join(root, 'harness.mjs'),
@@ -425,7 +429,9 @@ describe('drizzlePlugin db typing generation', () => {
 
     const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
     expect(dts).toContain('import type { DrizzleD1Database } from "void/_db";');
-    expect(dts).toContain('options?: { session?: D1SessionConstraint }');
+    expect(dts).toContain('options?: { session?: D1SessionConstraint | D1SessionBookmark }');
+    expect(dts).toContain('export declare function setSession(');
+    expect(dts).toContain('export declare function getBookmark(');
     expect(dts).toContain('): DrizzleD1Database<Schema>;');
     expect(dts).not.toContain('void/_db-pg');
   });
@@ -901,8 +907,8 @@ export const requestPoolOptions = (env) =>
     expect(resolved).toBe('\0virtual:void-db');
 
     const code = load.call({}, '\0virtual:void-db');
-    expect(code).toContain('requireRuntimeBinding("myapp_db")');
-    expect(code).not.toContain('requireRuntimeBinding("DB")');
+    expect(code).toContain('createD1SessionAccess("myapp_db")');
+    expect(code).not.toContain('createD1SessionAccess("DB")');
   });
 
   it('can keep void/db off tsconfig paths for metaframeworks that materialize aliases', () => {
