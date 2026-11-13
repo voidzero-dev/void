@@ -13,6 +13,7 @@
     "./proxy-token": "./src/proxy-token.ts"
   },
   "scripts": {
+    "check:ai-logging": "node scripts/check-ai-logging.ts",
     "db:generate": "drizzle-kit generate",
     "deploy": "node ../../scripts/wrangler-deploy.ts",
     "deploy:github-webhook-ingress": "node ../../scripts/wrangler-deploy.ts --config wrangler.github-webhook-ingress.jsonc",

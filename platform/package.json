@@ -5,7 +5,7 @@
   "scripts": {
     "build": "vp run --filter @voidcloud/dashboard build",
     "check": "vp run -r --parallel typecheck",
-    "deploy": "node scripts/wrangler-deploy.ts --preflight --env production && vp run deploy:proxy && vp run deploy:email-gateway && vp run deploy:tail && vp run deploy:dispatch && vp run deploy:api && vp run deploy:dashboard",
+    "deploy": "node scripts/wrangler-deploy.ts --preflight --env production && vp run --filter @voidcloud/api check:ai-logging && vp run deploy:proxy && vp run deploy:email-gateway && vp run deploy:tail && vp run deploy:dispatch && vp run deploy:api && vp run deploy:dashboard",
     "deploy:api": "node scripts/wrangler-deploy.ts --preflight --env production && vp run --filter @voidcloud/api migrate && vp run --filter @voidcloud/api deploy --env production",
     "deploy:dashboard": "vp run --filter @voidcloud/dashboard deploy --env production",
     "deploy:dispatch": "vp run --filter @voidcloud/dispatch deploy --env production",
