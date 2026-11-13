@@ -1,5 +1,4 @@
-import type { RenderInput } from 'takumi-js';
-import { ImageResponse, type RenderImageOptions } from './image.ts';
+import { ImageResponse, type ImageInput, type RenderImageOptions } from './image.ts';
 
 const DEFAULT_WIDTH = 1200;
 const DEFAULT_HEIGHT = 630;
@@ -17,7 +16,7 @@ export interface OgImageResponseOptions extends ResponseInit, RenderOgImageOptio
 
 /** An image response that renders a 1200×630 PNG by default. */
 export class OgImageResponse extends ImageResponse {
-  constructor(element: RenderInput, options: OgImageResponseOptions = {}) {
+  constructor(element: ImageInput, options: OgImageResponseOptions = {}) {
     super(element, {
       ...options,
       width: options.width ?? DEFAULT_WIDTH,

@@ -46,20 +46,24 @@ export const GET = defineHandler(() => {
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
 ```
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, pass an HTML string instead, as shown below. JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
+JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown below. JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
 
 ### Without React
 
-Pass an HTML string instead of JSX:
+Use the [`html` template tag from `void/html`](../reference/api/html.md) instead of JSX. It escapes dynamic text automatically (plain strings are not accepted):
 
 ```ts
 // routes/favicon.png.ts
+
 import { defineHandler } from 'void';
+import { html } from 'void/html';
 import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler(() => {
   return new ImageResponse(
-    `<div style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 12px; font-size: 48px; font-weight: 700; background: #0f172a; color: white">
+    html`<div
+      style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 12px; font-size: 48px; font-weight: 700; background: #0f172a; color: white"
+    >
       V
     </div>`,
     { width: 64, height: 64 },
@@ -67,7 +71,7 @@ export const GET = defineHandler(() => {
 });
 ```
 
-Escape any dynamic values you insert into the HTML.
+Both `ImageResponse` and `OgImageResponse` accept nested and asynchronous `html` templates without an extra `await`. Import `ImageInput` from `void/image` to type reusable image content.
 
 ## Options
 
@@ -103,7 +107,10 @@ Text uses bundled Inter by default. It supports Latin, extended Latin, Cyrillic,
 To use Takumi's built-in Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
 
 ```ts
-return new ImageResponse('<div style="display: flex">Built with Void</div>', {
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
   width: 800,
   height: 400,
   defaultFont: 'Geist',
@@ -119,7 +126,10 @@ When the text includes characters the default font cannot draw, such as Japanese
 Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text:
 
 ```ts
-return new ImageResponse('<div lang="zh-TW" style="display: flex">台灣咖啡</div>', {
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+return new ImageResponse(html`<div lang="zh-TW" style="display: flex">台灣咖啡</div>`, {
   width: 800,
   height: 400,
 });
@@ -130,7 +140,10 @@ One style applies to all Chinese characters in an image, so an image cannot mix 
 To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data:
 
 ```ts
-return new ImageResponse('<div style="display: flex">Built with Void</div>', {
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
   width: 800,
   height: 400,
   fonts: [
@@ -146,12 +159,15 @@ Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entr
 
 ### Control font downloads
 
-Each server keeps the fonts it downloads in memory until it restarts. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render. 
+Each server keeps the fonts it downloads in memory until it restarts. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render.
 
 To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor the selected default font can draw are drawn as boxes:
 
 ```ts
-return new ImageResponse('<div style="display: flex">こんにちは</div>', {
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+return new ImageResponse(html`<div style="display: flex">こんにちは</div>`, {
   width: 800,
   height: 400,
   fonts: [{ name: 'Noto Sans JP', data: notoSansJp }],

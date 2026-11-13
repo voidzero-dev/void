@@ -116,13 +116,15 @@ async function run(command, args, cwd, env = environment) {
   }
 }
 
-const packedOgRoute = `import { OgImageResponse } from 'void/og';
+const packedOgRoute = `import { html } from 'void/html';
+import { OgImageResponse } from 'void/og';
 import { defineHandler } from 'void';
-export const GET = defineHandler((c) => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed OG Привет Ελληνικά Łódź</div>', { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
+export const GET = defineHandler((c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${Promise.resolve('Packed <OG> Привет Ελληνικά Łódź')}</div>\`, { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
-const packedImageRoute = `import { ImageResponse } from 'void/image';
+const packedImageRoute = `import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
 import { defineHandler } from 'void';
-export const GET = defineHandler((c) => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed image Привет Ελληνικά Łódź</div>', { width: 600, height: 600, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
+export const GET = defineHandler((c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${'Packed <image> Привет Ελληνικά Łódź'}</div>\`, { width: 600, height: 600, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
 
 /** Fetches an image route and checks its PNG signature and dimensions. */

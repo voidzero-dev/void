@@ -3,19 +3,24 @@ import { fileURLToPath } from 'node:url';
 import { render } from 'takumi-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
+import { html, raw } from '../../src/runtime/html.ts';
 import { fallbackFonts, interFont } from '../../src/runtime/image-fonts.ts';
 import { interData } from '../../src/runtime/image-inter.ts';
-import { ImageResponse, type ImageResponseOptions } from '../../src/runtime/image.ts';
+import {
+  ImageResponse,
+  type ImageInput,
+  type ImageResponseOptions,
+} from '../../src/runtime/image.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
   const takumi = await importOriginal<typeof import('takumi-js')>();
   return { ...takumi, render: vi.fn(takumi.render) };
 });
 
-const card = '<div style="display:flex;width:100%;height:100%;background:#fff">Hello</div>';
+const card = html`<div style="display:flex;width:100%;height:100%;background:#fff">Hello</div>`;
 
-async function imageBytes(html: string, options: ImageResponseOptions) {
-  return new Uint8Array(await new ImageResponse(html, options).arrayBuffer());
+async function imageBytes(input: ImageInput, options: ImageResponseOptions) {
+  return new Uint8Array(await new ImageResponse(input, options).arrayBuffer());
 }
 
 async function expectPng(response: Response) {
@@ -104,11 +109,11 @@ describe('ImageResponse', () => {
       throw new Error('unexpected fetch');
     });
     for (const text of ['Тёплый чай · Свіжі булочки', 'Ελληνικά Ἑλλάς', 'Łódź ş µ → ★ ₹']) {
-      const html = `<div style="display:flex;font-size:30px">${text}</div>`;
+      const markup = html`<div style="display:flex;font-size:30px">${text}</div>`;
       const options = { width: 600, height: 80 };
-      const inter = await imageBytes(html, options);
+      const inter = await imageBytes(markup, options);
       expect(inter).not.toEqual(
-        await imageBytes(html, { ...options, defaultFont: 'Geist', fallbackFonts: false }),
+        await imageBytes(markup, { ...options, defaultFont: 'Geist', fallbackFonts: false }),
       );
     }
     expect(requests).toEqual([]);
@@ -127,7 +132,7 @@ describe('ImageResponse', () => {
     const images = await Promise.all(
       [400, 550, 700, 900].map((weight) =>
         new ImageResponse(
-          `<div style="display:flex;font-size:40px;font-weight:${weight}">Variable</div>`,
+          html`<div style="display:flex;font-size:40px;font-weight:${weight}">Variable</div>`,
           { width: 320, height: 80, fallbackFonts: false },
         ).arrayBuffer(),
       ),
@@ -136,12 +141,65 @@ describe('ImageResponse', () => {
     expect(interFont).not.toHaveProperty('weight');
   });
 
+  it.each([
+    ['synchronous', (value: string) => html`<div style="display:flex">${value}</div>`],
+    [
+      'asynchronous',
+      (value: string) => html`<div style="display:flex">${Promise.resolve(value)}</div>`,
+    ],
+    [
+      'nested',
+      (value: string) => html`<div style="display:flex">${html`<span>${value}</span>`}</div>`,
+    ],
+  ])('escapes interpolated markup in %s Hono templates', async (_name, template) => {
+    const title = '<img src="https://example.com/injected.png"> & "quotes" \'single\'';
+    vi.mocked(render).mockClear();
+    await expectPng(
+      new ImageResponse(template(title), { width: 320, height: 168, fallbackFonts: false }),
+    );
+    const node = vi.mocked(render).mock.lastCall![0];
+    expect(JSON.stringify(node)).toContain(JSON.stringify(title).slice(1, -1));
+    expect(JSON.stringify(node)).not.toContain('"type":"image"');
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '<div>Hello</div>',
+    Promise.resolve('<div>Hello</div>'),
+    new String('<div>Hello</div>'),
+  ])('rejects unmarked strings rather than rendering HTML: %s', async (input) => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(render).mockClear();
+    const response = new ImageResponse(input as never, { width: 320, height: 168 });
+    await expect(response.arrayBuffer()).rejects.toThrow(
+      'Use the html template tag from void/html instead of a plain string.',
+    );
+    expect(render).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('renders Takumi node trees', async () => {
+    const node = { type: 'text', text: 'Hello' } as const;
+    await expectPng(new ImageResponse(node, { width: 320, height: 168 }));
+    expect(vi.mocked(render).mock.lastCall![0]).toMatchObject(node);
+  });
+
   it('renders a PNG response', async () => {
     const response = new ImageResponse(card, { width: 320, height: 168 });
     expect(response).toBeInstanceOf(Response);
     expect(response.status).toBe(200);
     expect(response.headers.get('content-type')).toBe('image/png');
     await expectPng(response);
+  });
+
+  it('renders explicitly trusted raw HTML', async () => {
+    await expectPng(
+      new ImageResponse(raw('<div style="display:flex">Hello</div>'), {
+        width: 320,
+        height: 168,
+      }),
+    );
+    expect(JSON.stringify(vi.mocked(render).mock.lastCall![0])).toContain('Hello');
   });
 
   it('renders React-style elements and runs each function component once', async () => {
@@ -227,12 +285,16 @@ describe('ImageResponse', () => {
   });
 
   it('applies a style element in the markup', async () => {
+    const css = '.card { background: #000 }';
     const response = new ImageResponse(
-      '<style>.card { background: #000 }</style><div class="card" style="display:flex">Hi</div>',
+      html`<style>
+          ${css}
+        </style>
+        <div class="card" style="display:flex">Hi</div>`,
       { width: 320, height: 168 },
     );
     await expectPng(response);
-    expect(vi.mocked(render).mock.lastCall![1]!.css).toEqual(['.card { background: #000 }']);
+    expect(vi.mocked(render).mock.lastCall![1]!.css).toEqual([expect.stringContaining(css)]);
   });
 
   it('keys a font by its bytes, so a font read for each request registers once', async () => {
@@ -292,7 +354,7 @@ describe('ImageResponse fallback fonts', () => {
   it('requests no font for text the built-in font draws', async () => {
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     await new ImageResponse(card, { width: 320, height: 168 }).arrayBuffer();
-    await new ImageResponse('<div style="display:flex">C++ © 2026 “quotes” — … • ™ €</div>', {
+    await new ImageResponse(html`<div style="display:flex">C++ © 2026 “quotes” — … • ™ €</div>`, {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -316,7 +378,7 @@ describe('ImageResponse fallback fonts', () => {
         ? new Response(NOTO_SANS_JP_CSS, { headers: { 'content-type': 'text/css' } })
         : new Response(null, { status: 404 }),
     );
-    const response = new ImageResponse('<div style="display:flex">Hello こんにちは日本</div>', {
+    const response = new ImageResponse(html`<div style="display:flex">Hello こんにちは日本</div>`, {
       width: 320,
       height: 168,
     });
@@ -340,7 +402,7 @@ describe('ImageResponse fallback fonts', () => {
   it("uses Geist's own subsets for letters the built-in Geist lacks", async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">Łódź 5µs</div>', {
+    await new ImageResponse(html`<div style="display:flex">Łódź 5µs</div>`, {
       width: 320,
       height: 168,
       defaultFont: 'Geist',
@@ -352,7 +414,7 @@ describe('ImageResponse fallback fonts', () => {
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     vi.mocked(render).mockClear();
     const data = new Uint8Array([1, 2, 3]);
-    await new ImageResponse('<div style="display:flex">日本語 ★ Łódź</div>', {
+    await new ImageResponse(html`<div style="display:flex">日本語 ★ Łódź</div>`, {
       width: 320,
       height: 168,
       fonts: [{ name: 'App', data }],
@@ -368,7 +430,7 @@ describe('ImageResponse fallback fonts', () => {
   it('asks each family for only the characters it draws', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">本日 ♜ 日本語 ♜</div>', {
+    await new ImageResponse(html`<div style="display:flex">本日 ♜ 日本語 ♜</div>`, {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -388,7 +450,7 @@ describe('ImageResponse fallback fonts', () => {
   it('combines missing Cyrillic and unmatched Greek in the same Noto Sans request', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await imageBytes('<div>Ꙁ Ϡ</div>', { width: 320, height: 168 });
+    await imageBytes(html`<div>Ꙁ Ϡ</div>`, { width: 320, height: 168 });
     expect(requests).toHaveLength(1);
     const url = new URL(requests[0]!);
     expect(url.searchParams.getAll('family')).toEqual(['Noto Sans:wght@100..900']);
@@ -398,7 +460,7 @@ describe('ImageResponse fallback fonts', () => {
   it('asks the Korean family for both Han and Hangul in Korean text', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">中文・한국어</div>', {
+    await new ImageResponse(html`<div style="display:flex">中文・한국어</div>`, {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -414,7 +476,7 @@ describe('ImageResponse fallback fonts', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
     const kanji = Array.from({ length: 700 }, (_, i) => String.fromCodePoint(0x4e00 + i)).join('');
-    await new ImageResponse(`<div style="display:flex">${kanji}</div>`, {
+    await new ImageResponse(html`<div style="display:flex">${kanji}</div>`, {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -426,7 +488,7 @@ describe('ImageResponse fallback fonts', () => {
   it('draws the marks ・ and ー with the Japanese family', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">東京・ラーメン</div>', {
+    await new ImageResponse(html`<div style="display:flex">東京・ラーメン</div>`, {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -451,7 +513,7 @@ describe('ImageResponse fallback fonts', () => {
       );
     });
     vi.mocked(render).mockClear();
-    await new ImageResponse('<div style="display:flex;font-weight:700">日 → B</div>', {
+    await new ImageResponse(html`<div style="display:flex;font-weight:700">日 → B</div>`, {
       width: 320,
       height: 168,
       defaultFont: 'Geist',
@@ -481,7 +543,7 @@ describe('ImageResponse fallback fonts', () => {
           )
         : new Response(null, { status: 404 }),
     );
-    await new ImageResponse('<div style="display:flex">A → B</div>', {
+    await new ImageResponse(html`<div style="display:flex">A → B</div>`, {
       width: 320,
       height: 168,
       defaultFont: 'Geist',
@@ -537,38 +599,38 @@ describe('ImageResponse fallback fonts', () => {
   it('draws Han text as Japanese unless lang says otherwise', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    const family = async (html: string, lang?: string) => {
+    const family = async (element: ImageInput, lang?: string) => {
       requests.length = 0;
-      await new ImageResponse(html, { width: 320, height: 168, lang }).arrayBuffer();
+      await new ImageResponse(element, { width: 320, height: 168, lang }).arrayBuffer();
       return new URL(requests[0]!).searchParams.getAll('family');
     };
-    expect(await family('<div style="display:flex">東京都</div>')).toEqual([
+    expect(await family(html`<div style="display:flex">東京都</div>`)).toEqual([
       'Noto Sans JP:wght@100..900',
     ]);
-    expect(await family('<div style="display:flex">東京都</div>', 'zh-TW')).toEqual([
+    expect(await family(html`<div style="display:flex">東京都</div>`, 'zh-TW')).toEqual([
       'Noto Sans TC:wght@100..900',
     ]);
-    expect(await family('<div lang="zh" style="display:flex">东京都</div>')).toEqual([
+    expect(await family(html`<div lang="zh" style="display:flex">东京都</div>`)).toEqual([
       'Noto Sans SC:wght@100..900',
     ]);
-    expect(await family('<div style="display:flex">漢字 한국어</div>')).toEqual([
+    expect(await family(html`<div style="display:flex">漢字 한국어</div>`)).toEqual([
       'Noto Sans KR:wght@100..900',
     ]);
     // Kana alone marks Japanese only when no `lang` names the language.
-    expect(await family('<div style="display:flex">東京タワー</div>')).toEqual([
+    expect(await family(html`<div style="display:flex">東京タワー</div>`)).toEqual([
       'Noto Sans JP:wght@100..900',
     ]);
-    expect(await family('<div lang="zh-TW" style="display:flex">東京タワー</div>')).toEqual([
+    expect(await family(html`<div lang="zh-TW" style="display:flex">東京タワー</div>`)).toEqual([
       'Noto Sans TC:wght@100..900',
     ]);
-    expect(await family('<div style="display:flex">咖啡コーヒー</div>', 'zh-CN')).toEqual([
+    expect(await family(html`<div style="display:flex">咖啡コーヒー</div>`, 'zh-CN')).toEqual([
       'Noto Sans SC:wght@100..900',
     ]);
   });
 
   it('draws emoji as images, fetched once per isolate, without a font', async () => {
     const requests = stubFetch(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"/>'));
-    const emoji = '<div style="display:flex">🪩</div>';
+    const emoji = html`<div style="display:flex">🪩</div>`;
     await expectPng(new ImageResponse(emoji, { width: 320, height: 168 }));
     expect(requests).toHaveLength(1);
     expect(requests[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/.*\.svg$/);
@@ -579,7 +641,7 @@ describe('ImageResponse fallback fonts', () => {
   it('fails on an emoji that cannot download, unless told to leave it out', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     stubFetch(() => new Response(null, { status: 404 }));
-    const emoji = '<div style="display:flex">🪅</div>';
+    const emoji = html`<div style="display:flex">🪅</div>`;
     await expect(
       new ImageResponse(emoji, { width: 320, height: 168 }).arrayBuffer(),
     ).rejects.toThrow();
@@ -600,7 +662,7 @@ describe('ImageResponse fallback fonts', () => {
           })
         : new Response(null, { status: 404 }),
     );
-    await new ImageResponse('<div style="display:flex">A → B ★ ₹ 🎉</div>', {
+    await new ImageResponse(html`<div style="display:flex">A → B ★ ₹ 🎉</div>`, {
       width: 320,
       height: 168,
       defaultFont: 'Geist',
@@ -648,7 +710,7 @@ describe('ImageResponse fallback fonts', () => {
       return new Uint8Array();
     });
     try {
-      await new ImageResponse('<div style="display:flex">日本 ♜</div>', {
+      await new ImageResponse(html`<div style="display:flex">日本 ♜</div>`, {
         width: 320,
         height: 168,
       }).arrayBuffer();
@@ -676,7 +738,7 @@ describe('ImageResponse fallback fonts', () => {
     stubFetch(() => {
       throw new TypeError('fetch failed');
     });
-    const response = new ImageResponse('<div style="display:flex">안녕하세요</div>', {
+    const response = new ImageResponse(html`<div style="display:flex">안녕하세요</div>`, {
       width: 320,
       height: 168,
     });

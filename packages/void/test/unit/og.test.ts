@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
+import { html } from '../../src/runtime/html.ts';
 import { ImageResponse } from '../../src/runtime/image.ts';
 import { OgImageResponse } from '../../src/runtime/og.ts';
 
-const card = '<div style="display:flex">Hello</div>';
+const card = html`<div style="display:flex">Hello</div>`;
 
 describe('OgImageResponse', () => {
   it('inherits Inter by default and allows the built-in Geist', async () => {
@@ -21,6 +22,24 @@ describe('OgImageResponse', () => {
         }).arrayBuffer(),
       ),
     );
+  });
+
+  it('rejects plain strings', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const response = new OgImageResponse('<div>Hello</div>' as never);
+      await expect(response.arrayBuffer()).rejects.toThrow(
+        'Use the html template tag from void/html instead of a plain string.',
+      );
+    } finally {
+      error.mockRestore();
+    }
+  });
+
+  it('renders asynchronous Hono templates', async () => {
+    const response = new OgImageResponse(html`<div>${Promise.resolve('Hello')}</div>`);
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    expect([...bytes.subarray(0, 8)]).toEqual([137, 80, 78, 71, 13, 10, 26, 10]);
   });
 
   it('extends ImageResponse', async () => {

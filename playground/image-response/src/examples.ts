@@ -47,7 +47,7 @@ export const examples: Array<Example> = [
     title: 'HTML with request input',
     description: 'Framework-independent markup with an escaped title from the query string.',
     file: 'routes/og/html.ts',
-    code: 'new ImageResponse(`<div …>${escapeHtml(title)}</div>`);',
+    code: 'new ImageResponse(html`<div …>${title}</div>`);',
     checks: [
       'The title appears literally, including <b>, &, and quotes; it must not become markup.',
       'Edit the title, then leave the field or press Enter. A long title should wrap without leaving the card.',

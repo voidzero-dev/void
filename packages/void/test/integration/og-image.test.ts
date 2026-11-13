@@ -20,8 +20,9 @@ const CACHE_HEADER = 'public, max-age=0, must-revalidate';
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
-const OG_ROUTE = `import { OgImageResponse } from 'void/og';
-export const GET = (c) => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello Привет Ελληνικά Łódź</div>', { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
+const OG_ROUTE = `import { html } from 'void/html';
+import { OgImageResponse } from 'void/og';
+export const GET = (c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { OgImageResponse } from 'void/og';
@@ -49,7 +50,11 @@ function createApp(
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'test-og-'));
   fixtures.push(root);
-  const packages = { 'vite-plus': 'node_modules/vite-plus', void: 'packages/void', ...links };
+  const packages = {
+    'vite-plus': 'node_modules/vite-plus',
+    void: 'packages/void',
+    ...links,
+  };
   for (const [name, source] of Object.entries(packages)) {
     mkdirSync(dirname(join(root, 'node_modules', name)), { recursive: true });
     symlinkSync(

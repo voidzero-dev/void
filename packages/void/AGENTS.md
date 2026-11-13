@@ -161,6 +161,13 @@ Vite/CLI dependency graph.
 width and height. `void/og` exports `OgImageResponse`, which extends it with
 standard sizes. Keep `ImageResponseOptions` declared in `image.ts` and map each option to Takumi:
 passing Takumi's options through would let a Takumi upgrade change the API.
+`void/html` re-exports `html`, `raw`, and the `HtmlEscapedString` type from Hono.
+`raw` is an explicit escaping bypass for trusted markup only.
+Keep it independent of the image renderer, and recommend `void/html` in examples.
+Both image constructors use `ImageInput`: JSX elements, Takumi nodes, or
+`HtmlEscapedString` (including promises). Never accept plain strings or reuse
+Takumi's `RenderInput`, whose React types also admit strings. Check Hono's
+`isEscaped` marker before converting its boxed string for `fromHtml`.
 On Node.js, Bun and Deno, `nodeTargetPlugin` selects WASM for Void's Takumi,
 bundles its bindings, and emits the binary as an SSR asset. Keep SSR asset
 emission enabled and resolve the binary relative to its emitted chunk, not

@@ -80,6 +80,11 @@
       "import": "./dist/runtime/response.mjs",
       "require": "./dist/runtime/response.mjs"
     },
+    "./html": {
+      "types": "./dist/runtime/html.d.mts",
+      "import": "./dist/runtime/html.mjs",
+      "require": "./dist/runtime/html.mjs"
+    },
     "./auth": {
       "types": "./dist/runtime/auth.d.mts",
       "import": "./dist/runtime/auth.mjs",

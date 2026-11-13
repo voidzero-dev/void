@@ -42,6 +42,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Initial setup, onboarding, first app       | `docs/guide/quickstart.md`, `docs/reference/cli/setup.md`                                 |
 | App type detection and mode behavior       | `docs/guide/app-types.md`, `docs/reference/config.md`                                     |
 | Server/API routing and middleware          | `docs/guide/server-routing.md`, `docs/integrations/hono.md`                               |
+| HTML templates (`void/html`)               | `docs/reference/api/html.md`                                                              |
 | Pages mode, loader/action, forms, layouts  | `docs/guide/pages-routing/*.md`, `docs/guide/type-safety.md`                              |
 | Database and migrations                    | `docs/guide/database.md`, `docs/guide/type-safety.md`                                     |
 | Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`                                  |
