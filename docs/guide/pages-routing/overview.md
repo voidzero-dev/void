@@ -154,7 +154,7 @@ Render and prerender flags combine like this:
 | Island page + `ssr = false`            | Invalid. Island pages already use the island renderer.                    |
 | `output: "static"` + `prerender` unset | Auto-prerender pages that have known paths, including client-only shells. |
 
-Write `ssr` and `prerender` as `true` or `false` with `export const` in the `.server.ts` file itself. Void reads them without running the file, so it ignores a computed or re-exported value and prints a warning.
+Export `ssr` and `prerender` directly from `.server.ts` as `true` or `false`. Computed values and re-exports are ignored with a warning.
 
 ### Typed navigation
 
@@ -202,7 +202,7 @@ import { routeUrl } from 'void/routes';
 
 :::
 
-With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), which apps created with `void init` have on, `href` and the router methods below reject plain strings such as `"/user"` that don't match a route.
+Enable [`routing.typedRoutes`](../type-safety.md#checked-url-strings) to catch misspelled URLs in links and router calls. Apps created with `void init` already have it enabled.
 
 `Link` also supports query data, history replacement, full-page navigation, and cancellation:
 
@@ -308,7 +308,7 @@ import { Link } from '@void/solid';
 
 `prefetch` and `reloadDocument` work only with GET links. GET `data` becomes query parameters; use scalar values or arrays.
 
-If a deployment changes Void's page-data format, already-open tabs reload on their next page navigation to load the matching client.
+After an update that changes the page-data format, open tabs reload on their next navigation.
 
 For programmatic navigation, use `useRouter()`. Pass a typed destination object to `visit()`, `prefetch()`, or `flush()`:
 
@@ -443,7 +443,7 @@ A link is active only on its own path by default. Set `activeMatch="prefix"` to 
 
 `aria-current="page"` marks only the exact page, so select `[aria-current="page"]` to style it differently from its section. A link to `/` is active only on the home page.
 
-A link without a query ignores the current query, as `/users?page=2` shows above. A link with a query is active only when the current URL has each of its params with the same value. The current URL can have other params, in any order, and a GET link's `data` counts as part of its query. Pagination links to other pages are not marked, while a filter tab stays active as you page through it:
+Query parameters let you distinguish pagination links from filter tabs. A link is active when the current URL contains all of its query parameters with the same values. Extra parameters and their order don't matter, and a GET link's `data` counts as part of its query:
 
 | Current URL                  | Link                           | Active          |
 | ---------------------------- | ------------------------------ | --------------- |
@@ -454,7 +454,9 @@ A link without a query ignores the current query, as `/users?page=2` shows above
 
 On nested pages, `activeMatch="prefix"` compares only the path, so `href="/reports?range=30d"` has `data-void-active` on `/reports/42`.
 
-Paths match the way pages are routed: letter case and trailing slashes count. The hash is ignored. Links to other origins and non-GET links are never active. An `aria-current` or `data-void-active` you pass to `Link` replaces the computed value. Pass them yourself on a link that stands for a default value, such as an "All" tab at `/issues`, or a `?page=1` link when page 1 is `/posts`.
+Paths are case-sensitive and respect trailing slashes; hashes are ignored. External and non-GET links are never active.
+
+To mark a default filter such as an "All" tab, set `aria-current` or `data-void-active` yourself. Your value overrides the computed one.
 
 ### Pending links
 
@@ -468,32 +470,23 @@ a[data-void-pending] {
 }
 ```
 
-A link is pending only while its exact destination loads. The path, query and hash must all match, so a link to `/users?page=2` isn't pending while `/users?page=3` loads. A non-GET link, which renders a `<button>`, is pending while a request with its method to its `href` runs. `router.refresh()` reloads the current page, so links to it are pending during a refresh.
+A pending link matches the destination's path, query, and hash. A link to `/users?page=2` won't show as pending while page 3 loads. Non-GET links also match the request method. During `router.refresh()`, links to the current page are pending.
 
 A `data-void-pending` you pass to `Link` replaces the computed value. For a loading indicator that covers the whole page, use [`useNavigation()`](../../reference/api/pages.md).
 
 ### Prefetching
 
-Add `prefetch` to a `Link` to load its page before the user clicks, so the visit doesn't wait for the server:
+Add `prefetch` to a `Link` to load its page before the user clicks. This markup works in all four adapters:
 
-```tsx
-<Link href="/dashboard" prefetch>
-  Dashboard
-</Link>
+```html
+<Link href="/dashboard" prefetch>Dashboard</Link>
 ```
 
-`prefetch` on its own loads the page on hover, keyboard focus, or touch. A `Link` can also prefetch on click, as soon as it renders, or once it stays in view, and `cacheFor` sets how long a prefetched page is reused. See [Prefetching](../../reference/api/pages.md#prefetching) for every option.
+The page loads on hover, keyboard focus, or touch. The next visit can use the cached data. Use `cacheFor` to choose how long to reuse it.
 
-To give every `Link` a prefetch strategy, set `prefetch.defaultStrategy` in the adapter plugin. A `Link` that sets its own `prefetch` keeps it:
+For an app-wide default, set `prefetch.defaultStrategy` in your [adapter plugin](../../reference/api/pages.md#prefetching). A link's own `prefetch` value overrides it. Prefer `'hover'` or `'click'`; `'mount'` and `'visible'` can load many pages in a long list.
 
-```ts
-// vite.config.ts
-voidReact({ prefetch: { defaultStrategy: 'hover' } });
-```
-
-Prefer `'hover'` or `'click'` as the default. With `'mount'` or `'visible'`, every `Link` loads its page once it renders or stays in view, which adds up in long lists.
-
-`Link` doesn't prefetch while the browser reports that data saver is on or the connection is 2G, which only Chromium-based browsers report.
+`Link` skips prefetching when the browser reports data saver or a 2G connection. Only Chromium-based browsers report these settings. See [Prefetching](../../reference/api/pages.md#prefetching) for all strategies and cache options.
 
 Prefetching runs the destination's loader, so keep loaders free of side effects such as counting views.
 

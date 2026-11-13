@@ -21,16 +21,18 @@ Keep one password-manager entry for this platform. Paste the saved values into t
 
 ## Cloudflare API Tokens {#runtime-token-permissions}
 
-For a domain installation or Cloudflare Access setup, the installer guides you through creating tokens using Cloudflare's [API token setup](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/): a runtime token, and a separate management token when the installation creates the zone or its wildcard DNS record, or sets up Access. Its links preselect the permissions and suggest names based on your platform's display name, but Cloudflare's form cannot preselect a zone: for a domain installation, change the zone policy from **All Domains** to **Specified Domains** and select your zone. If Void will create the zone, keep **All Domains** on both tokens: the zone does not exist yet, and the runtime token needs it to purge cache. Save the tokens in your password manager and paste them into the masked CLI prompts.
+Follow the installer's [token-creation links](https://developers.cloudflare.com/fundamentals/api/get-started/create-token/) to create a runtime token. Void also asks for a separate management token when it creates a zone, adds wildcard DNS, or configures Access. The links select the permissions and suggest names based on your platform's name.
 
-For workers.dev testing with the default API hostname, browser login can authorize
-infrastructure setup. So can a domain installation on an existing zone whose
-`*.<application domain>` record is already proxied. Void also checks account-wide
-Access requirements; if the current credential cannot read them, the installer
-asks for a scoped Access token.
-Protected apps and public apps under Default-Deny need an ongoing app-management
-token, stored encrypted. Access setup requires a management token even on
-workers.dev. Skip zone permissions until you add a domain.
+For a domain installation, choose the zone scope in Cloudflare's form:
+
+- **Existing zone:** change **All Domains** to **Specified Domains** and select your zone.
+- **New zone:** keep **All Domains** on both tokens. The zone doesn't exist yet, and the runtime token will need cache-purge access to it.
+
+Save the tokens in your password manager and paste them into the masked CLI prompts.
+
+Browser login can authorize workers.dev setup with the default API hostname. It also works for a domain installation with an existing proxied `*.<application domain>` record. If Void cannot read the account's Access requirements, it asks for a scoped Access token.
+
+Configuring Access requires a management token, including on workers.dev. Protected apps and public apps under Default-Deny also need an ongoing app-management token, which Void stores encrypted. Skip zone permissions until you add a domain.
 
 Browser login does not grant AI Gateway access. Include **Account → AI Gateway → Edit** on the runtime token so Void can verify and create that resource.
 

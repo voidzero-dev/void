@@ -37,7 +37,7 @@ import { createDb } from 'void/db';
 const db = createDb(env.MY_OTHER_DB);
 ```
 
-Pass `{ session: 'first-primary' }` to start the D1 session with a query on the primary, keeping your app's schema and query types. Create this client inside the request that needs a fresh read. The default is `'first-unconstrained'`, which allows the first query to use a replica. See [read replication](../../guide/database/d1.md#read-replication).
+For a fresh D1 read, pass `{ session: 'first-primary' }` and create the client inside the request. The default, `'first-unconstrained'`, allows the first query to use a replica. Both keep your schema and query types. See [Read replication](../../guide/database/d1.md#read-replication).
 
 For PostgreSQL and MySQL projects, pass a connection string.
 
@@ -73,7 +73,7 @@ import { db, eq, and, or, desc, like, inArray, sql } from 'void/db';
 
 **Full list:** `sql`, `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`, `desc`, `asc`, `like`, `ilike`, `notLike`, `inArray`, `notInArray`, `isNull`, `isNotNull`, `between`, `notBetween`, `exists`, `notExists`, `count`, `sum`, `avg`, `min`, `max`.
 
-It also exports the Drizzle types `SQL`, `SQLWrapper`, `AnyColumn`, and `BatchItem` for helpers that take part of a query:
+Use the exported Drizzle types `SQL`, `SQLWrapper`, `AnyColumn`, and `BatchItem` to type query helpers and batches:
 
 ```ts
 import { posts } from '@schema';

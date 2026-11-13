@@ -33,9 +33,11 @@ export default defineConfig({
 });
 ```
 
-`/posts/` is written to `posts/index.html`, and `/posts/hello/` to `posts/hello/index.html`. Pages URLs without the slash redirect to their trailing-slash URL in development and when served by Void. Use trailing slashes in your page links; generated route types follow this setting. API routes keep their existing URLs.
+Void writes `/posts/` to `posts/index.html` and `/posts/hello/` to `posts/hello/index.html`. Use trailing slashes in your links; generated route types follow this setting. In development and when served by Void, URLs without the slash redirect to it. API URLs stay the same.
 
-Omitting the option or setting it to `false` preserves the default `posts.html` output. Static builds keep `404.html` at the output root. On Cloudflare, use the default HTML handling or `force-trailing-slash`; `drop-trailing-slash` conflicts with this option. Third-party frameworks retain their own URL configuration.
+The default is `false`, which writes `posts.html`. The error page stays at `404.html` in either mode.
+
+On Cloudflare, use default HTML handling or `force-trailing-slash`, rather than `drop-trailing-slash`. Third-party frameworks use their own URL settings.
 
 ## Per-page overrides
 
@@ -46,7 +48,7 @@ Individual pages can opt out of prerendering:
 export const prerender = false;
 ```
 
-Dynamic pages with `getPrerenderPaths()` are prerendered for the returned param combinations. Annotate the return type with [`PageParams`](../reference/api/types.md#route-types) so TypeScript checks the param names. Void does not infer them from the filename:
+For dynamic pages, return the paths to render from `getPrerenderPaths()`. Annotate the return type with [`PageParams`](../reference/api/types.md#route-types) to check the parameter names:
 
 ```ts
 // pages/blog/[slug].server.ts
@@ -57,7 +59,9 @@ export async function getPrerenderPaths(): Promise<PageParams<'/blog/[slug]'>[]>
 }
 ```
 
-Each object must include every param in the page path. Values can be strings or numbers, and Void URL-encodes them. A single-segment param such as `[slug]` cannot contain `/`. For nested paths, use a catch-all page such as `pages/docs/[...slug]` and return `{ slug: 'guides/intro' }`. If an entry is invalid, the build fails. The error names the server file and the entry index.
+Return every required parameter as a string or number. Void URL-encodes the values. For a value containing `/`, use a catch-all page such as `pages/docs/[...slug]` with `{ slug: 'guides/intro' }`.
+
+TypeScript needs the annotation above to check the keys. Invalid entries stop the build with their server filename and index.
 
 ## 404 pages
 
@@ -80,8 +84,15 @@ With the default `output: "server"`, use `export const prerender = true` for dep
 
 `void deploy` chooses the deployment automatically:
 
-- **Fully static:** if every page is prerendered and there are no API routes, middleware, cron jobs, or queues, Void deploys the built files as a static site. With `--platform cloudflare`, pages and files are served without running a Worker. If you use [edge rules](./edge/headers.md) (`routing` headers, redirects, rewrites, fallbacks, or `alwaysUseHttps`) or a `_headers` or `_redirects` file in `public/`, a small Worker runs on every request to apply them.
-- **Hybrid:** if any pages are not prerenderable, such as dynamic pages without `getPrerenderPaths()` or pages with `export const prerender = false`, a Worker is deployed to handle those routes at runtime. With `--platform cloudflare`, prerendered pages without a `.server.ts` file are served as static files without running the Worker. API routes, pages with a `.server.ts` file, and dynamic pages run in the Worker. Every page runs through the Worker when the app uses middleware, auth, live updates, edge rules (including a `_headers` or `_redirects` file in `public/`), a custom Vite `base`, a `routing.notFound` setting other than `"none"`, or a dynamic page at the top level of `pages/`, such as `pages/[slug].vue`.
+- **Fully static:** every page is prerendered, with no API routes, middleware, cron jobs, or queues. Void deploys the built files as a static site.
+- **Hybrid:** some pages need server rendering, such as a dynamic page without `getPrerenderPaths()` or a page with `prerender = false`. Void deploys a Worker for those routes and serves prerendered pages as static assets.
+
+On direct Cloudflare deployments, static files can bypass the Worker:
+
+- Fully static apps serve files directly. [Edge rules](./edge/headers.md), including `_headers` or `_redirects` in `public/`, require a small Worker on every request.
+- Hybrid apps serve prerendered pages directly when they have no `.server.ts` companion. API routes, dynamic pages, and pages with server companions run in the Worker.
+
+Every page uses the Worker if the app has middleware, auth, live updates, edge rules, a custom Vite `base`, a `routing.notFound` value other than `"none"`, or a dynamic page at the root of `pages/`, such as `pages/[slug].vue`. With these settings, prerendered requests also run through the Worker.
 
 ## Relationship to `inference.appType: "static"`
 

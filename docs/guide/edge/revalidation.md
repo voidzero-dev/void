@@ -62,7 +62,7 @@ export const loader = defineHandler(async (c) => {
 });
 ```
 
-Use a whole-number literal such as `3600`. Void reads the value without running the file, so it ignores an expression such as `60 * 60` or a value re-exported from another module, and prints a warning.
+Use a whole number such as `3600` directly in the export. Expressions such as `60 * 60` and re-exports are ignored with a warning.
 
 Per-page values take precedence over `void.config.ts` patterns.
 
@@ -140,4 +140,4 @@ export const POST = defineHandler(async (c) => {
 });
 ```
 
-With [`routing.typedRoutes`](../../reference/config.md#routing-typedroutes) on, each path must match one of your routes. Cast a path that TypeScript can't check, such as one from a webhook payload, with `as RouteUrl` from `void/routes`. The cast turns the check off for that path.
+With [`routing.typedRoutes`](../../reference/config.md#routing-typedroutes), TypeScript checks each path against your routes. For a path you validate at runtime, use `as RouteUrl` from `void/routes` to skip the type check.

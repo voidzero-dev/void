@@ -164,9 +164,9 @@ This is useful for testing, embedding in Express/Fastify, or running in serverle
 
 ### Serving the client build from somewhere else
 
-By default, `app.js` serves the client build from `dist/client`, next to `dist/ssr`. To serve it from elsewhere, such as from inside a [single executable application](https://nodejs.org/api/single-executable-applications.html), pass an `ASSETS` object with a `fetch(request)` method in the env. Void then reads the client manifest, scripts, styles and `public/` files through it, and doesn't look for `dist/client`.
+To embed your app in a [single executable](https://nodejs.org/api/single-executable-applications.html), pass an `ASSETS` object with a `fetch(request)` method to `app.fetch()`. Void uses it for the client manifest, scripts, styles, and public files instead of reading `dist/client`.
 
-This server reads the client build from a single executable's assets, stored under their URL paths (`/.vite/manifest.json`, `/assets/…`, and `public/` files):
+For Node.js, store assets under their URL paths, including `/.vite/manifest.json`, `/assets/…`, and files copied from `public/`:
 
 ```ts
 import { getAsset } from 'node:sea';
@@ -194,9 +194,9 @@ const ASSETS = {
 serve({ fetch: (request, env) => app.fetch(request, { ...env, ASSETS }), port: 3000 });
 ```
 
-Keep the env the server passes in: on Node.js it carries the incoming request, which `getConnInfo()` reads.
+Keep the server's existing `env` values when adding `ASSETS`, so `getConnInfo()` can read the incoming request.
 
-With Bun, `bun build --compile` embeds a file only when the code imports it with `{ type: 'file' }`. Listing `dist/client` files as extra entry points doesn't work, because Bun bundles JavaScript entry points as code. Client file names change with every build, so write the imports into a module after `vite build`, one per file in `dist/client`:
+For Bun, import each client file with `{ type: 'file' }` so `bun build --compile` embeds it as an asset. Generate this module after each `vite build`, since filenames change with the build. Don't list client scripts as build entry points; Bun would bundle them as executable code:
 
 ```ts
 // client-files.ts, written after each `vite build`

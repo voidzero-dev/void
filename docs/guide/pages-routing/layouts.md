@@ -217,7 +217,7 @@ A named layout replaces the deepest default layout: in `[root, docs/layout]`, it
 
 Void uses the closest matching `_layouts/` file in the page's directory or an ancestor. A missing named layout fails the build.
 
-Declare `layout` in the page file itself with a string literal or `false`. Void reads it without running the page, so it ignores a computed or re-exported value and prints a warning.
+Export `layout` directly from the page as a string literal or `false`. Computed values and re-exports are ignored with a warning.
 
 ## Shared Data
 
@@ -255,4 +255,4 @@ export const action = defineHandler(async (c) => {
 });
 ```
 
-Middleware runs before the action. If an action changes data that shared data is built from, update shared data in the action, or redirect with `c.redirect()` so middleware runs again on the next page load.
+If an action changes the user's profile, update shared data there too, as above. Middleware won't run again until the next page request. You can also redirect with `c.redirect()` to load the page and shared data again.

@@ -200,13 +200,25 @@ const form = useForm(
 
 `onError` receives a field-error map or a `VoidActionError`. Callbacks can be async; `form.pending` stays true until they finish, and thrown errors reach the nearest React error boundary. Callbacks run before React commits the updated UI, so use an effect or ref callback to focus an element that appears after submission.
 
-If a callback awaits `router.visit()` or `router.refresh()`, pass `{ resolveOn: 'data' }` so it can finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
+When awaiting `router.visit()` or `router.refresh()` inside a callback, pass `{ resolveOn: 'data' }`. The callback can then finish before React commits the navigation. See [React navigation completion](../../reference/api/pages.md#react-navigation-completion).
 
 Vue, Svelte, and Solid submissions return a promise instead; use `await form.post()` to run work after a submission.
 
 ### Query parameters after submission
 
-An action or form that posts to the current page keeps the page's query parameters. From `/items?page=2&search=foo`, `action('/items?vote')` posts to `/items?vote&page=2&search=foo`, so the action and loader see `page` and `search`. The URL, scroll position, and history entry stay as they are. A parameter written in the action URL takes precedence over the page's: `action('/items?vote&page=1')` posts with `page=1`.
+Actions and forms keep the current page's query parameters when submitting to that page. For example, from `/items?page=2&search=foo`:
+
+```ts
+import { action } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
+
+// The action and loader receive page=2 and search=foo.
+await action('/items?vote');
+
+// An explicit parameter overrides the current page's value.
+await action('/items?vote&page=1');
+```
+
+The page URL, scroll position, and history entry stay unchanged.
 
 A redirect from the action does not receive the page's query parameters. To clear them after an action, return `c.redirect('/items')`.
 
@@ -301,7 +313,9 @@ if (!result.ok) {
 
 `action()` defaults to `POST`. Pass `data`, `params`, and `method` to set the body, route parameters, or HTTP method.
 
-A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`. `error.message` is the message of an [`HTTPException`](../../integrations/hono.md#utilities) with a `4xx` status, or the body of another plain-text `4xx` response. For other errors, it is a status summary such as `Action failed with 404 Not Found`.
+A successful call returns `{ ok: true, pageData }`. Expected errors, such as validation failures or conflicts, return `{ ok: false, error }`.
+
+For `4xx` errors, `error.message` uses the [`HTTPException`](../../integrations/hono.md#utilities) message or the body of a plain-text response. Other response formats use a status summary, such as `Action failed with 404 Not Found`.
 
 ## Validation Errors
 
@@ -311,7 +325,7 @@ Expected errors such as `400`, `404`, `409`, `422`, and `429` stay with the form
 
 By default, authentication errors (`401`, `403`) and server errors (`500`, `502`) are thrown. Handle them with your framework's error boundary or error handling.
 
-To handle all HTTP failures inline, pass `throwOnError: false` to `useForm()`. Validation errors still populate `form.errors`; other HTTP failures populate `form.error`, keeping the form and its input visible. The `Form` component displays the error automatically. In React, `onError` also receives these failures.
+To keep the form visible when a request fails, pass `throwOnError: false`:
 
 ```ts
 import { useForm } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
@@ -319,9 +333,11 @@ import { useForm } from '@void/react'; // or "@void/vue", "@void/svelte", "@void
 const form = useForm('/users', { name: '', email: '' }, { throwOnError: false });
 ```
 
-Unexpected failures, such as network errors, still throw. Cancelled submissions do not set a form error.
+Validation errors appear in `form.errors`; other HTTP failures appear in `form.error`. `Form` displays the error for you. In React, `onError` also receives it.
 
-Use `isVoidActionError()` to tell a failed action apart from other errors. It's `true` for a `VoidActionError` at any status, and narrows the error so you can read `status` and `message`. `isCallSiteActionError()` is `true` only for the expected errors that `action()` returns.
+Network errors and other unexpected failures still throw. Cancelled submissions don't set a form error.
+
+Use `isVoidActionError()` to read an action error's `status` and `message`, including thrown errors:
 
 ```ts
 import { isVoidActionError } from '@void/react'; // or "@void/vue", "@void/svelte", "@void/solid"
@@ -334,6 +350,8 @@ function describeError(error: unknown) {
   return 'Something went wrong.';
 }
 ```
+
+Use `isCallSiteActionError()` to recognize only the expected errors returned by `action()`.
 
 Actions can throw `ValidationError` for custom validation logic:
 
@@ -461,7 +479,7 @@ export const action = defineHandler(async (c) => {
 });
 ```
 
-`withValidator({ body })` accepts the same upload. Nested names such as `profile[name]`, `tags[0]`, and `tags[]` are objects and arrays again. A multipart schema has to coerce the rest: booleans arrive as `'1'` or `'0'`, numbers and dates as strings, and `null` as `''`.
+`withValidator({ body })` also accepts uploads. Nested field names such as `profile[name]`, `tags[0]`, and `tags[]` become objects and arrays. Coerce other values in your schema: booleans arrive as `'1'` or `'0'`, numbers and dates as strings, and `null` as `''`.
 
 Pick the storage key on the server and allow only the file types you expect. See [Serving Files](../storage.md#serving-files) to send them back safely.
 

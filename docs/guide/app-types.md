@@ -1,5 +1,5 @@
 ---
-description: 'Build a Void app, keep a meta framework, or deploy a static site. Void provisions resources and deploys each of them.'
+description: 'Build a Void app, use your existing Vite framework, or deploy a static site. Void manages resources and deployment for each.'
 outline: deep
 ---
 

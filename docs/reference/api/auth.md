@@ -69,7 +69,7 @@ import { getAuth } from 'void/auth';
 export const GET = defineHandler((c) => getAuth(c).handler(c.req.raw));
 ```
 
-Requires [authentication](../../guide/auth.md) to be enabled. Throws if no instance is available on the request. It is available to anonymous requests too; use `requireAuth(c)` when a route requires a signed-in user.
+Enable [authentication](../../guide/auth.md) before calling this helper; it throws if no instance is available. Anonymous requests can use it too. Call `requireAuth(c)` separately to require a signed-in user.
 
 **Signature:**
 

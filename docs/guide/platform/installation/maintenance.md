@@ -157,7 +157,9 @@ void platform upgrade [id] --runtime-logs minimal
 void platform upgrade [id] --runtime-logs full
 ```
 
-Later upgrades keep the setting. The upgrade also changes Workers Logs on the projects' existing deployments. If that step fails, the upgrade still finishes and prints what to run next: `void platform repair [id]` after switching to minimal, or the same upgrade again after switching to full. Records stored before the change are not removed; they expire with Cloudflare's retention.
+The setting also applies to existing project deployments, and later upgrades keep it. Previously stored logs remain until Cloudflare's retention period ends.
+
+If updating project logs fails, the platform upgrade still completes and prints a recovery command. Run `void platform repair [id]` after switching to minimal, or repeat the upgrade after switching to full.
 
 While runtime logs are minimal, `void platform rollback` refuses a runtime that does not support the setting. Run `void platform upgrade [id] --runtime-logs full` first.
 

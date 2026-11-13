@@ -66,9 +66,9 @@ void platform project ai-logging <project-id> metadata --yes
 void platform project show <project-id> --json
 ```
 
-`show` includes the saved `aiLogging.mode`. The setting applies to Workers AI inference, Markdown conversion, and provider calls through the platform. App-supplied logging options cannot override it. Changes apply to new requests without redeploying the app. If the platform cannot verify the saved policy, it refuses the AI request.
+`show` includes the saved `aiLogging.mode`. Changes apply to new requests without redeploying, including Workers AI, Markdown conversion, and provider calls through the platform. An app cannot override the policy. If the platform cannot verify it, the AI request is refused.
 
-The policy does not disable AI usage limits. `metadata` retains request metadata, including data used for metering; it suppresses bodies. Cloudflare can retain billing details for unified billing even in `off` mode. These controls do not change exports through separately configured Logpush. See [Cloudflare logging controls](https://developers.cloudflare.com/ai-gateway/observability/logging/).
+AI usage limits still apply. `metadata` keeps request and metering details without bodies. Cloudflare may keep unified billing details even with `off`, and separately configured Logpush exports aren't changed. See [Cloudflare logging controls](https://developers.cloudflare.com/ai-gateway/observability/logging/).
 
 ## Signup Access {#operator-signup}
 

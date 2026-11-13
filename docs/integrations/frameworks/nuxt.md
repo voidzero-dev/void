@@ -49,7 +49,7 @@ export default defineNuxtConfig({
 
 The `void/nitro` module gives Nuxt server routes your app's `void/db` and `@schema`. The top-level `alias` lets `nuxi typecheck` resolve `@schema`, because Nuxt also checks server routes with the app's types. `cloudflare.dev` gives the development server the bindings from Void's generated Cloudflare config; Nuxt runs it in development when `compatibilityDate` is `2025-07-15` or later.
 
-The database module supports Nitro 2 and Nitro 3 prereleases. Keep your Nuxt version's Cloudflare development configuration; Nitro 3 manages local Workers through its development runner.
+The database module supports Nitro 2 and Nitro 3 prereleases. Use the Cloudflare development configuration for your Nuxt version; Nitro 3 uses its own Worker runner.
 
 ### 4. Create `void.config.ts`
 

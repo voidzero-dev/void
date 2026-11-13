@@ -119,25 +119,15 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `getUser()` returns the current `AuthUser | null`
 - `getSession()` returns `{ user, session } | null`
 - `requireAuth(c)` returns the authenticated user or throws `401`
-- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, with plugin APIs inferred from `auth.ts`, for use with Better Auth helpers.
+- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, including typed plugin APIs from `auth.ts`.
 
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 
 ## Querying Authentication Tables
 
-When authentication is enabled, Void generates the Better Auth Drizzle schema in `.void/better-auth-schema.ts`.
-The generated file exports the core authentication tables:
+To query users or reference them from your own tables, import Void's generated authentication schema. It exports `userTable`, `sessionTable`, `accountTable`, `verificationTable`, and any tables added by your Better Auth plugins.
 
-- `userTable`
-- `sessionTable`
-- `accountTable`
-- `verificationTable`
-
-Configured Better Auth plugins may also contribute additional tables.
-
-The generated file path and core table export names are documented integration points. You can import these exports directly rather than recreating the tables in your application.
-
-To import these tables into your application, add a TypeScript path alias to your root `tsconfig.json`:
+Add an alias to your root `tsconfig.json`:
 
 ```json
 {
@@ -149,11 +139,9 @@ To import these tables into your application, add a TypeScript path alias to you
 }
 ```
 
-If your `tsconfig.json` already has a `paths` mapping, add `@auth-schema` to the existing mapping rather than replacing it.
+Keep your other path aliases, including any you use from `.void/tsconfig.json`, such as `@schema`.
 
-If your project extends `.void/tsconfig.json` and defines its own `paths`, make sure to retain any mappings from the generated configuration that your project uses, such as `@schema`.
-
-You can now import and query authentication tables:
+You can now query users with Drizzle:
 
 ```ts
 import { userTable } from '@auth-schema';
@@ -164,7 +152,7 @@ export function listUsers() {
 }
 ```
 
-You can also reference authentication tables when defining your own Drizzle tables:
+To associate a post with its author, reference `userTable.id`:
 
 ```ts
 import { userTable } from '@auth-schema';
@@ -178,11 +166,9 @@ export const postTable = sqliteTable('post', {
 });
 ```
 
-This example assumes the default text ID strategy. If you configure `advanced.database.generateId: 'serial'`, use an integer foreign-key column to match the generated user ID.
+This example uses D1 and the default text IDs. For PostgreSQL or MySQL, use `void/schema-pg` or `void/schema-mysql`. With `advanced.database.generateId: 'serial'`, use an integer foreign key.
 
-The example above uses SQLite/D1. For PostgreSQL and MySQL, use the corresponding schema modules: `void/schema-pg` and `void/schema-mysql`.
-
-The generated schema is managed by Void. Do not edit `.void/better-auth-schema.ts` manually, as Void may regenerate it during its build or preparation process.
+Void regenerates `.void/better-auth-schema.ts`. Configure authentication in `auth.ts` rather than editing the generated file.
 
 ## Behavior
 

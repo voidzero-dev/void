@@ -43,7 +43,7 @@ Add `void/env` to your TypeScript types:
 }
 ```
 
-This provides binding types and Workers runtime types. Custom bindings declared in `cloudflare` in `void.config.ts` are typed on `c.env` after `void prepare` or starting a dev server or build. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) to add RPC methods to service or Durable Object bindings.
+This provides binding and Workers runtime types. For custom bindings in `void.config.ts`, run `void prepare` or start the dev server or build to type them on `c.env`. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) for RPC methods on service and Durable Object bindings.
 
 ### Available bindings
 
@@ -175,7 +175,11 @@ Set production server values with `void secret put <NAME>`. Void preserves exist
 
 ### Readiness and rollback
 
-Void normally verifies an uploaded version before sending it traffic. A Worker with workers.dev turned off and no route or Custom Domain has no URL Void can check, so that deploy skips the readiness check and activates the uploaded version. If readiness or trigger updates fail, it restores the previous deployment. If trigger updates fail and Void cannot restore the previous version's triggers, for example because another tool deployed it or it is an empty draft, the new version stays live and the error says which version is serving traffic. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
+Void checks an uploaded version before sending it traffic. If the Worker has no public URL, because workers.dev is off and no route or Custom Domain is configured, Void activates it without a readiness check.
+
+If readiness or trigger updates fail, Void restores the previous deployment. If trigger updates fail and the previous triggers can't be restored, such as after another tool's deployment or from an empty draft, the new version stays live. The error names the version serving traffic.
+
+Finish or cancel gradual rollouts in Cloudflare before deploying through Void.
 
 For an existing Durable Object Worker that Cloudflare cannot stage, review the changes and use:
 

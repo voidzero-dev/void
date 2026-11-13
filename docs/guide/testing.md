@@ -1,27 +1,27 @@
 ---
-description: 'Test a Void app with Vitest. With Vite+, run the tests through vp test.'
+description: 'Run tests with Vitest and Vite+, mock Cloudflare bindings, and test email with the built-in harnesses.'
 outline: deep
 ---
 
 # Testing
 
-Test your app with [Vitest](https://vitest.dev/). With Vite+, the default toolchain, run it with `vp test`:
+Void apps use [Vitest](https://vitest.dev/). With Vite+, run your tests with:
 
 ```sh
 vp test
 ```
 
-Import test APIs from `vite-plus/test`. With the Vite toolchain, add `vitest` to your dev dependencies, run `vitest`, and import from `vitest` instead.
+Import `it`, `expect`, and other test APIs from `vite-plus/test`. If you chose Vite instead of Vite+, install `vitest` as a dev dependency and use `vitest` for both the imports and command.
 
-Vitest reads your `vite.config.ts`, so `void/*` imports, `@schema`, and the other modules Void provides resolve in tests as they do in your app. Tests need no separate configuration.
+Vitest uses your `vite.config.ts`. Imports such as `void/*` and `@schema` work without extra test configuration.
 
-Keep test files out of the [convention directories](../reference/structure.md) such as `routes/` and `pages/`. Void reads the files there as part of your app, so a test file in `routes/` becomes a route. Put tests in `tests/`, or next to the code they test in `src/`.
+Put tests in `tests/` or beside the code they test in `src/`. Keep them out of [convention directories](../reference/structure.md) such as `routes/` and `pages/`, where Void would treat them as app routes.
 
 ## Bindings {#bindings}
 
-Tests run in Node.js, not in the Workers runtime. Void doesn't start your Worker for a test run, so D1, KV, R2, and other bindings are unavailable, and it doesn't apply migrations to your local database. You can import modules that use bindings, but a call that reaches one throws `env: Cloudflare env is unavailable`.
+Tests run in Node.js without starting a Worker or applying local migrations. To test code that uses D1, KV, R2, or another binding, mock the module with [`vi.mock()`](https://vitest.dev/api/vi#vi-mock).
 
-To test code that uses a binding, replace its module with [`vi.mock()`](https://vitest.dev/api/vi#vi-mock):
+For example, this function counts visits in KV:
 
 ```ts
 // src/visits.ts
@@ -33,6 +33,8 @@ export async function countVisit(): Promise<number> {
   return visits;
 }
 ```
+
+Replace KV with an in-memory map in the test:
 
 ```ts
 // src/visits.test.ts

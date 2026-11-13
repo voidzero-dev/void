@@ -13,7 +13,9 @@ For workers.dev testing, start the interactive install and choose your login met
 void platform install --workers-dev
 ```
 
-When a domain installation creates the zone or its wildcard DNS record, or you set up Access, Void guides you to create a management API token and paste it into a masked prompt. Browser login can preview DNS and use an existing proxied `*.<application domain>` record, but cannot change DNS or configure Access. The token-creation link preselects the permissions for your choices. When using an existing domain, change the zone policy from **All Domains** to **Specified Domains** and select your zone, as the CLI prompt describes. No shell environment variable is needed for interactive installation.
+Void asks for a management API token when it needs to create a zone, add wildcard DNS, or configure Access. Follow the token-creation link and paste the token into the masked prompt. For an existing domain, change **All Domains** to **Specified Domains** and select your zone.
+
+Browser login can use an existing proxied `*.<application domain>` record, but cannot change DNS or configure Access. Interactive installation doesn't require shell environment variables.
 
 ::: details Use an existing management token from the shell
 
@@ -96,7 +98,7 @@ explicit app-management token; it never silently retains an installer-only token
 
 ## Choose what runtime logs record {#runtime-logs}
 
-By default, the platform records each request's URL, console output, and exception messages. Project owners see them with `void project logs`, and administrators with `void platform deployment logs`. They are kept in your Cloudflare account, in Workers Logs and in the platform's log history.
+By default, runtime logs include request URLs, console output, and exception messages. Project owners read them with `void project logs`; administrators use `void platform deployment logs`. Logs stay in your Cloudflare account, in Workers Logs and the platform's log history.
 
 If your apps can put personal data in URLs, logs, or error messages, install with minimal runtime logs:
 
@@ -106,10 +108,9 @@ void platform install --runtime-logs minimal
 
 With minimal runtime logs:
 
-- Platform and project Workers do not send anything to Workers Logs.
-- Log history keeps each request's time, method, status, outcome, deployment, log levels, and exception names, but not its URL, log messages, or exception messages.
-- `--level` filters still work. `--filter` can match exception names, but not the messages that are no longer recorded.
-- Log views say that messages and URLs are not recorded on this platform.
+- Workers Logs is disabled for platform and project Workers.
+- The platform's log history keeps request times, methods, statuses, outcomes, deployments, log levels, and exception names. URLs and message text are omitted.
+- You can still filter by `--level` or search exception names with `--filter`. Log views show that URLs and messages aren't recorded.
 
 The setting covers the whole platform. To change it later, see [Change runtime logs](/guide/platform/installation/maintenance#runtime-logs).
 
@@ -282,6 +283,6 @@ Resume restores your selected Hyperdrive. If that selection is missing from the 
 
 If Cloudflare rejects a saved runtime token, Void opens the token page and asks for a replacement. For a missing [email permission](/guide/platform/installation/credentials#enable-email), update the existing token's permissions and resume. If you supplied a token through an environment variable, update that variable.
 
-To replace the runtime token, for example after revoking it, resume with the new token in `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN`. Void checks it, saves it, and updates the platform Workers that the interrupted run already deployed.
+To replace a revoked runtime token, set `VOID_PLATFORM_RUNTIME_CLOUDFLARE_API_TOKEN` to its replacement and resume. Void saves it and updates any platform Workers deployed by the interrupted run.
 
 :::

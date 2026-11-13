@@ -110,7 +110,7 @@ await revalidate({ paths: ['/', '/blog/hello'] });
 await revalidate({ all: true });
 ```
 
-With [`routing.typedRoutes`](../config.md#routing-typedroutes) on, each path in `paths` must match one of your routes; otherwise `RouteUrl` is `string`. Cast a path that TypeScript can't check with `as RouteUrl`. The cast turns the check off for that path.
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), each path must match one of your routes. Build paths with `routeUrl()`, or use `as RouteUrl` for paths you validate at runtime. Without this setting, `RouteUrl` is `string`.
 
 **Signature:**
 

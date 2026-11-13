@@ -34,7 +34,9 @@ Keep prompt and response bodies out of a project's AI Gateway logs while retaini
 void platform project ai-logging <project-id> metadata
 ```
 
-Only platform administrators can change this setting. It applies to AI requests through the platform, including calls with an app's own provider key. Other projects keep their own settings. Use `inherit` to restore the gateway default, `off` to disable log collection, or `full` to include bodies. Inspect the saved mode with `void platform project show <project-id> --json`. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for the modes and Cloudflare's billing and Logpush behavior.
+Only platform administrators can change this setting. It covers the project's AI requests through the platform, including calls with the app's own provider key.
+
+Use `inherit` for the gateway default, `off` to stop log collection, or `full` to include bodies. Read the saved mode with `void platform project show <project-id> --json`. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for billing and Logpush details.
 
 ### Transferring Project Ownership
 

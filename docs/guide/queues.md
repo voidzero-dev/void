@@ -111,7 +111,7 @@ export default defineQueue<Message>(async (batch, env) => {
 - `maxRetries`: maximum number of retries before delivery is exhausted (default `3`)
 - `retryDelay`: seconds to wait between retries (default `0`)
 
-Declare each option in the queue file with `export const` and a whole-number literal. Void reads these values without running the file, so computed values and options re-exported from another module are not supported. To use the same value in several queues, repeat it in each queue file.
+Export each option directly from the queue file as a whole number, such as `export const maxRetries = 5`. Computed values and re-exports aren't supported; repeat shared settings in each queue file.
 
 Void-managed queues do not configure a dead-letter queue. Cloudflare permanently
 deletes messages that exhaust their retries without one; see

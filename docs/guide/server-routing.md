@@ -17,7 +17,7 @@ Dynamic segments use brackets: `[id]` becomes a route parameter and `[...slug]` 
 
 ### Overlapping routes
 
-When several routes match a URL, the most specific one handles it. Void compares routes segment by segment, from the left, and the first segment that differs decides: a static segment beats `[param]`, and `[param]` beats `[...slug]`. Catch-all routes rank after all other routes.
+When routes overlap, the most specific one handles the request. From left to right, static segments take priority over parameters. Catch-all routes run last:
 
 ```
 routes/
@@ -27,7 +27,7 @@ routes/
   [...path].ts         →  handles URLs no other route matches
 ```
 
-Parameter names don't affect the order. Routes that differ only in their parameter names, such as `[id].ts` and `[slug].ts`, match the same URLs, so keep only one of them.
+Use one route for each pattern. `[id].ts` and `[slug].ts` match the same URLs; renaming a parameter doesn't change priority.
 
 ### Environment-only routes
 

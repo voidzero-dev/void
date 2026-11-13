@@ -345,7 +345,9 @@ export default function PostForm() {
 
 :::
 
-`useIslandForm` provides the same form state as [`useForm`](./actions-and-forms#useform). Pass the action URL to `post`, `put`, `patch`, or `delete` to submit. With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), that URL is a [`RouteUrl`](../../reference/api/types.md#route-types). Cast a path built at runtime with `as RouteUrl`.
+`useIslandForm` provides the same form state as [`useForm`](./actions-and-forms#useform). Pass the action URL to `post`, `put`, `patch`, or `delete` to submit.
+
+With [`routing.typedRoutes`](../type-safety.md#checked-url-strings), the URL must match one of your routes. Use `routeUrl()` to build it, or `as RouteUrl` for a URL you validate at runtime. See [Checked URL strings](../type-safety.md#checked-url-strings).
 
 Successful submissions reload the page; redirects navigate to their destination. A `422` response populates `errors` from `{ errors: { field: "message" } }`. Submit helpers return `Promise<void>`.
 

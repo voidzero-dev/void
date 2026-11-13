@@ -43,7 +43,9 @@ For Drizzle projects, deploy performs a read-only schema drift check. If a new m
 
 `--atomic` applies to one deployment. For an existing Durable Object Worker that consistently cannot stage, set `deploy: { cloudflare: { mode: 'atomic' } }` in `void.config.ts` so plain `void deploy` uses atomic publication. The default is `staged`.
 
-Use `--skip-migrations` when migrations run in a separate release step or when a preview shares an existing database. Ensure the deployed code works with that database's current schema. The flag applies only to this invocation: normal deploys still apply pending migrations. Migration files and schema validation remain required, and Cloudflare Durable Object class migrations still run as part of publishing code. A Void platform must support this option; upgrade the platform if the CLI reports that it does not.
+Use `--skip-migrations` when you run migrations separately or share a database with a preview. The code must work with the database's current schema. The next deploy without this flag applies pending migrations.
+
+Keep migration files and schema validation in place. This option skips application and authentication SQL; Durable Object class migrations still run when publishing code. If a Void platform doesn't support the flag, upgrade it first.
 
 Every deploy writes a JSONL log to `~/.void/logs/`. Failures print the log path and relevant details. Use `--debug` or `VOID_DEPLOY_DEBUG=1` to mirror it to stderr.
 
@@ -102,7 +104,7 @@ Void signs you in through your browser when needed and saves the selected accoun
 | `--require-email`              | Fail instead of deploying without email when the email step cannot run, as in CI                                                              |
 | `DATABASE_URL`                 | Required in the deploy environment for PostgreSQL or MySQL provisioning and migrations                                                        |
 
-After `--skip-migrations`, native deployment history shows the applied migration state as unknown. Rollback retains its warning that database changes are not reversed.
+After `--skip-migrations`, direct Cloudflare deployment history shows the applied migration state as unknown. Rolling back code doesn't reverse database changes.
 
 The token needs Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions. Commit `void.lock.json` after the first deploy before using other machines or CI.
 

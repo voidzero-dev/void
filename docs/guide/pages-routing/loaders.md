@@ -27,7 +27,9 @@ export const loader = defineHandler(async (c) => {
 
 `InferProps` infers the loader’s return type, so page props stay in sync with the data it returns.
 
-Void preserves `Date`, `Map`, `Set`, `bigint`, `RegExp`, `URL`, `undefined`, and repeated or cyclic references in page props and shared data. These values keep their types during server rendering, hydration, navigation, and deferred loading. Return data directly from your loader; explicitly returning `Response.json()` uses ordinary JSON conversion instead. Functions and custom class instances cannot be sent as page data.
+Return data directly to preserve values such as `Date`, `Map`, `Set`, `bigint`, `RegExp`, `URL`, and `undefined`. Page props and shared data keep these types across rendering, hydration, navigation, and deferred loading, including repeated or cyclic references.
+
+Returning `Response.json()` uses JSON conversion instead. Functions and custom class instances can't be sent as page data.
 
 ## Using the Data in Page Components
 

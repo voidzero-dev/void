@@ -92,7 +92,7 @@ On your own Cloudflare account, `from` defaults to `email.from` from `void.confi
 
 ## Reply later {#reply-later}
 
-`replyEmail()` works only while the inbound handler runs. To reply later, for example from a queue job, save the thread ids in the handler and pass them to `sendEmail` as `threading`:
+To reply from a queue job or another later task, save the incoming message's thread IDs and pass them to `sendEmail`:
 
 ```ts
 // email/support.ts
@@ -117,7 +117,9 @@ await sendEmail({
 });
 ```
 
-`inReplyTo` is the parent message's `Message-ID`. `references` lists the thread's ids, oldest first, ending with the parent; it defaults to `inReplyTo`. Mail clients use them to show the reply in the same conversation. An id that cannot be sent, such as one with a control character, is left out. If `references` cannot be sent, it falls back to `inReplyTo`. The email still sends. `headers` cannot set `In-Reply-To` or `References`.
+Mail clients use `threading` to show the reply in the same conversation. Set `inReplyTo` to the parent's `Message-ID`. For a longer thread, set `references` to the earlier IDs in order, ending with the parent; otherwise it defaults to `inReplyTo`.
+
+Use `threading` rather than custom `In-Reply-To` or `References` headers. Invalid thread IDs are omitted without stopping the send. For an immediate reply inside the inbound handler, use [`replyEmail()`](./receiving.md#threaded-replies).
 
 ## Attachments {#attachments}
 
