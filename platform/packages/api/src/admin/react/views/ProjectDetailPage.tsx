@@ -15,7 +15,7 @@ import { ProjectDetailView, projectDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
 import { BuildTable } from './BuildTable.tsx';
 import { DeploymentTable } from './DeploymentTable.tsx';
-import { formatDateTime } from './format.ts';
+import { formatAiLoggingStatus, formatDateTime } from './format.ts';
 import { Layout } from './Layout.tsx';
 import { ProjectOwnerTransferSection } from './ProjectOwnerTransferSection.tsx';
 import { ProjectTeamSection } from './ProjectTeamSection.tsx';
@@ -40,6 +40,7 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
     domains,
     builds,
     zeroTrust,
+    aiLogging,
     cfAccountId,
     deployUrl,
     tz,
@@ -102,6 +103,10 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
                   usage, limits, destinations
                 </Link>
               </TableCell>
+            </TableRow>
+            <TableRow>
+              <TableHeaderCell>AI Gateway logging</TableHeaderCell>
+              <TableCell>{formatAiLoggingStatus(aiLogging)}</TableCell>
             </TableRow>
             <TableRow>
               <TableHeaderCell>Created</TableHeaderCell>

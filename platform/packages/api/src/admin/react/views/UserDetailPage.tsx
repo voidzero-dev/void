@@ -32,7 +32,7 @@ export function UserDetailPage({ path, platformName, username }: AdminPageProps)
   if (!pageData) {
     throw new Error('User data is unavailable.');
   }
-  const { user, projects, deploysToday, usage, tz, plans, limits } = pageData;
+  const { user, projects, deploysToday, usage, tz, plans, limits, aiLogging } = pageData;
 
   return (
     <Layout platformName={platformName} title={user.login} username={username}>
@@ -134,6 +134,15 @@ export function UserDetailPage({ path, platformName, username }: AdminPageProps)
             <TableRow>
               <TableCell>Retained deployments</TableCell>
               <TableCell>{formatLimit(limits.retainedDeployments)}</TableCell>
+            </TableRow>
+            <TableRow>
+              <TableCell>AI Gateway logging default</TableCell>
+              <TableCell>
+                {aiLogging.planMode ?? 'inherit'}
+                {aiLogging.planKnown
+                  ? ''
+                  : ` (plan not in catalog; uses ${aiLogging.defaultPlanId})`}
+              </TableCell>
             </TableRow>
           </TableBody>
         </Table>

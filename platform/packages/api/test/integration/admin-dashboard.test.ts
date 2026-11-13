@@ -20,10 +20,13 @@ import {
   deploymentDetailRequest,
   userSuggestionsRequest,
 } from '../../src/admin/fate/views.ts';
+import { PLAN_AI_LOGGING_SETTING } from '../../src/ai-logging-policy.ts';
+import { setProjectAiLogging } from '../../src/ai-logging.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import * as systemOperations from '../../src/operator/system-operations.ts';
+import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   deployments,
   domains,
@@ -1029,6 +1032,37 @@ describe('admin Zero Trust', () => {
 
     const dashboard = await (await req('/admin/', admin.adminJwt)).text();
     expect(dashboard).toContain('href="/admin/zero-trust"');
+  });
+
+  test('shows the AI Gateway logging setting on the project and user pages', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'ai-log-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const project = await createTestProject(env.db, admin.id, 'ai-log-project');
+    await setPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING, { modes: { free: 'metadata' } });
+    await setProjectAiLogging(env.db, env.ROUTING, project.id, 'off', {
+      initialPlanDefault: 'free',
+      dryRun: false,
+    });
+
+    const projectPage = visibleMarkup(
+      await (await req(`/admin/projects/${project.id}`, admin.adminJwt)).text(),
+    );
+    expect(projectPage).toContain('AI Gateway logging');
+    // Same wording as `void platform project show`.
+    expect(projectPage).toContain(
+      'off (set on project; plan &quot;free&quot; default: metadata) — pending (expected by ',
+    );
+    const userPage = visibleMarkup(
+      await (await req(`/admin/users/${admin.id}`, admin.adminJwt)).text(),
+    );
+    expect(userPage).toContain('AI Gateway logging default');
+    expect(userPage).toContain('metadata');
   });
 
   test('shows why project protection cannot change when Zero Trust is not enabled', async () => {

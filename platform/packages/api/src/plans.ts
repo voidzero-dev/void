@@ -25,17 +25,45 @@ export async function readPlanCatalogWithAccounts(
 
 export const PLAN_CATALOG_SETTING = 'plans:catalog';
 
-/** Serialize catalog changes and account assignments, including the first write. */
-export async function lockPlanCatalog(tx: DbOrTx): Promise<void> {
-  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended('void:platform:plans', 0))`);
+/**
+ * Serialize catalog changes and account assignments, including the first write.
+ * `shared` lets readers that must not race a plan change (a new project reading its
+ * plan's AI logging default) run together while still waiting for a writer.
+ */
+export async function lockPlanCatalog(
+  tx: DbOrTx,
+  mode: 'exclusive' | 'shared' = 'exclusive',
+): Promise<void> {
+  await tx.execute(
+    mode === 'shared'
+      ? sql`SELECT pg_advisory_xact_lock_shared(hashtextextended('void:platform:plans', 0))`
+      : sql`SELECT pg_advisory_xact_lock(hashtextextended('void:platform:plans', 0))`,
+  );
 }
 
 export async function readPlanCatalog(
   db: DbOrTx,
   initialDefaultPlanId: BuiltinPlanId = 'free',
 ): Promise<PlatformPlanCatalog> {
-  const saved = await getPlatformSetting(db, PLAN_CATALOG_SETTING);
-  if (saved === null) {
+  return parseSavedPlanCatalog(
+    await getPlatformSetting(db, PLAN_CATALOG_SETTING),
+    initialDefaultPlanId,
+  );
+}
+
+/** The plan the catalog defaults to before an operator saves one. */
+export function initialPlanDefaultFor(env: {
+  PLATFORM_INSTALLATION_ID?: string | undefined;
+}): BuiltinPlanId {
+  return env.PLATFORM_INSTALLATION_ID ? 'custom' : 'free';
+}
+
+/** Parses a saved `plans:catalog` value; `null` (never saved) is the built-in catalog. */
+export function parseSavedPlanCatalog(
+  saved: unknown,
+  initialDefaultPlanId: BuiltinPlanId = 'free',
+): PlatformPlanCatalog {
+  if (saved === null || saved === undefined) {
     return createDefaultPlanCatalog(initialDefaultPlanId);
   }
   try {

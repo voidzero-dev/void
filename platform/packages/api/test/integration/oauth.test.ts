@@ -10,6 +10,7 @@ import {
   expect,
   vi,
 } from 'vite-plus/test';
+import { aiLoggingKey, PLAN_AI_LOGGING_SETTING } from '../../src/ai-logging-policy.ts';
 import { computeAssetHash } from '../../src/assets.ts';
 import { importLegacyAuthentication } from '../../src/auth/configuration.ts';
 import {
@@ -25,6 +26,7 @@ import { createHumanSession, revokeConnectionSessions } from '../../src/auth/ses
 import { processDeploymentBatch } from '../../src/deployment-execution.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
+import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   oauthClients,
   oauthGrants,
@@ -311,6 +313,45 @@ describe('registered OAuth applications', () => {
     ).toBe(403);
     await setOAuthPreviewPermission(env.db, registration.client.id, false);
     expect((await create(token.access_token)).status).toBe(403);
+  });
+  it('publishes the plan AI logging default when it creates a preview', async () => {
+    await setOAuthPreviewPermission(env.db, registration.client.id, true);
+    await setPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING, { modes: { free: 'off' } });
+    const { token } = await connect({ scope: 'profile preview:deploy' });
+    const create = (workspace: string) =>
+      request('/oauth/previews', {
+        method: 'POST',
+        headers: {
+          Authorization: 'Bearer ' + token.access_token,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ workspace }),
+      });
+    const put = env.ROUTING.put.bind(env.ROUTING);
+    const failing = vi.spyOn(env.ROUTING, 'put').mockImplementation((async (
+      key: string,
+      ...rest: [string, KVNamespacePutOptions?]
+    ) => {
+      if (key.startsWith('ai-logging:')) {
+        throw new Error('KV unavailable');
+      }
+      return put(key, ...rest);
+    }) as never);
+    expect((await create('logged-preview')).status).toBe(503);
+    expect(
+      await env.db
+        .select()
+        .from(projects)
+        .where(eq(projects.preview_workspace_id, 'logged-preview')),
+    ).toEqual([]);
+    failing.mockRestore();
+    const created = await create('logged-preview');
+    expect(created.status).toBe(201);
+    const { project_id } = (await created.json()) as { project_id: string };
+    expect(await env.ROUTING.getWithMetadata(aiLoggingKey(project_id))).toMatchObject({
+      value: 'off',
+      metadata: { mode: 'off' },
+    });
   });
   it('pins preview deployment credentials to isolated projects and exact artifacts', async () => {
     await setOAuthPreviewPermission(env.db, registration.client.id, true);

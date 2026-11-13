@@ -9,6 +9,7 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import * as db from '../../src/db.ts';
 import app, { FAST_CRON, scheduled } from '../../src/index.ts';
 import * as projectAccess from '../../src/project-access.ts';
@@ -211,6 +212,7 @@ describe('DELETE /projects/:id', () => {
       .from(projectOwnershipPeriods)
       .where(eq(projectOwnershipPeriods.project_id, project.id));
     await env.ROUTING.put(`ai-block:${project.id}`, '1');
+    await env.ROUTING.put(aiLoggingKey(project.id), 'off', { metadata: { mode: 'off', at: 1 } });
     mockCfApi();
     const usageCalls: Array<{ ownerId: string; path: string; body: unknown }> = [];
     const usageCounter = {
@@ -241,6 +243,7 @@ describe('DELETE /projects/:id', () => {
     const [dbProject] = await env.db.select().from(projects).where(eq(projects.id, project.id));
     expect(dbProject).toBeUndefined();
     expect(await env.ROUTING.get(`ai-block:${project.id}`)).toBeNull();
+    expect(await env.ROUTING.get(aiLoggingKey(project.id))).toBeNull();
     expect(usageCalls).toEqual([
       {
         ownerId: user.id,
@@ -620,6 +623,40 @@ describe('DELETE /projects/:id', () => {
       createMockExecutionContext(),
     );
     expect(await env.ROUTING.get(project.slug)).toBe(JSON.stringify({ projectId: replacement.id }));
+  });
+
+  it('keeps the AI logging key until the project row is gone', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'private-ai');
+    await env.ROUTING.put(project.slug, JSON.stringify({ projectId: project.id }));
+    await env.ROUTING.put(aiLoggingKey(project.id), 'off', { metadata: { mode: 'off', at: 1 } });
+    mockCfApi();
+    const deleteRoute = env.ROUTING.delete.bind(env.ROUTING);
+    const routeDelete = vi.spyOn(env.ROUTING, 'delete').mockImplementation(async (key) => {
+      if (key === project.slug) {
+        throw new Error('temporary KV failure');
+      }
+      return deleteRoute(key);
+    });
+    const request = () =>
+      app.fetch(
+        new Request(`http://localhost/projects/${project.id}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${user.jwt}` },
+        }),
+        env,
+      );
+
+    // Teardown stops with the row still there; a token can still make AI calls, so
+    // the `off` setting must stay published.
+    expect((await request()).status).toBe(500);
+    expect(await db.getProject(env.db, project.id)).toMatchObject({ status: 'deleting' });
+    expect(await env.ROUTING.get(aiLoggingKey(project.id))).toBe('off');
+
+    routeDelete.mockRestore();
+    expect((await request()).status).toBe(200);
+    expect(await db.getProject(env.db, project.id)).toBeNull();
+    expect(await env.ROUTING.get(aiLoggingKey(project.id))).toBeNull();
   });
 
   it('closes the proxy token floor and retries a failed write from the cleanup queue', async () => {

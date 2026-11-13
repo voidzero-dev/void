@@ -14,7 +14,13 @@ import {
   sql,
 } from 'drizzle-orm';
 import type { Context } from 'hono';
-import { readProjectAiLogging } from '../ai-logging.ts';
+import {
+  publishProjectsAiLogging,
+  runUserAiLoggingPublishPage,
+  startUserAiLoggingPublish,
+  type UserAiLoggingPublishProgress,
+} from '../ai-logging-plans.ts';
+import { readProjectAiLoggingStatus } from '../ai-logging.ts';
 import {
   type Db,
   ACTIVE_BUILD_STATUSES,
@@ -38,7 +44,7 @@ import {
 import type { ApiEnv } from '../env.ts';
 import { cancelContainerBuildDos } from '../github/cancel-builds.ts';
 import { generateId } from '../id.ts';
-import { requireAssignablePlan, resolvePlanLimits } from '../plans.ts';
+import { initialPlanDefaultFor, requireAssignablePlan, resolvePlanLimits } from '../plans.ts';
 import { teardownProject } from '../provisioning/cleanup.ts';
 import {
   getAccountUsageProjectWindows,
@@ -236,7 +242,11 @@ export async function getOperatorUser(context: Context<ApiEnv>, id: string) {
   };
 }
 
-export async function getOperatorProject(db: Db, id: string) {
+export async function getOperatorProject(
+  db: Db,
+  env: Pick<ApiEnv['Bindings'], 'ROUTING' | 'PLATFORM_INSTALLATION_ID'>,
+  id: string,
+) {
   const project = await requireProject(db, id);
   const [deployments, resources, owner, domains, builds] = await Promise.all([
     getProjectDeployments(db, id, 10),
@@ -245,7 +255,12 @@ export async function getOperatorProject(db: Db, id: string) {
     getDomainsByProjectId(db, id),
     getProjectBuilds(db, id),
   ]);
-  const aiLogging = await readProjectAiLogging(db, id);
+  const aiLogging = await readProjectAiLoggingStatus(
+    db,
+    env.ROUTING,
+    id,
+    initialPlanDefaultFor(env),
+  );
   return { project, deployments, resources, owner, domains, builds, aiLogging };
 }
 
@@ -780,8 +795,21 @@ export async function transferOperatorProjectOwner(
     targetUserId,
     context.get('user').id,
   );
-  const convergence = { countersComplete: false, routingComplete: false };
+  const convergence = {
+    countersComplete: false,
+    routingComplete: false,
+    aiLoggingComplete: false,
+  };
   let convergedOwner = transfer.newOwner;
+  // Once, not inside republishProjectOwnerState: that runs twice back to back and
+  // would hit the one-write-per-second limit on the AI logging key.
+  const [aiLoggingResult] = await Promise.allSettled([
+    publishProjectsAiLogging(db, context.env.ROUTING, [transfer.project.id], {
+      trigger: 'transfer',
+      initialPlanDefault: initialPlanDefaultFor(context.env),
+    }),
+  ]);
+  convergence.aiLoggingComplete = aiLoggingResult.status === 'fulfilled';
   // Publish immediately even if counter reconciliation fails, then repeat after
   // it settles so a concurrent plan or suspension change wins in the final state.
   const [counterResult, earlyRoutingResult] = await Promise.allSettled([
@@ -801,13 +829,18 @@ export async function transferOperatorProjectOwner(
     convergedOwner = finalRoutingResult.value;
     convergence.routingComplete = true;
   }
-  if (counterResult.status === 'rejected' || finalRoutingResult.status === 'rejected') {
+  if (
+    counterResult.status === 'rejected' ||
+    finalRoutingResult.status === 'rejected' ||
+    aiLoggingResult.status === 'rejected'
+  ) {
     console.error('[admin] project owner convergence failed', {
       projectId,
       targetUserId,
       counterError: counterResult.status === 'rejected' ? counterResult.reason : undefined,
       routingError:
         finalRoutingResult.status === 'rejected' ? finalRoutingResult.reason : undefined,
+      aiLoggingError: aiLoggingResult.status === 'rejected' ? aiLoggingResult.reason : undefined,
     });
     throw new OperatorError(
       500,
@@ -854,11 +887,50 @@ export async function changeOperatorUserPlan(
       projects: projects.map((p) => ({ id: p.id, slug: p.slug })),
     });
   }
-  await updateUserPlan(db, id, plan);
+  await updateUserPlan(db, id, plan, (tx, previousPlan) =>
+    startUserAiLoggingPublish(tx, id, previousPlan, plan),
+  );
+  // Before the usage counter calls, so a counter failure still leaves the new
+  // plan's AI logging default published. One call publishes one page; a large
+  // account needs the same plan change again for the rest.
+  let aiLogging: UserAiLoggingPublishProgress | null = null;
+  try {
+    aiLogging = await runUserAiLoggingPublishPage(db, context.env.ROUTING, id, plan, {
+      initialPlanDefault: initialPlanDefaultFor(context.env),
+    });
+  } catch (error) {
+    console.error('[admin] plan-change AI logging publish failed', { userId: id, error });
+  }
+  // Runs even when the publish is unfinished: it is idempotent, and limits must
+  // follow the new plan at once.
+  let cleanupComplete = true;
   try {
     await reconcileOperatorUserPlan(context, id);
   } catch (error) {
     console.error('[admin] plan-change cleanup failed', { userId: id, error });
+    cleanupComplete = false;
+  }
+  if (!aiLogging?.complete) {
+    const cleanup = cleanupComplete
+      ? ''
+      : ' Cleanup is also incomplete, so the user may still be blocked.';
+    throw new OperatorError(
+      500,
+      aiLogging
+        ? `Plan changed. AI logging was published to ${aiLogging.processed} projects; ${aiLogging.remaining} remain. Run the same plan change again to continue.${cleanup}`
+        : `Plan changed, but the AI logging setting may not be applied yet. Retry the plan change.${cleanup}`,
+      'partial_failure',
+      {
+        partial: true,
+        target,
+        plan,
+        aiLoggingComplete: false,
+        ...(aiLogging ? { aiLoggingRemaining: aiLogging.remaining } : {}),
+        cleanupComplete,
+      },
+    );
+  }
+  if (!cleanupComplete) {
     throw new OperatorError(
       500,
       'Plan changed, cleanup incomplete. The user may still be blocked. Retry the plan change; cleanup is idempotent.',
