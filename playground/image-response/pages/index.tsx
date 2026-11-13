@@ -7,6 +7,10 @@ export default function Home() {
     <>
       <h1>ImageResponse Playground</h1>
       <p>
+        <Link href="/font-memory">Font cache memory reproduction</Link> — load distinct fonts into
+        one family and watch server memory.
+      </p>
+      <p>
         Eight distinct uses of <code>ImageResponse</code> from <code>void/image</code>. Each example
         has a live preview, source links, and expected results. Options that exercise the same use
         case stay together on one page.
