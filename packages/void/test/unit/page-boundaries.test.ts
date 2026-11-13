@@ -376,6 +376,70 @@ describe('loader not-found dispatch', () => {
     },
   );
 
+  it.each([false, true])(
+    'renders the root boundary for middleware after a loader not-found (Pages: %s)',
+    async (pages) => {
+      let assetReads = 0;
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      const common = {
+        assets: async () => ({ css: '', body: '', preloads: '' }),
+        headConfig: null,
+        render: async (page: { component: string }) => `<h1>${page.component}</h1>`,
+      };
+      app.use(runtime.contextMiddleware);
+      app.use(async (c, next) => {
+        await next();
+        c.res = await c.notFound();
+      });
+      app.notFound(
+        createPagesFallback({
+          routing: runtime,
+          errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+          pageNotFound: createPageGetHandler({
+            ...common,
+            componentId: 'root',
+            load: async () => ({ loader: () => new Response(null, { status: 404 }) }),
+            renderOptions: { boundaries: { notFound: 'root-not-found', errors: [] } },
+          }),
+        }),
+      );
+      app.get(
+        '/items/:id',
+        createPageGetHandler({
+          ...common,
+          componentId: 'item',
+          load: async () => ({ loader: (c) => c.notFound() }),
+          renderOptions: { boundaries: { notFound: 'item-not-found', errors: [] } },
+        }),
+      );
+      const response = await app.request(
+        'https://app.test/items/missing',
+        {
+          headers: pages
+            ? { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+            : {},
+        },
+        {
+          ASSETS: {
+            fetch: async () => {
+              assetReads++;
+              return Response.json({ static: 'item' });
+            },
+          },
+        },
+      );
+      expect(response.status).toBe(404);
+      expect(assetReads).toBe(0);
+      const body = await response.text();
+      if (pages) {
+        expect(deserializePageData(body)).toMatchObject({ component: 'root-not-found' });
+      } else {
+        expect(body).toContain('<h1>root-not-found</h1>');
+      }
+    },
+  );
+
   it('keeps a static file at the same path out of a loader not-found', async () => {
     const fetched: Array<string> = [];
     const rendered: Array<string> = [];

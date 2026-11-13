@@ -1,22 +1,16 @@
 import type { Context } from 'hono';
 
-/**
- * Who renders a page loader's `c.notFound()`:
- * - `boundary`: the app defines a not-found boundary, so it renders.
- * - `fallback`: the app has none, so the root fallback renders.
- */
-type LoaderNotFound = 'boundary' | 'fallback';
-
-const loaderNotFound = new WeakMap<Context, LoaderNotFound>();
+const loaderNotFound = new WeakSet<Context>();
+const loaderBoundaries = new WeakSet<Context>();
 
 /** The loader already answered this URL with `c.notFound()`, so assets must not. */
 export function handlesPageLoaderNotFound(c: Context): boolean {
   return loaderNotFound.has(c);
 }
 
-/** The app's own not-found boundary renders this response instead of the fallback. */
+/** The active loader's not-found boundary renders instead of the fallback. */
 export function ownsLoaderNotFoundBoundary(c: Context): boolean {
-  return loaderNotFound.get(c) === 'boundary';
+  return loaderBoundaries.has(c);
 }
 
 /**
@@ -25,6 +19,8 @@ export function ownsLoaderNotFoundBoundary(c: Context): boolean {
  * Hono resolves `c.notFound()` inside the loader call, so the marker has to be
  * set before the fallback runs. It also has to outlive the loader: the loader
  * returns the fallback's response, which must never be read as page props.
+ * Boundary ownership ends with the loader so outer middleware can render the
+ * root not-found page after `await next()`.
  */
 export async function withLoaderNotFoundDecision(
   c: Context,
@@ -32,10 +28,14 @@ export async function withLoaderNotFoundDecision(
   load: () => unknown,
 ): Promise<unknown> {
   const notFound = c.notFound;
+  const alreadyOwned = loaderBoundaries.has(c);
   c.notFound = () => {
     // The outer page owns the decision when a fallback render re-enters a loader.
     if (!loaderNotFound.has(c)) {
-      loaderNotFound.set(c, ownBoundary ? 'boundary' : 'fallback');
+      loaderNotFound.add(c);
+      if (ownBoundary) {
+        loaderBoundaries.add(c);
+      }
     }
     return notFound.call(c);
   };
@@ -43,5 +43,8 @@ export async function withLoaderNotFoundDecision(
     return await load();
   } finally {
     c.notFound = notFound;
+    if (!alreadyOwned) {
+      loaderBoundaries.delete(c);
+    }
   }
 }
