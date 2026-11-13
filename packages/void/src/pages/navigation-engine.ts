@@ -10,6 +10,7 @@ import type { HeadDescriptor } from './head.ts';
 import { PrefetchCache, parseCacheFor } from './prefetch.ts';
 import type { CacheForInput, CacheForResult, LinkPrefetchValue } from './prefetch.ts';
 import type { PageObject } from './protocol.ts';
+import { fetchPages, type PagesFetchOptions, type PagesFetchResult } from './redirect.ts';
 import { createScrollRestoration } from './scroll-restoration.ts';
 import { decodePageData, deserializePageData, serializePageData } from './serialize.ts';
 import { decodePagePath, isSameOrigin } from './url.ts';
@@ -43,7 +44,7 @@ type DeferredWindow = Window & {
   __deferredQueue?: Array<[string, unknown] | [string, 0, unknown] | [string, unknown, 0, true]>;
 };
 
-type PageFetchOptions = RequestInit & { headers: Record<string, string> };
+type PageFetchOptions = PagesFetchOptions;
 
 type StaticPageDataResult = { pageData: PageData; resolvedDeferred: boolean };
 
@@ -241,9 +242,12 @@ function abortSignalPromise(signal: AbortSignal): Promise<never> {
   });
 }
 
-async function fetchPageResponse(fetchUrl: string, init: RequestInit): Promise<Response | null> {
+async function fetchPageResponse(
+  fetchUrl: string,
+  init: PagesFetchOptions,
+): Promise<PagesFetchResult | null> {
   try {
-    return await fetch(fetchUrl, init);
+    return await fetchPages(fetchUrl, init);
   } catch (error) {
     if (init.signal?.aborted || isAbortError(error)) {
       throw abortError();
@@ -610,8 +614,9 @@ export async function createPageNavigationEngine(
       if (pageData !== undefined) {
         return pageData;
       }
-      return fetchPageResponse(url, { method: 'GET', headers }).then(async (r) => {
-        if (!r || r.redirected) {
+      return fetchPageResponse(url, { method: 'GET', headers }).then(async (result) => {
+        const r = result?.response;
+        if (!r || result?.redirectedTo) {
           return null;
         }
         if (!r.headers.get('X-VoidPages')) {
@@ -779,25 +784,26 @@ export async function createPageNavigationEngine(
         }
       }
 
-      const response =
+      const fetched =
         pageData === undefined
           ? method === 'GET'
-            ? await fetchPageResponse(fetchUrl, fetchOptions)
-            : await fetch(fetchUrl, fetchOptions)
+            ? await fetchPageResponse(url, fetchOptions)
+            : await fetchPages(url, fetchOptions)
           : null;
+      const response = fetched?.response ?? null;
 
       if (pageData === undefined && !response) {
         window.location.href = url;
         return undefined;
       }
 
-      if (response?.redirected) {
-        const redirectUrl = new URL(response.url, window.location.origin);
+      if (fetched?.redirectedTo) {
+        const redirectUrl = new URL(fetched.redirectedTo, window.location.origin);
         if (!isSameOrigin(redirectUrl, window.location.origin)) {
-          window.location.href = method === 'GET' ? url : response.url;
+          window.location.href = fetched.redirectedTo;
           return undefined;
         }
-        // The browser already followed the redirect: treat the final response as the GET
+        // The fetch transport followed the redirect: treat the final response as the GET
         // result for the destination instead of fetching it a second time.
         method = 'GET';
         fetchUrl = redirectUrl.pathname + redirectUrl.search;

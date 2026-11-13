@@ -7,5 +7,13 @@ export const loader = defineHandler<Props>((c) => ({
 }));
 export const actions = {
   touch: defineHandler(() => {}),
+  anchor: defineHandler((c) => c.redirect('/scroll-restoration?anchored=1#details')),
+  typedAnchor: defineHandler((c) =>
+    c.redirect({
+      pathname: '/scroll-restoration',
+      query: { anchored: 1 },
+      hash: 'details',
+    }),
+  ),
   redirect: defineHandler((c) => c.redirect('/scroll-restoration?redirected=1')),
 };

@@ -4,16 +4,34 @@ import type { Props } from './scroll-restoration.server.ts';
 
 export default function ScrollRestorationPage({ requestId, page }: Props) {
   const form = useForm('/scroll-restoration?touch', {});
+  const anchorForm = useForm('/scroll-restoration?typedAnchor', {});
   return (
     <div>
       <h1>Scroll restoration</h1>
       <p>Scroll down, follow a link, then use the browser Back button.</p>
       <output data-testid="scroll-request">{requestId}</output>
       <output data-testid="scroll-page">{page}</output>
+      <button
+        onClick={() =>
+          startTransition(async () => {
+            await action('/scroll-restoration?anchor');
+          })
+        }
+      >
+        Redirect to anchor
+      </button>
+      <Form form={anchorForm}>
+        <button type="submit">Submit to anchor</button>
+      </Form>
       {Array.from({ length: 80 }, (_, index) => {
         const row = index + 1;
         return (
-          <section key={row} data-testid={`scroll-row-${row}`} style={{ height: '120px' }}>
+          <section
+            key={row}
+            id={row === 60 ? 'details' : undefined}
+            data-testid={`scroll-row-${row}`}
+            style={{ height: '120px' }}
+          >
             <h2 style={{ margin: 0 }}>Row {row}</h2>
             <a href="/users">Go to Users</a>
             <Link href="/users">Visit Users</Link>

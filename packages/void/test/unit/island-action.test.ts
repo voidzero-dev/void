@@ -24,7 +24,7 @@ describe('submitIslandAction', () => {
     ).resolves.toEqual({ kind: 'success' });
     expect(fetchMock).toHaveBeenCalledExactlyOnceWith('/posts?save', {
       method,
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', 'X-VoidPages-Redirect': 'manual' },
       body: '{"title":"Hello","tags":["news"],"published":false}',
     });
   });

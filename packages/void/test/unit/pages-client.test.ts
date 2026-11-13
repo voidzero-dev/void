@@ -547,15 +547,28 @@ describe('createVoidRouter', () => {
     const documentStub = stubClientGlobals();
     window.location.pathname = '/editor';
     const scrollIntoView = vi.fn();
-    const response = pageJson({ component: 'home', props: {}, url: '/destination', errors: null });
-    Object.defineProperties(response, {
-      redirected: { value: true },
-      url: { value: 'http://localhost/destination#details' },
-    });
-    vi.stubGlobal(
-      'fetch',
-      vi.fn(async () => response),
+    const app = new Hono();
+    app.use(createRoutingRuntime(app, { nodeTarget: true }).contextMiddleware);
+    app.post('/editor', (c) => c.redirect('/destination#details'));
+    app.get('/destination', () =>
+      pageJson({ component: 'home', props: {}, url: '/destination', errors: null }),
     );
+    vi.stubGlobal('fetch', async (url: string, init: RequestInit) => {
+      const request = new Request(new URL(url, window.location.origin), init);
+      const response = await app.fetch(request);
+      if (response.status >= 300 && response.status < 400) {
+        const destination = new URL(response.headers.get('Location')!, request.url);
+        // Browsers follow Location but never expose its fragment in response.url.
+        destination.hash = '';
+        const followed = await app.fetch(new Request(destination, { headers: init.headers }));
+        Object.defineProperties(followed, {
+          redirected: { value: true },
+          url: { value: destination.href },
+        });
+        return followed;
+      }
+      return response;
+    });
     const { router } = await createTestRouter();
     vi.stubGlobal('document', {
       ...documentStub,
@@ -1729,6 +1742,7 @@ describe('createVoidRouter', () => {
         headers: {
           'X-VoidPages': 'true',
           'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Redirect': 'manual',
           Accept: 'application/json',
         },
       }),
@@ -1829,6 +1843,7 @@ describe('createVoidRouter', () => {
         headers: {
           'X-VoidPages': 'true',
           'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'X-VoidPages-Redirect': 'manual',
           Accept: 'application/json',
         },
       }),

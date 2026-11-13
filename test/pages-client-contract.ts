@@ -108,6 +108,29 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
+  it.each(['Redirect to anchor', 'Submit to anchor'])(
+    'preserves redirect hashes and scrolls to the target through %s',
+    async (button) => {
+      const page = await newPage();
+      try {
+        await page.goto(BASE + '/scroll-restoration');
+        await waitForHydration(page);
+        await page.evaluate(() => {
+          (window as TestWindow).__SPA_MARKER = true;
+        });
+        await page.getByRole('button', { name: button, exact: true }).click();
+        await page.waitForFunction(() => window.location.search.includes('anchored=1'));
+        expect(page.url()).toBe(BASE + '/scroll-restoration?anchored=1#details');
+        await page.waitForFunction(
+          () => Math.abs(document.getElementById('details')!.getBoundingClientRect().top) < 1,
+        );
+        expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
+
   it('keeps the page query and scroll for actions and forms, with resets for overrides and redirects', async ({
     expect,
   }) => {

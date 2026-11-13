@@ -19,6 +19,7 @@ import {
   searchWithoutActionKey,
   searchWithoutPreservedQuery,
 } from '../pages/action-key.ts';
+import { pagesRedirectResponse } from '../pages/redirect.ts';
 import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
 import { VoidAssetRewriteError, type CloudContext } from './handler.ts';
 import { convertReturnValue } from './response.ts';
@@ -341,6 +342,7 @@ export function createRoutingRuntime(
     c.originalUrl = () => originalUrls.get(c.req.raw) ?? null;
     c.isRewritten = () => originalUrls.has(c.req.raw);
     await next();
+    c.res = pagesRedirectResponse(c.req.raw, c.res);
     if (!trackAssetMisses) {
       return;
     }

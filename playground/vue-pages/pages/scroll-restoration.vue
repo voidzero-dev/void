@@ -3,6 +3,7 @@ import { action, Form, Link, useForm } from '@void/vue';
 import type { Props } from './scroll-restoration.server.ts';
 defineProps<Props>();
 const form = useForm('/scroll-restoration?touch', {});
+const anchorForm = useForm('/scroll-restoration?typedAnchor', {});
 </script>
 
 <template>
@@ -11,7 +12,15 @@ const form = useForm('/scroll-restoration?touch', {});
     <p>Scroll down, follow a link, then use the browser Back button.</p>
     <output data-testid="scroll-request">{{ requestId }}</output>
     <output data-testid="scroll-page">{{ page }}</output>
-    <section v-for="row in 80" :key="row" :data-testid="`scroll-row-${row}`" style="height: 120px">
+    <button @click="action('/scroll-restoration?anchor')">Redirect to anchor</button>
+    <Form :form="anchorForm"><button type="submit">Submit to anchor</button></Form>
+    <section
+      v-for="row in 80"
+      :key="row"
+      :id="row === 60 ? 'details' : undefined"
+      :data-testid="`scroll-row-${row}`"
+      style="height: 120px"
+    >
       <h2 style="margin: 0">Row {{ row }}</h2>
       <a href="/users">Go to Users</a>
       <Link href="/users">Visit Users</Link>

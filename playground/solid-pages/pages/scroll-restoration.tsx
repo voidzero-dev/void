@@ -4,6 +4,7 @@ import type { Props } from './scroll-restoration.server.ts';
 
 export default function ScrollRestorationPage(props: Props) {
   const form = useForm('/scroll-restoration?touch', {});
+  const anchorForm = useForm('/scroll-restoration?typedAnchor', {});
   const rows = Array.from({ length: 80 }, (_, index) => index + 1);
 
   return (
@@ -12,9 +13,17 @@ export default function ScrollRestorationPage(props: Props) {
       <p>Scroll down, follow a link, then use the browser Back button.</p>
       <output data-testid="scroll-request">{props.requestId}</output>
       <output data-testid="scroll-page">{props.page}</output>
+      <button onClick={() => void action('/scroll-restoration?anchor')}>Redirect to anchor</button>
+      <Form form={anchorForm}>
+        <button type="submit">Submit to anchor</button>
+      </Form>
       <For each={rows}>
         {(row) => (
-          <section data-testid={`scroll-row-${row}`} style={{ height: '120px' }}>
+          <section
+            id={row === 60 ? 'details' : undefined}
+            data-testid={`scroll-row-${row}`}
+            style={{ height: '120px' }}
+          >
             <h2 style={{ margin: 0 }}>Row {row}</h2>
             <a href="/users">Go to Users</a>
             <Link href="/users">Visit Users</Link>
