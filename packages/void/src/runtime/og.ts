@@ -14,11 +14,16 @@ export interface RenderOgImageOptions extends Omit<RenderImageOptions, 'width' |
 /** Options for the Open Graph image and its response. */
 export interface OgImageResponseOptions extends ResponseInit, RenderOgImageOptions {}
 
-/** An image response that renders a 1200×630 PNG by default. */
+/** An image response cached publicly for 24 hours: a 1200×630 PNG by default. */
 export class OgImageResponse extends ImageResponse {
   constructor(element: ImageInput, options: OgImageResponseOptions = {}) {
+    const headers = new Headers(options.headers);
+    if (!headers.has('cache-control')) {
+      headers.set('cache-control', 'public, max-age=86400');
+    }
     super(element, {
       ...options,
+      headers,
       width: options.width ?? DEFAULT_WIDTH,
       height: options.height ?? DEFAULT_HEIGHT,
     });
