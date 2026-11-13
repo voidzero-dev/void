@@ -61,12 +61,12 @@ type PlatformVersionProbe =
   | { kind: 'unknown' };
 
 /**
- * Returns whether `version` is older than MIN_PLATFORM_VERSION, or null when
- * it is not a release version. A prerelease sorts before its release.
+ * Returns whether `version` is older than the release `minimumVersion`, or null
+ * when it is not a release version. A prerelease sorts before its release.
  */
-function isOlderThanMinimumPlatform(version: string): boolean | null {
+export function isOlderPlatformVersion(version: string, minimumVersion: string): boolean | null {
   const actual = RELEASE_VERSION.exec(version);
-  const minimum = RELEASE_VERSION.exec(MIN_PLATFORM_VERSION)!;
+  const minimum = RELEASE_VERSION.exec(minimumVersion)!;
   if (!actual) {
     return null;
   }
@@ -99,7 +99,7 @@ function assertSupportedPlatform(apiUrl: string, probe: PlatformVersionProbe): v
   // comes from a hosted deployment that does not set PLATFORM_VERSION yet.
   // Any other value that is not a release version comes from a custom or
   // development build and cannot be ordered. Both pass.
-  if (version === 'hosted' || isOlderThanMinimumPlatform(version) !== true) {
+  if (version === 'hosted' || isOlderPlatformVersion(version, MIN_PLATFORM_VERSION) !== true) {
     return;
   }
   throw new Error(

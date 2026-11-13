@@ -5,7 +5,8 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
+import { afterAll, beforeAll, beforeEach, expect, onTestFinished, test, vi } from 'vite-plus/test';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import { getUser } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
@@ -139,6 +140,12 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
   const { default: proxy } = (await import(/* @vite-ignore */ proxyUrl)) as {
     default: { fetch(request: Request, env: unknown): Promise<Response> };
   };
+  // Hosted Void Cloud does not set the uncached auth-database flag.
+  const uncached = env.PLATFORM_AUTH_DATABASE_UNCACHED;
+  delete env.PLATFORM_AUTH_DATABASE_UNCACHED;
+  onTestFinished(() => {
+    env.PLATFORM_AUTH_DATABASE_UNCACHED = uncached;
+  });
   const owner = await createTestUser(env.db, 'ai-customer');
   const project = await createTestProject(env.db, owner.id, 'private-ai');
   const command = ['project', 'ai-logging', project.id, 'metadata'];
@@ -150,6 +157,8 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
   const saved = await run([...command, '--yes', '--json']);
   expect(saved.code, saved.stderr).toBe(0);
   expect(JSON.parse(saved.stdout)).toMatchObject({ mode: 'metadata' });
+  // The proxy reads only the published ROUTING value, which the API wrote.
+  expect(await env.ROUTING.get(aiLoggingKey(project.id))).toBe('metadata');
 
   const ai = {
     run: vi.fn(async () => ({ response: 'ok' })),
@@ -191,10 +200,19 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
       extraHeaders: { 'cf-aig-collect-log-payload': 'false' },
     }),
   );
-  // The same isolate must enforce a new policy without a deploy or stale cache.
+  // The proxy reads the key on every call and keeps no copy of its own, so a new
+  // value applies without a deploy. This test KV ignores `cacheTtl`: in production a
+  // location that already read the old value may serve it until the cache time ends,
+  // which is why the command prints an expected-by time instead of "now".
   const changed = await run(['project', 'ai-logging', project.id, 'off', '--yes', '--json']);
   expect(changed.code, changed.stderr).toBe(0);
+  const reads = vi.spyOn(env.ROUTING, 'get');
   expect((await proxy.fetch(request(), bindings)).status).toBe(200);
+  expect(reads).toHaveBeenCalledWith(aiLoggingKey(project.id), { cacheTtl: 30 });
+  expect(
+    Date.parse((JSON.parse(changed.stdout) as { expectedBy: string }).expectedBy),
+  ).toBeGreaterThan(Date.now() + 30_000);
+  reads.mockRestore();
   expect(ai.run).toHaveBeenLastCalledWith(
     'test-model',
     { prompt: 'private' },
@@ -205,6 +223,19 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
   const audit = await run(['system', 'events', '--json']);
   expect(audit.code, audit.stderr).toBe(0);
   expect(JSON.stringify(JSON.parse(audit.stdout))).toContain(`projects/${project.id}/ai-logging`);
+
+  // Human output names where the setting comes from and when new requests follow it.
+  const human = await run(['project', 'ai-logging', project.id, 'full', '--yes']);
+  expect(human.code, human.stderr).toBe(0);
+  expect(human.stdout).toContain(
+    `AI logging for ${project.id}: full (set on project; plan "free" default: inherit)`,
+  );
+  expect(human.stdout).toContain('New AI requests are expected to follow it by ');
+  const shown = await run(['project', 'show', project.id]);
+  expect(shown.code, shown.stderr).toBe(0);
+  expect(shown.stdout).toContain(
+    'AI Gateway logging: full (set on project; plan "free" default: inherit) — pending (expected by ',
+  );
 });
 
 test('built CLI authenticates, previews, changes access, and reads the actual database audit', async () => {

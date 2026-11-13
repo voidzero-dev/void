@@ -33,6 +33,7 @@ const state = vi.hoisted(() => ({
   events: [] as Array<string>,
   manifest: undefined as PlatformInstallationManifest | undefined,
   prepareDatabase: vi.fn(),
+  publishAiLogging: vi.fn(),
   readAdministratorSetup: vi.fn(),
   readAuthenticationState: vi.fn(),
   readPlanZeroTrust: vi.fn(),
@@ -145,6 +146,7 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
           authoritativeManifest: state.manifest,
           checkpoint: vi.fn(),
           prepareDatabase: state.prepareDatabase,
+          publishAiLogging: state.publishAiLogging,
           readAdministratorSetup: state.readAdministratorSetup,
           readAuthenticationState: state.readAuthenticationState,
           readProjectZeroTrust: state.readProjectZeroTrust,
@@ -164,6 +166,8 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
         existing!.ownershipNonce,
       );
       expect(borrowed.prepareDatabase).toBe(state.prepareDatabase);
+      // Every upgrade and repair republishes AI logging settings on the held connection.
+      expect(borrowed.publishAiLogging).toBe(state.publishAiLogging);
       expect(borrowed.readAuthenticationState).toBe(state.readAuthenticationState);
       await borrowed.readAuthenticationState!();
       state.events.push('installer-start');

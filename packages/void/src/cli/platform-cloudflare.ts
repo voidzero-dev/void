@@ -66,6 +66,17 @@ export class PlatformRuntimeTokenEmailPermissionError extends Error {
 }
 
 export type CloudflareAccount = Readonly<{ id: string; name: string }>;
+/** A key from a KV listing; `metadata` is whatever was stored with it, or undefined. */
+export type CloudflareKvKey = Readonly<{ name: string; metadata?: unknown }>;
+export type CloudflareKvBulkEntry = Readonly<{
+  key: string;
+  value: string;
+  metadata?: unknown;
+  /** Seconds until the pair expires (at least 60). */
+  expiration_ttl?: number;
+}>;
+/** Largest number of pairs or keys one KV bulk request accepts. */
+export const KV_BULK_LIMIT = 10_000;
 export type CloudflareNamedResource = Readonly<{
   /** When Cloudflare created it, where the API reports that. */
   createdAt?: string;
@@ -931,6 +942,74 @@ export class PlatformCloudflareClient {
     );
   }
 
+  /** Every key under `prefix`, with its metadata, across all list pages. */
+  async listKvKeys(
+    accountId: string,
+    namespaceId: string,
+    prefix: string,
+  ): Promise<ReadonlyArray<CloudflareKvKey>> {
+    const keys: Array<CloudflareKvKey> = [];
+    const seenCursors = new Set<string>();
+    let cursor = '';
+    for (;;) {
+      const query = new URLSearchParams({ prefix, limit: '1000' });
+      if (cursor) {
+        query.set('cursor', cursor);
+      }
+      const { result, resultInfo } = await this.#requestEnvelope<
+        ReadonlyArray<{ name?: unknown; metadata?: unknown }>
+      >(
+        `/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/keys?${query}`,
+      );
+      if (!Array.isArray(result)) {
+        throw new Error('platform: Cloudflare returned an invalid KV key list.');
+      }
+      for (const entry of result) {
+        const name = requiredString(entry.name, 'KV key name');
+        keys.push(entry.metadata === undefined ? { name } : { name, metadata: entry.metadata });
+      }
+      const next = resultInfo?.cursor ?? '';
+      if (!next) {
+        return keys;
+      }
+      if (seenCursors.has(next)) {
+        throw new Error('platform: Cloudflare returned a repeated KV key cursor.');
+      }
+      seenCursors.add(next);
+      cursor = next;
+    }
+  }
+
+  /** Writes up to KV_BULK_LIMIT pairs per request; fails if any key is not written. */
+  async putKvBulk(
+    accountId: string,
+    namespaceId: string,
+    entries: ReadonlyArray<CloudflareKvBulkEntry>,
+  ): Promise<void> {
+    for (let offset = 0; offset < entries.length; offset += KV_BULK_LIMIT) {
+      const result = await this.request<KvBulkResult>(
+        `/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/bulk`,
+        { method: 'PUT', body: JSON.stringify(entries.slice(offset, offset + KV_BULK_LIMIT)) },
+      );
+      assertKvBulkComplete(result, 'write');
+    }
+  }
+
+  /** Deletes up to KV_BULK_LIMIT keys per request; a missing key counts as deleted. */
+  async deleteKvBulk(
+    accountId: string,
+    namespaceId: string,
+    keys: ReadonlyArray<string>,
+  ): Promise<void> {
+    for (let offset = 0; offset < keys.length; offset += KV_BULK_LIMIT) {
+      const result = await this.request<KvBulkResult>(
+        `/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/bulk/delete`,
+        { method: 'POST', body: JSON.stringify(keys.slice(offset, offset + KV_BULK_LIMIT)) },
+      );
+      assertKvBulkComplete(result, 'delete');
+    }
+  }
+
   async getKvValue(accountId: string, namespaceId: string, key: string): Promise<string | null> {
     const response = await this.#fetcher(
       `${this.apiBaseUrl}/accounts/${encodeURIComponent(accountId)}/storage/kv/namespaces/${encodeURIComponent(namespaceId)}/values/${encodeURIComponent(key)}`,
@@ -1521,6 +1600,19 @@ function withCreatedAt(value: unknown): { createdAt?: string } {
   const zoneless = /^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?$/.test(value);
   const time = Date.parse(zoneless ? `${value.replace(' ', 'T')}Z` : value);
   return Number.isNaN(time) ? {} : { createdAt: new Date(time).toISOString() };
+}
+
+type KvBulkResult = { successful_key_count?: unknown; unsuccessful_keys?: unknown } | null;
+
+/** A bulk call answers 200 even when some keys failed; treat any failed key as an error. */
+function assertKvBulkComplete(result: KvBulkResult, operation: 'write' | 'delete'): void {
+  const failed = result?.unsuccessful_keys;
+  if (failed !== undefined && failed !== null && (!Array.isArray(failed) || failed.length > 0)) {
+    const count = Array.isArray(failed) ? failed.length : 'some';
+    throw new Error(
+      `platform: Cloudflare did not ${operation} ${count} KV keys in a bulk request.`,
+    );
+  }
 }
 
 function requiredString(value: unknown, label: string): string {
