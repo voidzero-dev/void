@@ -148,56 +148,10 @@ Two features need extra wiring on a self-hosted `vite build && wrangler deploy` 
 
 ### Package Exports
 
-[package.json](./package.json) is the authoritative export map and declares
-the CLI binary at `dist/cli/cli.mjs`. The
-[API reference](../../docs/reference/api.md#user-facing-imports) documents
-supported imports. Keep Worker-safe runtime subpaths separate from the
-Vite/CLI dependency graph.
-
-`void/remote` stays exported only for semver. Generated code imports
-`#self/remote`. Remove the subpath in the next major version.
-
-`void/image` is a thin `ImageResponse` layer over `takumi-js` with required
-width and height. `void/og` exports `OgImageResponse`, which extends it with
-standard sizes. Keep `ImageResponseOptions` declared in `image.ts` and map each option to Takumi:
-passing Takumi's options through would let a Takumi upgrade change the API.
-`void/html` re-exports `html`, `raw`, and the `HtmlEscapedString` type from Hono.
-`raw` is an explicit escaping bypass for trusted markup only.
-Keep it independent of the image renderer, and recommend `void/html` in examples.
-Both image constructors use `ImageInput`: JSX elements, Takumi nodes, or
-`HtmlEscapedString` (including promises). Never accept plain strings or reuse
-Takumi's `RenderInput`, whose React types also admit strings. Check Hono's
-`isEscaped` marker before converting its boxed string for `fromHtml`.
-On Node.js, Bun and Deno, `nodeTargetPlugin` selects WASM for Void's Takumi,
-bundles its bindings, and emits the binary as an SSR asset. Keep SSR asset
-emission enabled and resolve the binary relative to its emitted chunk, not
-the working directory. Apps need no direct Takumi dependency. Cloudflare
-keeps Takumi's workerd backend. takumi-js is on `~2.20`; skip
-2.19.0, which draws a word as boxes when the first font covering a character
-lacks its glyph. Before raising the range, render Japanese next to "Łódź" in
-a fresh process and check that Geist still draws `geistCoverage` in `image-fonts.ts`,
-then update the range and the Worker size in
-`docs/guide/image-generation.md` and `docs/guide/og-images.md`.
-
-Image responses default to Inter 4.1; `defaultFont: 'Geist'` uses Takumi's embedded
-Latin subset. `image-inter.ts` embeds unmodified WOFF2 and its matching TTF cmap;
-regenerate it and `licenses/Inter.txt` with `node packages/void/scripts/embed-inter.mjs`
-from the repository root. Builds must not download fonts. Keep the Inter license
-in the published package. Custom fonts precede Inter. Fallback ranges subtract
-the selected default's coverage and use distinct family names/keys for each
-default, so registration reuse cannot leak glyphs between images.
-
-`image-renderer.ts` leases one renderer per active image and retains at most one
-idle renderer. Its font budget is 8 MiB of accounted decoded data or 128 loads;
-clear registrations between renders at either threshold. Takumi 2.20's font LRU
-evicts whole families and protects the newest family, so same-family subsets
-can exceed its budget indefinitely. Pin listed fonts for the active image so an
-oversized working set still draws correctly; wait for all font loads to settle
-before releasing the lease. Count WOFF/WOFF2's decoded SFNT size, and free spare
-renderers after concurrent images finish. These limits bound retained history,
-not active-image memory, glyph caches, or Wasm's high-water allocation.
-
-Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
+- `void/remote` — Legacy compatibility export; generated code uses `#self/remote`.
+- `void/image` — `ImageResponse` for generating images with explicit dimensions.
+- `void/og` — `OgImageResponse` with standard Open Graph dimensions.
+- `void/html` — Hono's `html`, `raw`, and `HtmlEscapedString` for HTML templates.
 
 ### Route Filename Parsing Rules
 
