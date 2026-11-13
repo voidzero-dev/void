@@ -89,14 +89,13 @@ The second argument is required and sets the image and the response. Import `Ren
 | `images`                          |             | Limits for remote images and emoji: `allowUrl`, `maxBytes`, `timeout`, and `throwOnError`. Set them when the markup includes request values. |
 | `status`, `statusText`, `headers` |             | The response status and headers.                                                                                                             |
 
-Responses have these headers unless you set them in `headers`:
+Responses have this header unless you set it in `headers`:
 
 ```http
 Content-Type: image/png
-Cache-Control: public, max-age=0, must-revalidate
 ```
 
-Clients revalidate the image on each use; [cache it at the edge](#cache-generated-images) so they get the cached copy.
+`ImageResponse` does not set `Cache-Control`. Set your own policy through `headers`, or [cache generated images at the edge](#cache-generated-images). In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit.
 
 Emoji and remote images are downloaded while the image renders. An emoji that the chosen style does not have, or an image that fails to download, fails the image unless you pass `images: { throwOnError: false }`, which leaves it out; `noto` has no flags.
 

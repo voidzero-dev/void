@@ -218,9 +218,9 @@ describe('ImageResponse', () => {
     expect(Title).toHaveBeenCalledOnce();
   });
 
-  it('tells clients to revalidate the image on each use', () => {
+  it('leaves the cache policy to the caller', () => {
     expect(new ImageResponse(card, { width: 320, height: 168 }).headers.get('cache-control')).toBe(
-      'public, max-age=0, must-revalidate',
+      null,
     );
   });
 

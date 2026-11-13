@@ -6,6 +6,28 @@ import { OgImageResponse } from '../../src/runtime/og.ts';
 const card = html`<div style="display:flex">Hello</div>`;
 
 describe('OgImageResponse', () => {
+  it('caches public images for 24 hours by default', async () => {
+    const response = new OgImageResponse(card);
+    expect(response.headers.get('cache-control')).toBe('public, max-age=86400');
+    await response.arrayBuffer();
+  });
+
+  it.each([
+    { 'Cache-Control': 'private, no-store', 'x-image': 'card' },
+    new Headers({ 'Cache-Control': 'private, no-store', 'x-image': 'card' }),
+    [
+      ['Cache-Control', 'private, no-store'],
+      ['x-image', 'card'],
+    ],
+  ] satisfies Array<HeadersInit>)('preserves caller headers: %j', async (headers) => {
+    const original = new Headers(headers);
+    const response = new OgImageResponse(card, { headers });
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    expect(response.headers.get('x-image')).toBe('card');
+    expect([...new Headers(headers)]).toEqual([...original]);
+    await response.arrayBuffer();
+  });
+
   it('inherits Inter by default and allows the built-in Geist', async () => {
     const inter = new Uint8Array(
       await new OgImageResponse(card, { fallbackFonts: false }).arrayBuffer(),
