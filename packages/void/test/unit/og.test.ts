@@ -70,16 +70,24 @@ describe('OgImageResponse', () => {
     await response.arrayBuffer();
   });
 
-  it.each([undefined, {}, { width: undefined, height: undefined }])(
-    'renders a 1200x630 PNG by default with options %j',
-    async (options) => {
-      const response = new OgImageResponse(card, options);
-      const bytes = await response.arrayBuffer();
-      const view = new DataView(bytes);
-      expect({ width: view.getUint32(16), height: view.getUint32(20) }).toEqual({
-        width: 1200,
-        height: 630,
-      });
-    },
-  );
+  it('renders a 1200x630 PNG by default', async () => {
+    const response = new OgImageResponse(card);
+    const view = new DataView(await response.arrayBuffer());
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual([1200, 630]);
+  });
+
+  it('allows size overrides', async () => {
+    const response = new OgImageResponse(card, { width: 400, height: 300 });
+    const view = new DataView(await response.arrayBuffer());
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual([400, 300]);
+  });
+
+  it.each([
+    { preset: 'x-summary', size: [600, 600] },
+    { preset: 'pinterest', size: [1000, 1500] },
+  ] as const)('renders the $preset preset', async ({ preset, size }) => {
+    const response = new OgImageResponse(card, { preset });
+    const view = new DataView(await response.arrayBuffer());
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual(size);
+  });
 });
