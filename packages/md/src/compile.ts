@@ -20,6 +20,7 @@ import { imagePlugin } from './plugins/image.ts';
 import { lineNumberPlugin } from './plugins/line-numbers.ts';
 import { linkPlugin } from './plugins/link.ts';
 import { CODE_COPY_SCRIPT, preWrapperPlugin } from './plugins/pre-wrapper.ts';
+import { taskListPlugin } from './plugins/task-lists.ts';
 import { tocPlugin } from './plugins/toc.ts';
 
 export type Heading = Readonly<{
@@ -36,6 +37,8 @@ export type CompileResult = Readonly<{
 }>;
 
 export type CompileOptions = Readonly<{
+  /** Title of the code block copy button. Defaults to `Copy Code`. */
+  copyLabel?: string;
   shiki?: {
     themes?: { light: string; dark: string };
     /**
@@ -102,7 +105,7 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   };
 
   // Code block wrapping (must come after shiki, before line-numbers)
-  markdown.use(preWrapperPlugin);
+  markdown.use(preWrapperPlugin, { copyLabel: options?.copyLabel });
 
   markdown.use(containerPlugin);
   markdown.use(imagePlugin, { lazyLoading: true });
@@ -127,6 +130,8 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   // After emoji and before anchor, so footnote markers are not treated as
   // heading-anchor targets.
   markdown.use(footnote);
+
+  markdown.use(taskListPlugin);
 
   markdown.use(headingAnchorPlugin);
 

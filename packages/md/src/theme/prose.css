@@ -87,7 +87,7 @@
 /* Lists */
 .void-md ul,
 .void-md ol {
-  padding-left: 1.5em;
+  padding-inline-start: 1.5em;
   margin-top: 0;
   margin-bottom: 1em;
 }
@@ -163,9 +163,9 @@
 
 /* Anchor links */
 .void-md .header-anchor {
-  float: left;
-  margin-left: -0.87em;
-  padding-right: 0.23em;
+  float: inline-start;
+  margin-inline-start: -0.87em;
+  padding-inline-end: 0.23em;
   font-weight: 500;
   opacity: 0;
   transition: opacity 0.15s;
@@ -181,20 +181,18 @@
 }
 
 /* Task lists */
-.void-md ul.contains-task-list {
-  list-style: none;
-  padding-left: 0;
-}
-
 .void-md .task-list-item {
-  display: flex;
-  align-items: baseline;
-  gap: 0.5em;
+  list-style-type: none;
 }
 
-.void-md .task-list-item input[type='checkbox'] {
+.void-md .task-list-item-checkbox {
+  font: inherit;
+  width: 1em;
+  height: 1em;
   margin: 0;
-  flex-shrink: 0;
+  margin-inline-start: -1.5em;
+  margin-inline-end: 0.5em;
+  vertical-align: -0.125em;
 }
 
 /* Nested task lists */

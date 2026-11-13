@@ -50,7 +50,7 @@
 .void-md div[class*='language-'] .copy {
   position: absolute;
   top: 0.5em;
-  right: 0.5em;
+  inset-inline-end: 0.5em;
   width: 2em;
   height: 2em;
   border: 1px solid var(--vmd-border, #e2e8f0);

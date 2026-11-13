@@ -1,6 +1,7 @@
+import MarkdownExit from 'markdown-exit';
 import { describe, expect, it } from 'vite-plus/test';
 import { compile } from '../../src/compile.ts';
-import { CODE_COPY_SCRIPT } from '../../src/plugins/pre-wrapper.ts';
+import { CODE_COPY_SCRIPT, preWrapperPlugin } from '../../src/plugins/pre-wrapper.ts';
 
 /** Runs the copy script, then clicks a copy button whose code block has these lines. */
 function clickCopy(lines: Array<string>, writeText: (text: string) => unknown): void {
@@ -37,6 +38,18 @@ describe('plugins', () => {
       expect(result.html).toContain('class="language-js');
       expect(result.html).toContain('class="copy"');
       expect(result.html).toContain('class="lang"');
+    });
+
+    it('uses Copy Code as the default copy button title', async () => {
+      const result = await compile('```js\nconst x = 1;\n```');
+      expect(result.html).toContain('<button title="Copy Code" class="copy"></button>');
+    });
+
+    it('uses the copyLabel option as the copy button title, escaped', async () => {
+      const md = new MarkdownExit({ html: true });
+      md.use(preWrapperPlugin, { copyLabel: 'نسخ "الكود"' });
+      const html = await md.renderAsync('```js\nconst x = 1;\n```');
+      expect(html).toContain('<button title="نسخ &quot;الكود&quot;" class="copy"></button>');
     });
 
     it('adds one copy script per page with code blocks', async () => {
@@ -110,6 +123,62 @@ describe('plugins', () => {
       const result = await compile('> [!WARNING]\n> Careful here.');
       expect(result.html).toContain('warning');
       expect(result.html).toContain('WARNING');
+    });
+  });
+
+  describe('task-lists', () => {
+    it('renders checkboxes for task list items', async () => {
+      const result = await compile('- [ ] todo\n- [x] done\n- [X] also done\n- plain');
+      expect(result.html).toContain('<ul class="contains-task-list">');
+      expect(result.html).toContain(
+        '<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled> todo</li>',
+      );
+      expect(result.html).toContain(
+        '<li class="task-list-item"><input class="task-list-item-checkbox" type="checkbox" disabled checked> done</li>',
+      );
+      expect(result.html).toContain(
+        '<input class="task-list-item-checkbox" type="checkbox" disabled checked> also done',
+      );
+      expect(result.html).toContain('<li>plain</li>');
+      expect(result.html).not.toContain('[ ]');
+      expect(result.html).not.toContain('[x]');
+    });
+
+    it('handles loose, nested and ordered task lists', async () => {
+      const loose = await compile('- [ ] one\n\n- [x] two');
+      expect(loose.html).toContain('contains-task-list');
+      expect(loose.html).toContain('<p><input class="task-list-item-checkbox"');
+
+      const nested = await compile('- [ ] parent\n  - [x] child');
+      expect(nested.html.match(/contains-task-list/g)).toHaveLength(2);
+      expect(nested.html.match(/task-list-item-checkbox/g)).toHaveLength(2);
+
+      const ordered = await compile('1. [x] first');
+      expect(ordered.html).toContain('<ol class="contains-task-list">');
+    });
+
+    it.each([
+      ['**bold**', '<strong>bold</strong>'],
+      ['*emphasis*', '<em>emphasis</em>'],
+      ['`code`', '<code>code</code>'],
+      ['[link](./guide.md)', '<a href="./guide">link</a>'],
+      ['<span>HTML</span>', '<span>HTML</span>'],
+    ])('recognizes task labels starting with %s', async (label, html) => {
+      const result = await compile(`- [ ] ${label}\n- [x] ${label}`);
+      expect(result.html.match(/task-list-item-checkbox/g)).toHaveLength(2);
+      expect(result.html).toContain(`disabled> ${html}`);
+      expect(result.html).toContain(`disabled checked> ${html}`);
+      expect(result.html).not.toMatch(/\[[ x]\]/);
+    });
+
+    it('leaves text that only looks like a task alone', async () => {
+      const result = await compile(
+        '- [ ]\n- [x]no space\n- a [ ] b\n- \\[ ] escaped\n\n[ ] not a list',
+      );
+      expect(result.html).not.toContain('task-list-item');
+      expect(result.html).not.toContain('contains-task-list');
+      expect(result.html).toContain('[x]no space');
+      expect(result.html).toContain('a [ ] b');
     });
   });
 
