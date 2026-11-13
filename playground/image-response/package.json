@@ -5,6 +5,7 @@
   "scripts": {
     "build": "vp build",
     "dev": "vp dev",
+    "dev:memory": "node --expose-gc scripts/font-memory.mjs",
     "preview": "vp preview",
     "typecheck": "tsc --noEmit"
   },
