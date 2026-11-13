@@ -8,7 +8,7 @@ export const statusMessages = {
   429: 'Too many requests',
   500: 'Unexpected loader failure',
   503: 'Down for maintenance',
-} as const
+} as const;
 
 export function parseStatus(c: CloudContext) {
   return parseInt(c.req.param('status')!) as keyof typeof statusMessages;
