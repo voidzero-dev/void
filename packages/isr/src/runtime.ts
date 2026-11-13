@@ -420,7 +420,11 @@ async function deleteSharedIsrVariants(
   await safeCacheDelete(cache, keys.jsonKey);
 }
 
-/** Copy a request without its Pages protocol headers. */
+/**
+ * Copy a request without its Pages protocol headers.
+ * @deprecated Unused by ISR. Preserve the original request when rendering so
+ * Pages negotiation remains intact. Removed in the next major version.
+ */
 export function cloneWithoutVoidPages(request: Request): Request {
   const headers = new Headers(request.headers);
   headers.delete('X-VoidPages');

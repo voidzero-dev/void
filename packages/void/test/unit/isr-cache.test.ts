@@ -1,5 +1,4 @@
 import {
-  cloneWithoutVoidPages,
   deleteIsrCache,
   denormalizeIsrPath,
   handleFrameworkIsr,
@@ -376,33 +375,6 @@ describe('writeIsrCache / readIsrCache / deleteIsrCache', () => {
       await expect(readIsrCache(makeEnv(kv), HOST, '/p')).resolves.toBeNull();
     });
   }
-});
-
-// ===========================================================================
-// cloneWithoutVoidPages
-// ===========================================================================
-
-describe('cloneWithoutVoidPages', () => {
-  it('removes Pages protocol headers while preserving method, url, and other headers', () => {
-    const original = new Request(`https://${HOST}/blog/post`, {
-      method: 'GET',
-      headers: {
-        'X-VoidPages': 'true',
-        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
-        'X-Test-Marker': 'keep',
-        Accept: 'text/html',
-      },
-    });
-
-    const cleaned = cloneWithoutVoidPages(original);
-
-    expect(cleaned.headers.has('X-VoidPages')).toBe(false);
-    expect(cleaned.headers.has('X-VoidPages-Version')).toBe(false);
-    expect(cleaned.headers.get('X-Test-Marker')).toBe('keep');
-    expect(cleaned.headers.get('Accept')).toBe('text/html');
-    expect(cleaned.method).toBe('GET');
-    expect(cleaned.url).toBe(`https://${HOST}/blog/post`);
-  });
 });
 
 // ===========================================================================

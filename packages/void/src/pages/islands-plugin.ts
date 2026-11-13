@@ -436,7 +436,11 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
   return lines.join('\n');
 }
 
-/** Extract CSS import statements from a file and return them as @import rules. */
+/**
+ * Extract CSS import statements from a file and return them as @import rules.
+ * @deprecated Void generates island entry imports with generateIslandClientEntry.
+ * Use findStaticCssImports to inspect authored imports. Removed in the next major version.
+ */
 export function extractCssImports(filePath: string): string {
   const code = readFileSync(filePath, 'utf-8');
   return findStaticCssImports(code, filePath)
