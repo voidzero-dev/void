@@ -423,6 +423,18 @@ describe('plan routes', () => {
     expect(await published(ids.at(-1)!)).toBe('off');
   });
 
+  test('adding a plan during an unfinished unknown-plan publish keeps its accounts in the run', async () => {
+    const legacy = await owner('legacy-x');
+    const ids = await seedProjects(legacy.id, PLAN_AI_LOGGING_PAGE_SIZE + 20, 'legacy');
+    // free is the default plan, so accounts on unknown plans follow it; one page runs.
+    await planChange('/free/set', { aiLogging: 'off' });
+    expect(await published(ids.at(-1)!)).toBeNull();
+    // legacy-x gets the same default, so adding it changes no account's mode.
+    await planChange('/add', { id: 'legacy-x', copyFrom: 'free', name: 'Legacy' });
+    await syncUntilComplete(3);
+    expect(await published(ids.at(-1)!)).toBe('off');
+  });
+
   test('removing a plan previews and publishes the replacement default for the moved accounts', async () => {
     const moved = await seedProject('pro');
     await planChange('/pro/set', { aiLogging: 'off' });

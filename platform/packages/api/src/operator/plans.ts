@@ -407,11 +407,15 @@ export async function mutateOperatorPlanCatalog(
       modesAfter: aiLoggingModes,
       ...(moved ? { moved } : {}),
     });
+    const knownBefore = new Set(previous.plans.map((plan) => plan.id));
     const aiLoggingPublish = startPlanAiLoggingPublish(
       savedAiLogging.publish,
       proposal.catalog.revision,
       aiLoggingChange,
-      moved,
+      {
+        ...(moved ? { moved } : {}),
+        added: proposal.catalog.plans.map((plan) => plan.id).filter((id) => !knownBefore.has(id)),
+      },
     );
     const affectedAccounts = await accountCount(
       tx,

@@ -125,21 +125,30 @@ export function planAiLoggingChanges(
 /**
  * Starts a publish for the given accounts, folding in any run that has not finished.
  * The merged run starts again from the first project, so every project it covers
- * gets the newest settings. When a plan is removed, `moved` carries the unfinished
- * run's scope to the replacement plan, which now holds those accounts, even when the
- * two plans share a default and `change` lists neither.
+ * gets the newest settings. An unfinished run follows its accounts through the
+ * catalog change, even when their mode does not change and `change` lists no plan:
+ * a removed plan's scope moves to its replacement (`catalog.moved`), and a run that
+ * covered unknown plans also covers plans that are new to the catalog
+ * (`catalog.added`), because those accounts are no longer on an unknown plan.
  */
 export function startPlanAiLoggingPublish(
   current: PlanAiLoggingPublish | null,
   revision: number,
   change: Readonly<{ planIds: ReadonlyArray<string>; includeUnknown: boolean }>,
-  moved?: Readonly<{ from: string; to: string }>,
+  catalog: Readonly<{
+    moved?: Readonly<{ from: string; to: string }>;
+    added?: ReadonlyArray<string>;
+  }> = {},
 ): PlanAiLoggingPublish | null {
   const running = current && !current.complete ? current : null;
   if (!running && !change.planIds.length && !change.includeUnknown) {
     return current;
   }
+  const { moved, added = [] } = catalog;
   const carried = (running?.planIds ?? []).map((id) => (id === moved?.from ? moved.to : id));
+  if (running?.includeUnknown) {
+    carried.push(...added);
+  }
   return {
     revision,
     planIds: [...new Set([...carried, ...change.planIds])].sort(),
