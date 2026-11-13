@@ -268,7 +268,10 @@ export interface CloudflareEmailStepResult {
   map: EmailAddressMapInput | null;
 }
 
-export type RunDeployTargetAdapter = DeployTargetAdapter<RunDeployOptions, CliLogger>;
+export type RunDeployTargetAdapter = Pick<
+  DeployTargetAdapter<RunDeployOptions, CliLogger>,
+  'target' | 'deploy'
+>;
 
 export type PrerenderSourceInputs = {
   /** `pages/` exists — file-based pages contribute static + `getPrerenderPaths()` paths. */

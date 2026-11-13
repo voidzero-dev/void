@@ -105,32 +105,6 @@ export async function runDeploy(root: string, options?: RunDeployOptions): Promi
 
 const cloudflareDeployTarget: RunDeployTargetAdapter = {
   target: 'cloudflare',
-  capabilities: {
-    managedProjects: false,
-    skipBuild: true,
-    appTypes: {
-      void: 'supported',
-      spa: 'supported',
-      static: 'supported',
-      framework: 'supported',
-    },
-    features: {
-      auth: 'supported',
-      cron: 'supported',
-      queues: 'supported',
-      durableState: 'supported',
-      webSockets: 'supported',
-      live: 'supported',
-      sandbox: 'supported',
-      isr: 'supported',
-      remoteDevelopment: 'unsupported',
-      deploymentHistory: 'supported',
-      rollback: 'supported',
-      secrets: 'supported',
-      domains: 'supported',
-      logs: 'partial',
-    },
-  },
   async deploy(root, options, cliLog): Promise<void> {
     if (options.projectSlug !== undefined) {
       throw new Error(
@@ -149,32 +123,6 @@ const cloudflareDeployTarget: RunDeployTargetAdapter = {
 
 const voidDeployTarget: RunDeployTargetAdapter = {
   target: 'void',
-  capabilities: {
-    managedProjects: true,
-    skipBuild: true,
-    appTypes: {
-      void: 'supported',
-      spa: 'supported',
-      static: 'supported',
-      framework: 'supported',
-    },
-    features: {
-      auth: 'supported',
-      cron: 'supported',
-      queues: 'supported',
-      durableState: 'unsupported',
-      webSockets: 'supported',
-      live: 'supported',
-      sandbox: 'supported',
-      isr: 'supported',
-      remoteDevelopment: 'supported',
-      deploymentHistory: 'supported',
-      rollback: 'supported',
-      secrets: 'supported',
-      domains: 'supported',
-      logs: 'supported',
-    },
-  },
   deploy: runManagedDeploy,
 };
 
