@@ -708,7 +708,10 @@ function resolveRequestHead(
   pageHead: HeadDescriptor | undefined,
 ): HeadDescriptor | undefined {
   const head = resolveHead(configHead, middlewareHead, pageHead);
-  return absolutizeHead(head, c.env?.__VOID_PRERENDER === '1' ? undefined : c.req.url);
+  return absolutizeHead(
+    head,
+    c.env?.__VOID_PRERENDER === '1' ? undefined : (c.originalUrl?.()?.href ?? c.req.url),
+  );
 }
 
 async function runPageGet(
