@@ -13,6 +13,8 @@ npm install hono
 
 Once `hono` is installed in your app, you can use built-in middleware, helpers, and third-party Hono packages directly.
 
+For [HTML templates](../reference/api/html.md), use `import { html } from 'void/html'`. This does not require installing Hono separately.
+
 ## Built-in Middleware
 
 Use Hono's built-in middleware in your global middleware files or per-route:
