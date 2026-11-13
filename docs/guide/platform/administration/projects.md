@@ -34,9 +34,11 @@ Keep prompt and response bodies out of a project's AI Gateway logs while retaini
 void platform project ai-logging <project-id> metadata
 ```
 
-Only platform administrators can change this setting. It covers the project's AI requests through the platform, including calls with the app's own provider key.
+Only platform administrators can change this setting. It covers the project's AI requests through the platform, including calls with the app's own provider key and calls from `void dev`.
 
-Use `inherit` for the gateway default, `off` to stop log collection, or `full` to include bodies. Read the saved mode with `void platform project show <project-id> --json`. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for billing and Logpush details.
+Use `inherit` for the gateway's own setting, `off` to store no log entry, or `full` to include bodies. A project's own setting wins over its plan's [AI Gateway logging default](./plans.md#ai-gateway-logging); `inherit` removes the project's own setting.
+
+The command prints when new requests are expected to follow the change, normally within 2 minutes. Check it with `void platform project show <project-id>`, which reports a line such as `AI Gateway logging: metadata (from plan "pro") — applied`. The project page in the admin dashboard shows the same line. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for each state, what the setting covers, and billing and Logpush details.
 
 ### Transferring Project Ownership
 
@@ -49,7 +51,7 @@ void platform project owner <project-id> <new-owner-user-id> --yes
 
 The preview shows both owners, their plans and suspension state, blockers, and the changes to routing and usage counters. Wait for active rollbacks and builds to finish. For an ordinary active deployment, wait or use `void platform deployment cancel <id>`; rollback deployments cannot be canceled. A managed Sandbox controller also blocks transfer until its cleanup completes, even if no Sandbox container is running; the preview identifies the deployment that owns it.
 
-After the transfer, the former owner becomes a project administrator. Existing project-scoped CI deploy credentials are revoked; create replacements as the new owner. The new owner's plan and limits apply immediately. Usage before the transfer remains charged to the former owner; later usage is charged to the new owner. If an apply reports partial convergence, inspect the project and operator event log before repeating it.
+After the transfer, the former owner becomes a project administrator. Existing project-scoped CI deploy credentials are revoked; create replacements as the new owner. The new owner's plan and limits apply immediately. Its AI Gateway logging default applies to new AI requests, normally within 2 minutes, unless the project has its own setting. Usage before the transfer remains charged to the former owner; later usage is charged to the new owner. If an apply reports partial convergence, inspect the project and operator event log before repeating it.
 
 By default, new users on a self-hosted installation start with the `custom` profile, which
 does not cap application requests, AI usage, deployment frequency, or retained

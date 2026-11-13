@@ -337,7 +337,7 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: 'set <id>',
-                description: 'Edit a plan name, limits, or build instance size',
+                description: 'Edit a plan name, limits, build size, or AI Gateway logging default',
               },
               {
                 command: 'reset <id>',
@@ -356,7 +356,10 @@ const HELP_TREE: HelpTree = {
                 description: 'Remove an unused plan or move its accounts to a replacement',
               },
               { command: 'default <id>', description: 'Choose the plan new accounts receive' },
-              { command: 'sync', description: 'Continue pending account limit updates' },
+              {
+                command: 'sync',
+                description: 'Continue pending account limit and AI logging updates',
+              },
             ],
             options: [
               {
@@ -365,7 +368,7 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: '--file <path>',
-                description: 'Read plan settings and partial limits from JSON',
+                description: 'Read plan settings, partial limits, and aiLogging from JSON',
               },
               {
                 command: '--name <name>',

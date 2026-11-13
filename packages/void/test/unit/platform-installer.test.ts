@@ -29,6 +29,7 @@ import {
 } from '@void/platform/installer';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import type { AiLoggingProjectionKv } from '../../src/cli/platform-ai-logging-projection.ts';
 import { PlatformCloudflareApiError } from '../../src/cli/platform-cloudflare.ts';
 import {
   hyperdriveOriginConfigHash,
@@ -110,16 +111,19 @@ type InstallArguments = Parameters<typeof installPlatformImplementation>;
 type InstallClient = InstallArguments[3]['client'];
 type DefaultedClientMethods =
   | 'apiBaseUrl'
+  | 'deleteKvBulk'
   | 'deleteKvValue'
   | 'disableHyperdriveCaching'
   | 'getHyperdriveConfig'
   | 'getWorkerPlainTextBindings'
+  | 'listKvKeys'
   | 'listWorkerDomains'
   | 'listWorkerNames'
   | 'listWorkerRoutes'
   | 'listWorkerServiceRoutes'
   | 'publishWorkerCustomDomainsSafely'
   | 'publishWorkerRoutesSafely'
+  | 'putKvBulk'
   | 'request';
 type TestInstallerDependencies = Omit<InstallArguments[3], 'client'> & {
   client: Omit<InstallClient, DefaultedClientMethods> &
@@ -144,8 +148,10 @@ function installPlatform(
     ...dependencies,
     client: {
       apiBaseUrl: resolvePinnedApiBaseUrl(),
+      deleteKvBulk: unexpectedCloudflareCall('deleteKvBulk'),
       deleteKvValue: async () => {},
       getWorkerPlainTextBindings: unexpectedCloudflareCall('getWorkerPlainTextBindings'),
+      listKvKeys: unexpectedCloudflareCall('listKvKeys'),
       listWorkerDomains: unexpectedCloudflareCall('listWorkerDomains'),
       listWorkerNames: unexpectedCloudflareCall('listWorkerNames'),
       listWorkerRoutes: unexpectedCloudflareCall('listWorkerRoutes'),
@@ -154,6 +160,7 @@ function installPlatform(
         'publishWorkerCustomDomainsSafely',
       ),
       publishWorkerRoutesSafely: unexpectedCloudflareCall('publishWorkerRoutesSafely'),
+      putKvBulk: unexpectedCloudflareCall('putKvBulk'),
       request: unexpectedCloudflareCall('request'),
       ...dependencies.client,
       getHyperdriveConfig:
@@ -835,6 +842,106 @@ describe('platform installer', () => {
     });
     expect(result.manifest.status).toBe('installed');
     expect(events).toEqual(['lift fence', 'enable traffic']);
+  });
+
+  it('publishes AI logging settings after migrations, before the Workers upload, and again after it', async () => {
+    useRegistryDirectory();
+    const plan = await createPlatformInstallPlan(
+      planningClient(),
+      {
+        accountId: 'account',
+        applicationDomain: '',
+        zoneName: '',
+        workersDev: true,
+        controlPlaneDomain: '',
+        dedicatedZone: false,
+        displayName: 'Logging',
+        installationSlug: 'logging',
+      },
+      null,
+    );
+    let index = 0;
+    const create = async (_account: string, name: string) => ({
+      id: `resource-${index++}`,
+      name,
+    });
+    const events: Array<string> = [];
+    const kvCalls: Array<unknown> = [];
+    const result = await installPlatform(plan, freshSecrets(), null, {
+      claimDatabase,
+      acquireDatabaseLifecycleLock: async () =>
+        Object.assign(async () => {}, {
+          prepareSandboxDrain: async () => sandboxDrainPreparation('complete'),
+          publishAiLogging: async (kv: AiLoggingProjectionKv) => {
+            events.push('publish AI logging');
+            await kv.list('ai-logging:');
+            await kv.put([
+              { key: 'ai-logging:p1', value: 'off', metadata: { mode: 'off', at: 1 } },
+            ]);
+            await kv.delete(['ai-logging:p2']);
+            return { skipped: false as const, projects: 2, written: 1, deleted: 1 };
+          },
+        }),
+      client: {
+        createAiGateway: create,
+        createDnsRecord: async () => {
+          throw new Error('no DNS expected');
+        },
+        createZone: async () => {
+          throw new Error('no zone expected');
+        },
+        createKvNamespace: create,
+        createR2Bucket: create,
+        createQueue: create,
+        createDispatchNamespace: create,
+        createHyperdrive: create,
+        putKvValue: async () => {},
+        putR2Object: async () => {},
+        listKvKeys: async (...args) => {
+          kvCalls.push(['list', ...args]);
+          return [];
+        },
+        putKvBulk: async (...args) => {
+          kvCalls.push(['put', ...args]);
+        },
+        deleteKvBulk: async (...args) => {
+          kvCalls.push(['delete', ...args]);
+        },
+      },
+      deployWorker: async (config) => {
+        events.push(`deploy ${String(config.name)}`);
+      },
+      prepareDatabase: async () => {
+        events.push('migrate');
+        return prepareDatabase();
+      },
+      revalidateBeforeWorkerDeploy: async () => {},
+      verifyHealth: async () => {},
+    });
+    expect(result.manifest.status).toBe('installed');
+    const upload = ['api', 'proxy', 'email-gateway', 'tail', 'dispatch'].map(
+      (name) => `deploy void-logging-${name}`,
+    );
+    // A fresh install uploads the Workers with traffic paused, then deploys them
+    // again to open traffic; the second pass runs between the two.
+    expect(events).toEqual([
+      'migrate',
+      'publish AI logging',
+      ...upload,
+      'publish AI logging',
+      ...upload,
+    ]);
+    const routing = result.manifest.resources.find((resource) => resource.key === 'routing-kv')!;
+    expect(kvCalls.slice(0, 3)).toEqual([
+      ['list', 'account', routing.id, 'ai-logging:'],
+      [
+        'put',
+        'account',
+        routing.id,
+        [{ key: 'ai-logging:p1', value: 'off', metadata: { mode: 'off', at: 1 } }],
+      ],
+      ['delete', 'account', routing.id, ['ai-logging:p2']],
+    ]);
   });
 
   it('keeps traffic disabled and the verified Worker set when shared email bootstrap blocks', async () => {
@@ -3558,6 +3665,16 @@ describe('platform installer', () => {
     expect(
       queries.find(({ sql }) => sql.startsWith('DELETE FROM "platform_settings"'))?.values,
     ).toEqual(['platform.uninstall']);
+
+    // AI logging projection runs on this same session; this fake has no table.
+    await expect(
+      lock.publishAiLogging!({
+        list: async () => [],
+        put: async () => {},
+        delete: async () => {},
+      }),
+    ).resolves.toEqual({ skipped: true });
+    expect(queries.at(-1)?.sql).toContain("to_regclass('public.project_ai_logging')");
     await lock();
   });
 

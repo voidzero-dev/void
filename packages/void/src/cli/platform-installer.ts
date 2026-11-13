@@ -15,6 +15,7 @@ import { PLATFORM_ADMIN_ASSETS_DIRECTORY, resolvePlatformRuntime } from '@void/p
 import { join } from 'pathslash';
 import { ensurePlatformAccessToken } from './cf-access.ts';
 import { getErrorMessage } from './output.ts';
+import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
 import {
   initializeInstalledAppAccess,
   PlatformAppAccessCredentialError,
@@ -761,6 +762,15 @@ export async function installPlatform(
       ids,
       runParallelPinnedPlatformWrangler,
       runPinnedPlatformWrangler,
+    });
+    // Second pass: the old API may have saved settings to the database only while
+    // the Workers were uploading.
+    await publishInstallationAiLogging({
+      client: dependencies.client,
+      accountId: state.plan.account.id,
+      routingKvId: requireId(ids, 'routing-kv'),
+      databaseLock: releaseDatabaseLock,
+      onProgress: dependencies.onProgress,
     });
 
     state.manifest = setInstallationEndpoints(

@@ -104,6 +104,22 @@ the route and project. That value never leaves the platform.
 
 `/ai/*` also checks `ROUTING` for `ai-block:{projectId}` before forwarding.
 
+`/ai/run`, `/ai/provider`, and `/ai/toMarkdown` read the project's AI Gateway
+logging mode from `ROUTING` key `ai-logging:{projectId}` (`cacheTtl: 30`) after
+the body is checked. The API publishes it; the proxy never asks the API.
+
+| Value         | AI Gateway logging                                    |
+| ------------- | ----------------------------------------------------- |
+| missing       | inherit: the gateway's own setting, nothing is sent   |
+| `off`         | no log entry                                          |
+| `metadata`    | log entry without the request and response bodies     |
+| `full`        | log entry with the request and response bodies        |
+| anything else | 503 `ai_logging_policy_invalid`                       |
+| read fails    | 503 `ai_logging_policy_unavailable`, `Retry-After: 5` |
+
+Caller gateway logging options and `cf-aig-*` logging headers are always dropped,
+so an app cannot change this. `/ai/models` does not read the key.
+
 `/ai/provider` forwards to `AI.gateway("void").getUrl(provider)` plus the relative `path`. JSON, text, binary, and multipart bodies are serialized by the SDK and reconstructed before forwarding. OpenAI-style providers default to `Authorization: Bearer <providerKey>`; Google AI Studio uses `x-goog-api-key`. Non-JSON responses are returned without JSON coercion so provider-native binary and streaming responses can pass through.
 
 ### Remote bindings
@@ -191,7 +207,7 @@ test/unit/
 | `AI`                   | Workers AI         | Real inference binding                                 |
 | `API`                  | Service binding    | Internal API calls (`revalidate`, resource resolution) |
 | `DISPATCH`             | Dispatch namespace | Fast path to deployed user workers                     |
-| `ROUTING`              | KV                 | AI limit flags and the platform disabled marker        |
+| `ROUTING`              | KV                 | AI limit and logging keys, platform disabled marker    |
 | `SEND_EMAIL`           | send_email         | Account-level outbound mail                            |
 | `JWT_SECRET`           | Secret             | HMAC/JWT verification                                  |
 | `EMAIL_SIGNING_SECRET` | Secret             | Email request proofs, credential leases, and receipts  |

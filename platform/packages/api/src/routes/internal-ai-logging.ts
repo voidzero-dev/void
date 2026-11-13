@@ -1,8 +1,14 @@
 import { Hono } from 'hono';
-import { readProjectAiLogging } from '../ai-logging.ts';
+import { readPublishedAiLogging } from '../ai-logging.ts';
 import type { ApiEnv } from '../env.ts';
 import { requireProxyInternalAuth } from '../internal-proxy-auth.ts';
 
+/**
+ * Kept for 1.8.x proxies, which ask the API on every AI call and parse exactly
+ * `{ mode }`. It answers from the published ROUTING key, the same value newer
+ * proxies read themselves, so it needs no database and no uncached-database flag.
+ * Remove it only once no supported upgrade source or hosted rollback target is 1.8.x.
+ */
 const app = new Hono<ApiEnv>();
 app.get('/:projectId', async (context) => {
   const projectId = context.req.param('projectId');
@@ -10,18 +16,25 @@ app.get('/:projectId', async (context) => {
   if (denied) {
     return denied;
   }
-  if (context.env.PLATFORM_AUTH_DATABASE_UNCACHED !== 'true') {
-    return context.json(
-      {
-        error: 'ai_logging_database_cached',
-        message:
-          'Upgrade the platform or configure cache-disabled Hyperdrive to read AI logging policies.',
-      },
-      503,
-    );
-  }
   context.header('Cache-Control', 'no-store');
-  const policy = await readProjectAiLogging(context.get('db'), projectId);
-  return policy ? context.json(policy) : context.json({ error: 'project not found' }, 404);
+  let mode;
+  try {
+    mode = await readPublishedAiLogging(context.env.ROUTING, projectId);
+  } catch (error) {
+    console.error('[ai-logging] logging setting unavailable', {
+      projectId,
+      reason: 'kv_error',
+      error: error instanceof Error ? error.name : 'unknown',
+    });
+    return context.json({ error: 'ai_logging_policy_unavailable' }, 503);
+  }
+  if (mode === undefined) {
+    console.error('[ai-logging] logging setting unavailable', {
+      projectId,
+      reason: 'invalid_value',
+    });
+    return context.json({ error: 'ai_logging_policy_invalid' }, 503);
+  }
+  return context.json({ mode });
 });
 export default app;

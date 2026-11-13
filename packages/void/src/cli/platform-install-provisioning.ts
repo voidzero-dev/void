@@ -5,6 +5,7 @@ import {
 } from '@void/platform';
 import type { PlatformRuntimeManifest } from '@void/platform/installer';
 import { join } from 'pathslash';
+import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
 import { verifyPlatformAuthenticationDatabase } from './platform-auth-database.ts';
 import { preparePlatformDatabaseSchema } from './platform-installer-database.ts';
 import {
@@ -188,6 +189,18 @@ export async function provisionInstallationServices(input: {
       state.manifest = next;
     },
   );
+
+  // First pass: the new proxy reads only ROUTING KV and may go live before the new API.
+  await publishInstallationAiLogging({
+    client: dependencies.client,
+    accountId: plan.account.id,
+    routingKvId: requireId(
+      Object.fromEntries(state.manifest.resources.map((resource) => [resource.key, resource.id])),
+      'routing-kv',
+    ),
+    databaseLock: releaseDatabaseLock,
+    onProgress: dependencies.onProgress,
+  });
 
   dependencies.onProgress?.('Checking platform safety');
   const targetSandboxDrainProtocol = runtime.safetyProtocols.sandboxDrain;

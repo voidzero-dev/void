@@ -10,8 +10,7 @@
     "./routing": "./src/routing.ts",
     "./isr-store": "./src/isr-store.ts",
     "./usage-auth": "./src/usage-auth.ts",
-    "./proxy-token": "./src/proxy-token.ts",
-    "./ai-logging-policy": "./src/ai-logging-policy.ts"
+    "./proxy-token": "./src/proxy-token.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",

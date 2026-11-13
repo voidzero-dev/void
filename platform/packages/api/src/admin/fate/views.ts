@@ -121,6 +121,7 @@ export const deploymentsPageRequest = (path: string) =>
 
 export const UserDetailView = view<AdminUserDetail>()({
   limits: true,
+  aiLogging: true,
   plans: true,
   id: true,
   user: true,
@@ -140,6 +141,7 @@ export const ProjectDetailView = view<AdminProjectDetail>()({
   domains: true,
   builds: true,
   zeroTrust: true,
+  aiLogging: true,
   cfAccountId: true,
   deployUrl: true,
   tz: true,
@@ -320,6 +322,7 @@ export const PlansView = view<AdminPlans>()({
   id: true,
   catalog: true,
   accounts: true,
+  aiLogging: true,
   selectedPlanId: true,
 });
 export const plansRequest = (path: string) =>

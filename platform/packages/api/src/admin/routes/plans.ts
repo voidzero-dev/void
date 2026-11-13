@@ -5,6 +5,8 @@ import {
 } from '@void/platform/plans';
 import { Hono, type Context } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
+import type { PlanAiLoggingPublishProgress } from '../../ai-logging-plans.ts';
+import { isAiLoggingMode } from '../../ai-logging-policy.ts';
 import type { ApiEnv } from '../../env.ts';
 import { executeAuditedMutation, operatorAuditIntent } from '../../operator/audit.ts';
 import { OperatorError, readBody } from '../../operator/common.ts';
@@ -62,13 +64,17 @@ function planId(value: unknown): string {
 function progress(result: {
   catalog: PlatformPlanCatalog;
   reconciliation: { complete: boolean; processed: number; error?: { message: string } };
+  aiLoggingPublish: PlanAiLoggingPublishProgress;
 }): AdminPlanProgress {
+  const { reconciliation, aiLoggingPublish } = result;
   return {
     revision: result.catalog.revision,
-    complete: result.reconciliation.complete,
-    processed: result.reconciliation.processed,
-    cursor: result.catalog.reconciliation?.cursor ?? null,
-    error: result.reconciliation.error?.message ?? null,
+    complete: reconciliation.complete && aiLoggingPublish.complete,
+    processed: reconciliation.processed + aiLoggingPublish.processed,
+    accounts: reconciliation.processed,
+    projects: aiLoggingPublish.processed,
+    cursor: `${result.catalog.reconciliation?.cursor ?? ''}|${aiLoggingPublish.remaining}`,
+    error: reconciliation.error?.message ?? aiLoggingPublish.error ?? null,
   };
 }
 
@@ -114,6 +120,16 @@ app.post('/preview', async (context) => {
     body.name = form.name;
     body.buildInstanceType = form.buildInstanceType;
     body.allowShortSlugs = form.allowShortSlugs === 'true';
+    if (form.aiLogging !== undefined) {
+      if (!isAiLoggingMode(form.aiLogging)) {
+        throw new OperatorError(400, 'Choose a supported AI Gateway logging setting.');
+      }
+      // The form loads the default from a possibly cached read. Sending an untouched value could
+      // undo a newer saved default, so only a changed selector becomes part of the change.
+      if (form.aiLogging !== form.aiLoggingInitial) {
+        body.aiLogging = form.aiLogging;
+      }
+    }
     body.limits = Object.fromEntries(
       PLAN_EDITABLE_LIMIT_KEYS.map((key) => {
         const value = form[key];
@@ -151,6 +167,9 @@ app.post('/preview', async (context) => {
     expectedRevision: result.expectedRevision,
     before,
     after: result.catalog,
+    // The dry run reads the saved defaults under the catalog lock, so this matches what apply replaces.
+    aiLoggingBefore: result.aiLogging.modesBefore,
+    aiLoggingAfter: result.aiLogging.modes,
     affectedAccounts: result.affectedAccounts,
     warnings: result.warnings,
     overLimitAccounts: result.overLimitAccounts,
