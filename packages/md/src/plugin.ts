@@ -40,6 +40,7 @@ export type MdPage = Readonly<{
 }>;
 
 export type MarkdownOptions = Readonly<{
+  copyLabel?: CompileOptions['copyLabel'];
   shiki?: CompileOptions['shiki'];
 }>;
 
@@ -385,7 +386,10 @@ export function useFrontmatter() { return useContext(FrontmatterContext) ?? {}; 
           });
 
           const { compile } = await import('./compile.ts');
-          const result = await compile(body, { shiki: options?.shiki }).catch((error: unknown) => {
+          const result = await compile(body, {
+            shiki: options?.shiki,
+            copyLabel: options?.copyLabel,
+          }).catch((error: unknown) => {
             throw createPageError(_id, error);
           });
 

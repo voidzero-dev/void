@@ -41,9 +41,11 @@ export const CODE_COPY_SCRIPT: string =
 /**
  * Wraps fenced code blocks with a language label and copy button.
  * Sets `env.codeCopy` so the page gets {@link CODE_COPY_SCRIPT}.
+ * `copyLabel` sets the copy button's title (default `Copy Code`).
  * Ported from VitePress.
  */
-export function preWrapperPlugin(md: MarkdownExit): void {
+export function preWrapperPlugin(md: MarkdownExit, options?: { copyLabel?: string }): void {
+  const copyLabel = md.utils.escapeHtml(options?.copyLabel ?? 'Copy Code');
   const fence = md.renderer.rules.fence as FenceRender;
   md.renderer.rules.fence = async (...args: Parameters<FenceRender>) => {
     const [tokens, idx, , env] = args;
@@ -58,7 +60,7 @@ export function preWrapperPlugin(md: MarkdownExit): void {
     const highlighted = await fence(...args);
     return (
       `<div class="language-${lang}${active}">` +
-      '<button title="Copy Code" class="copy"></button>' +
+      `<button title="${copyLabel}" class="copy"></button>` +
       `<span class="lang">${lang}</span>` +
       highlighted +
       `</div>`

@@ -163,9 +163,9 @@
 
 /* Anchor links */
 .void-md .header-anchor {
-  float: left;
-  margin-left: -0.87em;
-  padding-right: 0.23em;
+  float: inline-start;
+  margin-inline-start: -0.87em;
+  padding-inline-end: 0.23em;
   font-weight: 500;
   opacity: 0;
   transition: opacity 0.15s;

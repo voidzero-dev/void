@@ -453,12 +453,14 @@ voidMarkdown({
   shiki: {
     themes: { light: 'github-light', dark: 'github-dark' },
   },
+  copyLabel: 'Copy Code',
 });
 ```
 
-| Option         | Type                             | Default                                          | Description        |
-| -------------- | -------------------------------- | ------------------------------------------------ | ------------------ |
-| `shiki.themes` | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Shiki color themes |
+| Option         | Type                             | Default                                          | Description                                               |
+| -------------- | -------------------------------- | ------------------------------------------------ | --------------------------------------------------------- |
+| `shiki.themes` | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Shiki color themes                                        |
+| `copyLabel`    | `string`                         | `"Copy Code"`                                    | Title of the code block copy button, for translated sites |
 
 Code block languages load on demand from Shiki's bundled languages.
 
