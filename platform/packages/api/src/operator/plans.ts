@@ -411,6 +411,7 @@ export async function mutateOperatorPlanCatalog(
       savedAiLogging.publish,
       proposal.catalog.revision,
       aiLoggingChange,
+      moved,
     );
     const affectedAccounts = await accountCount(
       tx,

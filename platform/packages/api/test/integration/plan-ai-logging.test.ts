@@ -410,6 +410,19 @@ describe('plan routes', () => {
     expect(await published(onFree.project.id)).toBeNull();
   });
 
+  test('removing a plan with an unfinished publish carries it to the replacement plan', async () => {
+    const pro = await owner('pro');
+    const ids = await seedProjects(pro.id, PLAN_AI_LOGGING_PAGE_SIZE + 20, 'pro');
+    await planChange('/free/set', { aiLogging: 'off' });
+    // Stops after the first page, so the last 20 pro projects are not published yet.
+    await planChange('/pro/set', { aiLogging: 'off' });
+    expect(await published(ids.at(-1)!)).toBeNull();
+    // free has the same default, so the removal itself changes no account's mode.
+    await planChange('/pro/remove', { replacementPlanId: 'free' });
+    await syncUntilComplete(3);
+    expect(await published(ids.at(-1)!)).toBe('off');
+  });
+
   test('removing a plan previews and publishes the replacement default for the moved accounts', async () => {
     const moved = await seedProject('pro');
     await planChange('/pro/set', { aiLogging: 'off' });
