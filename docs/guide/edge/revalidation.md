@@ -109,6 +109,8 @@ Responses that vary by request headers, such as `Vary: Accept-Language` or `Vary
 
 Requests with `Cookie`, `Authorization`, or Cloudflare Access's `Cf-Access-Jwt-Assertion` header bypass the ISR cache entirely and always dispatch to the worker. Authenticated responses are not shared between users, including when Access authentication supplies no cookie.
 
+A request that negotiates a representation other than the cached HTML document also bypasses the cache, because each path holds a single cached body. That covers `Accept: text/event-stream` and `Accept: text/markdown`, so middleware that answers those requests in another format runs on every request.
+
 ## Cache keys and rewrites
 
 For a dispatch rewrite, the cache key includes both the destination and original pathname. A direct request to `/en/docs/foo` therefore uses a different entry from `/docs/foo` rewritten to that destination.
