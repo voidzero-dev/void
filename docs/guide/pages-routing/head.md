@@ -98,6 +98,8 @@ A page returning `{ title: "Users" }` under `/admin` produces `<title>Users | Ad
 
 To drop the suffix entirely for a section, including the config's, set the template to an empty string: `c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '' })`. A page returning `{ title: "Users" }` under `/admin` then produces `<title>Users</title>`.
 
+To drop the suffix entirely for a section, including the config's, set the template to an empty string: `c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '' })`. A page returning `{ title: "Users" }` under `/admin` then produces `<title>Users</title>`.
+
 ## Precedence
 
 When multiple layers provide head data, they merge with this precedence:
