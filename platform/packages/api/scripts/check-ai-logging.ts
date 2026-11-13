@@ -28,3 +28,24 @@ try {
 } finally {
   await client.end();
 }
+
+const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
+const token = process.env.CLOUDFLARE_API_TOKEN;
+if (accountId && token) {
+  try {
+    const response = await fetch(
+      `https://api.cloudflare.com/client/v4/accounts/${encodeURIComponent(accountId)}/ai-gateway/gateways/void`,
+      { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(15000) },
+    );
+    const gateway = (await response.json()) as { result?: { collect_logs?: boolean } };
+    if (!response.ok || typeof gateway.result?.collect_logs !== 'boolean') {
+      throw new Error(`HTTP ${response.status}`);
+    }
+    console.log(`Hosted void AI Gateway collect_logs: ${gateway.result.collect_logs}`);
+  } catch {
+    // Deployment tokens need not have AI Gateway Read permission.
+    console.warn(
+      'Could not read AI Gateway logging with the deployment token; check it in Cloudflare.',
+    );
+  }
+}
