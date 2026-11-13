@@ -1,6 +1,8 @@
+import { realpathSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import MagicString from 'magic-string';
 import { dirname } from 'pathslash';
-import { defaultServerConditions, type Plugin } from 'vite';
+import { defaultServerConditions, normalizePath, type Plugin } from 'vite';
 import { type ApplicationAnalysis } from './application-analysis.ts';
 import {
   ensureWranglerCompat,
@@ -34,15 +36,124 @@ import {
   createBareVoidRedirectPlugin,
   createCloudflareBuiltinsExternalPlugin,
 } from './plugin-worker-environment.ts';
+import { isClientEnvKey } from './shared/env.ts';
 import { injectSvelteKitBuildHooks, injectSvelteKitHooks } from './sveltekit-hooks-transform.ts';
 
 const handlerFile = fileURLToPath(import.meta.resolve('#self/handler'));
 const envModuleFile = fileURLToPath(import.meta.resolve('#self/_env'));
+const envPublicFile = fileURLToPath(import.meta.resolve('#self/env'));
 // Packages Void depends on are installed for code in this directory.
 const voidDir = dirname(fileURLToPath(import.meta.url));
 
 const ASTRO_SERVER_ENTRY = '@astrojs/cloudflare/entrypoints/server';
 const ASTRO_SCOPED_SERVER_ENTRY = '\0void:astro-server-entry';
+
+/**
+ * A define value as Vite writes it into code (its handleDefineValue): a string is code, anything
+ * else is JSON.
+ */
+function defineValue(value: unknown): string {
+  if (value === undefined) {
+    return 'undefined';
+  }
+  return typeof value === 'string' ? value : JSON.stringify(value);
+}
+
+/** The real path, so a symlinked id (`preserveSymlinks`) or a Windows short name still matches. */
+function realPath(file: string): string {
+  try {
+    return normalizePath(realpathSync.native(file));
+  } catch {
+    return normalizePath(file);
+  }
+}
+
+const IMPORT_META_ENV = 'import.meta.env';
+
+function isNameChar(char: string | undefined): boolean {
+  return (
+    char !== undefined &&
+    ((char >= 'a' && char <= 'z') ||
+      (char >= 'A' && char <= 'Z') ||
+      (char >= '0' && char <= '9') ||
+      char === '_' ||
+      char === '$')
+  );
+}
+
+/**
+ * Where `import.meta.env` stands on its own: not inside a longer name, and not a property like
+ * `a.import.meta.env`.
+ */
+export function findImportMetaEnv(code: string): Array<number> {
+  const starts: Array<number> = [];
+  let index = code.indexOf(IMPORT_META_ENV);
+  while (index !== -1) {
+    const before = code[index - 1];
+    if (
+      !isNameChar(before) &&
+      before !== '.' &&
+      !isNameChar(code[index + IMPORT_META_ENV.length])
+    ) {
+      starts.push(index);
+    }
+    index = code.indexOf(IMPORT_META_ENV, index + IMPORT_META_ENV.length);
+  }
+  return starts;
+}
+
+// In a build, Astro copies each private env value (from `.env` files or the build shell) into
+// any server module that reads `import.meta.env` as a whole and has that variable's name anywhere
+// in its text, comments included. `void/env` reads the whole object to pick its `VITE_*` values,
+// so before Astro sees that module, swap the read for those values, built as Vite's define builds
+// them. Astro then finds no `import.meta.env` there and copies nothing.
+export function createAstroPublicEnvPlugin(file: string = envPublicFile): Plugin {
+  const envPublicPath = realPath(file);
+  let astroBuildEnv: Record<string, unknown> = {};
+  return {
+    name: 'void:astro-public-env',
+    apply: 'build',
+    enforce: 'pre',
+    configResolved(resolvedConfig) {
+      // Keep the shared object, not a copy: Void's env plugin adds schema defaults to it in its
+      // own configResolved hook, and Vite runs those hooks concurrently.
+      astroBuildEnv = resolvedConfig.env;
+    },
+    transform: {
+      filter: { id: /env-public\.mjs$/ },
+      handler(code, id) {
+        if (this.environment?.name === 'client' || realPath(id) !== envPublicPath) {
+          return;
+        }
+        // Build the object as Vite's define does: the env values, then each define of an
+        // `import.meta.env.*` key, which wins and keeps its value as code.
+        const values: Record<string, unknown> = {};
+        for (const [key, value] of Object.entries(astroBuildEnv)) {
+          if (isClientEnvKey(key)) {
+            values[key] = JSON.stringify(value);
+          }
+        }
+        for (const [key, value] of Object.entries(this.environment.config.define ?? {})) {
+          const name = key.slice('import.meta.env.'.length);
+          if (key.startsWith('import.meta.env.') && isClientEnvKey(name)) {
+            values[name] = value;
+          }
+        }
+        const object = `{${Object.keys(values)
+          .sort()
+          .map((key) => `${JSON.stringify(key)}: ${defineValue(values[key])}`)
+          .join(', ')}}`;
+        const ms = new MagicString(code);
+        for (const start of findImportMetaEnv(code)) {
+          ms.overwrite(start, start + IMPORT_META_ENV.length, `(${object})`);
+        }
+        return ms.hasChanged()
+          ? { code: ms.toString(), map: ms.generateMap({ hires: true }) }
+          : undefined;
+      },
+    },
+  };
+}
 
 export function createFrameworkPlugins(input: {
   readonly localD1: ReturnType<typeof resolveLocalD1Target>;
@@ -310,6 +421,8 @@ export default {
         }
       : undefined;
 
+  const astroPublicEnvPlugin = detected.name === 'astro' ? createAstroPublicEnvPlugin() : undefined;
+
   // SvelteKit builds its server in Vite's Node `ssr` environment, and the adapter's Worker runs
   // that output as it is. For PostgreSQL and MySQL, void/db's driver then fails in workerd: pg
   // loads pg-cloudflare's Node stub, and CommonJS requires of Node built-ins become
@@ -389,6 +502,7 @@ export default {
     wranglerSyncPlugin,
     ...(nuxtVite8WebSocketCompatPlugin ? [nuxtVite8WebSocketCompatPlugin] : []),
     ...(astroServerEntryPlugin ? [astroServerEntryPlugin] : []),
+    ...(astroPublicEnvPlugin ? [astroPublicEnvPlugin] : []),
     svelteKitHooksInjectPlugin,
     ...(svelteKitWorkerBuildPlugin ? [svelteKitWorkerBuildPlugin] : []),
     ...(svelteKitD1CasingBuildPlugin ? [svelteKitD1CasingBuildPlugin] : []),
