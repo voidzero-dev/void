@@ -22,7 +22,7 @@ const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
 const OG_ROUTE = `import { html } from 'void/html';
 import { OgImageResponse } from 'void/og';
-export const GET = (c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
+export const GET = (c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { preset: 'default', fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { OgImageResponse } from 'void/og';
