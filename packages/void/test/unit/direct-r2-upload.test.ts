@@ -65,21 +65,25 @@ describe('uploadAssetsToR2', () => {
     expect(init.body).toBeInstanceOf(Uint8Array);
   });
 
-  it('retries 5xx up to 3 times then succeeds', async () => {
+  it.each([429, 503])('retries transient HTTP %s responses then succeeds', async (status) => {
     vi.useFakeTimers();
     let attempts = 0;
+    const attemptTimes: Array<number> = [];
     const fetchMock = vi.fn().mockImplementation(() => {
+      attemptTimes.push(Date.now());
       attempts++;
       if (attempts < 3) {
-        return Promise.resolve(new Response('temporary failure', { status: 503 }));
+        return Promise.resolve(new Response('temporary failure', { status }));
       }
       return Promise.resolve(new Response(null, { status: 200 }));
     });
 
     try {
-      const upload = uploadAssetsToR2([makeItem('/x.css', 'h-x')], cliLog, fetchMock);
+      const upload = uploadAssetsToR2([makeItem('/x.css', 'h-x')], cliLog, fetchMock).catch(
+        (error: unknown) => error,
+      );
       await vi.runAllTimersAsync();
-      await upload;
+      expect(await upload).toBeUndefined();
     } finally {
       vi.useRealTimers();
     }
@@ -87,8 +91,12 @@ describe('uploadAssetsToR2', () => {
     expect(fetchMock).toHaveBeenCalledTimes(3);
     const retries = cliLog.warn.mock.calls.filter(([msg]) => msg === 'r2_put_retry');
     expect(retries).toHaveLength(2);
-    expect(retries[0][1]).toMatchObject({ attempt: 1, status: 503 });
-    expect(retries[1][1]).toMatchObject({ attempt: 2, status: 503 });
+    expect(retries[0][1]).toMatchObject({ attempt: 1, status });
+    expect(retries[1][1]).toMatchObject({ attempt: 2, status });
+    if (status === 429) {
+      expect(attemptTimes[1] - attemptTimes[0]).toBeGreaterThanOrEqual(1000);
+      expect(attemptTimes[2] - attemptTimes[1]).toBeGreaterThanOrEqual(1000);
+    }
   });
 
   it('throws DirectR2PutError on 4xx without retry', async () => {
@@ -105,27 +113,30 @@ describe('uploadAssetsToR2', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('throws DirectR2PutError when 5xx exceeds retry budget', async () => {
-    vi.useFakeTimers();
-    const fetchMock = vi.fn().mockResolvedValue(new Response('boom', { status: 500 }));
+  it.each([429, 500])(
+    'throws DirectR2PutError when HTTP %s exceeds retry budget',
+    async (status) => {
+      vi.useFakeTimers();
+      const fetchMock = vi.fn().mockImplementation(() => new Response('boom', { status }));
 
-    try {
-      const upload = expect(
-        uploadAssetsToR2([makeItem('/x.html', 'h-x')], cliLog, fetchMock),
-      ).rejects.toMatchObject({
-        name: 'DirectR2PutError',
-        status: 500,
-        hash: 'h-x',
-        path: '/x.html',
-      });
-      await vi.runAllTimersAsync();
-      await upload;
-    } finally {
-      vi.useRealTimers();
-    }
-    // 1 initial attempt + 3 retries = 4 calls.
-    expect(fetchMock).toHaveBeenCalledTimes(4);
-  });
+      try {
+        const upload = expect(
+          uploadAssetsToR2([makeItem('/x.html', 'h-x')], cliLog, fetchMock),
+        ).rejects.toMatchObject({
+          name: 'DirectR2PutError',
+          status,
+          hash: 'h-x',
+          path: '/x.html',
+        });
+        await vi.runAllTimersAsync();
+        await upload;
+      } finally {
+        vi.useRealTimers();
+      }
+      // 1 initial attempt + 3 retries = 4 calls.
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+    },
+  );
 
   it('error message identifies the asset path and hash', () => {
     const err = new DirectR2PutError(403, 'h-bad', '/foo.html', 'SignatureMismatch');

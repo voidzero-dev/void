@@ -9,12 +9,12 @@ export const R2_PUT_CONCURRENCY = 10;
 
 /**
  * Maximum retry attempts for a single R2 PUT before giving up. Matched to
- * the design doc 0068 spec: 5xx triggers retry, 4xx surfaces immediately.
+ * the design doc 0068 spec, with rate limits retried alongside 5xx errors.
  */
 const MAX_R2_PUT_RETRIES = 3;
 
 /**
- * Retry backoff delays in milliseconds. After attempt `i` fails (5xx) we
+ * Retry backoff delays in milliseconds. After transient attempt `i` fails we
  * sleep `RETRY_BACKOFF_MS[i]` before retrying. Indexed from 0; once the
  * array is exhausted we surface the error.
  */
@@ -65,7 +65,7 @@ export type DirectR2PutItem = {
 /**
  * Issue direct-to-R2 PUTs for every item in `items` (assets or Worker
  * modules), bounded to `R2_PUT_CONCURRENCY`. Surfaces the first failure
- * (4xx immediately, 5xx after retry exhaustion) as a `DirectR2PutError`
+ * (429/5xx after retry exhaustion, other 4xx immediately) as a `DirectR2PutError`
  * carrying the item path and hash so the user can correlate against the
  * JSONL log.
  *
@@ -201,7 +201,7 @@ async function uploadOne(
     // correlation — full R2 error bodies can be verbose.
     const errBody = await safeReadText(res);
 
-    if (res.status >= 500 && attempt < MAX_R2_PUT_RETRIES) {
+    if ((res.status === 429 || res.status >= 500) && attempt < MAX_R2_PUT_RETRIES) {
       cliLog?.warn('r2_put_retry', {
         hash: item.hash,
         path: item.path,
@@ -209,7 +209,10 @@ async function uploadOne(
         status: res.status,
         body: truncate(errBody),
       });
-      await sleep(RETRY_BACKOFF_MS[attempt]);
+      // R2 permits one write per second to the same object key.
+      await sleep(
+        res.status === 429 ? Math.max(1000, RETRY_BACKOFF_MS[attempt]) : RETRY_BACKOFF_MS[attempt],
+      );
       attempt++;
       continue;
     }
