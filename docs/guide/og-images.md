@@ -95,14 +95,67 @@ export const head = defineHead<Props>((c, props) => {
 });
 ```
 
+## Image sizes
+
+Set `preset` to choose a social preview size:
+
+```ts
+// routes/og/x.ts
+import { html } from 'void/html';
+import { OgImageResponse } from 'void/og';
+
+export const GET = () =>
+  new OgImageResponse(html`<div style="display: flex; font-size: 72px">Hello, world!</div>`, {
+    preset: 'x',
+  });
+```
+
+The `default` preset is 1200 × 630, the same size used when you omit sizing options. A preset determines both dimensions. For a custom size, set `width` and `height` without a preset:
+
+```ts
+import { html } from 'void/html';
+import { OgImageResponse } from 'void/og';
+
+export const GET = () =>
+  new OgImageResponse(html`<div style="display: flex">Custom preview</div>`, {
+    width: 1000,
+    height: 500,
+  });
+```
+
+Import `ogImageSizes` to read a preset's `[width, height]` tuple, or `OgImagePreset` to type a preset name:
+
+```ts
+import { ogImageSizes, type OgImagePreset } from 'void/og';
+
+const preset: OgImagePreset = 'x-summary';
+const [width, height] = ogImageSizes[preset]; // 600, 600
+```
+
+The presets combine published recommendations with general-purpose sizes where a service does not specify exact dimensions. They are not platform-enforced requirements, and clients may crop or resize images.
+
+| Key         | Size        | Guidance                                                                                                                                                   |
+| ----------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `facebook`  | 1200 × 630  | [Meta's recommended size](https://developers.facebook.com/docs/sharing/webmasters/images/).                                                                |
+| `linkedin`  | 1200 × 627  | [LinkedIn's sharing-image minimum](https://www.linkedin.com/help/linkedin/answer/a521928).                                                                 |
+| `discord`   | 1200 × 630  | Size used in [Discord's link-preview example](https://docs.discord.com/developers/link-previews/overview).                                                 |
+| `bluesky`   | 1200 × 630  | Matches the [Bluesky client's card aspect ratio](https://github.com/bluesky-social/social-app/blob/main/src/lib/constants.ts).                             |
+| `x`         | 1200 × 600  | 2:1 large-card preset; see this [Twitter Card sizing guide](https://renderscreenshot.com/blog/twitter-card-image-size).                                    |
+| `x-summary` | 600 × 600   | Square summary-card preset; see the same sizing guide.                                                                                                     |
+| `pinterest` | 1000 × 1500 | [Pinterest's recommended 2:3 Pin size](https://help.pinterest.com/en/business/article/pinterest-product-specs), rather than a landscape link-preview size. |
+| `default`   | 1200 × 630  | General-purpose landscape preset for other social networks and chats.                                                                                      |
+
+These presets describe rendering dimensions; they do not add page metadata. Point the page's `og:image` or `twitter:image` metadata at the generated image. For X, set `twitter:card` to `summary_large_image` with `x`, or `summary` with `x-summary`.
+
 ## Options
 
 The optional second argument sets the image and the response:
 
-| Option   | Default | Description             |
-| -------- | ------- | ----------------------- |
-| `width`  | `1200`  | Image width in pixels.  |
-| `height` | `630`   | Image height in pixels. |
+| Option   | Default | Description                                                         |
+| -------- | ------- | ------------------------------------------------------------------- |
+| `preset` |         | An `OgImagePreset` name from the [image sizes](#image-sizes) table. |
+| `width`  | `1200`  | Image width in pixels when no preset is set.                        |
+| `height` | `630`   | Image height in pixels when no preset is set.                       |
 
 See [Image Generation options](./image-generation.md#options) for all other options, response headers, and image-loading behavior.
 
