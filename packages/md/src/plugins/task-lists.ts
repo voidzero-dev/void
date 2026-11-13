@@ -22,7 +22,7 @@ export function taskListPlugin(md: MarkdownExit): void {
       }
       const match = markerRE.exec(inline.content);
       const first = inline.children?.[0];
-      if (!match || !first || first.type !== 'text' || !markerRE.test(first.content)) {
+      if (!match || !first || first.type !== 'text' || !first.content.startsWith(match[0])) {
         continue;
       }
       const item = tokens[index - 2];
@@ -30,8 +30,8 @@ export function taskListPlugin(md: MarkdownExit): void {
       checkbox.content = `<input class="task-list-item-checkbox" type="checkbox" disabled${
         match[1] === ' ' ? '' : ' checked'
       }> `;
-      first.content = first.content.replace(markerRE, '');
-      inline.content = inline.content.replace(markerRE, '');
+      first.content = first.content.slice(match[0].length);
+      inline.content = inline.content.slice(match[0].length);
       inline.children!.unshift(checkbox);
       item.attrJoin('class', 'task-list-item');
       const list = findParentList(tokens, index - 2);

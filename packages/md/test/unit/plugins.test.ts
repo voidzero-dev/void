@@ -157,8 +157,24 @@ describe('plugins', () => {
       expect(ordered.html).toContain('<ol class="contains-task-list">');
     });
 
+    it.each([
+      ['**bold**', '<strong>bold</strong>'],
+      ['*emphasis*', '<em>emphasis</em>'],
+      ['`code`', '<code>code</code>'],
+      ['[link](./guide.md)', '<a href="./guide">link</a>'],
+      ['<span>HTML</span>', '<span>HTML</span>'],
+    ])('recognizes task labels starting with %s', async (label, html) => {
+      const result = await compile(`- [ ] ${label}\n- [x] ${label}`);
+      expect(result.html.match(/task-list-item-checkbox/g)).toHaveLength(2);
+      expect(result.html).toContain(`disabled> ${html}`);
+      expect(result.html).toContain(`disabled checked> ${html}`);
+      expect(result.html).not.toMatch(/\[[ x]\]/);
+    });
+
     it('leaves text that only looks like a task alone', async () => {
-      const result = await compile('- [ ]\n- [x]no space\n- a [ ] b\n\n[ ] not a list');
+      const result = await compile(
+        '- [ ]\n- [x]no space\n- a [ ] b\n- \\[ ] escaped\n\n[ ] not a list',
+      );
       expect(result.html).not.toContain('task-list-item');
       expect(result.html).not.toContain('contains-task-list');
       expect(result.html).toContain('[x]no space');
