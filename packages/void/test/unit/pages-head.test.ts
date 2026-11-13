@@ -43,6 +43,39 @@ describe('resolveHead', () => {
     expect(resolveHead(config, middleware, undefined)?.title).toBe('Dashboard | My Site');
   });
 
+  it('middleware titleTemplate wins over config', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | Admin');
+  });
+
+  it('applies middleware titleTemplate without a config template', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(undefined, middleware, page)?.title).toBe('Users | Admin');
+  });
+
+  it('falls back to config titleTemplate when middleware sets none', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { meta: [{ name: 'robots', content: 'noindex' }] };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | My Site');
+  });
+
+  it('drops the config titleTemplate when middleware sets an empty one', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users');
+  });
+
+  it('does not emit titleTemplate in the resolved head', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(undefined, middleware, page)).toEqual({ title: 'Users | Admin' });
+  });
+
   it('deduplicates meta by name — page wins', () => {
     const config: HeadConfig = {
       meta: [{ name: 'description', content: 'Config desc' }],

@@ -80,13 +80,31 @@ export default defineMiddleware(async (c, next) => {
 });
 ```
 
+`headDefaults` also accepts `titleTemplate`, which replaces the config's template for the requests the middleware runs on. Use it to give one section of the site its own title suffix:
+
+```ts
+// middleware/admin.ts
+import { defineMiddleware } from 'void';
+
+export default defineMiddleware(async (c, next) => {
+  if (c.req.path.startsWith('/admin')) {
+    c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '%s | Admin' });
+  }
+  await next();
+});
+```
+
+A page returning `{ title: "Users" }` under `/admin` produces `<title>Users | Admin</title>`. Other pages keep the config's template.
+
+To drop the suffix entirely for a section, including the config's, set the template to an empty string: `c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '' })`. A page returning `{ title: "Users" }` under `/admin` then produces `<title>Users</title>`.
+
 ## Precedence
 
 When multiple layers provide head data, they merge with this precedence:
 
 | Field       | Behavior                                                                                                             |
 | ----------- | -------------------------------------------------------------------------------------------------------------------- |
-| `title`     | Page wins. `titleTemplate` from config wraps the winning title.                                                      |
+| `title`     | Page wins. `titleTemplate` from middleware, or else from config, wraps the winning title.                            |
 | `meta`      | Deduplicates by `name` or `property`. Page entries override matching keys, and non-conflicting entries are appended. |
 | `link`      | Concatenated: config first, then middleware, then page.                                                              |
 | `script`    | Concatenated: config first, then middleware, then page.                                                              |

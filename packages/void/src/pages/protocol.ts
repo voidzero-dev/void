@@ -445,7 +445,7 @@ async function renderPageFailure(
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
-    head = resolveHead(configHead, c.get('headDefaults') as HeadDescriptor | undefined, undefined);
+    head = resolveHead(configHead, c.get('headDefaults') as HeadConfig | undefined, undefined);
     serializePageData({ shared, head });
   } catch (cause) {
     throw new Error('Unable to render Pages error boundary', { cause });
@@ -718,7 +718,7 @@ async function runPageGet(
         // Read at render time so per-route middleware can set them before next()
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
         const pageHead = headFn ? headFn(c, props) : undefined;
-        const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
+        const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
         const head = resolveHead(configHead, middlewareHead, pageHead);
         if (renderMode !== 'island') {
           varyPagesResponse(c);
@@ -918,7 +918,7 @@ async function runPageMutation(
     errors: Record<string, string> | null,
   ): PageObject {
     const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
-    const middlewareHead = c.get('headDefaults') as HeadDescriptor | undefined;
+    const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
     const pageHead = headFn ? headFn(c, props) : undefined;
     const head = resolveHead(configHead, middlewareHead, pageHead);
     return {

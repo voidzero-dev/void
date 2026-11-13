@@ -17,14 +17,14 @@ export type HeadConfig = HeadDescriptor & {
 /**
  * Merge head descriptors with precedence: page > middleware > config.
  *
- * - `title`: page wins; `titleTemplate` from config wraps it (`%s` replaced)
+ * - `title`: page wins; `titleTemplate` from middleware, else config, wraps it (`%s` replaced)
  * - `meta`: page overrides entries with same `name`/`property`; others appended
  * - `link`/`script`: concatenated (config first, then middleware, then page)
  * - `htmlAttrs`/`bodyAttrs`: shallow merge, page wins conflicts
  */
 export function resolveHead(
   configHead: HeadConfig | undefined,
-  middlewareHead: HeadDescriptor | undefined,
+  middlewareHead: HeadConfig | undefined,
   pageHead: HeadDescriptor | undefined,
 ): HeadDescriptor | undefined {
   if (!configHead && !middlewareHead && !pageHead) {
@@ -36,7 +36,7 @@ export function resolveHead(
 
   const title = pageHead?.title ?? middlewareHead?.title ?? configHead?.title;
   if (title !== undefined) {
-    const template = configHead?.titleTemplate;
+    const template = middlewareHead?.titleTemplate ?? configHead?.titleTemplate;
     result.title = template ? template.replace('%s', title) : title;
   }
 

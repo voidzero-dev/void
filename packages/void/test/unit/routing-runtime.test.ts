@@ -1226,6 +1226,33 @@ describe('typed Pages and SSR execution', () => {
       title: 'loaded',
     });
   });
+  it('wraps the page title with a titleTemplate from middleware headDefaults', async () => {
+    const app = new Hono();
+    app.use(
+      '/admin/*',
+      defineMiddleware(async (c, next) => {
+        c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '%s | Admin' });
+        await next();
+      }),
+    );
+    const options = {
+      ...pageOptions,
+      headConfig: { titleTemplate: '%s | My Site' },
+      load: async () => ({ loader: () => ({}), head: () => ({ title: 'Users' }) }),
+    };
+    app.get('/admin/users', createPageGetHandler(options));
+    app.get('/users', createPageGetHandler(options));
+    const title = async (path: string) => {
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+    };
+    expect(await title('/admin/users')).toBe('Users | Admin');
+    expect(await title('/users')).toBe('Users | My Site');
+  });
   it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
     const app = new Hono();
     const routing = createRoutingRuntime(app, { nodeTarget: true });

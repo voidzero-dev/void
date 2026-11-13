@@ -1087,7 +1087,7 @@ export { defer } from './pages/defer.ts';
 
 export type { Deferred, DeferredState, InferProps } from './pages/defer.ts';
 
-export type { HeadDescriptor } from './pages/head.ts';
+export type { HeadConfig, HeadDescriptor } from './pages/head.ts';
 
 export { shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
 
