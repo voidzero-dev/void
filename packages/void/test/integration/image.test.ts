@@ -18,7 +18,7 @@ import { killChild, startServer, waitForServer } from '../../../../test/integrat
 import { collectPrerenderWorkerModules } from '../../src/prerender.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
-const CACHE_HEADER = 'public, max-age=0, must-revalidate';
+const CACHE_HEADER = null;
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
@@ -115,7 +115,7 @@ function builtRuntime(root: string) {
   return { runtime, modules };
 }
 
-async function renderBuilt(root: string, path: string, cacheControl: string) {
+async function renderBuilt(root: string, path: string, cacheControl: string | null) {
   const { runtime, modules } = builtRuntime(root);
   try {
     expect(modules.filter((module) => module.type === 'CompiledWasm')).toHaveLength(1);
@@ -131,7 +131,7 @@ async function renderBuilt(root: string, path: string, cacheControl: string) {
   }
 }
 
-async function expectImage(response: Response, cacheControl: string) {
+async function expectImage(response: Response, cacheControl: string | null) {
   expect(response.status, response.ok ? undefined : await response.text()).toBe(200);
   expect(response.headers.get('content-type')).toBe('image/png');
   expect(response.headers.get('cache-control')).toBe(cacheControl);
@@ -145,11 +145,14 @@ async function expectImage(response: Response, cacheControl: string) {
   return bytes;
 }
 
-async function expectFontSelection(request: (query: string) => Promise<Response>) {
-  const inter = await expectImage(await request(''), CACHE_HEADER);
-  const geist = await expectImage(await request('?font=Geist'), CACHE_HEADER);
+async function expectFontSelection(
+  request: (query: string) => Promise<Response>,
+  cacheControl: string | null = CACHE_HEADER,
+) {
+  const inter = await expectImage(await request(''), cacheControl);
+  const geist = await expectImage(await request('?font=Geist'), cacheControl);
   expect(inter).not.toEqual(geist);
-  expect(await expectImage(await request(''), CACHE_HEADER)).toEqual(inter);
+  expect(await expectImage(await request(''), cacheControl)).toEqual(inter);
 }
 
 function builtFiles(root: string): Array<string> {
@@ -200,8 +203,8 @@ describe('void/image in a Cloudflare app', () => {
         expectStatus: 200,
         diagnostics: server.output,
       });
-      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
-      await expectImage(await fetch(`${server.base}/api/card`), CACHE_HEADER);
+      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`), 'no-store');
+      await expectImage(await fetch(`${server.base}/api/card`), 'no-store');
     });
   });
 
@@ -364,7 +367,7 @@ describe.each(['node', 'bun', 'deno'] as const)('void/image on the %s target', (
         );
         return child;
       }, 30_000);
-      await expectImage(await fetch(`${server.base}/api/image`), CACHE_HEADER);
+      await expectImage(await fetch(`${server.base}/api/image`), 'no-store');
       const response = await fetch(`${server.base}/api/renderer`);
       expect(response.status, server.output()).toBe(200);
       expect(await response.text()).toBe('app-owned');

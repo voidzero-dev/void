@@ -106,6 +106,29 @@ The optional second argument sets the image and the response:
 
 See [Image Generation options](./image-generation.md#options) for all other options, response headers, and image-loading behavior.
 
+## Caching
+
+`OgImageResponse` allows browsers and shared caches to reuse an image for 24 hours by default:
+
+```http
+Cache-Control: public, max-age=86400
+```
+
+Updates at the same URL may take up to 24 hours to appear in caches that follow this policy. Social platforms may keep their own copies independently of this header. To publish a changed image without reusing the old image URL's cached copy, use a new URL, for example `/og/posts/hello-world/v2.png`, and update the page's `og:image` tag. Platforms still need to refresh the page metadata to discover the new URL. Deploying or purging Void's cache does not clear browser or social-platform caches.
+
+Override the policy through `headers` if your images need a shorter or longer cache lifetime. For example, cache an image for one hour:
+
+```ts
+import { html } from 'void/html';
+import { OgImageResponse } from 'void/og';
+
+return new OgImageResponse(html`<div>${title}</div>`, {
+  headers: { 'Cache-Control': 'public, max-age=3600' },
+});
+```
+
+In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit. To avoid rendering every request that reaches your server, also [cache generated images at the edge](./image-generation.md#cache-generated-images).
+
 ## Learn More
 
 Learn more in the [Image Generation](./image-generation.md) guide:
