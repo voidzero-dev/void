@@ -5,7 +5,8 @@ import { createServer, type Server } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterAll, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
+import { afterAll, beforeAll, beforeEach, expect, onTestFinished, test, vi } from 'vite-plus/test';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import { getUser } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
@@ -139,6 +140,12 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
   const { default: proxy } = (await import(/* @vite-ignore */ proxyUrl)) as {
     default: { fetch(request: Request, env: unknown): Promise<Response> };
   };
+  // Hosted Void Cloud does not set the uncached auth-database flag.
+  const uncached = env.PLATFORM_AUTH_DATABASE_UNCACHED;
+  delete env.PLATFORM_AUTH_DATABASE_UNCACHED;
+  onTestFinished(() => {
+    env.PLATFORM_AUTH_DATABASE_UNCACHED = uncached;
+  });
   const owner = await createTestUser(env.db, 'ai-customer');
   const project = await createTestProject(env.db, owner.id, 'private-ai');
   const command = ['project', 'ai-logging', project.id, 'metadata'];
@@ -150,6 +157,8 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
   const saved = await run([...command, '--yes', '--json']);
   expect(saved.code, saved.stderr).toBe(0);
   expect(JSON.parse(saved.stdout)).toMatchObject({ mode: 'metadata' });
+  // The proxy reads only the published ROUTING value, which the API wrote.
+  expect(await env.ROUTING.get(aiLoggingKey(project.id))).toBe('metadata');
 
   const ai = {
     run: vi.fn(async () => ({ response: 'ok' })),
@@ -191,7 +200,8 @@ test('built CLI configures the logging policy enforced by the actual AI proxy', 
       extraHeaders: { 'cf-aig-collect-log-payload': 'false' },
     }),
   );
-  // The same isolate must enforce a new policy without a deploy or stale cache.
+  // A new policy applies without a deploy. Output wording and the KV cache time are
+  // unit tested (operator-cli, proxy).
   const changed = await run(['project', 'ai-logging', project.id, 'off', '--yes', '--json']);
   expect(changed.code, changed.stderr).toBe(0);
   expect((await proxy.fetch(request(), bindings)).status).toBe(200);

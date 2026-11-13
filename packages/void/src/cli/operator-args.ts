@@ -104,7 +104,7 @@ export const operatorCommands: Array<OperatorCommand> = [
   {
     group: 'project',
     action: 'show',
-    description: 'Inspect a project and its resources',
+    description: 'Inspect a project, its resources, and its effective AI Gateway logging',
     path: '/projects/:id',
     positional: ['id'],
   },
@@ -127,9 +127,11 @@ export const operatorCommands: Array<OperatorCommand> = [
   {
     group: 'project',
     action: 'ai-logging',
-    description: 'Set AI Gateway logging: inherit, off, metadata, or full',
+    description:
+      'Set AI Gateway logging (inherit, off, metadata, or full); new AI requests normally follow it within 2 minutes',
     path: '/projects/:id/ai-logging',
     positional: ['id', 'mode'],
+    usage: ['void platform project ai-logging <project-id> <inherit|off|metadata|full> [options]'],
     method: 'POST',
   },
   {

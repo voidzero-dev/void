@@ -14,6 +14,7 @@ import type {
 import { platformDatabaseSchemaDigest } from '@void/platform/installer';
 import { join } from 'pathslash';
 import type { Pool } from 'pg';
+import { projectPlatformAiLoggingConnection } from './platform-ai-logging-projection.ts';
 import { verifyPlatformDatabaseArtifacts } from './platform-installer-runtime.ts';
 import {
   type PlatformAdministratorSetupState,
@@ -627,6 +628,8 @@ export async function acquirePlatformDatabaseLifecycleLockConnection(
   release.readAdministratorSetup = () => readPlatformAdministratorSetupConnection(client);
   release.readProjectZeroTrust = () => readPlatformProjectZeroTrustStateConnection(client);
   release.readProjects = () => readPlatformProjectSlugsConnection(client);
+  release.publishAiLogging = (kv, onProgress) =>
+    projectPlatformAiLoggingConnection(client, kv, { onProgress });
   release.lockProjectZeroTrust = () => lockPlatformProjectZeroTrustConnection(client);
   release.fenceProjectZeroTrust = () => fencePlatformProjectZeroTrustConnection(client);
   release.liftProjectZeroTrustFence = () => liftPlatformProjectZeroTrustFenceConnection(client);

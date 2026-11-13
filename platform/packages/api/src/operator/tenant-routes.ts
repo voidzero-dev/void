@@ -1,10 +1,8 @@
-import { eq } from 'drizzle-orm';
 import { Hono } from 'hono';
 import { isAiLoggingMode } from '../ai-logging-policy.ts';
-import { readProjectAiLogging, writeProjectAiLogging } from '../ai-logging.ts';
-import { requireUncachedAuthenticationDatabase } from '../auth/bootstrap.ts';
+import { readProjectAiLoggingStatus, setProjectAiLogging } from '../ai-logging.ts';
 import type { ApiEnv } from '../env.ts';
-import { projects } from '../schema.ts';
+import { initialPlanDefaultFor } from '../plans.ts';
 import {
   allowOperatorSignup,
   getOperatorSignup,
@@ -97,15 +95,22 @@ tenantRoutes.get('/projects', async (context) =>
   ),
 );
 tenantRoutes.get('/projects/:id', async (context) =>
-  context.json(await getOperatorProject(context.get('db'), context.req.param('id'))),
+  context.json(await getOperatorProject(context.get('db'), context.env, context.req.param('id'))),
 );
 tenantRoutes.get('/projects/:id/ai-logging', async (context) => {
-  const policy = await readProjectAiLogging(context.get('db'), context.req.param('id'));
-  if (!policy) {
+  const status = await readProjectAiLoggingStatus(
+    context.get('db'),
+    context.env.ROUTING,
+    context.req.param('id'),
+    initialPlanDefaultFor(context.env),
+  );
+  if (!status) {
     throw new OperatorError(404, 'Project not found.');
   }
-  return context.json(policy);
+  return context.json(status);
 });
+// Writes never go through the Hyperdrive cache, and the publish reads its inputs in a
+// write statement, so this route works whatever the database caching setup.
 tenantRoutes.post('/projects/:id/ai-logging', async (context) => {
   const body = await readBody(context);
   const mode = body.mode;
@@ -116,27 +121,18 @@ tenantRoutes.post('/projects/:id/ai-logging', async (context) => {
       'invalid_argument',
     );
   }
-  requireUncachedAuthenticationDatabase(context.env);
-  const projectId = context.req.param('id');
-  const result = await context.get('db').transaction(async (tx) => {
-    const [project] = await tx
-      .select()
-      .from(projects)
-      .where(eq(projects.id, projectId))
-      .for('update');
-    if (!project) {
-      throw new OperatorError(404, 'Project not found.');
-    }
-    if (project.status !== 'active') {
-      throw new OperatorError(409, 'Project is being deleted.');
-    }
-    if (dryRun(body)) {
-      return { dryRun: true, action: 'project.ai-logging', target: projectId, mode };
-    }
-    await writeProjectAiLogging(tx, projectId, mode);
-    return { mode };
-  });
-  return context.json(result);
+  return context.json(
+    await setProjectAiLogging(
+      context.get('db'),
+      context.env.ROUTING,
+      context.req.param('id'),
+      mode,
+      {
+        initialPlanDefault: initialPlanDefaultFor(context.env),
+        dryRun: dryRun(body),
+      },
+    ),
+  );
 });
 tenantRoutes.post('/projects/:id/normalize', async (context) => {
   const body = await readBody(context);

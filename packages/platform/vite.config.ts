@@ -18,6 +18,7 @@ export default defineConfig({
       'src/installer.ts',
       'src/email-protocol.ts',
       'src/plans.ts',
+      'src/ai-logging.ts',
       'src/browser-page.ts',
     ],
     format: 'esm',

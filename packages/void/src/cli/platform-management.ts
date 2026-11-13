@@ -725,6 +725,7 @@ export async function runInstalledPlatformCommand(args: PlatformArgs): Promise<v
           liftProjectZeroTrustFence: databaseLock?.liftProjectZeroTrustFence,
           prepareDatabase: databaseLock?.prepareDatabase,
           prepareSandboxDrain: databaseLock?.prepareSandboxDrain,
+          publishAiLogging: databaseLock?.publishAiLogging,
           readAuthenticationState: databaseLock?.readAuthenticationState,
           requiredSafetyProtocols: databaseLock?.requiredSafetyProtocols,
           verifyDatabase: databaseLock?.verifyDatabase,

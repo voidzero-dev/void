@@ -23,6 +23,7 @@ import adminSignupControl from './admin/routes/signup-control.tsx';
 import { dashboardHandler, adminSystem } from './admin/routes/system.tsx';
 import adminUsers from './admin/routes/users.tsx';
 import adminZeroTrust from './admin/routes/zero-trust.tsx';
+import { sweepAiLogging } from './ai-logging-sweep.ts';
 import { pendingAuthenticationSetup } from './auth/bootstrap.ts';
 import { readAuthSettings, readEnabledLoginConnections } from './auth/configuration.ts';
 import { purgeExpiredOAuthRequests } from './auth/oauth.ts';
@@ -86,6 +87,7 @@ import {
 } from './onboarding-pages.ts';
 import { operatorApi } from './operator/index.ts';
 import { sandboxDrainStatus } from './operator/sandbox-operations.ts';
+import { initialPlanDefaultFor } from './plans.ts';
 import { platformAppAccess, platformAppAccessTurnOff } from './platform-app-access.ts';
 import { platformDomainActivation } from './platform-domain-activation.ts';
 import { platformDomainPreflight } from './platform-domain-preflight.ts';
@@ -773,6 +775,12 @@ async function scheduled(
 
   await reconcilePendingProjectZeroTrust(env, db).catch((error) =>
     console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  );
+
+  // Repair published AI logging settings that drifted from Postgres, and advance
+  // an unfinished plan default publish by one page.
+  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error) =>
+    console.error('[scheduled] AI logging sweep failed:', error),
   );
 
   // Auto-fail deployments stuck in active states for more than 30 minutes

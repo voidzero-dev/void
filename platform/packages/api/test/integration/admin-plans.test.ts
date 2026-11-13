@@ -1,13 +1,32 @@
 import { readFile } from 'node:fs/promises';
 import { eq } from 'drizzle-orm';
 import { chromium } from 'playwright';
-import { afterAll, beforeAll, beforeEach, describe, expect, test } from 'vite-plus/test';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  test,
+  vi,
+} from 'vite-plus/test';
 import { decodePageData } from 'void/pages-server';
 import type { AdminPlanPreview, AdminPlanProgress } from '../../src/admin/plans.ts';
+import { PLAN_AI_LOGGING_PAGE_SIZE } from '../../src/ai-logging-plans.ts';
+import { PLAN_AI_LOGGING_SETTING } from '../../src/ai-logging-policy.ts';
 import { app } from '../../src/index.ts';
 import { readPlanCatalog } from '../../src/plans.ts';
+import { getPlatformSetting } from '../../src/platform-settings.ts';
 import { operatorEvents, users } from '../../src/schema.ts';
-import { clearTables, createTestUser, setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
+import {
+  clearTables,
+  createTestProject,
+  createTestUser,
+  setupEnv,
+  teardownEnv,
+  type TestEnv,
+} from './helpers.ts';
 import { nativeFormSubmission } from './native-form-browser.ts';
 
 let env: TestEnv;
@@ -20,6 +39,9 @@ beforeAll(async () => {
   env = await setupEnv();
 });
 afterAll(teardownEnv);
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 beforeEach(async () => {
   await clearTables(env.db);
   failedAccount = undefined;
@@ -226,6 +248,99 @@ describe('administrator plan dashboard', () => {
         expect.objectContaining({ status: 'failed', http_status: 409 }),
       ]),
     );
+  });
+
+  test('reviews and saves the AI Gateway logging default from the edit form', async () => {
+    const edit = await request(`${home}/pro/edit`);
+    expect(await edit.text()).toContain('AI Gateway logging default');
+    const proposed = await preview('set', 'pro', {
+      ...(await editFields('pro')),
+      aiLogging: 'metadata',
+    });
+    expect(proposed.body).toMatchObject({ aiLogging: 'metadata' });
+    expect(proposed.aiLoggingAfter).toEqual({ pro: 'metadata' });
+    const review = await request(`${home}/preview`, {
+      ...(await editFields('pro')),
+      action: 'set',
+      id: 'pro',
+      revision: '0',
+      aiLogging: 'metadata',
+    });
+    const html = await review.text();
+    expect(html).toContain('AI Gateway logging default');
+    expect(html).toContain('Metadata only');
+    expect((await apply(proposed)).status).toBe(303);
+    expect(await getPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING)).toMatchObject({
+      modes: { pro: 'metadata' },
+    });
+  });
+
+  test('an untouched AI logging selector keeps a newer saved default', async () => {
+    const off = await preview('set', 'pro', { ...(await editFields('pro')), aiLogging: 'off' });
+    expect((await apply(off)).status).toBe(303);
+    expect(await (await request(`${home}/pro/edit`)).text()).toContain('name="aiLoggingInitial"');
+    // A form loaded from a cached read before that change still shows Inherit. Only the
+    // name changes, so the review must not clear the saved default.
+    const renamed = await preview('set', 'pro', {
+      ...(await editFields('pro')),
+      name: 'Pro renamed',
+      aiLogging: 'inherit',
+      aiLoggingInitial: 'inherit',
+    });
+    expect(renamed.body).not.toHaveProperty('aiLogging');
+    expect(renamed.aiLoggingBefore).toEqual({ pro: 'off' });
+    expect(renamed.aiLoggingAfter).toEqual({ pro: 'off' });
+    expect((await apply(renamed)).status).toBe(303);
+    expect(await getPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING)).toMatchObject({
+      modes: { pro: 'off' },
+    });
+    // A changed selector still applies.
+    const cleared = await preview('set', 'pro', {
+      ...(await editFields('pro')),
+      aiLogging: 'inherit',
+      aiLoggingInitial: 'off',
+    });
+    expect(cleared.aiLoggingBefore).toEqual({ pro: 'off' });
+    expect(cleared.aiLoggingAfter).toEqual({});
+  });
+
+  test('shows a pending AI logging publish, counts projects apart from accounts and resumes it', async () => {
+    const owner = await createTestUser(env.db, 'ai-log-owner', 'github', undefined, 'pro');
+    for (let i = 0; i <= PLAN_AI_LOGGING_PAGE_SIZE; i++) {
+      await createTestProject(env.db, owner.id);
+    }
+    const change = await preview('set', 'pro', { ...(await editFields('pro')), aiLogging: 'off' });
+    const applied = await apply(change);
+    expect(decodePageData(await applied.json())).toMatchObject({
+      component: 'planProgress',
+      props: {
+        initial: {
+          complete: false,
+          error: null,
+          accounts: 0,
+          projects: PLAN_AI_LOGGING_PAGE_SIZE,
+          processed: PLAN_AI_LOGGING_PAGE_SIZE,
+          cursor: '|1',
+        },
+      },
+    });
+    const plans = await (await request(home)).text();
+    expect(plans).toContain('AI logging publish pending');
+    expect(plans).toContain('Continue AI logging publish');
+    expect(plans.replaceAll('<!-- -->', '')).toContain(
+      '1 projects still use their previous AI Gateway logging setting.',
+    );
+
+    const revision = (await readPlanCatalog(env.db)).revision;
+    const resumed = await request(`${home}/resume`, { revision: String(revision) });
+    expect(resumed.status).toBe(303);
+    expect(resumed.headers.get('Location')).toBe(
+      `${home}?notice=plans-updated&revision=${revision}`,
+    );
+    expect(await getPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING)).toMatchObject({
+      publish: { complete: true },
+    });
+    expect(await (await request(home)).text()).not.toContain('AI logging publish pending');
   });
 
   test('adds reserved-looking IDs, defaults, archives, restores, resets and removes with account replacement', async () => {

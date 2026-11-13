@@ -1,8 +1,8 @@
 import { isRecord } from '@void/deploy-core';
-import type { AiLoggingMode } from '@voidcloud/api/ai-logging-policy';
+import type { AiLoggingMode } from '@void/platform/ai-logging';
 import { deriveAiUsageTag } from '@voidcloud/api/proxy-token';
 import { Hono } from 'hono';
-import { applyAiLoggingHeaders, readAiLoggingMode } from './ai-logging.ts';
+import { applyAiLoggingHeaders, bindingAiLogging, readAiLoggingMode } from './ai-logging.ts';
 import { asRecord, asString } from './body.ts';
 import type { ProxyEnv } from './types.ts';
 
@@ -30,27 +30,6 @@ type SerializedProviderBody = Readonly<
 class BadRequestError extends Error {}
 
 const ai = new Hono<ProxyEnv>();
-
-ai.use('*', async (context, next) => {
-  if (context.req.path === '/ai/models') {
-    return next();
-  }
-  try {
-    context.set(
-      'aiLoggingMode',
-      await readAiLoggingMode(context.env, context.get('projectId'), context.req.raw.signal),
-    );
-  } catch {
-    return context.json(
-      {
-        error: 'ai_logging_policy_unavailable',
-        message: 'AI is temporarily unavailable because its logging policy could not be verified.',
-      },
-      503,
-    );
-  }
-  await next();
-});
 
 function hasStreamFlag(value: unknown): value is { stream?: boolean } {
   return typeof value === 'object' && value !== null && 'stream' in value;
@@ -237,21 +216,22 @@ function gatewayOptions(
     gateway.cacheKey = projectCacheKey(projectId, gateway.cacheKey);
   }
 
+  const logging = bindingAiLogging(loggingMode);
   const result: Record<string, unknown> = {
     ...options,
     gateway: {
       ...gateway,
       id: gatewayId,
       metadata: { projectId: usageTag },
-      ...(loggingMode !== 'inherit' ? { collectLog: loggingMode !== 'off' } : {}),
+      ...(logging ? { collectLog: logging.collectLog } : {}),
     },
   };
-  if ('extraHeaders' in options || loggingMode !== 'inherit') {
+  if ('extraHeaders' in options || logging) {
     const headers = withoutKeys(asRecord(options.extraHeaders), (key) =>
       GATEWAY_CONTROL_HEADER.test(key),
     );
-    if (loggingMode !== 'inherit') {
-      headers['cf-aig-collect-log-payload'] = String(loggingMode === 'full');
+    if (logging) {
+      headers['cf-aig-collect-log-payload'] = String(logging.payload);
     }
     result.extraHeaders = headers;
   }
@@ -441,12 +421,16 @@ ai.post('/run', async (context) => {
     return context.json({ error: 'model required' }, 400);
   }
 
+  const logging = await readAiLoggingMode(context);
+  if (!logging.ok) {
+    return logging.response;
+  }
   const options = gatewayOptions(
     body.options,
     projectId,
     await deriveAiUsageTag(context.env.JWT_SECRET, projectId),
     context.env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
-    context.get('aiLoggingMode'),
+    logging.mode,
   );
 
   try {
@@ -486,9 +470,14 @@ ai.post('/provider', async (context) => {
   }
 
   try {
+    // Decode the body first so a malformed file is a 400 that never reads the policy.
+    const requestBody = providerRequestBody(providerBody(body.body));
+    const logging = await readAiLoggingMode(context);
+    if (!logging.ok) {
+      return logging.response;
+    }
     const gateway = context.env.AI.gateway(context.env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID);
     const baseUrl = await gateway.getUrl(provider);
-    const requestBody = providerRequestBody(providerBody(body.body));
     const headers = applyProviderHeaders({
       headers: headersFromRecord(body.headers),
       provider,
@@ -498,7 +487,7 @@ ai.post('/provider', async (context) => {
       apiKeyPrefix,
       contentType: requestBody.contentType,
     });
-    applyAiLoggingHeaders(headers, context.get('aiLoggingMode'));
+    applyAiLoggingHeaders(headers, logging.mode);
     const response = await fetch(gatewayEndpointUrl(baseUrl, path), {
       method,
       headers,
@@ -543,12 +532,16 @@ ai.post('/models', async (context) => {
 ai.post('/toMarkdown', async (context) => {
   const body = context.get('body');
   const projectId = context.get('projectId');
+  const logging = await readAiLoggingMode(context);
+  if (!logging.ok) {
+    return logging.response;
+  }
   const options = gatewayOptions(
     body.options,
     projectId,
     await deriveAiUsageTag(context.env.JWT_SECRET, projectId),
     context.env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
-    context.get('aiLoggingMode'),
+    logging.mode,
   );
   try {
     const result = await context.env.AI.toMarkdown(body.inputs, options);

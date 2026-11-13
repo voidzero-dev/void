@@ -23,6 +23,7 @@ import {
   savePlatformConnection,
   writeInstallationManifest,
 } from '../../src/cli/platform-registry.ts';
+import { platformDiscoveryResponse } from '../helpers/platform-discovery.ts';
 
 const keyring = vi.hoisted(() => ({ read: vi.fn(), write: vi.fn(), remove: vi.fn() }));
 const mutationPrompt = vi.hoisted(() => ({ question: vi.fn(), close: vi.fn() }));
@@ -1781,4 +1782,174 @@ describe('operator transport and execution', () => {
     expect(fetcher).toHaveBeenCalledTimes(1);
     expect(write.mock.calls.map(([line]) => String(line)).join('\n')).toContain('historical row');
   });
+});
+
+describe('project AI logging commands', () => {
+  const resolution = {
+    mode: 'off',
+    planId: 'pro',
+    planKnown: true,
+    defaultPlanId: 'free',
+    planMode: null,
+    effective: 'off',
+    source: 'project',
+  };
+
+  /** Serves discovery at `platformVersion` (or a status) and operator API replies in order. */
+  function serve(
+    platformVersion: string | number,
+    replies: Array<Record<string, unknown> | Response>,
+  ): ReturnType<typeof vi.fn<typeof fetch>> {
+    vi.stubEnv('VOID_API_URL', 'https://one.example');
+    vi.stubEnv('VOID_OPERATOR_TOKEN', 'operator');
+    const queue = [...replies];
+    const fetcher = vi.fn<typeof fetch>().mockImplementation(async (input) => {
+      const url = new URL(String(input));
+      if (url.pathname === '/.well-known/void-platform') {
+        return typeof platformVersion === 'number'
+          ? new Response(null, { status: platformVersion })
+          : platformDiscoveryResponse(url.origin, platformVersion);
+      }
+      const reply = queue.shift() ?? { error: 'unexpected_request' };
+      return reply instanceof Response ? reply : Response.json(reply);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    return fetcher;
+  }
+
+  function printed(log: { mock: { calls: Array<Array<unknown>> } }): string {
+    return log.mock.calls.map(([line]) => String(line)).join('\n');
+  }
+
+  it('prints the source, plan default, and expected time after a change', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const fetcher = serve('1.9.0', [
+      { dryRun: true, action: 'project.ai-logging', target: 'p1', ...resolution, previous: 'full' },
+      { ...resolution, previous: 'full', expectedBy: '2026-11-13T14:03:20.000Z' },
+    ]);
+    await runOperatorCommand(parseOperatorArgs(['project', 'ai-logging', 'p1', 'off', '--yes']));
+    expect(printed(log)).toBe(
+      [
+        'AI logging for p1: off (set on project; plan "pro" default: inherit)',
+        'New AI requests are expected to follow it by 14:03:20 UTC (normally within 2 minutes).',
+      ].join('\n'),
+    );
+    expect(fetcher.mock.calls.map(([input]) => new URL(String(input)).pathname)).toEqual([
+      '/.well-known/void-platform',
+      '/operator/v1/projects/p1/ai-logging',
+      '/operator/v1/projects/p1/ai-logging',
+    ]);
+  });
+
+  it('shows a plan default from an unknown plan ID in the dry run', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    serve('hosted', [
+      {
+        dryRun: true,
+        action: 'project.ai-logging',
+        target: 'p1',
+        ...resolution,
+        mode: 'inherit',
+        planId: 'legacy-x',
+        planKnown: false,
+        planMode: 'metadata',
+        effective: 'metadata',
+        source: 'plan',
+        previous: 'off',
+      },
+    ]);
+    await runOperatorCommand(
+      parseOperatorArgs(['project', 'ai-logging', 'p1', 'inherit', '--plan']),
+    );
+    expect(printed(log)).toBe(
+      [
+        'AI logging for p1: off → metadata (from plan "legacy-x" (not in catalog; uses default plan "free"))',
+        'No change was made. Run the command again without --plan to apply it.',
+      ].join('\n'),
+    );
+  });
+
+  it.each([
+    ['1.7.2', '1.7.2'],
+    ['1.8.0-beta.1', '1.8.0-beta.1'],
+    ['a platform without discovery', 404],
+  ])('refuses before any request on %s', async (_name, version) => {
+    const fetcher = serve(version, []);
+    await expect(
+      runOperatorCommand(parseOperatorArgs(['project', 'ai-logging', 'p1', 'off', '--yes'])),
+    ).rejects.toMatchObject({
+      code: 'unsupported',
+      message: 'This platform does not support AI logging policies. Run `void platform upgrade`.',
+    });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets the request report its own error when the version cannot be read', async () => {
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    const fetcher = serve(503, [
+      Response.json({ error: 'not_found', message: 'Project not found.' }, { status: 404 }),
+    ]);
+    await expect(
+      runOperatorCommand(parseOperatorArgs(['project', 'ai-logging', 'p1', 'off', '--yes'])),
+    ).rejects.toThrow('Project not found.');
+    expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+
+  it('prints a 1.8.0 reply that has only the saved mode', async () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    serve('1.8.0', [
+      { dryRun: true, action: 'project.ai-logging', target: 'p1', mode: 'off' },
+      { mode: 'off' },
+    ]);
+    await runOperatorCommand(parseOperatorArgs(['project', 'ai-logging', 'p1', 'off', '--yes']));
+    expect(printed(log)).toBe('AI logging for p1: off');
+  });
+
+  it.each([
+    ['applied', {}, 'AI Gateway logging: metadata (from plan "pro") — applied'],
+    [
+      'pending',
+      { publishedAt: '2026-11-13T14:01:20.000Z' },
+      'AI Gateway logging: metadata (from plan "pro") — pending (expected by 14:03:20 UTC)',
+    ],
+    [
+      'pending_plan_publish',
+      {},
+      'AI Gateway logging: metadata (from plan "pro") — pending (the plan default is still being published)',
+    ],
+    [
+      'drift',
+      { published: 'full' },
+      'AI Gateway logging: metadata (from plan "pro") — drift (published: full)',
+    ],
+    [
+      'unknown',
+      {},
+      'AI Gateway logging: metadata (from plan "pro") — state unknown (the published setting could not be read)',
+    ],
+  ])(
+    'summarizes the effective setting and %s state in project show',
+    async (state, extra, line) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      const aiLogging = {
+        ...resolution,
+        mode: 'inherit',
+        planMode: 'metadata',
+        effective: 'metadata',
+        source: 'plan',
+        published: 'metadata',
+        publishedAt: null,
+        state,
+        ...extra,
+      };
+      serve('1.9.0', [{ project: { id: 'p1', slug: 'app' }, aiLogging }]);
+      await runOperatorCommand(parseOperatorArgs(['project', 'show', 'p1']));
+      const output = printed(log);
+      expect(output).toContain('Project:\n  ID: p1\n  Slug: app');
+      expect(output.split('\n').at(-1)).toBe(line);
+      expect(output).not.toContain('Ai logging');
+    },
+  );
 });

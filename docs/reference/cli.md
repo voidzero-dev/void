@@ -34,7 +34,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 
 ## Cheat Sheet {#cheat-sheet}
 
-Platform administrators can also [choose AI Gateway logging per project](./cli/platform-users.md#ai-gateway-logging) with `void platform project ai-logging`.
+Platform administrators can also choose AI Gateway logging [per project](./cli/platform-users.md#ai-gateway-logging) with `void platform project ai-logging`, or [per plan](../guide/platform/administration/plans.md#ai-gateway-logging) with `void platform config plans`.
 
 | Command                           | Purpose                                                                       |
 | --------------------------------- | ----------------------------------------------------------------------------- |

@@ -113,10 +113,10 @@ test('operators can preview and change per-project AI logging without app author
   const preview = await req(path, { mode: 'off', dryRun: true });
   expect(preview.status).toBe(200);
   expect(await preview.json()).toMatchObject({ dryRun: true, mode: 'off' });
-  expect(await (await req(path)).json()).toEqual({ mode: 'inherit' });
+  expect(await (await req(path)).json()).toMatchObject({ mode: 'inherit' });
   for (const mode of ['off', 'metadata', 'full', 'inherit']) {
     expect((await req(path, { mode })).status).toBe(200);
-    expect(await (await req(path)).json()).toEqual({ mode });
+    expect(await (await req(path)).json()).toMatchObject({ mode });
     expect(await (await req(`/projects/${project.id}`)).json()).toMatchObject({
       aiLogging: { mode },
     });
@@ -163,7 +163,8 @@ test('AI policy readback requires a project- and purpose-bound proxy credential'
   expect(policy.status).toBe(200);
   expect(policy.headers.get('Cache-Control')).toContain('no-store');
   expect(await policy.json()).toEqual({ mode: 'metadata' });
-  expect((await read(auth, { ...env, PLATFORM_AUTH_DATABASE_UNCACHED: 'false' })).status).toBe(503);
+  // Answered from the published key, so the auth-database flag does not matter.
+  expect((await read(auth, { ...env, PLATFORM_AUTH_DATABASE_UNCACHED: 'false' })).status).toBe(200);
 });
 
 function captureUsageCounter(calls: Array<CounterCall>, failPath?: string) {

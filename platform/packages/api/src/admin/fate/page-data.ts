@@ -27,7 +27,12 @@ import type { Db } from '../../db.ts';
 import type { ApiEnv } from '../../env.ts';
 import { OperatorError } from '../../operator/common.ts';
 import { cliVersionStats } from '../../operator/system-operations.ts';
-import { readPlanCatalog, readPlanCatalogWithAccounts, planFromCatalog } from '../../plans.ts';
+import {
+  initialPlanDefaultFor,
+  readPlanCatalog,
+  readPlanCatalogWithAccounts,
+  planFromCatalog,
+} from '../../plans.ts';
 import { getPlatformApiUrl, platformConnectCommand } from '../../platform-identity.ts';
 import { projectUrl, projectWithUrl } from '../../project-url.ts';
 import { invitations, platformLoginTests } from '../../schema.ts';
@@ -147,11 +152,17 @@ export async function loadUserDetailPage(context: AdminContext, path: string) {
   const { id } = detailLocation(path, '/admin/users/');
   const { getOperatorUser } = await import('../../operator/tenant-service.ts');
   const detail = await getOperatorUser(context, id);
-  const catalog = await readPlanCatalog(context.get('db'));
+  const { readPlanAiLoggingSettings } = await import('../../ai-logging-plans.ts');
+  const { planAiLogging } = await import('../../ai-logging-policy.ts');
+  const [catalog, aiLoggingSettings] = await Promise.all([
+    readPlanCatalog(context.get('db'), initialPlanDefaultFor(context.env)),
+    readPlanAiLoggingSettings(context.get('db')),
+  ]);
   return {
     id: path,
     ...detail,
     limits: planFromCatalog(catalog, detail.user.plan).limits,
+    aiLogging: planAiLogging(aiLoggingSettings, catalog, detail.user.plan),
     plans: catalog.plans
       .filter((plan) => !plan.archived || plan.id === detail.user.plan)
       .map((plan) => ({ id: plan.id, name: plan.name, archived: plan.archived })),
@@ -198,7 +209,7 @@ export async function loadProjectDetailPage(context: AdminContext, path: string)
   const { getOperatorProject } = await import('../../operator/tenant-service.ts');
   const db = context.get('db');
   const [detail, members, invitations, zeroTrust] = await Promise.all([
-    getOperatorProject(db, id),
+    getOperatorProject(db, context.env, id),
     getProjectMembers(db, id),
     getPendingProjectInvitations(db, id),
     loadProjectZeroTrust(db, id),
@@ -497,13 +508,15 @@ export async function loadPlansPage(context: AdminContext, path: string) {
   if (url.pathname !== home && url.pathname !== home + '/new' && !match) {
     throw new OperatorError(400, 'Invalid plans page request.');
   }
-  const data = await readPlanCatalogWithAccounts(
-    context.get('db'),
-    context.env.PLATFORM_INSTALLATION_ID ? 'custom' : 'free',
-  );
+  const initialPlanDefault = initialPlanDefaultFor(context.env);
+  const { readPlanAiLoggingProgress } = await import('../../ai-logging-plans.ts');
+  const [data, aiLogging] = await Promise.all([
+    readPlanCatalogWithAccounts(context.get('db'), initialPlanDefault),
+    readPlanAiLoggingProgress(context.get('db'), initialPlanDefault),
+  ]);
   const selectedPlanId = match?.[1] ?? null;
   if (selectedPlanId && !data.catalog.plans.some((plan) => plan.id === selectedPlanId)) {
     throw new OperatorError(404, 'Plan not found.');
   }
-  return { id: path, ...data, selectedPlanId };
+  return { id: path, ...data, aiLogging, selectedPlanId };
 }

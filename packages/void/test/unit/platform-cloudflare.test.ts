@@ -807,6 +807,89 @@ describe('platform Cloudflare client', () => {
     });
   });
 
+  it('lists KV keys with metadata across cursor pages', async () => {
+    const requests: Array<URL> = [];
+    const client = new PlatformCloudflareClient('token', {
+      apiBase: 'https://cloudflare.example.test/client/v4',
+      fetcher: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        const first = !url.searchParams.has('cursor');
+        return Response.json({
+          success: true,
+          result: first
+            ? [{ name: 'ai-logging:p1', metadata: { mode: 'off', at: 1 } }]
+            : [{ name: 'ai-logging:p2' }],
+          result_info: { count: 1, cursor: first ? 'next' : '' },
+        });
+      },
+    });
+    await expect(client.listKvKeys('account', 'routing', 'ai-logging:')).resolves.toEqual([
+      { name: 'ai-logging:p1', metadata: { mode: 'off', at: 1 } },
+      { name: 'ai-logging:p2' },
+    ]);
+    expect(requests.map((url) => url.pathname)).toEqual([
+      '/client/v4/accounts/account/storage/kv/namespaces/routing/keys',
+      '/client/v4/accounts/account/storage/kv/namespaces/routing/keys',
+    ]);
+    expect(requests.map((url) => Object.fromEntries(url.searchParams))).toEqual([
+      { prefix: 'ai-logging:', limit: '1000' },
+      { prefix: 'ai-logging:', limit: '1000', cursor: 'next' },
+    ]);
+  });
+
+  it('stops on a repeated KV key cursor instead of looping', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({ success: true, result: [], result_info: { cursor: 'same' } }),
+    });
+    await expect(client.listKvKeys('account', 'routing', 'ai-logging:')).rejects.toThrow(
+      'repeated KV key cursor',
+    );
+  });
+
+  it('writes and deletes KV keys in bulk batches and fails on any unwritten key', async () => {
+    const requests: Array<{ method: string; path: string; body: Array<unknown> }> = [];
+    let failed: Array<string> = [];
+    const client = new PlatformCloudflareClient('token', {
+      apiBase: 'https://cloudflare.example.test/client/v4',
+      fetcher: async (input, init) => {
+        const body = JSON.parse(String(init?.body)) as Array<unknown>;
+        requests.push({
+          method: init?.method ?? 'GET',
+          path: new URL(String(input)).pathname,
+          body,
+        });
+        return Response.json({
+          success: true,
+          result: { successful_key_count: body.length, unsuccessful_keys: failed },
+        });
+      },
+    });
+    const entries = Array.from({ length: 10_001 }, (_, index) => ({
+      key: `ai-logging:p${index}`,
+      value: 'off',
+      metadata: { mode: 'off', at: 1 },
+    }));
+    await client.putKvBulk('account', 'routing', entries);
+    await client.deleteKvBulk('account', 'routing', ['ai-logging:gone']);
+    expect(requests.map(({ method, path, body }) => [method, path, body.length])).toEqual([
+      ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 10_000],
+      ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 1],
+      ['POST', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk/delete', 1],
+    ]);
+    expect(requests[0]!.body[0]).toEqual(entries[0]);
+    expect(requests[2]!.body).toEqual(['ai-logging:gone']);
+
+    failed = ['ai-logging:p1'];
+    await expect(client.putKvBulk('account', 'routing', entries.slice(0, 2))).rejects.toThrow(
+      'did not write 1 KV keys',
+    );
+    await expect(client.deleteKvBulk('account', 'routing', ['ai-logging:p1'])).rejects.toThrow(
+      'did not delete 1 KV keys',
+    );
+  });
+
   it('filters KV namespaces by exact title instead of trusting an unsupported API filter', async () => {
     const entries = [
       { id: 'routing-id', title: 'void-example-routing' },
