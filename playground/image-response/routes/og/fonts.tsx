@@ -5,14 +5,15 @@ import { fontPresets } from '../../src/fonts.ts';
 
 export const GET = defineHandler(async (c) => {
   const font = fontPresets.find((preset) => preset.id === c.req.query('font')) ?? fontPresets[0]!;
-  let fonts: ImageResponseOptions['fonts'] = [font.url];
-  if (c.req.query('mode') === 'data') {
+  let fontOptions: Pick<ImageResponseOptions, 'fonts' | 'defaultFont'> =
+    'defaultFont' in font ? { defaultFont: font.defaultFont } : { fonts: [font.url] };
+  if ('url' in font && c.req.query('mode') === 'data') {
     const response = await fetch(font.url);
     if (!response.ok) {
       return c.text('Could not download the demo font.', 502);
     }
     // No weight: the variable font follows each element's fontWeight.
-    fonts = [{ name: font.name, data: await response.arrayBuffer() }];
+    fontOptions = { fonts: [{ name: font.name, data: await response.arrayBuffer() }] };
   }
   return new ImageResponse(
     <Card>
@@ -25,6 +26,6 @@ export const GET = defineHandler(async (c) => {
         </div>
       ))}
     </Card>,
-    { width: 1200, height: 630, fonts, fallbackFonts: false },
+    { width: 1200, height: 630, ...fontOptions, fallbackFonts: false },
   );
 });
