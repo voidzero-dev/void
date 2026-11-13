@@ -1,10 +1,20 @@
 /**
  * Fonts for `void/image`: the app's own fonts, keyed so each registers with
- * Takumi once, and Google Fonts fallbacks for text that Takumi's built-in Geist
- * cannot draw.
+ * Takumi once, bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
 import type { FontLoader, Node } from 'takumi-js';
 import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
+import { interCoverage, interData } from './image-inter.ts';
+
+export type DefaultFont = 'Inter' | 'Geist';
+
+// A private family keeps custom Inter faces separate from the bundled font.
+// A stable key lets Takumi reuse the registration; bytes decode only on first use.
+export const interFont: FontLoader = {
+  name: 'void/image Inter',
+  key: 'void/image Inter 4.1',
+  data: interData,
+};
 
 /** A font file's URL, or a font's bytes with its name, weight and style. */
 export type Font =
@@ -48,7 +58,7 @@ const FALLBACK_FONTS: Array<[script: RegExp, family: string]> = [
   [/\p{sc=Telugu}/u, 'Noto Sans Telugu'],
   [/\p{sc=Kannada}/u, 'Noto Sans Kannada'],
   [/\p{sc=Malayalam}/u, 'Noto Sans Malayalam'],
-  // The default font's own subsets, so a word stays in one typeface.
+  // Geist's additional subsets; Inter's missing Latin/Cyrillic goes to Noto Sans.
   [/[\p{sc=Cyrillic}µĀ-ɏḀ-ỿ]/u, 'Geist'],
   [/\p{Sm}/u, 'Noto Sans Math'],
   [/[\p{So}\p{No}\p{Nl}]/u, 'Noto Sans Symbols'],
@@ -79,15 +89,99 @@ function cssUrl(characters: Array<string>): string | undefined {
   return text.length <= MAX_TEXT_QUERY ? `${GOOGLE_FONTS_CSS}?text=${text}` : undefined;
 }
 
-// What Takumi's built-in Geist draws beyond ASCII and Latin-1 without µ, found
-// by rendering each code point with takumi-js 2.18 (2.20 draws the same): some
-// accented letters and combining marks, spaces, format characters and variation
-// selectors, quotes, dashes, € ™ − ↑ ↓. Number forms such as ⅓ stay missing:
-// no served subset has them.
-/* oxlint-disable no-misleading-character-class -- the marks and selectors are listed on their own */
-const BUILT_IN =
-  /[\u{100}\u{101}\u{112}\u{113}\u{12A}\u{12B}\u{131}\u{14C}\u{14D}\u{152}\u{153}\u{16A}\u{16B}\u{178}\u{1D5}\u{1D6}\u{1DE}\u{1DF}\u{1E2}\u{1E3}\u{22A}-\u{22D}\u{232}\u{233}\u{2BC}\u{2C6}\u{2DA}\u{2DC}\u{304}\u{308}\u{34F}\u{37E}\u{387}\u{1E20}\u{1E21}\u{1E26}\u{1E27}\u{1E4E}\u{1E4F}\u{1E7A}\u{1E7B}\u{1E84}\u{1E85}\u{1E8C}\u{1E8D}\u{1E97}\u{2000}-\u{200F}\u{2013}\u{2014}\u{2018}-\u{201A}\u{201C}-\u{201E}\u{2020}-\u{2022}\u{2026}\u{2028}-\u{2030}\u{2032}\u{2033}\u{2039}\u{203A}\u{2044}\u{205F}-\u{206F}\u{20AC}\u{2122}\u{212A}\u{212B}\u{2191}\u{2193}\u{2212}\u{FE00}-\u{FE0F}\u{FEFF}]/u;
-/* oxlint-enable no-misleading-character-class */
+// Takumi's embedded Latin Geist subset, verified by rendering each codepoint
+// with takumi-js 2.18 and 2.20. Keep these sorted, like Inter's generated cmap.
+const geistCoverage: ReadonlyArray<readonly [number, number]> = [
+  [0x0, 0xb4],
+  [0xb6, 0x101],
+  [0x112, 0x113],
+  [0x12a, 0x12b],
+  [0x131, 0x131],
+  [0x14c, 0x14d],
+  [0x152, 0x153],
+  [0x16a, 0x16b],
+  [0x178, 0x178],
+  [0x1d5, 0x1d6],
+  [0x1de, 0x1df],
+  [0x1e2, 0x1e3],
+  [0x22a, 0x22d],
+  [0x232, 0x233],
+  [0x2bc, 0x2bc],
+  [0x2c6, 0x2c6],
+  [0x2da, 0x2da],
+  [0x2dc, 0x2dc],
+  [0x304, 0x304],
+  [0x308, 0x308],
+  [0x34f, 0x34f],
+  [0x37e, 0x37e],
+  [0x387, 0x387],
+  [0x1e20, 0x1e21],
+  [0x1e26, 0x1e27],
+  [0x1e4e, 0x1e4f],
+  [0x1e7a, 0x1e7b],
+  [0x1e84, 0x1e85],
+  [0x1e8c, 0x1e8d],
+  [0x1e97, 0x1e97],
+  [0x2000, 0x200f],
+  [0x2013, 0x2014],
+  [0x2018, 0x201a],
+  [0x201c, 0x201e],
+  [0x2020, 0x2022],
+  [0x2026, 0x2026],
+  [0x2028, 0x2030],
+  [0x2032, 0x2033],
+  [0x2039, 0x203a],
+  [0x2044, 0x2044],
+  [0x205f, 0x206f],
+  [0x20ac, 0x20ac],
+  [0x2122, 0x2122],
+  [0x212a, 0x212b],
+  [0x2191, 0x2191],
+  [0x2193, 0x2193],
+  [0x2212, 0x2212],
+  [0xfe00, 0xfe0f],
+  [0xfeff, 0xfeff],
+];
+
+function coverage(defaultFont: DefaultFont) {
+  return defaultFont === 'Inter' ? interCoverage : geistCoverage;
+}
+
+function hasDefaultGlyph(codepoint: number, defaultFont: DefaultFont): boolean {
+  // Controls, variation selectors and formatting characters need no downloaded glyph.
+  if (codepoint < 0x20 || /[\p{Cf}\p{Variation_Selector}]/u.test(String.fromCodePoint(codepoint))) {
+    return true;
+  }
+  return coverage(defaultFont).some(([start, end]) => codepoint >= start && codepoint <= end);
+}
+
+function withoutDefaultGlyphs(
+  start: number,
+  end: number,
+  defaultFont: DefaultFont,
+): Array<[number, number]> {
+  const ranges: Array<[number, number]> = [];
+  let cursor = start;
+  for (const [coveredStart, coveredEnd] of coverage(defaultFont)) {
+    if (coveredEnd < cursor) {
+      continue;
+    }
+    if (coveredStart > end) {
+      break;
+    }
+    if (coveredStart > cursor) {
+      ranges.push([cursor, coveredStart - 1]);
+    }
+    cursor = coveredEnd + 1;
+    if (cursor > end) {
+      break;
+    }
+  }
+  if (cursor <= end) {
+    ranges.push([cursor, end]);
+  }
+  return ranges;
+}
 
 function hasBytes(font: Font): font is Exclude<Font, string> {
   return (
@@ -154,7 +248,7 @@ function cjkFamily(text: string, lang = ''): string {
 
 /**
  * The Google Fonts subsets that draw the characters in `node` that the
- * built-in Geist cannot. A file that fails to download adds its key to
+ * selected default font cannot. A file that fails to download adds its key to
  * `failed` and rejects with a `FallbackFontError`.
  */
 export async function fallbackFonts(
@@ -162,18 +256,23 @@ export async function fallbackFonts(
   lang: string | undefined,
   timeout: number | undefined,
   failed: Set<string>,
+  defaultFont: DefaultFont,
 ): Promise<Array<FontSubset>> {
   const missing = Array.from(collectCodepoints(node))
-    .filter((codepoint) => codepoint === 0xb5 || codepoint > 0xff)
-    .map((codepoint) => String.fromCodePoint(codepoint))
-    .filter((character) => !BUILT_IN.test(character));
+    .filter((codepoint) => !hasDefaultGlyph(codepoint, defaultFont))
+    .map((codepoint) => String.fromCodePoint(codepoint));
   // The characters each family is asked to draw.
   const families = new Map<string, Array<string>>();
   for (const [script, name] of FALLBACK_FONTS) {
     const characters = missing.filter((character) => script.test(character));
     if (characters.length > 0) {
       // Han text can go to the same family as Hangul, so add to it.
-      const family = name === 'Noto Sans JP' ? cjkFamily(missing.join(''), lang) : name;
+      const family =
+        name === 'Noto Sans JP'
+          ? cjkFamily(missing.join(''), lang)
+          : name === 'Geist' && defaultFont === 'Inter'
+            ? 'Noto Sans'
+            : name;
       families.set(family, [...(families.get(family) ?? []), ...characters]);
     }
   }
@@ -181,7 +280,7 @@ export async function fallbackFonts(
     (character) => !FALLBACK_FONTS.some(([script]) => script.test(character)),
   );
   if (unmatched.length > 0) {
-    families.set('Noto Sans', unmatched);
+    families.set('Noto Sans', [...(families.get('Noto Sans') ?? []), ...unmatched]);
   }
   if (families.size === 0) {
     return [];
@@ -203,17 +302,14 @@ export async function fallbackFonts(
       }
     }),
   );
-  // Latin text should keep the default font, but Takumi draws each character
-  // with the first font that has it and puts registered fonts before its
-  // built-in Geist, so take ASCII and Latin-1 but µ out of every subset. A
-  // subset without ranges is a whole font.
+  // Subtract the default font's entire coverage, not just this image's text:
+  // a range-based Google subset keeps the same registration on later images.
+  // Keep each default's faces separate, since their allowed ranges differ.
+  const prefix = `void/image ${defaultFont} fallback`;
   const stripped = subsets.flat().flatMap((subset) => {
     const unicodeRange = (
-      subset.unicodeRange.length > 0 ? subset.unicodeRange : [[0x100, 0x10ffff] as const]
-    ).flatMap(([start, end]): Array<[number, number]> => [
-      ...(start <= 0xb5 && 0xb5 <= end ? [[0xb5, 0xb5] as [number, number]] : []),
-      ...(end > 0xff ? [[Math.max(start, 0x100), end] as [number, number]] : []),
-    ]);
+      subset.unicodeRange.length > 0 ? subset.unicodeRange : [[0, 0x10ffff] as const]
+    ).flatMap(([start, end]) => withoutDefaultGlyphs(start, end, defaultFont));
     if (unicodeRange.length === 0) {
       return [];
     }
@@ -222,13 +318,13 @@ export async function fallbackFonts(
       unicodeRange,
       // Private names: Takumi keeps fonts per process, so the app's own copy
       // of the family, Latin glyphs included, must not join this one.
-      name: `void/image ${subset.name}`,
-      key: `void/image ${subset.key}`,
+      name: `${prefix} ${subset.name}`,
+      key: `${prefix} ${subset.key}`,
       data: () =>
         subset.data().catch((cause: unknown) => {
           // Record and report each failed file here: when several fail at
           // once, Takumi's rejection carries only the first.
-          failed.add(`void/image ${subset.key}`);
+          failed.add(`${prefix} ${subset.key}`);
           console.warn(
             `void/image: could not download ${subset.name}. Rendering without it.`,
             cause,

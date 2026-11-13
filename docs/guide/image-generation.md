@@ -76,7 +76,8 @@ The second argument is required and sets the image and the response. Import `Ren
 | Option                            | Default     | Description                                                                                                                                  |
 | --------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
 | `width`, `height`                 | Required    | Image size in pixels.                                                                                                                        |
-| `fonts`                           | Geist       | Fonts to draw text with. See [Fonts](#fonts).                                                                                                |
+| `defaultFont`                     | `'Inter'`   | Bundled font: `'Inter'` or `'Geist'`. Neither needs a download. See [Fonts](#fonts).                                                         |
+| `fonts`                           |             | Custom fonts to use before the default font. See [Fonts](#fonts).                                                                            |
 | `fallbackFonts`                   | `true`      | Set to `false` to download no fonts from Google Fonts. See [Control font downloads](#control-font-downloads).                                |
 | `emoji`                           | `'twemoji'` | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`.                                                           |
 | `lang`                            |             | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                                   |
@@ -97,9 +98,23 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 ## Fonts
 
-Text uses Geist unless you pass `fonts`. Your fonts draw every character they have, and Geist draws only the characters they lack.
+Text uses bundled Inter by default. It supports Latin, extended Latin, Cyrillic, and Greek, including letters like Ł and ş and symbols like → and ★, without downloading fonts. Its variable weights range from 100 to 900.
 
-When the text includes characters that Geist cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, Hebrew, Cyrillic, Greek, accented letters like Ł and ş, or symbols like → and ★, Void downloads a font that has them from Google Fonts while rendering: the matching [Noto](https://fonts.google.com/noto) font, such as Noto Sans JP for Japanese, or Geist's own Cyrillic and accented letters. It asks for only the characters the image uses, whether or not `fonts` covers them. If the download fails, those characters are drawn as boxes.
+To use Takumi's built-in Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
+
+```ts
+return new ImageResponse('<div style="display: flex">Built with Void</div>', {
+  width: 800,
+  height: 400,
+  defaultFont: 'Geist',
+});
+```
+
+The bundled Geist is a Latin subset with variable weights from 300 to 800. Unlike Inter, it needs fallback downloads for Cyrillic, Greek, extended Latin letters such as Ł and ş, and symbols such as → and ★.
+
+Your custom `fonts` take priority over the selected default font, which draws characters they lack.
+
+When the text includes characters the default font cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, or Hebrew, Void downloads a matching [Noto](https://fonts.google.com/noto) font from Google Fonts while rendering, such as Noto Sans JP for Japanese. With `defaultFont: 'Geist'`, its additional Cyrillic and Latin letters come from Geist's own Google Fonts subsets. Void asks for only the characters the image uses, whether or not `fonts` covers them. If neither the supplied fonts nor a downloaded font can draw a character, it appears as a box.
 
 Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text:
 
@@ -119,8 +134,8 @@ return new ImageResponse('<div style="display: flex">Built with Void</div>', {
   width: 800,
   height: 400,
   fonts: [
-    'https://fonts.gstatic.com/s/inter/v20/UcCO3FwrK3iLTeHuS_nVMrMxCp50SjIw2boKoduKmMEVuFuYAZ9hiA.woff2',
-    { name: 'Inter', data: interRegular, weight: 400, style: 'normal' },
+    'https://example.com/fonts/brand-variable.woff2',
+    { name: 'Brand', data: brandRegular, weight: 400, style: 'normal' },
   ],
 });
 ```
@@ -131,9 +146,9 @@ Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entr
 
 ### Control font downloads
 
-Each server keeps the fonts it downloads in memory until it restarts. Every image with new text downloads a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render.
+Each server keeps the fonts it downloads in memory until it restarts. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title, so the memory of a long-running Node.js, Bun, or Deno server grows with the number of different titles it renders. On Cloudflare Workers, the downloads also count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to the first render. 
 
-To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor Geist can draw are drawn as boxes:
+To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor the selected default font can draw are drawn as boxes:
 
 ```ts
 return new ImageResponse('<div style="display: flex">こんにちは</div>', {
@@ -167,4 +182,4 @@ Void never caches paths under `/api`, so serve images from another path, such as
 
 ## Worker size
 
-On Cloudflare, importing `void/image` or `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4.3 MB, or 1.9 MB compressed. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that import neither module do not include the renderer.
+On Cloudflare, importing `void/image` or `void/og` adds Takumi's WebAssembly renderer and bundled Inter to your Worker: about 4.9 MB, or 2.3 MB compressed. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that import neither module include neither the renderer nor Inter.

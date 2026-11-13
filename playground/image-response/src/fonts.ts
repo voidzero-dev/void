@@ -2,8 +2,14 @@ export const fontPresets = [
   {
     id: 'inter',
     name: 'Inter',
-    label: 'Inter — clean sans-serif',
-    url: 'https://fonts.gstatic.com/s/inter/v20/UcC73FwrK3iLTeHuS_nVMrMxCp50SjIa1ZL7W0Q5nw.woff2',
+    label: 'Inter — bundled default',
+    defaultFont: 'Inter',
+  },
+  {
+    id: 'geist',
+    name: 'Geist',
+    label: 'Geist — built into Takumi',
+    defaultFont: 'Geist',
   },
   {
     id: 'roboto-slab',
@@ -29,4 +35,4 @@ export const fontPresets = [
     label: 'Caveat — casual handwriting',
     url: 'https://fonts.gstatic.com/s/caveat/v23/Wnz6HAc5bAfYB2Q7ZjYYiAzcPA.woff2',
   },
-];
+] as const;
