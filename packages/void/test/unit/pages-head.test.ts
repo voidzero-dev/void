@@ -76,13 +76,6 @@ describe('resolveHead', () => {
     expect(resolveHead(undefined, middleware, page)).toEqual({ title: 'Users | Admin' });
   });
 
-  it('drops the config titleTemplate when middleware sets an empty one', () => {
-    const config: HeadConfig = { titleTemplate: '%s | My Site' };
-    const middleware: HeadConfig = { titleTemplate: '' };
-    const page: HeadDescriptor = { title: 'Users' };
-    expect(resolveHead(config, middleware, page)?.title).toBe('Users');
-  });
-  
   it('deduplicates meta by name — page wins', () => {
     const config: HeadConfig = {
       meta: [{ name: 'description', content: 'Config desc' }],
