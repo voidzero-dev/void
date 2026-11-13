@@ -117,14 +117,27 @@ async function run(command, args, cwd, env = environment) {
 }
 
 const packedOgRoute = `import { OgImageResponse } from 'void/og';
-export const GET = () => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed OG</div>');
+import { defineHandler } from 'void';
+export const GET = defineHandler((c) => new OgImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed OG Привет Ελληνικά Łódź</div>', { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
 const packedImageRoute = `import { ImageResponse } from 'void/image';
-export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed image</div>', { width: 600, height: 600 });
+import { defineHandler } from 'void';
+export const GET = defineHandler((c) => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">Packed image Привет Ελληνικά Łódź</div>', { width: 600, height: 600, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
 
 /** Fetches an image route and checks its PNG signature and dimensions. */
 async function assertPackedImage(url, dimensions, failure) {
+  const inter = await readPackedImage(url, dimensions, failure);
+  const geist = await readPackedImage(`${url}?font=Geist`, dimensions, failure);
+  assert(!Buffer.from(inter).equals(Buffer.from(geist)), 'Inter and Geist must render differently');
+  const again = await readPackedImage(url, dimensions, failure);
+  assert(
+    Buffer.from(inter).equals(Buffer.from(again)),
+    'Font selection must not leak across renders',
+  );
+}
+
+async function readPackedImage(url, dimensions, failure) {
   const response = await fetch(url);
   assert.equal(response.status, 200, failure());
   assert.equal(response.headers.get('content-type'), 'image/png', failure());
@@ -133,6 +146,7 @@ async function assertPackedImage(url, dimensions, failure) {
   assert.deepEqual([...bytes.subarray(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10], failure());
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   assert.deepEqual([view.getUint32(16), view.getUint32(20)], dimensions, failure());
+  return bytes;
 }
 
 const packages = [];
@@ -227,6 +241,7 @@ try {
         assert.equal(agentInstructions.match(/^- /gm)?.length, 2);
         assert(agentInstructions.includes('node_modules/void/docs/'));
         assert(existsSync(join(fixture, 'node_modules/void/docs/guide/quickstart.md')));
+        assert(existsSync(join(fixture, 'node_modules/void/licenses/Inter.txt')));
         assert(
           existsSync(join(fixture, '.git')),
           'Init should initialize the accepted Git repository',

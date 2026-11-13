@@ -168,9 +168,17 @@ the working directory. Apps need no direct Takumi dependency. Cloudflare
 keeps Takumi's workerd backend. takumi-js is on `~2.20`; skip
 2.19.0, which draws a word as boxes when the first font covering a character
 lacks its glyph. Before raising the range, render Japanese next to "Łódź" in
-a fresh process and check that Geist still draws `BUILT_IN` in `image-fonts.ts`,
+a fresh process and check that Geist still draws `geistCoverage` in `image-fonts.ts`,
 then update the range and the Worker size in
 `docs/guide/image-generation.md` and `docs/guide/og-images.md`.
+
+Image responses default to Inter 4.1; `defaultFont: 'Geist'` uses Takumi's embedded
+Latin subset. `image-inter.ts` embeds unmodified WOFF2 and its matching TTF cmap;
+regenerate it and `licenses/Inter.txt` with `node packages/void/scripts/embed-inter.mjs`
+from the repository root. Builds must not download fonts. Keep the Inter license
+in the published package. Custom fonts precede Inter. Fallback ranges subtract
+the selected default's coverage and use distinct family names/keys for each
+default, so registration reuse cannot leak glyphs between images.
 
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 

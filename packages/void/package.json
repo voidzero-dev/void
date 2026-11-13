@@ -18,6 +18,7 @@
   "files": [
     "dist",
     "docs",
+    "licenses",
     "schema.json",
     "skills",
     "templates",

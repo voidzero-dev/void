@@ -26,7 +26,7 @@ export const examples: Array<Example> = [
     file: 'routes/og/article/[slug].tsx',
     code: 'return new ImageResponse(<Card>…{post.title}…</Card>);',
     checks: [
-      'The PNG is 1200 × 630 with Geist text and a byline.',
+      'The PNG is 1200 × 630 with Inter text and a byline.',
       'Choose the long title to check wrapping. Open the missing article URL to check its 404.',
       'View page source for og:image and twitter:card; the image URL includes the selected slug.',
     ],
@@ -90,16 +90,18 @@ export const examples: Array<Example> = [
   },
   {
     id: 'fonts',
-    title: 'Custom variable font',
+    title: 'Bundled and custom variable fonts',
     description:
-      'Compare five variable typefaces by URL or font bytes, with multiple weights in each image.',
+      'Compare bundled Inter and Geist with four custom variable typefaces, with multiple weights in each image.',
     file: 'routes/og/fonts.tsx',
-    code: 'new ImageResponse(card, { fonts: [font.url], fallbackFonts: false });',
-    network: 'Downloads the selected font from fonts.gstatic.com. Both modes need internet access.',
+    code: "new ImageResponse(card, { width: 1200, height: 630, defaultFont: 'Geist', fallbackFonts: false });",
+    network:
+      'Inter and Geist need no download in either mode. Custom fonts download from fonts.gstatic.com.',
     checks: [
       'The 400, 550, and 700 rows get progressively heavier without boxes or clipping.',
       'Switch typefaces to compare clean sans-serif, slab serif, editorial serif, monospace, and handwriting styles.',
       'URL and font-data modes should look the same. No weight is pinned on the variable font entry.',
+      'Inter and Geist work offline; switching between them must not carry over the previous font.',
     ],
     controls: [
       {
@@ -130,7 +132,7 @@ export const examples: Array<Example> = [
     checks: [
       'With fallback enabled, Japanese, Łódź, Arabic, Thai, and symbols should not be boxes.',
       'Switch the language to compare the same Han characters in Japanese, Simplified Chinese, Traditional Chinese, and Korean styles.',
-      'Disable fallback to see missing glyphs while basic Latin remains readable; switch it back on to compare.',
+      'Disable fallback to see missing glyphs while Latin, Cyrillic, and Greek remain readable in Inter; switch it back on to compare.',
     ],
     controls: [
       {
