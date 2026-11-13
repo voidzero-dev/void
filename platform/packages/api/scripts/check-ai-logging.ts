@@ -20,6 +20,11 @@ try {
     );
   }
   await client.query('COMMIT');
+} catch (error) {
+  if (!(error instanceof Error) || !('code' in error) || error.code !== '42P01') {
+    throw error;
+  }
+  console.log('AI logging settings are not installed; no saved settings to republish.');
 } finally {
   await client.end();
 }
