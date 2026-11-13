@@ -104,3 +104,24 @@ throw new HTTPException(404, { message: 'User not found' });
 ```
 
 For the full list of built-in middleware, see the [Hono documentation](https://hono.dev/docs/middleware/builtin).
+
+### Redirects
+
+Return `c.redirect()` from a handler to redirect. From a shared helper, throw an `HTTPException` with the redirect response in `res`. This works in loaders, actions, and middleware, including client-side page visits:
+
+```ts
+// lib/require-page-user.ts
+import { HTTPException } from 'hono/http-exception';
+import type { CloudContext } from 'void';
+import { getUser } from 'void/auth';
+
+export function requirePageUser(c: CloudContext) {
+  const user = getUser();
+  if (!user) {
+    throw new HTTPException(302, { res: c.redirect('/login') });
+  }
+  return user;
+}
+```
+
+After a mutation, use `303` for both the exception and `c.redirect('/login', 303)` so the browser follows with a GET.

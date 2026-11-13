@@ -77,9 +77,11 @@ Enable [authentication](../../guide/auth.md) before calling this helper; it thro
 function getAuth(c: CloudContext): AuthInstance;
 ```
 
-## `requireAuth(c)` {#requireauth-c}
+## `requireAuth(c, options?)` {#requireauth-c}
 
-Extracts the authenticated user from the request context. Throws a 401 `HTTPException` if no session is present.
+Returns the authenticated user from the request context. Without `throwRedirect`, throws a 401 `HTTPException` if no session is present.
+
+Use it without options in route handlers or actions when you want a plain-text `401`, not an error page:
 
 ```ts
 import { defineHandler } from 'void';
@@ -91,10 +93,26 @@ export const GET = defineHandler((c) => {
 });
 ```
 
+For protected pages, pass `throwRedirect` to [redirect unauthenticated visitors to login](../../guide/auth.md#protect-a-server-route):
+
+```ts
+import { defineHandler } from 'void';
+import { requireAuth } from 'void/auth';
+
+export const loader = defineHandler((c) => {
+  const user = requireAuth(c, { throwRedirect: '/login' });
+  return { email: user.email };
+});
+```
+
+`throwRedirect` works in loaders, actions, and middleware. When signed out, it throws a redirect with status `302` for GET/HEAD requests or `303` for other methods, stopping execution. When signed in, it returns the user normally.
+
+The destination is application-controlled.
+
 **Signature:**
 
 ```ts
-function requireAuth(c: CloudContext): AuthUser;
+function requireAuth(c: CloudContext, options?: { throwRedirect?: string }): AuthUser;
 ```
 
 ## `AuthUser` {#authuser}
