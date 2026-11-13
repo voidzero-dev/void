@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import { readFile, stat } from 'node:fs/promises';
 import type { IncomingMessage, ServerResponse } from 'node:http';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import mime from 'mime';
 import { dirname, isAbsolute, join, relative, resolve } from 'pathslash';
 import { isFileServingAllowed, type Plugin } from 'vite';
@@ -171,7 +171,15 @@ export function nodeTargetPlugin(
       // and installed packages that import void in the dev server, Vitest and the build alike,
       // as with a workspace link.
       const ssr = {
-        noExternal: ['void', /^@void\//, ...findVoidDependentPackages(root)],
+        noExternal: [
+          'void',
+          /^@void\//,
+          // Keep the renderer bundled even when npm hoists these to the app root.
+          'takumi-js',
+          '@takumi-rs/wasm',
+          '@takumi-rs/helpers',
+          ...findVoidDependentPackages(root),
+        ],
       };
       if (command !== 'build') {
         return { ssr };
@@ -180,6 +188,7 @@ export function nodeTargetPlugin(
       const voidDir = join(root, '.void');
       const ssrBuildOptions = {
         outDir: 'dist/ssr',
+        emitAssets: true,
         rollupOptions: {
           input: {
             app: join(voidDir, 'app.ts'),
@@ -322,5 +331,71 @@ export function nodeTargetPlugin(
     },
   };
 
-  return [guardPlugin, cloudflareModulesPlugin];
+  // Keep Takumi's renderer portable: bundle its WASM bindings, not its native addon or the
+  // package-relative filesystem loader. Resolve only Void's copy; an app can use its own Takumi.
+  const backendId = '\0void:image-wasm-backend';
+  let wasmReference: string | undefined;
+  const imageRendererPlugin: Plugin = {
+    name: 'void:node-target-image-renderer',
+    enforce: 'pre',
+    resolveId: {
+      filter: { id: /^(?:#backend|takumi-js(?:\/.*)?)$/ },
+      async handler(id, importer) {
+        const takumiDir = dirname(fileURLToPath(import.meta.resolve('takumi-js')));
+        if (id !== '#backend') {
+          const resolved = await this.resolve(id, importer, { skipSelf: true });
+          if (id === 'takumi-js/wasm' && resolved?.id.startsWith(`${takumiDir}/`)) {
+            return backendId;
+          }
+          // noExternal lets this hook see hoisted Takumi too, but only Void's version should
+          // be bundled. Leave an app's different version and its native dependencies intact.
+          if (
+            this.environment.config.command === 'build' &&
+            resolved &&
+            !resolved.id.startsWith(`${takumiDir}/`)
+          ) {
+            return { id, external: true };
+          }
+          return resolved;
+        }
+        if (importer && dirname(importer) === takumiDir) {
+          return backendId;
+        }
+      },
+    },
+    load: {
+      filter: { id: /^\0void:image-wasm-backend$/ },
+      async handler() {
+        const { default: wasmUrl } = await import('takumi-js/wasm-url');
+        const bindings = fileURLToPath(import.meta.resolve('takumi-js/wasm/no-init'));
+        this.addWatchFile(fileURLToPath(wasmUrl));
+        let source = `new URL(${JSON.stringify(wasmUrl.href)})`;
+        if (this.environment.config.command === 'build') {
+          wasmReference = this.emitFile({
+            type: 'asset',
+            name: 'takumi.wasm',
+            source: await readFile(wasmUrl),
+          });
+          source = `import.meta.ROLLUP_FILE_URL_${wasmReference}`;
+        }
+        return `import { readFile } from 'node:fs/promises';
+import { init, Renderer, setGlyphCacheMaxBytes } from ${JSON.stringify(bindings)};
+export { init, Renderer, setGlyphCacheMaxBytes };
+export default async function initialize() {
+  await init({ module_or_path: await readFile(${source}) });
+}
+export async function loadBackend() {
+  await initialize();
+  return { Renderer, setGlyphCacheMaxBytes };
+}`;
+      },
+    },
+    resolveFileUrl({ referenceId, relativePath }) {
+      if (referenceId === wasmReference) {
+        return `new URL(${JSON.stringify(relativePath)}, import.meta.url)`;
+      }
+    },
+  };
+
+  return [guardPlugin, cloudflareModulesPlugin, imageRendererPlugin];
 }

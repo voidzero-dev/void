@@ -38,6 +38,7 @@ import {
   type RoutingHeaderRule,
   type RoutingRuntime,
 } from '../../src/runtime/routing.ts';
+import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
@@ -287,6 +288,59 @@ describe('typed HTTP execution', () => {
       dev ? 'c.rewrite -> /new (middleware)' : null,
     );
   });
+  it.each([true, false])('disables generated image caching only in dev=%s', async (dev) => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true, dev });
+    app.use(runtime.headerMiddleware([]));
+    app.get(
+      '/image',
+      () =>
+        new Response('image', {
+          headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=31536000' },
+        }),
+    );
+    const response = await app.request('/image');
+    expect(response.headers.get('cache-control')).toBe(
+      dev ? 'no-store' : 'public, max-age=31536000',
+    );
+  });
+
+  it('does not let header rules re-enable generated image caching in dev', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
+    app.use(
+      runtime.headerMiddleware([
+        { pattern: '/*', headers: [['Cache-Control', 'public, max-age=60']] },
+      ]),
+    );
+    app.get('/image', () => new Response('image', { headers: { 'Content-Type': 'image/png' } }));
+    expect((await app.request('/image')).headers.get('cache-control')).toBe('no-store');
+  });
+
+  it('preserves static image and non-image cache policies in dev', async () => {
+    const app = new Hono();
+    const runtime = createRoutingRuntime(app, { nodeTarget: true, dev: true });
+    app.use(runtime.headerMiddleware([]));
+    const policy = 'public, max-age=31536000, immutable';
+    app.get('/static.png', (c) =>
+      markStaticAsset(
+        c,
+        new Response('image', {
+          headers: { 'Content-Type': 'image/png', 'Cache-Control': policy },
+        }),
+      ),
+    );
+    app.get(
+      '/text',
+      () =>
+        new Response('text', {
+          headers: { 'Content-Type': 'text/plain', 'Cache-Control': policy },
+        }),
+    );
+    expect((await app.request('/static.png')).headers.get('cache-control')).toBe(policy);
+    expect((await app.request('/text')).headers.get('cache-control')).toBe(policy);
+  });
+
   it.each([200, 404])(
     'overrides an existing response header with the last matching rule on %s',
     async (status) => {

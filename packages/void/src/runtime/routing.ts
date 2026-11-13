@@ -423,6 +423,15 @@ export function createRoutingRuntime(
       if (fallbackServed.has(c.req.raw)) {
         return;
       }
+      // Generated previews must refresh during development, even when their
+      // production response or a header rule opts into long-lived caching.
+      const devImage =
+        options.dev &&
+        !isUnchangedStaticAsset(c) &&
+        /^image\//i.test(c.res.headers.get('Content-Type') ?? '');
+      if (devImage) {
+        c.header('Cache-Control', 'no-store');
+      }
       const pathname = new URL(c.req.url).pathname;
       const matched: Array<[string, string]> = [];
       for (const rule of rules) {
@@ -446,6 +455,9 @@ export function createRoutingRuntime(
       }
       const asset = isUnchangedStaticAsset(c);
       for (const [key, [name, value]] of last) {
+        if (devImage && key === 'cache-control') {
+          continue;
+        }
         if (
           protectCache &&
           (key === 'cache-control' || key === 'pragma' || SHARED_CACHE_HEADERS.includes(key))

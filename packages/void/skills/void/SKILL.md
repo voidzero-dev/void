@@ -42,6 +42,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Initial setup, onboarding, first app       | `docs/guide/quickstart.md`, `docs/reference/cli/setup.md`                                 |
 | App type detection and mode behavior       | `docs/guide/app-types.md`, `docs/reference/config.md`                                     |
 | Server/API routing and middleware          | `docs/guide/server-routing.md`, `docs/integrations/hono.md`                               |
+| HTML templates (`void/html`)               | `docs/reference/api/html.md`                                                              |
 | Pages mode, loader/action, forms, layouts  | `docs/guide/pages-routing/*.md`, `docs/guide/type-safety.md`                              |
 | Database and migrations                    | `docs/guide/database.md`, `docs/guide/type-safety.md`                                     |
 | Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`                                  |
@@ -51,6 +52,8 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Platform AI logging policy                 | `docs/reference/cli/platform-users.md#ai-gateway-logging`                                 |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
+| Open Graph and social images (`void/og`)   | `docs/guide/og-images.md`, `docs/guide/edge/revalidation.md`                              |
+| Image generation (`void/image`)            | `docs/guide/image-generation.md`, `docs/guide/edge/revalidation.md`                       |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |
 | Email                                      | `docs/guide/email.md`, then the matching guide under `docs/guide/email/`                  |
 | KV / storage / queues / cron jobs          | `docs/guide/kv.md`, `docs/guide/storage.md`, `docs/guide/queues.md`, `docs/guide/jobs.md` |

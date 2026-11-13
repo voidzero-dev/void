@@ -93,6 +93,7 @@ These Void features work identically across all targets:
 - [Custom headers](../guide/edge/headers.md) (`routing.headers`)
 - [Redirects](../guide/edge/redirects.md) (`routing.redirects`)
 - [Static site generation](../guide/ssg.md)
+- [Image generation](../guide/image-generation.md) (`void/image`) and [Open Graph images](../guide/og-images.md) (`void/og`)
 - [Vite preview](https://vite.dev/guide/cli#vite-preview) for testing production builds locally
 
 ## What's Different
@@ -102,6 +103,17 @@ These Void features work identically across all targets:
 Supply server values through your host's environment and read them with `process.env` in Node.js or Bun, or `Deno.env.get()` in Deno. The `void/env` schema and secret workflow requires Cloudflare.
 
 For browser code, use Vite's `import.meta.env.VITE_*` values. These are embedded at build time and must not contain secrets.
+
+### Image generation & Open Graph images
+
+Both image APIs work on Node.js, Bun, and Deno:
+
+- [`ImageResponse` from `void/image`](../guide/image-generation.md) generates images with required `width` and `height` options.
+- [`OgImageResponse` from `void/og`](../guide/og-images.md) extends `ImageResponse` for Open Graph and social previews, defaulting to 1200 × 630 pixels.
+
+Neither API requires additional dependencies. Deploy the complete `dist/ssr` directory, including its image renderer assets.
+
+See the [image generation guide](../guide/image-generation.md#node-js-bun-and-deno) for production setup and font memory considerations.
 
 ### No Cloudflare bindings
 

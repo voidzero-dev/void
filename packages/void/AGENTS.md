@@ -150,16 +150,10 @@ Two features need extra wiring on a self-hosted `vite build && wrangler deploy` 
 
 ### Package Exports
 
-[package.json](./package.json) is the authoritative export map and declares
-the CLI binary at `dist/cli/cli.mjs`. The
-[API reference](../../docs/reference/api.md#user-facing-imports) documents
-supported imports. Keep Worker-safe runtime subpaths separate from the
-Vite/CLI dependency graph.
-
-`void/remote` stays exported only for semver. Generated code imports
-`#self/remote`. Remove the subpath in the next major version.
-
-Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
+- `void/remote` — Legacy compatibility export; generated code uses `#self/remote`.
+- `void/image` — `ImageResponse` for generating images with explicit dimensions.
+- `void/og` — `OgImageResponse` with standard Open Graph dimensions.
+- `void/html` — Hono's `html`, `raw`, and `HtmlEscapedString` for HTML templates.
 
 ### Route Filename Parsing Rules
 

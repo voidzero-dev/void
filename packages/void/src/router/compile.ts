@@ -327,8 +327,10 @@ export function compileRouteTable(
     lines.push('');
   }
 
-  if (headerRules?.length) {
-    lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
+  if (headerRules?.length || options.dev) {
+    lines.push(
+      `app.use("*", __routingRuntime.headerMiddleware(${headerRules?.length ? '__headerRules' : '[]'}));`,
+    );
   }
 
   // Register user middleware

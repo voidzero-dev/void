@@ -124,6 +124,7 @@ const referenceItems = [
       { text: 'Deployment artifacts', link: '/reference/api/deploy' },
       { text: 'Database and Seeding', link: '/reference/api/database' },
       { text: 'Resource Clients', link: '/reference/api/resources' },
+      { text: 'HTML Templates', link: '/reference/api/html' },
       { text: 'Types', link: '/reference/api/types' },
       { text: 'Environment Variables', link: '/reference/api/env' },
       { text: 'Pages Adapters', link: '/reference/api/pages' },
@@ -335,6 +336,8 @@ export default extendConfig(
               },
               { text: 'Custom SSR', link: '/guide/ssr' },
               { text: 'SSG', link: '/guide/ssg' },
+              { text: 'Image Generation', link: '/guide/image-generation' },
+              { text: 'Open Graph Images', link: '/guide/og-images' },
             ],
           },
           {
