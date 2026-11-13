@@ -215,17 +215,17 @@ describe('void/og on the Node.js target', () => {
     }
   });
 
-  it("renders with the app's takumi-js", async () => {
+  it('renders bundled WASM without app-installed Takumi', async () => {
     const root = createApp(
       { 'routes/api/og.ts': OG_ROUTE },
       {
-        'takumi-js': 'packages/void/node_modules/takumi-js',
         '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server',
       },
       `{ target: 'node' }`,
     );
     build(root);
     expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
+    expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
     const server = await startServer((port) => {
       child = spawn('node', ['dist/ssr/index.js'], {
         cwd: root,
@@ -237,16 +237,23 @@ describe('void/og on the Node.js target', () => {
     await expectImage(await fetch(`${server.base}/api/og`), CACHE_HEADER);
   });
 
-  it('fails the build without takumi-js', () => {
+  it('renders in the dev server without app-installed Takumi', async () => {
     const root = createApp(
       { 'routes/api/og.ts': OG_ROUTE },
       { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
       `{ target: 'node' }`,
     );
-    const result = runBuild(root);
-    expect(result.status).not.toBe(0);
-    // OgImageResponse uses the same renderer as void/image.
-    expect(result.stderr).toContain('void/image needs takumi-js@');
-    expect(result.stderr).toContain('npm install takumi-js@');
+    if (child) {
+      await killChild(child);
+    }
+    const server = await startServer((port) => {
+      child = spawn('vp', ['dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'], {
+        cwd: root,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        env: userEnv,
+      });
+      return child;
+    }, 30_000);
+    await expectImage(await fetch(`${server.base}/api/og`), CACHE_HEADER);
   });
 });

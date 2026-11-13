@@ -168,15 +168,3 @@ Void never caches paths under `/api`, so serve images from another path, such as
 ## Worker size
 
 On Cloudflare, importing `void/image` or `void/og` adds Takumi's WebAssembly renderer to your Worker: about 4.3 MB, or 1.9 MB compressed. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that import neither module do not include the renderer.
-
-## Node.js, Bun, and Deno
-
-On the [Node.js, Bun, and Deno targets](../integrations/nodejs-bun-deno.md#image-generation-and-open-graph-images), both `ImageResponse` from `void/image` and [`OgImageResponse` from `void/og`](./og-images.md) need `takumi-js` in your app's `dependencies`, not `devDependencies`, so production installs include it:
-
-```sh
-npm install takumi-js@~2.20.0
-```
-
-If the build cannot find a version of `takumi-js` that Void supports, it fails and prints the command to install one.
-
-If your images show many different titles in other scripts, pass your own fonts with `fallbackFonts: false` to control server memory use; see [Control font downloads](#control-font-downloads).
