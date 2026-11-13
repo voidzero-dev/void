@@ -1,0 +1,58 @@
+{
+  "version": 1,
+  "source": {
+    "account_id": "194274c8e6a8b3c2546413f05e622f44",
+    "name": "voidzero-void-d1-bookmarks",
+    "compatibility_date": "2026-02-24",
+    "compatibility_flags": ["nodejs_als"],
+    "workers_dev": true,
+    "placement": {
+      "region": "aws:ap-southeast-1"
+    },
+    "observability": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "logs": {
+        "enabled": true,
+        "invocation_logs": true,
+        "persist": true
+      }
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "voidzero-void-d1-bookmarks-weur",
+        "database_id": "f4a50d02-a225-47fe-8157-0622c0553fe9",
+        "migrations_dir": "db/migrations"
+      }
+    ]
+  },
+  "resolved": {
+    "account_id": "194274c8e6a8b3c2546413f05e622f44",
+    "name": "voidzero-void-d1-bookmarks",
+    "compatibility_date": "2026-02-24",
+    "compatibility_flags": ["nodejs_als"],
+    "workers_dev": true,
+    "observability": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "logs": {
+        "enabled": true,
+        "invocation_logs": true,
+        "persist": true
+      }
+    },
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "voidzero-void-d1-bookmarks-weur",
+        "database_id": "f4a50d02-a225-47fe-8157-0622c0553fe9",
+        "migrations_dir": "db/migrations"
+      }
+    ],
+    "placement": {
+      "region": "aws:ap-southeast-1"
+    }
+  },
+  "text": "{\n  \"account_id\": \"194274c8e6a8b3c2546413f05e622f44\",\n  \"name\": \"voidzero-void-d1-bookmarks\",\n  \"compatibility_date\": \"2026-02-24\",\n  \"compatibility_flags\": [\n    \"nodejs_als\"\n  ],\n  \"workers_dev\": true,\n  \"observability\": {\n    \"enabled\": true,\n    \"head_sampling_rate\": 1,\n    \"logs\": {\n      \"enabled\": true,\n      \"invocation_logs\": true,\n      \"persist\": true\n    }\n  },\n  \"d1_databases\": [\n    {\n      \"binding\": \"DB\",\n      \"database_name\": \"voidzero-void-d1-bookmarks-weur\",\n      \"database_id\": \"f4a50d02-a225-47fe-8157-0622c0553fe9\",\n      \"migrations_dir\": \"db/migrations\"\n    }\n  ],\n  \"placement\": {\n    \"region\": \"aws:ap-southeast-1\"\n  }\n}\n"
+}

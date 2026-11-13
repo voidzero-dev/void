@@ -1,0 +1,26 @@
+{
+  "name": "playground-d1-bookmarks",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "dev": "vp dev",
+    "preview": "vp preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "hono": "catalog:",
+    "react": "catalog:",
+    "react-dom": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@void/react": "workspace:*",
+    "cf": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "void": "workspace:*"
+  }
+}
