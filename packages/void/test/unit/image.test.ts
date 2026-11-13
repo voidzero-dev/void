@@ -3,7 +3,9 @@ import { fileURLToPath } from 'node:url';
 import { render } from 'takumi-js';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
-import { ImageResponse } from '../../src/runtime/image.ts';
+import { fallbackFonts, interFont } from '../../src/runtime/image-fonts.ts';
+import { interData } from '../../src/runtime/image-inter.ts';
+import { ImageResponse, type ImageResponseOptions } from '../../src/runtime/image.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
   const takumi = await importOriginal<typeof import('takumi-js')>();
@@ -11,6 +13,10 @@ vi.mock('takumi-js', async (importOriginal) => {
 });
 
 const card = '<div style="display:flex;width:100%;height:100%;background:#fff">Hello</div>';
+
+async function imageBytes(html: string, options: ImageResponseOptions) {
+  return new Uint8Array(await new ImageResponse(html, options).arrayBuffer());
+}
 
 async function expectPng(response: Response) {
   const bytes = new Uint8Array(await response.arrayBuffer());
@@ -79,6 +85,57 @@ afterEach(() => {
 });
 
 describe('ImageResponse', () => {
+  it('defaults to offline Inter and switches to Takumi Geist without leaking fonts', async () => {
+    const requests = stubFetch(() => {
+      throw new Error('unexpected fetch');
+    });
+    const options = { width: 320, height: 168, fallbackFonts: false };
+    const inter = await imageBytes(card, options);
+    const geist = await imageBytes(card, { ...options, defaultFont: 'Geist' });
+    expect(inter).not.toEqual(geist);
+    expect(await imageBytes(card, { ...options, defaultFont: 'Inter' })).toEqual(inter);
+    expect(await imageBytes(card, { ...options, defaultFont: 'Geist' })).toEqual(geist);
+    expect(vi.mocked(render).mock.lastCall![1]!.fonts).toEqual([]);
+    expect(requests).toEqual([]);
+  });
+
+  it('draws Cyrillic, Greek, extended Latin and arrows offline with Inter', async () => {
+    const requests = stubFetch(() => {
+      throw new Error('unexpected fetch');
+    });
+    for (const text of ['Тёплый чай · Свіжі булочки', 'Ελληνικά Ἑλλάς', 'Łódź ş µ → ★ ₹']) {
+      const html = `<div style="display:flex;font-size:30px">${text}</div>`;
+      const options = { width: 600, height: 80 };
+      const inter = await imageBytes(html, options);
+      expect(inter).not.toEqual(
+        await imageBytes(html, { ...options, defaultFont: 'Geist', fallbackFonts: false }),
+      );
+    }
+    expect(requests).toEqual([]);
+    expect(interData()).toBe(interData());
+  });
+
+  it('keeps custom fonts ahead of bundled Inter, including custom faces named Inter', async () => {
+    const options = { width: 320, height: 168, fallbackFonts: false };
+    const fonts = [{ name: 'Inter', data: interData(), weight: 900 }];
+    const custom = await imageBytes(card, { ...options, fonts });
+    expect(custom).not.toEqual(await imageBytes(card, options));
+    expect(custom).toEqual(await imageBytes(card, { ...options, fonts, defaultFont: 'Geist' }));
+  });
+
+  it('uses Inter variable weights rather than a fixed-weight face', async () => {
+    const images = await Promise.all(
+      [400, 550, 700, 900].map((weight) =>
+        new ImageResponse(
+          `<div style="display:flex;font-size:40px;font-weight:${weight}">Variable</div>`,
+          { width: 320, height: 80, fallbackFonts: false },
+        ).arrayBuffer(),
+      ),
+    );
+    expect(new Set(images.map((bytes) => Buffer.from(bytes).toString('base64'))).size).toBe(4);
+    expect(interFont).not.toHaveProperty('weight');
+  });
+
   it('renders a PNG response', async () => {
     const response = new ImageResponse(card, { width: 320, height: 168 });
     expect(response).toBeInstanceOf(Response);
@@ -213,6 +270,7 @@ describe('ImageResponse', () => {
     expect(fonts.map(({ name, weight }) => [name, weight])).toEqual([
       ['Medium', 550],
       ['Variable', undefined],
+      ['void/image Inter', undefined],
     ]);
   });
 
@@ -246,7 +304,9 @@ describe('ImageResponse fallback fonts', () => {
     await new ImageResponse(card, { width: 320, height: 168 }).arrayBuffer();
     // Without a font list, takumi uses every font registered in the process,
     // such as the fallback fonts of an earlier image.
-    expect(vi.mocked(render).mock.calls.map(([, options]) => options?.fonts)).toEqual([[]]);
+    expect(vi.mocked(render).mock.calls.map(([, options]) => options?.fonts)).toEqual([
+      [interFont],
+    ]);
   });
 
   it('keeps Latin text off the Japanese family', async () => {
@@ -283,6 +343,7 @@ describe('ImageResponse fallback fonts', () => {
     await new ImageResponse('<div style="display:flex">Łódź 5µs</div>', {
       width: 320,
       height: 168,
+      defaultFont: 'Geist',
     }).arrayBuffer();
     expect(new URL(requests[0]!).searchParams.getAll('family')).toEqual(['Geist:wght@100..900']);
   });
@@ -301,13 +362,13 @@ describe('ImageResponse fallback fonts', () => {
       .catch(() => {});
     expect(requests).toEqual([]);
     const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<{ name: string }>;
-    expect(fonts.map(({ name }) => name)).toEqual(['App']);
+    expect(fonts.map(({ name }) => name)).toEqual(['App', 'void/image Inter']);
   });
 
   it('asks each family for only the characters it draws', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch(() => new Response(null, { status: 404 }));
-    await new ImageResponse('<div style="display:flex">本日 ★ 日本語 ★</div>', {
+    await new ImageResponse('<div style="display:flex">本日 ♜ 日本語 ♜</div>', {
       width: 320,
       height: 168,
     }).arrayBuffer();
@@ -319,9 +380,19 @@ describe('ImageResponse fallback fonts', () => {
     );
     expect(texts).toEqual({
       'Noto Sans JP:wght@100..900': '日本語',
-      'Noto Sans Symbols:wght@100..900': '★',
-      'Noto Sans Symbols 2:wght@400': '★',
+      'Noto Sans Symbols:wght@100..900': '♜',
+      'Noto Sans Symbols 2:wght@400': '♜',
     });
+  });
+
+  it('combines missing Cyrillic and unmatched Greek in the same Noto Sans request', async () => {
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch(() => new Response(null, { status: 404 }));
+    await imageBytes('<div>Ꙁ Ϡ</div>', { width: 320, height: 168 });
+    expect(requests).toHaveLength(1);
+    const url = new URL(requests[0]!);
+    expect(url.searchParams.getAll('family')).toEqual(['Noto Sans:wght@100..900']);
+    expect([...url.searchParams.get('text')!].sort()).toEqual(['Ꙁ', 'Ϡ'].sort());
   });
 
   it('asks the Korean family for both Han and Hangul in Korean text', async () => {
@@ -383,6 +454,7 @@ describe('ImageResponse fallback fonts', () => {
     await new ImageResponse('<div style="display:flex;font-weight:700">日 → B</div>', {
       width: 320,
       height: 168,
+      defaultFont: 'Geist',
     }).arrayBuffer();
     const [, options] = vi.mocked(render).mock.calls[0]!;
     const weights = Object.fromEntries(
@@ -394,12 +466,12 @@ describe('ImageResponse fallback fonts', () => {
     // A face without a fixed weight follows `font-weight` along its axis; one
     // pinned to 400 is only thickened for bold text.
     expect(weights).toEqual({
-      'void/image Noto Sans JP': undefined,
-      'void/image Noto Sans Math': 400,
+      'void/image Geist fallback Noto Sans JP': undefined,
+      'void/image Geist fallback Noto Sans Math': 400,
     });
   });
 
-  it('takes a whole font for a subset without ranges, beyond Latin-1', async () => {
+  it('restricts a subset without ranges to missing characters', async () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const requests = stubFetch((url) =>
       url.startsWith('https://fonts.googleapis.com/')
@@ -412,12 +484,54 @@ describe('ImageResponse fallback fonts', () => {
     await new ImageResponse('<div style="display:flex">A → B</div>', {
       width: 320,
       height: 168,
+      defaultFont: 'Geist',
     }).arrayBuffer();
     expect(requests.slice(1)).toEqual(['https://fonts.gstatic.com/math.woff2']);
     const [, options] = vi.mocked(render).mock.calls.at(-2)!;
-    expect(options?.fonts).toMatchObject([
-      { name: 'void/image Noto Sans Math', unicodeRange: [[0x100, 0x10ffff]] },
-    ]);
+    const [font] = options!.fonts as Array<{ name: string; unicodeRange: Array<[number, number]> }>;
+    expect(font!.name).toBe('void/image Geist fallback Noto Sans Math');
+    const covers = (codepoint: number) =>
+      font!.unicodeRange.some(([start, end]) => codepoint >= start && codepoint <= end);
+    expect(covers(0x2192)).toBe(true);
+    expect(covers(0x41)).toBe(false);
+    expect(covers(0x20ac)).toBe(false);
+  });
+
+  it('keeps fallback coverage stable across texts and separate between defaults', async () => {
+    stubFetch(
+      () =>
+        new Response(
+          `@font-face { font-family: 'Noto Sans JP'; src: url(https://fonts.gstatic.com/all.woff2) format('woff2'); unicode-range: U+0-10FFFF; }`,
+        ),
+    );
+    const subsets = [];
+    for (const defaultFont of ['Inter', 'Geist'] as const) {
+      const [first] = await fallbackFonts(
+        { type: 'text', text: '日本' },
+        undefined,
+        undefined,
+        new Set(),
+        defaultFont,
+      );
+      const [second] = await fallbackFonts(
+        { type: 'text', text: '東京' },
+        undefined,
+        undefined,
+        new Set(),
+        defaultFont,
+      );
+      expect(first!.key).toBe(second!.key);
+      expect(first!.unicodeRange).toEqual(second!.unicodeRange);
+      const covers = (codepoint: number) =>
+        first!.unicodeRange.some(([start, end]) => codepoint >= start && codepoint <= end);
+      expect(covers(0x41)).toBe(false);
+      expect(covers(0x65e5)).toBe(true);
+      expect(covers(0x410)).toBe(defaultFont === 'Geist');
+      expect(covers(0x391)).toBe(defaultFont === 'Geist');
+      subsets.push(first!);
+    }
+    expect(subsets[0]!.name).not.toBe(subsets[1]!.name);
+    expect(subsets[0]!.key).not.toBe(subsets[1]!.key);
   });
 
   it('draws Han text as Japanese unless lang says otherwise', async () => {
@@ -489,6 +603,7 @@ describe('ImageResponse fallback fonts', () => {
     await new ImageResponse('<div style="display:flex">A → B ★ ₹ 🎉</div>', {
       width: 320,
       height: 168,
+      defaultFont: 'Geist',
     }).arrayBuffer();
     // The emoji is an image, so it asks for no font. ₹ has no row and goes to Noto Sans.
     const families = requests
@@ -509,7 +624,7 @@ describe('ImageResponse fallback fonts', () => {
     const requests = stubFetch((url) => {
       if (url.startsWith('https://fonts.googleapis.com/')) {
         const family = new URL(url).searchParams.get('family')!.split(':')[0]!;
-        const range = family === 'Noto Sans JP' ? 'U+65E5, U+672C' : 'U+2605';
+        const range = family === 'Noto Sans JP' ? 'U+65E5, U+672C' : 'U+265C';
         const file = `https://fonts.gstatic.com/${family.replaceAll(' ', '-')}.woff2`;
         return new Response(
           `@font-face { font-family: '${family}'; src: url(${file}) format('woff2'); unicode-range: ${range}; }`,
@@ -533,7 +648,7 @@ describe('ImageResponse fallback fonts', () => {
       return new Uint8Array();
     });
     try {
-      await new ImageResponse('<div style="display:flex">日本 ★</div>', {
+      await new ImageResponse('<div style="display:flex">日本 ♜</div>', {
         width: 320,
         height: 168,
       }).arrayBuffer();
@@ -547,8 +662,8 @@ describe('ImageResponse fallback fonts', () => {
       .mock.calls.map(([, options]) =>
         ((options?.fonts ?? []) as Array<{ name?: string }>).map((font) => font.name),
       );
-    expect(attempts.map((fonts) => fonts.length)).toEqual([3, 2, 1]);
-    expect(attempts.at(-1)).toEqual(['void/image Noto Sans JP']);
+    expect(attempts.map((fonts) => fonts.length)).toEqual([4, 3, 2]);
+    expect(attempts.at(-1)).toEqual(['void/image Inter', 'void/image Inter fallback Noto Sans JP']);
     // A file that failed is not requested again.
     expect(
       requests.filter((url) => url.includes('Symbols')).filter((url) => url.endsWith('.woff2')),

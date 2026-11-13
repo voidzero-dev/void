@@ -3,15 +3,20 @@
  * Takumi.
  *
  * Takumi does the rendering. This module adds what a route handler needs around it:
- * the response headers, `debug`, and Google Fonts fallbacks for text that
- * Takumi's built-in Geist cannot draw.
+ * the response headers, `debug`, bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
 import { render, type FontLoader, type Node, type RenderInput } from 'takumi-js';
 import type { ImageFetchCache } from 'takumi-js/helpers';
 import { extractEmojis } from 'takumi-js/helpers/emoji';
 import { fromHtml } from 'takumi-js/helpers/html';
 import { fromJsx } from 'takumi-js/helpers/jsx';
-import { FallbackFontError, fallbackFonts, keyedFont, type Font } from './image-fonts.ts';
+import {
+  FallbackFontError,
+  fallbackFonts,
+  interFont,
+  keyedFont,
+  type Font,
+} from './image-fonts.ts';
 
 /**
  * {@link renderImage} function options.
@@ -23,11 +28,13 @@ export interface RenderImageOptions {
   height: number;
   /** Draws a border around every box. */
   debug?: boolean;
-  /** Fonts to draw text with, before the built-in Geist. */
+  /** Bundled font used after custom fonts. Defaults to `Inter`; `Geist` uses Takumi's built-in font. */
+  defaultFont?: 'Inter' | 'Geist';
+  /** Fonts to draw text with, before the selected default font. */
   fonts?: Array<Font>;
   /**
    * Set to false to download no fonts from Google Fonts for characters that
-   * the built-in Geist cannot draw, leaving them to `fonts`. Defaults to true.
+   * the selected default font cannot draw, leaving them to `fonts`. Defaults to true.
    */
   fallbackFonts?: boolean;
   /** The emoji images to draw. Defaults to `twemoji`. */
@@ -123,12 +130,16 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
     });
   // Keys of the fallback files that failed to download during this image.
   const failed = new Set<string>();
+  const defaultFont = options.defaultFont ?? 'Inter';
   const [fonts, fallback] = await Promise.all([
     Promise.all((options.fonts ?? []).map(keyedFont)),
     options.fallbackFonts === false
       ? []
-      : fallbackFonts(node, options.lang ?? node.lang, timeout, failed),
+      : fallbackFonts(node, options.lang ?? node.lang, timeout, failed, defaultFont),
   ]);
+  if (defaultFont === 'Inter') {
+    fonts.push(interFont);
+  }
   if (fallback.length === 0) {
     return renderNode(fonts);
   }

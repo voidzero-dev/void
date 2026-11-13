@@ -23,7 +23,7 @@ const CACHE_HEADER = 'public, max-age=0, must-revalidate';
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
 const IMAGE_ROUTE = `import { ImageResponse } from 'void/image';
-export const GET = () => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello</div>', { width: 320, height: 168 });
+export const GET = (c) => new ImageResponse('<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">Hello Привет Ελληνικά Łódź</div>', { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { ImageResponse } from 'void/image';
@@ -109,7 +109,13 @@ async function renderBuilt(root: string, path: string, cacheControl: string) {
     }),
   ) as unknown as Runtime;
   try {
-    await expectImage(await runtime.dispatchFetch(`http://localhost${path}`), cacheControl);
+    if (path === '/api/image') {
+      await expectFontSelection((query) =>
+        runtime.dispatchFetch(`http://localhost${path}${query}`),
+      );
+    } else {
+      await expectImage(await runtime.dispatchFetch(`http://localhost${path}`), cacheControl);
+    }
   } finally {
     await runtime.dispose();
   }
@@ -126,6 +132,14 @@ async function expectImage(response: Response, cacheControl: string) {
     width: 320,
     height: 168,
   });
+  return bytes;
+}
+
+async function expectFontSelection(request: (query: string) => Promise<Response>) {
+  const inter = await expectImage(await request(''), CACHE_HEADER);
+  const geist = await expectImage(await request('?font=Geist'), CACHE_HEADER);
+  expect(inter).not.toEqual(geist);
+  expect(await expectImage(await request(''), CACHE_HEADER)).toEqual(inter);
 }
 
 function builtFiles(root: string): Array<string> {
@@ -176,7 +190,7 @@ describe('void/image in a Cloudflare app', () => {
         expectStatus: 200,
         diagnostics: server.output,
       });
-      await expectImage(await fetch(`${server.base}/api/image`), CACHE_HEADER);
+      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
       await expectImage(await fetch(`${server.base}/api/card`), CACHE_HEADER);
     });
   });
@@ -276,7 +290,7 @@ describe.each(['node', 'bun', 'deno'] as const)('void/image on the %s target', (
         });
         return child;
       }, 20_000);
-      await expectImage(await fetch(`${server.base}/api/image`), CACHE_HEADER);
+      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
     },
   );
 
