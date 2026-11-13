@@ -5,7 +5,7 @@ import {
   searchWithoutPreservedQuery,
 } from '../pages/action-key.ts';
 import { handlesPageLoaderNotFound } from '../pages/not-found-context.ts';
-import { handlePageGet, handlePageMutation } from '../pages/protocol.ts';
+import { handlePageGet, handlePageMutation, recoverPageHttpException } from '../pages/protocol.ts';
 import { decodePagePath } from '../pages/url.ts';
 import type { ClientAssetTags } from './routing-assets.ts';
 import type { ErrorRenderer } from './routing-errors.ts';
@@ -28,6 +28,7 @@ export type PageRouteOptions = {
   assets: PageGetArguments[5];
   headConfig: PageGetArguments[6] | null;
   renderOptions: PageGetArguments[7];
+  middlewareBoundaries?: NonNullable<PageGetArguments[7]>['boundaries'];
   namedActions?: boolean;
   trailingSlash?: boolean;
   catchAllParam?: string;
@@ -59,10 +60,60 @@ function actionNameOf(request: Request): string | undefined {
 }
 const routeHandlers = new WeakSet<Function>();
 const namedActionHandlers = new WeakSet<Function>();
+const pageGetOptions = new WeakMap<Function, PageRouteOptions>();
 /** Records a handler that answers a route, so the marker can tell it from middleware. */
 export function markRouteHandler<T extends Function>(handler: T): T {
   routeHandlers.add(handler);
   return handler;
+}
+
+/** Hono catches middleware throws itself, before the page endpoint can run. */
+export function createPageErrorHandler(
+  matchedRoutes: (c: Context) => Array<{ handler: Function }>,
+  fallback: ErrorRenderer['onError'],
+): ErrorRenderer['onError'] {
+  const recovering = new WeakSet<Context>();
+  return async (error, c) => {
+    if ((c.req.method !== 'GET' && c.req.method !== 'HEAD') || recovering.has(c)) {
+      return fallback(error, c);
+    }
+    // Use the first endpoint, not a broad Pages pattern that follows an API route.
+    const routes = matchedRoutes(c);
+    const endpointIndex = routes.findIndex((route) => routeHandlers.has(route.handler));
+    const options =
+      endpointIndex < 0 ? undefined : pageGetOptions.get(routes[endpointIndex].handler);
+    // The endpoint already tried its nearest boundary; do not retry it as a middleware failure.
+    if (c.req.routeIndex >= endpointIndex) {
+      return fallback(error, c);
+    }
+    if (!options || (options.trailingSlash && !c.req.path.endsWith('/'))) {
+      return fallback(error, c);
+    }
+    recovering.add(c);
+    const routeIndex = c.req.routeIndex;
+    try {
+      // Params are scoped to Hono's current route, which is still the failed middleware.
+      c.req.routeIndex = endpointIndex;
+      const response = await recoverPageHttpException(
+        error,
+        c,
+        options.render,
+        options.assets,
+        options.headConfig ?? undefined,
+        { ...options.renderOptions, boundaries: options.middlewareBoundaries ?? { errors: [] } },
+      );
+      return response ?? fallback(error, c);
+    } catch (failure) {
+      return fallback(
+        failure instanceof Error
+          ? failure
+          : new Error('Unable to render Pages error boundary', { cause: failure }),
+        c,
+      );
+    } finally {
+      c.req.routeIndex = routeIndex;
+    }
+  };
 }
 /**
  * Runs before auth and user middleware, so a c.redirect() there leaves the
@@ -86,7 +137,7 @@ export function createNamedActionMarker(
   };
 }
 export function createPageGetHandler(options: PageRouteOptions): (c: Context) => Promise<Response> {
-  return markRouteHandler(async (context: Context) => {
+  const handler = markRouteHandler(async (context: Context) => {
     if (!preparePageRequest(context, options)) {
       return context.notFound();
     }
@@ -100,17 +151,34 @@ export function createPageGetHandler(options: PageRouteOptions): (c: Context) =>
         },
       };
     }
-    return handlePageGet(
-      mod.loader,
-      mod.head,
-      context as PageGetArguments[2],
-      options.componentId,
-      options.render,
-      options.assets,
-      options.headConfig ?? undefined,
-      options.renderOptions,
-    );
+    try {
+      return await handlePageGet(
+        mod.loader,
+        mod.head,
+        context as PageGetArguments[2],
+        options.componentId,
+        options.render,
+        options.assets,
+        options.headConfig ?? undefined,
+        options.renderOptions,
+      );
+    } catch (error) {
+      const response = await recoverPageHttpException(
+        error,
+        context,
+        options.render,
+        options.assets,
+        options.headConfig ?? undefined,
+        options.renderOptions,
+      );
+      if (response) {
+        return response;
+      }
+      throw error;
+    }
   });
+  pageGetOptions.set(handler, options);
+  return handler;
 }
 
 /** Build-only rendering bypasses application middleware and serializes no request data. */

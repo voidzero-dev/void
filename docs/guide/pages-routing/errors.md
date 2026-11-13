@@ -90,6 +90,26 @@ In middleware, `c.notFound()` shows the root `_not-found` without running a page
 
 Action errors that reach a client boundary keep their HTTP status and public message. Redirects, authentication responses, and API errors keep their usual behavior.
 
+## HTTP exceptions
+
+Throw an `HTTPException` with a 4xx/5xx status and a public message to show a deliberate HTTP error inside your layouts:
+
+```ts
+// pages/account.server.ts
+import { HTTPException } from 'hono/http-exception';
+import { defineHandler } from 'void/handler';
+
+export const loader = defineHandler(() => {
+  throw new HTTPException(403, { message: 'Your account is suspended' });
+});
+```
+
+The nearest `_error` receives `{ status: 403, message: 'Your account is suspended' }`. The HTML document or client-navigation response uses HTTP 403. For exceptions thrown in application middleware before the loader, Void uses the root boundary without running the loader. A 404 selects `_not-found`. If no matching boundary exists, the exception's response is returned.
+
+This applies to page GET and HEAD requests. Redirects, API routes, actions, returned responses, and exceptions with an explicit `res` keep their existing behavior. Only include messages safe to show to users. Checks that determine the HTTP status must finish before deferred streaming starts.
+
+Use [`c.status()`](./loaders.md#response-status) instead when you want an error status while rendering the requested page with its normal props.
+
 ## Nested errors
 
 Put an error component in a subdirectory to customize that section. Void uses the closest one and keeps its surrounding layouts. If a layout fails, an error component outside that layout handles it. If an error component fails, Void tries an outer one, then its built-in error page.

@@ -167,6 +167,106 @@ describe('boundary render plans', () => {
 });
 
 describe('Pages loader boundary protocol', () => {
+  describe.each(['HTML', 'Pages JSON'] as const)(
+    'HTTP exception recovery through page boundaries (%s)',
+    (format) => {
+      it.each([
+        [401, 'Please sign in'],
+        [403, 'Your account is banned'],
+        [410, 'This item was deleted'],
+        [429, 'Too many requests'],
+        [503, 'Down for maintenance'],
+      ] as const)('renders HTTP %s through the nearest error boundary', async (status, message) => {
+        const app = new Hono();
+        app.onError(createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }).onError);
+        let loaderCalls = 0;
+        app.get(
+          '/items/1',
+          createPageGetHandler({
+            componentId: 'items/item',
+            load: async () => ({
+              loader: defineHandler((c) => {
+                loaderCalls++;
+                c.header('Retry-After', '120');
+                throw new HTTPException(status, { message });
+              }),
+            }),
+            render: async (page) =>
+              `<main data-component="${page.component}">${JSON.stringify(page.props)}</main>`,
+            assets: async () => ({ css: '', body: '', preloads: '' }),
+            headConfig: null,
+            renderOptions: {
+              boundaries: { notFound: 'not-found-plan', errors: ['items-error', 'root-error'] },
+            },
+          }),
+        );
+        const response = await app.request('https://app.test/items/1', {
+          headers:
+            format === 'Pages JSON'
+              ? { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+              : { Accept: 'text/html' },
+        });
+        const body = await response.text();
+        expect(loaderCalls).toBe(1);
+        expect(response.status).toBe(status);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(deserializePageData(body)).toMatchObject({
+            component: 'items-error',
+            props: { error: { status, message } },
+            url: '/items/1',
+          });
+        } else {
+          expect(response.headers.get('Content-Type')).toContain('text/html');
+          expect(body).toContain('data-component="items-error"');
+          expect(body).toContain(JSON.stringify({ error: { status, message } }));
+        }
+        expect(response.headers.get('Retry-After')).toBe('120');
+        expect(response.headers.get('Cache-Control')).toBe('no-store');
+      });
+
+      it.each([302, 503] as const)(
+        'passes through HTTP %s with an explicit response',
+        async (status) => {
+          const app = new Hono();
+          app.onError(createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }).onError);
+          app.get(
+            '/',
+            createPageGetHandler({
+              componentId: 'index',
+              load: async () => ({
+                loader: () => {
+                  throw new HTTPException(status, {
+                    res: new Response('Explicit response', {
+                      status,
+                      headers: status === 302 ? { Location: '/login' } : { 'Retry-After': '120' },
+                    }),
+                  });
+                },
+              }),
+              render: async () => '<main>Error boundary</main>',
+              assets: async () => ({ css: '', body: '', preloads: '' }),
+              headConfig: null,
+              renderOptions: { boundaries: { errors: ['root-error'] } },
+            }),
+          );
+          const response = await app.request('https://app.test/', {
+            headers:
+              format === 'Pages JSON'
+                ? { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }
+                : { Accept: 'text/html' },
+          });
+          expect(response.status).toBe(status);
+          expect(response.headers.has('X-VoidPages')).toBe(false);
+          expect(response.headers.get(status === 302 ? 'Location' : 'Retry-After')).toBe(
+            status === 302 ? '/login' : '120',
+          );
+          expect(await response.text()).toBe('Explicit response');
+        },
+      );
+    },
+  );
+
   it.each(['returned', 'thrown', 'empty-message', 'unexpected'])(
     'renders %s failures as marked, uncached Pages data',
     async (kind) => {
