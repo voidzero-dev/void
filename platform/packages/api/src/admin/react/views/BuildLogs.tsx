@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { useEffect, useRef, useState } from 'react';
 import { useFateClient } from 'react-fate';
@@ -98,7 +98,7 @@ export function BuildLogs({ build }: { build: Build }) {
       <pre
         ref={pre}
         id="build-log"
-        style="min-height: 120px; max-height: 480px; overflow-y: auto; font-size: 0.78rem"
+        style={{ minHeight: '120px', maxHeight: '480px', overflowY: 'auto', fontSize: '0.78rem' }}
       >
         {lines === null
           ? 'Loading logs...'

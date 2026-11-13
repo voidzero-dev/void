@@ -1,8 +1,9 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import { Table, pixel, proportional, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
+import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import type { AdminUsersPage } from '../../fate/server.ts';
@@ -32,13 +33,13 @@ export function UsersListPage({ path, platformName, username }: AdminPageProps) 
       header: 'Login',
       width: proportional(1, { minWidth: 110 }),
       renderCell: (user: UserRow) => (
-        <a
+        <Link
           className="void-admin-resource-link void-admin-user-link"
           href={`/admin/users/${user.id}`}
           title={user.login}
         >
           {user.login}
-        </a>
+        </Link>
       ),
     },
     { key: 'provider', header: 'Provider', width: pixel(88) },

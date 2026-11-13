@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
@@ -127,8 +127,8 @@ export function AuthSettingsPage({ path, platformName, username }: AdminPageProp
                         method="post"
                         action={`${HOME}/connections/${encodeURIComponent(tested.connection_id)}/${action}`}
                       >
-                        <input type="hidden" name="revision" value={tested.revision} />
-                        <input type="hidden" name="testId" value={tested.id} />
+                        <input type="hidden" name="revision" defaultValue={tested.revision} />
+                        <input type="hidden" name="testId" defaultValue={tested.id} />
                         <Button
                           type="submit"
                           label={
@@ -199,7 +199,7 @@ export function AuthSettingsPage({ path, platformName, username }: AdminPageProp
                               method="post"
                               action={`${HOME}/connections/${encodeURIComponent(method.id)}/disable`}
                             >
-                              <input type="hidden" name="revision" value={method.revision} />
+                              <input type="hidden" name="revision" defaultValue={method.revision} />
                               <Button
                                 type="submit"
                                 label="Disable and revoke sessions"

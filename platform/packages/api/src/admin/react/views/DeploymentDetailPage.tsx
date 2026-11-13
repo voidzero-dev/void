@@ -1,7 +1,8 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import { Table, TableBody, TableCell, TableHeaderCell, TableRow } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { DeploymentDetailView, deploymentDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
@@ -70,9 +71,9 @@ export function DeploymentDetailPage({ path, platformName, username }: AdminPage
             <TableHeaderCell>Project</TableHeaderCell>
             <TableCell>
               {project ? (
-                <a className="void-admin-resource-link" href={`/admin/projects/${project.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/projects/${project.id}`}>
                   {project.slug}
-                </a>
+                </Link>
               ) : (
                 deployment.project_id
               )}

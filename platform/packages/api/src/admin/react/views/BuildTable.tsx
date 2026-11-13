@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import {
   Table,
   TableBody,
@@ -7,6 +8,8 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
+import type { CSSProperties } from 'react';
 import { ACTIVE_BUILD_STATUSES } from '../../../build-status.ts';
 import type { Build } from '../../../types.ts';
 import { formatDateTime, parseUtcDate } from './format.ts';
@@ -25,17 +28,17 @@ function isActive(status: Build['status']): boolean {
   return (ACTIVE_BUILD_STATUSES as ReadonlyArray<Build['status']>).includes(status);
 }
 
-function statusColor(status: Build['status']): string | undefined {
+function statusColor(status: Build['status']): CSSProperties | undefined {
   switch (status) {
     case 'complete':
-      return 'color: #16a34a; font-weight: 600';
+      return { color: '#16a34a', fontWeight: 600 };
     case 'failed':
     case 'cancelled':
-      return 'color: #dc2626';
+      return { color: '#dc2626' };
     case 'starting':
     case 'building':
     case 'deploying':
-      return 'color: #ca8a04; font-weight: 600';
+      return { color: '#ca8a04', fontWeight: 600 };
     default:
       return undefined;
   }
@@ -85,9 +88,9 @@ export function BuildTable({ builds, tz }: { builds: ReadonlyArray<Build>; tz?: 
           return (
             <TableRow key={b.id} className={active ? 'build-active' : undefined}>
               <TableCell>
-                <a className="void-admin-resource-link" href={`/admin/builds/${b.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/builds/${b.id}`}>
                   {b.id}
-                </a>
+                </Link>
               </TableCell>
               <TableCell>
                 <span style={statusColor(b.status)}>{STATUS_SYMBOL[b.status] ?? b.status}</span>

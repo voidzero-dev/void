@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import {
@@ -9,6 +9,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { ProjectDetailView, projectDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
@@ -82,9 +83,9 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
               <TableHeaderCell>Owner</TableHeaderCell>
               <TableCell>
                 {owner ? (
-                  <a className="void-admin-resource-link" href={`/admin/users/${owner.id}`}>
+                  <Link className="void-admin-resource-link" href={`/admin/users/${owner.id}`}>
                     {owner.login}
-                  </a>
+                  </Link>
                 ) : (
                   project.user_id
                 )}
@@ -97,9 +98,9 @@ export function ProjectDetailPage({ path, platformName, username }: AdminPagePro
             <TableRow>
               <TableHeaderCell>Email</TableHeaderCell>
               <TableCell>
-                <a className="void-admin-resource-link" href={`/admin/email/${project.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/email/${project.id}`}>
                   usage, limits, destinations
-                </a>
+                </Link>
               </TableCell>
             </TableRow>
             <TableRow>

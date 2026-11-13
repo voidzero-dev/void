@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import {
@@ -9,6 +9,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { UserDetailView, userDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
@@ -162,12 +163,12 @@ export function UserDetailPage({ path, platformName, username }: AdminPageProps)
                 {usage.projects.map((p) => (
                   <TableRow key={p.projectId}>
                     <TableCell>
-                      <a
+                      <Link
                         className="void-admin-resource-link"
                         href={`/admin/projects/${p.projectId}`}
                       >
                         {p.slug}
-                      </a>
+                      </Link>
                     </TableCell>
                     <TableCell>{formatNumber(p.requests)}</TableCell>
                     <TableCell>{formatBytes(p.bandwidthBytes)}</TableCell>
@@ -219,9 +220,9 @@ export function UserDetailPage({ path, platformName, username }: AdminPageProps)
               {projects.map((p) => (
                 <TableRow key={p.id}>
                   <TableCell>
-                    <a className="void-admin-resource-link" href={`/admin/projects/${p.id}`}>
+                    <Link className="void-admin-resource-link" href={`/admin/projects/${p.id}`}>
                       {p.slug}
-                    </a>
+                    </Link>
                   </TableCell>
                   <TableCell>{p.type}</TableCell>
                   <TableCell>{formatDateTime(p.created_at, tz)}</TableCell>

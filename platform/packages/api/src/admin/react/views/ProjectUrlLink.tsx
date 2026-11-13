@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Link } from '@astryxdesign/core/Link';
 

@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import { AdminCard } from './AdminCard.tsx';
 import { FormTextInput, FormTextArea, FormCheckbox } from './FormControls.tsx';
@@ -42,7 +43,7 @@ export function ConnectedAppsPage({
                 <code>{credentials.clientId}</code>
               </dd>
               <dt>Client secret</dt>
-              <dd style="overflow-wrap: anywhere">
+              <dd style={{ overflowWrap: 'anywhere' }}>
                 <code>{credentials.clientSecret}</code>
               </dd>
             </dl>
@@ -83,7 +84,7 @@ export function ConnectedAppsPage({
                 <input
                   type="hidden"
                   name="enabled"
-                  value={client.scopes.includes('preview:deploy') ? 'false' : 'true'}
+                  defaultValue={client.scopes.includes('preview:deploy') ? 'false' : 'true'}
                 />
                 <Button
                   type="submit"

@@ -1,6 +1,9 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Table, pixel, proportional, type TableColumn } from '@astryxdesign/core/Table';
 import { Text } from '@astryxdesign/core/Text';
+import { Link } from '@void/react';
+import type { CSSProperties } from 'react';
 import type { Deployment } from '../../../types.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { formatDateTime } from './format.ts';
@@ -29,19 +32,19 @@ export function displayStatus(
   return 'evicted';
 }
 
-function statusColor(status: string): string | undefined {
+function statusColor(status: string): CSSProperties | undefined {
   switch (status) {
     case 'live':
-      return 'color: #16a34a; font-weight: 600';
+      return { color: '#16a34a', fontWeight: 600 };
     case 'retained':
-      return 'color: #16a34a';
+      return { color: '#16a34a' };
     case 'evicted':
-      return 'color: #888';
+      return { color: '#888' };
     case 'failed':
     case 'canceled':
-      return 'color: #dc2626';
+      return { color: '#dc2626' };
     case 'canceling':
-      return 'color: #ca8a04';
+      return { color: '#ca8a04' };
     default:
       return undefined;
   }
@@ -71,13 +74,13 @@ export function DeploymentTable({
       header: 'ID',
       width: proportional(1, { minWidth: 115 }),
       renderCell: (d: DeploymentRow) => (
-        <a
+        <Link
           className="void-admin-resource-link void-admin-deployment-link"
           href={`/admin/deployments/${d.id}`}
           title={d.id}
         >
           {d.id}
-        </a>
+        </Link>
       ),
     },
   ];
@@ -88,13 +91,13 @@ export function DeploymentTable({
       width: proportional(1, { minWidth: 115 }),
       renderCell: (d: DeploymentRow) =>
         d.project_slug ? (
-          <a
+          <Link
             className="void-admin-resource-link void-admin-deployment-link"
             href={`/admin/projects/${d.project_id}`}
             title={d.project_slug}
           >
             {d.project_slug}
-          </a>
+          </Link>
         ) : (
           '-'
         ),

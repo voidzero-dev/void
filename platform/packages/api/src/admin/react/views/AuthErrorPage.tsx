@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import { Layout } from './Layout.tsx';
 import { SectionStack } from './SectionStack.tsx';

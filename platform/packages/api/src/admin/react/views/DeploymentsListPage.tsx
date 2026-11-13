@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';

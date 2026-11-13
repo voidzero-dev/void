@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Table, pixel, proportional, type TableColumn } from '@astryxdesign/core/Table';
 import { Heading, Text } from '@astryxdesign/core/Text';

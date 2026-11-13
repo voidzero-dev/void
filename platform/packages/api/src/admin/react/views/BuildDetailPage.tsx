@@ -1,6 +1,8 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import { Table, TableBody, TableCell, TableHeaderCell, TableRow } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import { BuildDetailView, buildDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
@@ -32,12 +34,12 @@ export function BuildDetailPage({ path, platformName, username }: AdminPageProps
             <TableRow>
               <TableHeaderCell>Project</TableHeaderCell>
               <TableCell>
-                <a
+                <Link
                   className="void-admin-resource-link"
                   href={`/admin/projects/${build.project_id}`}
                 >
                   {build.project_id}
-                </a>
+                </Link>
               </TableCell>
             </TableRow>
             <TableRow>
@@ -60,12 +62,12 @@ export function BuildDetailPage({ path, platformName, username }: AdminPageProps
               <TableHeaderCell>Deployment</TableHeaderCell>
               <TableCell>
                 {build.deployment_id ? (
-                  <a
+                  <Link
                     className="void-admin-resource-link"
                     href={`/admin/deployments/${build.deployment_id}`}
                   >
                     {build.deployment_id}
-                  </a>
+                  </Link>
                 ) : (
                   '-'
                 )}
@@ -75,7 +77,14 @@ export function BuildDetailPage({ path, platformName, username }: AdminPageProps
               <TableRow>
                 <TableHeaderCell>Error</TableHeaderCell>
                 <TableCell>
-                  <span style="color: red; max-width: 600px; display: inline-block; word-break: break-word">
+                  <span
+                    style={{
+                      color: 'red',
+                      maxWidth: '600px',
+                      display: 'inline-block',
+                      wordBreak: 'break-word',
+                    }}
+                  >
                     {build.error}
                   </span>
                 </TableCell>

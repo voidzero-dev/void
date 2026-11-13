@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import {
@@ -146,7 +146,7 @@ export function ProjectOwnerPreviewPage({
             action={`/admin/projects/${projectId}/owner`}
             className="void-admin-team-actions"
           >
-            <input type="hidden" name="userId" value={userId} />
+            <input type="hidden" name="userId" defaultValue={userId} />
             <Button
               type="submit"
               label={convergenceOnly ? 'Apply Convergence' : 'Apply Ownership Transfer'}

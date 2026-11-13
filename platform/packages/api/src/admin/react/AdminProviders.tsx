@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { LayerProvider } from '@astryxdesign/core/Layer';
 import { LinkProvider } from '@astryxdesign/core/Link';

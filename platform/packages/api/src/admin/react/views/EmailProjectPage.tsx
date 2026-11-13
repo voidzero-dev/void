@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import {
@@ -9,6 +9,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
 import {
   DEFAULT_EMAIL_BURST_LIMIT as DEFAULT_BURST_LIMIT,
@@ -20,7 +21,7 @@ import { STATUS_COLORS, formatDateTime } from './format.ts';
 import { FormNumberInput, FormTextInput } from './FormControls.tsx';
 import { Layout } from './Layout.tsx';
 import { SectionStack } from './SectionStack.tsx';
-const META = 'font-size: 0.8rem; color: #666';
+const META = { fontSize: '0.8rem', color: '#666' };
 function domainStatusColor(status: string): string {
   if (status === 'ready' || status === 'healthy') {
     return STATUS_COLORS.success;
@@ -56,7 +57,7 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
     <Layout platformName={platformName} title={`Email - ${project.slug}`} username={username}>
       <SectionStack>
         <h1>
-          Email &mdash; <a href={`/admin/projects/${projectId}`}>{project.slug}</a>
+          Email &mdash; <Link href={`/admin/projects/${projectId}`}>{project.slug}</Link>
         </h1>
 
         <Table>
@@ -79,9 +80,9 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
               <TableHeaderCell>Status</TableHeaderCell>
               <TableCell>
                 {isSuspended ? (
-                  <strong style="color: red">SUSPENDED</strong>
+                  <strong style={{ color: 'red' }}>SUSPENDED</strong>
                 ) : (
-                  <span style="color: #16a34a">active</span>
+                  <span style={{ color: '#16a34a' }}>active</span>
                 )}
               </TableCell>
             </TableRow>
@@ -123,7 +124,7 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
         <SectionStack as="form" method="post" action={`/admin/email/${projectId}/suspend`}>
           {/* Post the desired terminal state rather than a "toggle" intent, so a
             double-click cannot race two toggles and flip the switch back on. */}
-          <input type="hidden" name="state" value={isSuspended ? 'active' : 'suspended'} />
+          <input type="hidden" name="state" defaultValue={isSuspended ? 'active' : 'suspended'} />
           <Button
             type="submit"
             label={isSuspended ? 'Unsuspend email' : 'Suspend email'}
@@ -178,9 +179,9 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
                   <TableCell>{destination.address}</TableCell>
                   <TableCell>
                     {destination.status === 'verified' ? (
-                      <span style="color: #16a34a">verified</span>
+                      <span style={{ color: '#16a34a' }}>verified</span>
                     ) : (
-                      <span style="color: #d97706">pending</span>
+                      <span style={{ color: '#d97706' }}>pending</span>
                     )}
                   </TableCell>
                   <TableCell>{destination.verification_source}</TableCell>
@@ -263,19 +264,19 @@ export function EmailProjectPage({ path, platformName, username }: AdminPageProp
                 <TableRow key={domain.id}>
                   <TableCell>{domain.domain}</TableCell>
                   <TableCell>
-                    <span style={`color: ${domainStatusColor(domain.inbound)}`}>
+                    <span style={{ color: domainStatusColor(domain.inbound) }}>
                       {domain.inbound}
                     </span>
                     {domain.inboundReason && <small> — {domain.inboundReason}</small>}
                   </TableCell>
                   <TableCell>
-                    <span style={`color: ${domainStatusColor(domain.outbound)}`}>
+                    <span style={{ color: domainStatusColor(domain.outbound) }}>
                       {domain.outbound}
                     </span>
                     {domain.outboundReason && <small> — {domain.outboundReason}</small>}
                   </TableCell>
                   <TableCell>
-                    <span style={`color: ${domainStatusColor(domain.management)}`}>
+                    <span style={{ color: domainStatusColor(domain.management) }}>
                       {domain.management}
                     </span>
                     {domain.managementReason && <small> — {domain.managementReason}</small>}

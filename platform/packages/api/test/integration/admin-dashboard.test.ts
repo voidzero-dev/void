@@ -471,8 +471,14 @@ describe('auth middleware', () => {
       await page.goto(`http://localhost/admin/deployments/${deployment.id}`);
       await page.locator('[data-hydrated="true"]').waitFor();
       await page.getByPlaceholder('Filter logs').fill('remember-this-filter');
+      await page.evaluate(() => {
+        Object.assign(window, { adminNavigationMarker: 'same-document' });
+      });
       await page.locator(`a[href="/admin/projects/${project.id}"]`).first().click();
       await page.getByRole('heading', { name: project.slug, exact: true }).waitFor();
+      expect(await page.evaluate(() => Reflect.get(window, 'adminNavigationMarker'))).toBe(
+        'same-document',
+      );
       await page.goBack();
       await page
         .getByRole('heading', { name: `Deployment ${deployment.id}`, exact: true })

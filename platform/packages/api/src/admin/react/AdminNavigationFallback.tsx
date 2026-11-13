@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import { Heading } from '@astryxdesign/core/Text';

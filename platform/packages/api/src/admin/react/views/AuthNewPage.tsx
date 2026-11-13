@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { useRequest, useView } from 'react-fate';
 import { AuthNewView, authNewRequest } from '../../fate/views.ts';

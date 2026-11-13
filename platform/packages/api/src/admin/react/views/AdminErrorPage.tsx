@@ -1,4 +1,6 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
+import { Link } from '@void/react';
 import { AuthPage } from './AuthPage.tsx';
 export function AdminErrorPage({
   message,
@@ -18,12 +20,13 @@ export function AdminErrorPage({
         <h1 id="void-auth-title">{status === 401 ? 'Sign in again' : 'Unable to continue'}</h1>
         <p>{message}</p>
       </div>
-      <a
+      <Link
+        reloadDocument={status === 401}
         className="void-auth-button void-auth-button-primary"
         href={status === 401 ? '/admin/logout' : '/admin/'}
       >
         {status === 401 ? 'Sign in again' : 'Refresh dashboard'}
-      </a>
+      </Link>
     </AuthPage>
   );
 }

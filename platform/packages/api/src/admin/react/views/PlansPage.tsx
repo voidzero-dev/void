@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import {
   Table,
@@ -15,6 +16,7 @@ import {
   type EditablePlanLimit,
   type PlatformPlanDefinition,
 } from '@void/platform/plans';
+import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
 import { PlansView, plansRequest } from '../../fate/views.ts';
@@ -107,10 +109,12 @@ function PlanAction({
 }) {
   return (
     <form method="post" action={`${HOME}/preview`}>
-      <input type="hidden" name="action" value={action} />
-      <input type="hidden" name="id" value={id} />
-      <input type="hidden" name="revision" value={revision} />
-      {archived !== undefined && <input type="hidden" name="archived" value={String(archived)} />}
+      <input type="hidden" name="action" defaultValue={action} />
+      <input type="hidden" name="id" defaultValue={id} />
+      <input type="hidden" name="revision" defaultValue={revision} />
+      {archived !== undefined && (
+        <input type="hidden" name="archived" defaultValue={String(archived)} />
+      )}
       <Button type="submit" label={label} variant="secondary" />
     </form>
   );
@@ -144,7 +148,7 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
             <p role="alert">{catalog.reconciliation.error.message}</p>
           )}
           <form method="post" action={`${HOME}/resume`}>
-            <input type="hidden" name="revision" value={catalog.revision} />
+            <input type="hidden" name="revision" defaultValue={catalog.revision} />
             <Button type="submit" label="Continue account updates" />
           </form>
         </SectionStack>
@@ -164,9 +168,9 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
           {catalog.plans.map((plan) => (
             <TableRow key={plan.id}>
               <TableCell>
-                <a className="void-admin-resource-link" href={`${HOME}/${plan.id}/edit`}>
+                <Link className="void-admin-resource-link" href={`${HOME}/${plan.id}/edit`}>
                   {plan.name}
-                </a>
+                </Link>
                 <div>
                   <code>{plan.id}</code>
                 </div>
@@ -214,7 +218,7 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
       <h1>{plan ? `Edit ${plan.name}` : 'Add plan'}</h1>
       {pending ? (
         <p>
-          Finish the pending <a href={HOME}>account update</a> before changing plans.
+          Finish the pending <Link href={HOME}>account update</Link> before changing plans.
         </p>
       ) : (
         <>
@@ -225,11 +229,11 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
             className="void-admin-plan-form"
           >
             <SectionStack as="div">
-              <input type="hidden" name="action" value={plan ? 'set' : 'add'} />
-              <input type="hidden" name="revision" value={catalog.revision} />
+              <input type="hidden" name="action" defaultValue={plan ? 'set' : 'add'} />
+              <input type="hidden" name="revision" defaultValue={catalog.revision} />
               {plan ? (
                 <>
-                  <input type="hidden" name="id" value={plan.id} />
+                  <input type="hidden" name="id" defaultValue={plan.id} />
                   <p>
                     Plan ID: <code>{plan.id}</code> · {count} accounts
                     {plan.archived ? ' · Archived' : ''}
@@ -356,9 +360,9 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
                   action={`${HOME}/preview`}
                   className="void-admin-plan-form"
                 >
-                  <input type="hidden" name="action" value="remove" />
-                  <input type="hidden" name="id" value={plan.id} />
-                  <input type="hidden" name="revision" value={catalog.revision} />
+                  <input type="hidden" name="action" defaultValue="remove" />
+                  <input type="hidden" name="id" defaultValue={plan.id} />
+                  <input type="hidden" name="revision" defaultValue={catalog.revision} />
                   <FormSelector
                     label="Replacement plan"
                     name="replacementPlanId"
@@ -493,9 +497,9 @@ export function PlanPreviewPage({
           <ul>
             {preview.overLimitAccounts.map((a) => (
               <li key={a.id}>
-                <a className="void-admin-resource-link" href={`/admin/users/${a.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/users/${a.id}`}>
                   {a.login}
-                </a>
+                </Link>
                 : {a.reasons.map((key) => labels[key as EditablePlanLimit] ?? key).join(', ')}
               </li>
             ))}
@@ -508,10 +512,10 @@ export function PlanPreviewPage({
           apps. Raising quotas leaves manual administrator suspensions in place.
         </p>
         <form method="post" action={`${HOME}/apply`} className="void-admin-plan-actions">
-          <input type="hidden" name="action" value={preview.action} />
-          <input type="hidden" name="id" value={target} />
-          <input type="hidden" name="revision" value={preview.expectedRevision} />
-          <input type="hidden" name="body" value={JSON.stringify(preview.body)} />
+          <input type="hidden" name="action" defaultValue={preview.action} />
+          <input type="hidden" name="id" defaultValue={target} />
+          <input type="hidden" name="revision" defaultValue={preview.expectedRevision} />
+          <input type="hidden" name="body" defaultValue={JSON.stringify(preview.body)} />
           <Button
             type="submit"
             label="Apply changes"
@@ -623,8 +627,8 @@ export function PlanProgressPage({
         {state.error && <p role="alert">{state.error}</p>}
         {!state.complete && (
           <form method="post" action={`${HOME}/resume`}>
-            <input type="hidden" name="revision" value={state.revision} />
-            {target && <input type="hidden" name="id" value={target} />}
+            <input type="hidden" name="revision" defaultValue={state.revision} />
+            {target && <input type="hidden" name="id" defaultValue={target} />}
             <Button type="submit" label="Continue account updates" isDisabled={running} />
           </form>
         )}

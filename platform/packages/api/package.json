@@ -11,9 +11,7 @@
     "./isr-store": "./src/isr-store.ts",
     "./usage-auth": "./src/usage-auth.ts",
     "./proxy-token": "./src/proxy-token.ts",
-    "./ai-logging-policy": "./src/ai-logging-policy.ts",
-    "./admin-jsx/jsx-runtime": "./src/admin/react-jsx/jsx-runtime.ts",
-    "./admin-jsx/jsx-dev-runtime": "./src/admin/react-jsx/jsx-dev-runtime.ts"
+    "./ai-logging-policy": "./src/ai-logging-policy.ts"
   },
   "scripts": {
     "db:generate": "drizzle-kit generate",
