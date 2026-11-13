@@ -1,6 +1,7 @@
 import { defineConfig } from 'void/config';
 
 export default defineConfig({
+  target: process.env.VOID_IMAGE_MEMORY_DEMO === '1' ? 'node' : 'cloudflare',
   head: {
     title: 'ImageResponse Playground',
     htmlAttrs: { lang: 'en' },
