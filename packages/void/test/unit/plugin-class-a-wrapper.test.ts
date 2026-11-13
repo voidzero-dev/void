@@ -545,6 +545,21 @@ export default defineEnv({
     { path: '/TOKEN', expected: '200 {"TOKEN":"SK_TOKEN"}' },
   ];
 
+  /**
+   * The wrappers import env.ts and the routing runtime by absolute path, which Vite resolves.
+   * Node reads a Windows path (`C:/…` or `C:\…`) as a URL with the scheme `c:` and rejects it
+   * with ERR_UNSUPPORTED_ESM_URL_SCHEME, so the runner gives Node a file URL for it.
+   */
+  const WINDOWS_PATH_HOOK = String.raw`import { registerHooks } from 'node:module';
+import { pathToFileURL } from 'node:url';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const windowsPath = /^[A-Za-z]:[\\/]/.test(specifier);
+    return nextResolve(windowsPath ? pathToFileURL(specifier).href : specifier, context);
+  },
+});
+`;
+
   /** Answer each request in a Node process, with a new env object for each, as dev can. */
   function fetchInNode(
     root: string,
@@ -556,7 +571,8 @@ export default defineEnv({
     const runner = join(root, 'run.mjs');
     writeFileSync(
       runner,
-      `const { default: worker } = await import(${JSON.stringify(pathToFileURL(path).href)});\n` +
+      WINDOWS_PATH_HOOK +
+        `const { default: worker } = await import(${JSON.stringify(pathToFileURL(path).href)});\n` +
         'const results = [];\n' +
         `for (const { path, env } of ${JSON.stringify(requests)}) {\n` +
         '  const response = await worker.fetch(new Request("https://example.test" + path), { ...env }, {});\n' +
