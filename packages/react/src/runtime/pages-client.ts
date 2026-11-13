@@ -42,7 +42,7 @@ import {
   RouterContext,
   SharedContext,
 } from './context.ts';
-import { DEFERRED_SHELL_END_ID } from './deferred-shell.ts';
+import { DEFERRED_SHELL_DIGEST } from './deferred-shell.ts';
 import { PageErrorBoundary } from './PageErrorBoundary.tsx';
 
 // oxlint-disable-next-line no-explicit-any -- component props are narrowed by generated route types
@@ -852,20 +852,26 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
     viewTransitions: config.viewTransitions,
     navigationFallback: config.navigationFallback,
   });
-  const hasDeferred = Boolean((engine.initialPageData as ReactPageData).deferredKeys);
-  const app =
-    isSsr && hasDeferred
-      ? React.createElement(
-          React.Fragment,
-          null,
-          appRoot,
-          React.createElement('template', { id: DEFERRED_SHELL_END_ID }),
-        )
-      : appRoot;
   startTransition(() => {
+    const onRecoverableError = (error: unknown) => {
+      if (
+        error &&
+        typeof error === 'object' &&
+        'digest' in error &&
+        error.digest === DEFERRED_SHELL_DIGEST
+      ) {
+        return;
+      }
+      if (typeof globalThis.reportError === 'function') {
+        globalThis.reportError(error);
+      } else {
+        console.error(error);
+      }
+    };
     const rootOptions =
       config.boundaryManifest && Object.keys(config.boundaryManifest.plans).length
         ? {
+            onRecoverableError,
             onUncaughtError: (error: unknown) => {
               const resource = terminalResource;
               if (resource) {
@@ -889,11 +895,11 @@ export async function startReactPages(config: ReactPagesConfig): Promise<ReactPa
               );
             },
           }
-        : undefined;
+        : { onRecoverableError };
     if (!isSsr) {
-      createRoot(appEl, rootOptions).render(app);
+      createRoot(appEl, rootOptions).render(appRoot);
     } else {
-      hydrateRoot(appEl, app, rootOptions);
+      hydrateRoot(appEl, appRoot, rootOptions);
     }
   });
   engine.start();

@@ -11,8 +11,8 @@ import {
   RouterContext,
   SharedContext,
 } from './context.ts';
-import { DEFERRED_SHELL_CANCEL_REASON, DEFERRED_SHELL_END_ID } from './deferred-shell.ts';
-import { concatStreams, readDeferredShell } from './page-streams.ts';
+import { DEFERRED_SHELL_CANCEL_REASON, DEFERRED_SHELL_DIGEST } from './deferred-shell.ts';
+import { concatStreams } from './page-streams.ts';
 
 // oxlint-disable-next-line no-explicit-any -- component props are narrowed by generated route types
 type ComponentModule = { default: ComponentType<any> };
@@ -93,24 +93,17 @@ export async function renderReactPage({
     ),
   );
 
-  const renderElement = pageObj.deferredKeys
-    ? React.createElement(
-        React.Fragment,
-        null,
-        element,
-        React.createElement('template', { id: DEFERRED_SHELL_END_ID }),
-      )
-    : element;
-
   // React calls onError inside its work loop, so it must not throw. The outer
   // Suspense turns page errors into a client-render fallback; fail the render
   // instead when they happen before the shell, so the caller serves its error page.
   let shellError: { error: unknown } | undefined;
   let shellSent = false;
-  const appStream = await renderToReadableStream(renderElement, {
+  const deferredAbort = pageObj.deferredKeys ? new AbortController() : undefined;
+  const appStream = await renderToReadableStream(element, {
+    signal: deferredAbort?.signal,
     onError(error) {
       if (error === DEFERRED_SHELL_CANCEL_REASON) {
-        return;
+        return DEFERRED_SHELL_DIGEST;
       }
       if (shellSent) {
         console.error(error);
@@ -124,7 +117,9 @@ export async function renderReactPage({
     throw shellError.error;
   }
   shellSent = true;
-  const renderedAppStream = pageObj.deferredKeys ? readDeferredShell(appStream) : appStream;
+  // Void streams deferred values separately. Let React finish its fallback
+  // boundaries with an identifiable digest instead of truncating its stream.
+  deferredAbort?.abort(DEFERRED_SHELL_CANCEL_REASON);
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : '';
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : '';
@@ -137,7 +132,7 @@ export async function renderReactPage({
 <body${bodyAttrs}>
   ${pageObj.documentOnly ? '' : `<script id="__VOID_PAGE_DATA__" type="application/json">${pageData}</script>`}
   <div id="app">`),
-    renderedAppStream,
+    appStream,
     textStream(`</div>
   ${assetTags.body}
 </body>

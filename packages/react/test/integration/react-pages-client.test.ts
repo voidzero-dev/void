@@ -207,6 +207,63 @@ afterAll(async () => {
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
   describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  describe.concurrent('deferred hydration', () => defineDeferredHydrationTests(getBase));
+}
+
+function defineDeferredHydrationTests(getBase: () => string) {
+  it('still reports real hydration errors on a page with deferred props', async () => {
+    const page = await browser.newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    try {
+      await page.route('**/deferred', async (route) => {
+        const response = await route.fetch();
+        const html = await response.text();
+        expect(html).toContain('Deferred Page</h1>');
+        await route.fulfill({
+          response,
+          body: html.replace('Deferred Page</h1>', 'Stale server heading</h1>'),
+        });
+      });
+      await page.goto(getBase() + '/deferred');
+      await page.getByTestId('deferred-resolved').waitFor();
+      await page.waitForFunction(
+        () => document.querySelector('h1')?.textContent === 'Deferred Page',
+      );
+      expect(errors.some((error) => /hydration|#418/i.test(error))).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('deferred props: useId hydrates without mismatches or recoverable errors', async () => {
+    const page = await browser.newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        errors.push(message.text());
+      }
+    });
+    try {
+      await page.goto(getBase() + '/deferred');
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>('[data-testid="deferred-title"]')?.dataset.clientId,
+      );
+
+      const ids = await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>('[data-testid="deferred-title"]')!;
+        return { server: title.id, client: title.dataset.clientId };
+      });
+      expect(ids.server).toBe(ids.client);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.context().close();
+    }
+  });
 }
 
 function defineTransitionAwaitTests(getBase: () => string) {
@@ -658,27 +715,6 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       expect(text).toContain('Count: 42');
       expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
       expect(page.url()).toBe(BASE + '/deferred');
-    } finally {
-      await page.context().close();
-    }
-  });
-
-  it('deferred props: useId hydrates without mismatches', async () => {
-    const page = await newPage();
-    try {
-      await page.goto(BASE + '/deferred');
-      await waitForHydration(page);
-      await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
-      await page.waitForFunction(
-        () =>
-          document.querySelector<HTMLElement>('[data-testid="deferred-title"]')?.dataset.clientId,
-      );
-
-      const ids = await page.evaluate(() => {
-        const title = document.querySelector<HTMLElement>('[data-testid="deferred-title"]')!;
-        return { server: title.id, client: title.dataset.clientId };
-      });
-      expect(ids.server).toBe(ids.client);
     } finally {
       await page.context().close();
     }
@@ -1195,8 +1231,7 @@ describe('react-pages client (dev)', () => {
 
     const deferredHtml = await (await fetch(`${DEV_BASE}/deferred`)).text();
     expect(deferredHtml).toContain('Deferred Page');
-    expect(deferredHtml).not.toContain('Switched to client rendering');
-    expect(deferredHtml).not.toContain('server rendering aborted');
+    expect(deferredHtml).toContain('VOID_DEFERRED_SHELL');
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
