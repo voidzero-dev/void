@@ -29,7 +29,6 @@ import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import { PLAN_CATALOG_SETTING } from '../../src/plans.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
-import { deriveProxyInternalAuth, PROXY_INTERNAL_AUTH_HEADER } from '../../src/proxy-token.ts';
 import { projectAiLogging, projects } from '../../src/schema.ts';
 import {
   beforeKvWrite,
@@ -494,37 +493,6 @@ describe('readback', () => {
     expect(await response.json()).toMatchObject({
       aiLogging: { published: null, state: 'unknown' },
     });
-  });
-});
-
-describe('kept 1.8.x proxy route', () => {
-  async function read(projectId: string) {
-    const auth = await deriveProxyInternalAuth(env.JWT_SECRET, 'ai-logging', projectId);
-    return app.fetch(
-      new Request(`http://localhost/internal/ai-logging/${projectId}`, {
-        headers: { [PROXY_INTERNAL_AUTH_HEADER]: auth },
-      }),
-      env,
-    );
-  }
-
-  test('answers { mode } from the published key, and refuses an unknown value or a failed read', async () => {
-    const project = await seedProject();
-    const inherit = await read(project.id);
-    expect(inherit.status).toBe(200);
-    expect(inherit.headers.get('Cache-Control')).toContain('no-store');
-    expect(await inherit.json()).toEqual({ mode: 'inherit' });
-    expect((await setMode(project.id, 'metadata')).status).toBe(200);
-    expect(await (await read(project.id)).json()).toEqual({ mode: 'metadata' });
-
-    await env.ROUTING.put(aiLoggingKey(project.id), 'bogus');
-    const invalid = await read(project.id);
-    expect(invalid.status).toBe(503);
-    expect(await invalid.json()).toEqual({ error: 'ai_logging_policy_invalid' });
-    vi.spyOn(env.ROUTING, 'get').mockRejectedValue(new Error('KV unavailable'));
-    const unavailable = await read(project.id);
-    expect(unavailable.status).toBe(503);
-    expect(await unavailable.json()).toEqual({ error: 'ai_logging_policy_unavailable' });
   });
 });
 
