@@ -302,6 +302,31 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
       }
     });
 
+    it.each(['/loaders/errors/403', '/middleware/errors/403'])(
+      'navigates away from %s and restores it through history without reloading',
+      async (path) => {
+        await openHome();
+        const heading = path.startsWith('/loaders/')
+          ? 'Nested error boundary'
+          : 'Root error boundary';
+        await page
+          .locator(`a[href="${path}"]`)
+          .getByText('Client navigation', { exact: true })
+          .click();
+        await expect.poll(() => page.locator('main h1').textContent()).toBe(heading);
+        await page.getByRole('link', { name: 'HTTP Errors Example', exact: true }).click();
+        await expect.poll(() => page.locator('main h1').textContent()).toBe('HTTP Errors Example');
+        await page.goBack();
+        await expect.poll(() => page.locator('main h1').textContent()).toBe(heading);
+        await page.goForward();
+        await expect.poll(() => page.locator('main h1').textContent()).toBe('HTTP Errors Example');
+        expect(await page.locator('header').getAttribute('data-retained')).toBe('yes');
+        expect(await page.evaluate(() => Reflect.get(globalThis, '__HTTP_ERRORS_DOCUMENT__'))).toBe(
+          true,
+        );
+      },
+    );
+
     it.each(['hover', 'focus'] as const)(
       'prefetches complete deferred props on %s without navigating',
       async (interaction) => {

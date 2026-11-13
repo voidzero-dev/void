@@ -21,7 +21,7 @@ function pushDefaultErrorPageHelpers(lines: Array<string>, options: CompileOptio
   lines.push(
     `const __errorRenderer = __createErrorRenderer(${JSON.stringify({ dev: options.dev === true, projectRoot: options.projectRoot, homeDir: options.homeDir })});`,
   );
-  lines.push('app.onError(__errorRenderer.onError);');
+  lines.push('app.onError(__createPageErrorHandler(__matchedRoutes, __errorRenderer.onError));');
 }
 
 export type AuthCompileOptions = {
@@ -196,6 +196,11 @@ export function compileRouteTable(
   lines.push(
     `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
+  if (pages) {
+    lines.push(
+      `import { createPageErrorHandler as __createPageErrorHandler } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    );
+  }
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
   } else {
@@ -306,11 +311,13 @@ export function compileRouteTable(
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
-  if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+  if (pages) {
     lines.push(
       `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
     );
-    lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    if (scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+      lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    }
   }
 
   const headerRules = emitEdgeRules ? options.headerRules : undefined;
@@ -1144,7 +1151,8 @@ function compilePageRoutes(
     const trailingCatchAll = options.trailingSlash && page.catchAll;
     const pattern = trailingCatchAll ? page.pattern.slice(0, -1) : page.pattern;
     const catchAllParam = page.pattern.match(/:([^/{}]+)\{\.\+\}\/$/)?.[1];
-    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
+    const middlewareBoundaries = `middlewareBoundaries: ${JSON.stringify({ notFound: boundaryManifest.root, errors: (boundaryManifest.pages[page.componentId]?.errors ?? []).filter((id) => !boundaryManifest.plans[id].directory) })}, `;
+    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}${middlewareBoundaries}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
     lines.push(`app.get(${JSON.stringify(pattern)}, __createPageGetHandler(${routeOptions}));`);
     if (page.methods.includes('action') || page.methods.includes('actions')) {
       lines.push(

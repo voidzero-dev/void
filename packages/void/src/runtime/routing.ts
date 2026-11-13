@@ -573,6 +573,7 @@ export function createHttpRouteHandler(
 
 export {
   createPageGetHandler,
+  createPageErrorHandler,
   createStaticNotFound,
   createPageMutationHandler,
   createPagesFallback,
