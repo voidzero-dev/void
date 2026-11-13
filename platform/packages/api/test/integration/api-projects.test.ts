@@ -1,12 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vite-plus/test';
 import { importLegacyAuthentication } from '../../src/auth/configuration.ts';
-import {
-  signDeployToken,
-  signProjectCredentialToken,
-  verifyDeployToken,
-  verifyPrerenderToken,
-} from '../../src/auth/deploy-token.ts';
+import { signDeployToken, signProjectCredentialToken } from '../../src/auth/deploy-token.ts';
 import { revokeConnectionSessions } from '../../src/auth/sessions.ts';
 import {
   createDeployment,
@@ -37,6 +32,7 @@ import {
   platformSettings,
   projectCleanupJobs,
 } from '../../src/schema.ts';
+import { verifyDeployToken, verifyPrerenderToken } from '../helpers/project-token.ts';
 import {
   createTestBuild,
   setupEnv,

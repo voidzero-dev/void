@@ -1,11 +1,7 @@
 import { createDefaultPlanCatalog, type PlatformPlanCatalog } from '@void/platform/plans';
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
-import {
-  signDeployToken,
-  verifyDeployToken,
-  verifyPrerenderToken,
-} from '../../src/auth/deploy-token.ts';
+import { signDeployToken } from '../../src/auth/deploy-token.ts';
 import {
   claimBuildForStartWithinLimit,
   createUser,
@@ -15,6 +11,7 @@ import {
 import app from '../../src/index.ts';
 import { writePlanCatalog } from '../../src/plans.ts';
 import { builds } from '../../src/schema.ts';
+import { verifyDeployToken, verifyPrerenderToken } from '../helpers/project-token.ts';
 import {
   createTestBuild,
   clearTables,

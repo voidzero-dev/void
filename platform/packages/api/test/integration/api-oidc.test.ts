@@ -11,7 +11,6 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
-import { verifyDeployToken } from '../../src/auth/deploy-token.ts';
 import {
   createGitHubConnection as createGitHubConnectionRecord,
   createGithubActionsBuildWithinLimit,
@@ -38,6 +37,7 @@ import {
   projects,
   users,
 } from '../../src/schema.ts';
+import { verifyDeployToken } from '../helpers/project-token.ts';
 import {
   createTestBuild,
   JWT_SECRET,
