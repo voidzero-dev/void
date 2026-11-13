@@ -101,9 +101,14 @@ export function getAuth(c: Context): AuthInstance {
 
 export function requireAuth<E extends Env & { Variables: { user: AuthUser | null } }>(
   c: Context<E>,
+  options?: { throwRedirect?: string },
 ): AuthUser {
   const user = c.get('user');
   if (!user) {
+    if (options?.throwRedirect !== undefined) {
+      const status = c.req.method === 'GET' || c.req.method === 'HEAD' ? 302 : 303;
+      throw new HTTPException(status, { res: c.redirect(options.throwRedirect, status) });
+    }
     throw new HTTPException(401, { message: 'Unauthorized' });
   }
   return user;

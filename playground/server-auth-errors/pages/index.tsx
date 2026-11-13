@@ -30,18 +30,26 @@ const loaders = [
   {
     mode: 'return-redirect',
     title: 'Return a login redirect',
-    code: 'const user = getUser();\nif (!user) return c.redirect(\n  `/login?next=${encodeURIComponent(c.req.path)}`\n);\nreturn { user };',
-    document: '302 to login with a return path.',
+    code: "const user = getUser();\nif (!user) return c.redirect('/login');\nreturn { user };",
+    document: '302 to login.',
     navigation: 'Visits login without reloading the document.',
-    note: 'Sign in to continue to the requested page.',
+    note: 'Redirects before the protected work runs.',
   },
   {
     mode: 'throw-redirect',
     title: 'Throw a redirect from a helper',
     code: '// Inside requirePageUser(c):\nif (!user) {\n  throw new HTTPException(302, {\n    res: c.redirect(location, 302),\n  });\n}\nreturn user;',
-    document: '302 to login with a return path.',
+    document: '302 to login.',
     navigation: 'Visits login without reloading the document, like a returned redirect.',
     note: 'The helper stops execution without returning a Response to its caller.',
+  },
+  {
+    mode: 'auth-redirect',
+    title: 'requireAuth(): login redirect',
+    code: "const user = requireAuth(c, { throwRedirect: '/login' });\nreturn { user };",
+    document: '302 to login.',
+    navigation: 'Visits login without reloading the document.',
+    note: 'Returns the user or throws a redirect.',
   },
   {
     mode: 'not-found',
@@ -73,8 +81,8 @@ const guards = [
   {
     mode: 'return-redirect',
     title: 'Returned redirect',
-    code: 'if (!getUser()) return c.redirect(location);',
-    document: '302 to login with a return path.',
+    code: "if (!getUser()) return c.redirect('/login');",
+    document: '302 to login.',
     navigation: 'Visits login without reloading the document.',
     note: 'Redirects before the loader runs.',
   },
@@ -82,9 +90,17 @@ const guards = [
     mode: 'throw-redirect',
     title: 'Thrown redirect',
     code: 'requirePageUser(c);',
-    document: '302 to login with a return path.',
+    document: '302 to login.',
     navigation: 'Visits login without reloading the document.',
     note: 'The shared helper throws a redirect before the loader runs.',
+  },
+  {
+    mode: 'auth-redirect',
+    title: 'requireAuth with throwRedirect',
+    code: "requireAuth(c, { throwRedirect: '/login' });",
+    document: '302 to login.',
+    navigation: 'Visits login without reloading the document.',
+    note: 'Throws a redirect before the loader runs.',
   },
 ] as const;
 
@@ -208,7 +224,7 @@ export default function Home() {
           the same protected action. Redirects use 303 so the next request is a GET.
         </p>
         <div className="examples">
-          {guards.map(({ mode, title }) => (
+          {guards.map(({ mode, title, code }) => (
             <Example
               key={mode}
               title={title}
@@ -217,8 +233,10 @@ export default function Home() {
                 mode === 'require-auth'
                   ? 'requireAuth(c);\n// Authorized work…'
                   : mode === 'return-redirect'
-                    ? 'if (!getUser()) return c.redirect(location, 303);\n// Authorized work…'
-                    : 'requirePageUser(c, 303);\n// Authorized work…'
+                    ? "if (!getUser()) return c.redirect('/login', 303);\n// Authorized work…"
+                    : mode === 'throw-redirect'
+                      ? 'requirePageUser(c, 303);\n// Authorized work…'
+                      : `${code}\n// Authorized work…`
               }
             >
               <p>
@@ -233,9 +251,7 @@ export default function Home() {
                   ? 'Displays 401 inline or throws to the client error boundary.'
                   : 'Visits login without reloading the document.'}
               </p>
-              {mode !== 'require-auth' && (
-                <p>Signing in returns to the form; it does not replay the rejected action.</p>
-              )}
+              {mode !== 'require-auth' && <p>Signing in does not replay the rejected action.</p>}
               <h4>Expected when signed in</h4>
               <p>
                 Both forms redirect to the success page with 303. No application data is written.

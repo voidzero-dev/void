@@ -53,23 +53,28 @@ export const GET = defineHandler((c) => {
 });
 ```
 
-In a page loader, use `getUser` and redirect unauthenticated visitors to your login page. `requireAuth` sends a plain-text `401` instead of a redirect or an error page:
+In a page loader, pass `throwRedirect` to send unauthenticated visitors to your login page instead of a plain-text `401`:
 
 ```ts
 // pages/dashboard.server.ts
 import { defineHandler, type InferProps } from 'void';
-import { getUser } from 'void/auth';
+import { requireAuth } from 'void/auth';
 
 export type Props = InferProps<typeof loader>;
 
 export const loader = defineHandler((c) => {
-  const user = getUser();
-  if (!user) return c.redirect(`/login?next=${encodeURIComponent(c.req.path)}`);
+  const user = requireAuth(c, {
+    throwRedirect: '/login',
+  });
   return { user };
 });
 ```
 
-To allow unauthenticated access, return the nullable user without redirecting. For a reusable auth guard, you can [throw a redirect](../integrations/hono.md#redirects) from a helper.
+The same option works in actions and middleware. It throws a redirect, stopping execution: `302` for GET/HEAD requests and `303` for other methods. Document requests follow the redirect normally; Pages client navigation follows it without reloading the document.
+
+Signing in does not replay a rejected action.
+
+To allow unauthenticated access, use `getUser()` and return the nullable user. For custom guards, you can also [throw a redirect](../integrations/hono.md#redirects) from a helper.
 
 ### 4. Sign out
 
@@ -122,7 +127,8 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `getUser()` returns the current `AuthUser | null`
 - `getSession()` returns `{ user, session } | null`
 - `requireAuth(c)` returns the authenticated user or throws `401`
-- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, including typed plugin APIs from `auth.ts`.
+- `requireAuth(c, { throwRedirect: '/login' })` returns the user or throws a login redirect
+- [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, with plugin APIs inferred from `auth.ts`, for use with Better Auth helpers.
 
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 

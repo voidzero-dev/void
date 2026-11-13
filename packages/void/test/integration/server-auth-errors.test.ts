@@ -15,7 +15,7 @@ import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 const ROOT = join(import.meta.dirname, '../../../..');
 const PLAYGROUND = 'playground/server-auth-errors';
 const EMAIL = 'demo@example.com';
-const guards = ['require-auth', 'return-redirect', 'throw-redirect'] as const;
+const guards = ['require-auth', 'return-redirect', 'throw-redirect', 'auth-redirect'] as const;
 const visits = ['Document load', 'Client navigation'] as const;
 const forms = ['Native form POST', 'Enhanced form POST'] as const;
 const pages = [
@@ -24,11 +24,13 @@ const pages = [
   { path: '/loaders/require-auth', status: 401, heading: null },
   { path: '/loaders/return-redirect', status: 302, heading: 'Sign in' },
   { path: '/loaders/throw-redirect', status: 302, heading: 'Sign in' },
+  { path: '/loaders/auth-redirect', status: 302, heading: 'Sign in' },
   { path: '/loaders/not-found', status: 404, heading: 'Not-found boundary' },
   { path: '/loaders/unexpected', status: 500, heading: 'Root error boundary' },
   { path: '/middleware/require-auth', status: 401, heading: null },
   { path: '/middleware/return-redirect', status: 302, heading: 'Sign in' },
   { path: '/middleware/throw-redirect', status: 302, heading: 'Sign in' },
+  { path: '/middleware/auth-redirect', status: 302, heading: 'Sign in' },
 ] as const;
 
 let playground: IsolatedPlayground;
@@ -153,7 +155,7 @@ describe.each([
       }
 
       if (expectedStatus === 302) {
-        await expectRedirect(response, `/login?next=${encodeURIComponent(path)}`, 302);
+        await expectRedirect(response, '/login', 302);
       } else {
         await page.waitForURL(`${server.base}${path}`);
       }
@@ -206,7 +208,7 @@ describe.each([
         return;
       }
 
-      const destination = signedIn ? '/actions/success' : `/login?next=${encodeURIComponent(path)}`;
+      const destination = signedIn ? '/actions/success' : '/login';
       await expectRedirect(response, destination, 303);
       expect(response.request().redirectedTo()?.method()).toBe('GET');
       await page
@@ -252,31 +254,44 @@ describe.each([
 describe('demo session and navigation', () => {
   beforeEach(() => newPage());
 
-  it('signs in with the demo user and updates the auth links', async () => {
-    const destination = '/loaders/throw-redirect';
-    await open();
-    const timeOrigin = await markLayout();
-    await page.locator(`a[href="${destination}"]`).filter({ hasText: 'Client navigation' }).click();
-    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
-    expect(await page.getByLabel('Email', { exact: true }).inputValue()).toBe(EMAIL);
-    expect(await page.getByLabel('Email', { exact: true }).isDisabled()).toBe(true);
-    expect(await page.getByLabel('Password', { exact: true }).inputValue()).toBe('demo-password');
-    expect(await page.getByLabel('Password', { exact: true }).isDisabled()).toBe(true);
-    await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-    await page.getByRole('heading', { name: 'Loader rendered the page' }).waitFor();
-    expect(page.url()).toBe(`${server.base}${destination}`);
-    await page.getByRole('link', { name: 'Sign out', exact: true }).waitFor();
-    expect(await page.getByRole('link', { name: 'Sign in', exact: true }).count()).toBe(0);
-    await expectLayout(timeOrigin, true);
+  it.each(['throw-redirect', 'auth-redirect'])(
+    'signs in after the %s guard and updates the auth links',
+    async (guard) => {
+      const destination = `/loaders/${guard}`;
+      await open();
+      const timeOrigin = await markLayout();
+      await page
+        .locator(`a[href="${destination}"]`)
+        .filter({ hasText: 'Client navigation' })
+        .click();
+      await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+      expect(await page.getByLabel('Email', { exact: true }).inputValue()).toBe(EMAIL);
+      expect(await page.getByLabel('Email', { exact: true }).isDisabled()).toBe(true);
+      expect(await page.getByLabel('Password', { exact: true }).inputValue()).toBe('demo-password');
+      expect(await page.getByLabel('Password', { exact: true }).isDisabled()).toBe(true);
+      await page.getByRole('button', { name: 'Sign in', exact: true }).click();
+      await page
+        .getByRole('heading', { name: 'Server Auth Errors Example', exact: true })
+        .waitFor();
+      expect(page.url()).toBe(`${server.base}/`);
+      await page.getByRole('link', { name: 'Sign out', exact: true }).waitFor();
+      await page
+        .locator(`a[href="${destination}"]`)
+        .filter({ hasText: 'Client navigation' })
+        .click();
+      await page.getByRole('heading', { name: 'Loader rendered the page' }).waitFor();
+      expect(await page.getByRole('link', { name: 'Sign in', exact: true }).count()).toBe(0);
+      await expectLayout(timeOrigin, true);
 
-    await page.reload();
-    await page.getByRole('link', { name: 'Sign out', exact: true }).waitFor();
-    await page.getByRole('link', { name: 'Sign out', exact: true }).click();
-    await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
-    await page.getByRole('link', { name: 'Sign in', exact: true }).waitFor();
-    expect(await page.getByRole('link', { name: 'Sign out', exact: true }).count()).toBe(0);
-    expect((await page.request.get(`${server.base}/api/profile`)).status()).toBe(401);
-  });
+      await page.reload();
+      await page.getByRole('link', { name: 'Sign out', exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Sign out', exact: true }).click();
+      await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
+      await page.getByRole('link', { name: 'Sign in', exact: true }).waitFor();
+      expect(await page.getByRole('link', { name: 'Sign out', exact: true }).count()).toBe(0);
+      expect((await page.request.get(`${server.base}/api/profile`)).status()).toBe(401);
+    },
+  );
 
   it('uses the demo credentials regardless of the submitted fields', async () => {
     const response = await page.request.post(`${server.base}/api/demo-login`, {
@@ -312,15 +327,15 @@ describe('demo session and navigation', () => {
           await expect.poll(() => page.getByRole('alert').innerText()).toBe('401: Unauthorized');
         }
       } else {
-        await expectRedirect(response, `/login?next=${encodeURIComponent(path)}`, 303);
+        await expectRedirect(response, '/login', 303);
         await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
       }
       expect(await page.getByRole('heading', { name: 'Action authorized' }).count()).toBe(0);
     });
   });
 
-  it.each(['return-redirect', 'throw-redirect'])(
-    'returns to the %s form after login without replaying its action',
+  it.each(['return-redirect', 'throw-redirect', 'auth-redirect'])(
+    'does not replay the %s action after login',
     async (guard) => {
       const path = `/actions/${guard}`;
       await open(path);
@@ -333,9 +348,13 @@ describe('demo session and navigation', () => {
       await page.getByRole('button', { name: 'Enhanced form POST' }).click();
       await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
       await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-      await page.getByRole('heading', { name: `Action: ${guard}` }).waitFor();
+      await page
+        .getByRole('heading', { name: 'Server Auth Errors Example', exact: true })
+        .waitFor();
       expect(submissions).toEqual(['POST']);
-      expect(page.url()).toBe(`${server.base}${path}`);
+      expect(page.url()).toBe(`${server.base}/`);
+      await page.locator(`a[href="${path}"]`).filter({ hasText: 'Client navigation' }).click();
+      await page.getByRole('heading', { name: `Action: ${guard}` }).waitFor();
       await page.getByRole('button', { name: 'Enhanced form POST' }).click();
       await page.getByRole('heading', { name: 'Action authorized' }).waitFor();
       expect(submissions).toEqual(['POST', 'POST']);

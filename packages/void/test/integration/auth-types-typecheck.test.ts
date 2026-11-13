@@ -88,6 +88,11 @@ describe('generated auth types in a consumer project', () => {
         '    getSession()?.session.impersonatedBy;\n' +
         '  const user = requireAuth(c);\n' +
         '  const requiredRole: string | null | undefined = user.role;\n' +
+        '  const redirectedUser = requireAuth(c, { throwRedirect: "/login" });\n' +
+        '  const redirectedId: string = redirectedUser.id;\n' +
+        '  const redirectedRole: string | null | undefined = redirectedUser.role;\n' +
+        '  // @ts-expect-error throwRedirect must be a string\n' +
+        '  requireAuth(c, { throwRedirect: 123 });\n' +
         '  const fields: Record<string, unknown> = user;\n' +
         '  logger.info("signed in", user);\n' +
         '  // @ts-expect-error not a field of the inferred user\n' +

@@ -34,8 +34,8 @@ export default function ActionExample({ mode, email }: Props) {
         </>
       ) : (
         <p>
-          When signed out, both forms redirect to login with 303. Signing in returns to this form;
-          it does not replay the rejected action.
+          When signed out, both forms redirect to login with 303. Signing in does not replay the
+          rejected action.
         </p>
       )}
       <div className="action-forms">

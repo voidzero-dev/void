@@ -5,7 +5,12 @@ import { requirePageUser } from '../../src/require-page-user.ts';
 
 function mode(c: CloudContext) {
   const value = c.req.param('mode');
-  if (value === 'require-auth' || value === 'return-redirect' || value === 'throw-redirect') {
+  if (
+    value === 'require-auth' ||
+    value === 'return-redirect' ||
+    value === 'throw-redirect' ||
+    value === 'auth-redirect'
+  ) {
     return value;
   }
   throw new HTTPException(404);
@@ -22,10 +27,13 @@ export const action = defineHandler((c) => {
     requireAuth(c);
   }
   if (variant === 'return-redirect' && !getUser()) {
-    return c.redirect(`/login?next=${encodeURIComponent(c.req.path)}`, 303);
+    return c.redirect('/login', 303);
   }
   if (variant === 'throw-redirect') {
     requirePageUser(c, 303);
+  }
+  if (variant === 'auth-redirect') {
+    requireAuth(c, { throwRedirect: '/login' });
   }
 
   // A real mutation would run here, only after the auth check succeeds.

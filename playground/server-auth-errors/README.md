@@ -14,6 +14,8 @@ Submit `/login` to sign in as the demo user, then repeat the examples. The disab
 
 Source links open the corresponding files in VS Code. Use the Network panel with Preserve log to inspect statuses and redirects. The shared guard in `src/require-page-user.ts` throws a `302` for page visits or a `303` for actions.
 
+The `requireAuth with throwRedirect` examples use the built-in option instead: `302` for GET/HEAD and `303` for other methods. All auth redirects go to `/login`; signing in opens the example grid.
+
 ## Tests
 
 Run the Vitest browser integration from the repository root:

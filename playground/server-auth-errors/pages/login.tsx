@@ -2,9 +2,8 @@ import { useRouter } from '@void/react';
 import { useState, type FormEvent } from 'react';
 import { auth } from 'void/client/react';
 import { demoUser } from '../src/demo-user.ts';
-import type { Props } from './login.server.ts';
 
-export default function Login({ next }: Props) {
+export default function Login() {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const router = useRouter();
@@ -20,7 +19,7 @@ export default function Login({ next }: Props) {
         throw new Error('Could not start the demo session.');
       }
       await refetch();
-      await router.visit(next);
+      await router.visit('/');
     } catch (error) {
       setError(error instanceof Error ? error.message : 'Could not sign in.');
     } finally {
