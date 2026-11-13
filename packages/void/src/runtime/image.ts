@@ -5,11 +5,12 @@
  * Takumi does the rendering. This module adds what a route handler needs around it:
  * the response headers, `debug`, bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
-import { render, type FontLoader, type Node, type RenderInput } from 'takumi-js';
+import { render, type FontLoader, type Node, type ReactElementLike } from 'takumi-js';
 import type { ImageFetchCache } from 'takumi-js/helpers';
 import { extractEmojis } from 'takumi-js/helpers/emoji';
 import { fromHtml } from 'takumi-js/helpers/html';
 import { fromJsx } from 'takumi-js/helpers/jsx';
+import type { HtmlEscapedString } from './html.ts';
 import {
   FallbackFontError,
   fallbackFonts,
@@ -17,6 +18,9 @@ import {
   keyedFont,
   type Font,
 } from './image-fonts.ts';
+
+/** React JSX, a Takumi node tree, or HTML from the `void/html` template tag. */
+export type ImageInput = ReactElementLike | Node | HtmlEscapedString | Promise<HtmlEscapedString>;
 
 /**
  * {@link renderImage} function options.
@@ -68,12 +72,12 @@ const EMOJI_ORIGIN = 'https://cdn.jsdelivr.net/';
 const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 
 /**
- * A `Response` whose body is the image rendered from `element`: React JSX, an
- * HTML string, or a Takumi node tree. It renders a PNG at the given size,
+ * A `Response` whose body is the image rendered from `element`: React JSX, a
+ * `void/html` template, or a Takumi node tree. It renders a PNG at the given size,
  * which clients revalidate on each use.
  */
 export class ImageResponse extends Response {
-  constructor(element: RenderInput, options: ImageResponseOptions) {
+  constructor(element: ImageInput, options: ImageResponseOptions) {
     const { status, statusText, headers, ...imageOptions } = options;
     // Set these two headers unless the caller's `headers` has them. A failed
     // render still ends as a complete response, so clients revalidate the
@@ -103,7 +107,7 @@ export class ImageResponse extends Response {
   }
 }
 
-async function renderImage(element: RenderInput, options: RenderImageOptions): Promise<Uint8Array> {
+async function renderImage(element: ImageInput, options: RenderImageOptions): Promise<Uint8Array> {
   // Convert once, here: the fallback fonts depend on the final text, and
   // function components must not run twice. Emoji become images first, as in
   // the render, so their code points ask for no symbol font.
@@ -165,9 +169,15 @@ async function renderImage(element: RenderInput, options: RenderImageOptions): P
   }
 }
 
-function toNode(element: RenderInput) {
-  if (typeof element === 'string') {
-    return fromHtml(element);
+async function toNode(input: ImageInput) {
+  const element = await input;
+  // Hono brands HTML as a string in its types, but returns a boxed string at
+  // runtime. Check its marker before unboxing, including for async templates.
+  if ((element as { isEscaped?: unknown } | null)?.isEscaped === true) {
+    return fromHtml(element.toString());
+  }
+  if (typeof element === 'string' || element instanceof String) {
+    throw new TypeError('Use the html template tag from void/html instead of a plain string.');
   }
   if (isTakumiNode(element)) {
     return { node: element, css: [] };

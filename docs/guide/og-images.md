@@ -45,19 +45,19 @@ export const GET = defineHandler(async (c) => {
 
 `GET /og/hello-world` now returns a 1200 × 630 PNG.
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, pass an HTML string instead, as shown in [Without React](#without-react). Elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
+JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown in [Without React](#without-react). Elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
 
 ### Without React
 
-Pass an HTML string instead of JSX, and escape the values you insert:
+Use the [`html` template tag from `void/html`](../reference/api/html.md) instead of JSX. It escapes dynamic text automatically; plain strings are not accepted:
 
 ```ts
 // routes/og/[slug].ts
+
 import { defineHandler } from 'void';
+import { html } from 'void/html';
 import { OgImageResponse } from 'void/og';
 import { getPost } from '../../src/posts';
-
-const escapeHtml = (text: string) => text.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
 
 export const GET = defineHandler(async (c) => {
   const post = await getPost(c.req.param('slug'));
@@ -65,8 +65,8 @@ export const GET = defineHandler(async (c) => {
     return c.notFound();
   }
   return new OgImageResponse(
-    `<div style="display: flex; width: 100%; height: 100%; padding: 80px; font-size: 72px">
-      ${escapeHtml(post.title)}
+    html`<div style="display: flex; width: 100%; height: 100%; padding: 80px; font-size: 72px">
+      ${post.title}
     </div>`,
   );
 });
