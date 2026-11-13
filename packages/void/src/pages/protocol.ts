@@ -1,5 +1,6 @@
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import type { Context } from 'hono';
+import type { HTTPException } from 'hono/http-exception';
 import { executeComposedHandler, getHandlerComposition } from '../runtime/handler-composition.ts';
 import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
 import { isConvertedResponse } from '../runtime/response.ts';
@@ -103,6 +104,7 @@ function legacyPageResponse(
   c: CloudContext,
   errors: Record<string, string> | null = null,
 ): Response {
+  c.header('Cache-Control', 'no-store');
   const headers = pageResponseHeaders(c, {
     'Content-Type': errors ? 'application/json' : 'text/plain; charset=utf-8',
     'Cache-Control': 'no-store',
@@ -402,6 +404,38 @@ async function runLoader(
   });
 }
 
+function isRecoverableHttpException(error: unknown): error is HTTPException {
+  // Application middleware may use a different installed copy of Hono.
+  const exception = error as HTTPException | null | undefined;
+  return (
+    !!exception &&
+    typeof exception.getResponse === 'function' &&
+    !exception.res &&
+    typeof exception.status === 'number' &&
+    exception.status >= 400 &&
+    exception.status < 600
+  );
+}
+
+/** Recover HTTP failures outside the loader leaf without executing application code again. */
+export async function recoverPageHttpException(
+  error: unknown,
+  c: PageRequestContext,
+  renderFn: RenderPage,
+  getAssetTags: GetAssetTags,
+  configHead?: HeadConfig,
+  options?: PageRenderOptions,
+): Promise<Response | undefined> {
+  if (!isRecoverableHttpException(error) || c.finalized) {
+    return undefined;
+  }
+  const context = asCloudContext(c);
+  if (options?.renderMode !== 'island' && needsPageReload(context)) {
+    return legacyPageResponse(context);
+  }
+  return renderPageFailure(context, error, undefined, renderFn, getAssetTags, configHead, options);
+}
+
 /** Recover one completed GET operation without replaying its middleware or loader. */
 async function renderPageFailure(
   c: CloudContext,
@@ -418,7 +452,11 @@ async function renderPageFailure(
     'getResponse' in error &&
     typeof error.getResponse === 'function';
   const explicit = httpError ? (error as { getResponse(): Response }).getResponse() : original;
-  if (explicit && (explicit.status !== 404 || explicit.headers.has('Content-Disposition'))) {
+  const recoverHttpError = isRecoverableHttpException(error);
+  if (
+    explicit &&
+    ((!recoverHttpError && explicit.status !== 404) || explicit.headers.has('Content-Disposition'))
+  ) {
     return undefined;
   }
   const notFound = explicit?.status === 404;
@@ -431,19 +469,22 @@ async function renderPageFailure(
   if (!candidates?.[0]) {
     return undefined;
   }
+  c.header('Cache-Control', 'no-store');
   if (options?.renderMode !== 'island') {
     varyPagesResponse(c);
   }
-  let status = notFound ? 404 : 500;
+  let status = recoverHttpError ? error.status : notFound ? 404 : 500;
   let message = notFound
     ? httpError && error instanceof Error
       ? error.message || 'Not Found'
       : 'Not Found'
-    : 'Internal Server Error';
-  if (!notFound && options?.dev && error instanceof Error) {
+    : recoverHttpError
+      ? error.message || explicit?.statusText || 'HTTP Error'
+      : 'Internal Server Error';
+  if (!notFound && !recoverHttpError && options?.dev && error instanceof Error) {
     message = error.message;
   }
-  if (error && !notFound) {
+  if (error && !notFound && !recoverHttpError) {
     console.error(error);
   }
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
@@ -470,7 +511,13 @@ async function renderPageFailure(
       errors: null,
       head: {
         ...head,
-        title: head?.title ?? (status === 404 ? 'Not Found' : 'Internal Server Error'),
+        title:
+          head?.title ??
+          (status === 404
+            ? 'Not Found'
+            : recoverHttpError && status !== 500
+              ? message
+              : 'Internal Server Error'),
       },
     };
     try {
