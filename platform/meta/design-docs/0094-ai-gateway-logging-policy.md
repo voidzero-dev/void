@@ -317,18 +317,8 @@ release that ships the promise, then record the results here.
 - Provider calls through the gateway are also checked for each mode: `full` has a
   body, `metadata` an entry without body, `off` no entry.
 
-Use a scratch gateway with logging turned on, and a token with Workers Scripts
-Edit, Workers AI Read, AI Gateway Read and Account Analytics Read:
-
-```sh
-CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... AI_LOGGING_CHECK_GATEWAY=... \
-  node platform/scripts/ai-logging-live-check.ts
-```
-
-The [script](../../scripts/ai-logging-live-check.ts) uploads a temporary Worker,
-calls each mode, polls gateway logs (up to 5 minutes) and analytics (up to 15
-minutes), deletes the Worker, and prints one line per call plus the A and B
-results. It exits nonzero on any failure.
+Use a scratch gateway with logging turned on. Check gateway logs (entries can take
+up to 5 minutes) and `aiGatewayRequestsAdaptiveGroups` (up to 15 minutes).
 
 | A    | B    | Binding `metadata`                                | Follow-up                                                                       |
 | ---- | ---- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
