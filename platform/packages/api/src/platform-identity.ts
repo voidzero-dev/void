@@ -27,14 +27,6 @@ export function formatPlatformPageTitle(page: string, platformName: string): str
   return `${page} · ${platformName}${/\bvoid\b/i.test(platformName) ? '' : ' · Void'}`;
 }
 
-export function getPlatformPageTitle(
-  page: string,
-  env: PlatformIdentityEnv | undefined,
-  requestUrl?: string,
-): string {
-  return formatPlatformPageTitle(page, getPlatformDisplayName(env, requestUrl));
-}
-
 /** Use configured deployment identity or the actual request URL, never forwarded headers. */
 export function getPlatformApiUrl(env: PlatformIdentityEnv, requestUrl?: string): string {
   const configuredUrl = env.AUTH_REDIRECT_URI || requestUrl;
