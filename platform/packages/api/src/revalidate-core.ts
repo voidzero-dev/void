@@ -259,8 +259,9 @@ export async function runRevalidate(
   // reaped and the stale edge entry keeps serving at L1. Delete the orphaned
   // `v2` KV keys and fan any recovered variant's edge purge out to every
   // hostname that resolves to the deployment id (superset purge — a never-cached
-  // URL is a harmless CDN no-op). Remove this whole block once v2 entries have
-  // aged out.
+  // URL is a harmless CDN no-op). Retire this block only after a verified
+  // purge of all v2 keys and the rollback window: these keys have no TTL and
+  // cannot age out by themselves.
   //
   // The `v2` namespace is host-INDEPENDENT, so scan it once per
   // (deploymentId, path) over the union of resolved ids — NOT once per hostname
