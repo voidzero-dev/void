@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  absolutizeHead,
   resolveHead,
   renderHeadToString,
   renderHtmlAttrs,
@@ -153,6 +154,70 @@ describe('resolveHead', () => {
 
   it('returns undefined when layers are defined but empty', () => {
     expect(resolveHead({}, {}, {})).toBeUndefined();
+  });
+});
+
+describe('absolutizeHead', () => {
+  const page = (meta: NonNullable<HeadDescriptor['meta']>): HeadDescriptor => ({ meta });
+
+  it('resolves a root-relative crawler URL against the request', () => {
+    const head = page([{ property: 'og:image', content: '/og-image.jpg' }]);
+    expect(absolutizeHead(head, 'https://app.test/docs/intro')?.meta).toEqual([
+      { property: 'og:image', content: 'https://app.test/og-image.jpg' },
+    ]);
+  });
+
+  it('resolves every meta tag that must be absolute', () => {
+    const keys = [
+      'og:image',
+      'og:image:url',
+      'og:image:secure_url',
+      'og:video',
+      'og:video:url',
+      'og:video:secure_url',
+      'og:audio',
+      'og:audio:url',
+      'og:audio:secure_url',
+      'og:url',
+    ];
+    const head = page(keys.map((property) => ({ property, content: '/shared' })));
+    for (const entry of absolutizeHead(head, 'https://app.test/blog/post')!.meta!) {
+      expect(entry.content).toBe('https://app.test/shared');
+    }
+  });
+
+  it('resolves twitter:image by name', () => {
+    const head = page([{ name: 'twitter:image', content: '/card.png' }]);
+    expect(absolutizeHead(head, 'https://app.test/')?.meta![0]?.content).toBe(
+      'https://app.test/card.png',
+    );
+  });
+
+  it('keeps absolute, protocol-relative and other values as written', () => {
+    const meta: NonNullable<HeadDescriptor['meta']> = [
+      { property: 'og:image', content: 'https://cdn.test/a.png' },
+      { property: 'og:url', content: '//app.test/b' },
+      { name: 'description', content: '/not-a-url' },
+      { property: 'og:title', content: '/still-a-title' },
+    ];
+    const head = page(meta);
+    expect(absolutizeHead(head, 'https://app.test/')).toBe(head);
+  });
+
+  it('returns the input when there is nothing to resolve', () => {
+    expect(absolutizeHead(undefined, 'https://app.test/')).toBeUndefined();
+    const head: HeadDescriptor = { title: 'Home' };
+    expect(absolutizeHead(head, 'https://app.test/')).toBe(head);
+  });
+
+  it('keeps values relative without a request URL, such as during a prerender', () => {
+    const head = page([{ property: 'og:image', content: '/og-image.jpg' }]);
+    expect(absolutizeHead(head, undefined)).toBe(head);
+  });
+
+  it('leaves a malformed value exactly as the app wrote it', () => {
+    const head = page([{ property: 'og:image', content: 'http://' }]);
+    expect(absolutizeHead(head, 'https://app.test/')?.meta).toEqual(head.meta);
   });
 });
 
