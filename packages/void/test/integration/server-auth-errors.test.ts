@@ -122,8 +122,19 @@ function responseFor(path: string, method = 'GET') {
   );
 }
 
-async function expectRedirect(response: Response, destination: string, status: number) {
-  expect(response.status()).toBe(status);
+async function expectRedirect(
+  response: Response,
+  destination: string,
+  status: number,
+  enhanced = false,
+) {
+  // Pages negotiates redirects as HTTP 200 so fetch can read Location (including
+  // fragments). Document requests keep the original HTTP redirect status.
+  expect(response.status()).toBe(enhanced ? 200 : status);
+  expect(await response.request().headerValue('X-VoidPages-Redirect')).toBe(
+    enhanced ? 'manual' : null,
+  );
+  expect(await response.headerValue('X-VoidPages-Redirect')).toBe(enhanced ? String(status) : null);
   expect(await response.headerValue('location')).toBe(destination);
   await page.waitForURL(`${server.base}${destination}`);
 }
@@ -142,7 +153,9 @@ describe.each([
       await page.locator(`a[href="${path}"]`).filter({ hasText: visit }).click();
       const response = await pending;
       const expectedStatus = signedIn ? 200 : status;
-      expect(response.status()).toBe(expectedStatus);
+      if (expectedStatus !== 302) {
+        expect(response.status()).toBe(expectedStatus);
+      }
 
       if (expectedStatus === 401) {
         await expect.poll(() => page.locator('body').innerText()).toBe('Unauthorized');
@@ -155,7 +168,7 @@ describe.each([
       }
 
       if (expectedStatus === 302) {
-        await expectRedirect(response, '/login', 302);
+        await expectRedirect(response, '/login', 302, visit === 'Client navigation');
       } else {
         await page.waitForURL(`${server.base}${path}`);
       }
@@ -189,6 +202,8 @@ describe.each([
       await open(path, signedIn);
       const timeOrigin = await markLayout();
       const pending = responseFor(path, 'POST');
+      const destination = signedIn ? '/actions/success' : '/login';
+      const followUp = signedIn || guard !== 'require-auth' ? responseFor(destination) : undefined;
       await page.getByRole('button', { name: form, exact: true }).click();
       const response = await pending;
 
@@ -208,9 +223,11 @@ describe.each([
         return;
       }
 
-      const destination = signedIn ? '/actions/success' : '/login';
-      await expectRedirect(response, destination, 303);
-      expect(response.request().redirectedTo()?.method()).toBe('GET');
+      await expectRedirect(response, destination, 303, form === 'Enhanced form POST');
+      expect((await followUp)?.status()).toBe(200);
+      if (form === 'Native form POST') {
+        expect(response.request().redirectedTo()?.method()).toBe('GET');
+      }
       await page
         .getByRole('heading', {
           name: signedIn ? 'Action authorized' : 'Sign in',
@@ -316,6 +333,7 @@ describe('demo session and navigation', () => {
       });
       expect(signedOut.status()).toBe(200);
       const pending = responseFor(path, 'POST');
+      const followUp = guard !== 'require-auth' ? responseFor('/login') : undefined;
       await page.getByRole('button', { name: form, exact: true }).click();
       const response = await pending;
 
@@ -327,7 +345,8 @@ describe('demo session and navigation', () => {
           await expect.poll(() => page.getByRole('alert').innerText()).toBe('401: Unauthorized');
         }
       } else {
-        await expectRedirect(response, '/login', 303);
+        await expectRedirect(response, '/login', 303, form === 'Enhanced form POST');
+        expect((await followUp)?.status()).toBe(200);
         await page.getByRole('heading', { name: 'Sign in', exact: true }).waitFor();
       }
       expect(await page.getByRole('heading', { name: 'Action authorized' }).count()).toBe(0);
