@@ -1,12 +1,7 @@
 import { claimRelayedReceipt, completeRelayedReceipt } from '../../proxy/src/email-admission.ts';
-import {
-  routeInbound,
-  routeRelayed,
-  MAX_INBOUND_BYTES,
-  MAX_INBOUND_HEADERS,
-} from '../../proxy/src/email-router.ts';
-import type { EmailEnvelope } from '../../proxy/src/email-router.ts';
 import type { Env as ProxyEnv } from '../../proxy/src/types.ts';
+import { routeInbound, routeRelayed, MAX_INBOUND_BYTES, MAX_INBOUND_HEADERS } from './router.ts';
+import type { EmailEnvelope } from './router.ts';
 
 type Env = Omit<ProxyEnv, 'JWT_SECRET'> & {
   PLATFORM_INSTALLATION_ID?: string;

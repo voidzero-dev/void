@@ -9,6 +9,10 @@ for those inputs.
 The gateway accepts mail on the shared domain and authenticated relays from
 customer-zone ingress Workers. It asks the API to resolve each exact domain
 assignment, then dispatches bounded deliveries to the active application Worker.
+Inbound routing and bounded tenant dispatch live in this package. Admission,
+credential leasing and provider submission reuse the proxy's email helpers; the
+proxy does not depend on the gateway.
+
 The API keeps durable receipt and operation records; the proxy handles outbound
 mail. `GET /health` exposes the gateway protocol version, and destination
 confirmation links pass through the gateway to the API.

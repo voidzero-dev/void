@@ -3,20 +3,19 @@
 import { isReservedEmailSlug } from '@voidcloud/api/reserved-slugs';
 import { EmailMessage } from 'cloudflare:email';
 import { validate as isValidEmailSyntax } from 'email-validator';
-import { dispatchBoundedEmailToTenant } from '../../email-gateway/src/tenant-dispatch.ts';
 import {
   admitEmail,
   emailPayloadDigest,
   finishEmailAttempt,
   recordEmailReceipt,
   startEmailAttempt,
-} from './email-admission.ts';
-import type { ReceiptRouteFence } from './email-admission.ts';
-import { leaseBearer, leaseEmailDomainCredential } from './email-lease.ts';
+} from '../../proxy/src/email-admission.ts';
+import type { ReceiptRouteFence } from '../../proxy/src/email-admission.ts';
+import { leaseBearer, leaseEmailDomainCredential } from '../../proxy/src/email-lease.ts';
 import {
   EMAIL_PROVIDER_DEADLINE_MS,
   createEmailProviderDeadline,
-} from './email-provider-deadline.ts';
+} from '../../proxy/src/email-provider-deadline.ts';
 import {
   bytesToStream,
   classifySendRawRecipient,
@@ -26,8 +25,9 @@ import {
   recordInboundDelivery,
   requestSendRaw,
   sanitizeForLog as sanitize,
-} from './email.ts';
-import type { Env as ProxyEnv } from './types.ts';
+} from '../../proxy/src/email.ts';
+import type { Env as ProxyEnv } from '../../proxy/src/types.ts';
+import { dispatchBoundedEmailToTenant } from './tenant-dispatch.ts';
 type Env = Omit<ProxyEnv, 'JWT_SECRET'>;
 
 /** Render unknown tenant values by kind without coercing large arrays or objects. */

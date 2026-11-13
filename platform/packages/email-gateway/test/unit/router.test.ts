@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 // This suite exercises router validation against a fake tenant. The gateway
 // wire framing has its own tests; preserve direct access to malformed action
 // fixtures that the production decoder now rejects before the router.
-vi.mock('../../../email-gateway/src/tenant-dispatch.ts', () => ({
+vi.mock('../../src/tenant-dispatch.ts', () => ({
   dispatchBoundedEmailToTenant: async (
     stub: { email: (envelope: unknown) => Promise<unknown> },
     _env: unknown,
@@ -17,13 +17,13 @@ vi.mock('../../../email-gateway/src/tenant-dispatch.ts', () => ({
     return { actions, receiptId: input.receiptId };
   },
 }));
+import type { Env } from '../../../proxy/src/types.ts';
 import {
   MAX_INBOUND_BYTES,
   MAX_INBOUND_HEADERS,
   routeInbound as routeInboundWithRoute,
   routeRelayed,
-} from '../../src/email-router.ts';
-import type { Env } from '../../src/types.ts';
+} from '../../src/router.ts';
 
 const ROUTE_FENCE = {
   routeId: 'route-1',

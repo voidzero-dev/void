@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 const router = vi.hoisted(() => ({ routeInbound: vi.fn(), routeRelayed: vi.fn() }));
-vi.mock('../../../proxy/src/email-router.ts', () => ({
+vi.mock('../../src/router.ts', () => ({
   ...router,
   MAX_INBOUND_BYTES: 10 * 1024 * 1024,
   MAX_INBOUND_HEADERS: 1024,

@@ -1208,6 +1208,9 @@ importers:
       '@voidcloud/proxy':
         specifier: workspace:*
         version: link:../proxy
+      email-validator:
+        specifier: ^2.0.4
+        version: 2.0.4
     devDependencies:
       '@cloudflare/workers-types':
         specifier: catalog:platform

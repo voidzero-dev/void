@@ -1,6 +1,6 @@
 # @voidcloud/proxy
 
-Shared proxy worker for platform-owned capabilities: AI metering, ISR revalidation, remote D1/KV/R2 access, and platform email submission. The dedicated email gateway uses the shared inbound routing helpers.
+Shared proxy worker for platform-owned capabilities: AI metering, ISR revalidation, remote D1/KV/R2 access, and platform email submission. The dedicated email gateway owns inbound routing and reuses the proxy's admission and provider helpers.
 
 ## Architecture
 
@@ -149,7 +149,7 @@ An idempotency key binds an action to its payload digest. Replays return recorde
 
 The gateway resolves the active project worker and dispatch limits from the API. Tenant requests and framed responses have an absolute deadline, and a durable receipt prevents replay after dispatch may have started. Native ingress can forward or reply using the original Cloudflare message. Relayed replies select delivery by sender domain: the shared binding for platform addresses, or scoped `send_raw` for custom addresses. Relayed forwarding returns `UNSUPPORTED_ACTION` without consuming quota because REST resending does not preserve native forwarding semantics.
 
-All handler actions are validated again at the platform boundary. MIME is capped at 5 MiB per message, replies at 8 MiB in aggregate, and action lists at 100 entries. The shared protocol bounds encoded response size, recipient counts, and headers. See `packages/platform/src/email-protocol.ts` and `src/email-router.ts` for the wire limits. PostgreSQL records inbound receipts and outbound recipient outcomes; KV hints cannot authorize delivery.
+All handler actions are validated again at the platform boundary. MIME is capped at 5 MiB per message, replies at 8 MiB in aggregate, and action lists at 100 entries. The shared protocol bounds encoded response size, recipient counts, and headers. See `packages/platform/src/email-protocol.ts` and `../email-gateway/src/router.ts` for the wire limits. PostgreSQL records inbound receipts and outbound recipient outcomes; KV hints cannot authorize delivery.
 
 #### Sender domain
 
@@ -173,7 +173,6 @@ src/
   kv.ts           # KV remote access
   r2.ts           # R2 remote access
   email.ts        # Outbound /email/send
-  email-router.ts # Shared native/relayed inbound routing and handler actions
   types.ts        # Env and JWT types
 test/unit/
   proxy.test.ts
