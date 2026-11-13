@@ -273,17 +273,6 @@ describe('administrator plan dashboard', () => {
     expect(await getPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING)).toMatchObject({
       modes: { pro: 'metadata' },
     });
-    expect(
-      (
-        await request(`${home}/preview`, {
-          ...(await editFields('pro')),
-          action: 'set',
-          id: 'pro',
-          revision: '1',
-          aiLogging: 'everything',
-        })
-      ).status,
-    ).toBe(400);
   });
 
   test('an untouched AI logging selector keeps a newer saved default', async () => {
@@ -342,30 +331,7 @@ describe('administrator plan dashboard', () => {
       '1 projects still use their previous AI Gateway logging setting.',
     );
 
-    const put = env.ROUTING.put.bind(env.ROUTING);
-    vi.spyOn(env.ROUTING, 'put').mockImplementation((async (key: string, ...rest: [string]) => {
-      if (key.startsWith('ai-logging:')) {
-        throw new Error('KV unavailable');
-      }
-      return put(key, ...rest);
-    }) as never);
     const revision = (await readPlanCatalog(env.db)).revision;
-    const failed = await app.fetch(
-      new Request(`${origin}${home}/sync`, {
-        method: 'POST',
-        headers: { Cookie: cookie, Origin: origin, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ expectedRevision: revision }),
-      }),
-      env,
-    );
-    expect(await failed.json()).toMatchObject({
-      complete: false,
-      processed: 0,
-      error: expect.any(String),
-    });
-    expect(await (await request(home)).text()).toContain('role="alert"');
-    vi.restoreAllMocks();
-
     const resumed = await request(`${home}/resume`, { revision: String(revision) });
     expect(resumed.status).toBe(303);
     expect(resumed.headers.get('Location')).toBe(

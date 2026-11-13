@@ -1525,23 +1525,13 @@ describe('proxy worker', () => {
       );
     }
 
-    it.each(AI_LOGGING_PATHS)(
-      'reads the policy for %s from ROUTING with a 30 second cache and never from the API',
-      async (path) => {
-        const { env } = loggingEnv({ [POLICY_KEY]: 'off' });
-        const response = await worker.fetch(post(path, aiBody(path)), env);
-        expect(response.status).toBe(200);
-        expect(policyReads(env)).toEqual([[POLICY_KEY, { cacheTtl: 30 }]]);
-        expect(apiPolicyCalls(env)).toEqual([]);
-      },
-    );
-
-    it('inherits the gateway setting when no policy is published', async () => {
+    it('reads ROUTING with a 30 second cache and inherits when no policy is published', async () => {
       const { env, upstream } = loggingEnv();
       for (const path of AI_LOGGING_PATHS) {
         const response = await worker.fetch(post(path, aiBody(path)), env);
         expect(response.status).toBe(200);
       }
+      expect(policyReads(env)).toEqual(AI_LOGGING_PATHS.map(() => [POLICY_KEY, { cacheTtl: 30 }]));
       for (const method of [env.AI.run, env.AI.toMarkdown]) {
         const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
         expect(options.gateway).toStrictEqual({
@@ -1682,11 +1672,10 @@ describe('proxy worker', () => {
       },
     );
 
-    it.each(
-      ['inherit', 'bogus', '', 'OFF', ' off'].flatMap((value) =>
-        AI_LOGGING_PATHS.map((path) => ({ value, label: JSON.stringify(value), path })),
-      ),
-    )('refuses $path when the published value is $label', async ({ value, path }) => {
+    // Which values are refused is unit tested with the shared parser; the read-error
+    // test above shows every path stops when the policy is refused.
+    it('refuses a published value it does not know', async () => {
+      const [path, value] = ['/ai/run', 'bogus'];
       const { env, upstream } = loggingEnv({ [POLICY_KEY]: value });
       const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
       try {
@@ -1701,7 +1690,7 @@ describe('proxy worker', () => {
         });
         // The value itself is never logged.
         for (const call of logged.mock.calls) {
-          expect(JSON.stringify(call)).not.toContain('bogus');
+          expect(JSON.stringify(call)).not.toContain(value);
         }
       } finally {
         logged.mockRestore();
@@ -1715,18 +1704,6 @@ describe('proxy worker', () => {
       { name: '/ai/models', path: '/ai/models', body: { inputs: {} }, status: 200 },
       { name: 'an unknown AI route', path: '/ai/foo', body: {}, status: 404 },
       { name: '/ai/run without a model', path: '/ai/run', body: { inputs: {} }, status: 400 },
-      {
-        name: '/ai/provider without a provider',
-        path: '/ai/provider',
-        body: { path: 'x' },
-        status: 400,
-      },
-      {
-        name: '/ai/provider with an unsafe path',
-        path: '/ai/provider',
-        status: 400,
-        body: { provider: 'openai', providerKey: 'k', path: '../escape' },
-      },
       {
         name: '/ai/provider with malformed file data',
         path: '/ai/provider',

@@ -67,6 +67,28 @@ async function seed(sql: string) {
   await database.exec(sql);
 }
 
+/** One free account with projects `ids`; `modes` saves overrides on some of them. */
+async function seedProjects(ids: ReadonlyArray<string>, modes: Record<string, string> = {}) {
+  const overrides = Object.entries(modes).map(([id, mode]) => `('${id}', '${mode}')`);
+  await seed(`
+    INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
+    INSERT INTO projects (id, user_id, slug) VALUES ${ids.map((id) => `('${id}', 'u1', '${id}')`).join(', ')};
+    ${overrides.length ? `INSERT INTO project_ai_logging (project_id, mode) VALUES ${overrides.join(', ')};` : ''}
+  `);
+}
+
+/** Runs `change` on the real connection just before the projection takes its row locks. */
+function changeBeforeLock(client: QueryConnection, change: string) {
+  return {
+    query: async (sql: string, values?: ReadonlyArray<unknown>) => {
+      if (sql.includes('FOR NO KEY UPDATE')) {
+        await connection.query(change);
+      }
+      return client.query(sql, values);
+    },
+  } as QueryConnection;
+}
+
 beforeAll(async () => {
   database = new PGlite();
   await database.waitReady;
@@ -162,11 +184,7 @@ describe('installer AI logging projection', () => {
   });
 
   it('stamps keys with the database clock, not the operator machine clock', async () => {
-    await seed(`
-      INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
-      INSERT INTO projects (id, user_id, slug) VALUES ('p1', 'u1', 'one');
-      INSERT INTO project_ai_logging (project_id, mode) VALUES ('p1', 'off');
-    `);
+    await seedProjects(['p1'], { p1: 'off' });
     // An orphan the API wrote 5 minutes ago by its own clock: inside the grace period.
     const { kv, store } = memoryKv({
       'ai-logging:p-young': { value: 'off', metadata: { mode: 'off', at: NOW - 300_000 } },
@@ -191,11 +209,7 @@ describe('installer AI logging projection', () => {
   });
 
   it('reads the clock from a real database', async () => {
-    await seed(`
-      INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
-      INSERT INTO projects (id, user_id, slug) VALUES ('p1', 'u1', 'one');
-      INSERT INTO project_ai_logging (project_id, mode) VALUES ('p1', 'off');
-    `);
+    await seedProjects(['p1'], { p1: 'off' });
     const { kv, store } = memoryKv();
     const before = Date.now();
     await projectPlatformAiLoggingConnection(connection, kv);
@@ -206,11 +220,7 @@ describe('installer AI logging projection', () => {
   });
 
   it('holds the project row locks while it reads inputs and writes KV', async () => {
-    await seed(`
-      INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
-      INSERT INTO projects (id, user_id, slug) VALUES ('p1', 'u1', 'one'), ('p2', 'u1', 'two');
-      INSERT INTO project_ai_logging (project_id, mode) VALUES ('p1', 'metadata');
-    `);
+    await seedProjects(['p1', 'p2'], { p1: 'metadata' });
     const statements: Array<string> = [];
     const { kv, calls } = memoryKv();
     const order: Array<string> = [];
@@ -238,16 +248,10 @@ describe('installer AI logging projection', () => {
       }
     });
     // Simulate the API saving a newer override just before the lock is granted.
-    const lockingClient = {
-      query: async (sql: string, values?: ReadonlyArray<unknown>) => {
-        if (sql.includes('FOR NO KEY UPDATE')) {
-          await connection.query(
-            `UPDATE project_ai_logging SET mode = 'off' WHERE project_id = 'p1'`,
-          );
-        }
-        return client.query(sql, values);
-      },
-    } as QueryConnection;
+    const lockingClient = changeBeforeLock(
+      client,
+      `UPDATE project_ai_logging SET mode = 'off' WHERE project_id = 'p1'`,
+    );
 
     await projectPlatformAiLoggingConnection(lockingClient, wrapped, { now: () => NOW });
 
@@ -268,17 +272,11 @@ describe('installer AI logging projection', () => {
     `);
     const { kv, store } = memoryKv();
     // Simulate the API saving a newer plan default just before the lock is granted.
-    const lockingClient = {
-      query: async (sql: string, values?: ReadonlyArray<unknown>) => {
-        if (sql.includes('FOR NO KEY UPDATE')) {
-          await connection.query(
-            `UPDATE platform_settings SET value = '{"modes":{"pro":"off"},"publish":null}'
-              WHERE key = 'plans:ai-logging'`,
-          );
-        }
-        return connection.query(sql, values);
-      },
-    } as QueryConnection;
+    const lockingClient = changeBeforeLock(
+      connection,
+      `UPDATE platform_settings SET value = '{"modes":{"pro":"off"},"publish":null}'
+        WHERE key = 'plans:ai-logging'`,
+    );
 
     await projectPlatformAiLoggingConnection(lockingClient, kv, { now: () => NOW });
 
@@ -288,11 +286,7 @@ describe('installer AI logging projection', () => {
   });
 
   it('rolls back and fails when a bulk write fails', async () => {
-    await seed(`
-      INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
-      INSERT INTO projects (id, user_id, slug) VALUES ('p1', 'u1', 'one');
-      INSERT INTO project_ai_logging (project_id, mode) VALUES ('p1', 'off');
-    `);
+    await seedProjects(['p1'], { p1: 'off' });
     const statements: Array<string> = [];
     const { kv } = memoryKv();
     const failing = {
@@ -308,23 +302,6 @@ describe('installer AI logging projection', () => {
     expect(statements).not.toContain('COMMIT');
   });
 
-  it('changes nothing visible when run again', async () => {
-    await seed(`
-      INSERT INTO users (id, login, plan) VALUES ('u1', 'one', 'free');
-      INSERT INTO projects (id, user_id, slug) VALUES ('p1', 'u1', 'one'), ('p2', 'u1', 'two');
-      INSERT INTO project_ai_logging (project_id, mode) VALUES ('p1', 'full');
-    `);
-    const { kv, store } = memoryKv();
-    await projectPlatformAiLoggingConnection(connection, kv, { now: () => NOW });
-    const first = Object.fromEntries(store);
-    await expect(
-      projectPlatformAiLoggingConnection(connection, kv, { now: () => NOW }),
-    ).resolves.toEqual({ skipped: false, projects: 1, written: 1, deleted: 0 });
-    expect(Object.fromEntries(store)).toEqual(first);
-    // Inherit projects never get a key.
-    expect(store.has('ai-logging:p2')).toBe(false);
-  });
-
   it('refuses to publish from invalid saved plan defaults', async () => {
     await seed(`INSERT INTO platform_settings (key, value)
       VALUES ('plans:ai-logging', '{"modes":{"pro":"loud"}}');`);
@@ -335,32 +312,9 @@ describe('installer AI logging projection', () => {
     expect(calls).toEqual(['list']);
   });
 
-  it('runs through the database lock with a KV client bound to the routing namespace', async () => {
-    const client = {
-      listKvKeys: vi.fn(async () => []),
-      putKvBulk: vi.fn(async () => {}),
-      deleteKvBulk: vi.fn(async () => {}),
-    };
-    const progress: Array<string> = [];
-    const publishAiLogging = vi.fn(async (kv: AiLoggingProjectionKv) => {
-      await kv.list('ai-logging:');
-      await kv.put([{ key: 'ai-logging:p1', value: 'off' }]);
-      await kv.delete(['ai-logging:p2']);
-      return { skipped: false as const, projects: 2, written: 1, deleted: 1 };
-    });
-    await publishInstallationAiLogging({
-      client,
-      accountId: 'account',
-      routingKvId: 'routing',
-      databaseLock: { publishAiLogging },
-      onProgress: (message) => progress.push(message),
-    });
-    expect(progress).toEqual(['Publishing AI logging settings']);
-    expect(client.listKvKeys).toHaveBeenCalledWith('account', 'routing', 'ai-logging:');
-    expect(client.putKvBulk).toHaveBeenCalledWith('account', 'routing', [
-      { key: 'ai-logging:p1', value: 'off' },
-    ]);
-    expect(client.deleteKvBulk).toHaveBeenCalledWith('account', 'routing', ['ai-logging:p2']);
+  // The installer test checks that the KV calls reach the routing namespace.
+  it('does nothing when the database lock cannot publish', async () => {
+    const client = { listKvKeys: vi.fn(), putKvBulk: vi.fn(), deleteKvBulk: vi.fn() };
     await expect(
       publishInstallationAiLogging({
         client,

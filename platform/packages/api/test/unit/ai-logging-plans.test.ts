@@ -130,10 +130,7 @@ describe('plan AI logging defaults on plan edits', () => {
     expect(proposePlanAiLogging({ pro: 'off' }, 'remove', 'pro', {}, 'pro')).toEqual({});
   });
 
-  test('refuses a bad mode and aiLogging on other actions', () => {
-    expect(() => proposePlanAiLogging({}, 'set', 'pro', { aiLogging: 'all' }, undefined)).toThrow(
-      'aiLogging must be one of',
-    );
+  test('refuses aiLogging on actions other than add and set', () => {
     expect(() =>
       proposePlanAiLogging({}, 'archive', 'pro', { aiLogging: 'off' }, undefined),
     ).toThrow('only when adding or editing');

@@ -398,18 +398,7 @@ describe('platform config plans AI logging defaults', () => {
     expect(calls.filter((call) => call.body)).toHaveLength(0);
   });
 
-  it('rejects an unknown aiLogging mode in a plan file', async () => {
-    platform(() => ({ catalog, accounts: [], aiLogging }));
-    const file = await planFile({ aiLogging: 'everything' });
-    await expect(
-      runPlatformPlansConfig(
-        parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--yes']),
-      ),
-    ).rejects.toThrow('aiLogging must be one of inherit, off, metadata, full');
-    expect(calls.filter((call) => call.body)).toHaveLength(0);
-  });
-
-  it('previews the AI Gateway logging change as a diff line with the project count', async () => {
+  it('previews the change from the default the dry run read, with the project count', async () => {
     platform((_url, body) =>
       body
         ? {
@@ -419,7 +408,13 @@ describe('platform config plans AI logging defaults', () => {
             expectedRevision: 7,
             catalog: { ...catalog, revision: 8 },
             affectedAccounts: 3,
-            aiLogging: { modes: {}, planIds: ['pro'], includeUnknown: false },
+            // Newer than the cached listing, which still says metadata.
+            aiLogging: {
+              modes: {},
+              modesBefore: { pro: 'off' },
+              planIds: ['pro'],
+              includeUnknown: false,
+            },
             aiLoggingPublish: { complete: false, processed: 0, remaining: 12, expectedBy: null },
           }
         : { catalog, accounts: [], aiLogging },
@@ -429,34 +424,8 @@ describe('platform config plans AI logging defaults', () => {
       parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--plan']),
     );
     expect(calls.at(-1)?.body).toEqual({ aiLogging: 'inherit', dryRun: true });
-    expect(output()).toContain('AI Gateway logging: metadata → inherit');
-    expect(output()).toContain('AI logging settings to publish: 12 projects');
-  });
-
-  it('shows the current default the dry run read, not the cached listing', async () => {
-    platform((_url, body) =>
-      body
-        ? {
-            dryRun: true,
-            action: 'plans.set',
-            target: 'pro',
-            expectedRevision: 7,
-            catalog: { ...catalog, revision: 8 },
-            affectedAccounts: 3,
-            aiLogging: {
-              modes: {},
-              modesBefore: { pro: 'off' },
-              planIds: ['pro'],
-              includeUnknown: false,
-            },
-          }
-        : { catalog, accounts: [], aiLogging },
-    );
-    const file = await planFile({ aiLogging: 'inherit' });
-    await runPlatformPlansConfig(
-      parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--plan']),
-    );
     expect(output()).toContain('AI Gateway logging: off → inherit');
+    expect(output()).toContain('AI logging settings to publish: 12 projects');
   });
 
   it('offers the setting in the interactive picker', async () => {

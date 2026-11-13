@@ -36,6 +36,7 @@ import {
   users,
   projects,
 } from '../../src/schema.ts';
+import { failAiLoggingWrites } from './ai-logging-helpers.ts';
 import {
   setupEnv,
   teardownEnv,
@@ -327,16 +328,7 @@ describe('registered OAuth applications', () => {
         },
         body: JSON.stringify({ workspace }),
       });
-    const put = env.ROUTING.put.bind(env.ROUTING);
-    const failing = vi.spyOn(env.ROUTING, 'put').mockImplementation((async (
-      key: string,
-      ...rest: [string, KVNamespacePutOptions?]
-    ) => {
-      if (key.startsWith('ai-logging:')) {
-        throw new Error('KV unavailable');
-      }
-      return put(key, ...rest);
-    }) as never);
+    const failing = failAiLoggingWrites(env.ROUTING, 'put');
     expect((await create('logged-preview')).status).toBe(503);
     expect(
       await env.db

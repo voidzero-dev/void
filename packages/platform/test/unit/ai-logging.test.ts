@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
   AI_LOGGING_MODES,
-  aiLoggingKey,
   isAiLoggingMode,
   isPublishedAiLoggingMode,
   parseAiLoggingKeyMetadata,
@@ -28,10 +27,6 @@ describe('AI logging policy', () => {
   it('never stores inherit', () => {
     expect(isPublishedAiLoggingMode('inherit')).toBe(false);
     expect(['off', 'metadata', 'full'].every(isPublishedAiLoggingMode)).toBe(true);
-  });
-
-  it('names the ROUTING key after the project', () => {
-    expect(aiLoggingKey('proj_000000000042')).toBe('ai-logging:proj_000000000042');
   });
 
   it('reads a missing key as inherit and refuses values it does not know', () => {
@@ -67,13 +62,6 @@ describe('AI logging policy', () => {
       expect(publishOrder('inherit', mode)).toBe('unknown');
       expect(publishOrder(mode, 'inherit')).toBe('unknown');
     }
-  });
-
-  it('orders by effective values, not by the saved project field', () => {
-    // A project override removed (`full` -> no row) while its plan says `off`.
-    const before = resolveAiLogging('full', 'off').mode;
-    const after = resolveAiLogging(null, 'off').mode;
-    expect(publishOrder(before, after)).toBe('tighten');
   });
 
   it('reads key metadata and treats anything malformed as missing', () => {

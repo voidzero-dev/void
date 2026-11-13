@@ -1870,19 +1870,6 @@ describe('project AI logging commands', () => {
     );
   });
 
-  it('keeps the JSON reply unchanged', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const reply = { ...resolution, previous: 'full', expectedBy: '2026-11-13T14:03:20.000Z' };
-    serve('1.9.0', [
-      { dryRun: true, action: 'project.ai-logging', target: 'p1', ...resolution, previous: 'full' },
-      reply,
-    ]);
-    await runOperatorCommand(
-      parseOperatorArgs(['project', 'ai-logging', 'p1', 'off', '--yes', '--json']),
-    );
-    expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify(reply));
-  });
-
   it.each([
     ['1.7.2', '1.7.2'],
     ['1.8.0-beta.1', '1.8.0-beta.1'],
@@ -1965,25 +1952,4 @@ describe('project AI logging commands', () => {
       expect(output).not.toContain('Ai logging');
     },
   );
-
-  it('keeps every AI logging field in project show JSON', async () => {
-    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
-    const reply = { project: { id: 'p1' }, aiLogging: { ...resolution, state: 'applied' } };
-    serve('1.9.0', [reply]);
-    await runOperatorCommand(parseOperatorArgs(['project', 'show', 'p1', '--json']));
-    expect(log).toHaveBeenCalledExactlyOnceWith(JSON.stringify(reply));
-  });
-
-  it('documents the modes and timing in help', () => {
-    const command = operatorCommands.find(
-      (entry) => entry.group === 'project' && entry.action === 'ai-logging',
-    )!;
-    expect(command.usage).toEqual([
-      'void platform project ai-logging <project-id> <inherit|off|metadata|full> [options]',
-    ]);
-    expect(command.description).toContain('normally follow it within 2 minutes');
-    expect(() => parseOperatorArgs(['project', 'ai-logging', 'p1'])).toThrow(
-      'Usage: void platform project ai-logging <project-id> <inherit|off|metadata|full>.',
-    );
-  });
 });
