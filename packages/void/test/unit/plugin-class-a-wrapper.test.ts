@@ -2,6 +2,7 @@ import { execFileSync } from 'node:child_process';
 import {
   mkdirSync,
   mkdtempSync,
+  readdirSync,
   readFileSync,
   realpathSync,
   rmSync,
@@ -12,9 +13,11 @@ import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { toSlash } from 'pathslash';
 import { createServer, normalizePath, type Plugin, type ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { bundleEntry } from '../../src/cli/wrapper.ts';
 import {
   getOriginalFrameworkEntry,
   hasVinextMiddleware,
@@ -469,6 +472,224 @@ export default {
       ]);
     },
   );
+});
+
+describe('Class A framework env schema', () => {
+  const ENV_TS = `import { defineEnv, number, string } from 'void/env';
+
+// An async validator, like zod's async refine.
+const upper = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: async (value) =>
+      typeof value === 'string'
+        ? { value: value.toUpperCase() }
+        : { issues: [{ message: 'TOKEN must be a string' }] },
+  },
+};
+
+export default defineEnv({
+  STRIPE_KEY: string(),
+  SCHEMA_DEFAULT: number().default(48213),
+  TOKEN: upper,
+});
+`;
+
+  /** A TanStack app with env.ts, and its wrappers for dev and build. */
+  async function createApp(voidConfig?: Record<string, unknown>) {
+    const root = createTanStackRoot(voidConfig);
+    writeFileSync(join(root, 'env.ts'), ENV_TS);
+    linkVoidPackage(root);
+    const packageRoot = join(root, 'node_modules/@tanstack/react-start');
+    mkdirSync(packageRoot, { recursive: true });
+    writeFileSync(
+      join(packageRoot, 'package.json'),
+      JSON.stringify({ type: 'module', exports: { './server-entry': './server-entry.js' } }),
+    );
+    // Each path names the env key that the request reads.
+    writeFileSync(
+      join(packageRoot, 'server-entry.js'),
+      'import { env } from "void/env";\n' +
+        'export default { async fetch(request) {\n' +
+        '  const key = new URL(request.url).pathname.slice(1);\n' +
+        '  if (!key) return new Response("ok");\n' +
+        '  try { return Response.json({ [key]: env[key] }); }\n' +
+        '  catch (error) { return new Response(error.message, { status: 500 }); }\n' +
+        '} };\n',
+    );
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const { voidPlugin } = await import('../../src/index.ts');
+    const wrapperPlugin = voidPlugin().find(
+      (plugin) => plugin.name === 'void:framework-build-wrapper',
+    )!;
+    const wrapperPath = join(root, '.void', 'tanstack-start-trigger-wrapper.ts');
+    const dev = readFileSync(wrapperPath, 'utf-8');
+    callConfigResolved(wrapperPlugin, {
+      command: 'build',
+      build: { assetsDir: 'assets' } as ResolvedConfig['build'],
+    } as Partial<ResolvedConfig>);
+    return { root, wrapperPath, dev, build: readFileSync(wrapperPath, 'utf-8') };
+  }
+
+  const MISSING_VALUES = [
+    { path: '/', expected: '200 ok' },
+    { path: '/SCHEMA_DEFAULT', expected: '200 {"SCHEMA_DEFAULT":48213}' },
+    { path: '/STRIPE_KEY', expected: expect.stringMatching(/^500 Invalid env "STRIPE_KEY"/) },
+    { path: '/TOKEN', expected: '500 Invalid env "TOKEN": TOKEN must be a string' },
+  ];
+  const VALID_ENV = { STRIPE_KEY: 'sk_test', TOKEN: 'sk_token' };
+  const VALID_VALUES = [
+    { path: '/STRIPE_KEY', expected: '200 {"STRIPE_KEY":"sk_test"}' },
+    { path: '/TOKEN', expected: '200 {"TOKEN":"SK_TOKEN"}' },
+    { path: '/TOKEN', expected: '200 {"TOKEN":"SK_TOKEN"}' },
+  ];
+
+  /**
+   * The wrappers import env.ts and the routing runtime by absolute path, which Vite resolves.
+   * Node reads a Windows path (`C:/…` or `C:\…`) as a URL with the scheme `c:` and rejects it
+   * with ERR_UNSUPPORTED_ESM_URL_SCHEME, so the runner gives Node a file URL for it.
+   */
+  const WINDOWS_PATH_HOOK = String.raw`import { registerHooks } from 'node:module';
+import { pathToFileURL } from 'node:url';
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    const windowsPath = /^[A-Za-z]:[\\/]/.test(specifier);
+    return nextResolve(windowsPath ? pathToFileURL(specifier).href : specifier, context);
+  },
+});
+`;
+
+  /** Answer each request in a Node process, with a new env object for each, as dev can. */
+  function fetchInNode(
+    root: string,
+    wrapper: string,
+    requests: Array<{ path: string; env?: Record<string, string> }>,
+  ): Array<string> {
+    const path = join(root, '.void', 'run-wrapper.ts');
+    writeFileSync(path, wrapper);
+    const runner = join(root, 'run.mjs');
+    writeFileSync(
+      runner,
+      WINDOWS_PATH_HOOK +
+        `const { default: worker } = await import(${JSON.stringify(pathToFileURL(path).href)});\n` +
+        'const results = [];\n' +
+        `for (const { path, env } of ${JSON.stringify(requests)}) {\n` +
+        '  const response = await worker.fetch(new Request("https://example.test" + path), { ...env }, {});\n' +
+        '  results.push(response.status + " " + (await response.text()));\n' +
+        '}\n' +
+        'process.stdout.write(JSON.stringify(results));\n',
+    );
+    return JSON.parse(execFileSync(process.execPath, [runner], { cwd: root, encoding: 'utf8' }));
+  }
+
+  /** Bundle a wrapper for workerd and answer each request there, with `bindings` as its env. */
+  async function fetchInWorkerd(
+    root: string,
+    wrapperPath: string,
+    bindings: Record<string, string>,
+    paths: Array<string>,
+  ): Promise<Array<string>> {
+    const { outputDir, entryFilename } = await bundleEntry(root, wrapperPath);
+    const modules = readdirSync(outputDir)
+      .filter((file) => /\.m?js$/.test(file))
+      .sort((a, b) => Number(b === entryFilename) - Number(a === entryFilename))
+      .map((file) => ({ type: 'ESModule' as const, path: join(outputDir, file) }));
+    // A D1 framework Worker has `nodejs_als`, and no `nodejs_compat`.
+    const miniflare = new Miniflare(
+      convertV4MiniflareOptions({
+        modulesRoot: outputDir,
+        modules,
+        compatibilityDate: '2026-02-24',
+        compatibilityFlags: ['nodejs_als'],
+        bindings,
+      }),
+    );
+    try {
+      const results: Array<string> = [];
+      for (const path of paths) {
+        const response = await miniflare.dispatchFetch(`https://example.test${path}`);
+        results.push(`${response.status} ${await response.text()}`);
+      }
+      return results;
+    } finally {
+      await miniflare.dispose();
+    }
+  }
+
+  it('imports env.ts ahead of the framework entry and prepares the env on every request', async () => {
+    const { root, dev, build } = await createApp();
+    const imports = `import ${JSON.stringify(toSlash(join(root, 'env.ts')))};
+import { _prepareEnv } from "void/env";
+import original from "@tanstack/react-start/server-entry";
+export * from "@tanstack/react-start/server-entry";
+`;
+    expect(dev).toBe(`// @ts-nocheck — Auto-generated by Void in dev. Do NOT edit.
+${imports}
+export default {
+  ...original,
+  async fetch(request, env, ctx) {
+    await _prepareEnv(env);
+    if (request.method === "POST") {
+      const pathname = new URL(request.url).pathname;
+      if (pathname === "/__void/scheduled" || pathname === "/__void/queue") {
+        const { handleDevTrigger } = await import(${JSON.stringify(frameworkTriggersDispatchPath(root))});
+        const response = await handleDevTrigger(request, env, ctx);
+        if (response) return response;
+      }
+    }
+    return original.fetch(request, env, ctx);
+  },
+};
+`);
+    expect(build).toContain(`// @ts-nocheck — Auto-generated by Void for vite build. Do NOT edit.
+${imports}
+export default {
+  ...original,
+  async fetch(request, env, ctx) {
+    await _prepareEnv(env);
+    return serveWithAssets(request, env, await original.fetch(request, env, ctx));
+  },
+};
+`);
+  });
+
+  // Reads in Node need a request scope, which a PostgreSQL app's wrapper opens.
+  it.each(['dev', 'build'] as const)(
+    'serves env.ts values in the PostgreSQL %s wrapper and fails only the requests that read an invalid one',
+    async (mode) => {
+      const app = await createApp({ database: 'pg' });
+      const requests = [
+        ...MISSING_VALUES,
+        ...VALID_VALUES.map((request) => ({ ...request, env: VALID_ENV })),
+      ];
+      expect(fetchInNode(app.root, app[mode], requests)).toEqual(
+        requests.map(({ expected }) => expected),
+      );
+    },
+  );
+
+  // A D1 app's framework fetch runs outside a request scope, so its reads use the
+  // `cloudflare:workers` env rather than the env object that the wrapper prepared.
+  it('serves env.ts values to a D1 app built for workerd', async () => {
+    const app = await createApp();
+    expect(
+      await fetchInWorkerd(
+        app.root,
+        app.wrapperPath,
+        {},
+        MISSING_VALUES.map(({ path }) => path),
+      ),
+    ).toEqual(MISSING_VALUES.map(({ expected }) => expected));
+    expect(
+      await fetchInWorkerd(
+        app.root,
+        app.wrapperPath,
+        VALID_ENV,
+        VALID_VALUES.map(({ path }) => path),
+      ),
+    ).toEqual(VALID_VALUES.map(({ expected }) => expected));
+  });
 });
 
 describe('Class A routing.notFound self-host warning', () => {

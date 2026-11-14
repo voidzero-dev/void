@@ -29,6 +29,7 @@
 /// <reference types="@cloudflare/workers-types" />
 
 import { isUnmaskActive, redactMessage } from '../shared/env-mask.ts';
+import { ENV_REGISTRY_KEY } from '../shared/env-registry.ts';
 import type { StandardSchemaV1 } from '../standard-schema.ts';
 import { getRawRuntimeEnv, type RuntimeEnv } from './env-raw.ts';
 import { getRuntimeEnv, isInternalBinding } from './env.ts';
@@ -36,33 +37,50 @@ import { getRuntimeEnv, isInternalBinding } from './env.ts';
 type AnyValidator = StandardSchemaV1<unknown, unknown>;
 type AnySchema = Record<string, AnyValidator>;
 
-type BootValidationState =
-  | { ok: true; values: Map<string, unknown> }
-  | { ok: false; error: EnvValidationError };
+/** How one schema key validated against its raw value. */
+type KeyResult =
+  | { ok: true; value: unknown }
+  | { ok: false; issues: Array<StandardSchemaV1.Issue> }
+  | { ok: false; thrown: unknown };
 
-/** A completed whole-schema validation, with the raw value of each key that it checked. */
+/** A validation of every schema key, with the raw value that each key was validated against. */
 type EnvValidation = {
   inputs: Map<string, unknown>;
-  state: BootValidationState;
+  results: Map<string, KeyResult>;
+  /** Why `_validateEnvOnce` rejects this validation, kept so that each call throws the same error. */
+  error?: EnvValidationError;
 };
 
 type EnvRegistryState = {
   schema: AnySchema | null;
   hasDefineEnvBeenCalled: boolean;
   /**
-   * The latest completed whole-schema validation. An env with the same raw values reuses it,
-   * also when each request brings a new env object. An env with other values is validated
-   * again rather than given values validated for another. `readKey` serves a key's value from
-   * here to an env that was not validated itself, while it holds the raw value that the value
-   * came from.
+   * The latest validation of every schema key. An env with the same raw values reuses it, also
+   * when each request brings a new env object, unless a validator threw in it. An env with
+   * other values is validated again rather than given results validated for another. `readKey`
+   * serves a key's result from here to an env that was not validated itself, while it holds
+   * the raw value that the result came from.
    */
-  validation?: EnvValidation | null;
+  latestValidation?: EnvValidation | null;
+  /**
+   * Results by env object, from its validation and its reads. Replaced, not cleared, by
+   * defineEnv, so the results of an env hold no reference once the env is gone. They live here
+   * rather than in this module because one Worker can hold several copies of it: `void deploy`
+   * bundles a framework app's cron and queue jobs apart from the app.
+   */
+  results?: WeakMap<object, Map<string, KeyResult>>;
+  /**
+   * `_prepareEnv` of the copy that registered the schema. Code bundled apart from the app
+   * prepares the env with it, so the public values embedded with the app are the ones validated.
+   */
+  prepare?: (envValues: unknown) => Promise<void>;
 };
 
 // Tooling can load `void/env` through a different module instance than the Vite
 // plugin (source workspace, built package, or cache-busted HMR import). Keep the
-// registry process-global so every instance observes the same schema.
-const ENV_REGISTRY_SYMBOL = Symbol.for('void.env.registry');
+// registry process-global so every instance observes the same schema. Two Void
+// versions in one process share it too: name a field anew when its shape changes.
+const ENV_REGISTRY_SYMBOL = Symbol.for(ENV_REGISTRY_KEY);
 const registryGlobal = globalThis as typeof globalThis & {
   [ENV_REGISTRY_SYMBOL]?: EnvRegistryState;
 };
@@ -70,17 +88,16 @@ const registry = (registryGlobal[ENV_REGISTRY_SYMBOL] ??= {
   schema: null,
   hasDefineEnvBeenCalled: false,
 });
-// Replaced, not cleared, by defineEnv, so the cache of an env holds no reference once the env
-// is gone.
-let validatedCache = new WeakMap<object, Map<string, unknown>>();
 
-function getValidatedCache(rawEnv: object): Map<string, unknown> {
-  let cache = validatedCache.get(rawEnv);
-  if (!cache) {
-    cache = new Map();
-    validatedCache.set(rawEnv, cache);
+/** The results of `rawEnv`, where `readKey` looks first. */
+function getEnvResults(rawEnv: object): Map<string, KeyResult> {
+  const byEnv = (registry.results ??= new WeakMap());
+  let results = byEnv.get(rawEnv);
+  if (!results) {
+    results = new Map();
+    byEnv.set(rawEnv, results);
   }
-  return cache;
+  return results;
 }
 
 /** Vite embeds the same public build inputs into server and browser bundles. */
@@ -121,10 +138,11 @@ export function defineEnv<S extends AnySchema>(schema: S): InferEnv<S> {
   // Flip the presence flag once and leave it on — even if a future call
   // swaps in an empty schema, we still know defineEnv was declared.
   registry.hasDefineEnvBeenCalled = true;
-  // Drop any cached entries from a prior schema (HMR / re-import).
-  validatedCache = new WeakMap();
-  // Reset boot-time validation state so a re-imported schema is re-checked.
-  registry.validation = null;
+  // Drop results from a prior schema (HMR / re-import), in every copy of this module.
+  registry.results = new WeakMap();
+  // Reset the latest validation so a re-imported schema is re-checked.
+  registry.latestValidation = null;
+  registry.prepare = _prepareEnv;
   return env as unknown as InferEnv<S>;
 }
 
@@ -137,32 +155,63 @@ export function defineEnv<S extends AnySchema>(schema: S): InferEnv<S> {
  * other env that holds the same raw values.
  */
 export async function _validateEnvOnce(envValues: unknown): Promise<void> {
-  const schema = registry.schema;
-  if (!schema) {
+  const validation = await validateEnv(envValues);
+  if (validation) {
+    assertValid(validation);
+  }
+}
+
+/**
+ * Internal: validate every schema key against a framework Worker's env, from its generated
+ * entry, so that synchronous `env.X` reads serve defaults, converted values and async
+ * validators' results. Unlike `_validateEnvOnce`, this never rejects: a read of a key that
+ * failed throws that key's error, so a request that does not read it still runs, and so does a
+ * build-time prerender without production secrets. Validations are reused the same way.
+ */
+export async function _prepareEnv(envValues: unknown): Promise<void> {
+  // Without an env, as in a prerender in Node, reads fail anyway.
+  if (typeof envValues !== 'object' || envValues === null) {
     return;
   }
+  await validateEnv(envValues);
+}
+
+/**
+ * Validate every schema key for `envValues`, or reuse the latest validation of the same raw
+ * values, and keep the results with `envValues` for its reads.
+ */
+async function validateEnv(envValues: unknown): Promise<EnvValidation | undefined> {
+  const schema = registry.schema;
+  if (!schema) {
+    return undefined;
+  }
   const inputs = readSchemaInputs(schema, envValues);
-  const last = registry.validation;
-  let state: BootValidationState;
-  if (last && sameInputs(last.inputs, inputs)) {
-    state = last.state;
-  } else {
+  let validation = registry.latestValidation;
+  if (!validation || !isReusable(validation) || !sameInputs(validation.inputs, inputs)) {
     // Each call awaits its own validation until one completes. In workerd, a promise that
     // waits on another request's I/O never settles once that request is canceled.
-    state = await validateSchema(schema, inputs);
+    validation = { inputs, results: await validateKeys(schema, inputs) };
     if (registry.schema !== schema) {
       // defineEnv registered another schema while this call waited.
-      return _validateEnvOnce(envValues);
+      return validateEnv(envValues);
     }
-    registry.validation = { inputs, state };
+    registry.latestValidation = validation;
   }
-  if (!state.ok) {
-    throw state.error;
+  // Keep the results with the env they were validated for. The registry holds the latest
+  // validation only, and an env with other values can validate while requests with this env
+  // still run: Cloudflare may keep an isolate running when only its bindings change.
+  keepResults(envValues, validation.results);
+  return validation;
+}
+
+/** A validator that threw may succeed when it runs again, as a lookup that failed can. */
+function isReusable(validation: EnvValidation): boolean {
+  for (const result of validation.results.values()) {
+    if ('thrown' in result) {
+      return false;
+    }
   }
-  // Keep the values with the env that passed. The registry holds the latest validation only,
-  // and an env with other values can validate while requests with this env still run:
-  // Cloudflare may keep an isolate running when only its bindings change.
-  seedValidated(envValues, state.values);
+  return true;
 }
 
 /** The raw value of each schema key that `readKey` would validate for this env. */
@@ -194,39 +243,71 @@ function sameInputs(a: Map<string, unknown>, b: Map<string, unknown>): boolean {
   return true;
 }
 
-async function validateSchema(
+/**
+ * Validate each schema key against its raw value, awaiting async validators. Never rejects: the
+ * issues of a key, or what its validator threw, become that key's result.
+ */
+async function validateKeys(
   schema: AnySchema,
   inputs: Map<string, unknown>,
-): Promise<BootValidationState> {
-  const report = await validateAllEnvWithValues(schema, Object.fromEntries(inputs));
-  if (report.valid) {
-    return { ok: true, values: report.values };
-  }
-  const lines: Array<string> = ['Env validation failed at worker boot:'];
-  for (const key of report.missing) {
-    lines.push(`  • ${key} is required but missing`);
-  }
-  for (const { key, messages } of report.invalid) {
-    // Messages are already redacted inside validateAllEnvWithValues.
-    lines.push(`  • ${key}: ${messages.join('; ')}`);
-  }
-  return {
-    ok: false,
-    error: new EnvValidationError('__init__', [{ message: lines.join('\n') }]),
-  };
+): Promise<Map<string, KeyResult>> {
+  const unmask = isUnmaskActive();
+  const entries = await Promise.all(
+    Object.entries(schema).map(async ([key, validator]): Promise<[string, KeyResult]> => {
+      const raw = inputs.get(key);
+      try {
+        const result = await validator['~standard'].validate(raw);
+        if (result.issues) {
+          return [key, { ok: false, issues: redactIssues(raw, result.issues, unmask) }];
+        }
+        return [key, { ok: true, value: result.value }];
+      } catch (thrown) {
+        return [key, { ok: false, thrown }];
+      }
+    }),
+  );
+  return new Map(entries);
 }
 
-/** Seed the per-key cache of `rawEnv`, where `readKey` looks first, with values validated for it. */
-function seedValidated(rawEnv: unknown, values: Map<string, unknown>): void {
-  if (typeof rawEnv !== 'object' || rawEnv === null || values.size === 0) {
+/** Throw what fails the validation as a whole: what a validator threw, or every invalid key. */
+function assertValid(validation: EnvValidation): void {
+  if (validation.error) {
+    throw validation.error;
+  }
+  const missing: Array<string> = [];
+  const invalid: Array<string> = [];
+  for (const [key, result] of validation.results) {
+    if (result.ok) {
+      continue;
+    }
+    if ('thrown' in result) {
+      throw result.thrown;
+    }
+    if (isMissing(validation.inputs.get(key))) {
+      missing.push(`  • ${key} is required but missing`);
+    } else {
+      // The messages are already redacted.
+      invalid.push(`  • ${key}: ${result.issues.map((issue) => issue.message).join('; ')}`);
+    }
+  }
+  if (missing.length > 0 || invalid.length > 0) {
+    const lines = ['Env validation failed at worker boot:', ...missing, ...invalid];
+    validation.error = new EnvValidationError('__init__', [{ message: lines.join('\n') }]);
+    throw validation.error;
+  }
+}
+
+/** Keep `results` with `rawEnv`, where its reads look first. */
+function keepResults(rawEnv: unknown, results: Map<string, KeyResult>): void {
+  if (typeof rawEnv !== 'object' || rawEnv === null) {
     return;
   }
-  const cache = getValidatedCache(rawEnv);
-  for (const [key, value] of values) {
+  const kept = getEnvResults(rawEnv);
+  for (const [key, result] of results) {
     // Internal bindings stay hidden even when the schema declares them. A value that a read
     // already returned stays the same object.
-    if (!isInternalBinding(key, rawEnv as RuntimeEnv) && !cache.has(key)) {
-      cache.set(key, value);
+    if (!isInternalBinding(key, rawEnv as RuntimeEnv) && !kept.get(key)?.ok) {
+      kept.set(key, result);
     }
   }
 }
@@ -315,24 +396,18 @@ function readKey(key: string): unknown {
   if (!validator) {
     return rawValue;
   }
-  // Cache identity must be the underlying env object. `getRuntimeEnv()`
+  // Results are keyed by the underlying env object. `getRuntimeEnv()`
   // returns a fresh Proxy on every call, so keying by it would miss.
-  const cache = getValidatedCache(rawEnv);
-  if (cache.has(key)) {
-    return cache.get(key);
-  }
-  // Validation seeds only the env object it receives. Reads also use objects it never
-  // received: the `cloudflare:workers` env outside a request scope, the remote dev copy. A
-  // validated value belongs to the raw value it came from, so the latest validation serves
-  // such an env while it holds that raw value. The value is not cached: this env can come to
-  // hold another.
-  const latest = registry.validation;
-  if (
-    latest?.state.ok &&
-    latest.state.values.has(key) &&
-    Object.is(latest.inputs.get(key), rawValue)
-  ) {
-    return latest.state.values.get(key);
+  const results = getEnvResults(rawEnv);
+  const known = results.get(key) ?? latestResult(key, rawValue);
+  if (known) {
+    if (known.ok) {
+      return known.value;
+    }
+    if ('issues' in known) {
+      throw new EnvValidationError(key, known.issues);
+    }
+    throw known.thrown;
   }
   const result = validator['~standard'].validate(rawValue);
   if (result instanceof Promise) {
@@ -346,21 +421,48 @@ function readKey(key: string): unknown {
     );
   }
   if (result.issues) {
-    const unmask = isUnmaskActive();
-    const redactedIssues = result.issues.map((i) => ({
-      ...i,
-      message: redactMessage(rawValue, i.message, { unmask }),
-    }));
-    throw new EnvValidationError(key, redactedIssues);
+    throw new EnvValidationError(key, redactIssues(rawValue, result.issues, isUnmaskActive()));
   }
-  cache.set(key, result.value);
+  results.set(key, { ok: true, value: result.value });
   return result.value;
+}
+
+/**
+ * Validation keeps results only with the env object it receives. Reads also use objects it
+ * never received: the `cloudflare:workers` env outside a request scope, the remote dev copy. A
+ * result belongs to the raw value it came from, so the latest validation serves such an env
+ * while it holds that raw value. The result is not kept with this env: it can come to hold
+ * another value.
+ */
+function latestResult(key: string, rawValue: unknown): KeyResult | undefined {
+  const latest = registry.latestValidation;
+  if (!latest || !Object.is(latest.inputs.get(key), rawValue)) {
+    return undefined;
+  }
+  return latest.results.get(key);
+}
+
+/** Issues whose messages no longer contain the raw value, unless unmasking is on. */
+function redactIssues(
+  raw: unknown,
+  issues: ReadonlyArray<StandardSchemaV1.Issue>,
+  unmask: boolean,
+): Array<StandardSchemaV1.Issue> {
+  return issues.map((issue) => ({
+    ...issue,
+    message: redactMessage(raw, issue.message, { unmask }),
+  }));
+}
+
+/** A value that a required key counts as missing rather than invalid. */
+function isMissing(raw: unknown): boolean {
+  return raw === undefined || raw === null || raw === '';
 }
 
 /**
  * Typed env proxy. Reads from the runtime env, validating declared keys
  * on first access and passing through bindings / unknown keys unchanged.
- * Async validators must be resolved first by `_validateEnvOnce()`.
+ * Async validators must be resolved first by `_validateEnvOnce()` or `_prepareEnv()`.
  */
 export const env = new Proxy({} as Record<string, unknown>, {
   get(_target, key) {
@@ -397,36 +499,19 @@ export type EnvValidationReport = {
   valid: boolean;
   missing: Array<string>;
   invalid: Array<{ key: string; messages: Array<string> }>;
-  /**
-   * Resolved values for keys that validated successfully. After async
-   * pre-validation they serve sync `env.X` reads.
-   */
+  /** Resolved values for keys that validated successfully. */
   values: Map<string, unknown>;
 };
 
 /**
  * Validate an env record (local dotenv, build inputs, or runtime bindings) against
- * the registered schema. Used by the dev plugin (warnings), the deploy CLI
- * (hard error), and `_validateEnvOnce` at worker boot.
+ * the registered schema. Used by the dev plugin (warnings) and the deploy CLI
+ * (hard error).
  *
  * Async: awaits any validators that return a `Promise` (zod async refines,
  * arktype narrows, etc.). Callers already run in async contexts.
  */
 export async function validateAllEnv(
-  envValues: Record<string, unknown>,
-): Promise<EnvValidationReport> {
-  if (!registry.schema) {
-    return { valid: true, missing: [], invalid: [], values: new Map() };
-  }
-  return await validateAllEnvWithValues(registry.schema, envValues);
-}
-
-/**
- * Internal: shared core that validates a schema against values and also
- * returns the resolved values (for sync reads).
- */
-async function validateAllEnvWithValues(
-  schema: AnySchema,
   envValues: Record<string, unknown>,
 ): Promise<EnvValidationReport> {
   const report: EnvValidationReport = {
@@ -435,20 +520,22 @@ async function validateAllEnvWithValues(
     invalid: [],
     values: new Map(),
   };
+  if (!registry.schema) {
+    return report;
+  }
   const unmask = isUnmaskActive();
-  for (const [key, validator] of Object.entries(schema)) {
+  for (const [key, validator] of Object.entries(registry.schema)) {
     const raw = envValues[key];
     const resultMaybe = validator['~standard'].validate(raw);
     const result = resultMaybe instanceof Promise ? await resultMaybe : resultMaybe;
     if (result.issues) {
       report.valid = false;
-      const isMissing = raw === undefined || raw === null || raw === '';
-      if (isMissing) {
+      if (isMissing(raw)) {
         report.missing.push(key);
       } else {
         report.invalid.push({
           key,
-          messages: result.issues.map((i) => redactMessage(raw, i.message, { unmask })),
+          messages: redactIssues(raw, result.issues, unmask).map((issue) => issue.message),
         });
       }
     } else {

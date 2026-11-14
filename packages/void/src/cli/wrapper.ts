@@ -13,12 +13,14 @@ import { createRequire } from 'node:module';
 import { fileURLToPath } from 'node:url';
 import { dirname, join, extname, toSlash } from 'pathslash';
 import { build } from 'vite';
+import { findEnvFile } from '../codegen/env-types.ts';
 import { getDatabaseDialect, readConfig, type DatabaseDialect } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { voidDbBundlerPlugin } from '../plugin-drizzle.ts';
 import { readProjectPaths } from '../project-paths.ts';
 import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
+import { ENV_REGISTRY_KEY } from '../shared/env-registry.ts';
 import { WORKER_CONDITIONS } from './worker-conditions.ts';
 import { transformWorkerRequireBundle } from './worker-require-transform.ts';
 
@@ -794,6 +796,12 @@ function generateHandlersSource(
   if (scoped) {
     lines.push(`import { withRuntimeEnv } from ${JSON.stringify(envModuleFile)};`);
   }
+  // The app's entry loads env.ts when the Worker starts, and the copy of `void/env` that
+  // registers it publishes its `_prepareEnv`. Jobs bundle their own copy apart from the app, so
+  // they prepare the env through that one, and their reads serve the values it resolved.
+  const prepareEnv = findEnvFile(root)
+    ? `  await globalThis[Symbol.for(${JSON.stringify(ENV_REGISTRY_KEY)})]?.prepare?.(env);`
+    : undefined;
 
   // Scheduled handlers
   if (features.crons.length > 0) {
@@ -808,6 +816,9 @@ function generateHandlersSource(
         ? 'async function __runScheduled(controller, env, ctx) {'
         : 'export async function handleScheduled(controller, env, ctx) {',
     );
+    if (prepareEnv) {
+      lines.push(prepareEnv);
+    }
     lines.push('  const tasks = [];');
     for (let i = 0; i < features.crons.length; i++) {
       lines.push(`  if (${JSON.stringify(features.crons[i].crons)}.includes(controller.cron)) {`);
@@ -858,6 +869,9 @@ function generateHandlersSource(
         ? 'async function __runQueue(batch, env, ctx) {'
         : 'export async function handleQueue(batch, env, ctx) {',
     );
+    if (prepareEnv) {
+      lines.push(prepareEnv);
+    }
     lines.push('  const queueSuffix = batch.queue;');
     lines.push('  const __queueIndex = __resolveQueueIndex(queueSuffix);');
     lines.push('  if (__queueIndex === -1) {');

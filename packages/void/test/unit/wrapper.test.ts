@@ -1,5 +1,6 @@
 import { once } from 'node:events';
 import {
+  copyFileSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -1161,7 +1162,54 @@ export default async function () {
     expect(handlers).toContain('export async function handleScheduled(controller, env, ctx) {');
     expect(handlers).toContain('export async function handleQueue(batch, env, ctx) {');
     expect(handlers).not.toContain('withRuntimeEnv');
+    // Nor do the jobs of an app without env.ts prepare an env.
+    expect(handlers).not.toContain('prepare');
   });
+
+  /** Write `source` as a cron job and a queue consumer, both named `read-env`, that read `void/env`. */
+  function writeReadEnvJobs(projectRoot: string, source: string): Partial<WrapperFeatures> {
+    mkdirSync(join(projectRoot, 'crons'));
+    writeFileSync(join(projectRoot, 'crons', 'read-env.ts'), source);
+    mkdirSync(join(projectRoot, 'queues'));
+    writeFileSync(join(projectRoot, 'queues', 'read-env.ts'), source);
+    mkdirSync(join(projectRoot, 'node_modules'));
+    symlinkSync(
+      join(import.meta.dirname, '..', '..'),
+      join(projectRoot, 'node_modules', 'void'),
+      process.platform === 'win32' ? 'junction' : 'dir',
+    );
+    return {
+      crons: [{ name: 'read-env', filePath: 'read-env.ts', crons: ['0 * * * *'] }],
+      queues: [{ name: 'read-env', filePath: 'read-env.ts', bindingName: 'QUEUE_READ_ENV' }],
+    };
+  }
+
+  /** Run the `read-env` cron job and queue consumer in workerd. Both succeed. */
+  async function expectReadEnvJobsToPass(
+    workerDir: string,
+    options: Parameters<typeof fetchWrappedWorker>[2],
+  ): Promise<void> {
+    expect(
+      await fetchWrappedWorker(
+        workerDir,
+        { path: '/__void/scheduled', body: { cron: '0 * * * *', scheduledTime: Date.now() } },
+        options,
+      ),
+    ).toEqual({ ok: true });
+    expect(
+      await fetchWrappedWorker(
+        workerDir,
+        {
+          path: '/__void/queue',
+          body: {
+            queue: 'read-env',
+            messages: [{ id: 'one', timestamp: new Date().toISOString(), body: {}, attempts: 1 }],
+          },
+        },
+        options,
+      ),
+    ).toMatchObject({ ok: true });
+  }
 
   // A D1 framework Worker has only `nodejs_als`; PostgreSQL deploys add `nodejs_compat`, and run
   // jobs in a request scope. Under browser conditions, reading a server key from `void/env` throws.
@@ -1173,50 +1221,84 @@ export default async function () {
     async ({ config, compatibilityFlags }) => {
       const { workerDir, projectRoot } = createMigrationFixture();
       writeFileSync(join(projectRoot, 'void.json'), JSON.stringify(config));
-      const job = `import { env } from 'void/env';
+      const jobs = writeReadEnvJobs(
+        projectRoot,
+        `import { env } from 'void/env';
 
 export default async function () {
   if (env.STRIPE_KEY !== 'sk_test') throw new Error('unexpected STRIPE_KEY');
 }
-`;
-      mkdirSync(join(projectRoot, 'crons'));
-      writeFileSync(join(projectRoot, 'crons', 'read-env.ts'), job);
-      mkdirSync(join(projectRoot, 'queues'));
-      writeFileSync(join(projectRoot, 'queues', 'read-env.ts'), job);
-      mkdirSync(join(projectRoot, 'node_modules'));
-      symlinkSync(
-        join(import.meta.dirname, '..', '..'),
-        join(projectRoot, 'node_modules', 'void'),
-        process.platform === 'win32' ? 'junction' : 'dir',
+`,
       );
 
-      await generateWrapper(workerDir, 'index.mjs', projectRoot, {
-        ...base,
-        crons: [{ name: 'read-env', filePath: 'read-env.ts', crons: ['0 * * * *'] }],
-        queues: [{ name: 'read-env', filePath: 'read-env.ts', bindingName: 'QUEUE_READ_ENV' }],
-      });
+      await generateWrapper(workerDir, 'index.mjs', projectRoot, { ...base, ...jobs });
 
-      const options = { bindings: { STRIPE_KEY: 'sk_test' }, compatibilityFlags };
-      expect(
-        await fetchWrappedWorker(
-          workerDir,
-          { path: '/__void/scheduled', body: { cron: '0 * * * *', scheduledTime: Date.now() } },
-          options,
-        ),
-      ).toEqual({ ok: true });
-      expect(
-        await fetchWrappedWorker(
-          workerDir,
-          {
-            path: '/__void/queue',
-            body: {
-              queue: 'read-env',
-              messages: [{ id: 'one', timestamp: new Date().toISOString(), body: {}, attempts: 1 }],
-            },
-          },
-          options,
-        ),
-      ).toMatchObject({ ok: true });
+      await expectReadEnvJobsToPass(workerDir, {
+        bindings: { STRIPE_KEY: 'sk_test' },
+        compatibilityFlags,
+      });
+    },
+  );
+
+  // The jobs bundle a copy of `void/env` of their own. The app's Worker loads env.ts and prepares
+  // the env, as the Class A wrapper does, and the jobs read what it resolved through the registry.
+  it.each([
+    { database: 'D1', config: {}, compatibilityFlags: ['nodejs_als'] },
+    { database: 'PostgreSQL', config: { database: 'pg' }, compatibilityFlags: ['nodejs_compat'] },
+  ])(
+    'gives $database cron and queue jobs the env.ts values that the app prepared',
+    async ({ config, compatibilityFlags }) => {
+      const { workerDir, projectRoot } = createMigrationFixture();
+      writeFileSync(join(projectRoot, 'void.json'), JSON.stringify(config));
+      const jobs = writeReadEnvJobs(
+        projectRoot,
+        `import { env } from 'void/env';
+
+export default async function () {
+  if (env.SCHEMA_DEFAULT !== 48213 || env.TOKEN !== 'SK_TEST') {
+    throw new Error('unexpected env: ' + JSON.stringify([env.SCHEMA_DEFAULT, env.TOKEN]));
+  }
+}
+`,
+      );
+      writeFileSync(
+        join(projectRoot, 'env.ts'),
+        `import { defineEnv, number } from 'void/env';
+
+// An async validator, like zod's async refine.
+const upper = {
+  '~standard': {
+    version: 1,
+    vendor: 'test',
+    validate: async (value) => ({ value: String(value).toUpperCase() }),
+  },
+};
+
+export default defineEnv({ SCHEMA_DEFAULT: number().default(48213), TOKEN: upper });
+`,
+      );
+      writeFileSync(
+        join(projectRoot, 'app.ts'),
+        `import './env.ts';
+import { _prepareEnv } from 'void/env';
+
+export default {
+  async fetch(request, env) {
+    await _prepareEnv(env);
+    return new Response('app');
+  },
+};
+`,
+      );
+      const app = await bundleEntry(projectRoot, join(projectRoot, 'app.ts'));
+      copyFileSync(join(app.outputDir, app.entryFilename), join(workerDir, 'index.mjs'));
+
+      await generateWrapper(workerDir, 'index.mjs', projectRoot, { ...base, ...jobs });
+
+      await expectReadEnvJobsToPass(workerDir, {
+        bindings: { TOKEN: 'sk_test' },
+        compatibilityFlags,
+      });
     },
   );
 
