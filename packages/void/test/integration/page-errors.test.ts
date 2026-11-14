@@ -75,7 +75,7 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
     );
     write(
       'void.config.ts',
-      `import { defineConfig } from 'void/config'; export default defineConfig({target:'node'});`,
+      `import { defineConfig } from 'void/config'; export default defineConfig({target:'node',head:{titleTemplate:'%s | Error tests'}});`,
     );
     write(
       'middleware/shared.ts',
@@ -313,15 +313,18 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
         expect(response.headers.get('X-Security')).toBe('retained');
         const text = await response.text();
         expect(text).not.toContain('SECRET_');
+        const title = `${status === 404 ? 'Not Found' : 'Internal Server Error'} | Error tests`;
         if (pages) {
           expect(response.headers.get('X-VoidPages')).toBe('true');
           expect(deserializePageData(text)).toMatchObject({
             url: path,
             shared: { viewer: 'alice' },
             props: { error: { status } },
+            head: { title },
           });
         } else {
           expect(text).toContain('data-layout="root"');
+          expect(text).toContain(`<title>${title}</title>`);
         }
       }
     }
@@ -366,6 +369,11 @@ describe.each(frameworks)('Pages errors with %s', (framework) => {
         await expect
           .poll(() => page.locator('h1').textContent())
           .toBe(name === 'Returned' || name === 'Thrown' ? 'Missing page' : 'Error page');
+        if (name !== 'Crash') {
+          await expect
+            .poll(() => page.title())
+            .toBe(`${name === 'Unexpected' ? 'Internal Server Error' : 'Not Found'} | Error tests`);
+        }
         expect(await page.evaluate(() => (window as unknown as { marker: boolean }).marker)).toBe(
           true,
         );
