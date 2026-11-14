@@ -300,8 +300,7 @@ export function routingPlugin(
   }
   reloadFileRules();
 
-  // Auth compile options are set up lazily in buildStart (after env plugin
-  // has run its config hook and the auth config file path is known).
+  // Resolve auth after config hooks have run and the auth config path is known.
   function resolveAuthCompileOptions(): void {
     if (!options.isAuthEnabled() && !authConfigPath) {
       compileOptions.auth = null;
@@ -967,7 +966,7 @@ export function routingPlugin(
       }
     },
 
-    configureServer(devServer) {
+    async configureServer(devServer) {
       const authEnvironment = devServer.environments[AUTH_CONFIG_ENVIRONMENT];
       authConfigEnvironment =
         authEnvironment && isRunnableDevEnvironment(authEnvironment) ? authEnvironment : undefined;
@@ -1154,6 +1153,16 @@ export function routingPlugin(
         watcher.on('add', handleRulesFileChange);
         watcher.on('change', handleRulesFileChange);
         watcher.on('unlink', handleRulesFileChange);
+      }
+
+      // Later configureServer hooks can load app modules before buildStart.
+      // Their imports may already reference the generated authentication tables.
+      if (options.isAuthEnabled()) {
+        await regenerateInOrder(async () => {
+          await rescan();
+          resolveAuthCompileOptions();
+          await writeAuthDatabaseFiles();
+        });
       }
     },
   };
