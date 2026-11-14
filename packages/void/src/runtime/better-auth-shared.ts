@@ -1,5 +1,6 @@
 import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
-import { betterAuth, type BetterAuthOptions } from 'better-auth';
+import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
+import { createAuthMiddleware } from 'better-auth/api';
 import type { Context } from 'hono';
 import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
 import {
@@ -367,8 +368,7 @@ function setsAuthCookie(
     }
   }
   return headers.getSetCookie().some((value) => {
-    const equals = value.indexOf('=');
-    let name = (equals === -1 ? value : value.slice(0, equals)).trim();
+    let name = cookieName(value);
     for (const secure of ['__Secure-', '__Host-']) {
       if (name.startsWith(secure)) {
         name = name.slice(secure.length);
@@ -448,6 +448,102 @@ function resolveUserConfig(
   return mergeEmailAndPasswordDefaults({ ...defaults, ...userConfig });
 }
 
+/**
+ * Collects cookies that `auth.api.*` calls set while a request runs. Router
+ * calls (`auth.handler`) return their cookies on their own response. Better
+ * Auth runs plugin `after` hooks in array order, so the plugin goes last to
+ * see cookies set by earlier hooks.
+ */
+function createCookieForwarder(): {
+  plugin: BetterAuthPlugin;
+  start(): void;
+  cookies(): Array<string>;
+} {
+  let collecting = false;
+  const cookies: Array<string> = [];
+  const plugin: BetterAuthPlugin = {
+    id: 'void-cookies',
+    hooks: {
+      after: [
+        {
+          matcher: (ctx) => collecting && !('_flag' in ctx && ctx._flag === 'router'),
+          handler: createAuthMiddleware(async (ctx) => {
+            const headers = ctx.context.responseHeaders;
+            if (headers instanceof Headers) {
+              cookies.push(...headers.getSetCookie());
+            }
+          }),
+        },
+      ],
+    },
+  };
+  return {
+    plugin,
+    start() {
+      collecting = true;
+    },
+    cookies: () => cookies,
+  };
+}
+
+function cookieName(cookie: string): string {
+  const pair = cookie.split(';', 1)[0] ?? '';
+  const equals = pair.indexOf('=');
+  return (equals === -1 ? pair : pair.slice(0, equals)).trim();
+}
+
+// A browser stores one cookie per name, domain and path. Domains ignore case
+// and a leading dot; paths are case-sensitive.
+function cookieKey(cookie: string): string {
+  let domain = '';
+  let path = '';
+  for (const attribute of cookie.split(';').slice(1)) {
+    const equals = attribute.indexOf('=');
+    const name = (equals === -1 ? attribute : attribute.slice(0, equals)).trim().toLowerCase();
+    const value = equals === -1 ? '' : attribute.slice(equals + 1).trim();
+    if (name === 'domain') {
+      domain = value.replace(/^\./, '').toLowerCase();
+    } else if (name === 'path') {
+      path = value;
+    }
+  }
+  return `${cookieName(cookie)};${domain};${path}`;
+}
+
+/**
+ * The session lookup's headers with only the cookies the browser should still
+ * receive: the last one for each key. The lookup runs first, then the
+ * `auth.api.*` calls in order. A cookie the route sent itself, such as an
+ * `asResponse` result, keeps its place among those calls when it came from
+ * one; otherwise, as with an `/api/auth` response, it is the latest.
+ */
+function mergeAuthCookies(
+  lookup: Headers | undefined,
+  forwarded: Array<string>,
+  sent: Array<string>,
+): Headers | undefined {
+  if (forwarded.length === 0 && !lookup?.has('set-cookie')) {
+    return lookup;
+  }
+  // `at` is the position among the `auth.api.*` calls, and -1 for the lookup.
+  const latest = new Map<string, { cookie: string; at: number }>();
+  for (const cookie of lookup?.getSetCookie() ?? []) {
+    latest.set(cookieKey(cookie), { cookie, at: -1 });
+  }
+  forwarded.forEach((cookie, at) => latest.set(cookieKey(cookie), { cookie, at }));
+  const sentByKey = new Map(sent.map((cookie) => [cookieKey(cookie), cookie]));
+  const headers = new Headers(lookup);
+  headers.delete('set-cookie');
+  for (const [key, { cookie, at }] of latest) {
+    const routeCookie = sentByKey.get(key);
+    const sentAt = routeCookie === undefined ? -1 : forwarded.lastIndexOf(routeCookie);
+    if (routeCookie === undefined || (sentAt !== -1 && at > sentAt)) {
+      headers.append('set-cookie', cookie);
+    }
+  }
+  return headers;
+}
+
 const SESSION_SAFE_METHODS = new Set(['GET', 'HEAD', 'OPTIONS']);
 
 // An http page never counts for an https request. An https page counts for an
@@ -478,21 +574,39 @@ async function sessionHeaders(
   auth: ReturnType<typeof betterAuth>,
 ): Promise<Headers> {
   const headers = request.headers;
-  if (!headers.has('cookie')) {
+  if (!headers.has('cookie') || (await isTrustedRequestOrigin(request, auth))) {
     return headers;
   }
+
+  const withoutCookie = new Headers(headers);
+  withoutCookie.delete('cookie');
+  console.warn(
+    `auth: Ignored the session cookie on a ${request.method} request from ${headers.get('origin')}. Add this origin to auth trustedOrigins if it should use the signed-in session.`,
+  );
+  return withoutCookie;
+}
+
+/**
+ * True when the request may use and change the signed-in session: a safe
+ * method, or a request from its own origin or one Better Auth trusts.
+ */
+async function isTrustedRequestOrigin(
+  request: Request,
+  auth: ReturnType<typeof betterAuth>,
+): Promise<boolean> {
+  const headers = request.headers;
   if (
     SESSION_SAFE_METHODS.has(request.method) &&
     headers.get('upgrade')?.toLowerCase() !== 'websocket'
   ) {
-    return headers;
+    return true;
   }
   const origin = headers.get('origin');
   if (!origin || isRequestOrigin(origin, request.url)) {
-    return headers;
+    return true;
   }
   if (origin === 'null' && headers.get('sec-fetch-site') === 'same-origin') {
-    return headers;
+    return true;
   }
 
   // Better Auth skips its origin check when CSRF checks are off, and treats
@@ -502,12 +616,12 @@ async function sessionHeaders(
     advanced?.disableCSRFCheck === true ||
     (advanced?.disableOriginCheck === true && advanced.disableCSRFCheck === undefined)
   ) {
-    return headers;
+    return true;
   }
 
   const context = await auth.$context;
   if (context.isTrustedOrigin(origin, { allowRelativePaths: false })) {
-    return headers;
+    return true;
   }
   // The function form is evaluated per request by Better Auth, while the
   // context list was built once without a request. `isTrustedOrigin` matches
@@ -522,16 +636,11 @@ async function sessionHeaders(
         allowRelativePaths: false,
       })
     ) {
-      return headers;
+      return true;
     }
   }
 
-  const withoutCookie = new Headers(headers);
-  withoutCookie.delete('cookie');
-  console.warn(
-    `auth: Ignored the session cookie on a ${request.method} request from ${origin}. Add this origin to auth trustedOrigins if it should use the signed-in session.`,
-  );
-  return withoutCookie;
+  return false;
 }
 
 const LOOPBACK_IP = /^(127\.|::1$|::ffff:127\.)/;
@@ -616,8 +725,16 @@ export function createVoidAuthRuntime(
     env: VoidAuthEnv,
     runtime: VoidAuthRuntimeOptions,
     database: AuthDatabase,
+    plugins: Array<BetterAuthPlugin> = [],
   ): Promise<ReturnType<typeof betterAuth>> {
-    return betterAuth(await resolveVoidAuthOptions(request, env, runtime, database));
+    const options = await resolveVoidAuthOptions(request, env, runtime, database);
+    if (plugins.length === 0) {
+      return betterAuth(options);
+    }
+    return betterAuth<BetterAuthOptions>({
+      ...options,
+      plugins: [...(options.plugins ?? []), ...plugins],
+    });
   }
 
   async function resolveVoidAuthState(
@@ -651,7 +768,10 @@ export function createVoidAuthRuntime(
       return next();
     }
 
-    const auth = await createVoidAuth(c.req.raw, c.env as VoidAuthEnv, runtime, database);
+    const forwarder = createCookieForwarder();
+    const auth = await createVoidAuth(c.req.raw, c.env as VoidAuthEnv, runtime, database, [
+      forwarder.plugin,
+    ]);
     c.set('__voidAuth', auth);
 
     const result = await auth.api.getSession({
@@ -669,19 +789,32 @@ export function createVoidAuthRuntime(
       authDependentRequests.add(c.req.raw);
     }
 
+    // The session lookup's own cookies are already in `result.headers`.
+    forwarder.start();
     await authContext.run({ user: state?.user ?? null, state }, async () => {
       await next();
     });
+
+    // `auth.api.*` calls skip Better Auth's origin check, so a cross-site form
+    // post must not sign the browser in or out through an app route.
+    let forwarded = forwarder.cookies();
+    if (forwarded.length > 0 && !(await isTrustedRequestOrigin(c.req.raw, auth))) {
+      console.warn(
+        `auth: Did not send cookies set by auth.api calls on a ${c.req.method} request from ${c.req.header('origin')}. Add this origin to auth trustedOrigins if it should change the session.`,
+      );
+      forwarded = [];
+    }
+    const headers = mergeAuthCookies(result.headers, forwarded, c.res.headers.getSetCookie());
 
     const credentialed = ['cookie', 'authorization', 'cf-access-jwt-assertion'].some((header) =>
       c.req.raw.headers.has(header),
     );
     appendAuthHeaders(
       c,
-      result.headers,
+      headers,
       state !== null ||
         credentialed ||
-        result.headers?.has('set-cookie') === true ||
+        headers?.has('set-cookie') === true ||
         setsAuthCookie(c.res.headers, auth.options.advanced) ||
         authEndpoint,
       isUnchangedStaticAsset(c),
