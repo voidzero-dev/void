@@ -28,6 +28,7 @@
   "type": "module",
   "imports": {
     "#self/_env": "./dist/runtime/env.mjs",
+    "#self/runtime/db-session": "./dist/runtime/db-session.mjs",
     "#self/email": "./dist/runtime/email.mjs",
     "#self/env": "./dist/runtime/env-public.mjs",
     "#self/client": "./dist/runtime/client.mjs",

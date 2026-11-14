@@ -39,6 +39,8 @@ const db = createDb(env.MY_OTHER_DB);
 
 For a fresh D1 read, pass `{ session: 'first-primary' }` and create the client inside the request. The default, `'first-unconstrained'`, allows the first query to use a replica. Both keep your schema and query types. See [Read replication](../../guide/database/d1.md#read-replication).
 
+The `session` option also accepts a D1 bookmark from a previous request. Use `getBookmark(client)` after queries to obtain the bookmark to return to your client.
+
 For PostgreSQL and MySQL projects, pass a connection string.
 
 ```ts
@@ -53,7 +55,7 @@ const db = createDb('postgres://user:password@host:5432/app');
 // D1
 function createDb(
   d1: D1Database,
-  options?: { session?: D1SessionConstraint },
+  options?: { session?: D1SessionConstraint | D1SessionBookmark },
 ): DrizzleD1Database<Schema>;
 
 // PostgreSQL
@@ -62,6 +64,24 @@ function createDb(connectionString: string): NodePgDatabase<Schema>;
 // MySQL
 function createDb(connectionString: string): MySql2Database<Schema>;
 ```
+
+## `setSession(start)` {#setsession}
+
+D1 only. Set the starting bookmark or constraint for the default request's `db`. Call it in middleware before the first use of `db`; calling it after that throws. It does not change explicitly created clients or later requests.
+
+```ts
+function setSession(start: D1SessionConstraint | D1SessionBookmark): void;
+```
+
+## `getBookmark(client?)` {#getbookmark}
+
+D1 only. Return the default request session's bookmark, or pass a client returned by `createDb()` to read that client's bookmark. Returns `null` when no bookmark is available. Reading the default bookmark does not open a database session.
+
+```ts
+function getBookmark(client?: DrizzleD1Database<Schema>): D1SessionBookmark | null;
+```
+
+`setSession()` and the no-argument `getBookmark()` require Void's request scope. For framework handlers outside that scope, use `createDb(binding, { session: bookmark })` and `getBookmark(client)` instead. See [carrying bookmarks between requests](../../guide/database/d1.md#cross-request-bookmarks) for middleware examples.
 
 ## Query Operators {#query-operators}
 

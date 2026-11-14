@@ -1,0 +1,50 @@
+.container {
+  box-sizing: border-box;
+  max-width: 100rem;
+  margin-inline: auto;
+  padding: 1rem;
+}
+.container p {
+  max-width: 75ch;
+}
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 1rem;
+}
+.variants {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 1rem 2rem;
+}
+.variants > section {
+  flex: 1 1 22rem;
+  min-width: 0;
+}
+pre {
+  white-space: pre-wrap;
+}
+pre,
+code {
+  overflow-wrap: anywhere;
+}
+.table-scroll {
+  overflow-x: auto;
+}
+
+.result.fresh h2,
+tr.fresh td:nth-child(2),
+.fresh-count {
+  color: green;
+}
+
+.result.stale h2,
+.result.errored h2,
+tr.errored td:nth-child(2),
+.error-count,
+tr.stale td:nth-child(2),
+.stale-count {
+  color: #b00020;
+}

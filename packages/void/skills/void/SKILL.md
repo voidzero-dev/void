@@ -44,6 +44,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Server/API routing and middleware          | `docs/guide/server-routing.md`, `docs/integrations/hono.md`                               |
 | Pages mode, loader/action, forms, layouts  | `docs/guide/pages-routing/*.md`, `docs/guide/type-safety.md`                              |
 | Database and migrations                    | `docs/guide/database.md`, `docs/guide/type-safety.md`                                     |
+| D1 replicas, bookmarks, read-after-write   | `docs/guide/database/d1.md`, `docs/reference/api/database.md`                             |
 | Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`                                  |
 | Authentication                             | `docs/guide/auth.md`, `docs/reference/api/auth.md`, `docs/guide/env-vars.md`              |
 | Cloudflare runtime bindings and config     | `docs/integrations/cloudflare.md`, `docs/reference/config.md`, `docs/guide/env-vars.md`   |
