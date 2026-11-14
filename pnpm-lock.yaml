@@ -754,6 +754,37 @@ importers:
         specifier: workspace:*
         version: link:../void
 
+  packages/view:
+    dependencies:
+      entities:
+        specifier: ^9.0.0
+        version: 9.0.0
+      magic-string:
+        specifier: 'catalog:'
+        version: 1.4.5
+      oxc-parser:
+        specifier: ^0.156.0
+        version: 0.156.0
+      pathslash:
+        specifier: 'catalog:'
+        version: 0.1.0
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
+      void:
+        specifier: workspace:*
+        version: link:../void
+
   packages/void:
     dependencies:
       '@cloudflare/build-output-utils':
@@ -1965,6 +1996,28 @@ importers:
       void:
         specifier: workspace:*
         version: link:../../packages/void
+
+  playground/view:
+    dependencies:
+      '@hono/node-server':
+        specifier: 'catalog:'
+        version: 2.1.6(hono@4.13.18)
+      '@void/view':
+        specifier: workspace:*
+        version: link:../../packages/view
+      void:
+        specifier: workspace:*
+        version: link:../../packages/void
+    devDependencies:
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
 
   playground/vinext-app:
     dependencies:

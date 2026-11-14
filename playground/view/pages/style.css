@@ -1,0 +1,52 @@
+:root {
+  font:
+    17px/1.6 system-ui,
+    sans-serif;
+  color: #24352c;
+  background: #f2f5ef;
+}
+body {
+  margin: 0;
+}
+main {
+  max-width: 850px;
+  padding: 48px 24px;
+  margin: auto;
+}
+h1 {
+  font-size: 48px;
+  letter-spacing: -2px;
+  margin-bottom: 8px;
+}
+h2 {
+  font-size: 21px;
+}
+.intro {
+  color: #546558;
+}
+.card {
+  background: white;
+  border: 1px solid #d6dfd1;
+  border-radius: 12px;
+  padding: 24px;
+  margin: 24px 0;
+}
+button {
+  padding: 10px 16px;
+  margin: 4px;
+  border: 1px solid #809b83;
+  border-radius: 6px;
+  background: #e9f3e4;
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+}
+.label {
+  font-weight: bold;
+}
+a {
+  color: #315d38;
+}
+.milestone {
+  color: #31794b;
+}

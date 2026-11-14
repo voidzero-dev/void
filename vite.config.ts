@@ -161,6 +161,10 @@ export default defineConfig({
     ],
     overrides: [
       {
+        files: ['playground/view/**/*.tsx'],
+        rules: { 'react/jsx-key': 'off' }, // View replaces HTML; it has no keyed virtual DOM.
+      },
+      {
         files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
         rules: {
           'constructor-super': 'off',
@@ -572,6 +576,7 @@ export default defineConfig({
             'packages/vue/test/integration/**/*.test.ts',
             'packages/svelte/test/integration/**/*.test.ts',
             'packages/solid/test/integration/**/*.test.ts',
+            'packages/view/test/integration/**/*.test.ts',
           ],
           maxWorkers,
         },
