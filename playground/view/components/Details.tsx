@@ -41,6 +41,15 @@ export function Details() {
           ))}
         </tbody>
       </table>
+      <style>{`
+        .card {
+          background: white;
+          border: 1px solid #d6dfd1;
+          border-radius: 12px;
+          padding: 24px;
+          margin: 24px 0;
+        }
+      `}</style>
     </section>
   );
 }

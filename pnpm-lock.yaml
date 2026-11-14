@@ -759,6 +759,9 @@ importers:
       entities:
         specifier: ^9.0.0
         version: 9.0.0
+      lightningcss:
+        specifier: ^1.33.0
+        version: 1.33.0
       magic-string:
         specifier: 'catalog:'
         version: 1.4.5

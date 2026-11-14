@@ -3,6 +3,7 @@ import { decodeHTML } from 'entities';
 import MagicString, { type SourceMap } from 'magic-string';
 import { parseSync } from 'oxc-parser';
 import { escapeHtml, voidTags } from './shared.ts';
+import { scopeStyles } from './styles.ts';
 
 // Oxc's ESTree nodes have heterogeneous fields; all access is guarded by node kind.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- A structural ESTree cursor; fields are selected by node kind below.
@@ -13,6 +14,7 @@ export interface ComponentInfo {
   id: string;
   node: Node;
   dynamic: boolean;
+  scope?: string;
   dependencies: Set<string>;
   callbacks: Set<string>;
   templates: Map<string, string>;
@@ -107,9 +109,13 @@ export function analyze(source: string, file: string, identity = file): ModuleIn
   }
   const add = (node: Node, name: string) => {
     let jsx = false;
+    let styled = false;
     walk(node.body, (child) => {
       if (child.type === 'JSXElement' || child.type === 'JSXFragment') {
         jsx = true;
+      }
+      if (child.type === 'JSXElement' && child.openingElement.name.name === 'style') {
+        styled = true;
       }
     });
     if (!jsx && !/^[A-Z]/.test(name)) {
@@ -132,6 +138,7 @@ export function analyze(source: string, file: string, identity = file): ModuleIn
       id,
       node,
       dynamic: false,
+      scope: styled ? `data-vv-cid-${id.slice(-8)}` : undefined,
       dependencies: new Set(),
       callbacks: new Set(),
       templates: new Map(),
@@ -493,12 +500,13 @@ export function compile(
               );
             })
             .join('');
+          const content = tag === 'style' ? scopeStyles(text, component.scope!, info.file) : text;
           rawText =
             tag === 'title' || tag === 'textarea'
-              ? escapeHtml(text)
-              : text.replace(new RegExp('</' + tag, 'gi'), '<\\/' + tag);
+              ? escapeHtml(content)
+              : content.replace(new RegExp('</' + tag, 'gi'), '<\\/' + tag);
         }
-        let attrs = '';
+        let attrs = component.scope ? ` ${component.scope}` : '';
         const hasSpread = opening.attributes.some(
           (attr: Node) => attr.type === 'JSXSpreadAttribute',
         );

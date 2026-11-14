@@ -40,6 +40,16 @@ export function Counter({ initial = 0 }: { initial?: number }) {
           <li>Item {index + 1}</li>
         ))}
       </ul>
+      <style>{`
+        .card {
+          background: white;
+          border: 1px solid #d6dfd1;
+          border-radius: 12px;
+          padding: 24px;
+          margin: 24px 0;
+        }
+        .milestone { color: #31794b; }
+      `}</style>
     </section>
   );
 }

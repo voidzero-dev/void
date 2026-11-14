@@ -12,6 +12,16 @@ export default defineConfig({
     format: 'esm',
     dts: true,
     clean: true,
-    deps: { neverBundle: ['vite', 'void', 'void/*', 'oxc-parser', 'magic-string', 'entities'] },
+    deps: {
+      neverBundle: [
+        'vite',
+        'void',
+        'void/*',
+        'oxc-parser',
+        'magic-string',
+        'entities',
+        'lightningcss',
+      ],
+    },
   },
 });

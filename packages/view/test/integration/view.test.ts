@@ -91,7 +91,7 @@ for (const mode of ['dev', 'preview'] as const) {
         ).toHaveLength(1);
         // Vite's entry is only a CSS build anchor; HTML must never request it.
         expect(html).not.toMatch(/<script[^>]+src="[^"]*pages-client/);
-        expect(html).toMatch(/stylesheet/);
+        expect(html).toContain('data-vv-cid-');
       }
       expect(html).toContain('data-void-view');
       expect(html).not.toContain('unused-button-source');
@@ -159,6 +159,60 @@ for (const mode of ['dev', 'preview'] as const) {
         await page.close();
       }
     });
+    it('isolates component styles through SSR and rerenders while supporting global rules', async () => {
+      const page = await browser.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      const color = (selector: string) =>
+        page.locator(selector).evaluate((node) => getComputedStyle(node).color);
+      try {
+        await page.goto(server.base + '/styles');
+        expect(await color('.local-heading')).toBe('rgb(255, 0, 0)');
+        expect(await color('.styled-child h2')).toBe('rgb(0, 0, 255)');
+        expect(await color('.outside-heading')).not.toBe('rgb(255, 0, 0)');
+        expect(await color('.global-nested')).toBe('rgb(128, 0, 128)');
+        expect(await color('.global-flat')).toBe('rgb(0, 128, 0)');
+        const attributes = (selector: string) =>
+          page
+            .locator(selector)
+            .evaluate((node) =>
+              node.getAttributeNames().filter((name) => name.startsWith('data-vv-cid-')),
+            );
+        const parent = await attributes('.local-heading');
+        const child = await attributes('.styled-child h2');
+        expect(parent).toHaveLength(1);
+        expect(child).toHaveLength(1);
+        expect(child).not.toEqual(parent);
+        expect(await attributes('.outside-heading')).toEqual([]);
+        expect(await attributes('.global-nested')).toEqual([]);
+        expect(
+          await page
+            .locator('.local-heading')
+            .evaluate((node) => getComputedStyle(node, '::before').content),
+        ).toBe('"Scoped: "');
+        expect(
+          await page
+            .locator('.styled-child h2')
+            .evaluate((node) => getComputedStyle(node, '::before').content),
+        ).toBe('none');
+        await page.waitForSelector('[data-vv-ready]');
+        await page.getByRole('button', { name: 'Update styled component' }).click();
+        await expect.poll(() => page.locator('.new-heading').count()).toBe(1);
+        expect(await color('.new-heading')).toBe('rgb(255, 0, 0)');
+        expect(await attributes('.new-heading')).toEqual(parent);
+        expect(await page.locator('.local-heading').textContent()).toBe('Local heading: 1');
+        expect(await color('.styled-child h2')).toBe('rgb(0, 0, 255)');
+        await page.goto(server.base + '/styles-static');
+        expect(await color('.styled-child h2')).toBe('rgb(0, 0, 255)');
+        expect(await page.locator('template, script[data-void-view]').count()).toBe(0);
+        if (mode === 'preview') {
+          expect(await page.locator('script').count()).toBe(0);
+        }
+        expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
     it('binds events, keeps instance state, invokes callbacks, and updates after await', async () => {
       const page = await browser.newPage();
       const errors: Array<string> = [];
@@ -175,8 +229,8 @@ for (const mode of ['dev', 'preview'] as const) {
         ).toBe(1);
         const counters = page.locator('section.card').filter({ has: page.locator('.count') });
         await counters.nth(0).getByRole('button', { name: 'Increment', exact: true }).click();
-        await expect.poll(() => counters.nth(0).locator('.count').textContent()).toBe('Count: 1');
-        expect(await counters.nth(1).locator('.count').textContent()).toBe('Count: 2');
+        await expect.poll(() => counters.nth(0).locator('.count').innerText()).toBe('Count: 1');
+        expect(await counters.nth(1).locator('.count').innerText()).toBe('Count: 2');
         await counters.nth(1).getByRole('button', { name: 'Increment', exact: true }).click();
         await expect.poll(() => counters.nth(1).locator('li').count()).toBe(3);
         expect(await counters.nth(1).locator('.milestone').textContent()).toBe('Three or more!');

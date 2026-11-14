@@ -1,17 +1,19 @@
 import { Button } from '../components/Button.tsx';
 import { Counter } from '../components/Counter.tsx';
 import * as Examples from '../components/index.ts';
-import './style.css';
 function Intro() {
   return (
-    <p class="intro">
-      Server-rendered HTML. Small custom elements only where interaction is needed.
-    </p>
+    <>
+      <p class="intro">
+        Server-rendered HTML. Small custom elements only where interaction is needed.
+      </p>
+      <style>{`.intro { color: #546558; }`}</style>
+    </>
   );
 }
 export default function Home() {
   return (
-    <main>
+    <>
       <h1>Void View</h1>
       <Intro />
       <section class="card">
@@ -28,7 +30,18 @@ export default function Home() {
         <a href="/button">Just one button</a>
         {' · '}
         <a href="/conditional">Server-selected interaction</a>
+        {' · '}
+        <a href="/styles">Scoped styles</a>
       </p>
-    </main>
+      <style>{`
+        .card {
+          background: white;
+          border: 1px solid #d6dfd1;
+          border-radius: 12px;
+          padding: 24px;
+          margin: 24px 0;
+        }
+      `}</style>
+    </>
   );
 }

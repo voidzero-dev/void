@@ -163,3 +163,13 @@ minimumReleaseAgeExclude:
   - mysql2@3.24.6
   - vite-plus@1.3.0 || 1.6.0
   - vitepress-plugin-group-icons@1.8.2
+
+permissions:
+  '@analogjs/platform':
+    skills: false
+  '@tanstack/react-router':
+    skills: false
+  '@tanstack/react-start':
+    skills: false
+  arktype:
+    skills: false

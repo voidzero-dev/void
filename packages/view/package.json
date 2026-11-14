@@ -39,6 +39,7 @@
   },
   "dependencies": {
     "entities": "^9.0.0",
+    "lightningcss": "^1.33.0",
     "magic-string": "catalog:",
     "oxc-parser": "^0.156.0",
     "pathslash": "catalog:"

@@ -4,14 +4,15 @@ import { analyze, compile } from '../../src/compiler.ts';
 import { component, Html, render, template } from '../../src/server.ts';
 
 describe('view compiler', () => {
-  it('keeps constant style text in HTML rather than creating a binding', () => {
+  it('keeps scoped style text in HTML rather than creating a binding', () => {
     const info = analyze(
       'export function Styled(){ return <div><style>{`h1 { color: red; }`}</style></div>; }',
       '/Styled.tsx',
     );
     compile(info, false);
+    const scope = info.components[0]!.scope;
     expect([...info.components[0]!.templates.values()]).toEqual([
-      '<div><style>h1 { color: red; }</style></div>',
+      `<div ${scope}><style ${scope}>h1[${scope}]{color:red}</style></div>`,
     ]);
   });
   it.each([
