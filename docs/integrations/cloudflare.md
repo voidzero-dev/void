@@ -145,6 +145,77 @@ Set these CI secrets and variables as needed:
 
 For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Email Routing Edit and Email Sending Edit.
 
+### Pull request previews
+
+Give each pull request its own URL with [Cloudflare Previews](https://developers.cloudflare.com/workers/previews/). A Preview belongs to the same Worker but never receives production traffic. Previews are available for static sites, SPAs and supported SSGs.
+
+```sh
+void deploy --platform cloudflare --preview pr-64 --json   # create or update
+void preview delete pr-64                                  # remove
+```
+
+The CI job needs only `CLOUDFLARE_API_TOKEN` (Workers Scripts: Edit) and, when the token can access several accounts, `CLOUDFLARE_ACCOUNT_ID`. This workflow deploys a preview on every push to a pull request, comments its URL, and deletes it when the pull request closes:
+
+```yaml
+name: Preview
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: preview-${{ github.event.pull_request.number }}
+
+jobs:
+  preview:
+    # Repository secrets are not available to pull requests from forks.
+    if: github.event.action != 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          check-latest: true
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - id: preview
+        run: |
+          set -o pipefail
+          url="$(pnpm exec void deploy --platform cloudflare --preview "pr-${{ github.event.pull_request.number }}" --json | jq -er '.previewUrl')"
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - run: gh pr comment "${{ github.event.pull_request.number }}" --edit-last --create-if-none --body "Preview: ${{ steps.preview.outputs.url }}"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  cleanup:
+    if: github.event.action == 'closed' && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: lts/*
+          check-latest: true
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm exec void preview delete "pr-${{ github.event.pull_request.number }}"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+```
+
+If the build runs in an earlier job, download its output and add `--skip-build`. Preview URLs are public; protect them with [Cloudflare Access](https://developers.cloudflare.com/workers/configuration/cloudflare-access/) when needed. See [`void deploy --preview`](../reference/cli/deploy.md#void-deploy-preview) for the JSON output and naming rules.
+
 #### Cloudflare Access
 
 For local deployment to an Access-protected Worker, you can use a short-lived user session:

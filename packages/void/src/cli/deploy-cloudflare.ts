@@ -63,6 +63,12 @@ export async function runCloudflareDeploy(
     );
     return exit(1);
   }
+  if (options.preview !== undefined && (options.reuseExistingWorker || initialCloudflareLink)) {
+    log.error(
+      'deploy: previews are unavailable during the existing Worker handoff. Complete the handoff with a production deploy first.',
+    );
+    return exit(1);
+  }
   const detectedFramework = detectFramework(root);
   const frameworkPreset = detectedFramework ? FRAMEWORK_PRESETS[detectedFramework.name] : undefined;
   cliLog.info('cloudflare_deploy_start', {
@@ -112,6 +118,16 @@ export async function runCloudflareDeploy(
       initialCloudflareCandidate,
       reporter,
     );
+  }
+
+  if (options.preview !== undefined) {
+    log.error(
+      [
+        'deploy: --preview currently supports static sites and single-page apps only.',
+        'This app needs a Worker (server routes, bindings, migrations or secrets), and a Preview would share or skip them. Deploy it without --preview.',
+      ].join('\n'),
+    );
+    return exit(1);
   }
 
   // After the static branch: a static framework build is served by the thin

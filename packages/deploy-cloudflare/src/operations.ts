@@ -56,6 +56,15 @@ export type CloudflareOperation =
        */
       interactive?: boolean;
     } & WorkerTarget)
+  | ({
+      /**
+       * Create or update a named Workers Preview from the prebuilt output. A Preview has its own
+       * URL and settings and never receives production traffic.
+       */
+      type: 'previews.deploy';
+      previewName: string;
+    } & WorkerTarget)
+  | ({ type: 'previews.delete'; previewName: string } & WorkerTarget)
   | ({ type: 'triggers.deploy'; assets?: boolean } & WorkerTarget)
   | ({ type: 'triggers.clear-crons' | 'triggers.clear-domains' } & WorkerTarget)
   | ({ type: 'tail'; search?: string; versionId?: string; status?: 'error' } & WorkerTarget);
@@ -64,6 +73,16 @@ export type CloudflareUploadResult = {
   versionId: string;
   previewUrl?: string;
   workersDevUrl?: string;
+};
+
+/** Structured `previews.deploy` data, decoded by the runner from the provider's response. */
+export type CloudflarePreviewUploadResult = {
+  previewId: string;
+  previewName: string;
+  deploymentId: string;
+  /** Absent when the Worker has Preview URLs turned off. */
+  previewUrl?: string;
+  deploymentUrl?: string;
 };
 
 export type CloudflareProviderError = {

@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { canonicalJson, isRecord } from '@void/deploy-core';
 import { join } from 'pathslash';
 import { parseRootWranglerConfig } from './config.ts';
-import { cloudflareCommandDiagnostic } from './diagnostics.ts';
+import { commandDiagnosticFields } from './diagnostics.ts';
 import {
   isCleanCommandExit,
   isCompletedCommand,
@@ -2520,11 +2520,6 @@ function versionPercentages(
     const [versionId, percentage] = value.split('@');
     return { versionId: versionId!, percentage: Number(percentage) };
   });
-}
-
-function commandDiagnosticFields(result: CloudflareCommandResult): { diagnostic?: string } {
-  const diagnostic = cloudflareCommandDiagnostic(result);
-  return diagnostic ? { diagnostic } : {};
 }
 
 function isContainersUnavailable(result: CloudflareCommandResult): boolean {

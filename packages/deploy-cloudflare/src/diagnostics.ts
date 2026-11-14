@@ -82,3 +82,9 @@ export function cloudflareCommandDiagnostic(result: CloudflareCommandResult): st
     .slice(0, MAX_DIAGNOSTIC_LENGTH);
   return bounded.length < message.length ? `${bounded}\n[diagnostic truncated]` : bounded;
 }
+
+/** The uploader's diagnostic as an optional result field. */
+export function commandDiagnosticFields(result: CloudflareCommandResult): { diagnostic?: string } {
+  const diagnostic = cloudflareCommandDiagnostic(result);
+  return diagnostic ? { diagnostic } : {};
+}

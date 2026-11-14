@@ -23,7 +23,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `init`, `prepare`, `info`, `migrate`       | [Project setup](./cli/setup.md)                               |
 | `connect`, `auth`, `account`, `cloudflare` | [Connections and authentication](./cli/auth.md)               |
 | `project`                                  | [Projects, teams, logs, and rollback](./cli/project.md)       |
-| `deploy`                                   | [Deployment](./cli/deploy.md)                                 |
+| `deploy`, `preview`                        | [Deployment](./cli/deploy.md)                                 |
 | `db`                                       | [Database](./cli/database.md)                                 |
 | `gen`                                      | [Code generation](./cli/generate.md)                          |
 | `secret`, `env`                            | [Secrets and environment](./cli/secrets.md)                   |
@@ -40,6 +40,8 @@ Platform administrators can also choose AI Gateway logging [per project](./cli/p
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `void deploy`                     | Build and deploy to the configured platform                                   |
 | `void deploy --skip-migrations`   | Deploy code without applying application or authentication SQL migrations     |
+| `void deploy --preview <name>`    | Deploy a Cloudflare Preview with its own URL; production is unchanged         |
+| `void preview delete <name>`      | Delete a Cloudflare Preview                                                   |
 | `void prepare`                    | Generate `.void` artifacts without starting Vite                              |
 | `void info [--json]`              | Inspect persistent resource names before moving their code                    |
 | `void gen model <name> [cols...]` | Scaffold a Drizzle table and API routes                                       |

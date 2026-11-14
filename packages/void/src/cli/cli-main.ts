@@ -22,6 +22,7 @@ import { OperatorClientError } from './operator-client.ts';
 import { formatUrl, pc } from './output.ts';
 import { parsePlatformArgs, platformSubcommands } from './platform-args.ts';
 import { parsePrepareArgs } from './prepare-args.ts';
+import { parsePreviewArgs, previewSubcommands } from './preview-args.ts';
 import { projectSubcommands, parseProjectArgs } from './project-args.ts';
 import { secretSubcommands, parseSecretArgs } from './secret-args.ts';
 import type { SubcommandDef, SubcommandResult } from './subcommand-prompt.ts';
@@ -134,6 +135,10 @@ const subcommandGroups: Record<string, () => Promise<void>> = {
       import('./cloudflare-cmd.ts').then(({ runCloudflareCommand }) =>
         runCloudflareCommand(root, parsed),
       ),
+    ),
+  preview: () =>
+    runSubcommandGroup('preview', previewSubcommands, parsePreviewArgs, (root, parsed) =>
+      import('./preview-cmd.ts').then(({ runPreviewCommand }) => runPreviewCommand(root, parsed)),
     ),
   project: () =>
     runSubcommandGroup('project', projectSubcommands, parseProjectArgs, (root, parsed) =>
@@ -286,7 +291,16 @@ if (helpPath) {
       description: 'Inspect persistent resource names in this project',
     },
     { name: 'connect', description: 'Connect to Cloudflare or a Void platform' },
-    { name: 'deploy', description: 'Build and deploy, or link an existing Cloudflare Worker' },
+    {
+      name: 'deploy',
+      hint: '--platform cloudflare --preview <name>',
+      description: 'Build and deploy, or link an existing Cloudflare Worker',
+    },
+    {
+      name: 'preview',
+      hint: 'delete',
+      description: 'Delete a Cloudflare Preview created with void deploy --preview',
+    },
     {
       name: 'auth',
       hint: 'login | status | logout',

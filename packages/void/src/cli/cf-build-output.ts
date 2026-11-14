@@ -156,6 +156,8 @@ export async function prepareCfBuildOutput(
   accountId?: string,
   mode?: string,
   projectRoot: string = workerDirectory,
+  /** Mark the output as a Preview build, which `cf previews deploy` requires. */
+  options: { isPreview?: boolean } = {},
 ): Promise<CfBuildOutput | null> {
   const source = resolve(workerDirectory);
   if (existsSync(getRootConfigPath(source))) {
@@ -281,7 +283,7 @@ export async function prepareCfBuildOutput(
     await writeRootConfig(
       directory,
       typeof configuredAccountId === 'string' ? { accountId: configuredAccountId } : {},
-      { isPreview: false, mode: mode ?? 'production' },
+      { isPreview: options.isPreview === true, mode: mode ?? 'production' },
     );
     await writeWorkerConfig({
       root: directory,
@@ -546,6 +548,7 @@ async function prepareBundledBuildOutput(options: {
   assets: Record<string, unknown>;
   accountId: string;
   external?: Array<RegExp>;
+  isPreview?: boolean;
 }): Promise<CfBuildOutput | null> {
   const scratch = mkdtempSync(join(tmpdir(), options.scratchPrefix));
   try {
@@ -576,7 +579,9 @@ async function prepareBundledBuildOutput(options: {
       JSON.stringify({ ...options.config, main: 'index.js', assets: options.assets }),
       { mode: 0o600 },
     );
-    return await prepareCfBuildOutput(scratch, options.accountId, undefined, options.projectRoot);
+    return await prepareCfBuildOutput(scratch, options.accountId, undefined, options.projectRoot, {
+      isPreview: options.isPreview,
+    });
   } finally {
     rmSync(scratch, { recursive: true, force: true });
   }
@@ -588,6 +593,8 @@ export async function prepareCfStaticBuildOutput(options: {
   configPath: string;
   assetsDirectory: string;
   accountId: string;
+  /** Prepare the output for `cf previews deploy` instead of a production version. */
+  isPreview?: boolean;
 }): Promise<CfBuildOutput | null> {
   const raw = record(JSON.parse(readFileSync(options.configPath, 'utf8')));
   if (!raw || typeof raw.main !== 'string' || basename(raw.main) !== raw.main) {
@@ -604,6 +611,7 @@ export async function prepareCfStaticBuildOutput(options: {
     config: raw,
     assets: { ...record(raw.assets), directory: resolve(options.assetsDirectory) },
     accountId: options.accountId,
+    isPreview: options.isPreview,
   });
 }
 

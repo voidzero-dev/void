@@ -12,6 +12,7 @@ void deploy [--project <name>] [--dir <path>] [--spa] [--skip-build] [--skip-mig
 void deploy [--platform <cloudflare|void>] [--require-email]
 void deploy --platform cloudflare --atomic
 void deploy --platform cloudflare --provision
+void deploy --platform cloudflare --preview <name> [--json]
 ```
 
 Auto-detects your project type and chooses the right pipeline. See [Supported App Types](../../guide/app-types.md) and [Deployment](../../guide/deployment.md) for details.
@@ -39,6 +40,8 @@ For Drizzle projects, deploy performs a read-only schema drift check. If a new m
 | `--require-email`               | Fail when email cannot be set up instead of deploying without it; requires `--platform cloudflare`                                                                   |
 | `--provision`                   | Run resource provisioning again even when every resource exists, for example to enable D1 read replication on an existing database; requires `--platform cloudflare` |
 | `--atomic`                      | Publish an existing Durable Object Worker directly; readiness is checked after traffic changes                                                                       |
+| `--preview <name>`              | Create or update a Cloudflare Preview instead of production; see [Previews](#void-deploy-preview)                                                                    |
+| `--json`                        | With `--preview`, print the result as one JSON record on stdout; progress goes to stderr                                                                             |
 | `--debug`                       | Mirror the structured deploy log to stderr (also written to `~/.void/logs/`)                                                                                         |
 
 `--atomic` applies to one deployment. For an existing Durable Object Worker that consistently cannot stage, set `deploy: { cloudflare: { mode: 'atomic' } }` in `void.config.ts` so plain `void deploy` uses atomic publication. The default is `staged`.
@@ -115,3 +118,43 @@ Sandbox requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/worker
 For email, set `email.from` and run `void email setup --platform cloudflare` locally. Commit the lock file and pass `--require-email` in CI. See [Email setup](../../guide/email/domains.md#your-own-cloudflare-account).
 
 For Access credentials, Hyperdrive permissions, readiness, and rollback, see [Cloudflare deployment](../../integrations/cloudflare.md#deploy-to-your-own-cloudflare-account).
+
+## `void deploy --platform cloudflare --preview <name>` {#void-deploy-preview}
+
+Deploy the build to a named [Cloudflare Preview](https://developers.cloudflare.com/workers/previews/) of the same Worker:
+
+```sh
+void deploy --platform cloudflare --skip-build --preview pr-64 --json
+```
+
+A Preview has its own stable URL, `https://<name>-<worker>.<subdomain>.workers.dev`, which always serves its latest deployment. Deploying the same name again updates that URL. Production traffic, the active deployment, routes and schedules are unchanged.
+
+Previews are available for static sites, SPAs and supported SSGs. Apps that need a Worker, such as server routes, bindings, migrations or secrets, are refused before anything is built or uploaded. A Preview does not inherit production secrets.
+
+The name uses lowercase letters, digits and hyphens. `<name>-<worker>` must fit in 63 characters. Use a name derived from the pull request, such as `pr-64`, rather than a branch name.
+
+With `--json`, stdout carries one line:
+
+```json
+{
+  "workerName": "my-app",
+  "previewName": "pr-64",
+  "previewUrl": "https://pr-64-my-app.my-team.workers.dev",
+  "deploymentId": "…",
+  "deploymentUrl": "https://…-my-app.my-team.workers.dev"
+}
+```
+
+`previewUrl` always serves the latest deployment of this Preview. `deploymentUrl` serves only this deployment.
+
+The Worker must allow Preview URLs. Void's production deploy turns them on when workers.dev is on. If you set `cloudflare.preview_urls` to `false` in `void.config.ts`, a preview deploy fails and says how to turn it back on. Workers Free allows 100 Previews per Worker; Cloudflare removes the least recently deployed one beyond that.
+
+See [Pull request previews](../../integrations/cloudflare.md#pull-request-previews) for a GitHub Actions workflow.
+
+## `void preview delete <name>` {#void-preview-delete}
+
+```sh
+void preview delete pr-64
+```
+
+Delete a Preview and all its deployments. Production is unchanged. Deleting a Preview that does not exist succeeds, so a cleanup job can run more than once. It uses the same account and Worker as `void deploy --platform cloudflare`.
