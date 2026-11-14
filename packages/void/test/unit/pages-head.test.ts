@@ -71,6 +71,13 @@ describe('resolveHead', () => {
     expect(resolveHead(config, middleware, page)?.title).toBe('Users');
   });
 
+  it('inserts a title containing `$` replacement patterns as written', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    for (const title of ['A $& B', 'Price $` x', "x $' y", 'Tom $$ Jerry', '$1 off']) {
+      expect(resolveHead(undefined, middleware, { title })?.title).toBe(`${title} | Admin`);
+    }
+  });
+
   it('does not emit titleTemplate in the resolved head', () => {
     const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
     const page: HeadDescriptor = { title: 'Users' };

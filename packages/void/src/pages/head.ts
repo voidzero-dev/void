@@ -37,7 +37,7 @@ export function resolveHead(
   const title = pageHead?.title ?? middlewareHead?.title ?? configHead?.title;
   if (title !== undefined) {
     const template = middlewareHead?.titleTemplate ?? configHead?.titleTemplate;
-    result.title = template ? template.replace('%s', title) : title;
+    result.title = template ? template.replace('%s', () => title) : title;
   }
 
   // Meta entries dedupe by charset/property/name; later layers win but keep
