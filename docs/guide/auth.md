@@ -240,6 +240,8 @@ export default defineAuth(({ defaults }) => ({
 
 `defaults` already includes Void's conventions. Extend it explicitly instead of expecting a deep merge.
 
+In `auth.ts`, load helpers that import `@auth-schema` inside the hook that uses them, with `await import('./server/users')`. This lets `void prepare` generate the authentication schema on a fresh clone. The same applies when a helper imports your app's database schema and that schema references authentication tables.
+
 For the full set of available options, see the official [Better Auth options reference](https://www.better-auth.com/docs/reference/options).
 
 ## Database and Migrations

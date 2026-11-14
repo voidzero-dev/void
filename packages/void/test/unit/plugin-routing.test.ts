@@ -118,13 +118,13 @@ function fakeDevServer(
   return { server, invalidated, restart, emit, logError };
 }
 
-function startDevServer(
+async function startDevServer(
   plugin: RoutingPlugin,
   moduleIds?: Array<string>,
   extraEnvironments?: Record<string, unknown>,
 ) {
   const dev = fakeDevServer(moduleIds, extraEnvironments);
-  (getHookHandler(plugin.configureServer) as (server: unknown) => void)(dev.server);
+  await (getHookHandler(plugin.configureServer) as (server: unknown) => Promise<void>)(dev.server);
   return dev;
 }
 
@@ -186,6 +186,26 @@ describe('routingPlugin', () => {
 
     const database = readFileSync(join(root, '.void', 'better-auth-db.ts'), 'utf8');
     expect(database).toContain('requireRuntimeBinding<D1Database>("AUTH_DB")');
+  });
+
+  it('writes auth files before later configureServer hooks can load the Worker', async () => {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'auth.ts'),
+      "export type {} from 'void/auth';\nexport default { user: { additionalFields: { nickname: { type: 'string' } } } };",
+    );
+    const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
+    resolveConfig(plugin, 'serve');
+    const dev = fakeDevServer();
+
+    await (getHookHandler(plugin.configureServer) as (server: unknown) => Promise<void>)(
+      dev.server,
+    );
+
+    expect(readFileSync(join(root, '.void', 'better-auth-schema.ts'), 'utf8')).toContain(
+      '"nickname"',
+    );
+    expect(existsSync(join(root, '.void', 'better-auth-db.ts'))).toBe(true);
   });
 
   it('resolves extensionless and Vite alias imports in auth.ts during a build', async () => {
@@ -384,7 +404,7 @@ describe('routingPlugin', () => {
       });
       resolveConfig(plugin, 'serve');
       await runBuildStart(plugin);
-      const { emit, restart } = startDevServer(plugin);
+      const { emit, restart } = await startDevServer(plugin);
       restart.mockImplementation(() => runBuildStart(plugin));
 
       const addedPath = join(root, 'routes', addedRoute);
@@ -405,7 +425,7 @@ describe('routingPlugin', () => {
     );
 
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
-    const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const { emit, invalidated } = await startDevServer(plugin, PAGE_MODULE_IDS);
 
     writeFileSync(
       join(root, 'pages', 'test.tsx'),
@@ -429,7 +449,7 @@ describe('routingPlugin', () => {
 
       const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
       resolveConfig(plugin, 'serve', plugins);
-      const { emit, invalidated, logError } = startDevServer(plugin, PAGE_MODULE_IDS);
+      const { emit, invalidated, logError } = await startDevServer(plugin, PAGE_MODULE_IDS);
 
       // Moving about.tsx to about/index.tsx adds the new file before the old one goes.
       const indexPath = join(root, 'pages', 'about', 'index.tsx');
@@ -463,7 +483,7 @@ describe('routingPlugin', () => {
     runConfig(plugin, { command: 'serve', mode: 'development' });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, logError } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const { emit, logError } = await startDevServer(plugin, PAGE_MODULE_IDS);
     const typesPath = join(root, '.void', 'routes.d.ts');
     const before = readFileSync(typesPath, 'utf8');
     expect(before).toContain('pages/home.dev.server.ts');
@@ -490,7 +510,7 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const { emit, invalidated } = await startDevServer(plugin, PAGE_MODULE_IDS);
 
     writeFileSync(pagePath, 'export default function Index() { return <h1>Updated</h1>; }');
     await emit('change', pagePath);
@@ -519,7 +539,7 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const { emit, invalidated } = await startDevServer(plugin, PAGE_MODULE_IDS);
 
     writeFileSync(
       serverPath,
@@ -562,7 +582,9 @@ describe('routingPlugin', () => {
 
     const typesPath = join(root, '.void', 'routes.d.ts');
     const previousTypes = readFileSync(typesPath, 'utf-8');
-    const { server, emit, invalidated, logError } = startDevServer(plugin, ['virtual:void-routes']);
+    const { server, emit, invalidated, logError } = await startDevServer(plugin, [
+      'virtual:void-routes',
+    ]);
 
     expect(previousTypes).not.toContain('POST: {');
 
@@ -624,7 +646,7 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
 
     writeFileSync(envPath, 'export default { example: true };');
     await emit('change', envPath);
@@ -645,7 +667,9 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { server, emit, invalidated, logError } = startDevServer(plugin, ['virtual:void-routes']);
+    const { server, emit, invalidated, logError } = await startDevServer(plugin, [
+      'virtual:void-routes',
+    ]);
     vi.spyOn(
       server.environments.void_worker.moduleGraph,
       'invalidateModule',
@@ -673,7 +697,7 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
     const typesPath = join(root, '.void', 'routes.d.ts');
     const types = readFileSync(typesPath, 'utf8');
 
@@ -701,7 +725,7 @@ describe('routingPlugin', () => {
     );
     const plugin = routingPlugin(root, { isAuthEnabled: () => true, getApplicationAnalysis });
     resolveConfig(plugin, 'serve');
-    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
     if (overlap === 'another save') {
       await runBuildStart(plugin);
     }
@@ -768,7 +792,7 @@ describe('routingPlugin', () => {
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => true });
     resolveConfig(plugin, 'serve');
     await runBuildStart(plugin);
-    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
     writeFileSync(configPath, 'export default ' + JSON.stringify(config));
     writeFileSync(routePath, 'export const GET = () => new Response("updated");');
     await emit('change', routePath);
@@ -797,7 +821,7 @@ describe('routingPlugin', () => {
       const plugin = createRoutingPlugin(root, { target, isAuthEnabled: () => auth });
       resolveConfig(plugin, 'serve');
       await runBuildStart(plugin);
-      const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+      const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
       const outputs = files.map((file) => {
         const path = join(root, '.void', file);
         const content = readFileSync(path, 'utf8');
@@ -969,7 +993,7 @@ describe('routingPlugin', () => {
       isAuthEnabled: () => false,
       onDevAssetRoutingPolicyChange: onPolicyChange,
     });
-    const { emit, invalidated } = startDevServer(plugin, ['virtual:void-routes']);
+    const { emit, invalidated } = await startDevServer(plugin, ['virtual:void-routes']);
 
     const routePath = join(root, 'src', 'routes', 'api.ts');
     writeFileSync(routePath, 'export const GET = () => new Response("ok");\n');
@@ -988,7 +1012,7 @@ describe('routingPlugin', () => {
     mkdirSync(join(root, 'src', 'pages'), { recursive: true });
 
     const plugin = createRoutingPlugin(root, { isAuthEnabled: () => false });
-    const { emit, invalidated } = startDevServer(plugin, PAGE_MODULE_IDS);
+    const { emit, invalidated } = await startDevServer(plugin, PAGE_MODULE_IDS);
 
     const pagePath = join(root, 'src', 'pages', 'test.tsx');
     writeFileSync(pagePath, 'export default function Test() { return null; }');
