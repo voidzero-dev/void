@@ -71,6 +71,8 @@ export const GET = defineHandler((c) => getAuth(c).handler(c.req.raw));
 
 Enable [authentication](../../guide/auth.md) before calling this helper; it throws if no instance is available. Anonymous requests can use it too. Call `requireAuth(c)` separately to require a signed-in user.
 
+Cookies set by `getAuth(c).api` calls are sent with the response, so endpoints such as `signInEmail` and `signUpEmail` sign in the current browser. They are not sent on a `POST` from another origin unless it is in `trustedOrigins`. See [server usage](../../guide/auth.md#server-usage).
+
 **Signature:**
 
 ```ts
