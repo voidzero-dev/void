@@ -32,9 +32,11 @@ describe('persistent resource runtime contracts', () => {
     ).not.toThrow();
   });
 
-  it.each([defineRoom, defineWebSocket])(
-    'requires generated WebSocket metadata to match the authored name',
-    (define) => {
+  it.each(['room', 'socket'] as const)(
+    'requires generated WebSocket metadata to match the authored %s name',
+    (kind) => {
+      const define = (definition: { name?: string; messages: typeof messages }) =>
+        kind === 'room' ? defineRoom(definition) : defineWebSocket(definition);
       const definition = define({ name: 'chat-room', messages });
       expect(() => createWebSocketDurableObject(definition, route)).toThrow(
         'statically discoverable',

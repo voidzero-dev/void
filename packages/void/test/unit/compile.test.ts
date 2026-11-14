@@ -167,6 +167,11 @@ describe('compileRouteTable', () => {
     expect(code).toContain('createWebSocketDurableObject');
     expect(code).toContain('export const ChatRoomWs = __createWebSocketDurableObject');
     expect(code).toContain('const __voidWebSocketRoutes = [{"pattern":"/chat/:room"');
+    expect(code).toContain('"mode":"room"');
+    expect(code).toContain('__registerWebSocketRoutes(__voidWebSocketRoutes);');
+    expect(code.indexOf('__voidWebSocketRoutes[0].key = websocket0.key')).toBeLessThan(
+      code.indexOf('__registerWebSocketRoutes(__voidWebSocketRoutes);'),
+    );
     expect(code).toContain('app.all("/chat/:room"');
     expect(code).toContain(
       'if (c.req.raw.headers.get("upgrade")?.toLowerCase() !== "websocket") return next()',

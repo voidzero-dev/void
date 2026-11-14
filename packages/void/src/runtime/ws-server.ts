@@ -1,3 +1,4 @@
+import { DurableObject as CloudflareDurableObject } from 'cloudflare:workers';
 import type { StandardSchemaV1 } from '../standard-schema.ts';
 import { authContext, type AuthState, type AuthUser } from './auth.ts';
 import type { VoidAuthEnv, VoidAuthRuntimeOptions } from './better-auth-shared.ts';
@@ -5,6 +6,7 @@ import { withRuntimeEnv } from './env.ts';
 import type { CloudEnv } from './handler.ts';
 import type {
   AnyWebSocketDefinition,
+  RoomActionContext,
   RoomContext,
   RoomController,
   SocketContext,
@@ -19,10 +21,14 @@ export type WebSocketRouteMeta = {
   params: Array<string>;
   className: string;
   bindingName: string;
+  /** `room` routes accept `getRoom()` actions; `socket` routes do not. */
+  mode?: 'room' | 'socket';
 };
 
 export type WebSocketDurableObjectInstance = {
   fetch(request: Request): Promise<Response>;
+  /** Server-only RPC used by `getRoom()`. Never reachable from a client message or HTTP request. */
+  __voidRoomAction?(request: RoomActionRequest): Promise<unknown>;
   webSocketMessage(
     webSocket: WebSocket,
     message: string | ArrayBuffer | ArrayBufferView,
@@ -33,6 +39,14 @@ export type WebSocketDurableObjectInstance = {
     reason: string,
     wasClean: boolean,
   ): Promise<void>;
+};
+
+type RoomActionRequest = {
+  name: string;
+  args: Array<unknown>;
+  /** Instance id the caller addressed, so actions see the same `id` clients do. */
+  id: string;
+  params: Record<string, string>;
 };
 
 export type WebSocketDurableObjectClass = {
@@ -124,6 +138,48 @@ export function buildWebSocketInstanceId(
     return `v2:${JSON.stringify(entries)}`;
   }
   return route.params.map((name) => `${name}=${params[name] ?? ''}`).join('&');
+}
+
+/** Present bracket parameters without changing the router's compiled patterns. */
+function canonicalWebSocketPattern(pattern: string): string {
+  return pattern
+    .split('/')
+    .map((segment) => {
+      if (segment === '[...]') {
+        return '*';
+      }
+      const param = segment.match(/^\[\.\.\.([^\]]+)\]$/);
+      if (param) {
+        return `:${param[1]}{.+}`;
+      }
+      const named = segment.match(/^\[([^\]]+)\]$/);
+      return named ? `:${named[1]}` : segment;
+    })
+    .join('/');
+}
+
+/**
+ * Route metadata for `getRoom()`. The generated route table registers it once per
+ * worker, so server code can address the same instance a client's `connect()` does.
+ * Shared through `globalThis` because dev can evaluate this module more than once.
+ */
+const WEB_SOCKET_ROUTES_SYMBOL: unique symbol = Symbol.for('void.webSocketRoutes.v1');
+const sharedWebSocketRoutes = globalThis as {
+  [WEB_SOCKET_ROUTES_SYMBOL]?: Map<string, WebSocketRouteMeta>;
+};
+const webSocketRoutes = (sharedWebSocketRoutes[WEB_SOCKET_ROUTES_SYMBOL] ??= new Map());
+
+/** @internal Called by the generated route table. */
+export function __registerWebSocketRoutes(routes: Array<WebSocketRouteMeta>): void {
+  webSocketRoutes.clear();
+  for (const route of routes) {
+    webSocketRoutes.set(canonicalWebSocketPattern(route.pattern), route);
+  }
+}
+
+/** @internal Route metadata registered by the generated route table. */
+export function __getWebSocketRoute(pattern: string): WebSocketRouteMeta | undefined {
+  return webSocketRoutes.get(canonicalWebSocketPattern(pattern));
 }
 
 async function serializeServerEvent(schema: StandardSchemaV1, event: unknown): Promise<string> {
@@ -286,17 +342,44 @@ export function createWebSocketDurableObject(
   }
   const instanceRoute = { ...route, key: definition.key };
 
-  class VoidWebSocketDurableObject implements WebSocketDurableObjectInstance {
-    constructor(
-      public readonly state: DurableObjectState,
-      public readonly env: Record<string, unknown>,
-    ) {}
+  class VoidWebSocketDurableObject
+    extends CloudflareDurableObject<Record<string, unknown>>
+    implements WebSocketDurableObjectInstance
+  {
+    readonly state: DurableObjectState;
 
-    fetch(request: Request): Promise<Response> {
-      return withRuntimeEnv(this.env, () => this.handleFetch(request));
+    constructor(state: DurableObjectState, env: Record<string, unknown>) {
+      // Extending `DurableObject` enables RPC, which is how `getRoom()` reaches actions.
+      // Every other method stays `#`-private so it never joins that RPC surface.
+      super(state, env);
+      this.state = state;
     }
 
-    private context(
+    fetch(request: Request): Promise<Response> {
+      return withRuntimeEnv(this.env, () => this.#handleFetch(request));
+    }
+
+    async __voidRoomAction(request: RoomActionRequest): Promise<unknown> {
+      return withRuntimeEnv(this.env, () => {
+        const actions = definition.__kind === 'room' ? definition.actions : undefined;
+        const action =
+          actions && Object.hasOwn(actions, request.name) ? actions[request.name] : undefined;
+        if (typeof action !== 'function') {
+          throw new Error(`ws: Unknown room action "${request.name}".`);
+        }
+        const context: RoomActionContext = {
+          id: request.id,
+          params: request.params,
+          env: this.env as CloudEnv['Bindings'],
+          storage: this.state.storage,
+          room: createRoomController<unknown>(this.state, definition.messages.server),
+        };
+        const handler = action as (context: RoomActionContext, ...args: Array<unknown>) => unknown;
+        return handler(context, ...request.args);
+      });
+    }
+
+    #context(
       request: Request,
       webSocket: WebSocket,
       stored: StoredConnection,
@@ -304,7 +387,7 @@ export function createWebSocketDurableObject(
       return createHookContext(definition, this.state, this.env, request, webSocket, stored);
     }
 
-    private async handleFetch(request: Request): Promise<Response> {
+    async #handleFetch(request: Request): Promise<Response> {
       const params = getRouteMatch(request, route) ?? {};
       const roomId = buildWebSocketInstanceId(instanceRoute, params);
       const authState =
@@ -327,7 +410,7 @@ export function createWebSocketDurableObject(
         };
         setStoredConnection(server, stored);
 
-        const beforeConnectCtx = this.context(request, server, stored);
+        const beforeConnectCtx = this.#context(request, server, stored);
         const decision = await withAuthState(authState, () =>
           definition.onBeforeConnect?.(beforeConnectCtx as never),
         );
@@ -337,7 +420,7 @@ export function createWebSocketDurableObject(
 
         this.state.acceptWebSocket(server);
 
-        const connectCtx = this.context(request, server, stored);
+        const connectCtx = this.#context(request, server, stored);
         await withAuthState(authState, () => definition.onConnect?.(connectCtx as never));
 
         return new Response(null, { status: 101, webSocket: client });
@@ -354,7 +437,7 @@ export function createWebSocketDurableObject(
         user,
         authState,
       };
-      const ctx = this.context(request, new WebSocketPair()[1], stored);
+      const ctx = this.#context(request, new WebSocketPair()[1], stored);
       return withAuthState(authState, () => definition.onRequest!(ctx as never));
     }
 
@@ -362,10 +445,10 @@ export function createWebSocketDurableObject(
       webSocket: WebSocket,
       message: string | ArrayBuffer | ArrayBufferView,
     ): Promise<void> {
-      return withRuntimeEnv(this.env, () => this.handleWebSocketMessage(webSocket, message));
+      return withRuntimeEnv(this.env, () => this.#handleWebSocketMessage(webSocket, message));
     }
 
-    private async handleWebSocketMessage(
+    async #handleWebSocketMessage(
       webSocket: WebSocket,
       message: string | ArrayBuffer | ArrayBufferView,
     ): Promise<void> {
@@ -387,7 +470,7 @@ export function createWebSocketDurableObject(
       }
 
       const request = new Request(`https://void.local${route.pattern}`);
-      const ctx = this.context(request, webSocket, stored);
+      const ctx = this.#context(request, webSocket, stored);
       await withAuthState(stored.authState ?? null, () =>
         definition.onMessage?.(ctx as never, result.value as never),
       );
@@ -400,11 +483,11 @@ export function createWebSocketDurableObject(
       wasClean: boolean,
     ): Promise<void> {
       return withRuntimeEnv(this.env, () =>
-        this.handleWebSocketClose(webSocket, code, reason, wasClean),
+        this.#handleWebSocketClose(webSocket, code, reason, wasClean),
       );
     }
 
-    private async handleWebSocketClose(
+    async #handleWebSocketClose(
       webSocket: WebSocket,
       code: number,
       reason: string,
@@ -413,7 +496,7 @@ export function createWebSocketDurableObject(
       completeWebSocketClose(webSocket, code, reason);
       const stored = getStoredConnection(webSocket);
       const request = new Request(`https://void.local${route.pattern}`);
-      const ctx = this.context(request, webSocket, stored);
+      const ctx = this.#context(request, webSocket, stored);
       await withAuthState(stored.authState ?? null, () =>
         definition.onClose?.(ctx as never, { code, reason, wasClean }),
       );
