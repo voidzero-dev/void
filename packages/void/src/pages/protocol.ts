@@ -445,15 +445,11 @@ async function renderPageFailure(
     console.error(error);
   }
   const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
+  const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
   let head: HeadDescriptor | undefined;
   // Invalid shared/head input is not repairable by trying another component.
   try {
-    head = resolveRequestHead(
-      c,
-      configHead,
-      c.get('headDefaults') as HeadConfig | undefined,
-      undefined,
-    );
+    head = resolveRequestHead(c, configHead, middlewareHead, undefined);
     serializePageData({ shared, head });
   } catch (cause) {
     throw new Error('Unable to render Pages error boundary', { cause });
@@ -473,7 +469,11 @@ async function renderPageFailure(
       errors: null,
       head: {
         ...head,
-        title: head?.title ?? (status === 404 ? 'Not Found' : 'Internal Server Error'),
+        title:
+          head?.title ??
+          resolveHead(configHead, middlewareHead, {
+            title: status === 404 ? 'Not Found' : 'Internal Server Error',
+          })?.title,
       },
     };
     try {

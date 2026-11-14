@@ -8,10 +8,11 @@ import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
 import { clientPageError } from '../../src/pages/boundary-client.ts';
 import { createBoundaryManifest } from '../../src/pages/boundary-plans.ts';
+import { renderHeadToString } from '../../src/pages/head.ts';
 import { generateComponentManifest } from '../../src/pages/manifest.ts';
 import { scanPages } from '../../src/pages/scan.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler, type CloudEnv } from '../../src/runtime/handler.ts';
 import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
 import { createPageGetHandler, createPagesFallback } from '../../src/runtime/routing-pages.ts';
 import { createRoutingRuntime } from '../../src/runtime/routing.ts';
@@ -482,6 +483,77 @@ describe('loader not-found dispatch', () => {
     expect(rendered).toEqual([]);
     expect(await response.text()).not.toContain('static');
   });
+});
+
+describe.each([false, true])('boundary titles (Pages: %s)', (pages) => {
+  it.each([
+    { status: 404, expected: 'Not Found | Site' },
+    { status: 500, expected: 'Internal Server Error | Site' },
+    ...(pages ? [] : [{ status: 404, escalate: true, expected: 'Internal Server Error | Site' }]),
+    { status: 404, configTitle: 'Configured', expected: 'Configured | Site' },
+    { status: 500, middlewareTitle: 'Custom error', expected: 'Custom error | Admin' },
+    { status: 404, middlewareTemplate: true, expected: 'Not Found | Admin' },
+  ])(
+    'resolves $expected for status $status',
+    async ({ status, expected, escalate, configTitle, middlewareTitle, middlewareTemplate }) => {
+      const app = new Hono<CloudEnv>();
+      app.use(async (c, next) => {
+        if (middlewareTitle !== undefined || middlewareTemplate) {
+          c.set('headDefaults', { title: middlewareTitle, titleTemplate: '%s | Admin' });
+        }
+        await next();
+      });
+      app.get(
+        '/',
+        createPageGetHandler({
+          componentId: 'index',
+          load: async () => ({
+            loader: () => {
+              if (status === 404) {
+                return new Response(null, { status: 404 });
+              }
+              throw new Error('SECRET_FAILURE');
+            },
+          }),
+          assets: async () => ({ css: '', body: '', preloads: '' }),
+          headConfig: {
+            title: configTitle,
+            titleTemplate: '%s | Site',
+            meta: [{ name: 'description', content: 'Site description' }],
+          },
+          renderOptions: { boundaries: { notFound: 'missing', errors: ['error'] } },
+          render: async (page) => {
+            if (escalate && page.component === 'missing') {
+              throw new Error('SECRET_BOUNDARY_FAILURE');
+            }
+            return renderHeadToString(page.head!);
+          },
+        }),
+      );
+      const response = await app.request('https://app.test/', {
+        headers: pages
+          ? {
+              'X-VoidPages': 'true',
+              'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+            }
+          : {},
+      });
+      expect(response.status).toBe(escalate ? 500 : status);
+      const body = await response.text();
+      expect(body).not.toContain('SECRET_');
+      if (pages) {
+        expect(deserializePageData(body)).toMatchObject({
+          head: {
+            title: expected,
+            meta: [{ name: 'description', content: 'Site description' }],
+          },
+        });
+      } else {
+        expect(body).toContain(`<title>${expected}</title>`);
+        expect(body).toContain('Site description');
+      }
+    },
+  );
 });
 
 describe('boundary recovery failures', () => {
