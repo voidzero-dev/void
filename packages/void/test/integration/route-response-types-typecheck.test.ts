@@ -47,6 +47,12 @@ it('preserves tuples and JSON omissions in generated typed fetch responses', () 
           void: [join(voidDist, 'index.d.mts')],
           'void/client': [join(voidDist, 'runtime/client.d.mts')],
           'void/routes': [join(root, '.void/routes.d.ts')],
+          zod: [
+            join(
+              dirname(createRequire(import.meta.url).resolve('zod/package.json')),
+              'index.d.cts',
+            ),
+          ],
         },
       },
       files: ['.void/routes.d.ts', 'check.ts'],
@@ -54,6 +60,11 @@ it('preserves tuples and JSON omissions in generated typed fetch responses', () 
     '.void/routes.d.ts': dts,
     'routes/api/serialization.ts': `
 import { defineHandler } from 'void';
+import { z } from 'zod';
+
+const names = z.array(z.string()).brand<'Names'>().parse(['Alice']);
+const readonlyNames = z.array(z.string()).readonly().brand<'Names'>().parse(['Alice']);
+const datedPair = z.tuple([z.string(), z.date()]).brand<'DatedPair'>().parse(['Alice', new Date()]);
 
 declare const hidden: unique symbol;
 declare const payload: {
@@ -87,7 +98,13 @@ declare const payload: {
   neverArray: never[];
 };
 
-export const GET = defineHandler(async () => payload);
+export const GET = defineHandler(async () => ({
+  ...payload,
+  names,
+  readonlyNames,
+  datedPair,
+  decorated: Object.assign([new Date()], { total: 1 }),
+}));
 
 declare const body: {
   readonly '~standard': {
@@ -133,6 +150,16 @@ assert<Equal<typeof result.object, {
 assert<Equal<typeof result.union, { kind: 'a'; value?: string } | { kind: 'b'; value: number }>>();
 assert<Equal<typeof result.primitives, [string, number, boolean, null]>>();
 assert<Equal<typeof result.neverArray, never[]>>();
+assert<Equal<typeof result.names, string[]>>();
+assert<Equal<typeof result.readonlyNames, readonly string[]>>();
+assert<Equal<typeof result.datedPair, string[]>>();
+assert<Equal<typeof result.decorated, string[]>>();
+const names: string[] = result.names.map((name) => name.toUpperCase());
+const dates: string[] = result.decorated.map((date) => date.toUpperCase());
+// @ts-expect-error readonly arrays retain readonly methods
+result.readonlyNames.push('Bob');
+// @ts-expect-error JSON omits additional array properties
+result.decorated.total;
 
 const pairs: [number, number][] = result.pairs;
 // @ts-expect-error tuples retain their length

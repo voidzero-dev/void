@@ -92,6 +92,14 @@ export function generateRouteTypes(
   // Find optional object keys before Serialize removes their omitted-value union members.
   lines.push('type JsonOmitted = undefined | Function | symbol;');
   lines.push('type SerializeArrayElement<T> = T extends JsonOmitted ? null : Serialize<T>;');
+  // A homomorphic map preserves ordinary arrays and tuples, but maps methods too
+  // on array intersections (e.g. Zod brands). Rebuild those as JSON arrays.
+  lines.push('type SerializeArray<T extends readonly unknown[]> =');
+  lines.push('  { [K in keyof T]: SerializeArrayElement<T[K]> } extends infer A');
+  lines.push('    ? A extends readonly unknown[] ? A');
+  lines.push('      : T extends unknown[] ? Array<SerializeArrayElement<T[number]>>');
+  lines.push('      : ReadonlyArray<SerializeArrayElement<T[number]>>');
+  lines.push('    : never;');
   lines.push('type JsonOptionalKeys<T> = {');
   lines.push('  [K in keyof T]-?: Extract<T[K], JsonOmitted> extends never ? never : K;');
   lines.push('}[keyof T];');
@@ -106,7 +114,7 @@ export function generateRouteTypes(
   lines.push('  T extends Date ? string :');
   lines.push('  T extends bigint ? never :');
   lines.push('  T extends JsonOmitted ? never :');
-  lines.push('  T extends readonly unknown[] ? { [K in keyof T]: SerializeArrayElement<T[K]> } :');
+  lines.push('  T extends readonly unknown[] ? SerializeArray<T> :');
   lines.push(
     '  T extends object ? SerializeObject<Omit<T, JsonOptionalKeys<T>> & Partial<Pick<T, JsonOptionalKeys<T>>>> :',
   );
