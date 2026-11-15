@@ -924,6 +924,75 @@ describe('createVoidRouter', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  it('streams navigation without waiting for an unfinished prefetch', async () => {
+    stubClientGlobals();
+    const prefetched = controlledPromise<Response>();
+    const applyUpdate = vi.fn();
+    const resolveDeferred = vi.fn((_ref, value) => value);
+    const encoder = new TextEncoder();
+    let stream!: ReadableStreamDefaultController<Uint8Array>;
+    const pageData = {
+      component: 'users',
+      props: { title: 'Users' },
+      deferredKeys: { stats: 'stats' },
+    };
+    vi.stubGlobal(
+      'fetch',
+      vi.fn((_url, init: RequestInit) => {
+        if (new Headers(init.headers).get('Purpose') === 'prefetch') {
+          return prefetched.promise;
+        }
+        return Promise.resolve(
+          new Response(
+            new ReadableStream({
+              start(controller) {
+                stream = controller;
+                controller.enqueue(encoder.encode(serializePageData(pageData) + '\n'));
+              },
+            }),
+            { headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/x-ndjson' } },
+          ),
+        );
+      }),
+    );
+    const { router } = await createTestRouter({
+      components: { home: loadComponent, users: loadComponent },
+      matchRoute: () => 'users',
+      adapter: {
+        applyUpdate,
+        resolveDeferred,
+        createDeferred: () => ({ loading: true }),
+        isLoading: () => true,
+      },
+    });
+    const prefetch = router.prefetch('/users');
+    const visit = router.visit('/users');
+    try {
+      await vi.waitFor(
+        () =>
+          expect(applyUpdate.mock.calls[0]?.[0]).toEqual(
+            expect.objectContaining({
+              props: { title: 'Users', stats: { loading: true } },
+            }),
+          ),
+        { timeout: 500 },
+      );
+      stream.enqueue(
+        encoder.encode(serializePageData({ __deferred: 'stats', data: { count: 42 } }) + '\n'),
+      );
+      await vi.waitFor(() =>
+        expect(resolveDeferred).toHaveBeenCalledWith({ loading: true }, { count: 42 }),
+      );
+    } finally {
+      stream?.close();
+      prefetched.resolve(
+        pageJson({ ...pageData, props: { title: 'Users', stats: { count: 42 } } }),
+      );
+      await Promise.all([prefetch, visit]);
+      router.flushAll();
+    }
+  });
+
   it.each(['replace', 'mutate'])(
     'keeps prefetched deferred data intact with %s adapters',
     async (mode) => {

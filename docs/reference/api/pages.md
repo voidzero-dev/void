@@ -48,6 +48,8 @@ Combine strategies with an array such as `['visible', 'hover']`. The first one t
 
 Only same-origin GET links prefetch. `Link` skips prefetching when Chromium reports data saver or a 2G connection. Calling `router.prefetch()` explicitly still loads the page.
 
+Navigation reuses completed prefetches. If a prefetch is still loading, navigation makes its own request so the page can render before deferred props finish.
+
 Set `cacheFor` in milliseconds or as a duration such as `'5m'`. To show cached data while refreshing it in the background, use a pair such as `['30s', '5m']`: the page stays fresh for 30 seconds and can be reused for up to 5 minutes.
 
 Each adapter plugin's `prefetch` option sets app-wide values:

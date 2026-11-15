@@ -739,7 +739,9 @@ export async function createPageNavigationEngine(
     }
     const cacheEntry = method === 'GET' ? _prefetchCache.get(fetchUrl, method) : null;
 
-    if (cacheEntry) {
+    // Prefetch JSON waits for every deferred prop. An unfinished prefetch must
+    // not hold up the streamed shell from an ordinary navigation request.
+    if (cacheEntry && !cacheEntry.pending) {
       const cachedPageData = await cacheEntry.response;
       _prefetchCache.consume(fetchUrl, method);
       if (cachedPageData === null) {

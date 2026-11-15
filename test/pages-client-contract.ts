@@ -108,6 +108,40 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
+  it('navigates to a deferred page while its prefetch is still pending', async () => {
+    const page = await newPage();
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await page.route('**/deferred', async (route) => {
+        const response = await route.fetch();
+        if (route.request().headers()['purpose'] === 'prefetch') {
+          await pending;
+        }
+        await route.fulfill({ response });
+      });
+      await page.goto(BASE + '/');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      const prefetch = page.waitForRequest(
+        (request) =>
+          request.url() === BASE + '/deferred' && request.headers()['purpose'] === 'prefetch',
+      );
+      await page.hover('a[href="/deferred"]');
+      await prefetch;
+      await page.click('a[href="/deferred"]');
+      await page.getByRole('heading', { name: 'Deferred Page', exact: true }).waitFor();
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      release();
+      await page.context().close();
+    }
+  });
+
   it.each(['Redirect to anchor', 'Submit to anchor'])(
     'preserves redirect hashes and scrolls to the target through %s',
     async (button) => {
