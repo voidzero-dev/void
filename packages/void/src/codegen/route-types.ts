@@ -88,15 +88,27 @@ export function generateRouteTypes(
   lines.push('  >["output"];');
   lines.push('}');
   lines.push('');
+  // JSON keeps invalid array positions as null, but omits the same values in objects.
+  // Find optional object keys before Serialize removes their omitted-value union members.
+  lines.push('type JsonOmitted = undefined | Function | symbol;');
+  lines.push('type SerializeArrayElement<T> = T extends JsonOmitted ? null : Serialize<T>;');
+  lines.push('type JsonOptionalKeys<T> = {');
+  lines.push('  [K in keyof T]-?: Extract<T[K], JsonOmitted> extends never ? never : K;');
+  lines.push('}[keyof T];');
+  lines.push('type SerializeObject<T> = {');
+  lines.push(
+    '  [K in keyof T as K extends symbol ? never : T[K] extends JsonOmitted ? never : K]: Serialize<T[K]>;',
+  );
+  lines.push('};');
+  lines.push('');
   lines.push('type Serialize<T> =');
   lines.push('  T extends Response ? never :');
   lines.push('  T extends Date ? string :');
   lines.push('  T extends bigint ? never :');
-  lines.push('  T extends Function ? never :');
-  lines.push('  T extends undefined ? never :');
-  lines.push('  T extends Array<infer U> ? Array<Serialize<U>> :');
+  lines.push('  T extends JsonOmitted ? never :');
+  lines.push('  T extends readonly unknown[] ? { [K in keyof T]: SerializeArrayElement<T[K]> } :');
   lines.push(
-    '  T extends object ? { [K in keyof T as T[K] extends Function ? never : K]: Serialize<T[K]> } :',
+    '  T extends object ? SerializeObject<Omit<T, JsonOptionalKeys<T>> & Partial<Pick<T, JsonOptionalKeys<T>>>> :',
   );
   lines.push('  T;');
   lines.push('');

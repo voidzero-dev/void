@@ -439,15 +439,20 @@ The dev server keeps route types up to date. After changing `routing.typedRoutes
 
 ## Serialization
 
-The client types reflect JSON serialization through `Serialize<T>`:
+The typed fetch client reflects JSON serialization:
 
-| Source type                       | Serialized type                                        |
-| --------------------------------- | ------------------------------------------------------ |
-| `string`, `number`, `boolean`     | unchanged                                              |
-| `Date`                            | `string`                                               |
-| `Response`                        | excluded (passed through at runtime)                   |
-| `bigint`, `Function`, `undefined` | excluded                                               |
-| `Array<T>` / `{ key: T }`         | recursively serialized (function-valued keys stripped) |
+| Source type or value                                | Client type or behavior                                         |
+| --------------------------------------------------- | --------------------------------------------------------------- |
+| `string`, `number`, `boolean`, `null`               | unchanged                                                       |
+| `Date`                                              | `string`                                                        |
+| Arrays and tuples, including readonly types         | recursively serialized, preserving tuple shape and readonly     |
+| `undefined`, functions, or symbols in an array      | `null`                                                          |
+| `undefined`, functions, or symbols as object values | property omitted                                                |
+| Symbol-keyed object properties                      | omitted                                                         |
+| `Response`                                          | excluded from the inferred JSON type; passed through at runtime |
+| `bigint`                                            | unsupported by JSON                                             |
+
+Object properties whose values may be omitted become optional in the client type. For example, a handler returning `{ label: string | undefined }` produces `{ label?: string }`.
 
 ## Context Variables
 
