@@ -29,7 +29,6 @@ import {
   SHARED_CACHE_POLICY_HEADER,
   markSharedCachePolicy,
   resolveRevalidateTtl,
-  resolvePathTtl,
   resolvePageTtl,
   matchesLiteralPage,
   isDottedPathIsrEligible,

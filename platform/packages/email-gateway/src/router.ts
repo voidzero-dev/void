@@ -422,7 +422,6 @@ export async function routeRelayed(
   ) {
     return { reject: true };
   }
-  const slug = authoritative.slug;
   const workerName = authoritative.workerName;
 
   // Built before dispatch so the dispatch-failure paths can log the

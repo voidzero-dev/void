@@ -797,7 +797,7 @@ describe('ISR (stale-while-revalidate)', () => {
     // → 0 (per-path opt-out, rendered live, never cached). This proves the
     // pathRevalidate field is threaded through the ISR ladder end-to-end — the
     // per-path fidelity that build-time baking (one TTL per page) cannot give.
-    const { env, workerFetch, kvStore } = createEnv({
+    const { env, kvStore } = createEnv({
       routing: {
         workerName: 'user-app',
         projectId: 'proj_1',
