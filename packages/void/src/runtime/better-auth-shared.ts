@@ -493,10 +493,11 @@ function cookieName(cookie: string): string {
 }
 
 // A browser stores one cookie per name, domain and path. Domains ignore case
-// and a leading dot; paths are case-sensitive.
-function cookieKey(cookie: string): string {
+// and a leading dot; paths are case-sensitive. Missing or invalid paths default
+// to the request directory.
+function cookieKey(cookie: string, defaultPath: string): string {
   let domain = '';
-  let path = '';
+  let path = defaultPath;
   for (const attribute of cookie.split(';').slice(1)) {
     const equals = attribute.indexOf('=');
     const name = (equals === -1 ? attribute : attribute.slice(0, equals)).trim().toLowerCase();
@@ -504,7 +505,7 @@ function cookieKey(cookie: string): string {
     if (name === 'domain') {
       domain = value.replace(/^\./, '').toLowerCase();
     } else if (name === 'path') {
-      path = value;
+      path = value.startsWith('/') ? value : defaultPath;
     }
   }
   return `${cookieName(cookie)};${domain};${path}`;
@@ -521,17 +522,21 @@ function mergeAuthCookies(
   lookup: Headers | undefined,
   forwarded: Array<string>,
   sent: Array<string>,
+  requestUrl: string,
 ): Headers | undefined {
   if (forwarded.length === 0 && !lookup?.has('set-cookie')) {
     return lookup;
   }
+  const requestPath = new URL(requestUrl).pathname;
+  const lastSlash = requestPath.lastIndexOf('/');
+  const defaultPath = lastSlash <= 0 ? '/' : requestPath.slice(0, lastSlash);
   // `at` is the position among the `auth.api.*` calls, and -1 for the lookup.
   const latest = new Map<string, { cookie: string; at: number }>();
   for (const cookie of lookup?.getSetCookie() ?? []) {
-    latest.set(cookieKey(cookie), { cookie, at: -1 });
+    latest.set(cookieKey(cookie, defaultPath), { cookie, at: -1 });
   }
-  forwarded.forEach((cookie, at) => latest.set(cookieKey(cookie), { cookie, at }));
-  const sentByKey = new Map(sent.map((cookie) => [cookieKey(cookie), cookie]));
+  forwarded.forEach((cookie, at) => latest.set(cookieKey(cookie, defaultPath), { cookie, at }));
+  const sentByKey = new Map(sent.map((cookie) => [cookieKey(cookie, defaultPath), cookie]));
   const headers = new Headers(lookup);
   headers.delete('set-cookie');
   for (const [key, { cookie, at }] of latest) {
@@ -768,6 +773,7 @@ export function createVoidAuthRuntime(
       return next();
     }
 
+    const requestUrl = c.originalUrl?.()?.href ?? c.req.raw.url;
     const forwarder = createCookieForwarder();
     const auth = await createVoidAuth(c.req.raw, c.env as VoidAuthEnv, runtime, database, [
       forwarder.plugin,
@@ -804,7 +810,12 @@ export function createVoidAuthRuntime(
       );
       forwarded = [];
     }
-    const headers = mergeAuthCookies(result.headers, forwarded, c.res.headers.getSetCookie());
+    const headers = mergeAuthCookies(
+      result.headers,
+      forwarded,
+      c.res.headers.getSetCookie(),
+      requestUrl,
+    );
 
     const credentialed = ['cookie', 'authorization', 'cf-access-jwt-assertion'].some((header) =>
       c.req.raw.headers.has(header),

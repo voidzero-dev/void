@@ -910,6 +910,98 @@ describe('auth.api cookies on requests from another origin', () => {
 });
 
 describe('cookie keys and positions', () => {
+  it.each<[string, string, boolean, string?]>([
+    ['/profile', '/', true],
+    ['/account/profile', '/account', true],
+    ['/account/profile/', '/account/profile', true],
+    ['/account/profile?next=/elsewhere', '/account', true],
+    ['/account/profile', '', true],
+    ['/account/profile', 'relative', true],
+    ['/account/profile', '/', false],
+    ['/account/profile', '/other', false],
+    ['/account/profile', '/account', true, '/internal/save'],
+    ['/account/profile', '/internal', false, '/internal/save'],
+  ])(
+    'preserves route cookie overrides using the browser default path (%s, Path=%s) [%#]',
+    async (requestPath, routePath, samePath, rewritePath) => {
+      const plugin = {
+        id: 'default-path-cookie',
+        hooks: {
+          after: [
+            {
+              matcher: (ctx) => ctx.path === '/update-user',
+              handler: createAuthMiddleware(async (ctx) => {
+                ctx.setCookie('theme', 'auth');
+              }),
+            },
+          ],
+        },
+      } satisfies BetterAuthPlugin;
+      const { app } = fixture({ ...cookieCache, plugins: [plugin] });
+      const routeCookie = `theme=route; Path=${routePath}`;
+      const pathname = new URL(origin + requestPath).pathname;
+      if (rewritePath) {
+        app.post(pathname, (c) => c.rewrite(rewritePath));
+      }
+      app.post(rewritePath ?? pathname, async (c) => {
+        await getAuth(c).api.updateUser({
+          body: { name: 'Default path' },
+          headers: c.req.raw.headers,
+        });
+        c.header('set-cookie', routeCookie, { append: true });
+        return c.json({ ok: true });
+      });
+      const jar = await signIn(app);
+
+      const response = await send(app, requestPath, { jar, body: {} });
+
+      expect(response.status).toBe(200);
+      const cookies = response.headers
+        .getSetCookie()
+        .filter((cookie) => cookie.startsWith('theme='));
+      if (samePath) {
+        expect(cookies).toEqual([routeCookie]);
+      } else {
+        expect(cookies).toHaveLength(2);
+        expect(cookies[0]).toBe(routeCookie);
+        expect(cookies[1]).toMatch(/^theme=auth(?:;|$)/);
+      }
+    },
+  );
+
+  it('keeps the latest forwarded cookie when omitted and explicit paths match', async () => {
+    let updates = 0;
+    const plugin = {
+      id: 'default-path-cookie',
+      hooks: {
+        after: [
+          {
+            matcher: (ctx) => ctx.path === '/update-user',
+            handler: createAuthMiddleware(async (ctx) => {
+              updates++;
+              ctx.setCookie('theme', String(updates), updates === 1 ? {} : { path: '/account' });
+            }),
+          },
+        ],
+      },
+    } satisfies BetterAuthPlugin;
+    const { app } = fixture({ ...cookieCache, plugins: [plugin] });
+    app.post('/account/profile', async (c) => {
+      for (const name of ['First', 'Second']) {
+        await getAuth(c).api.updateUser({ body: { name }, headers: c.req.raw.headers });
+      }
+      return c.json({ ok: true });
+    });
+    const jar = await signIn(app);
+
+    const response = await send(app, '/account/profile', { jar, body: {} });
+
+    expect(response.status).toBe(200);
+    const cookies = response.headers.getSetCookie().filter((cookie) => cookie.startsWith('theme='));
+    expect(cookies).toHaveLength(1);
+    expect(cookies[0]).toMatch(/^theme=2;.*Path=\/account(?:;|$)/);
+  });
+
   it('treats cookie domains without case or a leading dot, and paths with case', async () => {
     const plugin = {
       id: 'app-cookies',
