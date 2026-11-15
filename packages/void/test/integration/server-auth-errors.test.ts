@@ -21,13 +21,13 @@ const forms = ['Native form POST', 'Enhanced form POST'] as const;
 const pages = [
   { path: '/loaders/optional-user', status: 200, heading: 'Loader rendered the page' },
   { path: '/loaders/optional-session', status: 200, heading: 'Loader rendered the page' },
-  { path: '/loaders/require-auth', status: 401, heading: null },
+  { path: '/loaders/require-auth', status: 401, heading: 'Root error boundary' },
   { path: '/loaders/return-redirect', status: 302, heading: 'Sign in' },
   { path: '/loaders/throw-redirect', status: 302, heading: 'Sign in' },
   { path: '/loaders/auth-redirect', status: 302, heading: 'Sign in' },
   { path: '/loaders/not-found', status: 404, heading: 'Not-found boundary' },
   { path: '/loaders/unexpected', status: 500, heading: 'Root error boundary' },
-  { path: '/middleware/require-auth', status: 401, heading: null },
+  { path: '/middleware/require-auth', status: 401, heading: 'Root error boundary' },
   { path: '/middleware/return-redirect', status: 302, heading: 'Sign in' },
   { path: '/middleware/throw-redirect', status: 302, heading: 'Sign in' },
   { path: '/middleware/auth-redirect', status: 302, heading: 'Sign in' },
@@ -158,13 +158,13 @@ describe.each([
       }
 
       if (expectedStatus === 401) {
-        await expect.poll(() => page.locator('body').innerText()).toBe('Unauthorized');
-        expect(await response.headerValue('content-type')).toContain('text/plain');
-        expect(await page.locator('header').count()).toBe(0);
-        expect(await page.getByRole('heading', { name: 'Root error boundary' }).count()).toBe(0);
-        expect(await page.evaluate(() => performance.timeOrigin)).not.toBe(timeOrigin);
-        expect(page.url()).toBe(`${server.base}${path}`);
-        return;
+        expect(await response.headerValue('content-type')).toContain(
+          visit === 'Client navigation' ? 'application/json' : 'text/html',
+        );
+        expect(await response.headerValue('X-VoidPages')).toBe(
+          visit === 'Client navigation' ? 'true' : null,
+        );
+        expect(await response.headerValue('cache-control')).toBe('no-store');
       }
 
       if (expectedStatus === 302) {
@@ -174,7 +174,7 @@ describe.each([
       }
       await page
         .getByRole('heading', {
-          name: signedIn ? 'Loader rendered the page' : heading!,
+          name: signedIn ? 'Loader rendered the page' : heading,
           exact: true,
         })
         .waitFor();
@@ -187,6 +187,8 @@ describe.each([
             /Session expires: \d{4}-\d{2}-\d{2}T/,
           );
         }
+      } else if (status === 401) {
+        expect(await page.locator('main').innerText()).toContain('401: Unauthorized');
       } else if (status === 200) {
         expect(await page.locator('main').innerText()).toContain(
           'Anonymous visitor: user is null.',
