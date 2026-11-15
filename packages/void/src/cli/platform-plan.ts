@@ -26,6 +26,7 @@ import {
 import type {
   CloudflareAccount,
   CloudflareDnsRecord,
+  CloudflareHyperdriveOriginLocation,
   CloudflareNamedResource,
   CloudflareWorkerDomain,
   CloudflareWorkerRoute,
@@ -55,13 +56,13 @@ export type PlatformInstallPlan = Readonly<{
   zone: CloudflareZone | null;
 }>;
 
-export type PlatformExternalHyperdrive = Readonly<{
-  id: string;
-  name?: string;
-  database?: string;
-  host: string;
-  user: string;
-}>;
+export type PlatformExternalHyperdrive = CloudflareHyperdriveOriginLocation &
+  Readonly<{
+    id: string;
+    name?: string;
+    database?: string;
+    user: string;
+  }>;
 
 type PlatformInstallPlanInput = Readonly<{
   appAccess?: PlatformAppAccess;

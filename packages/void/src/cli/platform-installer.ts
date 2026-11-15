@@ -301,9 +301,9 @@ export async function installPlatform(
       config: live,
       databaseUrl: secrets.databaseUrl,
       expected: {
+        ...(plan.externalHyperdrive ?? live.origin),
         id: hyperdriveAction.id,
         name: hyperdriveAction.name,
-        host: plan.externalHyperdrive?.host ?? live.origin.host,
         user: plan.externalHyperdrive?.user ?? live.origin.user ?? '',
       },
       ...(recordedHyperdrive ? { recordedHash: recordedHyperdrive.configHash } : {}),

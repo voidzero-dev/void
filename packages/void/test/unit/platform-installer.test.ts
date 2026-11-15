@@ -4774,6 +4774,64 @@ describe('platform installer', () => {
     expect(JSON.parse(checkpoint.externalHyperdriveJson!)).toEqual(plan.externalHyperdrive);
   });
 
+  it('rechecks the Workers VPC service before claiming the database on apply', async () => {
+    useRegistryDirectory();
+    const databaseUrl = 'postgresql://iam_owner@127.0.0.1/void?sslmode=disable';
+    const plan = await createPlatformInstallPlan(
+      {
+        ...planningClient(),
+        listHyperdriveConfigs: async () => [{ id: 'external-hyperdrive', name: 'managed-db' }],
+      },
+      {
+        ...EXAMPLE_PLAN_INPUT,
+        externalHyperdrive: {
+          id: 'external-hyperdrive',
+          serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+          user: 'runtime',
+        },
+      },
+      null,
+    );
+    const config = {
+      id: 'external-hyperdrive',
+      name: 'managed-db',
+      cachingDisabled: true,
+      origin: {
+        database: 'void',
+        scheme: 'postgresql' as const,
+        serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1178',
+        user: 'runtime',
+      },
+    };
+    const claimDatabase = vi.fn(async () => {
+      throw new Error('stop after claim');
+    });
+    const getHyperdriveConfig = vi.fn(async () => config);
+    const dependencies = {
+      acquireDatabaseLifecycleLock,
+      claimDatabase,
+      client: { ...unusedClient(), getHyperdriveConfig },
+      revalidateBeforeWorkerDeploy: async () => {},
+    };
+    await expect(
+      installPlatform(plan, freshSecrets({ databaseUrl }), null, dependencies),
+    ).rejects.toThrow('expected database origin');
+    expect(claimDatabase).not.toHaveBeenCalled();
+
+    getHyperdriveConfig.mockResolvedValue({
+      ...config,
+      origin: { ...config.origin, serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177' },
+    });
+    await expect(
+      installPlatform(plan, freshSecrets({ databaseUrl }), null, dependencies),
+    ).rejects.toThrow('stop after claim');
+    expect(claimDatabase).toHaveBeenCalledExactlyOnceWith(
+      databaseUrl,
+      expect.any(String),
+      expect.any(String),
+    );
+  });
+
   it('resumes a claimed verify-full database URL by creating Hyperdrive with its TLS mode', async () => {
     const directory = useRegistryDirectory();
     const databaseUrl = 'postgresql://user:password@db.example.com:5432/void?sslmode=verify-full';

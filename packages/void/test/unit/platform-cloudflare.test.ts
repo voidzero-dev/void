@@ -478,10 +478,49 @@ describe('platform Cloudflare client', () => {
         accessClientId: 'tunnel-client-id',
       },
     });
-    expect(hyperdriveOriginConfigHash(config.origin)).not.toBe(
-      hyperdriveOriginConfigHash({ ...config.origin, accessClientId: 'different-client-id' }),
+    const origin = config.origin;
+    if (origin.serviceId !== undefined) {
+      throw new Error('Expected a Tunnel-backed origin.');
+    }
+    expect(hyperdriveOriginConfigHash(origin)).not.toBe(
+      hyperdriveOriginConfigHash({ ...origin, accessClientId: 'different-client-id' }),
+    );
+    expect(hyperdriveOriginConfigHash(config.origin)).toBe(
+      '299b4b480634c413c7bad8cee0e3419c836da5bf8e6227af3cbb3273d0a359df',
     );
     expect(JSON.stringify(config)).not.toContain('secret');
+  });
+
+  it('reads a Workers VPC origin without a hostname or port', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({
+          success: true,
+          result: {
+            id: 'hyperdrive-id',
+            name: 'managed-db',
+            caching: { disabled: true },
+            origin: {
+              database: 'void',
+              service_id: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+              scheme: 'postgres',
+              user: 'runtime-user',
+            },
+          },
+        }),
+    });
+
+    await expect(client.getHyperdriveConfig('account', 'hyperdrive-id')).resolves.toEqual({
+      id: 'hyperdrive-id',
+      name: 'managed-db',
+      cachingDisabled: true,
+      origin: {
+        database: 'void',
+        serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+        scheme: 'postgresql',
+        user: 'runtime-user',
+      },
+    });
   });
 
   it.each([undefined, null, 0, 65_536, 5432.5, 'invalid', true, [5432]])(

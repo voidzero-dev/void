@@ -2,8 +2,10 @@ import type { InstallationResource } from '@void/platform';
 import {
   hyperdriveOriginConfigHash,
   hyperdriveOriginFromConnectionString,
+  hyperdriveOriginLocationMatches,
   hyperdriveOriginMatches,
   type CloudflareHyperdriveConfig,
+  type CloudflareHyperdriveOriginLocation,
   type PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
 import type { PlatformExternalHyperdrive } from './platform-plan.ts';
@@ -21,6 +23,10 @@ export function readPlatformHyperdriveSelection(
   } catch {
     throw new Error('platform: The saved Hyperdrive selection is invalid.');
   }
+  return parsePlatformHyperdriveSelection(value);
+}
+
+export function parsePlatformHyperdriveSelection(value: unknown): PlatformExternalHyperdrive {
   const selected = value as Partial<PlatformExternalHyperdrive> | null;
   const nonempty = (value: unknown): value is string =>
     typeof value === 'string' && value.trim() !== '';
@@ -29,7 +35,9 @@ export function readPlatformHyperdriveSelection(
     typeof selected !== 'object' ||
     Array.isArray(selected) ||
     !nonempty(selected.id) ||
-    !nonempty(selected.host) ||
+    (nonempty(selected.serviceId)
+      ? selected.host !== undefined
+      : selected.serviceId !== undefined || !nonempty(selected.host)) ||
     !nonempty(selected.user) ||
     (selected.name !== undefined && (typeof selected.name !== 'string' || !selected.name)) ||
     (selected.database !== undefined &&
@@ -39,7 +47,9 @@ export function readPlatformHyperdriveSelection(
   }
   return {
     id: selected.id,
-    host: selected.host,
+    ...(selected.serviceId !== undefined
+      ? { serviceId: selected.serviceId }
+      : { host: selected.host! }),
     user: selected.user,
     ...(selected.name ? { name: selected.name } : {}),
     ...(selected.database ? { database: selected.database } : {}),
@@ -67,19 +77,28 @@ export function platformDatabaseNameFromOwnerUrl(databaseUrl: string): string {
 /** Pin an externally managed Hyperdrive without treating the owner URL as its runtime origin. */
 export function verifyExternalPlatformHyperdrive(input: {
   config: CloudflareHyperdriveConfig;
-  databaseUrl: string;
-  expected: { id: string; name: string; host: string; user: string };
+  databaseUrl?: string;
+  expected: CloudflareHyperdriveOriginLocation & {
+    id: string;
+    name?: string;
+    database?: string;
+    user: string;
+  };
   recordedHash?: string;
 }): string {
   const { config, expected } = input;
-  const database = platformDatabaseNameFromOwnerUrl(input.databaseUrl);
+  const database =
+    input.databaseUrl === undefined
+      ? undefined
+      : platformDatabaseNameFromOwnerUrl(input.databaseUrl);
   const hash = hyperdriveOriginConfigHash(config.origin);
   if (
     config.id !== expected.id ||
-    config.name !== expected.name ||
-    config.origin.host !== expected.host.toLowerCase() ||
+    (expected.name !== undefined && config.name !== expected.name) ||
+    !hyperdriveOriginLocationMatches(config.origin, expected) ||
     config.origin.user !== expected.user ||
-    config.origin.database !== database ||
+    (database !== undefined && config.origin.database !== database) ||
+    (expected.database !== undefined && config.origin.database !== expected.database) ||
     (input.recordedHash && input.recordedHash !== hash)
   ) {
     throw new Error(

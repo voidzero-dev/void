@@ -18,7 +18,8 @@ Inject the following values from protected CI secrets. Do not commit them in a w
 | `VOID_PLATFORM_DATABASE_URL`                 | Dedicated PostgreSQL URL                                                                    |
 | `VOID_PLATFORM_HYPERDRIVE_ID`                | Existing externally managed Hyperdrive ID, when applicable                                  |
 | `VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST`       | Origin host of that Hyperdrive; set with its ID and user                                    |
-| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER`       | Runtime database user of that Hyperdrive; set with its ID and host                          |
+| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER`       | Runtime database user of that Hyperdrive; set with its ID and host (or service ID)          |
+| `VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID` | For a Workers VPC origin, set the service ID in place of the origin host                    |
 | `VOID_PLATFORM_R2_ACCESS_KEY_ID`             | R2 Access Key ID                                                                            |
 | `VOID_PLATFORM_R2_SECRET_ACCESS_KEY`         | R2 Secret Access Key                                                                        |
 | `VOID_PLATFORM_JWT_SECRET`                   | Original JWT signing secret                                                                 |
