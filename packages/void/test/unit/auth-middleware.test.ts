@@ -278,6 +278,71 @@ describe('runVoidAuthMiddleware response headers', () => {
   });
 });
 
+describe('runVoidAuthMiddleware Better Auth plugins', () => {
+  const env = { BETTER_AUTH_SECRET: 'test-secret' };
+  type PluginList = Array<{ id: string }>;
+  const pluginsOf = (call: number): PluginList =>
+    (mocks.betterAuth.mock.calls[call]![0] as { plugins?: PluginList }).plugins ?? [];
+
+  function pluginApp(userConfig?: VoidAuthRuntimeOptions['userConfig']): Hono {
+    mocks.getSession.mockResolvedValue({ response: null, headers: new Headers() });
+    mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession }, options: {} });
+    const app = new Hono();
+    app.use((c, next) =>
+      runtime.runVoidAuthMiddleware(c, next, { ...authRuntimeOptions, userConfig }, {} as never),
+    );
+    app.get('/', (c) => c.text('ok'));
+    return app;
+  }
+
+  it.each([
+    ['object', (plugins: PluginList) => ({ plugins })],
+    [
+      'function',
+      (plugins: PluginList) =>
+        ({ defaults }: { defaults: object }) => ({ ...defaults, plugins }),
+    ],
+  ] as const)('keeps user plugins first with a %s config', async (_form, config) => {
+    const plugins = [{ id: 'first' }, { id: 'second' }];
+    const app = pluginApp(config(plugins) as VoidAuthRuntimeOptions['userConfig']);
+
+    expect((await app.request('/', undefined, env)).status).toBe(200);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['first', 'second', 'void-cookies']);
+    expect(pluginsOf(0)[0]).toBe(plugins[0]);
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['first', 'second']);
+  });
+
+  it('creates a separate cookie plugin for each request', async () => {
+    const app = pluginApp();
+
+    await app.request('/', undefined, env);
+    await app.request('/', undefined, env);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(1).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(0)[0]).not.toBe(pluginsOf(1)[0]);
+  });
+
+  it('leaves the cookie plugin out of instances created outside the middleware', async () => {
+    mocks.betterAuth.mockReturnValue({ api: {}, options: {} });
+    await runtime.createVoidAuth(
+      new Request('http://localhost/'),
+      env,
+      { ...authRuntimeOptions, userConfig: { plugins: [{ id: 'only' }] } },
+      {} as never,
+    );
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['only']);
+  });
+
+  it('skips Better Auth for internal routes', async () => {
+    const app = pluginApp();
+    app.get('/__void/cron', (c) => c.text('internal'));
+    expect((await app.request('/__void/cron', undefined, env)).status).toBe(200);
+    expect(mocks.betterAuth).not.toHaveBeenCalled();
+  });
+});
+
 describe('cross-origin cookie sessions', () => {
   const env = { BETTER_AUTH_SECRET: 'test-secret' };
   const now = new Date();

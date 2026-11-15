@@ -130,6 +130,8 @@ import { getSession, getUser, requireAuth } from 'void/auth';
 - `requireAuth(c, { throwRedirect: '/login' })` returns the user or throws a login redirect
 - [`getAuth(c)`](../reference/api/auth.md#getauth-c) returns the request's Better Auth instance, with plugin APIs inferred from `auth.ts`, for use with Better Auth helpers.
 
+Cookies set by `getAuth(c).api` calls are sent with the response, so the browser picks up changes such as a renamed user or a sign-out on its next request. An endpoint that signs someone in, like `signUpEmail`, signs the current browser in as that user; to create accounts for other people, use the admin plugin's `createUser`. `getUser()` and `getSession()` still return the user from the start of the request, so redirect after an action that changes the signed-in user to render the new data.
+
 Import `AuthUser` and `AuthSession` from `void/auth` for type annotations. They include the fields your Better Auth plugins and `user.additionalFields` add, such as `role` from `admin()`. See their fields in the [API reference](../reference/api/auth.md#authuser).
 
 ## Querying Authentication Tables
