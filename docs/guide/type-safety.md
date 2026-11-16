@@ -337,7 +337,9 @@ import { routeUrl } from 'void/routes';
 
 Links also accept same-page queries and hashes (`?page=2`, `#comments`), and `http://`, `https://`, `mailto:`, and `tel:` URLs. Use absolute paths within your app; relative paths such as `../settings` are rejected. Static path segments accept raw text such as `/café menu` or uppercase percent encoding such as `/caf%C3%A9%20menu`.
 
-String checks use TypeScript patterns, which don't validate individual dynamic segments. For example, `/users/[id]` also accepts `/users/` and `/users/42/edit`. A root dynamic page can accept `//example.com`. Prefer `routeUrl()` to encode parameters, and validate untrusted URLs at runtime.
+With `routing.typedRoutes`, URLs handled only by root dynamic routes (`/[slug]`, `/[...slug]`, or `/[...]`) require `routeUrl()`, for example `routeUrl('/[...slug]', { params: { slug: 'dashboard' } })`. Other declared routes still accept checked URL strings. For a custom 404 page, use [`_not-found`](./pages-routing/errors.md#missing-pages).
+
+String checks use TypeScript patterns, which don't validate individual dynamic segments. For example, `/users/[id]` also accepts `/users/` and `/users/42/edit`. Prefer `routeUrl()` to encode parameters, and validate untrusted URLs at runtime.
 
 The [SSE](./sse.md#client) and [live stream](./live.md#subscribe-from-the-browser) clients accept route URLs and external `http://` or `https://` URLs. Same-page links, `mailto:`, `tel:`, and `ws://` aren't stream destinations.
 
