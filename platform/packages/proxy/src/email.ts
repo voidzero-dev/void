@@ -12,7 +12,6 @@ import {
 import { leaseBearer, leaseEmailDomainCredential } from './email-lease.ts';
 import {
   EMAIL_PROVIDER_DEADLINE_MS,
-  EmailProviderTimeoutError,
   createEmailProviderDeadline,
   type EmailProviderDeadline,
 } from './email-provider-deadline.ts';

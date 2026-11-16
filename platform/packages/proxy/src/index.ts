@@ -17,7 +17,7 @@ import { r2 } from './r2.ts';
 import { readRequestJson, requestBodyMaxBytes, RequestBodyError } from './request-body.ts';
 import { verifyPrerenderAuthority, verifyProjectDeployAccess } from './resolve.ts';
 import { revalidate } from './revalidate.ts';
-import type { Env, JwtPayload, ProxyBody, ProxyEnv } from './types.ts';
+import type { JwtPayload, ProxyBody, ProxyEnv } from './types.ts';
 
 const app = new Hono<ProxyEnv>();
 

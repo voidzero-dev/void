@@ -18,12 +18,7 @@ vi.mock('../../src/tenant-dispatch.ts', () => ({
   },
 }));
 import type { Env } from '../../../proxy/src/types.ts';
-import {
-  MAX_INBOUND_BYTES,
-  MAX_INBOUND_HEADERS,
-  routeInbound as routeInboundWithRoute,
-  routeRelayed,
-} from '../../src/router.ts';
+import { routeInbound as routeInboundWithRoute, routeRelayed } from '../../src/router.ts';
 
 const ROUTE_FENCE = {
   routeId: 'route-1',
