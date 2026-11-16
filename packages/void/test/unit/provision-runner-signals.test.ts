@@ -697,7 +697,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     }
   }, 15_000);
 
-  it('a provider exiting after reporting success rejects unread stdin through its real pipe error', async () => {
+  it('a provider exiting after reporting success rejects unread stdin', async () => {
     const script = join(POST_SPAWN_TMP, 'exited-stdin.cjs');
     const pidFile = join(POST_SPAWN_TMP, 'exited-stdin.pid');
     writeFileSync(
@@ -706,8 +706,8 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
         `fs.writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\n` +
         `fs.writeSync(1, JSON.stringify({ operationResult: 1, data: { id: 'provider-id' } }));\n` +
         // Exit closes every inherited handle on Windows as well as POSIX. The
-        // oversized unread input is still pending, so the parent gets a real
-        // closed-pipe error (write EOF on Windows, EPIPE on POSIX).
+        // oversized unread input is still pending. Node may report a pipe
+        // error or silently destroy stdin; neither can count as success.
         `process.exit(0);\n`,
     );
     let observedOutput = '';
@@ -748,9 +748,7 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
       expect(result!.status).toBe(1);
       // The stdin error owns termination even if exit 0 is concurrently observed.
       expect(result!.signal).toBe('SIGKILL');
-      expect(result!.stderr).toMatch(
-        process.platform === 'win32' ? /write EOF|EPIPE|broken pipe/i : /EPIPE|broken pipe/i,
-      );
+      expect(result!.stderr).toMatch(/write EOF|EPIPE|broken pipe|closed stdin before/i);
       expect(result!.stdout).toContain('"operationResult":1');
       expect(result!.data).toBeUndefined();
     }
@@ -759,6 +757,60 @@ describe('createDefaultRunWrangler — post-spawn child `error` events confirm/q
     const pid = Number(readFileSync(pidFile, 'utf-8'));
     expect(() => process.kill(pid, 0)).toThrow();
   }, 15_000);
+
+  it('rejects success when stdin closes without finishing or emitting an error', async () => {
+    const script = join(POST_SPAWN_TMP, 'unfinished-stdin.cjs');
+    writeFileSync(
+      script,
+      `process.stdout.write(JSON.stringify({ operationResult: 1, data: { id: 'provider-id' } }));\n`,
+    );
+    let stdinErrors = 0;
+    const run = createRunner({
+      launcher: [process.execPath, script],
+      onSpawnedChild: (child) => {
+        child.stdin!.on('error', () => stdinErrors++);
+        // Node destroys stdin when the child exits. A destroyed Writable need
+        // not emit an error, even when its input was never flushed.
+        child.stdin!.destroy();
+      },
+    });
+    const result = await run(
+      {
+        type: 'hyperdrive.create',
+        name: 'unfinished-stdin',
+        binding: 'HYPERDRIVE',
+        configPath: 'config.jsonc',
+      },
+      { accountId: 'acct', input: 'unread input' },
+    );
+    expect(stdinErrors).toBe(0);
+    expect(result.status).toBe(1);
+    expect(result.data).toBeUndefined();
+    expect(result.stderr).toContain('stdin');
+  });
+
+  it('accepts success after the provider reads all stdin', async () => {
+    const script = join(POST_SPAWN_TMP, 'finished-stdin.cjs');
+    writeFileSync(
+      script,
+      `let length = 0;\n` +
+        `process.stdin.on('data', chunk => { length += chunk.length; });\n` +
+        `process.stdin.on('end', () => process.stdout.write(JSON.stringify({ operationResult: 1, data: { length } })));\n`,
+    );
+    const run = createRunner({ launcher: [process.execPath, script] });
+    const input = 'x'.repeat(2 * 1024 * 1024);
+    const result = await run(
+      {
+        type: 'hyperdrive.create',
+        name: 'finished-stdin',
+        binding: 'HYPERDRIVE',
+        configPath: 'config.jsonc',
+      },
+      { accountId: 'acct', input },
+    );
+    expect(result.status).toBe(0);
+    expect(result.data).toEqual({ length: input.length });
+  });
 
   it('a stdin Writable error rejects buffered success only after the child is confirmed dead', async () => {
     const script = join(POST_SPAWN_TMP, 'stdin-error.cjs');

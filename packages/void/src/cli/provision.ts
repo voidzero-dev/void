@@ -1308,6 +1308,13 @@ export function createDefaultRunWrangler(
       child.stdin?.on('error', handleProcessError);
       child.on('close', (code, signal) => {
         closed = true;
+        // Node destroys stdin on child exit without necessarily emitting an
+        // error. Exit 0 cannot confirm success while input remains unwritten.
+        if (code === 0 && child.stdin && !child.stdin.writableFinished) {
+          handleProcessError(
+            new Error('the Cloudflare operation process closed stdin before all input was written'),
+          );
+        }
         if (timedOut || postSpawnError !== undefined) {
           // That path settles once the group is also gone; nudge its poll.
           nudgeConfirmPolls();
