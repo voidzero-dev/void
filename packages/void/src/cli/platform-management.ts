@@ -1957,6 +1957,9 @@ async function verifyPlatformMutationOwnership(
         if (exists) {
           const legacyHash = legacyResourceConfigHash(resource.kind, resource.name);
           const malformedLegacyHash = !/^[a-f0-9]{64}$/.test(resource.configHash);
+          if (live.origin.serviceId !== undefined && resource.ownership !== 'adopted') {
+            throw ownershipError(`hyperdrive ${resource.name} changed to a Workers VPC origin`);
+          }
           if (options.databaseUrl && resource.ownership !== 'adopted') {
             const expected = hyperdriveOriginFromConnectionString(options.databaseUrl);
             if (!hyperdriveOriginMatches(live.origin, expected)) {

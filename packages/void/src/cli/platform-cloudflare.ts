@@ -84,15 +84,25 @@ export type CloudflareNamedResource = Readonly<{
   id: string;
   name: string;
 }>;
-export type CloudflareHyperdriveOrigin = Readonly<{
-  accessClientId?: string;
+export type CloudflareHyperdriveOriginLocation = Readonly<
+  { host: string; serviceId?: never } | { serviceId: string; host?: never }
+>;
+type CloudflareHyperdriveDatabase = Readonly<{
   database: string;
-  host: string;
-  /** Tunnel-backed origins get their database port from the tunnel service. */
-  port: number | null;
   scheme: 'postgresql';
   user: string | null;
 }>;
+type CloudflareHyperdriveHostOrigin = CloudflareHyperdriveDatabase &
+  Readonly<{
+    accessClientId?: string;
+    host: string;
+    serviceId?: never;
+    /** Tunnel-backed origins get their database port from the tunnel service. */
+    port: number | null;
+  }>;
+export type CloudflareHyperdriveOrigin =
+  | CloudflareHyperdriveHostOrigin
+  | (CloudflareHyperdriveDatabase & Readonly<{ serviceId: string; host?: never }>);
 export type CloudflareHyperdriveConfig = CloudflareNamedResource &
   Readonly<{ origin: CloudflareHyperdriveOrigin; cachingDisabled?: boolean }>;
 export type CloudflareDnsRecord = CloudflareNamedResource &
@@ -1691,7 +1701,9 @@ export function parsePostgresConnectionString(value: string): {
   };
 }
 
-export function hyperdriveOriginFromConnectionString(value: string): CloudflareHyperdriveOrigin {
+export function hyperdriveOriginFromConnectionString(
+  value: string,
+): CloudflareHyperdriveHostOrigin {
   const parsed = parsePostgresConnectionString(value);
   return {
     database: parsed.database,
@@ -1707,21 +1719,34 @@ export function hyperdriveOriginConfigHash(origin: CloudflareHyperdriveOrigin): 
     .update(
       JSON.stringify({
         database: origin.database,
-        host: origin.host.toLowerCase(),
-        port: origin.port,
+        ...(origin.serviceId !== undefined
+          ? { serviceId: origin.serviceId.toLowerCase() }
+          : { host: origin.host.toLowerCase(), port: origin.port }),
         scheme: 'postgresql',
         user: origin.user,
-        ...(origin.accessClientId ? { accessClientId: origin.accessClientId } : {}),
+        ...(origin.serviceId === undefined && origin.accessClientId
+          ? { accessClientId: origin.accessClientId }
+          : {}),
       }),
     )
     .digest('hex');
 }
 
+export function hyperdriveOriginLocationMatches(
+  live: CloudflareHyperdriveOriginLocation,
+  expected: CloudflareHyperdriveOriginLocation,
+): boolean {
+  return expected.serviceId !== undefined
+    ? live.serviceId?.toLowerCase() === expected.serviceId.toLowerCase()
+    : live.host?.toLowerCase() === expected.host.toLowerCase();
+}
+
 export function hyperdriveOriginMatches(
   live: CloudflareHyperdriveOrigin,
-  expected: CloudflareHyperdriveOrigin,
+  expected: CloudflareHyperdriveHostOrigin,
 ): boolean {
   return (
+    live.serviceId === undefined &&
     live.database === expected.database &&
     live.host.toLowerCase() === expected.host.toLowerCase() &&
     live.port === expected.port &&
@@ -1741,18 +1766,40 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
   if (scheme !== 'postgres' && scheme !== 'postgresql') {
     throw new Error(`platform: Unsupported Hyperdrive origin scheme ${JSON.stringify(scheme)}.`);
   }
-  const accessClientId =
-    typeof record.access_client_id === 'string' && record.access_client_id
-      ? record.access_client_id
-      : undefined;
-  const port =
-    accessClientId && record.port == null
-      ? null
-      : typeof record.port === 'number' || typeof record.port === 'string'
-        ? Number(record.port)
-        : NaN;
-  if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
-    throw new Error('platform: Cloudflare Hyperdrive config has an invalid origin port.');
+  const database: CloudflareHyperdriveDatabase = {
+    database: requiredString(record.database, 'Hyperdrive origin database'),
+    scheme: 'postgresql',
+    user: typeof record.user === 'string' && record.user ? record.user : null,
+  };
+  let parsedOrigin: CloudflareHyperdriveOrigin;
+  if (record.service_id != null) {
+    const serviceId = requiredString(record.service_id, 'Hyperdrive origin service ID');
+    if (record.host != null || record.port != null || record.access_client_id != null) {
+      throw new Error(
+        'platform: Cloudflare Hyperdrive config mixes Workers VPC and host origin fields.',
+      );
+    }
+    parsedOrigin = { ...database, serviceId };
+  } else {
+    const accessClientId =
+      typeof record.access_client_id === 'string' && record.access_client_id
+        ? record.access_client_id
+        : undefined;
+    const port =
+      accessClientId && record.port == null
+        ? null
+        : typeof record.port === 'number' || typeof record.port === 'string'
+          ? Number(record.port)
+          : NaN;
+    if (port !== null && (!Number.isInteger(port) || port <= 0 || port > 65_535)) {
+      throw new Error('platform: Cloudflare Hyperdrive config has an invalid origin port.');
+    }
+    parsedOrigin = {
+      ...database,
+      host: requiredString(record.host, 'Hyperdrive origin host').toLowerCase(),
+      port,
+      ...(accessClientId ? { accessClientId } : {}),
+    };
   }
   return {
     id: requiredString(value.id, 'Hyperdrive id'),
@@ -1762,13 +1809,6 @@ function parseHyperdriveConfig(value: Record<string, unknown>): CloudflareHyperd
       typeof value.caching === 'object' &&
       !Array.isArray(value.caching) &&
       (value.caching as Record<string, unknown>).disabled === true,
-    origin: {
-      ...(accessClientId ? { accessClientId } : {}),
-      database: requiredString(record.database, 'Hyperdrive origin database'),
-      host: requiredString(record.host, 'Hyperdrive origin host').toLowerCase(),
-      port,
-      scheme: 'postgresql',
-      user: typeof record.user === 'string' && record.user ? record.user : null,
-    },
+    origin: parsedOrigin,
   };
 }

@@ -21,7 +21,10 @@ import {
   prepareInstallationAppAccess,
 } from './platform-app-access.ts';
 import type { PlatformArgs } from './platform-args.ts';
-import { readPlatformHyperdriveSelection } from './platform-auth-database.ts';
+import {
+  readPlatformHyperdriveSelection,
+  verifyExternalPlatformHyperdrive,
+} from './platform-auth-database.ts';
 import {
   assertPlatformOperatorCredentialCanApplyPlan,
   platformOperatorNeedsManagementToken,
@@ -30,6 +33,7 @@ import {
   resolvePlatformCloudflareCredentialWithInput,
 } from './platform-auth.ts';
 import {
+  hyperdriveOriginLocationMatches,
   PlatformCloudflareClient,
   PlatformCloudflareApiError,
   PlatformRuntimeTokenEmailPermissionError,
@@ -78,6 +82,7 @@ import {
   updateProjectWorkerRuntimeLogs,
 } from './platform-runtime-logs.ts';
 import {
+  findSavedPlatformInstallPlan,
   listSavedPlatformInstallPlans,
   savePlatformInstallChoices,
   removeSavedPlatformInstallPlan,
@@ -196,6 +201,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
   let existing = args.resume ? resolveInstallationManifest(args.name) : null;
   let selectedInstall = false;
   let selectedDraft = false;
+  let reuseSavedPlan = !args.plan;
   let installationName = args.name;
   const { input: installationSlug, credential: operatorCredential } =
     await resolvePlatformCloudflareCredentialWithInput(async () => {
@@ -284,6 +290,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             throw new Error('platform: Cancelled.');
           }
           if (choice === 'new') {
+            reuseSavedPlan = false;
             // Do not let --name silently reselect the draft the user just declined.
             requestedName = '';
           } else if (choice.startsWith('plan:')) {
@@ -291,6 +298,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
             if (!saved) {
               throw new Error('platform: The selected plan is no longer available.');
             }
+            reuseSavedPlan = true;
             args = { ...saved.args, plan: args.plan, yes: args.yes };
             runtime = loadPlatformRuntime(args.runtime);
             installationName = args.name;
@@ -520,13 +528,22 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         }
       }
     }
-    const savedHyperdrive = readPlatformHyperdriveSelection(checkpoint);
-    const requestedHyperdriveId = args.hyperdrive || savedHyperdrive?.id;
+    const externalHyperdriveId = process.env.VOID_PLATFORM_HYPERDRIVE_ID?.trim() || '';
+    const selectedHyperdriveId = args.hyperdrive || externalHyperdriveId;
+    const savedPlanHyperdrive =
+      !existing && reuseSavedPlan && selectedHyperdriveId && selectedHyperdriveId !== 'create'
+        ? findSavedPlatformInstallPlan(accountId, installationSlug)?.externalHyperdrive
+        : undefined;
+    const checkpointHyperdrive = readPlatformHyperdriveSelection(checkpoint);
+    const savedHyperdrive =
+      checkpointHyperdrive ??
+      (savedPlanHyperdrive?.id === selectedHyperdriveId ? savedPlanHyperdrive : undefined);
+    const requestedHyperdriveId = args.hyperdrive || checkpointHyperdrive?.id;
     const recordedHyperdrive = existing?.resources.find(
       (resource) => resource.key === 'hyperdrive',
     );
     if (
-      (savedHyperdrive && requestedHyperdriveId !== savedHyperdrive.id) ||
+      (checkpointHyperdrive && requestedHyperdriveId !== checkpointHyperdrive.id) ||
       (recordedHyperdrive &&
         requestedHyperdriveId &&
         (requestedHyperdriveId === 'create'
@@ -541,21 +558,27 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         'platform: The selected Hyperdrive differs from the saved installation. Resume with its original Hyperdrive.',
       );
     }
-    const externalHyperdriveId = process.env.VOID_PLATFORM_HYPERDRIVE_ID?.trim() || '';
     const externalHyperdriveHost = process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST?.trim() || '';
+    const serviceId =
+      process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID?.trim().toLowerCase() || '';
     const externalHyperdriveUser = process.env.VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER?.trim() || '';
+    if (externalHyperdriveHost && serviceId) {
+      throw new Error(
+        'platform: Specify either a Hyperdrive origin host or a Workers VPC service ID.',
+      );
+    }
     if (
-      [externalHyperdriveId, externalHyperdriveHost, externalHyperdriveUser].some(Boolean) &&
-      ![externalHyperdriveId, externalHyperdriveHost, externalHyperdriveUser].every(Boolean)
+      (externalHyperdriveId || externalHyperdriveHost || serviceId || externalHyperdriveUser) &&
+      !(externalHyperdriveId && (externalHyperdriveHost || serviceId) && externalHyperdriveUser)
     ) {
       throw new Error(
-        'platform: VOID_PLATFORM_HYPERDRIVE_ID, VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST, and VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER must be set together.',
+        'platform: Set VOID_PLATFORM_HYPERDRIVE_ID and VOID_PLATFORM_HYPERDRIVE_ORIGIN_USER with either VOID_PLATFORM_HYPERDRIVE_ORIGIN_HOST or VOID_PLATFORM_HYPERDRIVE_ORIGIN_SERVICE_ID.',
       );
     }
     let externalHyperdrive: PlatformExternalHyperdrive | undefined = externalHyperdriveId
       ? {
           id: externalHyperdriveId,
-          host: externalHyperdriveHost,
+          ...(serviceId ? { serviceId } : { host: externalHyperdriveHost }),
           user: externalHyperdriveUser,
         }
       : undefined;
@@ -569,14 +592,18 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
     if (
       savedHyperdrive &&
       externalHyperdrive &&
-      (savedHyperdrive.host.toLowerCase() !== externalHyperdrive.host.toLowerCase() ||
+      (!hyperdriveOriginLocationMatches(savedHyperdrive, externalHyperdrive) ||
         savedHyperdrive.user !== externalHyperdrive.user)
     ) {
       throw new Error('platform: The Hyperdrive origin differs from the saved installation.');
     }
-    if (savedHyperdrive) {
-      externalHyperdrive = recordedHyperdrive ? savedHyperdrive : undefined;
+    if (checkpointHyperdrive) {
+      externalHyperdrive = recordedHyperdrive ? checkpointHyperdrive : undefined;
+    } else if (savedHyperdrive) {
+      externalHyperdrive = savedHyperdrive;
     }
+    const configuredServiceOrigin =
+      externalHyperdrive?.serviceId !== undefined ? externalHyperdrive : undefined;
     if (
       !externalHyperdrive &&
       requestedHyperdriveId !== 'create' &&
@@ -649,7 +676,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         }
         if (
           (savedHyperdrive &&
-            (live.origin.host !== savedHyperdrive.host.toLowerCase() ||
+            (!hyperdriveOriginLocationMatches(live.origin, savedHyperdrive) ||
               live.origin.user !== savedHyperdrive.user ||
               (savedHyperdrive.name && live.name !== savedHyperdrive.name) ||
               (savedHyperdrive.database && live.origin.database !== savedHyperdrive.database))) ||
@@ -665,8 +692,12 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           note(
             [
               `${pc.bold('Database:')} ${live.origin.database}`,
-              `${pc.bold('Host:')} ${live.origin.host}`,
-              `${pc.bold('Port:')} ${live.origin.port ?? 'configured by Cloudflare Tunnel'}`,
+              ...(live.origin.serviceId !== undefined
+                ? [`${pc.bold('Workers VPC service:')} ${live.origin.serviceId}`]
+                : [
+                    `${pc.bold('Host:')} ${live.origin.host}`,
+                    `${pc.bold('Port:')} ${live.origin.port ?? 'configured by Cloudflare Tunnel'}`,
+                  ]),
               `${pc.bold('User:')} ${live.origin.user}`,
               `${pc.bold('SQL result caching:')} ${live.cachingDisabled ? 'disabled' : 'enabled'}`,
             ].join('\n'),
@@ -682,10 +713,36 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           id: live.id,
           name: live.name,
           database: live.origin.database,
-          host: live.origin.host,
+          ...(live.origin.serviceId !== undefined
+            ? { serviceId: live.origin.serviceId }
+            : { host: live.origin.host }),
           user: live.origin.user,
         };
+        if (externalHyperdrive.serviceId !== undefined) {
+          verifyExternalPlatformHyperdrive({
+            config: live,
+            databaseUrl: databaseUrl || undefined,
+            expected: externalHyperdrive,
+          });
+        }
       }
+    }
+    if (configuredServiceOrigin) {
+      const live = await client.getHyperdriveConfig(accountId, configuredServiceOrigin.id);
+      verifyExternalPlatformHyperdrive({
+        config: live,
+        databaseUrl: databaseUrl || undefined,
+        expected: {
+          ...configuredServiceOrigin,
+          name: recordedHyperdrive?.name ?? configuredServiceOrigin.name,
+        },
+        recordedHash: recordedHyperdrive?.configHash,
+      });
+      externalHyperdrive = {
+        ...configuredServiceOrigin,
+        name: live.name,
+        database: live.origin.database,
+      };
     }
     const authenticationSelection = await selectInstallationAuthentication(
       args.authConfig,
@@ -789,6 +846,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           yes: false,
         }).slice(2),
         plan.account.name,
+        undefined,
+        externalHyperdrive?.serviceId ? externalHyperdrive : undefined,
       );
     }
     note(
