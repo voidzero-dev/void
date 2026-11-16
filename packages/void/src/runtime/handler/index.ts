@@ -1,13 +1,13 @@
 import type { Context, Env, MiddlewareHandler, Next, TypedResponse } from 'hono';
 import type { RedirectStatusCode } from 'hono/utils/http-status';
 import type { RewriteDestination, RouteDestination, RouteUrl, RouteUrlInput } from 'void/routes';
-import type { HeadConfig, HeadDescriptor } from '../pages/head.ts';
-import type { AuthSession, AuthUser } from './auth.ts';
-import { base64ToBytes } from './base64.ts';
-import { executeComposedHandler, setHandlerComposition } from './handler-composition.ts';
+import type { HeadConfig, HeadDescriptor } from '../../pages/head.ts';
+import { base64ToBytes } from '../../shared/base64.ts';
+import type { AuthSession, AuthUser } from '../auth/index.ts';
+import type { TypedRoutes } from '../routing/route-url.ts';
+import type { AssetBinding } from '../routing/worker.ts';
+import { executeComposedHandler, setHandlerComposition } from './composition.ts';
 import { convertReturnValue } from './response.ts';
-import type { TypedRoutes } from './route-url.ts';
-import type { AssetBinding } from './routing-worker.ts';
 import { runValidation, type ValidatorSlots, type HandlerInput } from './validator.ts';
 
 /**
@@ -62,7 +62,7 @@ export interface CloudBindings extends VoidGeneratedEnvBindings {
   KV: KVNamespace;
   STORAGE: R2Bucket;
   AI: Ai;
-  SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
+  SANDBOX: DurableObjectNamespace<import('../sandbox/index.ts').VoidPlatformSandbox>;
   /** Node, Bun and Deno targets serve static files through a provider that takes only a `Request`. */
   ASSETS: AssetBinding;
   [key: string]: unknown;
@@ -512,6 +512,6 @@ export function defineQueue<T = unknown>(handler: QueueFn<T>): TypedQueueHandler
 }
 
 export type { ValidatorSlots, HandlerInput } from './validator.ts';
-export { ValidationError } from '../pages/validation-error.ts';
-export { defer } from '../pages/defer.ts';
-export type { Deferred, InferProps } from '../pages/defer.ts';
+export { ValidationError } from '../../pages/validation-error.ts';
+export { defer } from '../../pages/defer.ts';
+export type { Deferred, InferProps } from '../../pages/defer.ts';

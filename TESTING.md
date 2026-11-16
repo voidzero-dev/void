@@ -58,7 +58,7 @@ artifact check.
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 
 ```sh
-vp test related --run packages/void/src/runtime/sse.ts --project unit --project unit-pglite --project cli-unit
+vp test related --run packages/void/src/runtime/sse/index.ts --project unit --project unit-pglite --project cli-unit
 vp test list packages/void/test/unit/plugin-routing.test.ts --filesOnly
 ```
 

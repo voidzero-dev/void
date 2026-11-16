@@ -28,11 +28,11 @@
  */
 /// <reference types="@cloudflare/workers-types" />
 
-import { isUnmaskActive, redactMessage } from '../shared/env-mask.ts';
-import { ENV_REGISTRY_KEY } from '../shared/env-registry.ts';
-import type { StandardSchemaV1 } from '../standard-schema.ts';
-import { getRawRuntimeEnv, type RuntimeEnv } from './env-raw.ts';
-import { getRuntimeEnv, isInternalBinding } from './env.ts';
+import { isUnmaskActive, redactMessage } from '../../shared/env-mask.ts';
+import { ENV_REGISTRY_KEY } from '../../shared/env-registry.ts';
+import type { StandardSchemaV1 } from '../../standard-schema.ts';
+import { getRawRuntimeEnv, type RuntimeEnv } from './raw.ts';
+import { getRuntimeEnv, isInternalBinding } from './runtime.ts';
 
 type AnyValidator = StandardSchemaV1<unknown, unknown>;
 type AnySchema = Record<string, AnyValidator>;
@@ -545,7 +545,7 @@ export async function validateAllEnv(
   return report;
 }
 
-export { string, number, boolean, url, email, oneOf, json, type EnvSchema } from './env-helpers.ts';
+export { string, number, boolean, url, email, oneOf, json, type EnvSchema } from './helpers.ts';
 
 // Ambient Cloudflare.Env declarations so user tsconfigs that include
 // `types: ["void/env"]` expose D1/KV/R2 globals plus the auto-inferred Void
@@ -557,7 +557,7 @@ declare global {
       KV: KVNamespace;
       STORAGE: R2Bucket;
       AI: Ai;
-      SANDBOX: DurableObjectNamespace<import('./sandbox.ts').VoidPlatformSandbox>;
+      SANDBOX: DurableObjectNamespace<import('../sandbox/index.ts').VoidPlatformSandbox>;
       ASSETS: Fetcher;
       /** @internal Service binding to proxy worker (AI, revalidation, future features) */
       __VOID_PROXY?: Fetcher;

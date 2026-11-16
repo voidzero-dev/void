@@ -93,8 +93,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   it.each([undefined, 'Build shell'])(
     'folds settled production values after concurrent config hooks (shell: %s)',
     async (shellValue) => {
-      const { defineEnv } = await import('../../src/runtime/env-public.ts');
-      const { string } = await import('../../src/runtime/env-helpers.ts');
+      const { defineEnv } = await import('../../src/runtime/env/public.ts');
+      const { string } = await import('../../src/runtime/env/helpers.ts');
       const root = createTempRoot();
       writeFileSync(join(root, 'env.ts'), 'export default {};\n');
       writeFileSync(join(root, '.env'), 'VITE_TITLE=Local only\n');
@@ -193,8 +193,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('removes local .env client values from production builds', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
     writeFileSync(join(root, '.env'), 'VITE_TITLE=Local only\n');
@@ -332,8 +332,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('reports server and required names without values', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({
       API_TOKEN: string(),
       OPTIONAL_REGION: string().optional(),
@@ -357,8 +357,8 @@ describe('envSchemaPlugin auto-discovery', () => {
 
   // Register via defineEnv: jiti's env.ts module instance is invisible to Vitest.
   it('warns when vite `define` shadows a schema env key', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({ STRIPE_KEY: string(), VITE_TITLE: string() });
 
     const root = createTempRoot();
@@ -395,8 +395,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('does not warn when define has no overlap with the schema', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({ STRIPE_KEY: string() });
 
     const root = createTempRoot();
@@ -427,8 +427,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('adds client-exposed schema defaults to Vite env', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { number, string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { number, string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -450,8 +450,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('does not overwrite a Vite env value with a schema default', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -472,8 +472,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('uses VITE_ even when Vite has a custom envPrefix', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -508,7 +508,7 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
   }
 
   afterEach(async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
     defineEnv({});
   });
 
@@ -565,8 +565,8 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
   it.each(['serve', 'build'] as const)(
     'rejects a reserved name declared in env.ts (%s)',
     async (command) => {
-      const { defineEnv } = await import('../../src/runtime/env-public.ts');
-      const { string } = await import('../../src/runtime/env-helpers.ts');
+      const { defineEnv } = await import('../../src/runtime/env/public.ts');
+      const { string } = await import('../../src/runtime/env/helpers.ts');
       const root = createTempRoot();
       writeFileSync(join(root, 'env.ts'), 'export default {};\n');
       defineEnv({ API_URL: string(), __VOID_X: string().optional() });
@@ -580,7 +580,7 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
 
 describe('envSchemaPlugin with "sideEffects": false', () => {
   const publicEnvUrl = pathToFileURL(
-    join(import.meta.dirname, '../../src/runtime/env-public.ts'),
+    join(import.meta.dirname, '../../src/runtime/env/public.ts'),
   ).href;
 
   /** Build an app that declares no side effects, with an entry that imports env.ts for its side effect. */

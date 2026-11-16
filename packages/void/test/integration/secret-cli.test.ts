@@ -7,7 +7,7 @@ import { afterEach, expect, it } from 'vite-plus/test';
 
 const packageRoot = join(import.meta.dirname, '../..');
 const cliEntry = join(packageRoot, 'dist/cli/cli.mjs');
-const envPublicUrl = pathToFileURL(join(packageRoot, 'dist/runtime/env-public.mjs')).href;
+const envPublicUrl = pathToFileURL(join(packageRoot, 'dist/runtime/env/public.mjs')).href;
 const roots: Array<string> = [];
 
 afterEach(() => {

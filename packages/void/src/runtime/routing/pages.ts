@@ -3,18 +3,22 @@ import {
   PRESERVED_QUERY_HEADER,
   markActionKey,
   searchWithoutPreservedQuery,
-} from '../pages/action-key.ts';
+} from '../../pages/action-key.ts';
 import {
   handlesPageLoaderNotFound,
   ownsLoaderNotFoundBoundary,
-} from '../pages/not-found-context.ts';
-import { handlePageGet, handlePageMutation, recoverPageHttpException } from '../pages/protocol.ts';
-import { decodePagePath } from '../pages/url.ts';
-import type { ClientAssetTags } from './routing-assets.ts';
-import type { ErrorRenderer } from './routing-errors.ts';
-import { createAssetCachePolicy } from './routing-worker.ts';
-import type { RoutingRule, RoutingRuntime } from './routing.ts';
+} from '../../pages/not-found-context.ts';
+import {
+  handlePageGet,
+  handlePageMutation,
+  recoverPageHttpException,
+} from '../../pages/protocol.ts';
+import { decodePagePath } from '../../pages/url.ts';
+import type { ClientAssetTags } from './assets.ts';
+import type { ErrorRenderer } from './errors.ts';
+import type { RoutingRule, RoutingRuntime } from './index.ts';
 import { markStaticAsset } from './static-asset-marker.ts';
+import { createAssetCachePolicy } from './worker.ts';
 
 type PageGetArguments = Parameters<typeof handlePageGet>;
 type PageModule = {

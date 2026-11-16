@@ -168,7 +168,7 @@ export function createKV(namespace: KVNamespace): KVClient {
   return createKVClient(() => namespace);
 }
 
-import { requireRuntimeBinding } from './env.ts';
+import { requireRuntimeBinding } from '../env/runtime.ts';
 
 /** Default KV client — resolves `KV` from the active runtime environment. */
 export const kv: KVClient = createKVClient(() => requireRuntimeBinding<KVNamespace>('KV'));

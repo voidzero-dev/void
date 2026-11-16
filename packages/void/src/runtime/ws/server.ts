@@ -1,8 +1,8 @@
-import type { StandardSchemaV1 } from '../standard-schema.ts';
-import { authContext, type AuthState, type AuthUser } from './auth.ts';
-import type { VoidAuthEnv, VoidAuthRuntimeOptions } from './better-auth-shared.ts';
-import { withRuntimeEnv } from './env.ts';
-import type { CloudEnv } from './handler.ts';
+import type { StandardSchemaV1 } from '../../standard-schema.ts';
+import type { VoidAuthEnv, VoidAuthRuntimeOptions } from '../auth/better-auth-shared.ts';
+import { authContext, type AuthState, type AuthUser } from '../auth/index.ts';
+import { withRuntimeEnv } from '../env/runtime.ts';
+import type { CloudEnv } from '../handler/index.ts';
 import type {
   AnyWebSocketDefinition,
   RoomContext,
@@ -10,7 +10,7 @@ import type {
   SocketContext,
   WebSocketConnection,
   WebSocketInstanceKey,
-} from './ws.ts';
+} from './index.ts';
 
 export type WebSocketRouteMeta = {
   name?: string;

@@ -2,7 +2,7 @@ import { type } from 'arktype';
 import * as v from 'valibot';
 import { describe, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
 
 describe('withValidator + zod', () => {
   const CreateUser = z.object({

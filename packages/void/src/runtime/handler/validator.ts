@@ -1,5 +1,5 @@
-import type { StandardSchemaV1 } from '../standard-schema.ts';
-import type { CloudContext } from './handler.ts';
+import type { StandardSchemaV1 } from '../../standard-schema.ts';
+import type { CloudContext } from './index.ts';
 
 export type ValidatorSlots = {
   body?: StandardSchemaV1;

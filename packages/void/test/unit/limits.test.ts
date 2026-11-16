@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { UsageLimit, asUsageLimit, limitFromResponse } from '../../src/runtime/limits.ts';
+import { UsageLimit, asUsageLimit, limitFromResponse } from '../../src/runtime/limits/index.ts';
 
 describe('usage limits', () => {
   it('preserves the error type and identity when restoring structured limits', () => {

@@ -6,7 +6,11 @@
  * This stub exists for the published npm package and type declarations.
  */
 import { drizzle as _drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { getRuntimeBinding, getRuntimeRequestResource, requireRuntimeBinding } from './env.ts';
+import {
+  getRuntimeBinding,
+  getRuntimeRequestResource,
+  requireRuntimeBinding,
+} from '../env/runtime.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
 // to depend on drizzle-orm directly.

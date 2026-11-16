@@ -1,6 +1,6 @@
 import { createFetch } from 'ofetch';
+import { interpolateRouteParams } from '../routing/route-url.ts';
 import { FetchError } from './fetch-error.ts';
-import { interpolateRouteParams } from './route-url.ts';
 export { FetchError };
 
 import type { RouteMap } from 'void/routes';

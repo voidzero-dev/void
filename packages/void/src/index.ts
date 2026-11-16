@@ -1061,7 +1061,7 @@ export {
   defineHead,
   defineQueue,
   VoidAssetRewriteError,
-} from './runtime/handler.ts';
+} from './runtime/handler/index.ts';
 
 export type {
   CloudContext,
@@ -1075,13 +1075,13 @@ export type {
   QueueBatch,
   QueueMessage,
   QueueRetryOptions,
-} from './runtime/handler.ts';
+} from './runtime/handler/index.ts';
 
-export type { ValidatorSlots, HandlerInput } from './runtime/validator.ts';
+export type { ValidatorSlots, HandlerInput } from './runtime/handler/validator.ts';
 
-export type { AuthUser } from './runtime/auth.ts';
+export type { AuthUser } from './runtime/auth/index.ts';
 
-export type { QueueMap } from './runtime/queues.ts';
+export type { QueueMap } from './runtime/queues/index.ts';
 
 export { defer } from './pages/defer.ts';
 

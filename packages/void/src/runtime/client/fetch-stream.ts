@@ -1,7 +1,7 @@
 import { ofetch } from 'ofetch';
+import { asUsageLimit, limitFromResponse } from '../limits/index.ts';
+import { interpolateRouteParams } from '../routing/route-url.ts';
 import { FetchError } from './fetch-error.ts';
-import { asUsageLimit, limitFromResponse } from './limits.ts';
-import { interpolateRouteParams } from './route-url.ts';
 export { FetchError as StreamError };
 
 import type { RouteMap } from 'void/routes';

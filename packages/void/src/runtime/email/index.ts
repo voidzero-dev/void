@@ -5,8 +5,7 @@
 // project policy and quotas.
 
 import { isRecord } from '@void/deploy-core';
-import { bytesToBase64 } from './base64.ts';
-import { readBoundedJson, withTimeout } from './email-protocol.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 import {
   captureMessage,
   DEV_INBOX_ACK_HEADER,
@@ -19,14 +18,15 @@ import {
   hasActiveSink,
   serializeCapturedMessage,
   type CapturedMessage,
-} from './email/dev-inbox.ts';
+} from './dev-inbox.ts';
 import {
   bytesToReadableStream,
   readEnvString,
   readProjectSlug,
   tryGetRawRuntimeEnv,
-} from './email/inbound.ts';
-import { buildMime, MimeError, newId, normalizeEmail } from './email/mime.ts';
+} from './inbound.ts';
+import { buildMime, MimeError, newId, normalizeEmail } from './mime.ts';
+import { readBoundedJson, withTimeout } from './protocol.ts';
 import type {
   EmailDeliveryState,
   NormalizedEmail,
@@ -36,7 +36,7 @@ import type {
   SendEmailOptions,
   SendEmailRecipientResult,
   SendEmailResult,
-} from './email/types.ts';
+} from './types.ts';
 
 export type {
   Address,
@@ -49,7 +49,7 @@ export type {
   SendEmailOptions,
   SendEmailRecipientResult,
   SendEmailResult,
-} from './email/types.ts';
+} from './types.ts';
 
 export {
   createMessageProxy,
@@ -59,7 +59,7 @@ export {
   parseEmail,
   ParseEmailError,
   replyEmail,
-} from './email/inbound.ts';
+} from './inbound.ts';
 export type {
   EmailAction,
   EmailEnvelope,
@@ -69,11 +69,11 @@ export type {
   ParsedEmail,
   ParseEmailErrorCode,
   ReplyEmailOptions,
-} from './email/inbound.ts';
+} from './inbound.ts';
 
 // `createEmail` throws `MimeError`; export it with the functions that throw it.
-export { MimeError } from './email/mime.ts';
-export type { MimeErrorCode } from './email/mime.ts';
+export { MimeError } from './mime.ts';
+export type { MimeErrorCode } from './mime.ts';
 
 function makeError(code: SendEmailErrorCode, message: string, cause?: unknown): SendEmailError {
   return cause === undefined ? { code, message } : { code, message, cause };

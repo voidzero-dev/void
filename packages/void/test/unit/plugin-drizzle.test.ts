@@ -16,7 +16,7 @@ vi.mock('../../src/log', () => ({
 import { voidWarn } from '../../src/log.ts';
 import { getMiniflareDatabasePath, openSqliteDatabase } from '../../src/migrations/runner.ts';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 
 const roots: Array<string> = [];
@@ -73,7 +73,7 @@ async function loadExecutableDbModule(
   fakeStateKeys.push(stateKey);
 
   const fakeDriverPath = join(root, 'fake-driver.mjs');
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const stateExpression = `globalThis[${JSON.stringify(stateKey)}]`;
   const createDatabaseSource = `
 function createPool(dialect, options) {
@@ -209,7 +209,7 @@ async function loadDriverDbModule(dialect: 'postgresql' | 'mysql'): Promise<{
   const root = createProjectRoot({ schema: false });
   const plugin = drizzlePlugin(root, false, dialect, { forceVirtualDb: true });
   const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const clientsKey = `__void_db_clients_${dialect}_${crypto.randomUUID().replaceAll('-', '')}`;
   const clients: Array<{ end(): unknown }> = [];
   (globalThis as Record<string, unknown>)[clientsKey] = clients;
@@ -250,7 +250,7 @@ async function loadMySqlDbModule(): Promise<{
   const root = createProjectRoot();
   const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
   const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const code = load
     .call({}, '\0virtual:void-db')
     .replace(
@@ -620,7 +620,7 @@ describe('drizzlePlugin db typing generation', () => {
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
       const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-      const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+      const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
       const code = load
         .call({}, '\0virtual:void-db')
         .replace(
@@ -723,7 +723,7 @@ export const requestPoolConfig = (env) =>
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'postgresql', { forceVirtualDb: true });
       const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-      const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+      const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
       const code = load
         .call({}, '\0virtual:void-db')
         .replace(

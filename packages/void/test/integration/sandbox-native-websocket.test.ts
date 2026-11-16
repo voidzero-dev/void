@@ -16,9 +16,9 @@ it('transfers native Sandbox WebSockets through DO fetch and strips the routing 
     writeFileSync(
       entry,
       `
-import { SandboxContainer } from ${JSON.stringify(join(root, 'src/runtime/sandbox-container.ts'))};
-import { getSandbox } from ${JSON.stringify(join(root, 'src/runtime/sandbox.ts'))};
-import { envContext } from ${JSON.stringify(join(root, 'src/runtime/env-raw.ts'))};
+import { SandboxContainer } from ${JSON.stringify(join(root, 'src/runtime/sandbox/container.ts'))};
+import { getSandbox } from ${JSON.stringify(join(root, 'src/runtime/sandbox/index.ts'))};
+import { envContext } from ${JSON.stringify(join(root, 'src/runtime/env/raw.ts'))};
 export class NativeBox extends SandboxContainer {
   get container() { return { running: false, getTcpPort(port) { return { fetch(request) {
     const [client, server] = Object.values(new WebSocketPair());

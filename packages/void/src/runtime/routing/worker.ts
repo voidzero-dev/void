@@ -1,6 +1,6 @@
 import { redirectToHttps } from '@void/edge';
 import type { ExecutionContext } from 'hono';
-import { createManifestLoader, type ManifestLoader } from './routing-assets.ts';
+import { createManifestLoader, type ManifestLoader } from './assets.ts';
 
 // Native Void routing records intentional 404s before Hono wraps HEAD responses.
 export const intentionalNotFoundRequests: WeakSet<Request> = new WeakSet();

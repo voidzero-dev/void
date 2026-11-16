@@ -13,7 +13,7 @@ test('skips documentation-only changes and keeps ordinary runtime changes small'
     'skip',
   );
   assert.equal(
-    selectPackedSuite(['docs/guide/env-vars.md', 'packages/void/src/runtime/env-public.ts']),
+    selectPackedSuite(['docs/guide/env-vars.md', 'packages/void/src/runtime/env/public.ts']),
     'smoke',
   );
   assert.equal(selectPackedSuite(['platform/packages/api/src/routes/projects.ts']), 'smoke');
@@ -66,7 +66,7 @@ test('compares the full pushed range rather than just the last commit', async ()
     event: { repository, before, after },
     request: async (path) => {
       assert(path.includes(`${before}...${after}`));
-      return { files: [{ filename: 'packages/void/src/runtime/kv.ts' }] };
+      return { files: [{ filename: 'packages/void/src/runtime/kv/index.ts' }] };
     },
   });
   assert.equal(result, 'smoke');

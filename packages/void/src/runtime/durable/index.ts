@@ -1,6 +1,6 @@
 import { DurableObject as CloudflareDurableObject } from 'cloudflare:workers';
-import { isResourceName } from '../shared/resource-name.ts';
-import { requireRuntimeBinding, withRuntimeEnv } from './env.ts';
+import { isResourceName } from '../../shared/resource-name.ts';
+import { requireRuntimeBinding, withRuntimeEnv } from '../env/runtime.ts';
 
 const DEFAULT_STORAGE_KEY = '__void_durable_state';
 

@@ -14,7 +14,7 @@ import {
   INTERNAL_BINDING_PREFIXES,
   isIsrActive,
   type RuntimeEnv,
-} from './env-raw.ts';
+} from './raw.ts';
 
 export type { RuntimeEnv };
 

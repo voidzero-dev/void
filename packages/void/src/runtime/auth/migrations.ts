@@ -2,7 +2,7 @@ import type {
   VoidAuthMigrationField,
   VoidAuthMigrationSchema,
   VoidAuthMigrationTable,
-} from '../auth/drizzle.ts';
+} from '../../auth/drizzle.ts';
 
 export type SqliteMigrationRunner = {
   all<T extends Record<string, unknown> = Record<string, unknown>>(sql: string): Promise<Array<T>>;

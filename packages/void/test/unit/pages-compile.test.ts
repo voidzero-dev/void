@@ -8,7 +8,7 @@ const testOptions = {
   honoPath: '/resolved/hono/index.mjs',
   honoRoutePath: '/resolved/hono/route.mjs',
 
-  runtimeEnvPath: '/resolved/void/runtime/env.mjs',
+  runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
   reactRefresh: false,

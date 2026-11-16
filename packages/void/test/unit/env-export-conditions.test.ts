@@ -37,16 +37,16 @@ describe('void/env export map', () => {
       envExport,
       new Set(['workerd', 'worker', 'module', 'browser', 'import']),
     );
-    expect(resolved).toBe('./dist/runtime/env-public.mjs');
+    expect(resolved).toBe('./dist/runtime/env/public.mjs');
   });
 
   it('resolves to the server variant under Node SSR conditions', () => {
     const resolved = resolveConditional(envExport, new Set(['node', 'module', 'import']));
-    expect(resolved).toBe('./dist/runtime/env-public.mjs');
+    expect(resolved).toBe('./dist/runtime/env/public.mjs');
   });
 
   it('resolves to the client stub under browser conditions', () => {
     const resolved = resolveConditional(envExport, new Set(['browser', 'module', 'import']));
-    expect(resolved).toBe('./dist/runtime/env-public-client.mjs');
+    expect(resolved).toBe('./dist/runtime/env/public-client.mjs');
   });
 });

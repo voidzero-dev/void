@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { buildPrerenderPath } from '../../src/runtime/prerender-path.ts';
+import { buildPrerenderPath } from '../../src/runtime/routing/prerender-path.ts';
 
 const FILE = 'pages/blog/[slug].server.ts';
 

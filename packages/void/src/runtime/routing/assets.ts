@@ -1,5 +1,5 @@
-import type { DevCssAsset } from '../pages/types.ts';
-import type { RuntimeEnvironment } from './routing-worker.ts';
+import type { DevCssAsset } from '../../pages/types.ts';
+import type { RuntimeEnvironment } from './worker.ts';
 
 // `c.rewrite()` cannot reach files the asset layer serves. `.html` is excluded: routes may use it.
 export const ASSET_EXTENSIONS: Array<string> = [

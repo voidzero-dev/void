@@ -1,7 +1,7 @@
 import { hostRegistryKey, htmlEdgeKey, isrKey, isrPrefix, jsonEdgeKey } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { revalidate } from '../../src/runtime/isr.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { revalidate } from '../../src/runtime/isr/index.ts';
 
 const DPL = 'dpl_1';
 const HOST = 'app.example.com';

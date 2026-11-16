@@ -1,4 +1,4 @@
-export { routeUrl } from './runtime/route-url.ts';
+export { routeUrl } from './runtime/routing/route-url.ts';
 export type {
   Href,
   RoutePath,
@@ -8,7 +8,7 @@ export type {
   RouteDestination,
   RouteUrl,
   RouteUrlInput,
-} from './runtime/route-url.ts';
+} from './runtime/routing/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}

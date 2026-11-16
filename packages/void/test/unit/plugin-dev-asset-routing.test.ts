@@ -578,8 +578,8 @@ describe('voidPlugin dev asset routing', () => {
     vi.stubEnv('VOID_TEST_UNDECLARED', 'from-shell');
     vi.stubEnv('VOID_TEST_UNRELATED', 'must-stay-out');
 
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({
       VOID_TEST_TOKEN: string(),
       VOID_TEST_FILE_ONLY: string(),

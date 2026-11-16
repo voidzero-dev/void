@@ -7,7 +7,7 @@ import {
   listIsrHosts,
 } from '@void/isr/runtime';
 import type { RouteUrl } from 'void/routes';
-import { getRawRuntimeEnv } from './env-raw.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
 
 export type RevalidateOptions = {
   /** Paths to purge. Checked against the app's routes when `routing.typedRoutes` is on. */

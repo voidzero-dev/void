@@ -95,7 +95,7 @@ describe('persistent resource names through generated Workers', () => {
       mkdirSync(dirname(roomPath), { recursive: true });
       writeFileSync(
         durablePath,
-        `import { defineDurableState } from ${JSON.stringify(runtimePath('durable.ts'))};
+        `import { defineDurableState } from ${JSON.stringify(runtimePath('durable/index.ts'))};
 export default defineDurableState({
   ${pinned ? "name: 'counter'," : ''}
   initialState: { count: 0 },
@@ -116,7 +116,7 @@ export async function GET(c) {
       );
       writeFileSync(
         roomPath,
-        `import { defineRoom } from ${JSON.stringify(runtimePath('ws.ts'))};
+        `import { defineRoom } from ${JSON.stringify(runtimePath('ws/index.ts'))};
 const schema = { '~standard': { version: 1, vendor: 'fixture', validate: value => ({ value }) } };
 export default defineRoom({
   ${pinned ? "name: 'chat-room'," : ''}
@@ -162,8 +162,8 @@ export default defineRoom({
           {
             honoPath: import.meta.resolve('hono'),
             honoRoutePath: import.meta.resolve('hono/route'),
-            runtimeEnvPath: runtimePath('env.ts'),
-            webSocketRuntimePath: runtimePath('ws-server.ts'),
+            runtimeEnvPath: runtimePath('env/runtime.ts'),
+            webSocketRuntimePath: runtimePath('ws/server.ts'),
             projectRoot: directory,
             homeDir: directory,
             reactRefresh: false,
@@ -174,7 +174,7 @@ export default defineRoom({
       writeFileSync(
         entry,
         compileWorkerEntry({
-          runtimeEnvPath: runtimePath('env.ts'),
+          runtimeEnvPath: runtimePath('env/runtime.ts'),
           durableObjects,
           webSocketClasses: scan.websockets?.map((route) => route.className),
         }),

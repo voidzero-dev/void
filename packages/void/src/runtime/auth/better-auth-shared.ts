@@ -2,7 +2,7 @@ import { randomBytes, scrypt, timingSafeEqual } from 'node:crypto';
 import { betterAuth, type BetterAuthOptions, type BetterAuthPlugin } from 'better-auth';
 import { createAuthMiddleware } from 'better-auth/api';
 import type { Context } from 'hono';
-import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
+import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
 import {
   VOID_EMAIL_AUTH_PROVIDER,
   getVoidAuthProviderEnvNames,
@@ -10,10 +10,10 @@ import {
   isVoidSocialAuthProvider,
   type VoidAuthProvider,
   type VoidSocialAuthProvider,
-} from '../auth/providers.ts';
-import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
-import { authContext, type AuthState, type VoidAuthConfig } from './auth.ts';
-import { isUnchangedStaticAsset } from './static-asset-marker.ts';
+} from '../../auth/providers.ts';
+import { isUnchangedStaticAsset } from '../routing/static-asset-marker.ts';
+import { authContext, type AuthState, type VoidAuthConfig } from './index.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from './response.ts';
 
 export type VoidAuthDialect = 'sqlite' | 'postgresql' | 'mysql';
 

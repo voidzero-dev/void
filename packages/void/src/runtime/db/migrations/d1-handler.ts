@@ -5,7 +5,7 @@ import {
   isSingleStatement,
   splitSqlStatements,
 } from '@void/deploy-core';
-import type { MigrationExecutionPlan, MigrationPlanBundle } from '../migrations/plan.ts';
+import type { MigrationExecutionPlan, MigrationPlanBundle } from '../../../migrations/plan.ts';
 
 export type MigrationEntry = {
   name: string;

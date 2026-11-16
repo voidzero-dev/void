@@ -1,12 +1,7 @@
-import { getUser, type AuthUser } from './auth.ts';
-import { getRawRuntimeEnv } from './env-raw.ts';
-import type { CloudContext, CloudEnv } from './handler.ts';
-import {
-  connectionInstanceName,
-  internalUrl,
-  topicDigest,
-  topicInstanceName,
-} from './live-names.ts';
+import { getUser, type AuthUser } from '../auth/index.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
+import type { CloudContext, CloudEnv } from '../handler/index.ts';
+import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
 
 type MaybePromise<T> = T | Promise<T>;
 

@@ -60,8 +60,8 @@ export default class extends WorkerEntrypoint {
     writeFileSync(
       application,
       `
-import { getSandbox } from ${JSON.stringify(join(root, 'packages/void/src/runtime/sandbox.ts'))};
-import { UsageLimit } from ${JSON.stringify(join(root, 'packages/void/src/runtime/limits.ts'))};
+import { getSandbox } from ${JSON.stringify(join(root, 'packages/void/src/runtime/sandbox/index.ts'))};
+import { UsageLimit } from ${JSON.stringify(join(root, 'packages/void/src/runtime/limits/index.ts'))};
 export default { async fetch(request) {
   const sandbox = await getSandbox('default');
   const path = new URL(request.url).pathname;

@@ -1,7 +1,7 @@
 import { memoryAdapter } from 'better-auth/adapters/memory';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vite-plus/test';
-import { createVoidAuthRuntime } from '../../src/runtime/better-auth-shared.ts';
+import { createVoidAuthRuntime } from '../../src/runtime/auth/better-auth-shared.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };

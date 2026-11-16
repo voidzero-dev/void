@@ -1,4 +1,4 @@
-import { splitMigrationSql } from './migration-handler.ts';
+import { splitMigrationSql } from './d1-handler.ts';
 
 /**
  * Splits a MySQL migration file into the statements Void runs one query at a time. Hyperdrive

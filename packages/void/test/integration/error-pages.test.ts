@@ -3,8 +3,8 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 
 // Exercise the bundle without loading its global declarations alongside source declarations.
 const { createErrorRenderer } = (await import(
-  new URL('../../dist/runtime/routing.mjs', import.meta.url).href
-)) as typeof import('../../src/runtime/routing-errors.ts');
+  new URL('../../dist/runtime/routing/index.mjs', import.meta.url).href
+)) as typeof import('../../src/runtime/routing/errors.ts');
 
 const errors = createErrorRenderer({ projectRoot: '/project', homeDir: '/home' });
 let browser: Browser;

@@ -12,7 +12,7 @@ import {
   prerenderPages,
   prerenderPagesNode,
 } from '../../src/prerender.ts';
-import { renderDefaultErrorPage } from '../../src/runtime/error-pages/index.ts';
+import { renderDefaultErrorPage } from '../../src/runtime/routing/error-pages/index.ts';
 import { INTERNAL_ENV_KEYS, stripInternalEnvKeys } from '../../src/shared/env.ts';
 
 const tempDirs: Array<string> = [];

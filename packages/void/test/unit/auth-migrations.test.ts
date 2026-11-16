@@ -14,7 +14,7 @@ import {
   applyPgAuthMigrations,
   applySqliteAuthMigrations,
   pgMigrationRunner,
-} from '../../src/runtime/auth-migrations.ts';
+} from '../../src/runtime/auth/migrations.ts';
 
 // PGlite serves the `pg` clients, and each client records the database it names.
 const state = vi.hoisted(() => ({ pg: null as PGlite | null, connections: [] as Array<string> }));

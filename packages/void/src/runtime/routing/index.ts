@@ -18,17 +18,17 @@ import {
   queryKey,
   searchWithoutActionKey,
   searchWithoutPreservedQuery,
-} from '../pages/action-key.ts';
-import { pagesRedirectResponse } from '../pages/redirect.ts';
-import { SHARED_CACHE_HEADERS, authDependentRequests } from './auth-response.ts';
-import { VoidAssetRewriteError, type CloudContext } from './handler.ts';
-import { convertReturnValue } from './response.ts';
+} from '../../pages/action-key.ts';
+import { pagesRedirectResponse } from '../../pages/redirect.ts';
+import { SHARED_CACHE_HEADERS, authDependentRequests } from '../auth/response.ts';
+import { VoidAssetRewriteError, type CloudContext } from '../handler/index.ts';
+import { convertReturnValue } from '../handler/response.ts';
+import { ASSET_EXTENSIONS } from './assets.ts';
+import { markRouteHandler } from './pages.ts';
 import { toUrlString } from './route-url.ts';
-import { ASSET_EXTENSIONS } from './routing-assets.ts';
-import { markRouteHandler } from './routing-pages.ts';
-import { intentionalNotFoundRequests } from './routing-worker.ts';
 import { isUnchangedStaticAsset, markStaticAsset } from './static-asset-marker.ts';
-export { createErrorRenderer } from './routing-errors.ts';
+import { intentionalNotFoundRequests } from './worker.ts';
+export { createErrorRenderer } from './errors.ts';
 
 export type RoutingRule = {
   source: string;
@@ -579,7 +579,7 @@ export {
   createPagesFallback,
   createNamedActionMarker,
   markRouteHandler,
-} from './routing-pages.ts';
+} from './pages.ts';
 
 export function createModuleLoader<T>(load: () => Promise<T>, cache = true): () => Promise<T> {
   let module: T | undefined;
@@ -598,7 +598,7 @@ export {
   createWorkerFetch,
   filterInternalBindings,
   prerenderPathsResponse,
-} from './routing-worker.ts';
-export { createClientAssetTags, createManifestLoader } from './routing-assets.ts';
-export { createSsrFallback, createAssetNotFound } from './routing-pages.ts';
+} from './worker.ts';
+export { createClientAssetTags, createManifestLoader } from './assets.ts';
+export { createSsrFallback, createAssetNotFound } from './pages.ts';
 export { buildPrerenderPath } from './prerender-path.ts';

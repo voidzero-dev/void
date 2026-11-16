@@ -1,9 +1,9 @@
 import type { WebSocketRouteMap } from 'void/routes';
-import { isResourceName } from '../shared/resource-name.ts';
-import type { StandardSchemaV1 } from '../standard-schema.ts';
-import type { AuthUser } from './auth.ts';
-import type { CloudEnv } from './handler.ts';
-import { interpolateRouteParams } from './route-url.ts';
+import { isResourceName } from '../../shared/resource-name.ts';
+import type { StandardSchemaV1 } from '../../standard-schema.ts';
+import type { AuthUser } from '../auth/index.ts';
+import type { CloudEnv } from '../handler/index.ts';
+import { interpolateRouteParams } from '../routing/route-url.ts';
 
 type MaybePromise<T> = T | Promise<T>;
 type ParamsRecord = Record<string, string>;

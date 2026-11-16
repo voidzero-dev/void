@@ -1,5 +1,5 @@
 import { Hono, type Context } from 'hono';
-import { base64ToBytes } from '../base64.ts';
+import { base64ToBytes } from '../../shared/base64.ts';
 import { R2_OBJECT_HEADER, parseR2Conditional, parseR2HttpMetadata } from './r2-conditions.ts';
 
 type BindingRequest = { binding: string };

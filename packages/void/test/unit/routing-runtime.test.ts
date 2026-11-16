@@ -8,11 +8,23 @@ import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
-import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env-public.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
-import { defineHandler, defineMiddleware, type CloudContext } from '../../src/runtime/handler.ts';
-import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env/public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import {
+  defineHandler,
+  defineMiddleware,
+  type CloudContext,
+} from '../../src/runtime/handler/index.ts';
+import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
+import {
+  createHttpRouteHandler,
+  createModuleLoader,
+  createRoutingRuntime,
+  type RoutingContext,
+  type RoutingHeaderRule,
+  type RoutingRuntime,
+} from '../../src/runtime/routing/index.ts';
 import {
   createAssetNotFound,
   createPageGetHandler,
@@ -21,7 +33,7 @@ import {
   createNamedActionMarker,
   createSsrFallback,
   markRouteHandler,
-} from '../../src/runtime/routing-pages.ts';
+} from '../../src/runtime/routing/pages.ts';
 import {
   applyAssetCachePolicy,
   createAssetCachePolicy,
@@ -29,15 +41,7 @@ import {
   createWorkerFetch,
   filterInternalBindings,
   type RuntimeEnvironment,
-} from '../../src/runtime/routing-worker.ts';
-import {
-  createHttpRouteHandler,
-  createModuleLoader,
-  createRoutingRuntime,
-  type RoutingContext,
-  type RoutingHeaderRule,
-  type RoutingRuntime,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/worker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };

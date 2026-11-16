@@ -1,11 +1,11 @@
-import type { VoidAuthMigrationSchema } from '../auth/drizzle.ts';
-import { applyMySqlAuthMigrations, mysqlMigrationRunner } from './auth-migrations.ts';
+import type { VoidAuthMigrationSchema } from '../../auth/drizzle.ts';
 import {
   createVoidAuthRuntime,
   resolveConnectionString,
   type VoidAuthEnv,
   type VoidAuthRuntimeApi,
 } from './better-auth-shared.ts';
+import { applyMySqlAuthMigrations, mysqlMigrationRunner } from './migrations.ts';
 
 async function applyMigrations(
   env: VoidAuthEnv,

@@ -1,5 +1,5 @@
-import type { MigrationEntry, MigrationResponse, MigrationResult } from './migration-handler.ts';
-import { disablePgPassFallback } from './pg.ts';
+import { disablePgPassFallback } from '../pgpass.ts';
+import type { MigrationEntry, MigrationResponse, MigrationResult } from './d1-handler.ts';
 
 export function createMigrationHandler(
   env: Record<string, unknown>,

@@ -8,7 +8,7 @@
  * Every helper returns a fluent builder with `.optional()` and
  * `.default(value)` modifiers.
  */
-import type { StandardSchemaV1 } from '../standard-schema.ts';
+import type { StandardSchemaV1 } from '../../standard-schema.ts';
 
 type ParseResult<T> = {
   ok: true;

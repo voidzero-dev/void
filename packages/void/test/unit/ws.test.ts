@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { connect } from '../../src/runtime/ws.ts';
+import { connect } from '../../src/runtime/ws/index.ts';
 
 declare module 'void/routes' {
   interface WebSocketRouteMap {

@@ -1,4 +1,4 @@
-import { bytesToBase64 } from './base64.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 
 export async function topicDigest(streamId: string, topic: string): Promise<string> {
   const bytes = new TextEncoder().encode(`${streamId}\u0000${topic}`);

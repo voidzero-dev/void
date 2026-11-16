@@ -11,19 +11,19 @@ vi.mock('better-auth', () => ({
 }));
 
 import {
+  createVoidAuthRuntime,
+  privateCachePolicy,
+  type VoidAuthRuntimeOptions,
+} from '../../src/runtime/auth/better-auth-shared.ts';
+import {
   getAuth,
   getUser,
   requireAuth,
   type AuthState,
   type AuthUser,
-} from '../../src/runtime/auth.ts';
-import {
-  createVoidAuthRuntime,
-  privateCachePolicy,
-  type VoidAuthRuntimeOptions,
-} from '../../src/runtime/better-auth-shared.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
-import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
+} from '../../src/runtime/auth/index.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 
 const authRuntimeOptions: VoidAuthRuntimeOptions = {
   dialect: 'sqlite',

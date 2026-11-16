@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import type { CloudContext } from '../../src/runtime/handler.ts';
-import { createLiveDurableObject } from '../../src/runtime/live-server.ts';
-import { __setLiveDev, defineLiveStream, type LiveLimits } from '../../src/runtime/live.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { __setLiveDev, defineLiveStream, type LiveLimits } from '../../src/runtime/live/index.ts';
+import { createLiveDurableObject } from '../../src/runtime/live/server.ts';
 
 const LIMITS: LiveLimits = {
   maxSubscriptionsPerConnection: 256,

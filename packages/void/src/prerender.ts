@@ -17,7 +17,7 @@ import {
   type PrerenderResult,
 } from './prerender-render.ts';
 export type { PrerenderResult } from './prerender-render.ts';
-import { renderDefaultErrorPage } from './runtime/error-pages/index.ts';
+import { renderDefaultErrorPage } from './runtime/routing/error-pages/index.ts';
 import { scopedAccessCredentials } from './shared/cf-access.ts';
 import { collectFiles } from './shared/collect-files.ts';
 import { stripInternalEnvKeys } from './shared/env.ts';

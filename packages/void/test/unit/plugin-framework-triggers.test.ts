@@ -21,7 +21,7 @@ import {
   hasOwnAstroMiddleware,
   nitroDevTriggerInjectPlugin,
 } from '../../src/plugin-framework-triggers.ts';
-import type { QueueBatch } from '../../src/runtime/handler.ts';
+import type { QueueBatch } from '../../src/runtime/handler/index.ts';
 
 const tempDirs: Array<string> = [];
 

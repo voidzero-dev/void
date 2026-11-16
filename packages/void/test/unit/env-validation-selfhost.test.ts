@@ -18,8 +18,8 @@ import {
   type SecretListRunResult,
   type SelfHostSchemaFacts,
 } from '../../src/cli/env-validation.ts';
-import { number, string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { number, string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 import { _resetUnmaskCacheForTests } from '../../src/shared/env-mask.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 

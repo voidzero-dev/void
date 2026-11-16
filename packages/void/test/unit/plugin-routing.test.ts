@@ -335,11 +335,11 @@ describe('routingPlugin', () => {
     );
 
     const browserCode = await load('virtual:void-client-browser:react');
-    expect(browserCode).toContain('auth-client-react.mjs');
+    expect(browserCode).toContain('auth/client-react.mjs');
     expect(browserCode).not.toContain('cloudflare:workers');
 
     const workerCode = await load('virtual:void-client-worker:react');
-    expect(workerCode).toContain('auth-client-react.mjs');
+    expect(workerCode).toContain('auth/client-react.mjs');
     expect(workerCode).toContain('cloudflare:workers');
   });
 
@@ -778,7 +778,7 @@ describe('routingPlugin', () => {
     {
       change: 'database dialect',
       config: { database: 'pg', auth: { providers: ['email'] } },
-      expected: 'better-auth-pg.mjs',
+      expected: 'auth/better-auth-postgres.mjs',
     },
   ])('refreshes auth $change on a body save', async ({ config, expected }) => {
     const root = createTempRoot();

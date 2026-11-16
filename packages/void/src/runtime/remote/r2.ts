@@ -1,4 +1,4 @@
-import { bytesToBase64 } from '../base64.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 import type { ProxyClient } from './client.ts';
 import {
   R2_OBJECT_HEADER,

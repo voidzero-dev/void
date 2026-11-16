@@ -1,4 +1,4 @@
-import type { RequestUrl } from './route-url.ts';
+import type { RequestUrl } from '../routing/route-url.ts';
 
 export type SseClientEvent<T = unknown> = {
   data: T;

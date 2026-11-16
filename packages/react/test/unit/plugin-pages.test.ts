@@ -42,7 +42,7 @@ describe('installedDependencies', () => {
       'void/pages-client':
         '/app/node_modules/.pnpm/void@1.6.2/node_modules/void/dist/pages/client.mjs',
       'void/pages-prefetch': 'C:\\app\\node_modules\\void\\dist\\pages\\prefetch.mjs',
-      'void/live/client': '/repo/packages/void/dist/runtime/live-client.mjs',
+      'void/live/client': '/repo/packages/void/dist/runtime/live/client.mjs',
     };
 
     expect(installedDependencies(Object.keys(files), (specifier) => files[specifier]!)).toEqual([

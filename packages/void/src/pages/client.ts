@@ -1,8 +1,8 @@
 /// <reference lib="dom" />
 
 import type { ActionUrl, ResolveActionBody, ResolveActionParams, RouteUrlInput } from 'void/routes';
-import { toUrlString } from '../runtime/route-url.ts';
-import { interpolateRouteParams } from '../runtime/route-url.ts';
+import { toUrlString } from '../runtime/routing/route-url.ts';
+import { interpolateRouteParams } from '../runtime/routing/route-url.ts';
 import { withPageQuery } from './action-key.ts';
 import {
   VoidActionError,

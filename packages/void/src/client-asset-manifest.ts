@@ -1,7 +1,7 @@
 import { compilePattern, matchPattern } from '@void/edge';
 import type { Rolldown } from 'vite';
-import type { ClientManifest } from './runtime/routing-assets.ts';
-import type { RoutingHeaderRule } from './runtime/routing.ts';
+import type { ClientManifest } from './runtime/routing/assets.ts';
+import type { RoutingHeaderRule } from './runtime/routing/index.ts';
 
 /**
  * Attach cache provenance to the existing manifest without changing its entry inventory.

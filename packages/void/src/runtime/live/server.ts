@@ -1,9 +1,4 @@
-import {
-  connectionInstanceName,
-  internalUrl,
-  topicDigest,
-  topicInstanceName,
-} from './live-names.ts';
+import { eventStream, type SseStream } from '../sse/index.ts';
 import {
   __getLiveBindingName,
   type LiveClientEvent,
@@ -12,8 +7,8 @@ import {
   type LiveControlOperationResult,
   type LiveControlResponse,
   type LiveLimits,
-} from './live.ts';
-import { eventStream, type SseStream } from './sse.ts';
+} from './index.ts';
+import { connectionInstanceName, internalUrl, topicDigest, topicInstanceName } from './names.ts';
 
 type LiveDurableObjectEnv = Record<string, unknown>;
 

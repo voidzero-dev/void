@@ -1,5 +1,5 @@
-import type { LiveClientEvent, LiveControlOperation, LiveControlResponse } from './live.ts';
-import type { RequestUrl } from './route-url.ts';
+import type { RequestUrl } from '../routing/route-url.ts';
+import type { LiveClientEvent, LiveControlOperation, LiveControlResponse } from './index.ts';
 
 export type LiveSubscribeOptions<Data = unknown> = {
   id: string;

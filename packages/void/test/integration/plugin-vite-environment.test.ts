@@ -1266,7 +1266,7 @@ describe('Astro preview', () => {
 describe('Astro server entry', () => {
   const entry = '@astrojs/cloudflare/entrypoints/server';
   const scopedEntry = '\0void:astro-server-entry';
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
 
   type WrapperModule = {
     named: string;

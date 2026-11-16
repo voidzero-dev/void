@@ -1,5 +1,5 @@
 import { afterEach, describe, it, expect, beforeEach, vi } from 'vite-plus/test';
-import { boolean, email, json, number, oneOf, string, url } from '../../src/runtime/env-helpers.ts';
+import { boolean, email, json, number, oneOf, string, url } from '../../src/runtime/env/helpers.ts';
 import {
   defineEnv,
   env,
@@ -10,8 +10,12 @@ import {
   _hasRegisteredSchema,
   _prepareEnv,
   _validateEnvOnce,
-} from '../../src/runtime/env-public.ts';
-import { getRuntimeBinding, requireRuntimeBinding, withRuntimeEnv } from '../../src/runtime/env.ts';
+} from '../../src/runtime/env/public.ts';
+import {
+  getRuntimeBinding,
+  requireRuntimeBinding,
+  withRuntimeEnv,
+} from '../../src/runtime/env/runtime.ts';
 import { ENV_REGISTRY_KEY } from '../../src/shared/env-registry.ts';
 
 // Reset schema between tests so order doesn't leak state.
@@ -808,7 +812,7 @@ describe('several copies of void/env in one Worker', () => {
 
   async function secondCopy() {
     vi.resetModules();
-    return await import('../../src/runtime/env-public.ts');
+    return await import('../../src/runtime/env/public.ts');
   }
 
   beforeEach(resetSchema);

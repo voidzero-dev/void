@@ -134,7 +134,7 @@ export { mutate as "action" };
           {
             honoPath: fileURLToPath(import.meta.resolve('hono')),
             honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
-            runtimeEnvPath: source('env.ts'),
+            runtimeEnvPath: source('env/runtime.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),
             reactRefresh: false,
@@ -154,7 +154,7 @@ export { mutate as "action" };
           },
         ),
       );
-      writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: source('env.ts') }));
+      writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: source('env/runtime.ts') }));
       const preambleScript = dev
         ? '<script type="module">window.__fixturePreamble = true</script>'
         : '';
@@ -167,8 +167,8 @@ export { mutate as "action" };
             name: 'typed-routing-fixture',
             enforce: 'pre',
             resolveId(id) {
-              if (id.endsWith('/dist/runtime/routing.mjs')) {
-                return source('routing.ts');
+              if (id.endsWith('/dist/runtime/routing/index.mjs')) {
+                return source('routing/index.ts');
               }
               if (id === 'virtual:void-routes') {
                 return routeTable;

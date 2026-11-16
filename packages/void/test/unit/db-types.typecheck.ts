@@ -10,7 +10,7 @@ import {
   type BatchItem,
   type SQL,
   type SQLWrapper,
-} from '../../src/runtime/db.ts';
+} from '../../src/runtime/db/index.ts';
 
 const posts = sqliteTable('posts', {
   id: integer('id').primaryKey(),
