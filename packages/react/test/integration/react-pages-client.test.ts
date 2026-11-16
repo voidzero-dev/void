@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -266,7 +267,7 @@ function defineDeferredHydrationTests(getBase: () => string) {
   });
 }
 
-function defineTransitionAwaitTests(getBase: () => string) {
+function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => string = () => '') {
   describe.concurrent('React action completion', { retry: 0 }, () => {
     const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
 
@@ -276,6 +277,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
         async (mode, { expect }) => {
           const context = await browser.newContext();
           const page = await context.newPage();
+          const diagnostics = collectBrowserDiagnostics(page);
           const errors: Array<string> = [];
           page.on('pageerror', (error) => errors.push(error.message));
           let releaseResponse!: () => void;
@@ -284,7 +286,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           });
           try {
             const url = `${getBase()}/transition-await`;
-            await page.goto(url);
+            const documentResponse = await page.goto(url);
+            expect(documentResponse?.status()).toBe(200);
             await page.waitForSelector('#app[data-hydrated="true"]');
             await page.getByTestId('operation').selectOption(operation);
             await page.route('**/transition-await*', async (route) => {
@@ -318,6 +321,10 @@ function defineTransitionAwaitTests(getBase: () => string) {
             await expect.poll(() => button.textContent()).toBe('run');
             expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
             expect(errors).toEqual([]);
+          } catch (error) {
+            throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, {
+              cause: error,
+            });
           } finally {
             releaseResponse();
             await context.close();
@@ -329,6 +336,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
     it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
       const context = await browser.newContext();
       const page = await context.newPage();
+      const diagnostics = collectBrowserDiagnostics(page);
       const errors: Array<string> = [];
       page.on('pageerror', (error) => errors.push(error.message));
       let releaseResponse!: () => void;
@@ -337,7 +345,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
       });
 
       try {
-        await page.goto(`${getBase()}/transition-await`);
+        const documentResponse = await page.goto(`${getBase()}/transition-await`);
+        expect(documentResponse?.status()).toBe(200);
         await page.waitForSelector('#app[data-hydrated="true"]');
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('initial');
         await page.route('**/transition-await*', async (route) => {
@@ -370,6 +379,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
         await expect.poll(() => button.textContent()).toBe('run');
         expect(errors).toEqual([]);
+      } catch (error) {
+        throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
       } finally {
         releaseResponse();
         await context.close();
@@ -381,6 +392,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
       async (operation, { expect }) => {
         const context = await browser.newContext();
         const page = await context.newPage();
+        const diagnostics = collectBrowserDiagnostics(page);
         const errors: Array<string> = [];
         page.on('pageerror', (error) => errors.push(error.message));
         let releaseResponse!: () => void;
@@ -389,7 +401,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         });
         try {
           const url = `${getBase()}/transition-await`;
-          await page.goto(url);
+          const documentResponse = await page.goto(url);
+          expect(documentResponse?.status()).toBe(200);
           await page.waitForSelector('#app[data-hydrated="true"]');
           await page.getByTestId('operation').selectOption(operation);
           const method = operation === 'action' ? 'POST' : 'GET';
@@ -440,6 +453,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           await expect.poll(() => button.textContent()).toBe('run');
           expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
           expect(errors).toEqual([]);
+        } catch (error) {
+          throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
         } finally {
           releaseResponse();
           await context.close();
@@ -949,6 +964,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
 describe('react-pages client (dev)', () => {
   let child: ChildProcess | undefined;
   let stderr = '';
+  let serverOutput = () => '';
   let originalLayout: string | undefined;
   const coldStartResponses: Array<{ path: string; status: number; body: string }> = [];
 
@@ -969,6 +985,7 @@ describe('react-pages client (dev)', () => {
         return child;
       }, serverTimeout);
       DEV_BASE = server.base;
+      serverOutput = server.output;
       const paths = ['/', '/users', '/action-error', '/router-params/alpha', '/visit-await'];
       coldStartResponses.push(
         ...(await Promise.all(
@@ -1235,7 +1252,10 @@ describe('react-pages client (dev)', () => {
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
-  defineTransitionAwaitTests(() => DEV_BASE);
+  defineTransitionAwaitTests(
+    () => DEV_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => DEV_BASE,
     () => browser,
@@ -1288,6 +1308,7 @@ describe('react-pages client (dev)', () => {
 
 describe('react-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
+  let serverOutput = () => '';
 
   beforeAll(async () => {
     if (!existsSync(join(ROOT, 'playground/react-pages/dist'))) {
@@ -1302,6 +1323,7 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
       30_000,
     );
     PREVIEW_BASE = server.base;
+    serverOutput = server.output;
   });
 
   afterAll(async () => {
@@ -1311,7 +1333,10 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   });
 
   defineClientTests(() => PREVIEW_BASE);
-  defineTransitionAwaitTests(() => PREVIEW_BASE);
+  defineTransitionAwaitTests(
+    () => PREVIEW_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => PREVIEW_BASE,
     () => browser,
