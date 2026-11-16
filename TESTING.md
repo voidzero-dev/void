@@ -166,6 +166,8 @@ The four adapter suites share their client and island test definitions in `test/
 full browser behavior contract against its production preview build, plus a dev-mode navigation,
 island hydration/interaction smoke check, SSR/protocol assertions, and HMR checks. This keeps both
 runtime modes covered without repeating the full browser matrix.
+Keep dev client smoke groups sequential to limit simultaneous requests for unbundled modules.
+The production browser contracts remain concurrent.
 
 Use production functions in unit tests. A copy of a hook's implementation inside a test cannot
 catch regressions in the real hook. Shared form-value equality has one direct suite, and actual
