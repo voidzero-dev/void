@@ -5,26 +5,6 @@ import { z } from 'zod';
 import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
-/**
- * Copies of the helpers generateRouteTypes() emits into .void/routes.d.ts, applied to
- * `typeof handler` in place of `typeof import("../routes/...")["METHOD"]`.
- */
-type Serialize<T> = T extends Response
-  ? never
-  : T extends Date
-    ? string
-    : T extends bigint
-      ? never
-      : T extends Function
-        ? never
-        : T extends undefined
-          ? never
-          : T extends Array<infer U>
-            ? Array<Serialize<U>>
-            : T extends object
-              ? { [K in keyof T as T[K] extends Function ? never : K]: Serialize<T[K]> }
-              : T;
-
 type ExtractInput<V> = {
   [K in keyof V as V[K] extends StandardSchemaV1 ? K : never]: V[K] extends StandardSchemaV1
     ? StandardSchemaV1.InferInput<V[K]>
@@ -33,12 +13,12 @@ type ExtractInput<V> = {
 
 // ─── Output extraction ──────────────────────────────────────────────────────
 
-describe('Serialize<Awaited<handler.__output>>', () => {
+describe('Awaited<handler.__output>', () => {
   it('extracts plain object return type', () => {
     const handler = defineHandler((_c) => {
       return { name: 'Alice' as string, age: 30 as number };
     });
-    type Output = Serialize<Awaited<(typeof handler)['__output']>>;
+    type Output = Awaited<(typeof handler)['__output']>;
 
     expectTypeOf<Output>().toEqualTypeOf<{ name: string; age: number }>();
 
@@ -52,7 +32,7 @@ describe('Serialize<Awaited<handler.__output>>', () => {
     })((_c, { body }) => {
       return { greeting: `Hello ${body.name}` as string };
     });
-    type Output = Serialize<Awaited<(typeof handler)['__output']>>;
+    type Output = Awaited<(typeof handler)['__output']>;
 
     expectTypeOf<Output>().toEqualTypeOf<{ greeting: string }>();
   });
