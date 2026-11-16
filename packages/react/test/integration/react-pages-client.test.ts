@@ -207,7 +207,10 @@ afterAll(async () => {
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  // Cold dev clients each load the unbundled module graph. Keep that smoke
+  // group serial; the full production contract still runs concurrently.
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
   describe.concurrent('deferred hydration', () => defineDeferredHydrationTests(getBase));
 }
 
@@ -465,6 +468,7 @@ function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => s
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -479,11 +483,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('hydrates without React errors', async () => {
