@@ -157,3 +157,38 @@ describe('parseDeployArgs', () => {
     });
   });
 });
+
+describe('parseDeployArgs --preview', () => {
+  it('parses a Cloudflare preview with JSON output', () => {
+    expect(
+      parseDeployArgs(['--platform', 'cloudflare', '--skip-build', '--preview', 'pr-64', '--json']),
+    ).toMatchObject({ platform: 'cloudflare', skipBuild: true, preview: 'pr-64', json: true });
+  });
+
+  it('requires --platform cloudflare and a name', () => {
+    expect(() => parseDeployArgs(['--preview', 'pr-64'])).toThrow(
+      '--preview requires --platform cloudflare',
+    );
+    expect(() => parseDeployArgs(['--platform', 'void', '--preview', 'pr-64'])).toThrow(
+      '--preview requires --platform cloudflare',
+    );
+    expect(() => parseDeployArgs(['--platform', 'cloudflare', '--preview'])).toThrow(
+      '--preview requires a name',
+    );
+    expect(() =>
+      parseDeployArgs(['--platform', 'cloudflare', '--preview', 'a', '--preview', 'b']),
+    ).toThrow('only be specified once');
+  });
+
+  it.each(['--atomic', '--provision', '--require-email'])('rejects %s with --preview', (flag) => {
+    expect(() => parseDeployArgs(['--platform', 'cloudflare', '--preview', 'pr-64', flag])).toThrow(
+      `${flag} cannot be combined with --preview`,
+    );
+  });
+
+  it('accepts --json only with --preview', () => {
+    expect(() => parseDeployArgs(['--platform', 'cloudflare', '--json'])).toThrow(
+      '--json is available only with --preview',
+    );
+  });
+});

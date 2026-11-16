@@ -1171,7 +1171,23 @@ it('bundles a generated static Worker and staged assets into prebuilt cf output'
       expect(built.workers.default.config.manifest?.mainModule).toBe('index.js');
       expect(built.workers.default.assetsDir).toBeDefined();
       expect(prepared.assetsDirectory).toBe(toSlash(assets));
+      expect(built.rootConfig.buildContext.isPreview).toBe(false);
       expectCfDryRun(prepared.directory, ['deploy']);
+    },
+  );
+  // `cf previews deploy` accepts only output marked as a Preview build.
+  await withPrepared(
+    prepareCfStaticBuildOutput({
+      projectRoot: root,
+      configPath,
+      assetsDirectory: assets,
+      accountId: 'account-id',
+      isPreview: true,
+    }),
+    async (prepared) => {
+      const built = await readBuildOutput(prepared.directory);
+      expect(built.rootConfig.buildContext.isPreview).toBe(true);
+      expectCfDryRun(prepared.directory, ['previews', 'deploy', '--preview-name=pr-1']);
     },
   );
 });

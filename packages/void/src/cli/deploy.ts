@@ -35,6 +35,7 @@ import { openDeployLog, type CliLogger } from './log-file.ts';
 import { buildDeployLogSummary } from './log-summary.ts';
 import { promptForLoginToken } from './login.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
+import { setProgressOutput } from './output.ts';
 import { listPlatformConnections } from './platform-registry.ts';
 import { detectPreset, FRAMEWORK_PRESETS } from './preset.ts';
 import {
@@ -58,7 +59,14 @@ export function resolveDeploymentPlatform(
 export async function runDeploy(root: string, options?: RunDeployOptions): Promise<void> {
   // The Cloudflare link check can evaluate void.config.ts, so record operator input first.
   options = withRecordedReadinessAccessOrigin(options ?? {});
-  console.log();
+  if (options.json) {
+    // stdout carries only the result record. Kept for the rest of the process, so the CLI's own
+    // report of a thrown error also goes to stderr.
+    setProgressOutput(process.stderr);
+    process.stderr.write('\n');
+  } else {
+    console.log();
+  }
 
   const cliLog = openDeployLog({
     mirrorToStderr: options?.debug === true || process.env.VOID_DEPLOY_DEBUG === '1',
@@ -70,6 +78,7 @@ export async function runDeploy(root: string, options?: RunDeployOptions): Promi
     spa: options?.spa === true ? true : undefined,
     skipBuild: options?.skipBuild === true ? true : undefined,
     skipMigrations: options?.skipMigrations === true ? true : undefined,
+    preview: options?.preview,
     nodeVersion: process.version,
     platform: process.platform,
     arch: process.arch,

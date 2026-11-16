@@ -97,12 +97,14 @@ export function discoverRootWranglerConfig(root: string): string {
 function createCloudflareUploaderPins(
   root: string,
   deps: CloudflareDeployDeps,
+  /** False for commands that never upload through the prebuilt cf uploader. */
+  usesPrebuiltUploader = true,
 ): {
   usesCf: boolean;
   cfUploaderIsPinned: () => boolean;
   assertUploaderStillPinned: () => boolean;
 } {
-  const usesCf = !deps.activateVersion && !deps.runWrangler;
+  const usesCf = usesPrebuiltUploader && !deps.activateVersion && !deps.runWrangler;
   const hashUploader = deps.hashWranglerUploader ?? hashWranglerUploader;
   const wranglerUploaderHashBefore = hashUploader(root);
   const cfUploaderHashBefore = usesCf ? hashCfUploader() : undefined;
@@ -170,6 +172,8 @@ export async function connectCloudflareDeployAccount(options: {
   readinessAccessOrigin: string | null | undefined;
   /** Scrubs and logs every child this connection runs. */
   reporter: CloudflareChildReporter;
+  /** False skips pinning the prebuilt cf uploader, for commands that only call the API. */
+  usesPrebuiltUploader?: boolean;
 }): Promise<CloudflareDeployConnection | null> {
   const { root, configPath, deps, reporter } = options;
   let { rootConfig } = options;
@@ -186,7 +190,7 @@ export async function connectCloudflareDeployAccount(options: {
     readWranglerTopLevelString(rootConfig, 'compliance_region'),
   );
   // Pin the uploaders before the first authenticated command, including account discovery.
-  const pins = createCloudflareUploaderPins(root, deps);
+  const pins = createCloudflareUploaderPins(root, deps, options.usesPrebuiltUploader);
   let accountId =
     readWranglerTopLevelString(rootConfig, 'account_id') ??
     (process.env.CLOUDFLARE_ACCOUNT_ID?.trim() || undefined);

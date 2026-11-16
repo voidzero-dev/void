@@ -1,5 +1,6 @@
 import { execSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import type { Writable } from 'node:stream';
 import { isCancel, log as clackLog, text } from '@voidzero-dev/vite-plus-prompts';
 import { join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
@@ -23,7 +24,7 @@ import {
 } from './deploy-types.ts';
 import { fetchRemoteSecretNames, formatEnvReport, validateProdEnv } from './env-validation.ts';
 import { type CliLogger } from './log-file.ts';
-import { formatCount, getErrorMessage, pc } from './output.ts';
+import { formatCount, getErrorMessage, pc, progressOptions } from './output.ts';
 import {
   detectPreset,
   formatProjectCommand,
@@ -50,15 +51,29 @@ import {
 import type { WrapperFeatures } from './wrapper.ts';
 import { needsWrapper, generateWrapper } from './wrapper.ts';
 
+/** Format a Cloudflare message and send it to the progress stream a `--json` command chose. */
+function progressLog(
+  write: (message: string, options?: { output?: Writable }) => void,
+  message: string,
+): void {
+  const formatted = formatCloudflareUserMessage(message);
+  const options = progressOptions();
+  if (options.output) {
+    write(formatted, options);
+  } else {
+    write(formatted);
+  }
+}
+
 export const log: Record<
   'error' | 'info' | 'message' | 'step' | 'warn',
   (message: string) => void
 > = {
-  error: (message: string) => clackLog.error(formatCloudflareUserMessage(message)),
-  info: (message: string) => clackLog.info(formatCloudflareUserMessage(message)),
-  message: (message: string) => clackLog.message(formatCloudflareUserMessage(message)),
-  step: (message: string) => clackLog.step(formatCloudflareUserMessage(message)),
-  warn: (message: string) => clackLog.warn(formatCloudflareUserMessage(message)),
+  error: (message: string) => progressLog(clackLog.error, message),
+  info: (message: string) => progressLog(clackLog.info, message),
+  message: (message: string) => progressLog(clackLog.message, message),
+  step: (message: string) => progressLog(clackLog.step, message),
+  warn: (message: string) => progressLog(clackLog.warn, message),
 };
 
 export class DeployEventError extends Error {}

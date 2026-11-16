@@ -191,6 +191,15 @@ const HELP_TREE: HelpTree = {
           'Publish a Durable Object Worker without pre-traffic staging (Cloudflare only)',
       },
       {
+        command: '--preview <name>',
+        description:
+          'Create or update a Cloudflare Preview with its own URL; production is unchanged (static sites and SPAs, with --platform cloudflare)',
+      },
+      {
+        command: '--json',
+        description: 'Print the preview result as JSON on stdout (with --preview)',
+      },
+      {
         command: '--debug',
         description: 'Mirror the deploy log to stderr (always written to ~/.void/logs)',
       },
@@ -203,6 +212,27 @@ const HELP_TREE: HelpTree = {
         command: 'void deploy --platform cloudflare',
         description: 'Deploy to your own Cloudflare account',
       },
+      {
+        command: 'void deploy --platform cloudflare --preview pr-64 --json',
+        description: 'Deploy a pull request preview and print its URL as JSON',
+      },
+    ],
+  },
+  preview: {
+    summary:
+      'Manage Cloudflare Previews created with `void deploy --platform cloudflare --preview`.',
+    usage: ['void preview delete <name>'],
+    commands: [
+      { command: 'delete <name>', description: 'Delete a Preview and all its deployments' },
+    ],
+    children: {
+      delete: basicSubcommand(
+        'Delete a Preview and all its deployments. Production is unchanged; a Preview that does not exist is not an error.',
+        'void preview delete <name>',
+      ),
+    },
+    examples: [
+      { command: 'void preview delete pr-64', description: 'Remove a pull request preview' },
     ],
   },
   auth: {
@@ -1564,6 +1594,8 @@ export function printGlobalHelp(): void {
       '',
       globalCommandLine(['deploy'], 'void deploy'),
       ...globalOptionLines(['deploy']),
+      '',
+      ...globalCommandGroup('preview'),
       '',
       ...globalCommandGroup('auth'),
       '',

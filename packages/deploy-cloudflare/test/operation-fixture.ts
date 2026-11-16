@@ -193,6 +193,10 @@ export function operationFixtureArgs(operation: CloudflareOperation): Array<stri
         '--experimental-auto-create=false',
         ...(operation.type === 'worker.deploy' ? ['--autoconfig=false'] : []),
       ];
+    case 'previews.deploy':
+      return ['preview', ...target, '--preview-name', operation.previewName, '--json'];
+    case 'previews.delete':
+      return ['preview', 'delete', '--preview-name', operation.previewName, ...target];
     case 'triggers.deploy':
       return ['triggers', 'deploy', ...target];
     case 'queues.consumer.remove':

@@ -53,12 +53,20 @@ export {
   type CloudflareVersionMetadata,
   type CloudflareWorkersDevSubdomainLookup,
 } from './version.ts';
+export {
+  deleteCloudflarePreview,
+  deployCloudflarePreview,
+  validateCloudflarePreviewName,
+  type CloudflarePreviewDeleteResult,
+  type CloudflarePreviewDeployResult,
+} from './preview.ts';
 export { createCloudflareMetadataRunner } from './metadata.ts';
 export { cloudflareCommandDiagnostic } from './diagnostics.ts';
 export { VOID_SECRET_DRAFT_MESSAGE, VOID_SECRET_DRAFT_SOURCE } from './secret-draft.ts';
 
 export type {
   CloudflareOperation,
+  CloudflarePreviewUploadResult,
   CloudflareUploadResult,
   CloudflareProviderError,
 } from './operations.ts';

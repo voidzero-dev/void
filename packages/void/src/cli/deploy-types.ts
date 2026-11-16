@@ -50,6 +50,13 @@ export type RunDeployOptions = {
   /** Publish an existing Durable Object Worker atomically after explicit operator choice. */
   atomic?: boolean;
   /**
+   * Create or update this named Cloudflare Preview instead of deploying production.
+   * `--platform cloudflare` only; production traffic is never changed.
+   */
+  preview?: string;
+  /** Print the deployment result as one JSON record on stdout; logs go to stderr. */
+  json?: boolean;
+  /**
    * `CF_ACCESS_READINESS_ORIGIN` as recorded before project code ran (`null` when unset).
    * `--platform cloudflare` only.
    */
