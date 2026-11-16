@@ -195,7 +195,7 @@ function defineSidebarTests(getBase: () => string) {
       expect(body).toContain('Getting Started');
       expect(body).toContain('Code Examples');
       expect(body).toContain('Learn how to use Void');
-      expect(body).toContain('Shiki syntax highlighting demos');
+      expect(body).toContain('Syntax highlighting demos');
     } finally {
       await page.context().close();
     }

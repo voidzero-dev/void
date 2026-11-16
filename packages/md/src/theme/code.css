@@ -83,7 +83,7 @@
   mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='currentColor' stroke-width='2'%3E%3Cpath d='M20 6 9 17l-5-5'/%3E%3C/svg%3E");
 }
 
-/* Shiki dual theme — keep inline light colors, only swap in dark mode */
+/* Dual theme — keep inline light colors, only swap in dark mode */
 .void-md pre.shiki.shiki-themes {
   background-color: var(--shiki-light-bg, #fff) !important;
 }
@@ -108,7 +108,7 @@
   color: var(--shiki-dark) !important;
 }
 
-/* Shiki notation transformers */
+/* Line notations */
 .void-md pre .diff.add {
   background: rgba(16, 185, 129, 0.14);
 }
@@ -155,12 +155,12 @@
   background: rgba(239, 68, 68, 0.14);
 }
 
-.void-md pre .has-focus .line:not(.focused) {
+.void-md pre.has-focused .line:not(.focused) {
   opacity: 0.4;
   transition: opacity 0.3s;
 }
 
-.void-md pre:hover .has-focus .line:not(.focused) {
+.void-md pre.has-focused:hover .line:not(.focused) {
   opacity: 1;
 }
 

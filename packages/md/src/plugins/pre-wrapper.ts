@@ -22,7 +22,7 @@ function extractLang(info: string): string {
 
 /**
  * Copies the code next to a clicked copy button, without removed diff lines
- * and without the empty last line that Shiki adds.
+ * and without the empty last line of the code block.
  * Markdown pages are island pages and always load as full documents, so this
  * classic inline script runs once per page load and adds one delegated
  * listener. The body must not contain `<`, so neither island tag matching nor

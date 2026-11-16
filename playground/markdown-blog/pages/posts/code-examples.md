@@ -1,6 +1,6 @@
 ---
 title: Code Examples
-description: Shiki syntax highlighting demos
+description: Syntax highlighting demos
 ---
 
 Void supports syntax highlighting with dual themes (light/dark).

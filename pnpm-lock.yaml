@@ -255,12 +255,6 @@ catalogs:
     '@react-router/dev':
       specifier: ^8.5.1
       version: 8.5.1
-    '@shikijs/engine-javascript':
-      specifier: ^4.6.0
-      version: 4.6.0
-    '@shikijs/transformers':
-      specifier: ^4.6.0
-      version: 4.6.0
     '@stylexjs/stylex':
       specifier: 0.19.1
       version: 0.19.1
@@ -592,12 +586,9 @@ importers:
 
   packages/md:
     dependencies:
-      '@shikijs/engine-javascript':
-        specifier: 'catalog:'
-        version: 4.6.0
-      '@shikijs/transformers':
-        specifier: 'catalog:'
-        version: 4.6.0
+      '@pierre/highlights':
+        specifier: ^0.5.1
+        version: 0.5.1
       gray-matter:
         specifier: ^4.0.3
         version: 4.0.3
@@ -625,9 +616,6 @@ importers:
       pathslash:
         specifier: 'catalog:'
         version: 0.1.0
-      shiki:
-        specifier: 'catalog:'
-        version: 4.6.0
       tinyglobby:
         specifier: ^0.2.17
         version: 0.2.17
@@ -4688,6 +4676,9 @@ packages:
   '@parcel/watcher@2.6.0':
     resolution: {integrity: sha512-7FNeNl8NCE7aINx7WXiKQrPYZWC/hvrTsmk6zmxbI7LTXE7hVek/n8AfVgpe2y82zl3w0HvCHN0bVKMBoJcC0w==}
     engines: {node: '>= 10.0.0'}
+
+  '@pierre/highlights@0.5.1':
+    resolution: {integrity: sha512-c2WF6sgwgKdxXU6FpWDLWUYHRca/cJy+3QJkWAqYqEAFxqlPf8eSH0ehHcFFjKBmT+9KBl9H7q6z7HMRU7+m6g==}
 
   '@polka/url@1.0.0-next.29':
     resolution: {integrity: sha512-wwQAWhWSuHaag8c4q/KN/vCoeOJYshAIvMQwD4GpSb3OiZklFfvAgmj0VCBBImRpuF/aFgIRzllXlVX93Jevww==}
@@ -13047,6 +13038,8 @@ snapshots:
       '@parcel/watcher-linux-x64-musl': 2.6.0
       '@parcel/watcher-win32-arm64': 2.6.0
       '@parcel/watcher-win32-x64': 2.6.0
+
+  '@pierre/highlights@0.5.1': {}
 
   '@polka/url@1.0.0-next.29': {}
 
