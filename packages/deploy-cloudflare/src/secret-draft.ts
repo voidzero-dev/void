@@ -67,7 +67,33 @@ export function isWranglerSecretOnlyDraft(entry: Record<string, unknown>): boole
 export const VOID_SECRET_DRAFT_SOURCE =
   'export default { fetch() { return new Response(""); } };\n';
 
-/** Prove a cf-created placeholder from the exact immutable version's source. */
+/** Message on the placeholder that Void's secret transport deploys to a Worker without code. */
+export const VOID_SECRET_DRAFT_MESSAGE = 'void:secret-draft';
+
+/**
+ * Annotations of a Void secret placeholder, checked before its source is inspected:
+ * - `api`: the secret transport uploaded and deployed the placeholder and its first secrets in
+ *   one Workers API request.
+ * - `cf_cli`: `cf workers secrets` added secrets to a deployed placeholder.
+ */
+export function isVoidSecretDraftHeader(entry: Record<string, unknown>): boolean {
+  if (!isRecord(entry.annotations)) {
+    return false;
+  }
+  const annotations = entry.annotations;
+  const keys = Object.keys(annotations);
+  if (entry.source === 'cf_cli') {
+    return keys.length === 1 && annotations['workers/triggered_by'] === 'secret';
+  }
+  return (
+    entry.source === 'api' &&
+    keys.length === 2 &&
+    annotations['workers/message'] === VOID_SECRET_DRAFT_MESSAGE &&
+    annotations['workers/triggered_by'] === 'create_version_api'
+  );
+}
+
+/** Prove a Void secret placeholder from the exact immutable version's source. */
 export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
   const metadataFields = new Set([
     'id',
@@ -90,10 +116,7 @@ export function isVoidSecretOnlyDraft(entry: Record<string, unknown>): boolean {
   ]);
   if (
     Object.keys(entry).some((key) => !metadataFields.has(key)) ||
-    entry.source !== 'cf_cli' ||
-    !isRecord(entry.annotations) ||
-    Object.keys(entry.annotations).length !== 1 ||
-    entry.annotations['workers/triggered_by'] !== 'secret' ||
+    !isVoidSecretDraftHeader(entry) ||
     entry.main_module !== 'index.js' ||
     !Array.isArray(entry.urls) ||
     entry.urls.length !== 0 ||

@@ -1,4 +1,5 @@
 ---
+description: 'Shared types for handler context, routes, URLs, and head metadata.'
 outline: deep
 ---
 
@@ -88,6 +89,8 @@ interface HeadDescriptor {
 
 Generated route types used by the typed `fetch` client. Contains each route’s methods, inputs, and outputs.
 
+Keys use route patterns such as `/api/users/[id]` and `/docs/[...slug]`.
+
 ```ts
 import type { RouteMap } from 'void/routes';
 ```
@@ -101,7 +104,7 @@ Build a relative URL string from a known page, HTTP, or WebSocket route pattern:
 ```ts
 import { routeUrl } from 'void/routes';
 
-routeUrl('/users/:id', {
+routeUrl('/users/[id]', {
   params: { id: 42 },
   query: { tab: 'activity' },
   hash: 'details',
@@ -129,12 +132,12 @@ Import these types from `void/routes`:
 | `RoutePath`           | Union of the known route patterns in `RoutePathMap`.                                              |
 | `PagePathMap`         | Generated map of page patterns to their parameter names.                                          |
 | `PagePath`            | Union of the page patterns in `PagePathMap`; accepted by `useParams()`.                           |
-| `PageParams<P>`       | The params page `P` receives, such as `{ id: string }` for `/users/:id`.                          |
+| `PageParams<P>`       | The params page `P` receives, such as `{ id: string }` for `/users/[id]`.                         |
 | `RouteOptions<P>`     | Options for a route pattern `P`, including its required `params`, optional `query`, and `hash`.   |
 | `RouteDestination<P>` | `{ pathname: P }` with `RouteOptions<P>`. Defaults to all known routes when `P` is omitted.       |
 | `RouteUrl`            | The URL of one of your routes, returned by `routeUrl()`. `string` unless `typedRoutes` is on.     |
 | `Href`                | A `RouteUrl`, a same-page query or hash, or an external URL. `string` unless `typedRoutes` is on. |
-| `RouteUrlInput`       | `Href`, `URL`, or `RouteDestination`; accepted by router navigation methods.                      |
+| `RouteUrlInput`       | `Href`, `URL`, or `RouteDestination`; accepted by router navigation methods and `c.redirect()`.   |
 | `RouteQuery`          | Query keys mapped to `RouteQueryValue` or readonly arrays of those values.                        |
 | `RouteQueryValue`     | `string`, `number`, `boolean`, `null`, or `undefined`.                                            |
 

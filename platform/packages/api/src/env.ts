@@ -32,6 +32,8 @@ export type ApiEnv = Env & {
     PREVIEW_DISPATCH?: Fetcher;
     CF_API_TOKEN: string;
     CF_ACCOUNT_ID: string;
+    /** Default creation hint for new project R2 buckets. */
+    R2_LOCATION_HINT?: string;
     CF_ZONE_ID: string;
     AI_GATEWAY_ID?: string;
     JWT_SECRET: string;

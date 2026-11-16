@@ -1,6 +1,6 @@
 {
   "name": "@void/platform",
-  "version": "1.6.2",
+  "version": "1.9.1",
   "description": "Packaged runtime and installation contracts for self-hosted Void platforms.",
   "homepage": "https://void.cloud",
   "bugs": {
@@ -33,6 +33,10 @@
       "types": "./dist/plans.d.mts",
       "import": "./dist/plans.mjs"
     },
+    "./ai-logging": {
+      "types": "./dist/ai-logging.d.mts",
+      "import": "./dist/ai-logging.mjs"
+    },
     "./browser-page": {
       "types": "./dist/browser-page.d.mts",
       "import": "./dist/browser-page.mjs"
@@ -42,15 +46,17 @@
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack && node scripts/build-runtime.mjs",
+    "build": "vp pack && node scripts/build-runtime.mjs && vp run build:stamp",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@void/deploy-core": "workspace:*",
     "pathslash": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@void/isr": "workspace:*",
     "typescript": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "catalog:"

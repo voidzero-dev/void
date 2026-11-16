@@ -357,3 +357,197 @@ describe('platform config plans', () => {
     );
   });
 });
+
+describe('platform config plans AI logging defaults', () => {
+  const catalog = { ...createDefaultPlanCatalog('free'), revision: 7 };
+  const aiLogging = { modes: { pro: 'metadata' }, publish: null, remaining: 0 };
+
+  /** A platform that answers each request from `answer`, recording request bodies. */
+  function platform(answer: (url: string, body?: Record<string, unknown>) => unknown) {
+    const fetcher = vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
+      const url = input.toString();
+      const body = init?.body ? JSON.parse(init.body as string) : undefined;
+      calls.push({ url, body });
+      return Response.json(answer(url, body));
+    });
+    vi.stubGlobal('fetch', fetcher);
+    return fetcher;
+  }
+
+  function output() {
+    return vi
+      .mocked(console.log)
+      .mock.calls.map((call) => String(call[0]))
+      .join('\n');
+  }
+
+  async function planFile(content: unknown) {
+    const file = join(directory, 'plan.json');
+    await writeFile(file, JSON.stringify(content));
+    return file;
+  }
+
+  it('refuses aiLogging before any request on a platform without plan defaults', async () => {
+    platform(() => ({ catalog, accounts: [] }));
+    const file = await planFile({ aiLogging: 'off' });
+    await expect(
+      runPlatformPlansConfig(
+        parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--yes']),
+      ),
+    ).rejects.toThrow('Upgrade the platform first');
+    expect(calls.filter((call) => call.body)).toHaveLength(0);
+  });
+
+  it('previews the change from the default the dry run read, with the project count', async () => {
+    platform((_url, body) =>
+      body
+        ? {
+            dryRun: true,
+            action: 'plans.set',
+            target: 'pro',
+            expectedRevision: 7,
+            catalog: { ...catalog, revision: 8 },
+            affectedAccounts: 3,
+            // Newer than the cached listing, which still says metadata.
+            aiLogging: {
+              modes: {},
+              modesBefore: { pro: 'off' },
+              planIds: ['pro'],
+              includeUnknown: false,
+            },
+            aiLoggingPublish: { complete: false, processed: 0, remaining: 12, expectedBy: null },
+          }
+        : { catalog, accounts: [], aiLogging },
+    );
+    const file = await planFile({ aiLogging: 'inherit' });
+    await runPlatformPlansConfig(
+      parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--plan']),
+    );
+    expect(calls.at(-1)?.body).toEqual({ aiLogging: 'inherit', dryRun: true });
+    expect(output()).toContain('AI Gateway logging: off → inherit');
+    expect(output()).toContain('AI logging settings to publish: 12 projects');
+  });
+
+  it('offers the setting in the interactive picker', async () => {
+    vi.stubGlobal('process', { ...process, stdin: { ...process.stdin, isTTY: true } });
+    platform((_url, body) =>
+      body?.dryRun
+        ? { dryRun: true, expectedRevision: 7, catalog, affectedAccounts: 0, aiLogging }
+        : body
+          ? {
+              catalog,
+              reconciliation: { complete: true, processed: 0 },
+              aiLoggingPublish: { complete: true, processed: 0, remaining: 0, expectedBy: null },
+            }
+          : { catalog, accounts: [], aiLogging },
+    );
+    vi.mocked(select).mockResolvedValueOnce('aiLogging').mockResolvedValueOnce('off');
+    vi.mocked(confirm).mockResolvedValueOnce(true);
+    await runPlatformPlansConfig(parsePlatformPlansArgs(['plans', 'set', 'pro']));
+    expect(select).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({
+        options: expect.arrayContaining([
+          { value: 'aiLogging', label: 'AI Gateway logging: metadata' },
+        ]),
+      }),
+    );
+    expect(select).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ initialValue: 'metadata' }),
+    );
+    expect(calls.at(-1)?.body).toEqual({ aiLogging: 'off', expectedRevision: 7 });
+  });
+
+  it('keeps syncing until the AI logging publish completes, then prints the expected time', async () => {
+    const pages = [
+      { complete: false, processed: 100, remaining: 150, expectedBy: '2026-11-13T14:01:00.000Z' },
+      { complete: false, processed: 100, remaining: 50, expectedBy: '2026-11-13T14:02:00.000Z' },
+      { complete: true, processed: 50, remaining: 0, expectedBy: '2026-11-13T14:03:20.000Z' },
+    ];
+    platform((url, body) => {
+      if (!body) {
+        return { catalog, accounts: [], aiLogging };
+      }
+      if (body.dryRun) {
+        return {
+          dryRun: true,
+          action: 'plans.set',
+          target: 'pro',
+          expectedRevision: 7,
+          catalog: { ...catalog, revision: 8 },
+          affectedAccounts: 0,
+          aiLogging: { modes: { pro: 'off' }, planIds: ['pro'], includeUnknown: false },
+        };
+      }
+      return {
+        ...(url.endsWith('/sync') ? {} : { action: 'plans.set', target: 'pro' }),
+        catalog: { ...catalog, revision: 8 },
+        reconciliation: { complete: true, processed: 0 },
+        aiLoggingPublish: pages.shift(),
+      };
+    });
+    const file = await planFile({ aiLogging: 'off' });
+    await runPlatformPlansConfig(
+      parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--yes']),
+    );
+    expect(calls.filter((call) => call.url.endsWith('/sync'))).toEqual([
+      {
+        url: 'https://api.example.com/operator/v1/config/plans/sync',
+        body: { expectedRevision: 8 },
+      },
+      {
+        url: 'https://api.example.com/operator/v1/config/plans/sync',
+        body: { expectedRevision: 8 },
+      },
+    ]);
+    expect(output()).toContain(
+      'AI logging published to 250 projects; expected by 14:03:20 UTC (normally within 2 minutes).',
+    );
+  });
+
+  it('stops with a resumption command when the AI logging publish fails', async () => {
+    platform((_url, body) =>
+      !body
+        ? { catalog, accounts: [], aiLogging }
+        : body.dryRun
+          ? { dryRun: true, expectedRevision: 7, catalog, affectedAccounts: 0 }
+          : {
+              action: 'plans.set',
+              target: 'pro',
+              catalog: { ...catalog, revision: 8 },
+              reconciliation: { complete: true, processed: 0 },
+              aiLoggingPublish: { complete: false, processed: 0, remaining: 3, error: 'KV failed' },
+              // The API marks a failed publish page this way; the CLI must still name plans sync.
+              ok: false,
+            },
+    );
+    const file = await planFile({ aiLogging: 'off' });
+    await expect(
+      runPlatformPlansConfig(
+        parsePlatformPlansArgs(['plans', 'set', 'pro', '--file', file, '--yes']),
+      ),
+    ).rejects.toMatchObject({
+      code: 'plan_sync_pending',
+      message: expect.stringContaining('AI logging setting is not published to every project'),
+    });
+  });
+
+  it('shows the plan default and a pending publish', async () => {
+    platform((url) =>
+      url.endsWith('/config/plans')
+        ? { catalog, accounts: [], aiLogging }
+        : {
+            catalogRevision: 7,
+            default: false,
+            plan: catalog.plans.find((plan) => plan.id === 'pro'),
+            accounts: 2,
+            aiLogging: 'metadata',
+            aiLoggingPublish: { complete: false, remaining: 4, planIds: ['pro'] },
+          },
+    );
+    await runPlatformPlansConfig(parsePlatformPlansArgs(['plans', 'show', 'pro']));
+    expect(output()).toContain('AI Gateway logging: metadata');
+    expect(output()).toContain('AI logging publish pending: 4 projects remaining');
+  });
+});

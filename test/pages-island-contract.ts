@@ -63,6 +63,7 @@ function registerIslandTests(
       await page.goto(BASE + '/blog');
       await waitForIslandsHydrated(page, 2);
 
+      expect(await page.getByTestId('island-date').textContent()).toBe('2026-11-08T00:00:00.000Z');
       const countBefore = await page.textContent('[data-testid="count"]');
       expect(countBefore).toBe('Count: 0');
 

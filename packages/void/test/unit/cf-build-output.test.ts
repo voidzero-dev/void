@@ -5,6 +5,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  realpathSync,
   readdirSync,
   rmSync,
   symlinkSync,
@@ -467,7 +468,8 @@ it('rejects a mismatching explicit target account', async () => {
 it(
   'preserves additional module types from a real Cloudflare Vite build',
   async () => {
-    const root = mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-'));
+    // Vite canonicalizes root; use the same path for Cloudflare's output directory.
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const assets = {
@@ -794,6 +796,61 @@ it(
         expect(bundle).not.toContain('dual-browser');
         expect(bundle).toContain('modes-production');
         expect(bundle).not.toContain('modes-development');
+      },
+    );
+  },
+  CF_BUILD_TIMEOUT_MS,
+);
+
+it(
+  'keeps local .env client values out of framework Worker output',
+  async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-env-test-'));
+    roots.push(root);
+    const output = join(root, 'framework');
+    mkdirSync(output);
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+    writeFileSync(
+      join(root, 'wrangler.json'),
+      JSON.stringify({
+        name: 'void-framework-test',
+        account_id: 'account-id',
+        main: 'framework/_worker.js',
+        compatibility_date: '2026-09-29',
+        assets: { directory: 'framework', binding: 'ASSETS' },
+      }),
+    );
+    writeFileSync(join(root, '.env'), 'VITE_ORIGIN=http://localhost:5173\n');
+    vi.stubEnv('VITE_SHELL_ORIGIN', 'https://shell.example.com');
+    // Reads Vite's env object as a whole, like an installed void/env that the framework build
+    // left as an import.
+    const reader = join(root, 'node_modules/env-reader');
+    mkdirSync(reader, { recursive: true });
+    writeFileSync(
+      join(reader, 'package.json'),
+      JSON.stringify({ name: 'env-reader', type: 'module', exports: './index.js' }),
+    );
+    writeFileSync(join(reader, 'index.js'), 'export const values = import.meta.env;\n');
+    writeFileSync(
+      join(output, '_worker.js'),
+      "import { values } from 'env-reader';\n" +
+        'export default { fetch() { return Response.json(values) } };\n',
+    );
+    writeFileSync(join(output, '.assetsignore'), '_worker.js\n');
+
+    await withPrepared(
+      prepareCfFrameworkBuildOutput({
+        projectRoot: root,
+        configPath: join(root, 'wrangler.json'),
+        accountId: 'account-id',
+      }),
+      async (prepared) => {
+        const bundle = readFileSync(
+          join(getWorkerBundleDir(prepared.directory), 'index.js'),
+          'utf8',
+        );
+        expect(bundle).toContain('https://shell.example.com');
+        expect(bundle).not.toContain('http://localhost:5173');
       },
     );
   },

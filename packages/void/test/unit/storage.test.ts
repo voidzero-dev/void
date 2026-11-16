@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vite-plus/test';
 
 vi.mock('cloudflare:workers', () => ({ env: {} }));
 
-import { createStorage } from '../../src/runtime/storage.ts';
+import { createStorage } from '../../src/runtime/storage/index.ts';
 
 describe('createStorage', () => {
   it('returns the bucket directly', () => {

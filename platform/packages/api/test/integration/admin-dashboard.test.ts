@@ -11,10 +11,22 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
+import { deserializePageData } from 'void/pages-server';
+import { createAdminFateClient } from '../../src/admin/fate/client.ts';
+import {
+  DeploymentDetailView,
+  DeploymentLogSettingsView,
+  UserSuggestionsView,
+  deploymentDetailRequest,
+  userSuggestionsRequest,
+} from '../../src/admin/fate/views.ts';
+import { PLAN_AI_LOGGING_SETTING } from '../../src/ai-logging-policy.ts';
+import { setProjectAiLogging } from '../../src/ai-logging.ts';
 import { respondToProjectInvitation } from '../../src/db.ts';
 import type { ApiEnv } from '../../src/env.ts';
 import { app } from '../../src/index.ts';
 import * as systemOperations from '../../src/operator/system-operations.ts';
+import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   deployments,
   domains,
@@ -116,6 +128,58 @@ function fateQuery(name: string, path: string, select: Array<string>): RequestIn
 }
 
 describe('auth middleware', () => {
+  test('resolves client memo dependencies through the real Fate endpoint and keeps local mutations off the wire', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'client-fields-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const member = await createTestUser(env.db, 'client-fields-member');
+    await env.db.update(users).set({ email: 'member@example.com' }).where(eq(users.id, member.id));
+    const project = await createTestProject(env.db, admin.id, 'client-fields-project');
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const requests: Array<string> = [];
+    const client = createAdminFateClient({
+      url: 'http://localhost/admin/fate',
+      fetch: async (_input, init) => {
+        requests.push(String(init?.body));
+        return req('/admin/fate', admin.adminJwt, init);
+      },
+    });
+    const { usersPage } = await client.request(
+      userSuggestionsRequest('/admin/users?search=client-fields-member'),
+    );
+    expect(usersPage).toBeTruthy();
+    const suggestions = await client.readView(UserSuggestionsView, usersPage!);
+    expect(suggestions.data.suggestions).toEqual([
+      {
+        id: member.id,
+        label: 'client-fields-member',
+        description: `member@example.com · ${member.id}`,
+      },
+    ]);
+    const request = deploymentDetailRequest(`/admin/deployments/${deployment.id}`);
+    const { deploymentDetail } = await client.request(request);
+    expect(deploymentDetail).toBeTruthy();
+    const detail = await client.readView(DeploymentDetailView, deploymentDetail!);
+    expect(detail.data.manifestJson).toBe(JSON.stringify(detail.data.manifest, null, 2));
+    const before = requests.length;
+    await client.mutations.deploymentLogs.configure({
+      input: { id: String(detail.data.id), logFilter: 'error' },
+    });
+    expect(requests).toHaveLength(before);
+    await client.request(request, { mode: 'network-only' });
+    expect(client.peekView(DeploymentLogSettingsView, deploymentDetail!)?.data.logFilter).toBe(
+      'error',
+    );
+    expect(requests.join('\n')).not.toMatch(/suggestions|manifestJson|logFilter|logRange|logLimit/);
+    expect(requests[0]).toContain('users');
+    expect(requests[1]).toContain('manifest');
+  });
+
   test.each([
     ['/admin', '/admin/'],
     ['/admin?source=bookmark', '/admin/?source=bookmark'],
@@ -355,6 +419,81 @@ describe('auth middleware', () => {
     expect(navigation.headers.get('Vary')).toBe('X-VoidPages');
     expect(navigation.headers.get('Cache-Control')).toBe('private, no-store');
     expect(((await navigation.json()) as { component: string }).component).toBe('users');
+  });
+
+  test('keeps runtime-log client fields when navigating away and back', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'log-settings-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const project = await createTestProject(env.db, admin.id, 'log-settings-project');
+    const deployment = await createTestDeployment(env.db, project.id, 'live');
+    const client = await readFile(
+      new URL('../../dist/admin-assets/admin/client.js', import.meta.url),
+    );
+    const css = await readFile(new URL('../../dist/admin-assets/admin/style.css', import.meta.url));
+    const browser = await chromium.launch();
+    try {
+      const context = await browser.newContext();
+      await context.addCookies([
+        { name: 'admin_token', value: admin.adminJwt, url: 'http://localhost' },
+      ]);
+      const page = await context.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      await page.route('**/*', async (route) => {
+        const incoming = route.request();
+        const url = new URL(incoming.url());
+        if (url.origin !== 'http://localhost') {
+          return route.abort();
+        }
+        if (url.pathname === '/admin/client.js' || url.pathname === '/admin/style.css') {
+          return route.fulfill({
+            contentType: url.pathname.endsWith('.js') ? 'text/javascript' : 'text/css',
+            body: url.pathname.endsWith('.js') ? client : css,
+          });
+        }
+        const response = await app.fetch(
+          new Request(incoming.url(), {
+            method: incoming.method(),
+            headers: await incoming.allHeaders(),
+            ...(incoming.method() === 'POST' ? { body: incoming.postData() ?? '' } : {}),
+          }),
+          { ...env, DEV_AUTH_BYPASS: 'true' },
+        );
+        await route.fulfill({
+          status: response.status,
+          headers: Object.fromEntries(response.headers),
+          body: Buffer.from(await response.arrayBuffer()),
+        });
+      });
+      await page.goto(`http://localhost/admin/deployments/${deployment.id}`);
+      await page.locator('[data-hydrated="true"]').waitFor();
+      await page.getByPlaceholder('Filter logs').fill('remember-this-filter');
+      await page.evaluate(() => {
+        Object.assign(window, { adminNavigationMarker: 'same-document' });
+      });
+      await page.locator(`a[href="/admin/projects/${project.id}"]`).first().click();
+      await page.getByRole('heading', { name: project.slug, exact: true }).waitFor();
+      expect(await page.evaluate(() => Reflect.get(window, 'adminNavigationMarker'))).toBe(
+        'same-document',
+      );
+      await page.goBack();
+      await page
+        .getByRole('heading', { name: `Deployment ${deployment.id}`, exact: true })
+        .waitFor();
+      await page
+        .getByText('remember-this-filter', { exact: true })
+        .filter({ visible: true })
+        .waitFor();
+      expect(errors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
   });
 
   test('keeps system-status geometry stable through loading, errors and failed refreshes', async () => {
@@ -684,7 +823,7 @@ function pageSnapshot(html: string): string {
   const match =
     /<script id="__VOID_PAGE_DATA__" type="application\/json">([\s\S]*?)<\/script>/.exec(html);
   expect(match).not.toBeNull();
-  const page = JSON.parse(match![1]!) as { shared: { adminFateSnapshot?: unknown } };
+  const page = deserializePageData(match![1]!) as { shared: { adminFateSnapshot?: unknown } };
   expect(page.shared.adminFateSnapshot).toBeDefined();
   return JSON.stringify(page.shared.adminFateSnapshot);
 }
@@ -893,6 +1032,37 @@ describe('admin Zero Trust', () => {
 
     const dashboard = await (await req('/admin/', admin.adminJwt)).text();
     expect(dashboard).toContain('href="/admin/zero-trust"');
+  });
+
+  test('shows the AI Gateway logging setting on the project and user pages', async () => {
+    const admin = await createTestUser(
+      env.db,
+      'ai-log-admin',
+      'github',
+      undefined,
+      'free',
+      'admin',
+    );
+    const project = await createTestProject(env.db, admin.id, 'ai-log-project');
+    await setPlatformSetting(env.db, PLAN_AI_LOGGING_SETTING, { modes: { free: 'metadata' } });
+    await setProjectAiLogging(env.db, env.ROUTING, project.id, 'off', {
+      initialPlanDefault: 'free',
+      dryRun: false,
+    });
+
+    const projectPage = visibleMarkup(
+      await (await req(`/admin/projects/${project.id}`, admin.adminJwt)).text(),
+    );
+    expect(projectPage).toContain('AI Gateway logging');
+    // Same wording as `void platform project show`.
+    expect(projectPage).toContain(
+      'off (set on project; plan &quot;free&quot; default: metadata) — pending (expected by ',
+    );
+    const userPage = visibleMarkup(
+      await (await req(`/admin/users/${admin.id}`, admin.adminJwt)).text(),
+    );
+    expect(userPage).toContain('AI Gateway logging default');
+    expect(userPage).toContain('metadata');
   });
 
   test('shows why project protection cannot change when Zero Trust is not enabled', async () => {
@@ -1977,7 +2147,6 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
     const project = await createTestProject(env.db, user.id, 'susp-slug');
     await env.ROUTING.put(project.slug, JSON.stringify({ workerName: 'w', projectId: project.id }));
 
-    // Suspend
     const suspBody = new URLSearchParams({ reason: 'test_reason' });
     const suspRes = await req(`/admin/users/${user.id}/suspend`, admin.adminJwt, {
       method: 'POST',
@@ -1989,7 +2158,6 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
     const routingAfter = JSON.parse((await env.ROUTING.get(project.slug))!);
     expect(routingAfter.suspended).toBe('test_reason');
 
-    // Unsuspend
     const unsuspRes = await req(`/admin/users/${user.id}/unsuspend`, admin.adminJwt, {
       method: 'POST',
       body: '',
@@ -3302,7 +3470,6 @@ describe('POST /admin/projects/:id/delete', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/admin/projects');
 
-    // Verify project is gone from DB
     const remaining = await env.db.select().from(projects);
     expect(remaining.find((p) => p.id === project.id)).toBeUndefined();
     vi.restoreAllMocks();
@@ -3350,7 +3517,6 @@ describe('POST /admin/users/:id/delete', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/admin/users');
 
-    // Verify user and projects are gone
     const remainingUsers = await env.db.select().from(users);
     expect(remainingUsers.find((u) => u.id === user.id)).toBeUndefined();
     const remainingProjects = await env.db.select().from(projects);
@@ -3568,7 +3734,11 @@ describe('GET /admin/deployments/:id (logs section)', () => {
     const html = await res.text();
     expect(html).toContain('role="combobox"');
     expect(html).toContain('placeholder="Filter logs"');
-    expect(html).toContain('"component":"deploymentDetail"');
+    expect(
+      deserializePageData(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ),
+    ).toMatchObject({ component: 'deploymentDetail' });
     expect(html).toContain('src="/admin/client.js"');
   });
 
@@ -3677,7 +3847,6 @@ describe('POST /admin/signup-control/toggle', () => {
   test('toggles restriction on and off', async () => {
     const admin = await createTestUser(env.db, 'admin-sc3', 'github', undefined, 'free', 'admin');
 
-    // Toggle ON
     const res1 = await req('/admin/signup-control/toggle', admin.adminJwt, {
       method: 'POST',
       body: '',
@@ -3760,7 +3929,6 @@ describe('POST /admin/signup-control/add + delete', () => {
     const admin = await createTestUser(env.db, 'admin-sc4', 'github', undefined, 'free', 'admin');
     await env.ROUTING.delete('signup:allowlist');
 
-    // Add entry
     const addBody = new URLSearchParams({ type: 'github', pattern: 'testuser', note: 'Test' });
     const addRes = await req('/admin/signup-control/add', admin.adminJwt, {
       method: 'POST',
@@ -3774,7 +3942,6 @@ describe('POST /admin/signup-control/add + delete', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toEqual({ type: 'github', pattern: 'testuser', note: 'Test' });
 
-    // Delete entry
     const delBody = new URLSearchParams({ index: '0' });
     const delRes = await req('/admin/signup-control/delete', admin.adminJwt, {
       method: 'POST',

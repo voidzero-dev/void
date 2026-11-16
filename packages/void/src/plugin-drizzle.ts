@@ -316,8 +316,8 @@ export const db = new Proxy({}, {
   },
 });
 
-export function createDb(d1) {
-  return drizzle(d1.withSession("first-unconstrained")${drizzleConfig});
+export function createDb(d1, options) {
+  return drizzle(d1.withSession(options?.session ?? "first-unconstrained")${drizzleConfig});
 }
 
 function createPrimaryDb(d1) {

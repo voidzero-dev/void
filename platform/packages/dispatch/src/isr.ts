@@ -1,16 +1,10 @@
 import { isrCacheKey, isrCacheVariantPrefix, isrEdgeCacheUrl } from '@void/isr';
 import {
   decodeIsrCacheEntry,
-  extractPageDataFromHtml,
-  isrCacheResponse,
-  isStale,
-  normalizePageDataForJsonCache,
   packIsrValue,
   resolvePathTtl,
-  resolveRevalidateTtl,
   SHARED_CACHE_POLICY_VERSION,
   serializeHeaders,
-  shouldBypassIsr,
   type IsrCacheEntry,
   type IsrCacheMetadata,
 } from '@void/isr/core';

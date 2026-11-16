@@ -196,7 +196,6 @@ export function resolveStaticPath(
     return matched;
   }
 
-  // Not found handling
   switch (config.not_found_handling ?? 'none') {
     case 'single-page-application':
       if (manifest['/index.html']) {

@@ -1,6 +1,6 @@
 # @voidcloud/proxy
 
-Shared proxy worker for platform-owned capabilities: AI metering, ISR revalidation, remote D1/KV/R2 access, and platform email submission. The dedicated email gateway uses the shared inbound routing helpers.
+Shared proxy worker for platform-owned capabilities: AI metering, ISR revalidation, remote D1/KV/R2 access, and platform email submission. The dedicated email gateway owns inbound routing and reuses the proxy's admission and provider helpers.
 
 ## Architecture
 
@@ -104,6 +104,22 @@ the route and project. That value never leaves the platform.
 
 `/ai/*` also checks `ROUTING` for `ai-block:{projectId}` before forwarding.
 
+`/ai/run`, `/ai/provider`, and `/ai/toMarkdown` read the project's AI Gateway
+logging mode from `ROUTING` key `ai-logging:{projectId}` (`cacheTtl: 30`) after
+the body is checked. The API publishes it; the proxy never asks the API.
+
+| Value         | AI Gateway logging                                    |
+| ------------- | ----------------------------------------------------- |
+| missing       | inherit: the gateway's own setting, nothing is sent   |
+| `off`         | no log entry                                          |
+| `metadata`    | log entry without the request and response bodies     |
+| `full`        | log entry with the request and response bodies        |
+| anything else | 503 `ai_logging_policy_invalid`                       |
+| read fails    | 503 `ai_logging_policy_unavailable`, `Retry-After: 5` |
+
+Caller gateway logging options and `cf-aig-*` logging headers are always dropped,
+so an app cannot change this. `/ai/models` does not read the key.
+
 `/ai/provider` forwards to `AI.gateway("void").getUrl(provider)` plus the relative `path`. JSON, text, binary, and multipart bodies are serialized by the SDK and reconstructed before forwarding. OpenAI-style providers default to `Authorization: Bearer <providerKey>`; Google AI Studio uses `x-goog-api-key`. Non-JSON responses are returned without JSON coercion so provider-native binary and streaming responses can pass through.
 
 ### Remote bindings
@@ -149,7 +165,7 @@ An idempotency key binds an action to its payload digest. Replays return recorde
 
 The gateway resolves the active project worker and dispatch limits from the API. Tenant requests and framed responses have an absolute deadline, and a durable receipt prevents replay after dispatch may have started. Native ingress can forward or reply using the original Cloudflare message. Relayed replies select delivery by sender domain: the shared binding for platform addresses, or scoped `send_raw` for custom addresses. Relayed forwarding returns `UNSUPPORTED_ACTION` without consuming quota because REST resending does not preserve native forwarding semantics.
 
-All handler actions are validated again at the platform boundary. MIME is capped at 5 MiB per message, replies at 8 MiB in aggregate, and action lists at 100 entries. The shared protocol bounds encoded response size, recipient counts, and headers. See `packages/platform/src/email-protocol.ts` and `src/email-router.ts` for the wire limits. PostgreSQL records inbound receipts and outbound recipient outcomes; KV hints cannot authorize delivery.
+All handler actions are validated again at the platform boundary. MIME is capped at 5 MiB per message, replies at 8 MiB in aggregate, and action lists at 100 entries. The shared protocol bounds encoded response size, recipient counts, and headers. See `packages/platform/src/email-protocol.ts` and `../email-gateway/src/router.ts` for the wire limits. PostgreSQL records inbound receipts and outbound recipient outcomes; KV hints cannot authorize delivery.
 
 #### Sender domain
 
@@ -173,7 +189,6 @@ src/
   kv.ts           # KV remote access
   r2.ts           # R2 remote access
   email.ts        # Outbound /email/send
-  email-router.ts # Shared native/relayed inbound routing and handler actions
   types.ts        # Env and JWT types
 test/unit/
   proxy.test.ts
@@ -192,7 +207,7 @@ test/unit/
 | `AI`                   | Workers AI         | Real inference binding                                 |
 | `API`                  | Service binding    | Internal API calls (`revalidate`, resource resolution) |
 | `DISPATCH`             | Dispatch namespace | Fast path to deployed user workers                     |
-| `ROUTING`              | KV                 | AI limit flags and the platform disabled marker        |
+| `ROUTING`              | KV                 | AI limit and logging keys, platform disabled marker    |
 | `SEND_EMAIL`           | send_email         | Account-level outbound mail                            |
 | `JWT_SECRET`           | Secret             | HMAC/JWT verification                                  |
 | `EMAIL_SIGNING_SECRET` | Secret             | Email request proofs, credential leases, and receipts  |

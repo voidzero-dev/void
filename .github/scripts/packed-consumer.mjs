@@ -239,8 +239,8 @@ try {
           )
             .trim()
             .split('\n'),
-          ['node_modules/dependency', '.env', '.env.local', '.env.production'],
-          'Init must ignore local environment files while allowing the example',
+          ['node_modules/dependency', '.env', '.env.local', '.env.production', '.env.example'],
+          'Init must ignore local environment files',
         );
         writeFileSync(
           join(fixture, '.npmrc'),
@@ -341,6 +341,22 @@ try {
           [join(fixture, 'node_modules/typescript/bin/tsc'), '--noEmit'],
           fixture,
         );
+        if (useVitePlus) {
+          // Vitest loads the app's Vite config, Void's plugin included, and runs the tests in
+          // Node.js. The test from docs/guide/testing.md replaces the KV module it uses.
+          mkdirSync(join(fixture, 'src'), { recursive: true });
+          writeFileSync(
+            join(fixture, 'src/visits.ts'),
+            `import { kv } from 'void/kv';\nexport async function countVisit(): Promise<number> {\n  const visits = ((await kv.get<number>('visits')) ?? 0) + 1;\n  await kv.put('visits', visits);\n  return visits;\n}\n`,
+          );
+          writeFileSync(
+            join(fixture, 'src/visits.test.ts'),
+            `import { expect, it, vi } from 'vite-plus/test';\nimport { loader } from '../pages/index.server';\nimport { countVisit } from './visits';\nvi.mock('void/kv', () => {\n  const values = new Map<string, unknown>();\n  return { kv: { get: async (key: string) => values.get(key) ?? null, put: async (key: string, value: unknown) => { values.set(key, value); } } };\n});\nit('counts visits', async () => {\n  await countVisit();\n  expect(await countVisit()).toBe(2);\n});\nit('imports a page loader', () => {\n  expect(loader).toBeTypeOf('function');\n});\n`,
+          );
+          await run(process.execPath, [vite, 'test', 'run'], fixture);
+          rmSync(join(fixture, 'src/visits.ts'));
+          rmSync(join(fixture, 'src/visits.test.ts'));
+        }
         // The installed package must find and verify every bundled runtime artifact.
         await run(
           process.execPath,
@@ -496,7 +512,7 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
           }
         }
         console.log(
-          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+' : 'public Vite'} build/typecheck, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
+          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
         );
       } catch (error) {
         failures.push({ fixture: label, error: String(error.stack ?? error) });

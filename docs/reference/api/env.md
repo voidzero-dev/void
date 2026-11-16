@@ -1,4 +1,5 @@
 ---
+description: 'Read validated environment values and binding types from void/env.'
 outline: deep
 ---
 

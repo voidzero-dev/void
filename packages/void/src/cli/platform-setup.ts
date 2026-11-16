@@ -5,6 +5,7 @@ import { formatLink, pc } from './output.ts';
 import type { PlatformManagementAccess } from './platform-auth.ts';
 import { planCreatesZone, planWritesDns } from './platform-plan-writes.ts';
 import type { PlatformInstallPlan } from './platform-plan.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 
 type PlatformSetupPage = Readonly<{
   title: string;
@@ -306,6 +307,7 @@ export type PlatformInstallCommandOptions = {
   hyperdrive?: string;
   runtime: string;
   runtimeLogs?: 'full' | 'minimal';
+  storageLocation?: PlatformStorageLocation;
   resumeId?: string;
   yes: boolean;
 };
@@ -359,6 +361,7 @@ export function platformInstallCommandArguments(
   flag('--dashboard-url', options.dashboardUrl ?? '');
   flag('--runtime', options.runtime);
   flag('--runtime-logs', options.runtimeLogs ?? '');
+  flag('--storage-location', options.storageLocation ?? '');
   if (options.yes) {
     parts.push('--yes');
   }

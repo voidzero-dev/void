@@ -1,4 +1,5 @@
 ---
+description: 'Share navigation and other UI across pages. Layouts nest with your directories and keep their state during navigation.'
 outline: deep
 ---
 
@@ -216,6 +217,8 @@ A named layout replaces the deepest default layout: in `[root, docs/layout]`, it
 
 Void uses the closest matching `_layouts/` file in the page's directory or an ancestor. A missing named layout fails the build.
 
+Export `layout` directly from the page as a string literal or `false`. Computed values and re-exports are ignored with a warning.
+
 ## Shared Data
 
 Middleware can inject data available on every page via `c.set("shared", {...})`. Augment `CloudContextVariables` to type the shared data, and `useShared()` will infer the type automatically:
@@ -252,4 +255,4 @@ export const action = defineHandler(async (c) => {
 });
 ```
 
-Middleware runs before the action. If an action changes data that shared data is built from, update shared data in the action, or redirect with `c.redirect()` so middleware runs again on the next page load.
+If an action changes the user's profile, update shared data there too, as above. Middleware won't run again until the next page request. You can also redirect with `c.redirect()` to load the page and shared data again.

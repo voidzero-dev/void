@@ -1,4 +1,5 @@
 import { isRecord } from './is-record.ts';
+import { isR2LocationHint } from './storage.ts';
 
 export const MANIFEST_REDIRECT_RULE_STATUSES: ReadonlySet<number> = new Set([
   200, 301, 302, 303, 307, 308,
@@ -128,8 +129,27 @@ export function validateManifestShape(manifest: unknown): string | null {
   if (!isRecord(manifest)) {
     return 'invalid manifest shape: expected a JSON object';
   }
+  if (manifest.storage !== undefined) {
+    if (manifest.version !== 5) {
+      return 'invalid manifest shape: storage requires manifest version 5';
+    }
+    if (
+      !isRecord(manifest.storage) ||
+      !isR2LocationHint(manifest.storage.locationHint) ||
+      Object.keys(manifest.storage).some((key) => key !== 'locationHint')
+    ) {
+      return 'invalid manifest shape: storage.locationHint must be a supported R2 location hint';
+    }
+  }
   if (manifest.emailProtocolVersion !== undefined && manifest.emailProtocolVersion !== 1) {
     return 'invalid manifest shape: emailProtocolVersion must be 1';
+  }
+  if (
+    manifest.migrationMode !== undefined &&
+    manifest.migrationMode !== 'apply' &&
+    manifest.migrationMode !== 'skip'
+  ) {
+    return 'invalid manifest shape: migrationMode must be apply or skip';
   }
 
   if (!isRecord(manifest.bindings)) {
@@ -543,7 +563,11 @@ export function validateManifestShape(manifest: unknown): string | null {
 
   if (manifest.durableObjects !== undefined) {
     const durable = manifest.durableObjects;
-    if (manifest.version !== 4 || !isRecord(durable) || !Array.isArray(durable.bindings)) {
+    if (
+      (manifest.version !== 4 && manifest.version !== 5) ||
+      !isRecord(durable) ||
+      !Array.isArray(durable.bindings)
+    ) {
       return 'invalid manifest shape: durableObjects requires manifest version 4 and a bindings array';
     }
     if (durable.bindings.length > 32) {

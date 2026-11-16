@@ -3,6 +3,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -70,10 +71,12 @@ async function waitForViteHmr(page: Page) {
 }
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -88,11 +91,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('form follows record identity while retaining edits on refresh and submit', async () => {
@@ -132,6 +141,21 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       expect(await page.evaluate(() => (document.querySelector('nav') as NavElement).__stamp)).toBe(
         42,
       );
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('renders an optional typed prop during navigation that preserves page state', async () => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/optional-props/first');
+      await waitForHydration(page);
+      await page.getByLabel('Draft').fill('Keep this draft');
+      await page.getByRole('link', { name: 'Show note' }).click();
+      await page.getByText('Optional note', { exact: true }).waitFor();
+      expect(await page.locator('#optional-props').getAttribute('note')).toBeNull();
+      expect(await page.getByLabel('Draft').inputValue()).toBe('Keep this draft');
     } finally {
       await page.context().close();
     }

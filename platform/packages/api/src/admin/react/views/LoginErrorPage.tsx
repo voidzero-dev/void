@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { AuthPage } from './AuthPage.tsx';
 
 export function LoginErrorPage({

@@ -373,6 +373,44 @@ function accessManagementPlan() {
 }
 
 describe('platform credential onboarding', () => {
+  it('shows discovery progress around remote reads without covering authentication', async () => {
+    const steps = vi.spyOn(log, 'step').mockImplementation(() => {});
+    mocks.operatorCredential.mockImplementationOnce(async () => {
+      expect(steps).toHaveBeenCalledWith('Preparing platform discovery');
+      expect(mocks.progress.start).not.toHaveBeenCalled();
+      return { source: 'oauth', token: 'operator-token' };
+    });
+    const recovery = await import('../../src/cli/platform-recovery.ts');
+    const recover = vi
+      .spyOn(recovery, 'recoverPlatformInstallations')
+      .mockImplementation(async () => {
+        expect(mocks.progress.start).toHaveBeenLastCalledWith('Discovering platform installations');
+        return [];
+      });
+    await runPlatformLifecycleCommand(parsePlatformArgs(['discover', '--account', 'account']));
+    expect(recover).toHaveBeenCalledOnce();
+    expect(mocks.progress.clear).toHaveBeenCalledTimes(2);
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
+  it('shows install planning progress and clears it before asking for confirmation', async () => {
+    const plan = mocks.plan.getMockImplementation()!;
+    mocks.plan.mockImplementationOnce(async (...input) => {
+      expect(mocks.progress.start).toHaveBeenLastCalledWith('Preparing installation plan');
+      return plan(...input);
+    });
+    mocks.confirm.mockImplementationOnce(async () => {
+      expect(mocks.progress.clear.mock.invocationCallOrder.at(-1)).toBeGreaterThan(
+        mocks.progress.start.mock.invocationCallOrder.at(-1)!,
+      );
+      return false;
+    });
+    await runPlatformLifecycleCommand(parsePlatformArgs(args));
+    expect(mocks.plan).toHaveBeenCalledOnce();
+    expect(mocks.confirm).toHaveBeenCalledOnce();
+    expect(mocks.install).not.toHaveBeenCalled();
+  });
+
   it('uses one management token from initial setup through automatic Access provisioning', async () => {
     const installArgs = accessManagementPlan();
     const access = platformAccessFixture();
@@ -1960,7 +1998,7 @@ describe('platform credential onboarding', () => {
     ]);
     expect(readdirSync(directory)).toHaveLength(1);
     expect(mocks.install).not.toHaveBeenCalled();
-    expect(mocks.spinner).not.toHaveBeenCalled();
+    expect(mocks.progress.start).not.toHaveBeenCalledWith('Installing the platform');
   });
   it('continues from the printed command without repeating nonsecret choices', async () => {
     await runPlatformLifecycleCommand(parsePlatformArgs([...args, '--plan']));
@@ -2069,7 +2107,7 @@ describe('platform credential onboarding', () => {
     await runPlatformLifecycleCommand(parsePlatformArgs(args));
     expect(listInstallationManifests()).toEqual([]);
     expect(mocks.open).not.toHaveBeenCalled();
-    expect(mocks.spinner).not.toHaveBeenCalled();
+    expect(mocks.progress.start).not.toHaveBeenCalledWith('Installing the platform');
     expect(listSavedPlatformInstallPlans()).toHaveLength(1);
   });
   it('opens each missing credential page and preserves encrypted progress and callback identity across cancellation', async () => {

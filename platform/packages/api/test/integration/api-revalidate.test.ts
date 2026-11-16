@@ -571,7 +571,6 @@ describe('POST /projects/:id/revalidate', () => {
     const body = (await res.json()) as { purged: number };
     expect(body.purged).toBe(2);
 
-    // Verify purged entries are gone
     const home = await env.ISR_CACHE.get(
       isrKey(project.id, deployment.id, `${project.slug}.void.app`, '__index__'),
     );
@@ -764,7 +763,6 @@ describe('POST /projects/:id/revalidate', () => {
     const body = (await res.json()) as { purged: number };
     expect(body.purged).toBe(2);
 
-    // Verify all ISR entries are gone
     const home = await env.ISR_CACHE.get(
       isrKey(project.id, deployment.id, `${project.slug}.void.app`, '__index__'),
     );
@@ -1057,7 +1055,6 @@ describe('POST /projects/:id/revalidate', () => {
     const deployment = await createTestDeployment(env.db, project.id, 'live');
     const fetchMock = mockCfApi();
 
-    // Add a custom domain
     await env.db.insert(domains).values({
       id: 'dom_test1',
       project_id: project.id,

@@ -69,7 +69,7 @@ export function renderEnvTs(entries: Array<InferredEntry>): string {
     return [
       `import { defineEnv } from 'void/env';`,
       ``,
-      `// Define your environment variables here. See https://voidzero.dev/guide/env-vars`,
+      `// Define your environment variables here. See https://void.cloud/guide/env-vars`,
       `export default defineEnv({});`,
       ``,
     ].join('\n');

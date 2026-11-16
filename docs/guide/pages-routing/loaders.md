@@ -1,4 +1,5 @@
 ---
+description: "Load a page's data in a companion .server.ts file. The component receives that data as typed props."
 outline: deep
 ---
 
@@ -25,6 +26,29 @@ export const loader = defineHandler(async (c) => {
 ```
 
 `InferProps` infers the loader’s return type, so page props stay in sync with the data it returns.
+
+Return data directly to preserve values such as `Date`, `Map`, `Set`, `bigint`, `RegExp`, `URL`, and `undefined`. Page props and shared data keep these types across rendering, hydration, navigation, and deferred loading, including repeated or cyclic references.
+
+Returning `Response.json()` uses JSON conversion instead. Functions and custom class instances can't be sent as page data.
+
+## Response Status
+
+Use `c.status()` to render the current page with an HTTP error status, such as `403` or `503`. Return the page's props as usual:
+
+```ts
+// pages/maintenance.server.ts
+import { defineHandler } from 'void/handler';
+
+export const loader = defineHandler((c) => {
+  c.status(503);
+  c.header('Retry-After', '120');
+  return { message: 'Down for maintenance' };
+});
+```
+
+The browser receives HTTP `503` and a `Retry-After` header, while the page renders with `{ message: 'Down for maintenance' }`. Client-side navigation uses the same status, props, and layouts.
+
+You can also set the status in middleware before `await next()`. Set it before deferred streaming starts. To show an error component instead of the requested page, [throw an `HTTPException`](./errors.md#http-exceptions).
 
 ## Using the Data in Page Components
 

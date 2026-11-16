@@ -1,4 +1,5 @@
 ---
+description: 'Sign in to the admin UI, create the first administrator, and control who can access the platform.'
 outline: deep
 ---
 

@@ -56,7 +56,7 @@ import {
 } from './router/compile.ts';
 import type { RouteEnvironment } from './router/parse-filename.ts';
 import type { ScanResult } from './router/scan.ts';
-import type { VoidAuthRuntimeOptions } from './runtime/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from './runtime/auth/better-auth-shared.ts';
 import { loadLocalEnv } from './shared/env.ts';
 import { invalidateSourceAnalysis } from './shared/source-analysis-cache.ts';
 import {
@@ -232,17 +232,17 @@ export function routingPlugin(
   const resolveFile = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
 
   const handlerFile = resolveFile('#self/handler');
-  const runtimeDir = dirname(resolveFile('#self/client'));
+  const authRuntimeDir = dirname(resolveFile('void/auth'));
   const fetchPath = resolveFile('#self/runtime/fetch');
   const fetchStreamPath = resolveFile('#self/runtime/fetch-stream');
   const sandboxRuntimePath = resolveFile('#self/sandbox');
   const drizzleAdapterPath = resolveFile('better-auth/adapters/drizzle');
-  let authClientPath = join(runtimeDir, 'auth-client.mjs');
+  let authClientPath = join(authRuntimeDir, 'client.mjs');
   const explicitAuthClientPaths: Record<AuthClientFramework, string> = {
-    react: join(runtimeDir, 'auth-client-react.mjs'),
-    vue: join(runtimeDir, 'auth-client-vue.mjs'),
-    svelte: join(runtimeDir, 'auth-client-svelte.mjs'),
-    solid: join(runtimeDir, 'auth-client-solid.mjs'),
+    react: join(authRuntimeDir, 'client-react.mjs'),
+    vue: join(authRuntimeDir, 'client-vue.mjs'),
+    svelte: join(authRuntimeDir, 'client-svelte.mjs'),
+    solid: join(authRuntimeDir, 'client-solid.mjs'),
   };
   const remote = options.remoteMode
     ? {
@@ -265,6 +265,7 @@ export function routingPlugin(
   }
   const runtimeEmailPath = resolveFile('#self/email');
   const compileOptions: CompileOptions = {
+    trailingSlash: options.routing?.trailingSlash,
     honoPath: resolveFile('hono'),
     honoRoutePath: resolveFile('hono/route'),
     runtimeEnvPath: resolveFile('#self/_env'),
@@ -299,8 +300,7 @@ export function routingPlugin(
   }
   reloadFileRules();
 
-  // Auth compile options are set up lazily in buildStart (after env plugin
-  // has run its config hook and the auth config file path is known).
+  // Resolve auth after config hooks have run and the auth config path is known.
   function resolveAuthCompileOptions(): void {
     if (!options.isAuthEnabled() && !authConfigPath) {
       compileOptions.auth = null;
@@ -311,10 +311,10 @@ export function routingPlugin(
     compileOptions.auth = {
       authRuntimePath:
         dialect === 'postgresql'
-          ? join(runtimeDir, 'better-auth-pg.mjs')
+          ? join(authRuntimeDir, 'better-auth-postgres.mjs')
           : dialect === 'mysql'
-            ? join(runtimeDir, 'better-auth-mysql.mjs')
-            : join(runtimeDir, 'better-auth.mjs'),
+            ? join(authRuntimeDir, 'better-auth-mysql.mjs')
+            : join(authRuntimeDir, 'better-auth-d1.mjs'),
       authConfigPath,
       authDatabasePath: join(outDir, 'better-auth-db.ts'),
       authSchemaPath: join(outDir, 'better-auth-schema.ts'),
@@ -401,6 +401,7 @@ export function routingPlugin(
         dialect: compileOptions.auth.dialect,
         schemaImportPath: authSchemaPath,
         drizzleAdapterPath,
+        d1BindingName: options.bindingNames?.d1,
       }),
     );
 
@@ -430,7 +431,7 @@ export function routingPlugin(
     if (config.plugins.some((plugin) => plugin.name === 'void-solid:pages')) {
       return explicitAuthClientPaths.solid;
     }
-    return join(runtimeDir, 'auth-client.mjs');
+    return join(authRuntimeDir, 'client.mjs');
   }
 
   function getClientAuthPath(id: string): string {
@@ -461,11 +462,16 @@ export function routingPlugin(
   }
 
   function getPagesCompileOptions(): PagesCompileOptions | null {
-    if (!scan || scan.pages.pages.length === 0) {
+    if (
+      !scan ||
+      (scan.pages.pages.length === 0 &&
+        !scan.pages.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        ))
+    ) {
       return null;
     }
     const hasIslandPages = scan.pages.pages.some((p) => p.island);
-    // Detect md plugin and read its client entry ID for island pages
     const mdPlugin = resolvedConfig?.plugins?.find((p) => p.name === 'void-md');
     const mdClientEntryId =
       hasIslandPages && mdPlugin?.api?.clientEntryId
@@ -485,7 +491,11 @@ export function routingPlugin(
     const { pages, routes, websockets = [], middleware } = scan!;
     return resolveAssetRoutingPolicy({
       isSsr: Boolean(ssr),
-      hasPages: pages.pages.length > 0,
+      hasPages:
+        pages.pages.length > 0 ||
+        !!pages.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        ),
       hasApiRoutes:
         hasApiRoutes(routes) || hasApiRoutes(websockets) || compileOptions.auth !== null,
       hasDocumentRoutes: hasDocumentRoutes(routes),
@@ -955,7 +965,7 @@ export function routingPlugin(
       }
     },
 
-    configureServer(devServer) {
+    async configureServer(devServer) {
       const authEnvironment = devServer.environments[AUTH_CONFIG_ENVIRONMENT];
       authConfigEnvironment =
         authEnvironment && isRunnableDevEnvironment(authEnvironment) ? authEnvironment : undefined;
@@ -1142,6 +1152,16 @@ export function routingPlugin(
         watcher.on('add', handleRulesFileChange);
         watcher.on('change', handleRulesFileChange);
         watcher.on('unlink', handleRulesFileChange);
+      }
+
+      // Later configureServer hooks can load app modules before buildStart.
+      // Their imports may already reference the generated authentication tables.
+      if (options.isAuthEnabled()) {
+        await regenerateInOrder(async () => {
+          await rescan();
+          resolveAuthCompileOptions();
+          await writeAuthDatabaseFiles();
+        });
       }
     },
   };

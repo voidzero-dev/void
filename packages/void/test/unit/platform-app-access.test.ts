@@ -233,6 +233,35 @@ describe('guided installation app access', () => {
     expect(prompts.confirm).not.toHaveBeenCalled();
     expect(prompts.password).not.toHaveBeenCalled();
   });
+  it('allows unmanaged public apps when Cloudflare explicitly reports Access disabled', async () => {
+    const { input, fetcher } = fixture('public');
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        {
+          success: false,
+          errors: [{ code: 9999, message: 'access.api.error.not_enabled: Access is not enabled.' }],
+        },
+        { status: 403 },
+      ),
+    );
+    expect(JSON.parse(await prepareInstallationAppAccess(input))).toMatchObject({
+      mode: 'public',
+      managed: false,
+    });
+    expect(fetcher).toHaveBeenCalledOnce();
+  });
+  it('requires an explicit credential when Cloudflare denies the public Access check', async () => {
+    const { input, fetcher } = fixture('public');
+    fetcher.mockResolvedValueOnce(
+      Response.json(
+        { success: false, errors: [{ code: 10000, message: 'Authentication error' }] },
+        { status: 403 },
+      ),
+    );
+    await expect(prepareInstallationAppAccess(input)).rejects.toThrow(
+      'VOID_PLATFORM_APP_ACCESS_TOKEN',
+    );
+  });
   it('prepares managed public rules under Default-Deny without asking for company policies', async () => {
     tty(true);
     const { input } = fixture('public');

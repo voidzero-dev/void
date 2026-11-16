@@ -78,6 +78,7 @@ export async function runFullDeploy(
   gitMetadata?: GitDeployMetadata,
   detected?: DetectedFramework,
   cliLog?: CliLogger,
+  skipMigrations?: boolean,
 ): Promise<void> {
   cliLog?.info('deploy_mode', {
     mode: 'full',
@@ -420,6 +421,7 @@ export async function runFullDeploy(
     {
       bindings: liveConfig ? { ...bindings, needsLive: true } : bindings,
       alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
+      storage: voidConfig.storage,
       hasEmailHandlers:
         !isFrameworkMode && routeScan.email !== undefined && hasEmailHandlers(routeScan.email),
       migrations: validatedMigrations,
@@ -443,6 +445,9 @@ export async function runFullDeploy(
     voidConfig.routing?.revalidate,
     voidConfig.routing?.isr !== false,
   );
+  if (skipMigrations) {
+    manifest.migrationMode = 'skip';
+  }
   const workerDir = join(distDir, workerDirName);
   if (isFrameworkMode) {
     const wrapperFeatures: WrapperFeatures = {

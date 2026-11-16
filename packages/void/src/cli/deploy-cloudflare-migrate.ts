@@ -29,10 +29,13 @@ export async function migrateCloudflareWorker(input: {
   readonly source: CloudflareDeploySource;
   readonly preflight: CloudflarePreflight;
   readonly build: CloudflareBuild;
+  readonly skipMigrations?: boolean;
 }): Promise<{
   workerWasMissingBeforeSecretProvisioning: boolean;
   initialAuthSecret: string | undefined;
   appliedMigrations: number;
+  /** Null when SQL execution was skipped and applied history was not verified. */
+  migrationHistory: ReadonlyArray<string> | null;
   /** Restores the D1 state from before this deploy's migrations, when it applied any. */
   d1RestoreCommand: string | undefined;
 }> {
@@ -123,12 +126,16 @@ export async function migrateCloudflareWorker(input: {
   }
 
   let appliedMigrations = 0;
+  if (input.skipMigrations) {
+    log.info('Skipping database migrations.');
+    cliLog.info('cloudflare_migrations_skipped');
+  }
 
   // Cloudflare never returns the Hyperdrive password, so the deploy environment provides the
   // production URL. A rerun skips migrations already recorded as finished. A failed PostgreSQL
   // file rolls back. A failed MySQL file rolls back its data changes, but MySQL commits DDL on
   // its own, so earlier statements of that file can stay applied.
-  if (dialect !== 'sqlite' && migrations.length > 0) {
+  if (!input.skipMigrations && dialect !== 'sqlite' && migrations.length > 0) {
     const mysql = dialect === 'mysql';
     const label = mysql ? 'MySQL' : 'PostgreSQL';
     const databaseUrl = process.env.DATABASE_URL;
@@ -154,13 +161,15 @@ export async function migrateCloudflareWorker(input: {
     }
   }
 
-  const d1 = await applyAndVerifyRemoteD1Migrations(
-    d1MigrateToken,
-    configPath,
-    runWrangler,
-    assertUploaderStillPinned,
-    readDeploymentPlatform(root) !== 'cloudflare',
-  );
+  const d1 = input.skipMigrations
+    ? { restoreCommand: undefined }
+    : await applyAndVerifyRemoteD1Migrations(
+        d1MigrateToken,
+        configPath,
+        runWrangler,
+        assertUploaderStillPinned,
+        readDeploymentPlatform(root) !== 'cloudflare',
+      );
   if (!d1) {
     return exit(1);
   }
@@ -178,6 +187,7 @@ export async function migrateCloudflareWorker(input: {
     return exit(1);
   }
   return {
+    migrationHistory: input.skipMigrations ? null : migrations.map((migration) => migration.name),
     workerWasMissingBeforeSecretProvisioning,
     initialAuthSecret,
     appliedMigrations,

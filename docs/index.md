@@ -1,4 +1,5 @@
 ---
+description: 'Build with Vite and deploy with Void: a CLI, platform, and full-stack SDK for apps on Cloudflare.'
 layout: home
 theme: dark
 

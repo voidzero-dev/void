@@ -7,7 +7,7 @@ import {
   resolveAssetRoutingPolicy,
   workerOwnsHtmlRouting,
 } from '../../src/asset-routing.ts';
-import { createAssetFallback } from '../../src/runtime/routing-worker.ts';
+import { createAssetFallback } from '../../src/runtime/routing/worker.ts';
 
 // `not_found_handling: 'none'` → asset binding 404s on unmatched paths,
 // worker (run_worker_first) owns HTML responses.

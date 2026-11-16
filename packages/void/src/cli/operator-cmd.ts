@@ -1,6 +1,12 @@
 import { createHash } from 'node:crypto';
 import { createInterface } from 'node:readline/promises';
 import { setTimeout as delay } from 'node:timers/promises';
+import {
+  aiLoggingChangeLines,
+  aiLoggingPreviewLines,
+  aiLoggingStatusLine,
+  assertAiLoggingPlatform,
+} from './operator-ai-logging.ts';
 import type { OperatorArgs } from './operator-args.ts';
 import {
   exchangeOperatorSession,
@@ -649,6 +655,11 @@ async function migrateDeploymentAssets(
   }
 }
 
+/** The project ID from the request path `/projects/:id/ai-logging`. */
+function aiLoggingProjectId(args: OperatorArgs): string {
+  return decodeURIComponent(args.path.slice('/projects/'.length, -'/ai-logging'.length));
+}
+
 export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
   if (!args.action) {
     const { printHelpPage } = await import('./help.ts');
@@ -670,6 +681,10 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
     }
     if (args.group === 'deployment' && args.action === 'migrate-assets') {
       return migrateDeploymentAssets(client, origin, args);
+    }
+    const aiLogging = args.group === 'project' && args.action === 'ai-logging';
+    if (aiLogging) {
+      await assertAiLoggingPlatform(origin);
     }
     // Read once for preview and apply; the server excludes the token from audit output.
     if (
@@ -725,6 +740,10 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         'unsupported',
       );
     }
+    if (aiLogging && args.plan && !args.json) {
+      console.log(aiLoggingPreviewLines(aiLoggingProjectId(args), preview).join('\n'));
+      return;
+    }
     if (!(await confirmOperatorMutation(origin, preview, args))) {
       return;
     }
@@ -738,10 +757,16 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
         : {}),
       ...recoveryFence,
     };
-    outputMutation(
-      await client.request(args.path, { method: 'POST', body, timeoutMs: args.timeoutMs }),
-      args,
-    );
+    const result = await client.request(args.path, {
+      method: 'POST',
+      body,
+      timeoutMs: args.timeoutMs,
+    });
+    if (aiLogging && !args.json) {
+      console.log(aiLoggingChangeLines(aiLoggingProjectId(args), result).join('\n'));
+      return;
+    }
+    outputMutation(result, args);
   } else if (args.follow) {
     await followOperatorLogs(client, args);
   } else {
@@ -762,6 +787,11 @@ export async function runOperatorCommand(args: OperatorArgs): Promise<void> {
           ...eventLines(result.deployments, '  '),
         ].join('\n'),
       );
+    } else if (args.group === 'project' && args.action === 'show' && !args.json) {
+      // One readable line instead of the raw AI logging fields; --json keeps them all.
+      const { aiLogging, ...project } = result;
+      const line = aiLoggingStatusLine(aiLogging);
+      console.log((line ? [...humanLines(project), line] : humanLines(result)).join('\n'));
     } else {
       output(result, args.json);
     }

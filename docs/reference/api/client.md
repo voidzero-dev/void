@@ -1,4 +1,5 @@
 ---
+description: 'Call your routes from client code with a typed fetch. Paths and response types come from the generated route map.'
 outline: deep
 ---
 
@@ -15,7 +16,7 @@ import { fetch } from 'void/client';
 
 // Types are fully inferred from your route handlers
 const users = await fetch('/api/users');
-const user = await fetch('/api/users/:id', {
+const user = await fetch('/api/users/[id]', {
   params: { id: '1' },
 });
 ```
@@ -36,12 +37,14 @@ function fetch<P extends keyof RouteMap, M extends MethodsOf<P>>(
 | `method`  | `string`                 | HTTP method. Defaults to `"GET"`.                          |
 | `body`    | `unknown`                | Request body (auto-serialized as JSON).                    |
 | `query`   | `Record<string, string>` | Query string parameters.                                   |
-| `params`  | `Record<string, string>` | URL path parameters (`:id` segments).                      |
+| `params`  | `Record<string, string>` | URL path parameters (`[id]` segments).                     |
 | `headers` | `HeadersInit`            | Additional request headers.                                |
 | `signal`  | `AbortSignal`            | Abort signal.                                              |
 | `baseURL` | `string`                 | Base URL prepended to the path. Useful for external calls. |
 | `retry`   | `number`                 | Number of retry attempts (ofetch default: 1 for GET).      |
 | `timeout` | `number`                 | Request timeout in milliseconds.                           |
+
+Omitting `method` sends GET. Non-GET calls require an explicit `method`, including calls that specify the method as a generic type argument.
 
 Returns the parsed JSON response body, or `undefined` for 204 responses. Throws `FetchError` on non-2xx responses.
 
@@ -53,7 +56,7 @@ Error class thrown by `fetch` on non-2xx responses.
 import { fetch, FetchError } from 'void/client';
 
 try {
-  await fetch('/api/users/:id', { params: { id: '999' } });
+  await fetch('/api/users/[id]', { params: { id: '999' } });
 } catch (e) {
   if (e instanceof FetchError) {
     console.log(e.status); // 404
@@ -78,7 +81,7 @@ The typed client is built on [ofetch](https://github.com/unjs/ofetch) with a typ
 | ---------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
 | **Return type**        | `Promise<Response>`, so you call `.json()` yourself  | `Promise<T>`, which auto-parses JSON and returns the typed result directly (`undefined` for `204`)                     |
 | **Error handling**     | Resolves on any HTTP status; you check `response.ok` | Throws `FetchError` on non-2xx responses                                                                               |
-| **URL construction**   | Raw URL string                                       | Route path with `:param` interpolation from `options.params` + query string from `options.query`                       |
+| **URL construction**   | Raw URL string                                       | Route path with `[param]` interpolation from `options.params` + query string from `options.query`                      |
 | **Body serialization** | Manual `JSON.stringify()` + `Content-Type` header    | Auto-serializes `options.body` as JSON and sets `Content-Type: application/json`                                       |
 | **Type safety**        | Accepts any URL or method                            | Constrains paths to `RouteMap` keys and methods to those defined per route. Invalid combinations fail at compile time. |
 | **Retry**              | None                                                 | Auto-retries on 408, 429, and 5xx (configurable via `retry` option)                                                    |

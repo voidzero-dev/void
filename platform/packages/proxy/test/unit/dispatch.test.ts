@@ -199,7 +199,6 @@ describe('WfP dispatch path', () => {
       expect(data.results).toEqual([{ id: 1, name: 'Alice' }]);
       expect(data.success).toBe(true);
 
-      // Verify dispatch was called with correct worker name
       expect(env.DISPATCH.get).toHaveBeenCalledWith('user-my-app');
     });
 
@@ -496,7 +495,6 @@ describe('WfP dispatch path', () => {
       };
       expect(data.results).toEqual(rows);
 
-      // Verify CF REST API was called
       expect(globalThis.fetch).toHaveBeenCalledWith(
         expect.stringContaining('api.cloudflare.com'),
         expect.any(Object),

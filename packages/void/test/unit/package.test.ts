@@ -38,6 +38,25 @@ afterEach(() => {
 });
 
 describe('worker packaging', () => {
+  it.each([true, false])('only includes the storage hint when R2 is used: %s', (needsR2) => {
+    const bindings = makeBindings({ needsR2 });
+    for (const manifest of [
+      buildVoidManifest({ bindings, storage: { locationHint: 'apac' } }),
+      buildFrameworkManifest({
+        frameworkName: 'nuxt',
+        workerMain: 'index.mjs',
+        bindings,
+        storage: { locationHint: 'apac' },
+      }),
+    ]) {
+      expect(manifest.version).toBe(needsR2 ? 5 : 3);
+      if (needsR2) {
+        expect(manifest.storage).toEqual({ locationHint: 'apac' });
+      } else {
+        expect(manifest).not.toHaveProperty('storage');
+      }
+    }
+  });
   it.each([true, false, undefined])(
     'preserves alwaysUseHttps %s in every app manifest',
     (value) => {
@@ -112,6 +131,13 @@ describe('buildVoidManifest', () => {
         { bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject', storage: 'sqlite' },
       ],
     });
+    const withStorage = buildVoidManifest({
+      bindings: makeBindings({ needsR2: true }),
+      durableObjects: [{ bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject' }],
+      storage: { locationHint: 'apac' },
+    });
+    expect(withStorage.version).toBe(5);
+    expect(withStorage.durableObjects).toEqual(durable.durableObjects);
   });
   it('advertises authenticated email protocol only for a managed inbound handler', () => {
     expect(

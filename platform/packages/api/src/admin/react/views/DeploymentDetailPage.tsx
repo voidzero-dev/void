@@ -1,9 +1,9 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import { Table, TableBody, TableCell, TableHeaderCell, TableRow } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import { useRequest, useView } from 'react-fate';
-import type { DeployManifest } from '../../../types.ts';
 import { DeploymentDetailView, deploymentDetailRequest } from '../../fate/views.ts';
 import { type AdminPageProps } from '../page-utils.ts';
 import { CopyButton } from './CopyButton.tsx';
@@ -19,11 +19,11 @@ export function DeploymentDetailPage({ path, platformName, username }: AdminPage
     mode: 'stale-while-revalidate',
   });
   const pageData = useView(DeploymentDetailView, ref);
-  if (!pageData) {
+  if (!pageData || !ref) {
     throw new Error('Deployment data is unavailable.');
   }
   const { deployment, project, canCancel, tz } = pageData;
-  const manifest = pageData.manifest as DeployManifest | null;
+  const { manifest, manifestJson } = pageData;
   const status = displayStatus(deployment, project?.active_deployment_id);
   const statusStyle =
     status === 'live'
@@ -71,9 +71,9 @@ export function DeploymentDetailPage({ path, platformName, username }: AdminPage
             <TableHeaderCell>Project</TableHeaderCell>
             <TableCell>
               {project ? (
-                <a className="void-admin-resource-link" href={`/admin/projects/${project.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/projects/${project.id}`}>
                   {project.slug}
-                </a>
+                </Link>
               ) : (
                 deployment.project_id
               )}
@@ -108,9 +108,11 @@ export function DeploymentDetailPage({ path, platformName, username }: AdminPage
         </TableBody>
       </Table>
 
-      {manifest && <DeploymentManifestCard manifest={manifest} />}
+      {manifest && <DeploymentManifestCard manifest={manifest} manifestJson={manifestJson} />}
 
-      {deployment.status === 'live' && project && <DeploymentLogs deploymentId={deployment.id} />}
+      {deployment.status === 'live' && project && (
+        <DeploymentLogs deploymentId={deployment.id} deploymentRef={ref} />
+      )}
     </Layout>
   );
 }

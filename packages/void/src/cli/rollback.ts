@@ -36,7 +36,6 @@ export async function runRollbackCommand(
   const client = new PlatformClient(token, { root });
   const { deployments, activeDeploymentId } = await client.listDeployments(linked.projectId);
 
-  // Filter to retained deployments that aren't the active one
   const candidates = deployments.filter(
     (d) => d.retained && d.status === 'live' && d.id !== activeDeploymentId,
   );
@@ -154,7 +153,7 @@ async function runCloudflareRollback(
       options: candidates.map((version) => ({
         value: version.id,
         label: `${version.id} ${dim(version.createdAt ? formatRelativeTime(version.createdAt) : '')}`,
-        hint: version.metadata
+        hint: version.metadata?.migrations
           ? formatCount(version.metadata.migrations.length, 'migration')
           : 'migration state unknown',
       })),
@@ -177,7 +176,7 @@ async function runCloudflareRollback(
       'This rollback keeps the current domains, routes, and schedules. The selected version has no complete trigger snapshot.',
     );
   }
-  if (!current?.metadata || !target.metadata) {
+  if (!current?.metadata?.migrations || !target.metadata?.migrations) {
     log.warn(
       'Void migration metadata is unavailable for one of these versions. Database migrations are forward-only and will not be reverted.',
     );

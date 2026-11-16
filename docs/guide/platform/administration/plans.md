@@ -1,4 +1,5 @@
 ---
+description: 'Define resource limits for accounts on your platform. Plans do not bill users or purchase Cloudflare services.'
 outline: deep
 ---
 
@@ -15,7 +16,7 @@ Choose a plan to inspect or edit it, copy one into a new plan, or choose the def
 
 ## Use the Dashboard
 
-Open **Plans** to see each plan's stable ID, account count, and signup default. Choose **Add plan** to copy an existing plan, or **Edit** to change its display name, limits, build size, and permission to use short project slugs.
+Open **Plans** to see each plan's stable ID, account count, and signup default. Choose **Add plan** to copy an existing plan, or **Edit** to change its display name, limits, build size, permission to use short project slugs, and [AI Gateway logging default](#ai-gateway-logging).
 
 Choose **Review changes** to compare the current and proposed settings and see how many accounts are affected. Review any quota warnings, then choose **Apply changes**. If someone changed the catalog while you were reviewing, open the plan again and create a fresh review.
 
@@ -25,7 +26,7 @@ Account updates continue automatically on the result page. If you leave the page
 
 ## Add a Plan
 
-Each plan has a stable ID and an editable display name. Copying a plan copies its limits, build instance size, and permission to use short project slugs:
+Each plan has a stable ID and an editable display name. Copy a plan to start with its limits, build size, short-slug permission, and AI logging default:
 
 ```sh
 void platform config plans add team --copy pro --name "Team" --plan
@@ -88,6 +89,39 @@ Storage figures shown for D1, R2, and KV are informational and cannot be edited 
 
 The preview shows the affected account count and checks a sample for accounts already above a proposed quota. Lowering a quota can restrict existing apps, including accounts outside that sample. Usage history and billing periods are preserved, so a plan change does not reset usage. Manual administrator suspensions remain in effect.
 
+## AI Gateway Logging {#ai-gateway-logging}
+
+Set a plan's AI logging default to control what AI Gateway records for its projects. In the dashboard, edit the plan's **AI Gateway logging default**. From the CLI, add `aiLogging` to a plan file:
+
+```json
+{
+  "aiLogging": "metadata"
+}
+```
+
+```sh
+void platform config plans set team --file team-plan.json --plan
+void platform config plans set team --file team-plan.json --yes
+```
+
+`metadata` keeps request details without prompts or responses. Use `off` for no log entries, `full` to include prompts and responses, or `inherit` to follow the gateway's own setting. A new installation's gateway logs prompts and responses. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for the full scope of these settings.
+
+Leaving `aiLogging` out preserves the plan's current value. A project's [own logging setting](./projects.md#ai-logging) overrides its plan default. If an account's plan is missing from the catalog, it follows the signup default plan.
+
+The preview shows the old and new defaults and how many projects are affected. After applying, the CLI publishes the change and reports when new requests are expected to use it:
+
+```txt
+AI logging published to 120 projects; expected by 14:03:20 UTC (normally within 2 minutes).
+```
+
+Projects keep their previous logging behavior until the new setting is published. Changes normally reach new requests within 2 minutes after publishing. Check a project with `void platform project show <project-id>`.
+
+If publishing stops, run `void platform config plans sync --yes`, or choose **Continue AI logging publish** on the **Plans** page. The platform also resumes unfinished work every hour.
+
+Moving an account to another plan, replacing a removed plan, or transferring a project applies the new owner's plan default. Changing the signup default also changes logging for accounts whose plan is missing from the catalog.
+
+Inspect a plan's default with `void platform config plans show <plan-id>` or the dashboard's user detail page. If the CLI reports that your platform does not support plan defaults, run `void platform upgrade` first.
+
 ## Archive or Remove a Plan
 
 Archive a plan to stop assigning it to new accounts while preserving its current accounts:
@@ -110,13 +144,13 @@ The removal review shows the replacement plan and any changes to its limits, bui
 
 ## Complete Pending Updates
 
-After applying a change, the CLI continues account updates until complete. If an update fails or stops making progress, the configuration remains saved, the result reports pending work, and the command exits with a nonzero status. Inspect the catalog, then continue:
+After applying a change, the CLI updates accounts and publishes AI logging defaults. If an update fails or stops making progress, your configuration stays saved and the command reports pending work with a nonzero exit status. Inspect the plans, then continue:
 
 ```sh
 void platform config plans show
 void platform config plans sync --yes
 ```
 
-`sync` continues the saved policy's account updates until completion. Finish pending updates before editing the catalog again. If a request loses its connection, inspect the catalog and [operator events](/guide/platform/administration/operations) before retrying it.
+`sync` resumes the saved updates. Finish pending work before editing plans again. If a request loses its connection, inspect the plans and [operator events](/guide/platform/administration/operations) before retrying it.
 
 All commands accept `--connection <registered-id-or-url>` and `--json`. Scripted changes require `--yes`; use `--plan` for a read-only preview.

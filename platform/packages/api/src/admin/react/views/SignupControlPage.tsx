@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
@@ -14,6 +14,7 @@ import {
 } from '@astryxdesign/core/Table';
 import { Heading } from '@astryxdesign/core/Text';
 import { TextInput } from '@astryxdesign/core/TextInput';
+import { Link } from '@void/react';
 import { Check, Copy } from 'lucide-react';
 import { createElement, useState, type FocusEvent } from 'react';
 import { useRequest, useView } from 'react-fate';
@@ -134,7 +135,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
                 action="/admin/signup-control/policy"
                 className="void-admin-access-form"
               >
-                <input type="hidden" name="revision" value={revision ?? 0} />
+                <input type="hidden" name="revision" defaultValue={revision ?? 0} />
                 <FormSelector
                   label="Signup policy"
                   name="mode"
@@ -181,7 +182,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
                     {companyMethods.length === 0 && !protection && (
                       <p>
                         No company-approved methods are available. Configure one in{' '}
-                        <a href="/admin/config/auth">Authentication</a> before selecting this
+                        <Link href="/admin/config/auth">Authentication</Link> before selecting this
                         policy.
                       </p>
                     )}
@@ -197,7 +198,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
               <SectionStack as="div" className="void-admin-access-form">
                 <p>
                   To use company-approved signup, first set up{' '}
-                  <a href="/admin/config/auth">Authentication settings</a>.
+                  <Link href="/admin/config/auth">Authentication settings</Link>.
                 </p>
                 <SectionStack
                   as="form"
@@ -323,7 +324,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
                 action="/admin/signup-control/add"
                 className="void-admin-access-fields"
               >
-                <input type="hidden" name="type" value="identity" />
+                <input type="hidden" name="type" defaultValue="identity" />
                 <FormSelector
                   label="Login connection"
                   name="connectionId"
@@ -387,7 +388,7 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
                       </TableCell>
                       <TableCell>
                         <form method="post" action="/admin/signup-control/delete">
-                          <input type="hidden" name="index" value={entry.index} />
+                          <input type="hidden" name="index" defaultValue={entry.index} />
                           <Button type="submit" label="Remove" variant="destructive" size="sm" />
                         </form>
                       </TableCell>
@@ -464,13 +465,17 @@ export function SignupControlPage({ path, platformName, username }: AdminPagePro
                       <TableCell>
                         {invitation.status === 'pending' && (
                           <form method="post" action="/admin/invitations/revoke">
-                            <input type="hidden" name="id" value={invitation.id} />
+                            <input type="hidden" name="id" defaultValue={invitation.id} />
                             <Button type="submit" label="Revoke" variant="destructive" size="sm" />
                           </form>
                         )}
                         {invitation.status === 'accepted' && invitation.grantIndex !== null && (
                           <form method="post" action="/admin/signup-control/delete">
-                            <input type="hidden" name="index" value={invitation.grantIndex} />
+                            <input
+                              type="hidden"
+                              name="index"
+                              defaultValue={invitation.grantIndex}
+                            />
                             <Button
                               type="submit"
                               label="Remove signup grant"

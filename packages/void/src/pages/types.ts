@@ -13,7 +13,6 @@ export type PageDefinition = {
   pattern: string;
   /** Route params, e.g. ["id"] */
   params: Array<string>;
-  /** Whether this is a catch-all route */
   catchAll: boolean;
   /** Component file relative path, e.g. "users/[id].vue" */
   componentPath: string;
@@ -33,9 +32,7 @@ export type PageDefinition = {
   ssrMode: SsrMode;
   /** Normalized prerender mode from the public `prerender` export */
   prerenderMode: PrerenderMode;
-  /** Normalized page render mode */
   renderMode: PageRenderMode;
-  /** Whether this page should participate in prerender collection */
   shouldPrerender: boolean;
   /** Whether `export function getPrerenderPaths` is defined in server handler */
   hasGetPrerenderPaths?: boolean;
@@ -59,13 +56,11 @@ export type LayoutDefinition = {
 };
 
 export type NamedLayoutDefinition = {
-  /** Layout name, e.g. "home", "post" */
   name: string;
   /** Directory containing _layouts/, e.g. "" (root) or "guide" */
   directory: string;
   /** File path relative to pages/, e.g. "_layouts/home.vue" */
   filePath: string;
-  /** Whether this is an island layout */
   island?: boolean;
 };
 
@@ -73,7 +68,18 @@ export type PageScanResult = {
   pages: Array<PageDefinition>;
   layouts: Array<LayoutDefinition>;
   namedLayouts: Array<NamedLayoutDefinition>;
+  boundaries?: Array<PageBoundaryDefinition>;
 };
+
+export type PageBoundaryDefinition = {
+  kind: 'error' | 'not-found';
+  directory: string;
+  componentId: string;
+  filePath: string;
+};
+
+export type PageError = Readonly<{ status: number; message: string }>;
+export type ErrorPageProps = Readonly<{ error: PageError }>;
 
 export type DevCssAsset = {
   /** Vite client URL used to request the CSS module. */

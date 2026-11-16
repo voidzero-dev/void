@@ -27,7 +27,7 @@ const { log } = await import('@voidzero-dev/vite-plus-prompts');
 const output = await import('../../src/cli/output.ts');
 const { runRollbackCommand } = await import('../../src/cli/rollback.ts');
 
-const metadata = (migrations: Array<string>) => ({
+const metadata = (migrations: Array<string> | null) => ({
   schema: 2,
   migrations,
   triggerConfig: { preserve: false },
@@ -60,6 +60,24 @@ beforeEach(() => {
 });
 
 describe('void project rollback --platform cloudflare', () => {
+  it('warns about unknown SQL history after a deploy that skipped migrations', async () => {
+    mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+    mockReadCloudflareWorkerStatus.mockResolvedValue({
+      workerName: 'app',
+      activeVersionId: 'new-version',
+      deployedVersionIds: ['old-version', 'new-version'],
+      versions: [
+        { id: 'old-version', metadata: metadata(['001_init.sql']) },
+        { id: 'new-version', metadata: metadata(null) },
+      ],
+    });
+    await runRollbackCommand('/app', 'old-version');
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.stringContaining('migration metadata is unavailable'),
+    );
+    expect(mockActivateCloudflareExistingVersion).toHaveBeenCalledOnce();
+  });
+
   it('rolls back the Cloudflare Worker after a one-off deploy from a Void project', async () => {
     mockReadDeploymentPlatform.mockReturnValue('void');
 

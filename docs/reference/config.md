@@ -1,4 +1,5 @@
 ---
+description: 'Configure routing, inference, output, and the deployment target in void.config.ts.'
 outline: deep
 ---
 
@@ -42,6 +43,8 @@ export default defineConfig({
 ```
 
 TypeScript provides editor completion and checks. Void validates the config again when it runs, including values computed at runtime.
+
+Use relative imports or package names inside `void.config.ts`. TypeScript path aliases such as `@/lib/theme` are not supported.
 
 The shorter JSON fragments below show individual fields to place inside `defineConfig({ ... })`.
 
@@ -295,6 +298,18 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 { "target": "node" }
 ```
 
+### `storage.locationHint`
+
+Choose a preferred region when Void creates your app's R2 bucket, on either a Void platform or a direct Cloudflare deployment:
+
+```json
+{ "storage": { "locationHint": "apac" } }
+```
+
+Supported hints are `apac` (Asia Pacific), `eeur` (Eastern Europe), `enam` (Eastern North America), `weur` (Western Europe), `wnam` (Western North America), and `oc` (Oceania). Cloudflare treats these as [best-effort location hints](https://developers.cloudflare.com/r2/reference/data-location/), not data residency guarantees.
+
+The project setting overrides the platform's default. Without either, Cloudflare chooses automatically. This only affects new buckets: changing the hint never moves or replaces an existing bucket. Apps that do not use R2 create no bucket.
+
 ### `worker`
 
 Cloudflare Workers settings, including the `compatibility_date` pinned by `void init`. Put binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` in [`cloudflare`](#cloudflare).
@@ -349,6 +364,8 @@ cloudflare: {
 
 Void writes a generated Cloudflare config for its tooling and records provisioned resource IDs and append-only migration history in `void.lock.json`. Commit the lock when it changes. Root `wrangler.jsonc` and `wrangler.json` are migrated on `void init` or `void deploy`; Void keeps backup copies under `.void/config-migration/`.
 
+Bindings declared here are typed on `c.env` after `void prepare` or starting a dev server or build. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) for an example and RPC type overrides.
+
 If you need to remove a value that Void previously generated, remove it from the `resolved` object in `void.lock.json`. Void refreshes the generated Cloudflare file on the next command. Put ongoing custom settings in `cloudflare` in `void.config.ts`.
 
 ### `deploy.cloudflare.mode`
@@ -376,15 +393,29 @@ routing: {
 }
 ```
 
+#### `routing.trailingSlash`
+
+Give Pages URLs a trailing slash and prerender them as directory indexes. For example, `/posts/` produces `posts/index.html`; `/posts` redirects to `/posts/`.
+
+```ts
+routing: {
+  trailingSlash: true,
+}
+```
+
+The default is `false`, which writes `posts.html`. API routes keep their URLs, and third-party frameworks use their own routing settings. See [Static Site Generation](../guide/ssg.md#trailing-slashes-and-directory-indexes) for hosting details.
+
 #### `routing.typedRoutes`
 
-Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+Check URL strings against your app's routes in links, router methods, redirects, rewrites, island forms, cache revalidation, and stream clients. This changes TypeScript checks only; navigation at runtime stays the same.
 
 ```ts
 routing: {
   typedRoutes: true,
 }
 ```
+
+The default is `false`; `void init` enables it for new apps. See [Checked URL strings](../guide/type-safety#checked-url-strings) for accepted URLs and casts for values you validate at runtime. To check `routing.prerender`, [annotate its paths](#routing-prerender).
 
 #### `routing.headers`
 
@@ -503,6 +534,14 @@ Paths to prerender as static HTML at deploy time. Each path must start with `/`.
     "prerender": ["/", "/about", "/pricing"]
   }
 }
+```
+
+In `void.config.ts`, annotate the array with [`RouteUrl`](./api/types.md#route-types) so TypeScript checks the paths when [`routing.typedRoutes`](#routing-typedroutes) is on:
+
+```ts
+import type { RouteUrl } from 'void/routes';
+
+prerender: ['/', '/about', '/pricing'] satisfies RouteUrl[],
 ```
 
 #### `routing.notFound`

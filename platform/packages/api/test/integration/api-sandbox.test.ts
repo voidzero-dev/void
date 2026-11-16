@@ -343,7 +343,6 @@ describe('per-deploy sandbox integration', () => {
     const bundleKeys = await listR2Keys(`worker-bundles/${project.id}/${deployId}/`);
     expect(bundleKeys).toHaveLength(0);
 
-    // bundle_stored stays false.
     const [row] = await env.db.select().from(deployments).where(eq(deployments.id, deployId));
     expect(row!.bundle_stored).toBe(false);
   });

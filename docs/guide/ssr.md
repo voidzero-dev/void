@@ -1,4 +1,5 @@
 ---
+description: 'Bring your own router, data loading, HTML shell, and hydration, or use Pages Routing to have Void handle them.'
 outline: deep
 ---
 

@@ -1,6 +1,6 @@
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { describe, it, expect, vi } from 'vite-plus/test';
 
 // Deploy-log tests point homedir() at a temp folder; every other caller keeps the real one.
@@ -276,7 +276,8 @@ describe('streamDeployEvents', () => {
     logHome.dir = mkdtempSync(join(tmpdir(), 'void-deploy-log-'));
     const { spinner } = createMockSpinner();
     const cliLog = openDeployLog();
-    expect(cliLog.path?.startsWith(logHome.dir)).toBe(true);
+    expect(cliLog.path).not.toBeNull();
+    expect(dirname(resolve(cliLog.path!))).toBe(resolve(logHome.dir, '.void', 'logs'));
     const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never);
     const before = new Set(process.listeners('SIGINT'));
     let reachedWait!: () => void;

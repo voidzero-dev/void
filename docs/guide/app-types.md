@@ -1,4 +1,5 @@
 ---
+description: 'Build a Void app, use your existing Vite framework, or deploy a static site. Void manages resources and deployment for each.'
 outline: deep
 ---
 

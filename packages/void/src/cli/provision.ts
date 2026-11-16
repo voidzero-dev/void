@@ -17,7 +17,7 @@ import { createRequire } from 'node:module';
 import { resolve as resolvePosixPath } from 'node:path/posix';
 import { resolve as resolveWindowsPath } from 'node:path/win32';
 import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { isRecord } from '@void/deploy-core';
+import { isRecord, type R2LocationHint } from '@void/deploy-core';
 import { parse, type ParseError } from 'jsonc-parser';
 import { basename, dirname, join, normalize, resolve } from 'pathslash';
 import lockfile from 'proper-lockfile';
@@ -44,7 +44,7 @@ export interface DesiredResourceSet {
   /** KV namespaces (app KV + `ISR_CACHE`). Titles are NOT account-unique. */
   kvNamespaces: Array<{ binding: string; title: string }>;
   /** R2 bucket — bucket names ARE account-unique. */
-  r2?: { binding: string; bucketName: string };
+  r2?: { binding: string; bucketName: string; locationHint?: R2LocationHint };
   /** Queue resource NAMES to ensure exist (account-unique). */
   queues: Array<string>;
   /** Each `queues/` name to its entry in `queues`; set by `void deploy`. */
@@ -1308,6 +1308,13 @@ export function createDefaultRunWrangler(
       child.stdin?.on('error', handleProcessError);
       child.on('close', (code, signal) => {
         closed = true;
+        // Node destroys stdin on child exit without necessarily emitting an
+        // error. Exit 0 cannot confirm success while input remains unwritten.
+        if (code === 0 && child.stdin && !child.stdin.writableFinished) {
+          handleProcessError(
+            new Error('the Cloudflare operation process closed stdin before all input was written'),
+          );
+        }
         if (timedOut || postSpawnError !== undefined) {
           // That path settles once the group is also gone; nudge its poll.
           nudgeConfirmPolls();
@@ -1610,7 +1617,6 @@ interface ProvisionLock {
   quarantine: (info: QuarantineInfo) => void;
 }
 
-/** The quarantine sidecar path for a lock target. */
 function quarantineSidecarPath(lockTarget: string): string {
   return `${lockTarget}.quarantine.json`;
 }
@@ -2854,6 +2860,7 @@ async function reconcileR2(
       } else if (isConfirmedAbsent(info, 'r2')) {
         const created = await runWrangler({
           type: 'r2.bucket.create',
+          ...(desired.r2.locationHint ? { locationHint: desired.r2.locationHint } : {}),
           name: bucketName,
           binding,
           configPath,

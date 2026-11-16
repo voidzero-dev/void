@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Component, type ReactNode } from 'react';
 import { AdminErrorPage } from './views/AdminErrorPage.tsx';

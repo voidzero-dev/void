@@ -12,7 +12,6 @@ import {
 import { leaseBearer, leaseEmailDomainCredential } from './email-lease.ts';
 import {
   EMAIL_PROVIDER_DEADLINE_MS,
-  EmailProviderTimeoutError,
   createEmailProviderDeadline,
   type EmailProviderDeadline,
 } from './email-provider-deadline.ts';
@@ -1421,13 +1420,13 @@ async function sendViaCustomDomain(
 }
 
 // -----------------------------------------------------------------------------
-// Inbound delivery log — kept here because it's invoked from email-router.ts
+// Inbound delivery log — kept here because it's invoked from the email gateway router
 // inside the same worker (bypasses HTTP/auth).
 // -----------------------------------------------------------------------------
 
 /**
  * Inbound delivery log. Inlined here rather than via service binding because
- * the email-router lives in this same worker; routing through env.API would 404.
+ * inbound routing reuses this provider helper; routing through env.API would 404.
  */
 export async function recordInboundDelivery(
   projectId: string,

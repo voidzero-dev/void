@@ -1,4 +1,5 @@
 ---
+description: 'Preview platform changes, follow logs, and check health from an administrator session.'
 outline: deep
 ---
 

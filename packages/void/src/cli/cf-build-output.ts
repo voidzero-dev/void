@@ -554,6 +554,10 @@ async function prepareBundledBuildOutput(options: {
       configFile: false,
       root: options.projectRoot,
       publicDir: false,
+      // `.env` is local-only. The framework build drops its client values, but modules it left
+      // as imports (an installed `void/env` in a SvelteKit D1 app) are compiled here, and Vite
+      // would fill their `import.meta.env` from the project's `.env`. Shell values still apply.
+      envDir: false,
       logLevel: 'error',
       plugins: [additionalModulesPlugin()],
       // Like @cloudflare/vite-plugin: Worker conditions plus the build mode. A deploy

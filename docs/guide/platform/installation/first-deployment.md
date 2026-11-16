@@ -1,4 +1,5 @@
 ---
+description: 'Open the platform URL, connect the CLI, and deploy the first app into the shared Cloudflare account.'
 outline: deep
 ---
 

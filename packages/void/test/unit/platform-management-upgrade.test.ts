@@ -33,6 +33,7 @@ const state = vi.hoisted(() => ({
   events: [] as Array<string>,
   manifest: undefined as PlatformInstallationManifest | undefined,
   prepareDatabase: vi.fn(),
+  publishAiLogging: vi.fn(),
   readAdministratorSetup: vi.fn(),
   readAuthenticationState: vi.fn(),
   readPlanZeroTrust: vi.fn(),
@@ -145,6 +146,7 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
           authoritativeManifest: state.manifest,
           checkpoint: vi.fn(),
           prepareDatabase: state.prepareDatabase,
+          publishAiLogging: state.publishAiLogging,
           readAdministratorSetup: state.readAdministratorSetup,
           readAuthenticationState: state.readAuthenticationState,
           readProjectZeroTrust: state.readProjectZeroTrust,
@@ -164,6 +166,8 @@ vi.mock('../../src/cli/platform-installer.ts', async (importOriginal) => {
         existing!.ownershipNonce,
       );
       expect(borrowed.prepareDatabase).toBe(state.prepareDatabase);
+      // Every upgrade and repair republishes AI logging settings on the held connection.
+      expect(borrowed.publishAiLogging).toBe(state.publishAiLogging);
       expect(borrowed.readAuthenticationState).toBe(state.readAuthenticationState);
       await borrowed.readAuthenticationState!();
       state.events.push('installer-start');
@@ -274,6 +278,24 @@ const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: tru
   });
 
 describe('installed platform upgrade', () => {
+  it.each(['apac', 'automatic'] as const)(
+    'replays storage location %s in the upgrade resume command',
+    (storageLocation) => {
+      expect(
+        platformLifecycleResumeCommand(
+          {
+            subcommand: 'upgrade',
+            selector: '',
+            plan: false,
+            yes: true,
+            runtime: '',
+            storageLocation,
+          },
+          'installation',
+        ),
+      ).toBe(`void platform upgrade installation --storage-location ${storageLocation} --yes`);
+    },
+  );
   it('prints an exact rollback resume command with quoted custom runtime paths', () => {
     expect(
       platformLifecycleResumeCommand(
@@ -454,7 +476,7 @@ describe('installed platform upgrade', () => {
       expect(writeInstallationManifest).not.toHaveBeenCalled();
       expect(createPlatformInstallPlan).not.toHaveBeenCalled();
       expect(installPlatform).not.toHaveBeenCalled();
-      expect(state.progress.start).not.toHaveBeenCalled();
+      expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
       expect(note).not.toHaveBeenCalled();
     },
   );
@@ -493,6 +515,36 @@ describe('installed platform upgrade', () => {
       );
     },
   );
+
+  it('forwards the storage location setting to the upgrade plan', async () => {
+    await runInstalledPlatformCommand({
+      subcommand: 'upgrade',
+      selector: state.manifest!.id,
+      plan: false,
+      runtime: '',
+      yes: true,
+      storageLocation: 'apac',
+    });
+    expect(createPlatformInstallPlan).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ storageLocation: 'apac' }),
+      expect.anything(),
+      expect.objectContaining({ allowStorageLocationChange: true }),
+    );
+  });
+
+  it('rejects a runtime that would ignore a saved storage location before installation', async () => {
+    state.manifest = {
+      ...state.manifest!,
+      deployment: { ...state.manifest!.deployment, storageLocationHint: 'apac', schemaVersion: 6 },
+    };
+    state.runtime = {
+      ...state.runtime!,
+      manifest: { ...state.runtime!.manifest, storageLocationHint: undefined },
+    };
+    await expect(upgrade()).rejects.toThrow('storage location hint');
+    expect(installPlatform).not.toHaveBeenCalled();
+  });
 
   describe('project Worker runtime logs', () => {
     const useMinimal = () => {
@@ -681,9 +733,64 @@ describe('installed platform upgrade', () => {
 
   it('does not start deployment progress for a plan-only run', async () => {
     await upgrade({ plan: true, yes: false });
-    expect(state.spinner).not.toHaveBeenCalled();
+    expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
     expect(installPlatform).not.toHaveBeenCalled();
     expect(state.events).toEqual([]);
+  });
+
+  it.each(['upgrade', 'rollback', 'repair', 'enable', 'disable', 'uninstall'] as const)(
+    'shows preparation progress before %s credential checks finish',
+    async (subcommand) => {
+      state.listAccounts.mockImplementationOnce(async () => {
+        expect(log.step).toHaveBeenCalledWith(`Preparing platform ${subcommand}`);
+        expect(state.progress.start).toHaveBeenLastCalledWith('Checking Cloudflare access');
+        throw new Error('credential check failed');
+      });
+      await expect(
+        runInstalledPlatformCommand({
+          subcommand,
+          selector: state.manifest!.id,
+          plan: true,
+          runtime: '',
+          fromRuntime: '',
+          yes: false,
+          purgeData: false,
+          purgeResources: false,
+        }),
+      ).rejects.toMatchObject({
+        cause: expect.objectContaining({ message: 'credential check failed' }),
+      });
+      expect(state.progress.clear).toHaveBeenCalledOnce();
+      expect(acquirePlatformDatabaseLifecycleLock).not.toHaveBeenCalled();
+      expect(installPlatform).not.toHaveBeenCalled();
+      expect(note).not.toHaveBeenCalled();
+    },
+  );
+
+  it('shows planning progress and clears it before printing a read-only plan', async () => {
+    const plan = vi.mocked(createPlatformInstallPlan).getMockImplementation()!;
+    vi.mocked(createPlatformInstallPlan).mockImplementationOnce(async (...args) => {
+      expect(state.progress.start).toHaveBeenLastCalledWith('Preparing upgrade plan');
+      return plan(...args);
+    });
+    await upgrade({ plan: true });
+    expect(state.progress.clear.mock.invocationCallOrder.at(-1)).toBeLessThan(
+      vi.mocked(note).mock.invocationCallOrder[0]!,
+    );
+    expect(installPlatform).not.toHaveBeenCalled();
+    expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
+  });
+
+  it('shows progress while connecting to the authoritative database', async () => {
+    vi.mocked(acquirePlatformDatabaseLifecycleLock).mockImplementationOnce(async () => {
+      expect(state.progress.start).toHaveBeenLastCalledWith('Reading platform state');
+      throw new Error('database unavailable');
+    });
+    await expect(upgrade()).rejects.toThrow('database unavailable');
+    expect(state.progress.clear).toHaveBeenCalledTimes(2);
+    expect(state.events).toEqual(['local-release']);
+    expect(installPlatform).not.toHaveBeenCalled();
+    expect(note).not.toHaveBeenCalled();
   });
 
   it('does not claim deployment started when credential preparation fails', async () => {
@@ -692,7 +799,7 @@ describe('installed platform upgrade', () => {
     });
     await expect(upgrade()).rejects.toThrow('invalid credentials');
     expect(installPlatform).not.toHaveBeenCalled();
-    expect(state.progress.start).not.toHaveBeenCalled();
+    expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
     expect(state.progress.error).not.toHaveBeenCalled();
     expect(vi.mocked(note).mock.calls).not.toContainEqual([expect.anything(), 'Recovery']);
     expect(state.events).toEqual(['outer-release', 'local-release']);
@@ -1442,7 +1549,7 @@ describe('installed platform upgrade', () => {
         apiWorker(),
       );
       expect(installPlatform).not.toHaveBeenCalled();
-      expect(state.progress.start).not.toHaveBeenCalled();
+      expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
       expect(gateWrites()).toEqual([]);
       expect(state.cfRunner).not.toHaveBeenCalled();
     });
@@ -1553,7 +1660,7 @@ describe('installed platform upgrade', () => {
         expect(error?.message).toMatch(/run the command again\.$/i);
         expect(attempts()).toBe(expected.attempts);
         expect(installPlatform).not.toHaveBeenCalled();
-        expect(state.progress.start).not.toHaveBeenCalled();
+        expect(state.progress.start).not.toHaveBeenCalledWith('Upgrading the platform');
         expect(gateWrites()).toEqual([]);
         expect(state.cfRunner).not.toHaveBeenCalled();
       });

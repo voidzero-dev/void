@@ -75,3 +75,56 @@ export const STATUS_COLORS: Record<string, string> = {
   pending: '#d97706',
   skipped: '#6b7280',
 };
+
+type AiLoggingStatusDisplay = Readonly<{
+  effective: string;
+  source: string;
+  planId: string;
+  planKnown: boolean;
+  planMode: string | null;
+  defaultPlanId: string;
+  published: string | null;
+  publishedAt: string | null;
+  state: string;
+}>;
+
+/** `14:03:20 UTC`, two minutes after the publish time, or null when it is not a time. */
+function expectedBy(publishedAt: string | null): string | null {
+  const time = publishedAt === null ? Number.NaN : Date.parse(publishedAt);
+  return Number.isNaN(time) ? null : `${new Date(time + 120_000).toISOString().slice(11, 19)} UTC`;
+}
+
+const aiLoggingStates: Record<string, (status: AiLoggingStatusDisplay) => string> = {
+  applied: () => 'applied',
+  pending: (status) => {
+    const by = expectedBy(status.publishedAt);
+    return by ? `pending (expected by ${by})` : 'pending (normally within 2 minutes)';
+  },
+  pending_plan_publish: () => 'pending (the plan default is still being published)',
+  drift: (status) => `drift (published: ${status.published ?? 'unknown value'})`,
+  unknown: () => 'state unknown (the published setting could not be read)',
+};
+
+/**
+ * `metadata (from plan "pro") — applied`. Keep the wording in step with `project show`
+ * (`aiLoggingStatusLine` in packages/void/src/cli/operator-ai-logging.ts).
+ */
+export function formatAiLoggingStatus(status: AiLoggingStatusDisplay | null): string {
+  if (!status) {
+    return '—';
+  }
+  const plan = status.planKnown
+    ? `plan "${status.planId}"`
+    : `plan "${status.planId}" (not in catalog; uses default plan "${status.defaultPlanId}")`;
+  const planDefault = `${plan} default: ${status.planMode ?? 'inherit'}`;
+  const source =
+    status.source === 'project'
+      ? `set on project; ${planDefault}`
+      : status.source === 'plan'
+        ? `from ${plan}`
+        : `AI Gateway setting; ${planDefault}`;
+  const state = Object.hasOwn(aiLoggingStates, status.state)
+    ? aiLoggingStates[status.state]!(status)
+    : status.state;
+  return `${status.effective} (${source}) — ${state}`;
+}

@@ -245,14 +245,12 @@ export async function computeDesiredCloudflareResources(
     reasons.set(binding, databaseReason);
   }
 
-  // KV
   if (bindings.needsKV) {
     const binding = bindingNames?.kv ?? 'KV';
     desired.kvNamespaces.push({ binding, title: suffixedResourceName(workerName, 'kv') });
     reasons.set(binding, analysis.reasons.kv[0]!);
   }
 
-  // R2
   if (bindings.needsR2) {
     const binding = bindingNames?.r2 ?? 'STORAGE';
     const storedName = readStoredResourceName(config, 'r2_buckets', binding, 'bucket_name');
@@ -267,7 +265,13 @@ export async function computeDesiredCloudflareResources(
       );
     const bucketName =
       storedName && !generatedDefault ? storedName : suffixedResourceName(workerName, 'storage');
-    desired.r2 = { binding, bucketName };
+    desired.r2 = {
+      binding,
+      bucketName,
+      ...(voidConfig.storage?.locationHint
+        ? { locationHint: voidConfig.storage.locationHint }
+        : {}),
+    };
     reasons.set(binding, analysis.reasons.r2[0]!);
   }
 

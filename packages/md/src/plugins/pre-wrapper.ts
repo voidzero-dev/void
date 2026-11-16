@@ -22,7 +22,7 @@ function extractLang(info: string): string {
 
 /**
  * Copies the code next to a clicked copy button, without removed diff lines
- * and without the empty last line that Shiki adds.
+ * and without the empty last line of the code block.
  * Markdown pages are island pages and always load as full documents, so this
  * classic inline script runs once per page load and adds one delegated
  * listener. The body must not contain `<`, so neither island tag matching nor
@@ -41,9 +41,11 @@ export const CODE_COPY_SCRIPT: string =
 /**
  * Wraps fenced code blocks with a language label and copy button.
  * Sets `env.codeCopy` so the page gets {@link CODE_COPY_SCRIPT}.
+ * `copyLabel` sets the copy button's title (default `Copy Code`).
  * Ported from VitePress.
  */
-export function preWrapperPlugin(md: MarkdownExit): void {
+export function preWrapperPlugin(md: MarkdownExit, options?: { copyLabel?: string }): void {
+  const copyLabel = md.utils.escapeHtml(options?.copyLabel ?? 'Copy Code');
   const fence = md.renderer.rules.fence as FenceRender;
   md.renderer.rules.fence = async (...args: Parameters<FenceRender>) => {
     const [tokens, idx, , env] = args;
@@ -51,14 +53,13 @@ export function preWrapperPlugin(md: MarkdownExit): void {
     const token = tokens[idx];
     // Strip title bracket notation before rendering
     token.info = token.info.replace(/\[.*\]/, '');
-    // Handle active class for code-group
     const active = / active( |$)/.test(token.info) ? ' active' : '';
     token.info = token.info.replace(/ active$/, '').replace(/ active /, ' ');
     const lang = extractLang(token.info);
     const highlighted = await fence(...args);
     return (
       `<div class="language-${lang}${active}">` +
-      '<button title="Copy Code" class="copy"></button>' +
+      `<button title="${copyLabel}" class="copy"></button>` +
       `<span class="lang">${lang}</span>` +
       highlighted +
       `</div>`

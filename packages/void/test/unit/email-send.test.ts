@@ -1,12 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { sendEmail } from '../../src/runtime/email.ts';
 import {
   clearDevBuffer,
   DEV_INBOX_ENV_VAR,
   listDevMessages,
 } from '../../src/runtime/email/dev-inbox.ts';
+import { sendEmail } from '../../src/runtime/email/index.ts';
 import { createEmailTestHarness } from '../../src/runtime/email/testing.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 afterEach(() => {
   clearDevBuffer();

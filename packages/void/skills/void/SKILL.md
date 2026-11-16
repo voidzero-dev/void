@@ -22,12 +22,17 @@ Use `void` and `@void/*` in imports, examples, and package manifests. Follow the
 project's existing framework and deployment destination. Deploying to a Void
 platform requires an explicit `void connect <url>` first; never infer a platform
 from old examples, tokens, or project IDs.
+
+Use bracket route patterns such as `/users/[id]` and `/docs/[...slug]` with
+`routeUrl()`, typed `fetch()`, `useParams()`, page actions, and WebSocket `connect()`.
 Platform hostnames passed to `void connect` default to HTTPS. Loopback hosts
 (`localhost`, `127.0.0.1`, and `[::1]`) default to HTTP: `void connect localhost:8787`.
 An explicit scheme overrides the default.
 For a one-time deployment elsewhere, connect to that platform, then set
 `VOID_API_URL` for the deploy command and pass `--project <slug>`. This preserves
 the app's existing saved destination, including when the target project is new.
+
+Use `void deploy --skip-migrations` when database migrations run separately; it skips application and authentication SQL for that invocation. Ensure the code supports the current database schema and follow `docs/guide/deployment.md` for the release workflow.
 
 ## Task Routing
 
@@ -40,9 +45,10 @@ the app's existing saved destination, including when the target project is new.
 | Pages mode, loader/action, forms, layouts  | `docs/guide/pages-routing/*.md`, `docs/guide/type-safety.md`                              |
 | Database and migrations                    | `docs/guide/database.md`, `docs/guide/type-safety.md`                                     |
 | Typed fetch and end-to-end typing          | `docs/guide/typed-fetch.md`, `docs/guide/type-safety.md`                                  |
-| Authentication                             | `docs/guide/auth.md`, `docs/guide/env-vars.md`                                            |
+| Authentication                             | `docs/guide/auth.md`, `docs/reference/api/auth.md`, `docs/guide/env-vars.md`              |
 | Cloudflare runtime bindings and config     | `docs/integrations/cloudflare.md`, `docs/reference/config.md`, `docs/guide/env-vars.md`   |
 | AI inference (Workers AI, providers)       | `docs/guide/ai.md`                                                                        |
+| Platform AI logging policy                 | `docs/reference/cli/platform-users.md#ai-gateway-logging`                                 |
 | Durable State and WebSockets               | `docs/guide/durable-state.md`, `docs/guide/websockets.md`                                 |
 | Server-sent events and live streams        | `docs/guide/sse.md`, `docs/guide/live.md`                                                 |
 | Sandboxes                                  | `docs/guide/sandboxes.md`                                                                 |
@@ -51,6 +57,7 @@ the app's existing saved destination, including when the target project is new.
 | SSR and caching                            | `docs/guide/ssr.md`, `docs/guide/edge/*.md`                                               |
 | HTTPS, rewrites, redirects, fallbacks      | `docs/guide/edge/rewrites.md`, `docs/guide/edge/redirects.md`, `docs/reference/config.md` |
 | Static site generation                     | `docs/guide/ssg.md`                                                                       |
+| Testing an app with Vitest (`vp test`)     | `docs/guide/testing.md`                                                                   |
 | Connected apps and artifact preparation    | `docs/guide/platform/administration/connected-apps.md`, `docs/reference/api/deploy.md`    |
 | Deployment and CI                          | `docs/guide/deployment.md`, `docs/reference/cli/deploy.md`                                |
 | Install or maintain a company platform     | `docs/guide/self-hosted-platform.md`, `docs/reference/cli/platform-installation.md`       |

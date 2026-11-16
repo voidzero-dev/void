@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigEnv, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createWorkerFetch } from '../../src/runtime/routing-worker.ts';
+import { createWorkerFetch } from '../../src/runtime/routing/worker.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../../src/shared/env.ts';
 import {
   CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV,
@@ -74,6 +74,7 @@ async function readiness(entry: string, env: Record<string, unknown>): Promise<R
     '__filterInternalBindings',
     '__voidHandleInternalRoute',
     '__voidCollectPrerenderPaths',
+    '__voidRenderStaticNotFound',
     `return (${source});`,
   )(
     createWorkerFetch,
@@ -84,6 +85,7 @@ async function readiness(entry: string, env: Record<string, unknown>): Promise<R
     (bindings: object) => bindings,
     async () => null,
     async () => [],
+    async () => new Response(null, { status: 204 }),
   ) as ReturnType<typeof createWorkerFetch>;
   return fetch(
     new Request('https://app.test/__void/ready', {

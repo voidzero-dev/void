@@ -33,7 +33,7 @@ import type { MySqlClient } from '../migrations/runner-mysql.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
-import type { SeedFn } from '../runtime/seed.ts';
+import type { SeedFn } from '../runtime/db/seed.ts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { loadLocalEnv } from '../shared/env.ts';
 import { getProxyUrl, getToken } from './auth.ts';

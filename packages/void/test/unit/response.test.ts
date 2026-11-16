@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { convertReturnValue } from '../../src/runtime/response.ts';
+import { convertReturnValue } from '../../src/runtime/handler/response.ts';
 
 describe('convertReturnValue', () => {
   it('passes through Response objects', () => {

@@ -4,6 +4,7 @@ import {
   type VoidActionError,
 } from './action-result.ts';
 import { getValidationErrors } from './adapter-helpers.ts';
+import { fetchPages } from './redirect.ts';
 
 export type IslandActionResult =
   | { kind: 'redirect'; url: string }
@@ -16,14 +17,18 @@ export async function submitIslandAction(
   method: string,
   data: Record<string, unknown>,
 ): Promise<IslandActionResult> {
-  const response = await fetch(url, {
-    method,
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data),
-  });
+  const { response, redirectedTo } = await fetchPages(
+    url,
+    {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    },
+    false,
+  );
 
-  if (response.redirected) {
-    return { kind: 'redirect', url: response.url };
+  if (redirectedTo) {
+    return { kind: 'redirect', url: redirectedTo };
   }
   if (response.ok) {
     return { kind: 'success' };

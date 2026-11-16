@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Skeleton } from '@astryxdesign/core/Skeleton';
 import {
   Table,
@@ -9,6 +10,7 @@ import {
   TableRow,
 } from '@astryxdesign/core/Table';
 import { Heading, Text } from '@astryxdesign/core/Text';
+import { Link } from '@void/react';
 import { Suspense, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
 import { useListView, useRequest, useView, type Deferred, type ViewRef } from 'react-fate';
 import { DashboardView, dashboardRequest, TopProjectView } from '../../fate/views.ts';
@@ -110,13 +112,13 @@ function TopProjectTableRow({
       <TableCell>
         <div className="void-admin-top-project">
           <div className="void-admin-top-project-heading">
-            <a
+            <Link
               className="void-admin-resource-link void-admin-top-project-name"
               href={`/admin/projects/${project.id}`}
               title={project.slug}
             >
               {project.slug}
-            </a>
+            </Link>
             <span className="void-admin-top-project-type">{project.type}</span>
           </div>
           <div className="void-admin-top-project-meta">
@@ -126,9 +128,9 @@ function TopProjectTableRow({
       </TableCell>
       <TableCell>
         {project.owner_login ? (
-          <a className="void-admin-resource-link" href={`/admin/users/${project.user_id}`}>
+          <Link className="void-admin-resource-link" href={`/admin/users/${project.user_id}`}>
             {project.owner_login}
-          </a>
+          </Link>
         ) : (
           '-'
         )}

@@ -1,4 +1,5 @@
 ---
+description: 'Generate migrations, apply them, and update the local database from your Drizzle schema.'
 outline: deep
 ---
 
@@ -129,6 +130,8 @@ void db connect --provider @acme/void-db-provider --region region-id
 The command saves `DATABASE_URL` in `.env`. When authenticated with a linked Void project, it also updates the encrypted deployment URL; pass `--local-only` to skip that sync. `neon` is built in. Other adapters are project dependencies or local modules exporting a `DatabaseProviderAdapter` from `void/database-provider`.
 
 Provider-created credentials are never printed. For direct Cloudflare deploys, configure the same URL as a protected `DATABASE_URL` in the shell or CI environment that runs deploy.
+
+For an existing PostgreSQL database migrated by Drizzle, [adopt its applied migration history](../../guide/database.md#adopt-existing-drizzle) before the first Void deployment.
 
 ## `void db set-url` {#void-db-set-url}
 

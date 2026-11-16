@@ -1,4 +1,5 @@
 ---
+description: 'Inspect email usage and choose the recipients a project is allowed to send to.'
 outline: deep
 ---
 

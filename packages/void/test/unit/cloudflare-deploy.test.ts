@@ -5,11 +5,12 @@ import {
   readFileSync,
   readdirSync,
   rmSync,
+  statSync,
   symlinkSync,
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { stripVTControlCharacters } from 'node:util';
 import {
@@ -20,6 +21,7 @@ import {
   type CloudflareOperation,
 } from '@void/deploy-cloudflare';
 import { log } from '@voidzero-dev/vite-plus-prompts';
+import ignore from 'ignore';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
@@ -93,6 +95,10 @@ import {
   writeWranglerPublishedTrafficSnapshot,
   writeProvisionedWranglerConfig,
 } from '../../src/cli/wrangler.ts';
+import {
+  materializeCloudflareConfig,
+  persistCloudflareConfig,
+} from '../../src/cloudflare-config.ts';
 import { readConfig } from '../../src/config.ts';
 
 // `runDeploy` calls `runCloudflareDeploy` without deps. A test that starts from `runDeploy` sets
@@ -202,7 +208,8 @@ describe('Cloudflare deploy log end record', () => {
     readRecords: () => Array<Record<string, unknown>>;
   } {
     const cliLog = openDeployLog(opts);
-    expect(cliLog.path?.startsWith(logHome.dir)).toBe(true);
+    expect(cliLog.path).not.toBeNull();
+    expect(dirname(resolve(cliLog.path!))).toBe(resolve(logHome.dir, '.void', 'logs'));
     return {
       cliLog,
       readRecords: () =>
@@ -951,8 +958,8 @@ function emittedVars(vars: Record<string, unknown> = {}): EmittedWorkerVarsResul
  */
 const srcFileUrl = (...segments: Array<string>): string =>
   pathToFileURL(join(import.meta.dirname, '..', '..', 'src', ...segments)).href;
-const srcEnvPublic = srcFileUrl('runtime', 'env-public.ts');
-const srcEnvHelpers = srcFileUrl('runtime', 'env-helpers.ts');
+const srcEnvPublic = srcFileUrl('runtime', 'env/public.ts');
+const srcEnvHelpers = srcFileUrl('runtime', 'env/helpers.ts');
 
 /**
  * Cloudflare credentials the parent may hold: Wrangler's names, their `CF_*` aliases and Void's
@@ -2225,6 +2232,103 @@ const PROVISIONED_D1 = {
   ],
 };
 
+describe('native deployment migration opt-out', () => {
+  it('keeps migration validation before upload when SQL execution is skipped', async () => {
+    const root = d1Project(PROVISIONED_D1, INIT_MIGRATION);
+    const { deps, wranglerArgs } = harness({
+      assertMigrationsDeployable: () => {
+        throw new Error('invalid journal');
+      },
+    });
+    await expect(
+      runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      ),
+    ).rejects.toBeInstanceOf(ExitError);
+    expect(wranglerArgs.some((args) => args[0] === 'deploy' || args[0] === 'd1')).toBe(false);
+  });
+
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'skips %s SQL, preserves validation, and leaves pending files for the next deploy',
+    async (dialect) => {
+      vi.stubEnv('DATABASE_URL', 'postgresql://prod.example/app');
+      const root = d1Project(
+        dialect === 'sqlite'
+          ? PROVISIONED_D1
+          : {
+              account_id: 'acc123',
+              name: 'myapp',
+              hyperdrive: [{ binding: 'HYPERDRIVE', id: REAL_KV_ID }],
+            },
+        {
+          ...INIT_MIGRATION,
+          'void.json': JSON.stringify(
+            dialect === 'sqlite' ? {} : { database: dialect === 'mysql' ? 'mysql' : 'pg' },
+          ),
+        },
+      );
+      const apply = vi.fn(async () => ['0000_init.sql']);
+      const { deps, trace, wranglerArgs } = harness({
+        applyPostgresMigrations: apply,
+        applyMySqlMigrations: apply,
+      });
+      const activate = vi.fn(deps.activateVersion!);
+      deps.activateVersion = activate;
+      await runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      );
+      expect(apply).not.toHaveBeenCalled();
+      expect(wranglerArgs.some((a) => a[0] === 'd1')).toBe(false);
+      expect(trace).toContain('migrate-gate');
+      expect(parseCloudflareVersionMessage(activate.mock.calls[0][0].message)).toMatchObject({
+        migrations: null,
+      });
+      expect(readFileSync(join(root, 'db/migrations/0000_init.sql'), 'utf8')).toContain(
+        'CREATE TABLE',
+      );
+
+      await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+      if (dialect === 'sqlite') {
+        expect(wranglerArgs.some((a) => a[0] === 'd1' && a[2] === 'apply')).toBe(true);
+      } else {
+        expect(apply).toHaveBeenCalledOnce();
+      }
+      expect(parseCloudflareVersionMessage(activate.mock.calls[1][0].message)).toMatchObject({
+        migrations: ['0000_init.sql'],
+      });
+    },
+  );
+
+  it.each(['pg', 'mysql'] as const)(
+    'does not require DATABASE_URL to skip %s migrations',
+    async (database) => {
+      vi.stubEnv('DATABASE_URL', undefined);
+      const root = d1Project(
+        {
+          account_id: 'acc123',
+          name: 'myapp',
+          hyperdrive: [{ binding: 'HYPERDRIVE', id: REAL_KV_ID }],
+        },
+        { ...INIT_MIGRATION, 'void.json': JSON.stringify({ database }) },
+      );
+      const { deps, trace } = harness();
+      await runCloudflareDeploy(
+        root,
+        { platform: 'cloudflare', skipMigrations: true },
+        silentCliLog,
+        deps,
+      );
+      expect(trace).toContain('wrangler:deploy');
+    },
+  );
+});
+
 /**
  * The non-id bindings a real Class-A build emits into `dist/ssr/wrangler.json` (see
  * `playground/kitchen-sink/dist/ssr/wrangler.json`): `ai`, `queues`, `durable_objects`,
@@ -2268,6 +2372,19 @@ const KITCHEN_SINK_NON_ID_BINDINGS = {
 // ---------------------------------------------------------------------------
 
 describe('computeDesiredCloudflareResources — desired set from source', () => {
+  it('passes the configured storage location to native R2 provisioning', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'location-test' }),
+      'void.json': JSON.stringify({ storage: { locationHint: 'apac' } }),
+      'routes/files.ts': `import { storage } from 'void/storage'; export const GET = () => storage.list();`,
+    });
+    const result = await computeDesiredCloudflareResources(
+      root,
+      readConfig(root),
+      join(root, 'wrangler.jsonc'),
+    );
+    expect(result.desired.r2).toMatchObject({ binding: 'STORAGE', locationHint: 'apac' });
+  });
   it('does not provision resources used only by a dev route', async () => {
     const root = makeProject({
       'package.json': JSON.stringify({ name: 'myapp' }),
@@ -7774,7 +7891,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       assets: {
         directory: '.svelte-kit/cloudflare',
         binding: 'ASSETS',
-        run_worker_first: true,
+        run_worker_first: ['/__void', '/__void/*'],
       },
       triggers: { crons: ['0 * * * *'] },
       secrets: { required: ['API_TOKEN'] },
@@ -7782,6 +7899,121 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
     });
     expect(readFileSync(join(root, 'wrangler.jsonc'), 'utf-8')).toContain('// keep this comment');
   });
+
+  // SvelteKit's Worker directory is also its asset directory, and Cloudflare serves an uploaded
+  // file there without starting the Worker. In an ES module package, which is what `sv create`
+  // makes, Vite names the cron and queue bundle `__void_handlers.js`.
+  it('keeps the modules it adds to an ES module SvelteKit Worker out of its assets', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({
+        name: 'skapp',
+        type: 'module',
+        dependencies: { '@sveltejs/kit': '2.0.0' },
+      }),
+      'void.json': JSON.stringify({ routing: { revalidate: { '/news/*': 60 } } }),
+      'wrangler.jsonc': JSON.stringify({ name: 'skapp', account_id: 'acc123' }),
+      '.svelte-kit/cloudflare/_worker.js':
+        'export default { fetch() { return new Response("ok") } };\n',
+      '.svelte-kit/cloudflare/_app/immutable/app.js': 'console.log("client");\n',
+      'crons/hourly.ts': [
+        'import { defineScheduled } from "void";',
+        'export const cron = "0 * * * *";',
+        'export default defineScheduled(async function hourly() {});',
+      ].join('\n'),
+    });
+
+    await prepareCloudflareFrameworkArtifact({
+      root,
+      configPath: join(root, 'wrangler.jsonc'),
+      accountId: 'acc123',
+      workerName: 'skapp',
+      voidConfig: readConfig(root),
+      framework: { name: 'sveltekit', class: 'b' },
+      preset: FRAMEWORK_PRESETS.sveltekit,
+    });
+
+    const directory = join(root, '.svelte-kit/cloudflare');
+    expect(existsSync(join(directory, '__void_handlers.js'))).toBe(true);
+    expect(existsSync(join(directory, '__void_isr.mjs'))).toBe(true);
+    const ignored = ignore().add(readFileSync(join(directory, '.assetsignore'), 'utf-8'));
+    const assets = readdirSync(directory, { recursive: true, encoding: 'utf8' })
+      .map((file) => toSlash(file))
+      .filter((file) => statSync(join(directory, file)).isFile())
+      .filter((file) => file !== '.assetsignore' && !ignored.ignores(file));
+    expect(assets).toEqual(['_app/immutable/app.js']);
+  });
+
+  // Astro's own Cloudflare config starts the Worker only for paths without a file. An older Void
+  // deploy wrote `run_worker_first: true` into the generated config, which void.lock.json can keep.
+  it('replaces the run_worker_first an older framework deploy recorded', async () => {
+    const preset = FRAMEWORK_PRESETS.astro!;
+    const root = makeProject({
+      'void.config.ts': `export default { cloudflare: { name: 'astro-app', account_id: 'acc123' } };\n`,
+      [`${preset.workerDir}/${preset.workerMain}`]:
+        'export default { fetch() { return new Response("page") } };\n',
+      [`${preset.assetsDir}/_astro/app.js`]: 'console.log("client");\n',
+    });
+    const configPath = materializeCloudflareConfig(root);
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...parseRootWranglerConfig(configPath),
+        assets: { run_worker_first: true },
+      }),
+    );
+    persistCloudflareConfig(root);
+    expect(parseRootWranglerConfig(materializeCloudflareConfig(root)).assets).toEqual({
+      run_worker_first: true,
+    });
+
+    await prepareCloudflareFrameworkArtifact({
+      root,
+      configPath,
+      accountId: 'acc123',
+      workerName: 'astro-app',
+      voidConfig: readConfig(root),
+      framework: { name: 'astro', class: 'c' },
+      preset,
+    });
+
+    expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+      run_worker_first: ['/__void', '/__void/*'],
+      not_found_handling: 'none',
+    });
+  });
+
+  it.each([[['/api/*']], [true], [false]])(
+    'writes the run_worker_first that void.config.ts sets for a framework Worker (%j)',
+    async (runWorkerFirst) => {
+      const preset = FRAMEWORK_PRESETS.astro!;
+      const cloudflare = {
+        name: 'astro-app',
+        account_id: 'acc123',
+        assets: { run_worker_first: runWorkerFirst },
+      };
+      const root = makeProject({
+        'void.config.ts': `export default { cloudflare: ${JSON.stringify(cloudflare)} };\n`,
+        [`${preset.workerDir}/${preset.workerMain}`]:
+          'export default { fetch() { return new Response("page") } };\n',
+        [`${preset.assetsDir}/_astro/app.js`]: 'console.log("client");\n',
+      });
+      const configPath = materializeCloudflareConfig(root);
+
+      await prepareCloudflareFrameworkArtifact({
+        root,
+        configPath,
+        accountId: 'acc123',
+        workerName: 'astro-app',
+        voidConfig: readConfig(root),
+        framework: { name: 'astro', class: 'c' },
+        preset,
+      });
+
+      expect(parseRootWranglerConfig(configPath).assets).toMatchObject({
+        run_worker_first: runWorkerFirst,
+      });
+    },
+  );
 
   it('prepares Class A wrapper handlers without replacing its generated config pointer', async () => {
     const root = makeProject({

@@ -1,4 +1,5 @@
 ---
+description: 'Subscribe a browser to several topics over one SSE connection, and publish events from routes, jobs, or queues.'
 outline: deep
 ---
 
@@ -76,6 +77,8 @@ stream.close();
 ```
 
 Subscription IDs are scoped to a connection. Reusing an ID replaces its subscription. After reconnecting, the helper restores active subscriptions and sends their latest `eventId` as `lastEventId`.
+
+With [`routing.typedRoutes`](../reference/config.md#routing-typedroutes), TypeScript checks the URL against your routes. External `http://` and `https://` URLs also work. For a URL you validate at runtime, use `as RouteUrl` from `void/routes` to skip the type check.
 
 ## Publish
 

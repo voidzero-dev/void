@@ -1,8 +1,16 @@
 import { createComponent, createRoot } from 'solid-js';
-import { describe, expect, it } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { VoidRouter } from 'void/pages-client';
 import { RouterContext } from '../../src/runtime/context.ts';
 import { useForm as typedUseForm } from '../../src/runtime/use-form.ts';
+
+beforeEach(() => {
+  vi.stubGlobal('window', { location: { pathname: '/', search: '' } });
+});
+
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
 
 // The public overload only accepts generated action URLs; these tests use plain paths.
 const useForm = typedUseForm as unknown as (

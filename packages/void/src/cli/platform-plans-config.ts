@@ -1,6 +1,11 @@
 import { readFile } from 'node:fs/promises';
 import { stripVTControlCharacters } from 'node:util';
 import {
+  AI_LOGGING_MODES,
+  parsePlanAiLoggingInput,
+  type AiLoggingMode,
+} from '@void/platform/ai-logging';
+import {
   PLAN_EDITABLE_LIMIT_KEYS,
   PLAN_LIMITS,
   parsePlanLimitsPatch,
@@ -17,15 +22,51 @@ import {
   select,
   text,
 } from '@voidzero-dev/vite-plus-prompts';
+import { utcTime } from './operator-ai-logging.ts';
 import { readOperatorToken, resolveOperatorOrigin } from './operator-auth.ts';
 import { OperatorClient, OperatorClientError } from './operator-client.ts';
 import { printSuccess } from './output.ts';
 import type { PlatformPlansArgs } from './platform-plans-args.ts';
 
+type PlanAiLoggingModes = Readonly<Record<string, string>>;
+
+type AiLoggingListing = {
+  modes: PlanAiLoggingModes;
+  publish: { complete: boolean; error?: string } | null;
+  remaining: number;
+};
+
 type Listing = {
   catalog: PlatformPlanCatalog;
   accounts: Array<{ planId: string; count: number }>;
+  /** Plan AI logging defaults. Platforms before plan defaults do not send it. */
+  aiLogging?: AiLoggingListing;
 };
+
+const aiLoggingLabels: Record<AiLoggingMode, string> = {
+  inherit: 'inherit (AI Gateway setting)',
+  off: 'off',
+  metadata: 'metadata (no prompts or responses)',
+  full: 'full (prompts and responses)',
+};
+
+function planAiLogging(modes: PlanAiLoggingModes | undefined, planId: string): string {
+  const mode = modes && Object.hasOwn(modes, planId) ? modes[planId] : undefined;
+  return typeof mode === 'string' ? stripVTControlCharacters(mode) : 'inherit';
+}
+
+function aiLoggingPending(listing: Listing): boolean {
+  return Boolean(listing.aiLogging?.publish && !listing.aiLogging.publish.complete);
+}
+
+/** Refuses plan AI logging on a platform whose API would refuse or drop it. */
+function assertPlanAiLoggingSupported(listing: Listing, body: Record<string, unknown>): void {
+  if (body.aiLogging !== undefined && !listing.aiLogging) {
+    throw new Error(
+      'platform: This platform does not support plan AI logging defaults. Upgrade the platform first with `void platform upgrade`.',
+    );
+  }
+}
 
 const limitLabels: Record<(typeof PLAN_EDITABLE_LIMIT_KEYS)[number], string> = {
   requestsPerMonth: 'Requests per billing month',
@@ -56,7 +97,11 @@ function writePlanDiff(
   from: PlatformPlanDefinition,
   to: PlatformPlanDefinition,
   write: (line: string) => void,
+  aiLogging?: Readonly<{ from: string; to: string }>,
 ): void {
+  if (aiLogging && aiLogging.from !== aiLogging.to) {
+    write(`AI Gateway logging: ${aiLogging.from} → ${aiLogging.to}`);
+  }
   if (from.buildInstanceType !== to.buildInstanceType) {
     write(`Build size: ${from.buildInstanceType} → ${to.buildInstanceType}`);
   }
@@ -87,16 +132,36 @@ function showListing(listing: Listing, json: boolean): void {
   if (listing.catalog.reconciliation && !listing.catalog.reconciliation.complete) {
     console.log('Account updates are pending. Run void platform config plans sync --yes.');
   }
+  if (aiLoggingPending(listing)) {
+    console.log(
+      `AI logging publish is pending for ${listing.aiLogging!.remaining} projects. Run void platform config plans sync --yes.`,
+    );
+  }
 }
 
 function showPreview(
   preview: Record<string, unknown>,
   before: PlatformPlanCatalog,
+  beforeAiLogging: PlanAiLoggingModes | undefined,
   write = console.error,
 ): void {
   const after = preview.catalog as PlatformPlanCatalog;
+  const change = preview.aiLogging as
+    | { modes?: PlanAiLoggingModes; modesBefore?: PlanAiLoggingModes }
+    | undefined;
+  const afterAiLogging = change?.modes;
+  // The preview reads the saved defaults under the catalog lock; the listing may be cached.
+  const savedAiLogging = change?.modesBefore ?? beforeAiLogging;
+  const aiLogging = (from: string, to: string) =>
+    afterAiLogging
+      ? { from: planAiLogging(savedAiLogging, from), to: planAiLogging(afterAiLogging, to) }
+      : undefined;
   write(`Change: ${preview.action} ${preview.target}`);
   write(`Accounts affected: ${preview.affectedAccounts}`);
+  const publish = preview.aiLoggingPublish as { remaining?: unknown } | undefined;
+  if (typeof publish?.remaining === 'number' && publish.remaining > 0) {
+    write(`AI logging settings to publish: ${publish.remaining} projects`);
+  }
   for (const warning of (preview.warnings ?? []) as Array<string>) {
     write(stripVTControlCharacters(warning));
   }
@@ -114,6 +179,9 @@ function showPreview(
         write(`  ${limitLabels[key]}: ${limitValue(plan.limits[key], key)}`);
       }
       write(`  Short project slugs: ${shortSlugsLabel(plan.allowShortSlugs)}`);
+      if (afterAiLogging) {
+        write(`  AI Gateway logging: ${planAiLogging(afterAiLogging, plan.id)}`);
+      }
       continue;
     }
     if (previous.name !== plan.name) {
@@ -122,7 +190,7 @@ function showPreview(
     if (previous.archived !== plan.archived) {
       write(`${plan.id}: ${plan.archived ? 'archive for new assignments' : 'restore assignments'}`);
     }
-    writePlanDiff(previous, plan, write);
+    writePlanDiff(previous, plan, write, aiLogging(plan.id, plan.id));
   }
   for (const plan of before.plans) {
     if (!after.plans.some((entry) => entry.id === plan.id)) {
@@ -130,7 +198,7 @@ function showPreview(
       const replacement = after.plans.find((entry) => entry.id === preview.replacementPlanId);
       if (replacement) {
         write(`Move accounts to ${label(replacement)}`);
-        writePlanDiff(plan, replacement, write);
+        writePlanDiff(plan, replacement, write, aiLogging(plan.id, replacement.id));
       }
     }
   }
@@ -182,6 +250,7 @@ async function choosePlan(
 async function changesInput(
   args: PlatformPlansArgs,
   plan?: PlatformPlanDefinition,
+  listing?: Listing,
 ): Promise<Record<string, unknown>> {
   if (args.file) {
     const input: unknown = JSON.parse(await readFile(args.file, 'utf8'));
@@ -190,11 +259,16 @@ async function changesInput(
     }
     const object = input as Record<string, unknown>;
     for (const key of Object.keys(object)) {
-      if (!['name', 'limits', 'buildInstanceType', 'allowShortSlugs'].includes(key)) {
+      if (!['name', 'limits', 'buildInstanceType', 'allowShortSlugs', 'aiLogging'].includes(key)) {
         throw new Error(
-          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, or allowShortSlugs.`,
+          `platform: Unknown plan field ${key}. Use name, limits, buildInstanceType, allowShortSlugs, or aiLogging.`,
         );
       }
+    }
+    try {
+      parsePlanAiLoggingInput(object.aiLogging);
+    } catch (error) {
+      throw new Error(`platform: ${(error as Error).message}`);
     }
     if (object.allowShortSlugs !== undefined && typeof object.allowShortSlugs !== 'boolean') {
       throw new Error('platform: allowShortSlugs must be a boolean.');
@@ -235,9 +309,28 @@ async function changesInput(
           label: `${limitLabels[key]}: ${limitValue(plan!.limits[key], key)}`,
         })),
         { value: 'buildInstanceType', label: 'Build instance size' },
+        ...(listing?.aiLogging
+          ? [
+              {
+                value: 'aiLogging',
+                label: `AI Gateway logging: ${planAiLogging(listing.aiLogging.modes, plan!.id)}`,
+              },
+            ]
+          : []),
       ],
     }),
   );
+  if (field === 'aiLogging') {
+    return {
+      aiLogging: value(
+        await select({
+          message: 'AI Gateway logging for projects on this plan without a project setting:',
+          initialValue: planAiLogging(listing!.aiLogging!.modes, plan!.id),
+          options: AI_LOGGING_MODES.map((mode) => ({ value: mode, label: aiLoggingLabels[mode] })),
+        }),
+      ),
+    };
+  }
   if (field === 'name') {
     return {
       name: parsePlanName(value(await text({ message: 'Plan name:', initialValue: plan!.name }))),
@@ -276,8 +369,10 @@ async function apply(
   path: string,
   body: Record<string, unknown>,
   args: PlatformPlansArgs,
-  catalog: PlatformPlanCatalog,
+  listing: Listing,
 ): Promise<void> {
+  const { catalog } = listing;
+  assertPlanAiLoggingSupported(listing, body);
   if (!args.plan && !args.yes && (!process.stdin.isTTY || args.json)) {
     throw new Error(
       'platform: Configuration changes require --yes or --plan in non-interactive mode.',
@@ -288,7 +383,7 @@ async function apply(
     if (args.json) {
       print(preview);
     } else {
-      showPreview(preview, catalog, console.log);
+      showPreview(preview, catalog, listing.aiLogging?.modes, console.log);
     }
     return;
   }
@@ -296,7 +391,7 @@ async function apply(
     throw new Error('platform: The platform returned an invalid plan revision.');
   }
   if (!args.yes) {
-    showPreview(preview, catalog);
+    showPreview(preview, catalog, listing.aiLogging?.modes);
     if (
       !value(
         await confirm({ message: `Apply this change to ${client.origin}?`, initialValue: false }),
@@ -305,10 +400,7 @@ async function apply(
       throw new Error('platform: Cancelled.');
     }
   }
-  let result = await client.request(path, {
-    method: 'POST',
-    body: { ...body, expectedRevision: preview.expectedRevision },
-  });
+  let result = await save(client, path, { ...body, expectedRevision: preview.expectedRevision });
   const committedCatalog = result.catalog as PlatformPlanCatalog;
   if (!Number.isSafeInteger(committedCatalog?.revision)) {
     throw new Error(
@@ -318,36 +410,43 @@ async function apply(
   const committedRevision = committedCatalog.revision;
   const applied = result;
   let previousCursor = catalog.reconciliation?.cursor ?? null;
+  let published = 0;
+  let expectedBy: string | null = null;
   while (true) {
-    const reconciliation = result.reconciliation as
-      | { complete?: boolean; processed?: number; error?: string }
-      | undefined;
-    if (!reconciliation || reconciliation.complete !== false) {
+    const reconciliation = result.reconciliation as Progress | undefined;
+    const aiLogging = result.aiLoggingPublish as Progress | undefined;
+    if (aiLogging && Number.isSafeInteger(aiLogging.processed)) {
+      published += aiLogging.processed!;
+    }
+    if (typeof aiLogging?.expectedBy === 'string') {
+      expectedBy = aiLogging.expectedBy;
+    }
+    const accountsPending = reconciliation?.complete === false;
+    if (!accountsPending && aiLogging?.complete !== false && !aiLogging?.error) {
       break;
     }
     const currentCatalog = result.catalog as PlatformPlanCatalog;
     const cursor = currentCatalog.reconciliation?.cursor ?? null;
-    if (
-      reconciliation.error ||
-      !Number.isSafeInteger(reconciliation.processed) ||
-      reconciliation.processed! <= 0 ||
-      cursor === previousCursor ||
-      currentCatalog.revision !== committedRevision
-    ) {
+    const accountsStuck =
+      accountsPending && (!progressed(reconciliation) || cursor === previousCursor);
+    const aiLoggingStuck =
+      aiLogging?.complete === false ? !progressed(aiLogging) : !!aiLogging?.error;
+    if (accountsStuck || aiLoggingStuck || currentCatalog.revision !== committedRevision) {
       const pending = { ...applied, ...result };
       print(pending);
       throw new OperatorClientError(
-        'Plan configuration was saved, but account updates are pending. Run void platform config plans sync --yes.',
+        accountsStuck || !aiLoggingStuck
+          ? 'Plan configuration was saved, but account updates are pending. Run void platform config plans sync --yes.'
+          : 'Plan configuration was saved, but the AI logging setting is not published to every project yet. Run void platform config plans sync --yes.',
         'plan_sync_pending',
         undefined,
         pending,
       );
     }
-    previousCursor = cursor;
-    result = await client.request('/config/plans/sync', {
-      method: 'POST',
-      body: { expectedRevision: committedRevision },
-    });
+    if (accountsPending) {
+      previousCursor = cursor;
+    }
+    result = await save(client, '/config/plans/sync', { expectedRevision: committedRevision });
   }
   const completed = { ...applied, ...result };
   if (args.json) {
@@ -356,7 +455,56 @@ async function apply(
     printSuccess(
       `Saved ${applied.action ?? 'plans.sync'} ${applied.target ?? ''}. Account updates complete.`,
     );
+    const change = preview.aiLogging as
+      | { planIds?: Array<unknown>; includeUnknown?: boolean }
+      | undefined;
+    if (published > 0 || change?.planIds?.length || change?.includeUnknown) {
+      const by = utcTime(expectedBy);
+      console.log(
+        `AI logging published to ${published} projects${by ? `; expected by ${by} (normally within 2 minutes)` : ''}.`,
+      );
+    }
   }
+}
+
+/**
+ * Send a plan change or sync page. The API answers `ok: false` when the catalog saved but an
+ * account or AI logging page failed; that body still carries the saved catalog, so return it and
+ * let the caller name the resumption command instead of a generic partial failure.
+ */
+async function save(
+  client: OperatorClient,
+  path: string,
+  body: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  try {
+    return await client.request(path, { method: 'POST', body });
+  } catch (error) {
+    const details = error instanceof OperatorClientError ? error.details : undefined;
+    if (
+      error instanceof OperatorClientError &&
+      error.code === 'partial_failure' &&
+      details &&
+      typeof details === 'object' &&
+      'catalog' in details
+    ) {
+      return details as Record<string, unknown>;
+    }
+    throw error;
+  }
+}
+
+type Progress = {
+  complete?: boolean;
+  processed?: number;
+  remaining?: number;
+  expectedBy?: string | null;
+  error?: unknown;
+};
+
+/** A sync step that wrote something and reported no error. */
+function progressed(progress: Progress): boolean {
+  return !progress.error && Number.isSafeInteger(progress.processed) && progress.processed! > 0;
 }
 
 export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<void> {
@@ -380,8 +528,9 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
           })),
           { value: ':add', label: 'Add a plan by copying an existing plan' },
           { value: ':default', label: 'Choose the default for new accounts' },
-          ...(catalog.reconciliation && !catalog.reconciliation.complete
-            ? [{ value: ':sync', label: 'Continue pending account updates' }]
+          ...((catalog.reconciliation && !catalog.reconciliation.complete) ||
+          aiLoggingPending(listing)
+            ? [{ value: ':sync', label: 'Continue pending account and AI logging updates' }]
             : []),
         ],
       }),
@@ -441,6 +590,18 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
         for (const key of PLAN_EDITABLE_LIMIT_KEYS) {
           console.log(`${limitLabels[key]}: ${limitValue(plan.limits[key], key)}`);
         }
+        if (typeof result.aiLogging === 'string') {
+          console.log(`AI Gateway logging: ${stripVTControlCharacters(result.aiLogging)}`);
+        }
+        const publish = result.aiLoggingPublish as
+          | { complete?: boolean; remaining?: number; error?: string }
+          | null
+          | undefined;
+        if (publish && publish.complete === false) {
+          console.log(
+            `AI logging publish pending: ${publish.remaining ?? 0} projects remaining${publish.error ? ` (${stripVTControlCharacters(publish.error)})` : ''}. Run void platform config plans sync --yes.`,
+          );
+        }
       }
     }
     return;
@@ -470,7 +631,7 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
       throw new Error('platform: Plan not found. Run void platform config plans show.');
     }
     if (args.action === 'set') {
-      body = await changesInput(args, plan);
+      body = await changesInput(args, plan, listing);
     } else if (args.action === 'archive' || args.action === 'restore') {
       path = `/config/plans/${encodeURIComponent(args.target)}/archive`;
       body = { archived: args.action === 'archive' };
@@ -488,5 +649,5 @@ export async function runPlatformPlansConfig(args: PlatformPlansArgs): Promise<v
       body = replacement ? { replacementPlanId: replacement } : {};
     }
   }
-  await apply(client, path, body, args, catalog);
+  await apply(client, path, body, args, listing);
 }

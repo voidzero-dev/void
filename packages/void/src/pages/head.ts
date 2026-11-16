@@ -17,14 +17,14 @@ export type HeadConfig = HeadDescriptor & {
 /**
  * Merge head descriptors with precedence: page > middleware > config.
  *
- * - `title`: page wins; `titleTemplate` from config wraps it (`%s` replaced)
+ * - `title`: page wins; `titleTemplate` from middleware, else config, wraps it (`%s` replaced)
  * - `meta`: page overrides entries with same `name`/`property`; others appended
  * - `link`/`script`: concatenated (config first, then middleware, then page)
  * - `htmlAttrs`/`bodyAttrs`: shallow merge, page wins conflicts
  */
 export function resolveHead(
   configHead: HeadConfig | undefined,
-  middlewareHead: HeadDescriptor | undefined,
+  middlewareHead: HeadConfig | undefined,
   pageHead: HeadDescriptor | undefined,
 ): HeadDescriptor | undefined {
   if (!configHead && !middlewareHead && !pageHead) {
@@ -36,8 +36,8 @@ export function resolveHead(
 
   const title = pageHead?.title ?? middlewareHead?.title ?? configHead?.title;
   if (title !== undefined) {
-    const template = configHead?.titleTemplate;
-    result.title = template ? template.replace('%s', title) : title;
+    const template = middlewareHead?.titleTemplate ?? configHead?.titleTemplate;
+    result.title = template ? template.replace('%s', () => title) : title;
   }
 
   // Meta entries dedupe by charset/property/name; later layers win but keep
@@ -122,6 +122,71 @@ function serializeAttrs(attrs: Record<string, string | undefined>): string {
     .filter(([, value]) => value != null)
     .map(([key, value]) => `${key}="${escapeHtml(value!)}"`)
     .join(' ');
+}
+
+/** Meta tags that only work as an absolute URL, so crawlers can read them. */
+const ABSOLUTE_URL_META = new Set([
+  'og:image',
+  'og:image:url',
+  'og:image:secure_url',
+  'og:video',
+  'og:video:url',
+  'og:video:secure_url',
+  'og:audio',
+  'og:audio:url',
+  'og:audio:secure_url',
+  'og:url',
+  'twitter:image',
+]);
+
+/** Any scheme, or a protocol-relative `//host/path`, is already absolute. */
+function isAbsoluteUrl(value: string): boolean {
+  return value.startsWith('//') || /^[a-z][a-z\d+.-]*:/i.test(value);
+}
+
+/**
+ * Resolve relative values of the meta tags that must be absolute against the
+ * request URL. Config, middleware and page layers all end up here after
+ * merging, so a root-relative `og:image` becomes a URL social crawlers accept
+ * without the app having to know its own origin.
+ *
+ * `requestUrl` is undefined while prerendering, which runs on a placeholder
+ * origin: baking that origin into the built HTML would be worse than the
+ * relative value, so the tags stay as written.
+ */
+export function absolutizeHead(
+  head: HeadDescriptor | undefined,
+  requestUrl: string | undefined,
+): HeadDescriptor | undefined {
+  const entries = head?.meta;
+  if (!entries?.length || requestUrl === undefined) {
+    return head;
+  }
+  let base: URL;
+  try {
+    base = new URL(requestUrl);
+  } catch {
+    // A request URL is always valid; keep the values as written if it is not.
+    return head;
+  }
+  let meta: NonNullable<HeadDescriptor['meta']> | undefined;
+  for (const [index, entry] of entries.entries()) {
+    const key = entry.property ?? entry.name;
+    const content = entry.content;
+    if (!key || !content || !ABSOLUTE_URL_META.has(key) || isAbsoluteUrl(content)) {
+      continue;
+    }
+    let resolved: string;
+    try {
+      resolved = new URL(content, base).href;
+    } catch {
+      // Leave a malformed value exactly as the app wrote it.
+      continue;
+    }
+    meta ??= [...entries];
+    meta[index] = { ...entry, content: resolved };
+  }
+  return meta ? { ...head!, meta } : head;
 }
 
 /** Serialize a HeadDescriptor to HTML tags for injection into `<head>`. */

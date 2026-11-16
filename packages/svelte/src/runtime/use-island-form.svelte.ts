@@ -1,12 +1,14 @@
 import {
+  cloneFormValue,
   isEqualFormValue,
   submitIslandAction,
   type IslandFormState,
   type VoidActionError,
 } from 'void/pages-client';
+import type { RouteUrl } from 'void/routes';
 
 export type IslandFormReturn<T extends Record<string, unknown>> = IslandFormState<T, 'in-place'> &
-  Readonly<{ submit(url: string, method: string): Promise<void> }>;
+  Readonly<{ submit(url: RouteUrl, method: string): Promise<void> }>;
 
 /**
  * Form composable for island pages. Uses fetch + page reload instead of the
@@ -22,6 +24,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
 
   let defaults_ = { ...defaults };
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = $derived(
     Object.keys(defaults_).some((key) => !isEqualFormValue(data[key], defaults_[key])),
@@ -51,7 +54,10 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     error = null;
   }
 
-  async function submit(url: string, method: string) {
+  async function submit(url: RouteUrl, method: string) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     pending = true;
     wasSuccessful = false;
     recentlySuccessful = false;
@@ -62,7 +68,11 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     clearError();
 
     try {
-      const result = await submitIslandAction(url, method, data);
+      const result = await submitIslandAction(url, method, submittedData);
+      // A newer submit owns the form's state and decides whether the page changes.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (result.kind === 'redirect') {
         window.location.href = result.url;
@@ -72,7 +82,7 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
       if (result.kind === 'success') {
         wasSuccessful = true;
         recentlySuccessful = true;
-        defaults_ = { ...data };
+        defaults_ = submittedData;
         successTimeout = setTimeout(() => {
           recentlySuccessful = false;
         }, 2000);
@@ -83,7 +93,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
         error = result.error;
       }
     } finally {
-      pending = false;
+      if (requestId === latestRequestId) {
+        pending = false;
+      }
     }
   }
 
@@ -113,9 +125,9 @@ export function useIslandForm<T extends Record<string, unknown>>(defaults: T): I
     reset,
     clearErrors,
     clearError,
-    post: (url: string) => submit(url, 'POST'),
-    put: (url: string) => submit(url, 'PUT'),
-    patch: (url: string) => submit(url, 'PATCH'),
-    delete: (url: string) => submit(url, 'DELETE'),
+    post: (url: RouteUrl) => submit(url, 'POST'),
+    put: (url: RouteUrl) => submit(url, 'PUT'),
+    patch: (url: RouteUrl) => submit(url, 'PATCH'),
+    delete: (url: RouteUrl) => submit(url, 'DELETE'),
   };
 }

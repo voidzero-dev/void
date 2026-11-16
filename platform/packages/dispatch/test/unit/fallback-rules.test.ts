@@ -47,8 +47,6 @@ type WorkerRoutingEntry = {
   queryAllowlist?: Record<string, Array<string>>;
 };
 
-type RoutingEntry = StaticRoutingEntry | WorkerRoutingEntry;
-
 /**
  * Build an Env for static-deployment tests. Assets are identified by their path;
  * the KV store keys off `assets/{projectId}/{path}` → an ArrayBuffer of the body.

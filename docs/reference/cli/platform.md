@@ -1,4 +1,5 @@
 ---
+description: 'Select a platform, confirm changes, and run operator commands against that installation.'
 outline: deep
 ---
 

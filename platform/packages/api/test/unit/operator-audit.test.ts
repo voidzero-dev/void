@@ -29,6 +29,21 @@ describe('operator audit intent normalization', () => {
         },
       },
       {
+        action: 'config/plans/pro/set',
+        body: { aiLogging: 'metadata', expectedRevision: 8 },
+        target: { planId: 'pro', action: 'set', expectedRevision: 8, aiLogging: 'metadata' },
+      },
+      {
+        action: 'config/plans/pro/set',
+        body: { aiLogging: 'everything', expectedRevision: 8 },
+        target: { planId: 'pro', action: 'set', expectedRevision: 8 },
+      },
+      {
+        action: 'projects/proj_1/ai-logging',
+        body: { mode: 'off' },
+        target: { projectId: 'proj_1', mode: 'off' },
+      },
+      {
         action: 'config/plans/add',
         body: { id: 'team', name: 'Team', copyFrom: 'free', expectedRevision: 7 },
         target: {

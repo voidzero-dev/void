@@ -161,6 +161,72 @@ describe('pagesPlugin generated patchProps', () => {
     expect(comp.__voidPatched).toBe(true);
   });
 
+  it('renders optional typed props independently of the first request', async () => {
+    const source = `<script setup lang="ts">
+// defineProps<{ ignored: string }>();
+const props = defineProps<{ title: string; note?: string }> /* keep */ (/* props */);
+</script>
+<template><div><h1>{{ props.title }}</h1><p>{{ props.note }}</p></div></template>`;
+    writePage('index.vue', source);
+    const plugin = pagesPlugin(PAGES_DIR).find(
+      (p) => p.name === 'void-vue:pages',
+    ) as PagesPluginHooks;
+    const patchProps = await loadGeneratedPatchProps(plugin, '\0virtual:void-pages-renderer');
+    const cases = [
+      { props: { title: 'A' }, html: '<div><h1>A</h1><p></p></div>' },
+      { props: { title: 'B', note: 'N' }, html: '<div><h1>B</h1><p>N</p></div>' },
+    ];
+    for (let order = 0; order < 8; order++) {
+      const comp = compilePage(source);
+      for (let step = 0; step < 3; step++) {
+        const { props, html } = cases[(order >> step) & 1];
+        patchProps(comp, props);
+        expect(await renderToString(Vue.createSSRApp(comp, props))).toBe(html);
+      }
+    }
+  });
+
+  it('keeps the legacy runtime path for unresolved types wrapped in an assertion', async () => {
+    const comp = compilePage(`<script setup lang="ts">
+type Props = { title: string } extends infer Result ? Result : never;
+const props = defineProps<Props>() as Readonly<Props>;
+</script>
+<template><h1>{{ props.title }}</h1></template>`);
+    writePage('index.vue', '<template><h1>Home</h1></template>');
+    const plugin = pagesPlugin(PAGES_DIR).find(
+      (p) => p.name === 'void-vue:pages',
+    ) as PagesPluginHooks;
+    const patchProps = await loadGeneratedPatchProps(plugin, '\0virtual:void-pages-renderer');
+    patchProps(comp, { title: 'Hello' });
+    expect(await renderToString(Vue.createSSRApp(comp, { title: 'Hello' }))).toBe('<h1>Hello</h1>');
+  });
+
+  it('compiles inferred props with Vue-supported TypeScript syntax and a JSX option', () => {
+    const source = `<script setup lang="ts">
+function annotate(value: unknown) {}
+@annotate class Example {}
+type Props = { title: string } extends infer Result ? Result : never;
+const props = <Readonly<Props>>defineProps<Props>();
+</script>
+<template><h1>{{ props.title }}</h1></template>`;
+    const transform = pagesPlugin(PAGES_DIR, undefined, ['jsx']).find(
+      (p) => p.name === 'void-vue:pages-transform',
+    ) as PagesPluginHooks;
+    const result = getHookHandler(transform.transform)(source, join(PAGES_DIR, 'index.vue'));
+    const { descriptor } = parse(result?.code ?? source);
+    expect(() =>
+      compileScript(descriptor, { id: 'test-page', babelParserPlugins: ['jsx'] }),
+    ).not.toThrow();
+  });
+
+  it('retains Vue defaults for inline typed props', async () => {
+    const comp = compilePage(`<script setup lang="ts">
+const props = withDefaults(defineProps<{ note?: string }>(), { note: 'Default note' });
+</script>
+<template><p>{{ props.note }}</p></template>`);
+    expect(await renderToString(Vue.createSSRApp(comp))).toBe('<p>Default note</p>');
+  });
+
   for (const virtualId of [
     '\0virtual:void-pages-renderer',
     '\0virtual:void-pages-client',
@@ -187,7 +253,11 @@ const draft = defineModel('draft', { type: String, default: 'Draft' });
       expect(await renderToString(Vue.createSSRApp(comp, { title: 'Hello' }))).toBe(
         '<!--[--><h1>Hello</h1><p>Draft</p><!--]-->',
       );
-      expect(declared).toEqual({ draft: { type: String, default: 'Draft' }, draftModifiers: {} });
+      expect(declared).toEqual({
+        title: null,
+        draft: { type: String, default: 'Draft' },
+        draftModifiers: {},
+      });
       expect(comp.props).toMatchObject(declared as object);
     });
 
@@ -222,7 +292,7 @@ describe('pagesPlugin transform paths', () => {
         (p) => p.name === 'void-vue:pages-transform',
       ) as PagesPluginHooks;
       const source = '<script setup lang="ts">defineProps<{ title: string }>();</script>';
-      const expected = '<script setup lang="ts">defineProps();</script>';
+      const expected = '<script setup lang="ts">defineProps(["title"]);</script>';
       expect(getHookHandler(plugin.transform)(source, file)?.code).toBe(expected);
 
       const ctx = { file, read: async () => source };

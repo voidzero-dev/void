@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import { Heading } from '@astryxdesign/core/Text';
 import type { PlatformLifecycleOperation } from '@void/platform';

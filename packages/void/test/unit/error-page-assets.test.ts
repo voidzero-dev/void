@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { inlineErrorPageAssets } from '../../src/runtime/error-pages/inline.ts';
+import { inlineErrorPageAssets } from '../../src/runtime/routing/error-pages/inline.ts';
 
 const template = `<!doctype html>
 <html><head>

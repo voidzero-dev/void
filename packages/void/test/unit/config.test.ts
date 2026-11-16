@@ -11,6 +11,7 @@ vi.mock('../../src/log', () => ({
 
 import {
   readConfig,
+  validateConfig,
   convertHeadersConfig,
   convertFallbacksConfig,
   convertRedirectsConfig,
@@ -28,6 +29,30 @@ import { resolveSandboxConfig } from '../../src/sandbox/config.ts';
 
 const warnMock = vi.mocked(voidWarn);
 
+describe('storage.locationHint', () => {
+  it.each(['apac', 'eeur', 'enam', 'weur', 'wnam', 'oc'])('accepts %s', (locationHint) => {
+    expect(validateConfig({ storage: { locationHint } })).toMatchObject({
+      storage: { locationHint },
+    });
+  });
+  it.each([
+    null,
+    true,
+    'apac',
+    { locationHint: 'APAC' },
+    { locationHint: '' },
+    { locationHint: null },
+    { location: 'apac' },
+  ])('rejects invalid storage configuration %j', (storage) => {
+    expect(() => validateConfig({ storage })).toThrow('storage.locationHint');
+  });
+  it.each(['node', 'bun', 'deno'])('rejects hints for %s targets', (target) => {
+    expect(() => validateConfig({ target, storage: { locationHint: 'apac' } })).toThrow(
+      'cloudflare',
+    );
+  });
+});
+
 const tmpDir = join(import.meta.dirname, '.tmp-config-test');
 
 function setup(content?: string) {
@@ -41,6 +66,38 @@ function setup(content?: string) {
 function cleanup() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
+
+describe('routing.trailingSlash', () => {
+  it.each([true, false, undefined])('preserves %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(readConfig(tmpDir).routing?.trailingSlash).toBe(trailingSlash);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('routing.trailingSlash');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it('rejects conflicting Cloudflare HTML handling', () => {
+    setup(
+      JSON.stringify({
+        routing: { trailingSlash: true },
+        cloudflare: { assets: { html_handling: 'drop-trailing-slash' } },
+      }),
+    );
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('conflicts');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('routing.alwaysUseHttps', () => {
   it.each([true, false, undefined])('preserves %s without applying a default', (alwaysUseHttps) => {

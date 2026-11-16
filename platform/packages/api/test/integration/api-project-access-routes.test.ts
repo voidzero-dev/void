@@ -1,6 +1,5 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { verifyPrerenderToken } from '../../src/auth/deploy-token.ts';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import app from '../../src/index.ts';
 import * as projectAccess from '../../src/project-access.ts';
@@ -20,6 +19,7 @@ import {
   resources,
   users,
 } from '../../src/schema.ts';
+import { verifyPrerenderToken } from '../helpers/project-token.ts';
 import {
   JWT_SECRET,
   clearTables,

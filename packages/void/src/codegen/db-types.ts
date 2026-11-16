@@ -5,8 +5,14 @@ import { writeFileIfChanged } from './write-if-changed.ts';
 export const DRIZZLE_OPERATORS =
   'sql, eq, ne, gt, gte, lt, lte, and, or, not, desc, asc, like, ilike, notLike, inArray, notInArray, isNull, isNotNull, between, notBetween, exists, notExists, count, sum, avg, min, max';
 
+export const DRIZZLE_TYPES = 'AnyColumn, SQL, SQLWrapper, BatchItem';
+
 const DIALECT_DB_TYPES = {
-  sqlite: { type: 'DrizzleD1Database', from: 'void/_db', arg: 'd1: D1Database' },
+  sqlite: {
+    type: 'DrizzleD1Database',
+    from: 'void/_db',
+    arg: 'd1: D1Database, options?: { session?: D1SessionConstraint }',
+  },
   postgresql: { type: 'NodePgDatabase', from: 'void/_db-pg', arg: 'connectionString: string' },
   mysql: { type: 'MySql2Database', from: 'void/_db-mysql', arg: 'connectionString: string' },
 } as const;
@@ -37,6 +43,7 @@ export function generateDbDts(
     `export declare const db: ${type}<${schemaType}>;`,
     `export declare function createDb(${arg}): ${type}<${schemaType}>;`,
     `export { ${DRIZZLE_OPERATORS} } from "void/_db";`,
+    `export type { ${DRIZZLE_TYPES} } from "void/_db";`,
     `export type { ${type} } from "${from}";`,
     '',
   ];

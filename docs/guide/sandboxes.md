@@ -1,4 +1,5 @@
 ---
+description: 'Run commands, work with files, and connect to servers inside an isolated Cloudflare Sandbox.'
 outline: deep
 ---
 

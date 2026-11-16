@@ -198,9 +198,12 @@ describe('generateRouteTypes', () => {
     const pageMap = dts.split('  export interface PagePathMap {')[1]!.split('  }')[0]!;
 
     expect(pageMap).toContain('"/about": never;');
-    expect(pageMap).toContain('"/users/:id": "id";');
-    expect(pageMap).toContain('"/files/:path{.+}": "path";');
-    expect(pageMap).toContain('"/wild/*": "*";');
+    expect(pageMap).toContain('"/users/[id]": "id";');
+    expect(pageMap).toContain('"/users/:id": PagePathMap["/users/[id]"];');
+    expect(pageMap).toContain('"/files/[...path]": "path";');
+    expect(pageMap).toContain('"/files/:path{.+}": PagePathMap["/files/[...path]"];');
+    expect(pageMap).toContain('"/wild/[...]": "*";');
+    expect(pageMap).toContain('"/wild/*": PagePathMap["/wild/[...]"];');
     expect(pageMap).not.toContain('/api/users/:id');
   });
 
@@ -220,7 +223,9 @@ describe('generateRouteTypes', () => {
 
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
 
-    expect(dts).toContain('"/api/users/:id"');
+    expect(dts).toContain('"/api/users/[id]": {');
+    expect(dts).toContain('/** @deprecated Use "/api/users/[id]" instead. */');
+    expect(dts).toContain('"/api/users/:id": RouteMap["/api/users/[id]"];');
     expect(dts).toContain('typeof import("../routes/api/users/[id].ts")');
   });
 
@@ -290,6 +295,7 @@ describe('generateRouteTypes', () => {
 
     expect(encoded.trim().split('\n')).toEqual([
       '"/café menu": "/caf%C3%A9%20menu";',
+      '    "/café/[id]": "/caf%C3%A9/[id]";',
       '    "/café/:id": "/caf%C3%A9/:id";',
     ]);
     expect(dts).toContain('type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
@@ -405,14 +411,14 @@ describe('generateRouteTypes', () => {
     expect(actionMap.split('"/users/:id"')).toHaveLength(2);
     expect(actionMap).toContain(
       [
-        '    "/users/:id": {',
+        '    "/users/[id]": {',
         `      body: ExtractInput<${dev}["__validators"]> extends { body: infer B } ? B : Record<string, unknown>;`,
         '      params: { id: string };',
         '    } | {',
         `      actions: { [K in keyof ${prod}]: {`,
       ].join('\n'),
     );
-    expect(actionMap).toContain(['      params: { id: string };', '    };', '  }'].join('\n'));
+    expect(actionMap).toContain('    "/users/:id": PageActionMap["/users/[id]"];');
   });
 
   it('generates WebSocketRouteMap entries', () => {
@@ -472,7 +478,8 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
     const websocketMap = dts.split('  interface WebSocketRouteMap {')[1]!.split('\n  }\n}')[0]!;
 
-    expect(websocketMap.match(/"\/chat\/:room": \{/g)).toHaveLength(1);
+    expect(websocketMap.match(/"\/chat\/\[room\]": \{/g)).toHaveLength(1);
+    expect(websocketMap).toContain('"/chat/:room": WebSocketRouteMap["/chat/[room]"];');
     expect(websocketMap).toContain('chat/[room].dev.ws.ts');
     expect(websocketMap).toContain('chat/[room].prod.ws.ts');
     expect(websocketMap).toMatch(/client: .*dev\.ws\.ts.* & .*prod\.ws\.ts/);
@@ -636,11 +643,15 @@ describe('generateRouteTypes', () => {
     });
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
     const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
-    expect(pathMap).toContain('"/api/users/:id": "id";');
+    expect(pathMap).toContain('"/api/users/[id]": "id";');
+    expect(pathMap).toContain('"/api/users/:id": RoutePathMap["/api/users/[id]"];');
     expect(pathMap).toContain('"/about": never;');
-    expect(pathMap).toContain('"/files/:path{.+}": "path";');
-    expect(pathMap).toContain('"/files/*": "*";');
-    expect(pathMap).toContain('"/chat/:room": "room";');
+    expect(pathMap).toContain('"/files/[...path]": "path";');
+    expect(pathMap).toContain('"/files/:path{.+}": RoutePathMap["/files/[...path]"];');
+    expect(pathMap).toContain('"/files/[...]": "*";');
+    expect(pathMap).toContain('"/files/*": RoutePathMap["/files/[...]"];');
+    expect(pathMap).toContain('"/chat/[room]": "room";');
+    expect(pathMap).toContain('"/chat/:room": RoutePathMap["/chat/[room]"];');
     expect(dts).not.toContain('import("../pages/');
   });
 
@@ -672,6 +683,7 @@ describe('generateRouteTypes', () => {
     const { dts } = generateRouteTypes(scan, '/project/routes', '/project/.void');
     const pathMap = dts.split('  export interface RoutePathMap {')[1]!.split('  }')[0]!;
     expect(pathMap.match(/"\/users\/:id":/g)).toHaveLength(1);
-    expect(pathMap).toContain('"/users/:id": "id";');
+    expect(pathMap).toContain('"/users/[id]": "id";');
+    expect(pathMap).toContain('"/users/:id": RoutePathMap["/users/[id]"];');
   });
 });

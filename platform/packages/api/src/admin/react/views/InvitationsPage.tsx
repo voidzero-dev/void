@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Badge } from '@astryxdesign/core/Badge';
 import { Button } from '@astryxdesign/core/Button';
@@ -89,8 +89,12 @@ export function InvitationsPage({ path, platformName, username }: AdminPageProps
                 </TableCell>
                 <TableCell>
                   {inv.status === 'pending' && (
-                    <form method="post" action="/admin/invitations/revoke" style="display:inline">
-                      <input type="hidden" name="id" value={inv.id} />
+                    <form
+                      method="post"
+                      action="/admin/invitations/revoke"
+                      style={{ display: 'inline' }}
+                    >
+                      <input type="hidden" name="id" defaultValue={inv.id} />
                       <Button type="submit" label="Revoke" variant="destructive" size="sm" />
                     </form>
                   )}

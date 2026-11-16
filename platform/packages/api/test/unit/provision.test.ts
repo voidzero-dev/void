@@ -63,6 +63,52 @@ beforeEach(() => {
 });
 
 describe('provisionBindings', () => {
+  it.each([
+    ['apac', 'weur', 'apac'],
+    [undefined, 'weur', 'weur'],
+    [undefined, undefined, undefined],
+  ] as const)('uses R2 hint %s over platform default %s', async (hint, fallback, expected) => {
+    await provisionBindings(
+      mockDb,
+      ACCOUNT_ID,
+      API_TOKEN,
+      PROJECT_ID,
+      {
+        version: 5,
+        bindings: { r2: ['STORAGE'] },
+        storage: hint ? { locationHint: hint } : undefined,
+      },
+      'void-proxy',
+      { projectSlug: PROJECT_SLUG, proxyToken: PROXY_TOKEN, storageLocationHint: fallback },
+    );
+    expect(createR2Bucket).toHaveBeenCalledWith(
+      ACCOUNT_ID,
+      API_TOKEN,
+      'proj-abc123-storage',
+      expected,
+    );
+  });
+
+  it('keeps an existing R2 bucket when its requested location changes', async () => {
+    vi.mocked(getProjectResources).mockResolvedValue([
+      { type: 'r2', binding_name: 'STORAGE', cf_id: 'existing-bucket' } as Resource,
+    ]);
+    const bindings = await provisionBindings(
+      mockDb,
+      ACCOUNT_ID,
+      API_TOKEN,
+      PROJECT_ID,
+      { version: 5, bindings: { r2: ['STORAGE'] }, storage: { locationHint: 'apac' } },
+      'void-proxy',
+      { projectSlug: PROJECT_SLUG, proxyToken: PROXY_TOKEN },
+    );
+    expect(createR2Bucket).not.toHaveBeenCalled();
+    expect(bindings).toContainEqual({
+      type: 'r2_bucket',
+      name: 'STORAGE',
+      bucket_name: 'existing-bucket',
+    });
+  });
   it('provisions D1 when manifest requires it and no resource exists', async () => {
     const manifest: DeployManifest = { version: 1, bindings: { d1: ['DB'] } };
 
@@ -153,7 +199,12 @@ describe('provisionBindings', () => {
       { projectSlug: PROJECT_SLUG, proxyToken: PROXY_TOKEN },
     );
 
-    expect(createR2Bucket).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-storage');
+    expect(createR2Bucket).toHaveBeenCalledWith(
+      ACCOUNT_ID,
+      API_TOKEN,
+      'proj-abc123-storage',
+      undefined,
+    );
     expect(createResource).toHaveBeenCalledWith(
       mockDb,
       PROJECT_ID,

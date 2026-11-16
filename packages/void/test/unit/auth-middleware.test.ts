@@ -10,14 +10,20 @@ vi.mock('better-auth', () => ({
   betterAuth: mocks.betterAuth,
 }));
 
-import { requireAuth, type AuthState, type AuthUser } from '../../src/runtime/auth.ts';
 import {
   createVoidAuthRuntime,
   privateCachePolicy,
   type VoidAuthRuntimeOptions,
-} from '../../src/runtime/better-auth-shared.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
-import { markStaticAsset } from '../../src/runtime/static-asset-marker.ts';
+} from '../../src/runtime/auth/better-auth-shared.ts';
+import {
+  getAuth,
+  getUser,
+  requireAuth,
+  type AuthState,
+  type AuthUser,
+} from '../../src/runtime/auth/index.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
+import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 
 const authRuntimeOptions: VoidAuthRuntimeOptions = {
   dialect: 'sqlite',
@@ -50,6 +56,34 @@ afterEach(() => {
 });
 
 describe('runVoidAuthMiddleware response headers', () => {
+  it('exposes the current request instance to anonymous routes and plugin helpers', async () => {
+    const app = createApp({ response: null, headers: new Headers() });
+    const instances: Array<unknown> = [];
+    app.get('/plugin', async (c) => {
+      await Promise.resolve();
+      const auth = getAuth(c);
+      instances.push(auth);
+      expect(auth).toBe(mocks.betterAuth.mock.results.at(-1)?.value);
+      return c.json({ anonymous: getUser() === null });
+    });
+    for (let i = 0; i < 2; i++) {
+      const response = await app.request('/plugin', undefined, { BETTER_AUTH_SECRET: 'secret' });
+      expect(response.status).toBe(200);
+      await expect(response.json()).resolves.toEqual({ anonymous: true });
+    }
+    expect(instances).toHaveLength(2);
+    expect(mocks.betterAuth).toHaveBeenCalledTimes(2);
+  });
+
+  it('explains when no auth instance is available on the request', async () => {
+    const app = new Hono();
+    app.get('/', (c) => {
+      expect(() => getAuth(c)).toThrow('Better Auth is not available for this request');
+      return c.text('ok');
+    });
+    expect((await app.request('/')).status).toBe(200);
+  });
+
   it('adds auth headers to an immutable response without changing its body or status', async () => {
     const authHeaders = new Headers();
     authHeaders.set('x-auth-refresh', 'refreshed');
@@ -241,6 +275,71 @@ describe('runVoidAuthMiddleware response headers', () => {
     );
     expect(response.headers.get('cache-control')).toBe('private, no-store');
     expect(response.headers.getSetCookie()).toEqual(['session=rotated; Path=/; HttpOnly']);
+  });
+});
+
+describe('runVoidAuthMiddleware Better Auth plugins', () => {
+  const env = { BETTER_AUTH_SECRET: 'test-secret' };
+  type PluginList = Array<{ id: string }>;
+  const pluginsOf = (call: number): PluginList =>
+    (mocks.betterAuth.mock.calls[call]![0] as { plugins?: PluginList }).plugins ?? [];
+
+  function pluginApp(userConfig?: VoidAuthRuntimeOptions['userConfig']): Hono {
+    mocks.getSession.mockResolvedValue({ response: null, headers: new Headers() });
+    mocks.betterAuth.mockReturnValue({ api: { getSession: mocks.getSession }, options: {} });
+    const app = new Hono();
+    app.use((c, next) =>
+      runtime.runVoidAuthMiddleware(c, next, { ...authRuntimeOptions, userConfig }, {} as never),
+    );
+    app.get('/', (c) => c.text('ok'));
+    return app;
+  }
+
+  it.each([
+    ['object', (plugins: PluginList) => ({ plugins })],
+    [
+      'function',
+      (plugins: PluginList) =>
+        ({ defaults }: { defaults: object }) => ({ ...defaults, plugins }),
+    ],
+  ] as const)('keeps user plugins first with a %s config', async (_form, config) => {
+    const plugins = [{ id: 'first' }, { id: 'second' }];
+    const app = pluginApp(config(plugins) as VoidAuthRuntimeOptions['userConfig']);
+
+    expect((await app.request('/', undefined, env)).status).toBe(200);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['first', 'second', 'void-cookies']);
+    expect(pluginsOf(0)[0]).toBe(plugins[0]);
+    expect(plugins.map((plugin) => plugin.id)).toEqual(['first', 'second']);
+  });
+
+  it('creates a separate cookie plugin for each request', async () => {
+    const app = pluginApp();
+
+    await app.request('/', undefined, env);
+    await app.request('/', undefined, env);
+
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(1).map((plugin) => plugin.id)).toEqual(['void-cookies']);
+    expect(pluginsOf(0)[0]).not.toBe(pluginsOf(1)[0]);
+  });
+
+  it('leaves the cookie plugin out of instances created outside the middleware', async () => {
+    mocks.betterAuth.mockReturnValue({ api: {}, options: {} });
+    await runtime.createVoidAuth(
+      new Request('http://localhost/'),
+      env,
+      { ...authRuntimeOptions, userConfig: { plugins: [{ id: 'only' }] } },
+      {} as never,
+    );
+    expect(pluginsOf(0).map((plugin) => plugin.id)).toEqual(['only']);
+  });
+
+  it('skips Better Auth for internal routes', async () => {
+    const app = pluginApp();
+    app.get('/__void/cron', (c) => c.text('internal'));
+    expect((await app.request('/__void/cron', undefined, env)).status).toBe(200);
+    expect(mocks.betterAuth).not.toHaveBeenCalled();
   });
 });
 

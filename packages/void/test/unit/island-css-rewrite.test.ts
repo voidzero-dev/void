@@ -5,7 +5,8 @@ import { normalizePath } from 'vite';
 import { describe, it, expect } from 'vite-plus/test';
 import {
   collectIslandStyles,
-  extractCssImports,
+  createIslandManifest,
+  generateIslandClientEntry,
   islandStyleRoots,
   rewriteCssImportForVirtualModule,
 } from '../../src/pages/islands-plugin.ts';
@@ -23,7 +24,15 @@ describe('rewriteCssImportForVirtualModule', () => {
         path,
         `import './real.css';\nconst sample = \`example\nimport './fake.css'\`;\nawait import('./later.css');`,
       );
-      expect(extractCssImports(path)).toBe('@import "./real.css";');
+      const entry = generateIslandClientEntry({
+        manifest: createIslandManifest(root, ['.tsx']),
+        cssFiles: new Set([path]),
+        styles: null,
+        needsRuntime: false,
+        isDev: false,
+        hydrateIsland: '',
+      });
+      expect(entry).toBe('import ' + JSON.stringify(normalizePath(join(root, 'real.css'))) + ';');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

@@ -789,7 +789,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.deployment).toMatch(/^dpl_/);
     expect(done.url).toBe('https://minimal-app.void.app');
 
-    // Verify deployment is marked live in DB
     const [dpl] = await env.db
       .select({ status: deployments.status })
       .from(deployments)
@@ -1001,7 +1000,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Find the worker upload call
     const uploadCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return url.includes('/workers/dispatch/') && (call[1] as RequestInit)?.method === 'PUT';
@@ -1050,7 +1048,6 @@ describe('POST /projects/:id/deploy', () => {
     await res.text();
     await Promise.all(pending);
 
-    // Verify DO received /sync with correct payload
     const syncCall = cronDoFetches.find((f) => f.url.includes('/sync'));
     expect(syncCall).toBeDefined();
     const payload = JSON.parse(syncCall!.body);
@@ -1166,7 +1163,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify DO received /clear
     const clearCall = cronDoFetches.find((f) => f.url.includes('/clear'));
     expect(clearCall).toBeDefined();
   });
@@ -1366,6 +1362,39 @@ describe('POST /projects/:id/deploy', () => {
     expect(cronDoFetches.find((f) => f.url.includes('/sync'))).toBeUndefined();
   });
 
+  it.each([
+    { projectHint: 'apac', platformHint: 'weur', expected: 'apac' },
+    { projectHint: undefined, platformHint: 'weur', expected: 'weur' },
+    { projectHint: undefined, platformHint: undefined, expected: undefined },
+  ])(
+    'creates project R2 buckets with resolved location $expected',
+    async ({ projectHint, platformHint, expected }) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'r2-app');
+      const fetchMock = mockCfApi();
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          manifest: {
+            version: projectHint ? 5 : 3,
+            bindings: { r2: ['STORAGE'] },
+            ...(projectHint ? { storage: { locationHint: projectHint } } : {}),
+          },
+        }),
+        { ...env, ...(platformHint ? { R2_LOCATION_HINT: platformHint } : {}) },
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+      const create = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).endsWith('/r2/buckets') && init?.method === 'POST',
+      );
+      expect(create).toBeDefined();
+      expect(JSON.parse(String(create![1]!.body))).toEqual({
+        name: `${project.id.replaceAll('_', '-')}-storage`,
+        ...(expected ? { locationHint: expected } : {}),
+      });
+    },
+  );
+
   it('provisions D1 when manifest requires it', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'd1-app');
@@ -1380,7 +1409,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify resource row was created in DB
     const [resource] = await env.db
       .select({ cf_id: resources.cf_id, binding_name: resources.binding_name })
       .from(resources)
@@ -1413,7 +1441,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify no D1 creation call was made
     const createD1Call = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return (
@@ -1423,6 +1450,105 @@ describe('POST /projects/:id/deploy', () => {
       );
     });
     expect(createD1Call).toBeUndefined();
+  });
+
+  it.each(['void', 'framework'])(
+    'skips app and auth SQL for a %s deployment, then migrates on a normal deploy',
+    async (type) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, `skip-sql-${type}`);
+      mockCfApi({ createD1: () => cfSuccess({ uuid: 'd1-skip-uuid', name: 'test-db' }) });
+      const calls: Array<string> = [];
+      const originalDispatch = env.DISPATCH;
+      env.DISPATCH = {
+        get: () => ({
+          fetch: async (request: Request) => {
+            const path = new URL(request.url).pathname;
+            calls.push(path);
+            if (path === '/__void/ready') {
+              return Response.json({ ready: true });
+            }
+            if (path === '/__void/migrate/capabilities') {
+              return Response.json({
+                ...SQLITE_MIGRATIONS,
+                destructiveValidation: 'passed',
+                endpoints: {
+                  app: '/__void/migrate/app',
+                  auth: '/__void/migrate/auth',
+                  reconcile: '/__void/migrate/app/attempt/:attemptId',
+                },
+              });
+            }
+            if (path === '/__void/migrate/auth') {
+              return Response.json({ ok: true, protocolVersion: 2 });
+            }
+            return Response.json({
+              ok: true,
+              protocolVersion: 2,
+              attemptId: 'skip-followup',
+              confirmedApplied: ['001_create_table.sql'],
+              confirmedSkipped: [],
+              stability: 'stable',
+              migrations: [
+                {
+                  name: '001_create_table.sql',
+                  applied: true,
+                  status: 'applied',
+                  stability: 'stable',
+                  durationMs: 1,
+                },
+              ],
+            });
+          },
+        }),
+      } as unknown as DispatchNamespace;
+      try {
+        for (const skip of [true, false]) {
+          const response = await app.fetch(
+            await buildDeployRequest(env, project.id, user.jwt, {
+              manifest: {
+                version: 3,
+                type,
+                auth: type === 'void',
+                bindings: { d1: ['DB'] },
+                migrations: SQLITE_MIGRATIONS,
+                ...(skip ? { migrationMode: 'skip' } : {}),
+              },
+            }),
+            env,
+          );
+          expect(response.status).toBe(200);
+          const events = parseDeployStream(await response.text());
+          const done = requireEvent<DoneEvent>(events, 'done');
+          expect(done.migrations).toBe(skip ? undefined : 1);
+          if (skip) {
+            expect(calls).toEqual(['/__void/ready']);
+            expect(
+              events.some((event) => isDeployEvent(event) && event.event === 'migration_start'),
+            ).toBe(false);
+            expect(
+              (await getDeployment(env.db, done.deployment))?.applied_migrations ?? [],
+            ).toEqual([]);
+            expect(
+              await env.db
+                .select()
+                .from(projectMigrations)
+                .where(eq(projectMigrations.project_id, project.id)),
+            ).toEqual([]);
+          } else {
+            expect(calls).toContain('/__void/migrate/app');
+            expect(calls).toContain('/__void/migrate/auth');
+          }
+        }
+      } finally {
+        env.DISPATCH = originalDispatch;
+      }
+    },
+  );
+
+  it('advertises deployment migration opt-out support', async () => {
+    const response = await app.fetch(new Request('https://api.test/capabilities'), env);
+    expect(await response.json()).toMatchObject({ skipMigrations: true });
   });
 
   it('runs migrations via worker after upload (v3 flow)', async () => {
@@ -1516,7 +1642,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.urls).toContain('https://deploy.example.com');
     expect(done.urls).toContain('https://domain-deploy.void.app');
 
-    // Verify domain KV routing was written
     const domainRouting = await env.ROUTING.get('domain:deploy.example.com', 'json');
     expect(domainRouting).toEqual({
       workerName: expect.stringMatching(/^user-domain-deploy-dpl_/),
@@ -1527,7 +1652,6 @@ describe('POST /projects/:id/deploy', () => {
       limits: { cpuMs: 10, subRequests: 50 },
     });
 
-    // Verify pending domain was NOT written
     const pendingRouting = await env.ROUTING.get('domain:pending.example.com');
     expect(pendingRouting).toBeNull();
   });
@@ -2534,7 +2658,6 @@ describe('POST /projects/:id/deploy', () => {
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
 
-      // Verify deployment is marked failed with error message
       const [dpl] = await env.db
         .select({ status: deployments.status, error_message: deployments.error_message })
         .from(deployments)
@@ -5697,7 +5820,6 @@ describe('Deploy with prerendering', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'prerender-app');
 
-    // Mock DISPATCH.get() to return a fetchable worker
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(
         () =>
@@ -5754,7 +5876,6 @@ describe('Deploy with prerendering', () => {
     );
     expect(aboutValue).not.toBeNull();
 
-    // Verify deployment is live
     expect(deployment?.status).toBe('live');
   });
 
@@ -6228,7 +6349,6 @@ describe('Deploy with prerendering', () => {
     let statusDuringPrerender: string | undefined;
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(async () => {
-        // Check deployment status during prerender
         const [dpl] = await env.db
           .select({ status: deployments.status })
           .from(deployments)
@@ -6596,7 +6716,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id);
 
-    // Create a previous deployment with known asset hashes
     const prevManifest = {
       '/index.html': { hash: 'a'.repeat(32), size: 100 },
       '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -6971,7 +7090,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment with known asset hashes
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -7030,7 +7148,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },

@@ -1,4 +1,4 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
 
 import { Button } from '@astryxdesign/core/Button';
 import type { PlatformLoginConfiguration } from '@void/platform';
@@ -25,9 +25,9 @@ export function ConnectionForm({
       action={`${HOME}/connections/${encodeURIComponent(configuration.id)}/configure`}
       maxWidth={700}
     >
-      <input type="hidden" name="id" value={configuration.id} />
-      <input type="hidden" name="kind" value={configuration.kind} />
-      <input type="hidden" name="revision" value={revision ?? ''} />
+      <input type="hidden" name="id" defaultValue={configuration.id} />
+      <input type="hidden" name="kind" defaultValue={configuration.kind} />
+      <input type="hidden" name="revision" defaultValue={revision ?? ''} />
       <p>Register this callback URL with the provider:</p>
       <CodeBlock code={callbackUrl} />
       <FormTextInput

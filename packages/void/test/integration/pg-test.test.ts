@@ -6,6 +6,8 @@ import spawn from 'cross-spawn';
 import { createServer } from 'pglite-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { decodePageData } from '../../src/pages/serialize.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const ENV_PATH = join(ROOT, 'playground/pg-test/.env');
@@ -37,7 +39,6 @@ describe('playground/pg-test', () => {
     );
     await pglite.exec(migrationSql);
 
-    // Start wire protocol server
     pgServer = createServer(pglite);
     pgServer.listen(0);
     await once(pgServer, 'listening');
@@ -108,38 +109,39 @@ describe('playground/pg-test', () => {
       headers: {
         'Content-Type': 'application/json',
         'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       },
       body: JSON.stringify({ name: 'Alice', email: 'alice@test.com' }),
       redirect: 'manual',
     });
     expect(createRes.status).toBeLessThan(400);
 
-    // Verify user appears in page props
     const propsRes = await fetch(BASE + '/', {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
-    const data = (await propsRes.json()) as PageData;
+    const data = decodePageData<PageData>(await propsRes.json());
     expect(data.props.users).toEqual(
       expect.arrayContaining([expect.objectContaining({ name: 'Alice', email: 'alice@test.com' })]),
     );
   });
 
   it('creates a post via action', async () => {
-    // Get the user id first
-    const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const propsRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const data = decodePageData<PageData>(await propsRes.json());
     const alice = data.props.users.find((u) => u.name === 'Alice');
     expect(alice).toBeTruthy();
     if (!alice) {
       throw new Error('Expected Alice to exist before creating a post');
     }
 
-    // Create post via named action
     const createRes = await fetch(BASE + '/?create-post', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       },
       body: JSON.stringify({
         title: 'Hello World',
@@ -150,17 +152,20 @@ describe('playground/pg-test', () => {
     });
     expect(createRes.status).toBeLessThan(400);
 
-    // Verify post appears
-    const postsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const postsData = (await postsRes.json()) as PageData;
+    const postsRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const postsData = decodePageData<PageData>(await postsRes.json());
     expect(postsData.props.posts).toEqual(
       expect.arrayContaining([expect.objectContaining({ title: 'Hello World', author: 'Alice' })]),
     );
   });
 
   it('deletes a post via action', async () => {
-    const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const propsRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const data = decodePageData<PageData>(await propsRes.json());
     const post = data.props.posts.find((p) => p.title === 'Hello World');
     expect(post).toBeTruthy();
     if (!post) {
@@ -172,21 +177,25 @@ describe('playground/pg-test', () => {
       headers: {
         'Content-Type': 'application/json',
         'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
       },
       body: JSON.stringify({ id: post.id }),
       redirect: 'manual',
     });
     expect(deleteRes.status).toBeLessThan(400);
 
-    const afterRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const afterData = (await afterRes.json()) as PageData;
+    const afterRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const afterData = decodePageData<PageData>(await afterRes.json());
     expect(afterData.props.posts.find((p) => p.title === 'Hello World')).toBeUndefined();
   });
 
   it('deletes a user and cascade-deletes their posts', async () => {
-    // Create a post for Alice first
-    const propsRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const data = (await propsRes.json()) as PageData;
+    const propsRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const data = decodePageData<PageData>(await propsRes.json());
     const alice = data.props.users.find((u) => u.name === 'Alice');
 
     expect(alice).toBeTruthy();
@@ -196,7 +205,11 @@ describe('playground/pg-test', () => {
 
     await fetch(BASE + '/?create-post', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-VoidPages': 'true' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      },
       body: JSON.stringify({
         title: 'To Be Deleted',
         body: 'Gone soon',
@@ -208,20 +221,25 @@ describe('playground/pg-test', () => {
     // Delete Alice (should cascade-delete posts)
     const deleteRes = await fetch(BASE + '/?delete-user', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'X-VoidPages': 'true' },
+      headers: {
+        'Content-Type': 'application/json',
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      },
       body: JSON.stringify({ id: alice.id }),
       redirect: 'manual',
     });
     expect(deleteRes.status).toBeLessThan(400);
 
-    const afterRes = await fetch(BASE + '/', { headers: { 'X-VoidPages': 'true' } });
-    const afterData = (await afterRes.json()) as PageData;
+    const afterRes = await fetch(BASE + '/', {
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+    });
+    const afterData = decodePageData<PageData>(await afterRes.json());
     expect(afterData.props.users.find((u) => u.name === 'Alice')).toBeUndefined();
     expect(afterData.props.posts.find((p) => p.author === 'Alice')).toBeUndefined();
   });
 
   it('API routes: create and list users', async () => {
-    // Create user via API
     const createRes = await fetch(BASE + '/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -231,7 +249,6 @@ describe('playground/pg-test', () => {
     const created = (await createRes.json()) as User;
     expect(created.name).toBe('Bob');
 
-    // List users via API
     const listRes = await fetch(BASE + '/api/users');
     expect(listRes.status).toBe(200);
     const users = (await listRes.json()) as Array<User>;
@@ -239,7 +256,6 @@ describe('playground/pg-test', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'Bob', email: 'bob@test.com' })]),
     );
 
-    // Get single user
     const getRes = await fetch(BASE + `/api/users/${created.id}`);
     expect(getRes.status).toBe(200);
     const user = (await getRes.json()) as User;

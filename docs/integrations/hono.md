@@ -1,4 +1,5 @@
 ---
+description: 'Void route handlers run on Hono. Add hono to your app when your code imports from it directly.'
 outline: deep
 ---
 
@@ -98,8 +99,30 @@ Hono's standalone helpers work anywhere:
 ```ts
 import { HTTPException } from 'hono/http-exception';
 
-// Throw typed HTTP errors
 throw new HTTPException(404, { message: 'User not found' });
 ```
 
 For the full list of built-in middleware, see the [Hono documentation](https://hono.dev/docs/middleware/builtin).
+
+### Redirects
+
+Return `c.redirect()` from a handler to send the visitor to another URL. If a helper needs to stop the handler, throw an `HTTPException` with the redirect response in `res`:
+
+```ts
+// lib/require-page-user.ts
+import { HTTPException } from 'hono/http-exception';
+import type { CloudContext } from 'void';
+import { getUser } from 'void/auth';
+
+export function requirePageUser(c: CloudContext) {
+  const user = getUser();
+  if (!user) {
+    throw new HTTPException(302, { res: c.redirect('/login') });
+  }
+  return user;
+}
+```
+
+This works in loaders, actions, and middleware, including client-side page navigation. For a redirect after a mutation, use `new HTTPException(303, { res: c.redirect('/login', 303) })` so the next request is a GET.
+
+For a sign-in check like this one, [`requireAuth(c, { throwRedirect: '/login' })`](../reference/api/auth.md#requireauth-c) provides the same guard and selects the redirect status for you.

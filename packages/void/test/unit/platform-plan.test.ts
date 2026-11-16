@@ -63,6 +63,44 @@ const input = {
   zoneName: 'example.app',
 };
 
+it('retains the storage location and changes it only on upgrade', async () => {
+  const initial = await createPlatformInstallPlan(
+    client(),
+    { ...input, storageLocation: 'apac' },
+    null,
+  );
+  expect(initial.deployment.storageLocationHint).toBe('apac');
+  const existing = manifestFor(initial);
+  expect((await createPlatformInstallPlan(client(), input, existing)).deployment).toEqual(
+    initial.deployment,
+  );
+  await expect(
+    createPlatformInstallPlan(client(), { ...input, storageLocation: 'weur' }, existing),
+  ).rejects.toThrow('--resume');
+  const changed = await createPlatformInstallPlan(
+    client(),
+    { ...input, storageLocation: 'weur' },
+    existing,
+    { allowStorageLocationChange: true },
+  );
+  expect(changed.deployment.storageLocationHint).toBe('weur');
+  const cleared = await createPlatformInstallPlan(
+    client(),
+    { ...input, storageLocation: 'automatic' },
+    existing,
+    { allowStorageLocationChange: true },
+  );
+  expect(cleared.deployment).not.toHaveProperty('storageLocationHint');
+  await expect(
+    createPlatformInstallPlan(
+      client(),
+      { ...input, displayName: 'Other', storageLocation: 'automatic' },
+      existing,
+      { allowStorageLocationChange: true },
+    ),
+  ).rejects.toThrow('--resume');
+});
+
 function r2ConfigHash(name: string, fingerprint: string): string {
   return createHash('sha256')
     .update(JSON.stringify({ fingerprint, kind: 'r2-bucket', name }))

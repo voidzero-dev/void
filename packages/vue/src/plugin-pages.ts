@@ -7,6 +7,7 @@ import type {
   PrefetchConfig,
   StaticPageDataBuildOptions,
 } from 'void/pages';
+import { babelParse, parse, type SFCScriptCompileOptions } from 'vue/compiler-sfc';
 
 export type { PrefetchConfig } from 'void/pages';
 
@@ -54,37 +55,116 @@ function isVuePageFile(id: string, pagesDir: string): boolean {
   return basename !== 'layout.vue' && !basename.endsWith('.island.vue');
 }
 
-function stripDefinePropsTypeArgument(code: string): string | null {
-  // Find defineProps<...>( and strip the generic using bracket counting
-  // to handle nested generics like InferProps<typeof loader>
-  const match = /\bdefineProps\s*</.exec(code);
-  if (!match) {
+type BabelParserPlugins = SFCScriptCompileOptions['babelParserPlugins'];
+
+function rewriteDefineProps(code: string, parserPlugins: BabelParserPlugins): string | null {
+  if (!code.includes('defineProps')) {
     return null;
   }
-
-  const start = match.index + match[0].length - 1; // position of '<'
-  let depth = 0;
-  let end = -1;
-  let newlineCount = 0;
-  for (let i = start; i < code.length; i++) {
-    const ch = code[i];
-    if (ch === '\n') {
-      newlineCount++;
-    } else if (ch === '<') {
-      depth++;
-    } else if (ch === '>') {
-      depth--;
-      if (depth === 0) {
-        end = i;
-        break;
+  const { scriptSetup } = parse(code).descriptor;
+  if (!scriptSetup || (scriptSetup.lang !== 'ts' && scriptSetup.lang !== 'tsx')) {
+    return null;
+  }
+  const isTsx = scriptSetup.lang === 'tsx';
+  const pluginName = (plugin: NonNullable<BabelParserPlugins>[number]) =>
+    Array.isArray(plugin) ? plugin[0] : plugin;
+  const custom = (parserPlugins ?? []).filter((plugin) => isTsx || pluginName(plugin) !== 'jsx');
+  const names = new Set(custom.map(pluginName));
+  // Use Vue's TS parser defaults before applying caller options.
+  const plugins: NonNullable<BabelParserPlugins> = ['typescript', 'explicitResourceManagement'];
+  if (!names.has('importAssertions') && !names.has('importAttributes')) {
+    plugins.push('importAttributes');
+  }
+  if (!names.has('decorators')) {
+    plugins.push('decorators-legacy');
+  }
+  if (isTsx) {
+    plugins.push('jsx');
+  }
+  let script: ReturnType<typeof babelParse>;
+  try {
+    script = babelParse(scriptSetup.content, {
+      sourceType: 'module',
+      plugins: [...plugins, ...custom],
+    });
+  } catch {
+    // Let the Vue plugin report the original syntax error.
+    return null;
+  }
+  for (const statement of script.program.body) {
+    const expressions =
+      statement.type === 'ExpressionStatement'
+        ? [statement.expression]
+        : statement.type === 'VariableDeclaration'
+          ? statement.declarations.map((declaration) => declaration.init)
+          : [];
+    for (let expression of expressions) {
+      // Vue unwraps TypeScript assertions before looking for macros.
+      while (
+        expression?.type === 'TSAsExpression' ||
+        expression?.type === 'TSTypeAssertion' ||
+        expression?.type === 'TSNonNullExpression' ||
+        expression?.type === 'TSInstantiationExpression' ||
+        expression?.type === 'TSSatisfiesExpression'
+      ) {
+        expression = expression.expression;
       }
+      const withDefaults =
+        expression?.type === 'CallExpression' &&
+        expression.callee.type === 'Identifier' &&
+        expression.callee.name === 'withDefaults'
+          ? expression
+          : undefined;
+      const call = withDefaults ? withDefaults.arguments[0] : expression;
+      if (
+        call?.type !== 'CallExpression' ||
+        call.callee.type !== 'Identifier' ||
+        call.callee.name !== 'defineProps'
+      ) {
+        continue;
+      }
+      const parameters = call.typeParameters ?? call.typeArguments;
+      if (
+        parameters?.type !== 'TSTypeParameterInstantiation' ||
+        parameters.start == null ||
+        parameters.end == null ||
+        call.end == null
+      ) {
+        continue;
+      }
+      const type = parameters.params[0];
+      const names =
+        type?.type === 'TSTypeLiteral'
+          ? type.members.map((member) => {
+              if (member.type !== 'TSPropertySignature' || member.computed) {
+                return;
+              }
+              if (member.key.type === 'Identifier') {
+                return member.key.name;
+              }
+              if (member.key.type === 'StringLiteral') {
+                return member.key.value;
+              }
+            })
+          : undefined;
+      const literal = names?.every((name) => name !== undefined) === true;
+      if (withDefaults && literal) {
+        // Vue needs the typed macro to merge defaults into its declaration.
+        return null;
+      }
+      const offset = scriptSetup.loc.start.offset;
+      const start = offset + parameters.start;
+      const end = offset + parameters.end;
+      const close = offset + call.end - 1;
+      const newlines = code.slice(start, end).replace(/[^\n]/g, '');
+      // Neutral declarations preserve optional keys without introducing coercion.
+      const declaration = literal && call.arguments.length === 0 ? JSON.stringify(names) : '';
+      return (
+        code.slice(0, start) + newlines + code.slice(end, close) + declaration + code.slice(close)
+      );
     }
   }
-  if (end === -1) {
-    return null;
-  }
-
-  return code.slice(0, start) + '\n'.repeat(newlineCount) + code.slice(end + 1);
+  return null;
 }
 
 /** Check if the pages directory has any non-island Vue page files. */
@@ -95,7 +175,10 @@ function hasNonIslandPages(dir: string): boolean {
         continue;
       }
       const name = entry.name;
-      if (name.startsWith('_') || name.startsWith('layout.')) {
+      if (
+        (name.startsWith('_') && !/^_not-found(?:\.(?:dev|prod))?\./.test(name)) ||
+        name.startsWith('layout.')
+      ) {
         continue;
       }
       if (name.endsWith('.vue') && !name.includes('.island.')) {
@@ -108,7 +191,11 @@ function hasNonIslandPages(dir: string): boolean {
   return false;
 }
 
-export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): ReadonlyArray<Plugin> {
+export function pagesPlugin(
+  pagesDir: string,
+  options?: PagesPluginOptions,
+  parserPlugins?: BabelParserPlugins,
+): ReadonlyArray<Plugin> {
   const normalizedPagesDir = normalizePath(pagesDir);
   return [
     {
@@ -121,7 +208,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
           if (!isVuePageFile(normalizePath(id), normalizedPagesDir)) {
             return;
           }
-          const transformed = stripDefinePropsTypeArgument(code);
+          const transformed = rewriteDefineProps(code, parserPlugins);
           if (!transformed) {
             return;
           }
@@ -140,7 +227,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Rea
           // Vue reparses raw SFC source during HMR, so apply the same rewrite here.
           ctx.read = async () => {
             const code = await read();
-            return stripDefinePropsTypeArgument(code) ?? code;
+            return rewriteDefineProps(code, parserPlugins) ?? code;
           };
         },
       },
@@ -231,7 +318,10 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
     }
   });
 
+  let renderFailure;
+  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
   const html = await renderToString(app);
+  if (renderFailure) throw renderFailure.error;
   const pageData = serializePageData(pageObj);
   const headHtml = pageObj.head ? renderHeadToString(pageObj.head) : "";
   const htmlAttrs = pageObj.head ? renderHtmlAttrs(pageObj.head) : "";
@@ -241,7 +331,7 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 <html\${htmlAttrs}>
 <head>\${headHtml}\${assetTags.css}\${assetTags.preloads}</head>
 <body\${bodyAttrs}>
-  <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
+  \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
   \${assetTags.body}
 </body>
@@ -262,7 +352,8 @@ function generateClientEntry(
 import { createApp, createSSRApp, h, reactive, provide, shallowRef, nextTick, ref } from "vue";
 import { createDeferred, resolveDeferred, rejectDeferred } from "@void/vue/deferred";
 import { setActionRouter } from "@void/vue";
-import { createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
+import { PageErrorBoundary } from "@void/vue/pages-boundary";
+import { pageBoundarySlots, showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -273,6 +364,8 @@ const currentComponent = shallowRef(null);
 const currentLayouts = shallowRef([]);
 const currentProps = shallowRef({});
 const currentPageKey = ref(0);
+const boundaryGeneration = ref(0);
+let currentPageId = "";
 const routeUrl = ref(window.location.pathname + window.location.search + window.location.hash);
 const navigation = reactive(idleNavigationState());
 
@@ -291,6 +384,8 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       rejectDeferred(ref, error) { rejectDeferred(ref, error); return ref; },
       isLoading: (ref) => ref.loading,
       applyUpdate(pageData, comp, layouts, options) {
+        currentPageId = pageData.component;
+        boundaryGeneration.value++;
         if (!options?.preserveState) currentPageKey.value++;
         replaceRecord(shared, pageData.shared || {});
         replaceRecord(params, pageData.params || {});
@@ -300,7 +395,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         return nextTick();
       },
     },
-    components, layoutTree, routeMeta, matchRoute,
+    components, layoutTree, routeMeta, matchRoute, boundaryManifest, dev: import.meta.env.DEV,
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
@@ -315,7 +410,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
       navigation.location = next.location;
       navigation.method = next.method;
     },
-  });
+  }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
 const reactiveRouter = createRouterFacade(router, () => routeUrl.value, () => params);
 
@@ -323,6 +418,7 @@ setActionRouter(reactiveRouter);
 
 Object.assign(shared, initialPageData.shared || {});
 replaceRecord(params, initialPageData.params || {});
+currentPageId = initialPageData.component;
 currentProps.value = initialPageData.props;
 currentComponent.value = initialComponent;
 currentLayouts.value = initialLayouts;
@@ -340,15 +436,18 @@ const app = createVoidApp({
     return () => {
       if (!currentComponent.value) return null;
       patchProps(currentComponent.value, currentProps.value);
+      const boundaries = pageBoundarySlots(boundaryManifest, currentPageId, components);
+      const wrap = (node, depth) => boundaries.filter(b => b.depth === depth).reduce((child, boundary) => h(PageErrorBoundary, { boundary, generation: boundaryGeneration.value, dev: import.meta.env.DEV, onFailure: () => router.flush(routeUrl.value) }, { default: () => child }), node);
       let vnode = h(currentComponent.value, { ...currentProps.value, key: currentPageKey.value });
       for (let i = currentLayouts.value.length - 1; i >= 0; i--) {
-        const inner = vnode;
+        const inner = wrap(vnode, i + 1);
         vnode = h(currentLayouts.value[i], null, { default: () => inner });
       }
-      return vnode;
+      return wrap(vnode, 0);
     };
   }
 });
+if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = () => showTerminalPageError(routeUrl.value);
 
 app.mount(appEl);
 appEl.setAttribute("data-hydrated", "true");

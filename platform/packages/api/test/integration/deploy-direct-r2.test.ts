@@ -19,7 +19,6 @@ import {
   afterEach,
   vi,
 } from 'vite-plus/test';
-import { computeAssetHash } from '../../src/assets.ts';
 import { cancelDeployment } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import * as projectIngress from '../../src/project-ingress.ts';

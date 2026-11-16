@@ -152,6 +152,7 @@ export async function runCloudflareDeploy(
     deps,
     exit,
     atomic,
+    skipMigrations: options.skipMigrations,
     frameworkPreset,
     detectedFramework,
     source,
@@ -165,8 +166,9 @@ export async function runCloudflareDeploy(
     source,
     preflight,
     build,
+    skipMigrations: options.skipMigrations,
   });
-  // The migrations are already applied, so every later failure names the restore point again.
+  // When migrations were applied, every later failure names the restore point again.
   let restoreReported = false;
   const reportRestore = () => {
     if (migration.d1RestoreCommand && !restoreReported) {

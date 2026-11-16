@@ -1,5 +1,7 @@
 <script>
   import { setContext, onMount, untrack } from "svelte";
+  import PageErrorBoundary from "./PageErrorBoundary.svelte";
+  import { pageBoundarySlots } from "void/pages-client";
   import { createRouterFacade, idleNavigationState } from "void/pages-client";
 
   let props = $props();
@@ -18,10 +20,19 @@
     routeUrl: props.routeUrl,
     navigation: props.navigation,
     stores: props.stores,
+    pageId: props.pageId,
+    boundaryManifest: props.boundaryManifest,
+    components: props.components,
+    server: props.server,
   }));
 
   // Local reactive state — initialized from props, updated by stores on client
   let currentPage = $state(init.page);
+  let currentPageId = $state(init.pageId);
+  let generation = $state(0);
+  let boundaries = $derived(
+    pageBoundarySlots(init.boundaryManifest, currentPageId, init.components || {}),
+  );
   let currentLayouts = $state(init.layouts);
   let currentPageProps = $state(init.pageProps);
   let shared = $state(init.shared);
@@ -63,6 +74,12 @@
   onMount(() => {
     if (!init.stores) {return;}
     const unsubs = [
+      ...(init.stores.boundaryGeneration
+        ? [init.stores.boundaryGeneration.subscribe((v) => { generation = v; })]
+        : []),
+      ...(init.stores.pageId
+        ? [init.stores.pageId.subscribe((v) => { currentPageId = v; })]
+        : []),
       init.stores.page.subscribe((v) => { currentPage = v; }),
       init.stores.props.subscribe((v) => { currentPageProps = v; }),
       init.stores.layouts.subscribe((v) => { currentLayouts = v; }),
@@ -76,18 +93,37 @@
 </script>
 
 {#if Page}
-  {#if currentLayouts.length > 0}
-    {@render layoutChain(currentLayouts, 0)}
+  {#if init.boundaryManifest && Object.keys(init.boundaryManifest.plans).length}
+    <PageErrorBoundary terminal url={routeUrl} server={init.server} {generation}>
+      {@render boundaryChain(0, 0)}
+    </PageErrorBoundary>
   {:else}
-    <Page {...currentPageProps} />
+    {@render content(0)}
   {/if}
 {/if}
 
-{#snippet layoutChain(layouts, index)}
-  {#if index < layouts.length}
-    {@const Layout = layouts[index]}
+{#snippet boundaryChain(depth, offset)}
+  {@const atDepth = boundaries.filter(b => b.depth === depth).toReversed()}
+  {#if offset < atDepth.length}
+    <PageErrorBoundary
+      boundary={atDepth[offset]}
+      {generation}
+      server={init.server}
+      dev={props.dev}
+      onFailure={() => router?.flush(routeUrl)}
+    >
+      {@render boundaryChain(depth, offset + 1)}
+    </PageErrorBoundary>
+  {:else}
+    {@render content(depth)}
+  {/if}
+{/snippet}
+
+{#snippet content(index)}
+  {#if index < currentLayouts.length}
+    {@const Layout = currentLayouts[index]}
     <Layout>
-      {@render layoutChain(layouts, index + 1)}
+      {@render boundaryChain(index + 1, 0)}
     </Layout>
   {:else}
     <Page {...currentPageProps} />

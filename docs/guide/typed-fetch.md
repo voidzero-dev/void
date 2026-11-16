@@ -1,4 +1,5 @@
 ---
+description: 'Call your API from the client with a typed fetch that checks paths, request bodies, and response types.'
 outline: deep
 ---
 
@@ -21,10 +22,12 @@ await fetch('/api/users', {
 });
 
 // Dynamic params interpolated from the route pattern
-const user = await fetch('/api/users/:id', {
+const user = await fetch('/api/users/[id]', {
   params: { id: '42' },
 });
 ```
+
+Route patterns use the same brackets as your filenames.
 
 ## What Gets Type-Checked
 
@@ -34,6 +37,8 @@ The client constrains every part of the request:
 - **Methods:** only methods exported from the route file are allowed. If a file only exports `GET`, passing `method: "POST"` is an error.
 - **Body, query, params:** when your handler uses [`defineHandler.withValidator()`](./server-routing.md#validation), validator schemas become the input types and the client enforces them at the call site.
 - **Response type:** the return type matches what your handler returns after [JSON serialization](./type-safety.md#serialization).
+
+Omitting `method` sends GET. For a route without a GET handler, specify a supported method, such as `{ method: 'POST' }`.
 
 ## Query Parameters
 
@@ -62,7 +67,7 @@ Non-2xx responses throw a `FetchError`:
 import { fetch, FetchError } from 'void/client';
 
 try {
-  await fetch('/api/users/:id', { params: { id: '999' } });
+  await fetch('/api/users/[id]', { params: { id: '999' } });
 } catch (e) {
   if (e instanceof FetchError) {
     console.log(e.status); // 404
@@ -79,7 +84,7 @@ try {
 | `method`  | `string`                 | HTTP method. Defaults to `"GET"`.                          |
 | `body`    | `object`                 | Request body (auto-serialized as JSON).                    |
 | `query`   | `Record<string, string>` | Query string parameters.                                   |
-| `params`  | `Record<string, string>` | URL path parameters (`:id` segments).                      |
+| `params`  | `Record<string, string>` | URL path parameters (`[id]` segments).                     |
 | `headers` | `HeadersInit`            | Additional request headers.                                |
 | `signal`  | `AbortSignal`            | Abort signal.                                              |
 | `baseURL` | `string`                 | Base URL prepended to the path. Useful for external calls. |

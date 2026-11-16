@@ -1,4 +1,5 @@
 ---
+description: 'Register an email domain on a Void platform, or configure sending and receiving in your own Cloudflare account.'
 outline: deep
 ---
 

@@ -52,6 +52,7 @@ function parseMiddlewareDefinitions(files: Array<string>): Array<MiddlewareDefin
 export async function scanRoutes(
   root: string,
   options: {
+    trailingSlash?: boolean;
     output?: 'server' | 'static';
     paths: ProjectPaths;
     inventory: Omit<ScanResult, 'pages'>;
@@ -62,6 +63,7 @@ export async function scanRoutes(
 ): Promise<ScanResult> {
   const { paths, inventory } = options;
   const pages = await scanPages(root, {
+    trailingSlash: options.trailingSlash,
     output: options.output,
     paths,
     checkRoutes: options.checkPageRoutes,

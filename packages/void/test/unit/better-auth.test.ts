@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { voidAuthPassword } from '../../src/runtime/better-auth-shared.ts';
-import { resolveVoidAuthOptions } from '../../src/runtime/better-auth.ts';
+import { resolveVoidAuthOptions } from '../../src/runtime/auth/better-auth-d1.ts';
+import { voidAuthPassword } from '../../src/runtime/auth/better-auth-shared.ts';
 
 describe('resolveVoidAuthOptions', () => {
   it('defaults to email auth when no providers are configured', async () => {

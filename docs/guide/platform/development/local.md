@@ -1,4 +1,5 @@
 ---
+description: 'Clone the repository, install workspace dependencies, and run the platform locally with Vite+.'
 outline: deep
 ---
 

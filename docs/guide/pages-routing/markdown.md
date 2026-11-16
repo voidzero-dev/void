@@ -1,4 +1,5 @@
 ---
+description: 'Add Markdown files in pages/ as routes. They inherit layouts and ship JavaScript only for islands and client scripts.'
 outline: deep
 ---
 
@@ -136,13 +137,13 @@ Welcome to Void. Here's an interactive demo:
 <Counter />
 ```
 
-- **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
+- **`<script>` block:** extracted before markdown compilation. Island imports use `with { island: "..." }` syntax (see [islands](./islands)). The component file uses your framework's extension (`.vue`, `.tsx`, or `.svelte`). Any other code in the block becomes a [client script](#client-scripts) that runs in the browser.
 - **Frontmatter:** YAML metadata between `---` fences. Layouts and islands can read it through [`useFrontmatter()`](#frontmatter-access).
 - **Body:** standard markdown plus GFM. Uppercase tags such as `<Counter />` reference imported components and render as islands.
 
 ## Client Scripts
 
-Use the `<script>` block for island imports and JavaScript that runs when the page loads:
+Use the `<script>` block for island imports and JavaScript that runs when the page loads. Import the component with your framework's extension (`.vue`, `.tsx`, or `.svelte`):
 
 ```md
 <script>
@@ -194,7 +195,6 @@ export default function DocsLayout({ children }) {
 import { useFrontmatter } from '@void/md';
 
 const fm = useFrontmatter();
-// fm.title, fm.description, etc.
 </script>
 
 <template>
@@ -289,7 +289,7 @@ Wrap your markdown content in a `.void-md` element to scope the styles:
 The theme covers:
 
 - **Prose:** headings, paragraphs, lists, blockquotes, tables, inline code, links, horizontal rules, task lists, `<kbd>`, `<mark>`, definition lists, and footnotes. Dark mode works through `prefers-color-scheme` and the `data-theme` attribute.
-- **Code blocks:** Shiki dual-theme highlighting with CSS-driven switching and zero JS.
+- **Code blocks:** dual-theme syntax highlighting with CSS-driven switching and zero JS.
 - **Containers:** styles for `:::tip`, `:::warning`, `:::danger`, `:::info`, and `:::details`.
 - **GitHub alerts:** support for `> [!NOTE]`, `> [!TIP]`, `> [!WARNING]`, and similar syntax.
 
@@ -371,7 +371,7 @@ Custom titles work too: `::: tip Pro Tip`.
 
 ### Syntax Highlighting
 
-Code blocks use [Shiki](https://shiki.style) with `github-light` and `github-dark` themes by default.
+Code blocks are highlighted with the `github-light` and `github-dark` themes by default. A code block in a language that is not supported renders as plain text.
 
 ### Line Highlighting
 
@@ -449,18 +449,24 @@ Headings include permalink anchors. Use `[[toc]]` for a table of contents. Image
 ## Plugin Options
 
 ```ts
+import { voidMarkdown } from '@void/md/plugin';
+
 voidMarkdown({
-  shiki: {
-    themes: { light: 'github-light', dark: 'github-dark' },
-  },
+  themes: { light: 'github-light', dark: 'github-dark' },
+  copyLabel: 'Copy Code',
 });
 ```
 
-| Option         | Type                             | Default                                          | Description        |
-| -------------- | -------------------------------- | ------------------------------------------------ | ------------------ |
-| `shiki.themes` | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Shiki color themes |
+| Option      | Type                             | Default                                          | Description                                                       |
+| ----------- | -------------------------------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| `themes`    | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Code block color themes, such as `pierre-light` and `pierre-dark` |
+| `copyLabel` | `string`                         | `"Copy Code"`                                    | Tooltip and accessible label for the code copy button             |
 
-Code block languages load on demand from Shiki's bundled languages.
+Code block languages need no configuration. An unknown theme name stops the build with an error.
+
+The `shiki.themes` option is deprecated. Use `themes`.
+
+For a translated site, set `copyLabel` to the label in your site's language, such as `'Copier le code'`.
 
 ## Building a Sidebar
 

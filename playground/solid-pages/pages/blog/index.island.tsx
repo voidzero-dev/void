@@ -10,7 +10,7 @@ export default function BlogIndex(props: Props) {
   return (
     <div>
       <h1>Blog</h1>
-      <Counter initial={0} />
+      <Counter initial={0} createdAt={new Date('2026-11-08T00:00:00Z')} />
       <h2>Posts</h2>
       <ul>
         <For each={props.posts}>

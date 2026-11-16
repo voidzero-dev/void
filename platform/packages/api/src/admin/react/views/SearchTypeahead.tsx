@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+
 import {
   createStaticSource,
   Typeahead,

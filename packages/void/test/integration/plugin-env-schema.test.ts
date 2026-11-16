@@ -1,6 +1,15 @@
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { build, createBuilder, resolveConfig, type InlineConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { envClientFoldPlugin } from '../../src/plugin-env-client-fold.ts';
@@ -84,8 +93,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   it.each([undefined, 'Build shell'])(
     'folds settled production values after concurrent config hooks (shell: %s)',
     async (shellValue) => {
-      const { defineEnv } = await import('../../src/runtime/env-public.ts');
-      const { string } = await import('../../src/runtime/env-helpers.ts');
+      const { defineEnv } = await import('../../src/runtime/env/public.ts');
+      const { string } = await import('../../src/runtime/env/helpers.ts');
       const root = createTempRoot();
       writeFileSync(join(root, 'env.ts'), 'export default {};\n');
       writeFileSync(join(root, '.env'), 'VITE_TITLE=Local only\n');
@@ -171,11 +180,21 @@ describe('envSchemaPlugin auto-discovery', () => {
     writeFileSync(join(root, '.env.production'), 'API_URL=https://example.com\n');
 
     await expect(runConfig(envSchemaPlugin(root))).rejects.toThrow('supports one local file: .env');
+    await expect(runConfig(envSchemaPlugin(root))).rejects.not.toThrow('env.ts lists the keys');
+  });
+
+  it('points .env.example users at env.ts', async () => {
+    const root = createTempRoot();
+    writeFileSync(join(root, '.env.example'), 'API_URL=\n');
+
+    await expect(runConfig(envSchemaPlugin(root))).rejects.toThrow(
+      'Remove .env.example and follow the env migration guide. env.ts lists the keys',
+    );
   });
 
   it('removes local .env client values from production builds', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
     writeFileSync(join(root, '.env'), 'VITE_TITLE=Local only\n');
@@ -313,8 +332,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('reports server and required names without values', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({
       API_TOKEN: string(),
       OPTIONAL_REGION: string().optional(),
@@ -338,8 +357,8 @@ describe('envSchemaPlugin auto-discovery', () => {
 
   // Register via defineEnv: jiti's env.ts module instance is invisible to Vitest.
   it('warns when vite `define` shadows a schema env key', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({ STRIPE_KEY: string(), VITE_TITLE: string() });
 
     const root = createTempRoot();
@@ -376,8 +395,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('does not warn when define has no overlap with the schema', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     defineEnv({ STRIPE_KEY: string() });
 
     const root = createTempRoot();
@@ -408,8 +427,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('adds client-exposed schema defaults to Vite env', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { number, string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { number, string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -431,8 +450,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('does not overwrite a Vite env value with a schema default', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -453,8 +472,8 @@ describe('envSchemaPlugin auto-discovery', () => {
   });
 
   it('uses VITE_ even when Vite has a custom envPrefix', async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
-    const { string } = await import('../../src/runtime/env-helpers.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
+    const { string } = await import('../../src/runtime/env/helpers.ts');
     const root = createTempRoot();
     writeFileSync(join(root, 'env.ts'), 'export default {};\n');
 
@@ -489,7 +508,7 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
   }
 
   afterEach(async () => {
-    const { defineEnv } = await import('../../src/runtime/env-public.ts');
+    const { defineEnv } = await import('../../src/runtime/env/public.ts');
     defineEnv({});
   });
 
@@ -546,8 +565,8 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
   it.each(['serve', 'build'] as const)(
     'rejects a reserved name declared in env.ts (%s)',
     async (command) => {
-      const { defineEnv } = await import('../../src/runtime/env-public.ts');
-      const { string } = await import('../../src/runtime/env-helpers.ts');
+      const { defineEnv } = await import('../../src/runtime/env/public.ts');
+      const { string } = await import('../../src/runtime/env/helpers.ts');
       const root = createTempRoot();
       writeFileSync(join(root, 'env.ts'), 'export default {};\n');
       defineEnv({ API_URL: string(), __VOID_X: string().optional() });
@@ -557,4 +576,73 @@ describe('envSchemaPlugin reserved __VOID_ names', () => {
       );
     },
   );
+});
+
+describe('envSchemaPlugin with "sideEffects": false', () => {
+  const publicEnvUrl = pathToFileURL(
+    join(import.meta.dirname, '../../src/runtime/env/public.ts'),
+  ).href;
+
+  /** Build an app that declares no side effects, with an entry that imports env.ts for its side effect. */
+  async function buildEntryImportingEnv(
+    consumer: 'server' | 'client',
+    options: { symlinkTo?: string } = {},
+  ): Promise<string> {
+    const root = createTempRoot();
+    writeFileSync(
+      join(root, 'package.json'),
+      JSON.stringify({ type: 'module', sideEffects: false }),
+    );
+    const schemaFile = join(root, options.symlinkTo ?? 'env.ts');
+    writeFileSync(
+      schemaFile,
+      `import { defineEnv, number } from ${JSON.stringify(publicEnvUrl)};\n` +
+        'export default defineEnv({ SCHEMA_DEFAULT: number().default(48213) });\n',
+    );
+    if (options.symlinkTo) {
+      symlinkSync(schemaFile, join(root, 'env.ts'));
+    }
+    writeFileSync(join(root, 'entry.js'), 'import "./env.ts";\nexport const ready = true;\n');
+    const entry = join(root, 'entry.js');
+    const output = await build({
+      root,
+      configFile: false,
+      logLevel: 'silent',
+      plugins: [envSchemaPlugin(root)],
+      build: {
+        ssr: consumer === 'server' ? entry : false,
+        write: false,
+        minify: false,
+        rollupOptions: {
+          ...(consumer === 'client' && { input: entry }),
+          external: ['cloudflare:workers'],
+        },
+      },
+    });
+    return [output]
+      .flat()
+      .flatMap((result) => ('output' in result ? result.output : []))
+      .map((chunk) => ('code' in chunk ? chunk.code : ''))
+      .join('\n');
+  }
+
+  // Void's server entries import env.ts to register its schema.
+  it('keeps env.ts in a server build', async () => {
+    expect(await buildEntryImportingEnv('server')).toContain('48213');
+  });
+
+  // Vite loads a symlinked env.ts under its target's path. Windows needs privileges for a file
+  // symlink.
+  it.skipIf(process.platform === 'win32')(
+    'keeps a symlinked env.ts whose target has another name',
+    async () => {
+      expect(await buildEntryImportingEnv('server', { symlinkTo: 'shared-schema.ts' })).toContain(
+        '48213',
+      );
+    },
+  );
+
+  it('leaves client builds to the side effects that the app declares', async () => {
+    expect(await buildEntryImportingEnv('client')).not.toContain('48213');
+  });
 });

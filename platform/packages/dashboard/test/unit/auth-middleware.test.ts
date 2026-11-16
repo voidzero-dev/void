@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vite-plus/test';
 import { isPublicDashboardPath } from '../../middleware/01.auth.ts';
 
 describe('dashboard auth middleware', () => {

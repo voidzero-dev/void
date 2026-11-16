@@ -37,6 +37,26 @@ afterEach(() => {
 });
 
 describe('PostgreSQL binding generation', () => {
+  it.each([false, true])(
+    'generates custom binding types at startup (framework: %s)',
+    async (framework) => {
+      const root = project(framework);
+      writeFileSync(
+        join(root, 'void.json'),
+        JSON.stringify({ cloudflare: { ratelimits: [{ name: 'CUSTOM_LIMITER' }] } }),
+      );
+      vi.spyOn(process, 'cwd').mockReturnValue(root);
+      const { voidPlugin } = await import('../../src/index.ts');
+      voidPlugin();
+      expect(readFileSync(join(root, '.void/bindings.d.ts'), 'utf8')).toContain(
+        '"CUSTOM_LIMITER": RateLimit;',
+      );
+      expect(JSON.parse(readFileSync(join(root, '.void/tsconfig.json'), 'utf8')).files).toContain(
+        'bindings.d.ts',
+      );
+    },
+  );
+
   it('does not emit a D1 placeholder for a Void app using void/db', async () => {
     const root = project();
     vi.spyOn(process, 'cwd').mockReturnValue(root);

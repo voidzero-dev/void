@@ -21,7 +21,7 @@ export function buildSandboxController(outputDirectory = join(packageRoot, 'dist
         alias: {
           'void/_sandbox-container': join(
             packageRoot,
-            '../../../packages/void/src/runtime/sandbox-container.ts',
+            '../../../packages/void/src/runtime/sandbox/container.ts',
           ),
         },
       }),

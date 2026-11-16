@@ -8,10 +8,9 @@ import {
 } from '@astryxdesign/core/Typeahead';
 import { useMemo } from 'react';
 import { useFateClient } from 'react-fate';
-import type { User } from '../../../types.ts';
-import { UsersPageView, usersPageRequest } from '../../fate/views.ts';
+import { UserSuggestionsView, userSuggestionsRequest } from '../../fate/views.ts';
 
-export type AdminUserSuggestion = SearchableItem<{ email: string | null }>;
+export type AdminUserSuggestion = SearchableItem<{ description: string }>;
 
 const noExcludedUsers: ReadonlySet<string> = new Set();
 
@@ -32,21 +31,19 @@ export function AdminUserTypeahead({
       bootstrap: () => [],
       search: async (query: string) => {
         const { usersPage: ref } = await fate.request(
-          usersPageRequest(`/admin/users?search=${encodeURIComponent(query)}`),
+          userSuggestionsRequest(`/admin/users?search=${encodeURIComponent(query)}`),
           { mode: 'network-only' },
         );
         if (!ref) {
           return [];
         }
-        const { data } = (await fate.readView(UsersPageView, ref)) as unknown as {
-          data: { users: Array<User> };
-        };
-        return data.users
+        const { data } = await fate.readView(UserSuggestionsView, ref);
+        return data.suggestions
           .filter((user) => !excludedUserIds.has(user.id))
           .map((user) => ({
             id: user.id,
-            label: user.login,
-            auxiliaryData: { email: user.email },
+            label: user.label,
+            auxiliaryData: { description: user.description },
           }));
       },
     }),
@@ -62,10 +59,7 @@ export function AdminUserTypeahead({
       onChange={onChange}
       onChangeQuery={() => onChange(null)}
       renderItem={(item: AdminUserSuggestion) => (
-        <TypeaheadItem
-          item={item}
-          description={[item.auxiliaryData?.email, item.id].filter(Boolean).join(' · ')}
-        />
+        <TypeaheadItem item={item} description={item.auxiliaryData?.description} />
       )}
       minQueryLength={2}
       width="min(100%, 320px)"

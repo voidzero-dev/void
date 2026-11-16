@@ -1,5 +1,4 @@
 import {
-  cloneWithoutVoidPages,
   deleteIsrCache,
   denormalizeIsrPath,
   handleFrameworkIsr,
@@ -22,6 +21,7 @@ import {
   type RenderFn,
 } from '@void/isr/runtime';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 
 // Collapsed self-host deployment id (baked as a compile-time literal on the real
 // worker). Every key in this suite is scoped by the shared v3 protocol.
@@ -375,31 +375,6 @@ describe('writeIsrCache / readIsrCache / deleteIsrCache', () => {
       await expect(readIsrCache(makeEnv(kv), HOST, '/p')).resolves.toBeNull();
     });
   }
-});
-
-// ===========================================================================
-// cloneWithoutVoidPages
-// ===========================================================================
-
-describe('cloneWithoutVoidPages', () => {
-  it('removes X-VoidPages while preserving method, url, and every other header', () => {
-    const original = new Request(`https://${HOST}/blog/post`, {
-      method: 'GET',
-      headers: {
-        'X-VoidPages': '1',
-        'X-Test-Marker': 'keep',
-        Accept: 'text/html',
-      },
-    });
-
-    const cleaned = cloneWithoutVoidPages(original);
-
-    expect(cleaned.headers.has('X-VoidPages')).toBe(false);
-    expect(cleaned.headers.get('X-Test-Marker')).toBe('keep');
-    expect(cleaned.headers.get('Accept')).toBe('text/html');
-    expect(cleaned.method).toBe('GET');
-    expect(cleaned.url).toBe(`https://${HOST}/blog/post`);
-  });
 });
 
 // ===========================================================================
@@ -848,6 +823,39 @@ describe('handleIsr', () => {
     expect(await edge.store.get(key)!.text()).toBe('<html>current-public-body</html>');
   });
 
+  it.each([undefined, '0', String(Number(PAGES_PROTOCOL_VERSION) + 1)])(
+    'lets the backend negotiate serialization version %s even with a warm JSON cache',
+    async (version) => {
+      const { kv } = createKvMock();
+      const key = jsonEdgeKey(HOST, '/blog/post', DPL);
+      const cached = Response.json({ __void: 'devalue', data: [] });
+      markSharedCachePolicy(cached.headers);
+      edge.store.set(key, cached);
+      const { render, spy } = createRender(
+        () =>
+          new Response('', {
+            headers: { 'Content-Type': 'text/plain', 'Cache-Control': 'no-store' },
+          }),
+      );
+      const { ctx, flush } = createCtx();
+      const response = await handleIsr(
+        htmlRequest('/blog/post', {
+          'X-VoidPages': 'true',
+          ...(version && { 'X-VoidPages-Version': version }),
+        }),
+        makeEnv(kv),
+        ctx,
+        OPTS,
+        render,
+      );
+      await flush();
+      expect(spy).toHaveBeenCalledOnce();
+      expect(response!.headers.has('X-VoidPages')).toBe(false);
+      expect(await response!.text()).toBe('');
+      expect(edge.store.has(key)).toBe(true);
+    },
+  );
+
   it('JSON (X-VoidPages) MISS → renders live JSON and never writes the edge or KV', async () => {
     const { store, kv } = createKvMock();
     const env = makeEnv(kv);
@@ -858,7 +866,10 @@ describe('handleIsr', () => {
     const { ctx, tasks } = createCtx();
 
     const res = await handleIsr(
-      htmlRequest('/blog/post', { 'X-VoidPages': '1' }),
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      }),
       env,
       ctx,
       OPTS,
@@ -883,6 +894,7 @@ describe('handleIsr', () => {
           headers: {
             'content-type': 'text/html',
             'x-void-page-data': '{"component":"Blog","props":{}}',
+            Vary: 'X-VoidPages, X-VoidPages-Version',
           },
         }),
     );
@@ -895,7 +907,10 @@ describe('handleIsr', () => {
     const { render: render2, spy: spy2 } = createRender(() => new Response('SHOULD-NOT-RENDER'));
     const { ctx: ctx2 } = createCtx();
     const res = await handleIsr(
-      htmlRequest('/blog/post', { 'X-VoidPages': '1' }),
+      htmlRequest('/blog/post', {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      }),
       env,
       ctx2,
       OPTS,
@@ -905,7 +920,7 @@ describe('handleIsr', () => {
     expect(spy2).not.toHaveBeenCalled();
     // The client parses JSON only with this header; without it the page hard-reloads.
     expect(res!.headers.get('X-VoidPages')).toBe('true');
-    expect(res!.headers.get('Vary')).toBe('X-VoidPages');
+    expect(res!.headers.get('Vary')).toBe('X-VoidPages, X-VoidPages-Version');
     expect(res!.headers.get('content-type')).toBe('application/json');
     expect(res!.headers.get('Cache-Control')).toBe('public, max-age=0, must-revalidate');
     expect(res!.headers.get('x-isr-cache')).toBe('HIT');
@@ -1089,6 +1104,53 @@ describe('handleIsr', () => {
     expect(put).not.toHaveBeenCalled();
     expect(spy).not.toHaveBeenCalled();
     expect(tasks).toHaveLength(0);
+  });
+
+  it('renders a text/markdown negotiation live instead of replaying the cached HTML', async () => {
+    const { kv, store } = createKvMock();
+    const env = makeEnv(kv);
+    const html = createRender(
+      () => new Response('<html>page</html>', { headers: { 'content-type': 'text/html' } }),
+    );
+    const fill = createCtx();
+    const miss = await handleIsr(
+      htmlRequest('/blog/post', { Accept: 'text/html' }),
+      env,
+      fill.ctx,
+      OPTS,
+      html.render,
+    );
+    expect(miss?.headers.get('x-isr-cache')).toBe('MISS');
+    await fill.flush();
+    expect(store.size).toBe(1);
+
+    // A markdown client asks for the same path. The HTML entry cannot answer it,
+    // and the live render must not replace that entry either.
+    const markdown = createRender(
+      () =>
+        new Response('# page', {
+          headers: {
+            'content-type': 'text/markdown; charset=utf-8',
+            'cache-control': 'no-store',
+            vary: 'Accept',
+          },
+        }),
+    );
+    const live = createCtx();
+    expect(
+      await handleIsr(
+        htmlRequest('/blog/post', { Accept: 'text/html, text/markdown' }),
+        env,
+        live.ctx,
+        OPTS,
+        markdown.render,
+      ),
+    ).toBeNull();
+    expect(markdown.spy).not.toHaveBeenCalled();
+    expect(live.tasks).toHaveLength(0);
+
+    const entry = await readIsrCache(env, HOST, '/blog/post');
+    expect(await new Response(entry!.body).text()).toBe('<html>page</html>');
   });
 
   it('returns null (caller renders live) for non-GET, credentialed, and non-ISR paths', async () => {

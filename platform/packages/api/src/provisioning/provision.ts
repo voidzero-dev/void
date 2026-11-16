@@ -1,4 +1,4 @@
-import { createDeployIntent } from '@void/deploy-core';
+import { createDeployIntent, isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
 import { getProjectResources, createResource, type Db } from '../db.ts';
 import { getProjectQueueName } from '../naming.ts';
 import type { DeployManifest, Resource } from '../types.ts';
@@ -64,10 +64,17 @@ export async function provisionBindings(
      * malformed `slug+noreply@` the proxy rejects for a different reason.
      */
     emailSenderDomain?: string;
+    storageLocationHint?: string;
   },
 ): Promise<ReadonlyArray<WorkerBinding>> {
   const existing = await getProjectResources(db, projectId);
   const plan = createDeployIntent(manifest).resourcePlan;
+  const locationHint = plan.resources.some((resource) => resource.type === 'r2')
+    ? (manifest.storage?.locationHint ?? platform.storageLocationHint)
+    : undefined;
+  if (locationHint !== undefined && !isR2LocationHint(locationHint)) {
+    throw new Error('Invalid R2 storage location hint.');
+  }
 
   const tasks: Array<Promise<WorkerBinding>> = [];
 
@@ -113,6 +120,7 @@ export async function provisionBindings(
             'r2',
             resource.bindingName,
             existing,
+            locationHint,
           ).then((r): WorkerBinding => ({
             type: 'r2_bucket',
             name: resource.bindingName,
@@ -206,6 +214,7 @@ async function ensureResource(
   type: Resource['type'],
   bindingName: string,
   existing: ReadonlyArray<Resource>,
+  locationHint?: R2LocationHint,
 ): Promise<Resource> {
   // Normalize: R2 bucket names only allow lowercase alphanumeric + hyphens
   const resourceName = `${projectId}-${bindingName}`.toLowerCase().replaceAll('_', '-');
@@ -224,7 +233,7 @@ async function ensureResource(
   let createdByUs = false;
 
   try {
-    cfId = await createCfResource(type, accountId, apiToken, resourceName);
+    cfId = await createCfResource(type, accountId, apiToken, resourceName, locationHint);
     createdByUs = true;
   } catch (err) {
     if (isAlreadyExistsError(err)) {
@@ -285,6 +294,7 @@ async function createCfResource(
   accountId: string,
   apiToken: string,
   resourceName: string,
+  locationHint?: R2LocationHint,
 ): Promise<string> {
   switch (type) {
     case 'd1': {
@@ -296,7 +306,7 @@ async function createCfResource(
       return result.id;
     }
     case 'r2': {
-      const result = await createR2Bucket(accountId, apiToken, resourceName);
+      const result = await createR2Bucket(accountId, apiToken, resourceName, locationHint);
       return result.name;
     }
     case 'queue': {

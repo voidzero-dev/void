@@ -1,0 +1,72 @@
+.example-container {
+  box-sizing: border-box;
+  max-width: 100rem;
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.example-container p {
+  max-width: 75ch;
+}
+
+.page-loaded-toast {
+  position: fixed;
+  inset: 1rem auto auto 50%;
+  transform: translateX(-50%);
+  margin: 0;
+  padding: 1rem 1.5rem;
+  border: 1px solid #c2410c;
+  border-radius: 0.25rem;
+  background: #fb923c;
+  color: #431407;
+  font-size: 1.125rem;
+  font-weight: 700;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 25%);
+}
+
+.examples {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-items: start;
+  gap: 1rem 2rem;
+}
+
+@media (max-width: 70rem) {
+  .examples {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 46rem) {
+  .examples {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.example {
+  min-width: 0;
+}
+
+pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+code {
+  overflow-wrap: anywhere;
+}
+
+.auth-form label {
+  display: block;
+  margin-block: 1rem;
+}
+
+.auth-form input {
+  display: block;
+}
+
+.action-forms {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+}

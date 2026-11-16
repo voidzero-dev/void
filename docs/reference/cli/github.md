@@ -1,4 +1,5 @@
 ---
+description: 'Connect GitHub so pushes build and deploy, whichever way you signed in to Void.'
 outline: deep
 ---
 

@@ -1,4 +1,5 @@
 ---
+description: 'Build a Void server for Node.js, Bun, or Deno, and run it on your own machine, in a container, or with another host.'
 outline: deep
 ---
 
@@ -160,3 +161,68 @@ console.log(await response.json()); // { message: "Hello from Node.js!" }
 ```
 
 This is useful for testing, embedding in Express/Fastify, or running in serverless environments that accept a `fetch` handler.
+
+### Serving the client build from somewhere else
+
+To embed your app in a [single executable](https://nodejs.org/api/single-executable-applications.html), pass an `ASSETS` object with a `fetch(request)` method to `app.fetch()`. Void uses it for the client manifest, scripts, styles, and public files instead of reading `dist/client`.
+
+For Node.js, store assets under their URL paths, including `/.vite/manifest.json`, `/assets/…`, and files copied from `public/`:
+
+```ts
+import { getAsset } from 'node:sea';
+import { serve } from '@hono/node-server';
+import app from './dist/ssr/app.js';
+
+const types: Record<string, string> = {
+  '.js': 'text/javascript',
+  '.css': 'text/css',
+  '.json': 'application/json',
+};
+
+const ASSETS = {
+  async fetch(request: Request): Promise<Response> {
+    const { pathname } = new URL(request.url);
+    try {
+      const type = types[pathname.slice(pathname.lastIndexOf('.'))] ?? 'application/octet-stream';
+      return new Response(getAsset(pathname), { headers: { 'content-type': type } });
+    } catch {
+      return new Response('Not Found', { status: 404 });
+    }
+  },
+};
+
+serve({ fetch: (request, env) => app.fetch(request, { ...env, ASSETS }), port: 3000 });
+```
+
+Keep the server's existing `env` values when adding `ASSETS`, so `getConnInfo()` can read the incoming request.
+
+For Bun, import each client file with `{ type: 'file' }` so `bun build --compile` embeds it as an asset. Generate this module after each `vite build`, since filenames change with the build. Don't list client scripts as build entry points; Bun would bundle them as executable code:
+
+```ts
+// client-files.ts, written after each `vite build`
+import manifest from './dist/client/.vite/manifest.json' with { type: 'file' };
+import pagesClient from './dist/client/assets/pages-client-BZk7n9j7.js' with { type: 'file' };
+
+const files: Record<string, string> = {
+  '/.vite/manifest.json': manifest,
+  '/assets/pages-client-BZk7n9j7.js': pagesClient,
+};
+export default files;
+```
+
+Then serve them from the compiled executable, passing Bun's `Server` as `server` so `getConnInfo()` still works:
+
+```ts
+import files from './client-files.ts';
+// server.ts, compiled with `bun build --compile server.ts --outfile server`
+import app from './dist/ssr/app.js';
+
+const ASSETS = {
+  async fetch(request: Request): Promise<Response> {
+    const path = files[new URL(request.url).pathname];
+    return path ? new Response(Bun.file(path)) : new Response('Not Found', { status: 404 });
+  },
+};
+
+Bun.serve({ fetch: (request, server) => app.fetch(request, { server, ASSETS }), port: 3000 });
+```

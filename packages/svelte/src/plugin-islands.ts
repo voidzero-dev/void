@@ -288,9 +288,10 @@ function generateWrapperComponent(id: string): string {
 
   return `<script>
   import Cmp from ${JSON.stringify(src)};
+  import { serializePageData } from "void/pages-server";
   let props = $props();
 </script>
-<div data-island="${islandId}" data-props={JSON.stringify(props)} data-hydrate="${hydrate}">
+<div data-island="${islandId}" data-props={serializePageData(props)} data-hydrate="${hydrate}">
   <Cmp {...props} />
 </div>
 `;

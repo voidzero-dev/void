@@ -1,4 +1,5 @@
 ---
+description: 'Send typed messages between the server and connected clients. Each route keeps its state in a Durable Object.'
 outline: deep
 ---
 
@@ -27,7 +28,7 @@ Use `.ws.tsx` or `.ws.jsx` when a handler contains JSX, such as rendering HTML f
 Filename rules match regular server routes:
 
 - `index.ws.ts` becomes the parent path
-- `[id].ws.ts` becomes `:id`
+- `[id].ws.ts` adds a dynamic `[id]` segment
 - `[...slug].ws.ts` becomes a catch-all
 - route groups like `(marketing)/chat.ws.ts` are ignored in the URL
 - `chat.dev.ws.ts` / `chat.prod.ws.ts` restrict the route to one environment
@@ -122,7 +123,7 @@ Use `connect()` from `void/ws` on the client:
 ```ts
 import { connect } from 'void/ws';
 
-const socket = connect('/chat/:room', {
+const socket = connect('/chat/[room]', {
   params: { room: 'general' },
 });
 
@@ -200,13 +201,13 @@ export default defineRoom({
 });
 ```
 
-Move the file to `routes/rooms/[room].ws.ts`, update clients to connect to `/rooms/:room`, and deploy normally. Keep the same parameter names and values: room `general` still uses its existing storage. The Worker class, binding, and migration history stay the same on both Cloudflare and Void platform deployments.
+Move the file to `routes/rooms/[room].ws.ts`, update clients to connect to `/rooms/[room]`, and deploy normally. Keep the same parameter names and values: room `general` still uses its existing storage. The Worker class, binding, and migration history stay the same on both Cloudflare and Void platform deployments.
 
 Both `defineRoom()` and `defineWebSocket()` accept optional `name`. Use a static string, inline or in a local `const`. Each route must produce a distinct Worker class; changing the name selects a different resource. If you already moved a route, `void info` also shows unmatched identities recorded in `void.lock.json`. Identify the original resource before adopting its suggested name; otherwise restore the original source and discover the name there.
 
 ### Rename a route parameter
 
-By default, the instance key includes parameter names. `/chat/:room` with `room: 'general'` uses `room=general`; a route without parameters uses `default`. Multiple parameters are joined in route order, for example `team=acme&room=general`. If a multi-parameter route has a value containing `&`, its key uses a versioned encoding to keep rooms separate.
+By default, the instance key includes parameter names. `/chat/[room]` with `room: 'general'` uses `room=general`; a route without parameters uses `default`. Multiple parameters are joined in route order, for example `team=acme&room=general`. If a multi-parameter route has a value containing `&`, its key uses a versioned encoding to keep rooms separate.
 
 If you also rename `[room]` to `[id]`, preserve the old key explicitly:
 
@@ -220,7 +221,7 @@ export default defineRoom({
 });
 ```
 
-Clients now connect to `/rooms/:id` with `params: { id: 'general' }`. The key remains `room=general`, so storage and `ctx.id` stay the same. Returning only `params.id` would select a different instance.
+Clients now connect to `/rooms/[id]` with `params: { id: 'general' }`. The key remains `room=general`, so storage and `ctx.id` stay the same. Returning only `params.id` would select a different instance.
 
 `key` is optional on both WebSocket helpers. It must return a string synchronously and consistently for the same parameters. Preserve the complete old key when migrating multiple parameters. Keep the callback stable after deployment.
 

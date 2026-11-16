@@ -30,11 +30,11 @@ vi.mock('better-auth/solid', () => ({
 
 describe('client runtimes', () => {
   it.each([
-    ['default', 'client', () => import('../../src/runtime/client.ts')],
-    ['React', 'react', () => import('../../src/runtime/client-react.ts')],
-    ['Vue', 'vue', () => import('../../src/runtime/client-vue.ts')],
-    ['Svelte', 'svelte', () => import('../../src/runtime/client-svelte.ts')],
-    ['Solid', 'solid', () => import('../../src/runtime/client-solid.ts')],
+    ['default', 'client', () => import('../../src/runtime/client/index.ts')],
+    ['React', 'react', () => import('../../src/runtime/client/react.ts')],
+    ['Vue', 'vue', () => import('../../src/runtime/client/vue.ts')],
+    ['Svelte', 'svelte', () => import('../../src/runtime/client/svelte.ts')],
+    ['Solid', 'solid', () => import('../../src/runtime/client/solid.ts')],
   ] as const)('re-exports the %s Better Auth client', async (_name, framework, load) => {
     const { auth, createAuthClient } = await load();
     expect(createAuthClient).toBe(mocks[framework]);

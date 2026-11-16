@@ -12,6 +12,7 @@ import {
   notInArray,
 } from 'drizzle-orm';
 import { Context } from 'hono';
+import { aiLoggingKey } from '../ai-logging-policy.ts';
 import { deleteProjectAssets, deleteWorkerBundle } from '../assets.ts';
 import { DEFAULT_DISPATCH_NAMESPACE } from '../constants.ts';
 import { clearCronScheduler } from '../cron-scheduler-client.ts';
@@ -946,7 +947,15 @@ export async function teardownProject(
     deletedResources,
     cleanedCfIds,
   );
-  return { warnings: [...bestEffortWarnings, ...orphanWarnings] };
+  // The AI logging key goes only once the row is gone. Until then a token can still
+  // pass the live owner check, and a missing key means the gateway setting, so an
+  // earlier removal would log prompts of a project set to `off` while teardown
+  // runs or waits for a retry. A failed delete leaves an orphan key; the hourly
+  // sweep removes it.
+  const aiLogging = await runCleanupBatch(context.env, [
+    cleanupJob(projectId, 'routing-key', aiLoggingKey(projectId), { key: aiLoggingKey(projectId) }),
+  ]);
+  return { warnings: [...bestEffortWarnings, ...orphanWarnings, ...aiLogging.warnings] };
 }
 
 /** Renewal and this expiry claim both serialize on the project row. */

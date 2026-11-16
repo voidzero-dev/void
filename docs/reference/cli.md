@@ -1,4 +1,5 @@
 ---
+description: 'Commands for creating a project, deploying it, and managing databases, secrets, domains, and a platform.'
 outline: deep
 ---
 
@@ -36,6 +37,7 @@ Use this page as a command reference. If you are setting up a project for the fi
 | Command                           | Purpose                                                                       |
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `void deploy`                     | Build and deploy to the configured platform                                   |
+| `void deploy --skip-migrations`   | Deploy code without applying application or authentication SQL migrations     |
 | `void prepare`                    | Generate `.void` artifacts without starting Vite                              |
 | `void info [--json]`              | Inspect persistent resource names before moving their code                    |
 | `void gen model <name> [cols...]` | Scaffold a Drizzle table and API routes                                       |
@@ -77,6 +79,8 @@ Use this page as a command reference. If you are setting up a project for the fi
 | `void email domain`               | Send and receive at your own domain on a Cloudflare zone                      |
 | `void init`                       | Set up a new or existing project, including coding agents                     |
 | `void migrate`                    | Update project configuration                                                  |
+
+For platform administration, see [plans and account limits](../guide/platform/administration/plans.md), [users and projects](./cli/platform-users.md), and [AI logging](./cli/platform-users.md#ai-gateway-logging).
 
 ## Binary Invocation {#binary-invocation}
 

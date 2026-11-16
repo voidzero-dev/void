@@ -1,4 +1,5 @@
 ---
+description: 'Store files in Cloudflare R2, and upload, download, and read metadata through void/storage.'
 outline: deep
 ---
 
@@ -11,21 +12,17 @@ Store files in [Cloudflare R2](https://developers.cloudflare.com/r2/) with `stor
 ```ts
 import { storage } from 'void/storage';
 
-// Upload
 await storage.put('uploads/photo.jpg', file, {
   httpMetadata: { contentType: 'image/jpeg' },
 });
 
-// Download
 const object = await storage.get('uploads/photo.jpg');
 if (object) {
   const data = await object.arrayBuffer();
 }
 
-// Delete
 await storage.delete('uploads/photo.jpg');
 
-// List
 const listed = await storage.list({ prefix: 'uploads/' });
 for (const obj of listed.objects) {
   console.log(obj.key, obj.size);
@@ -68,10 +65,14 @@ Files your users upload can contain HTML or scripts. Store them under keys your 
 
 ## Custom bindings
 
-Use `createStorage(bucket)` with your own R2 binding, or in tests:
+To use another R2 bucket, add it to `cloudflare.r2_buckets` in `void.config.ts`, for example `{ binding: 'MY_BUCKET', bucket_name: 'uploads' }`. Run `void prepare`, then pass the typed binding to `createStorage()`:
 
 ```ts
+import { defineHandler } from 'void';
 import { createStorage } from 'void/storage';
 
-const storage = createStorage(env.MY_BUCKET);
+export const GET = defineHandler((c) => {
+  const storage = createStorage(c.env.MY_BUCKET);
+  return storage.list();
+});
 ```

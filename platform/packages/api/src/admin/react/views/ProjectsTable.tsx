@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import {
   Table,
   TableBody,
@@ -7,6 +8,7 @@ import {
   TableHeaderCell,
   TableRow,
 } from '@astryxdesign/core/Table';
+import { Link } from '@void/react';
 import type { Project } from '../../../types.ts';
 import { formatDateTime } from './format.ts';
 import { ProjectUrlLink } from './ProjectUrlLink.tsx';
@@ -45,18 +47,18 @@ export function ProjectsTable({
           {projects.map((p) => (
             <TableRow key={p.id}>
               <TableCell>
-                <a className="void-admin-resource-link" href={`/admin/projects/${p.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/projects/${p.id}`}>
                   {p.slug}
-                </a>
+                </Link>
               </TableCell>
               <TableCell>
                 <ProjectUrlLink url={p.url ?? `https://${p.slug}.${siteDomain}`} />
               </TableCell>
               <TableCell>
                 {p.owner_login ? (
-                  <a className="void-admin-resource-link" href={`/admin/users/${p.user_id}`}>
+                  <Link className="void-admin-resource-link" href={`/admin/users/${p.user_id}`}>
                     {p.owner_login}
-                  </a>
+                  </Link>
                 ) : (
                   '-'
                 )}
@@ -67,12 +69,20 @@ export function ProjectsTable({
                 {p.last_deploy ? (
                   <>
                     <span
-                      style={`display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:10px;vertical-align:middle;background:${p.last_deploy_status === 'failed' ? '#dc2626' : '#16a34a'}`}
+                      style={{
+                        display: 'inline-block',
+                        width: 8,
+                        height: 8,
+                        borderRadius: '50%',
+                        marginRight: 10,
+                        verticalAlign: 'middle',
+                        background: p.last_deploy_status === 'failed' ? '#dc2626' : '#16a34a',
+                      }}
                     />
                     {p.last_deploy_id ? (
-                      <a href={`/admin/deployments/${p.last_deploy_id}`}>
+                      <Link href={`/admin/deployments/${p.last_deploy_id}`}>
                         {formatDateTime(p.last_deploy, tz)}
-                      </a>
+                      </Link>
                     ) : (
                       formatDateTime(p.last_deploy, tz)
                     )}

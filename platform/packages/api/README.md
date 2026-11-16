@@ -413,6 +413,15 @@ The Fate schema and loaders live in `src/admin/fate/`. The generated client is
 loaders restricted to their matching `/admin/*` paths, and never add admin
 queries to the CLI API.
 
+`src/admin/fate/client.ts` registers the client schema before requests or
+hydration, in both server rendering and the browser. It owns deployment-log
+controls as per-deployment client fields; refetching server data preserves them
+until the admin session/client ends. Memo fields derive typeahead suggestions
+and formatted manifest JSON, sharing results across views until their selected
+dependencies change. Child views must be spread into their parent views so
+Fate can supply the corresponding masked refs. Health uses an observed request
+to render cached results immediately while reporting background refresh errors.
+
 Notable sections:
 
 - user search, plan changes, suspension controls

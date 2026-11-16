@@ -1,3 +1,7 @@
+---
+description: 'Prepare a built app, SPA, or static site for a managed platform deployment without platform credentials.'
+---
+
 # Deployment artifacts
 
 Use `void/deploy` from Node.js to prepare a built Void app, SPA, or static site for a managed platform deployment without platform credentials.

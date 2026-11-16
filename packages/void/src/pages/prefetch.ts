@@ -72,6 +72,7 @@ export type CacheEntry = {
   url: string;
   method: string;
   response: Promise<unknown>;
+  pending: boolean;
   staleAt: number;
   expiresAt: number;
   singleUse: boolean;
@@ -123,11 +124,18 @@ export class PrefetchCache {
       url,
       method,
       response,
+      pending: true,
       staleAt: now + ttl.stale,
       expiresAt: now + ttl.expires,
       singleUse,
       timer: null,
     };
+    void response.then(
+      () => {
+        entry.pending = false;
+      },
+      () => {},
+    );
 
     if (!singleUse && ttl.expires > 0) {
       entry.timer = setTimeout(() => this.entries.delete(k), ttl.expires);

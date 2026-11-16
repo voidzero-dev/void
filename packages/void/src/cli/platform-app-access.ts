@@ -207,7 +207,13 @@ export async function prepareInstallationAppAccess(input: {
     try {
       return (await access.get('organizations')) as Record<string, unknown>;
     } catch (error) {
-      if (error instanceof PlatformCloudflareApiError && error.status === 404) {
+      if (
+        error instanceof PlatformCloudflareApiError &&
+        (error.status === 404 ||
+          (choice === 'public' &&
+            error.status === 403 &&
+            error.message.startsWith('Cloudflare API error: access.api.error.not_enabled:')))
+      ) {
         return null;
       }
       throw error;

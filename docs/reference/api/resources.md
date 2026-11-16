@@ -1,4 +1,5 @@
 ---
+description: 'Clients for KV, object storage, AI, cache revalidation, and logs.'
 outline: deep
 ---
 
@@ -109,10 +110,12 @@ await revalidate({ paths: ['/', '/blog/hello'] });
 await revalidate({ all: true });
 ```
 
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), each path must match one of your routes. Build paths with `routeUrl()`, or use `as RouteUrl` for paths you validate at runtime. Without this setting, `RouteUrl` is `string`.
+
 **Signature:**
 
 ```ts
-function revalidate(options: { paths?: string[]; all?: boolean }): Promise<void>;
+function revalidate(options: { paths?: RouteUrl[]; all?: boolean }): Promise<void>;
 ```
 
 ## Logging {#logging}

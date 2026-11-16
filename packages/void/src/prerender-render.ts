@@ -1,4 +1,4 @@
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { extractPageDataFromHtml } from '@void/isr/core';
 import { dirname, isAbsolute, join, relative } from 'pathslash';
 
@@ -8,6 +8,27 @@ export type PrerenderResult = {
   rendered: Array<string>;
   failed: Array<{ path: string; error: string }>;
 };
+
+/** Error artifacts are documents, not successful prerender routes or page-data entries. */
+export async function renderBoundary404(
+  clientDir: string,
+  fetchBoundary: () => Promise<Response>,
+): Promise<void> {
+  const file = join(clientDir, '404.html');
+  if (existsSync(file)) {
+    return;
+  }
+  const response = await fetchBoundary();
+  if (response.status === 204) {
+    return;
+  }
+  if (response.status !== 404 || !response.headers.get('Content-Type')?.includes('text/html')) {
+    await response.body?.cancel();
+    throw new Error(`Unable to render the Pages not-found document (HTTP ${response.status}).`);
+  }
+  mkdirSync(clientDir, { recursive: true });
+  writeFileSync(file, await response.text());
+}
 
 export function assertNoPrerenderFailures(failed: PrerenderResult['failed']): void {
   if (failed.length === 0) {
@@ -44,6 +65,12 @@ function filePathForPath(path: string, host: PrerenderHost): string {
 }
 
 export function outputFileForPath(path: string, host: PrerenderHost = 'cloudflare'): string {
+  if (path === '/404/') {
+    return '404.html';
+  }
+  if (path.endsWith('/')) {
+    return `${filePathForPath(path, host).slice(1)}index.html`;
+  }
   return path === '/' ? 'index.html' : `${filePathForPath(path, host).slice(1)}.html`;
 }
 
@@ -70,7 +97,7 @@ export async function readPrerenderPathsResponse(response: Response): Promise<Ar
 function pageDataFileForPath(path: string, host: PrerenderHost): string {
   return path === '/'
     ? '_void/pages/index.json'
-    : `_void/pages/${filePathForPath(path, host).slice(1)}.json`;
+    : `_void/pages/${filePathForPath(path, host).slice(1)}${path.endsWith('/') ? 'index' : ''}.json`;
 }
 
 /** Whether `path` resolves strictly inside `directory`. */

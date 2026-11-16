@@ -1,4 +1,5 @@
 ---
+description: 'Deploy with void deploy. It builds your app, provisions resources, applies migrations, and publishes to Cloudflare or a team platform.'
 outline: deep
 ---
 
@@ -34,6 +35,14 @@ void db generate
 ```
 
 Review and commit the SQL, then deploy again. Rollback does not reverse database migrations. See [Database](./database.md) for the local workflow.
+
+If you run migrations in a separate release step, or a preview shares your database, deploy without applying SQL migrations:
+
+```sh
+void deploy --skip-migrations
+```
+
+The app must work with the database's current schema. Both deployment destinations support this option, and the next deploy without it applies pending migrations. See [`--skip-migrations`](../reference/cli/deploy.md#void-deploy) for requirements and [`void db migrate`](../reference/cli/database.md#void-db-migrate) to apply migrations separately.
 
 For D1 on your own Cloudflare account, deploy saves a restore point before applying migrations and prints a [`void db restore`](../reference/cli/database.md#void-db-restore) command. Use it to recover from a bad migration, then fix the migration before deploying again. A restore discards writes made after that point; check that your deployed code works with the restored schema. See the command reference for the recovery steps and retention limits.
 

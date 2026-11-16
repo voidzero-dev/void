@@ -18,6 +18,7 @@ import { createHumanSession } from '../../src/auth/sessions.ts';
 import { emailReceipts } from '../../src/email/admission-schema.ts';
 import { createGitHubWebhookIngressProof } from '../../src/github/webhook-ingress-auth.ts';
 import { app } from '../../src/index.ts';
+import { deriveProxyInternalAuth, PROXY_INTERNAL_AUTH_HEADER } from '../../src/proxy-token.ts';
 import { platformAuthSettings, platformHumanSessions, users } from '../../src/schema.ts';
 import {
   clearTables,
@@ -97,6 +98,20 @@ beforeEach(async () => {
       throw new Error('Unexpected outbound request');
     }),
   );
+});
+
+it('the proxy can read its AI policy behind Access without a human assertion', async () => {
+  const project = await createTestProject(env.db, user.id, 'protected-ai');
+  const request = (credential?: string) =>
+    new Request(`${origin}/internal/ai-logging/${project.id}`, {
+      headers: credential ? { [PROXY_INTERNAL_AUTH_HEADER]: credential } : {},
+    });
+  const auth = await deriveProxyInternalAuth(env.JWT_SECRET, 'ai-logging', project.id);
+  const response = await app.fetch(request(auth), env);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ mode: 'inherit' });
+  expect((await app.fetch(request(), env)).status).toBe(401);
+  expect((await app.fetch(request('forged'), env)).status).toBe(403);
 });
 
 function assertion(options: { service?: boolean; audience?: string; subject?: string } = {}) {

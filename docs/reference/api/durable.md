@@ -1,4 +1,5 @@
 ---
+description: 'Persistent objects and typed WebSocket connections from void/durable.'
 outline: deep
 ---
 

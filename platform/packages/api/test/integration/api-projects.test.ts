@@ -1,12 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vite-plus/test';
 import { importLegacyAuthentication } from '../../src/auth/configuration.ts';
-import {
-  signDeployToken,
-  signProjectCredentialToken,
-  verifyDeployToken,
-  verifyPrerenderToken,
-} from '../../src/auth/deploy-token.ts';
+import { signDeployToken, signProjectCredentialToken } from '../../src/auth/deploy-token.ts';
 import { revokeConnectionSessions } from '../../src/auth/sessions.ts';
 import {
   createDeployment,
@@ -37,6 +32,7 @@ import {
   platformSettings,
   projectCleanupJobs,
 } from '../../src/schema.ts';
+import { verifyDeployToken, verifyPrerenderToken } from '../helpers/project-token.ts';
 import {
   createTestBuild,
   setupEnv,
@@ -2444,7 +2440,6 @@ describe('POST /projects/:id/rollback', () => {
     expect(body.deploymentId).toBe(d1.id);
     expect(body.migrationDiff).toEqual([]);
 
-    // Verify KV routing updated
     const routing = (await env.ROUTING.get(project.slug, 'json')) as { workerName: string };
     expect(routing.workerName).toBe(`user-rollback-app-${d1.id}`);
   });
@@ -2817,7 +2812,6 @@ describe('POST /projects/:id/rollback', () => {
     );
     expect(res.status).toBe(200);
 
-    // Verify domain KV routing updated
     const domainRouting = (await env.ROUTING.get('domain:rollback.example.com', 'json')) as {
       workerName: string;
     };

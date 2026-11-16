@@ -1,4 +1,5 @@
 ---
+description: "Cache static assets on Cloudflare's edge. Hashed build files stay reusable across deploys."
 outline: deep
 ---
 
@@ -89,6 +90,10 @@ export default defineConfig({
 Choose `single-page-application`, `404-page`, or `none`. These settings preserve which requests reach middleware and API handlers. Intentional API `404` responses keep their status and body.
 
 SvelteKit, Nuxt, Analog, and Astro handle their own error pages and ignore `routing.notFound`. For direct Cloudflare deployment with TanStack Start, React Router, or vinext, configure the asset binding, directory, and routing policy through the framework's Cloudflare config.
+
+On direct Cloudflare deployments, SvelteKit, Nuxt, Analog, and Astro serve built files and prerendered pages without running the Worker. Other requests reach the framework.
+
+To run server code before serving an asset, set [`run_worker_first`](https://developers.cloudflare.com/workers/static-assets/binding/#run_worker_first) under `cloudflare.assets` in `void.config.ts`. Setting it to `true` runs the Worker on every request and counts toward Worker request usage.
 
 ## API routes and SSR pages
 

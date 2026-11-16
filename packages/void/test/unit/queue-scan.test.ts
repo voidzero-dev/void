@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vite-plus/test';
 import { scanQueuesSync } from '../../src/queues/scan.ts';
 
 describe('scanQueuesSync', () => {
@@ -56,6 +56,89 @@ export default async () => {};`,
       'export const maxBatchSize = 2 + 3; export default async () => {};',
     );
     expect(() => scanQueuesSync(queuesDir)).toThrow('maxBatchSize');
+  });
+
+  it.each([
+    ['a re-export', "export { maxRetries } from './_shared';"],
+    ['an imported binding', "import { maxRetries } from './_shared';\nexport { maxRetries };"],
+    ['a renamed local', 'const retries = 3;\nexport { retries as maxRetries };'],
+    ['let', 'export let maxRetries = 3;'],
+    ['destructuring', 'export const { maxRetries } = { maxRetries: 3 };'],
+  ])(
+    'rejects an option exported through %s instead of deploying the default',
+    (_form, declaration) => {
+      writeFileSync(join(queuesDir, 'jobs.ts'), `${declaration}\nexport default async () => {};`);
+      expect(() => scanQueuesSync(queuesDir)).toThrow(
+        "queue: maxRetries in 'jobs.ts' must be declared in the queue file as `export const maxRetries = <integer>`. Re-exported options and other export forms are not read.",
+      );
+    },
+  );
+
+  it('ignores type-only exports of option names', () => {
+    writeFileSync(
+      join(queuesDir, 'typed.ts'),
+      "export type { maxRetries } from './_types';\nexport const retryDelay = 5;\nexport default async () => {};",
+    );
+    expect(scanQueuesSync(queuesDir)).toMatchObject([{ maxRetries: undefined, retryDelay: 5 }]);
+  });
+
+  it('warns once that options are not read through export *', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      writeFileSync(
+        join(queuesDir, 'star.ts'),
+        "export * from './_options';\nexport const maxRetries = 5;\nexport default async () => {};",
+      );
+      expect(scanQueuesSync(queuesDir)).toMatchObject([{ maxRetries: 5, retryDelay: undefined }]);
+      scanQueuesSync(queuesDir);
+      expect(log).toHaveBeenCalledOnce();
+      expect(log.mock.calls[0][0]).toContain(
+        "queue: 'star.ts' uses `export * from`. Void does not read consumer options through it",
+      );
+    } finally {
+      log.mockRestore();
+    }
+  });
+
+  it.each([
+    ['block-comment', "export /* shared */ * from './_options';"],
+    ['line-comment', "export // shared\n* from './_options';"],
+    ['line-breaks', "export\n*\nfrom './_options';"],
+  ])(
+    'warns about export * spelled with %s when the file names no option',
+    (spelling, statement) => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+      try {
+        writeFileSync(
+          join(queuesDir, `${spelling}.ts`),
+          `${statement}\nexport default async () => {};`,
+        );
+        scanQueuesSync(queuesDir);
+        expect(log).toHaveBeenCalledOnce();
+        expect(log.mock.calls[0][0]).toContain(`queue: '${spelling}.ts' uses \`export * from\`.`);
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+
+  it('does not warn about export * when the queue file declares every option', () => {
+    const log = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      writeFileSync(
+        join(queuesDir, 'complete.ts'),
+        `export * from './_helpers';
+export const maxBatchSize = 1;
+export const maxBatchTimeout = 2;
+export const maxRetries = 3;
+export const retryDelay = 4;
+export default async () => {};`,
+      );
+      expect(scanQueuesSync(queuesDir)).toMatchObject([{ maxBatchSize: 1, retryDelay: 4 }]);
+      expect(log).not.toHaveBeenCalled();
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it('normalizes nested paths while preserving binding derivation', () => {

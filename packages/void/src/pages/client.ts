@@ -1,12 +1,14 @@
 /// <reference lib="dom" />
 
 import type { ActionUrl, ResolveActionBody, ResolveActionParams, RouteUrlInput } from 'void/routes';
-import { toUrlString } from '../runtime/route-url.ts';
-import { interpolateRouteParams } from '../runtime/route-url.ts';
+import { toUrlString } from '../runtime/routing/route-url.ts';
+import { interpolateRouteParams } from '../runtime/routing/route-url.ts';
+import { withPageQuery } from './action-key.ts';
 import {
   VoidActionError,
   isAbortError,
   isCallSiteActionError,
+  isVoidActionError,
   type ActionResult,
 } from './action-result.ts';
 import {
@@ -19,7 +21,7 @@ import {
   type PrefetchOptions,
 } from './navigation-engine.ts';
 import type { LinkPrefetchValue } from './prefetch.ts';
-import { ISLAND_FRONTMATTER_ID } from './serialize.ts';
+import { deserializePageData, ISLAND_FRONTMATTER_ID } from './serialize.ts';
 import { isSameOrigin } from './url.ts';
 
 export { getValidationErrors, isModifiedEvent, mergeDataIntoHref } from './adapter-helpers.ts';
@@ -283,7 +285,15 @@ export async function submitAction(
   router: VoidRouter,
   url: string,
   options: VisitOptions,
+  errorOptions?: { throwOnError?: boolean },
 ): Promise<ActionResult> {
+  // An action on the page it runs on re-renders that page, so its loader sees the
+  // page query and the URL, scroll and history entry stay as they are.
+  const page = withPageQuery(url, window.location);
+  if (page.preserved) {
+    url = page.url;
+    options = { ...options, _preservedQuery: page.preserved };
+  }
   try {
     const pageData = await router.visit(url, options);
     if (
@@ -304,7 +314,10 @@ export async function submitAction(
     }
     return { ok: true, pageData: pageData as PageData };
   } catch (error) {
-    if (isCallSiteActionError(error)) {
+    if (
+      isCallSiteActionError(error) ||
+      (errorOptions?.throwOnError === false && isVoidActionError(error))
+    ) {
       return { ok: false, error };
     }
     throw error;
@@ -613,12 +626,16 @@ export function initIslands(
   // Islands hydrate as separate roots, so they read the page frontmatter here
   // to match what useFrontmatter() returned during server rendering.
   const frontmatterText = document.getElementById(ISLAND_FRONTMATTER_ID)?.textContent;
-  const frontmatter = frontmatterText ? JSON.parse(frontmatterText) : {};
+  const frontmatter = frontmatterText
+    ? deserializePageData<Record<string, unknown>>(frontmatterText)
+    : {};
   const hydrate = (el: Element, mod: unknown, props: Record<string, unknown>) =>
     hydrateFn(el, mod, props, frontmatter);
   document.querySelectorAll('[data-island]').forEach((el) => {
     const id = el.getAttribute('data-island')!;
-    const props = JSON.parse(el.getAttribute('data-props') || '{}');
+    const props = deserializePageData<Record<string, unknown>>(
+      el.getAttribute('data-props') || '{}',
+    );
     const strategy = el.getAttribute('data-hydrate') || 'load';
     const loader = islands[id];
     if (loader) {
@@ -638,3 +655,12 @@ export {
   type FormSubmitOptions,
   type IslandFormState,
 } from './form-presentation.ts';
+
+export type { PageError, ErrorPageProps } from './types.ts';
+export {
+  pageBoundarySlots,
+  clientPageError,
+  showTerminalPageError,
+  type ClientPageBoundary,
+} from './boundary-client.ts';
+export type { BoundaryManifest } from './boundary-plans.ts';

@@ -1,4 +1,5 @@
 ---
+description: 'Build an app, provision its resources, apply migrations, and publish it.'
 outline: deep
 ---
 
@@ -7,7 +8,7 @@ outline: deep
 ## `void deploy` {#void-deploy}
 
 ```
-void deploy [--project <name>] [--dir <path>] [--spa] [--skip-build] [--debug]
+void deploy [--project <name>] [--dir <path>] [--spa] [--skip-build] [--skip-migrations] [--debug]
 void deploy [--platform <cloudflare|void>] [--require-email]
 void deploy --platform cloudflare --atomic
 void deploy --platform cloudflare --provision
@@ -34,12 +35,17 @@ For Drizzle projects, deploy performs a read-only schema drift check. If a new m
 | `--dir <path>`                  | Deploy a pre-built static directory (skips build)                                                                                                                    |
 | `--spa`                         | Use SPA mode instead of SSG for static deploys                                                                                                                       |
 | `--skip-build`                  | Skip the build step; on Cloudflare this is supported for static/SPA/SSG deploys only                                                                                 |
+| `--skip-migrations`             | Deploy without applying application or authentication SQL migrations; supported on Cloudflare and Void platforms                                                     |
 | `--require-email`               | Fail when email cannot be set up instead of deploying without it; requires `--platform cloudflare`                                                                   |
 | `--provision`                   | Run resource provisioning again even when every resource exists, for example to enable D1 read replication on an existing database; requires `--platform cloudflare` |
 | `--atomic`                      | Publish an existing Durable Object Worker directly; readiness is checked after traffic changes                                                                       |
 | `--debug`                       | Mirror the structured deploy log to stderr (also written to `~/.void/logs/`)                                                                                         |
 
 `--atomic` applies to one deployment. For an existing Durable Object Worker that consistently cannot stage, set `deploy: { cloudflare: { mode: 'atomic' } }` in `void.config.ts` so plain `void deploy` uses atomic publication. The default is `staged`.
+
+Use `--skip-migrations` when you run migrations separately or share a database with a preview. The code must work with the database's current schema. The next deploy without this flag applies pending migrations.
+
+Keep migration files and schema validation in place. This option skips application and authentication SQL; Durable Object class migrations still run when publishing code. If a Void platform doesn't support the flag, upgrade it first.
 
 Every deploy writes a JSONL log to `~/.void/logs/`. Failures print the log path and relevant details. Use `--debug` or `VOID_DEPLOY_DEBUG=1` to mirror it to stderr.
 
@@ -90,12 +96,15 @@ Void signs you in through your browser when needed and saves the selected accoun
 | ------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
 | `--dir`, `--spa`               | Deploy static output through a small Worker and Workers Assets                                                                                |
 | `--skip-build`                 | Reuse existing static, SPA, or SSG output; unavailable for Worker apps                                                                        |
+| `--skip-migrations`            | Skip database migrations; existing PostgreSQL/MySQL Hyperdrive bindings do not require `DATABASE_URL` just to skip SQL                        |
 | `--project`                    | Unavailable; the Worker and account come from `void.config.ts` and `void.lock.json`                                                           |
 | Named environments             | Unavailable; use the top-level `cloudflare` config                                                                                            |
 | `CLOUDFLARE_WORKERS_SUBDOMAIN` | Needed in fresh CI when a workers.dev Worker has no preview URL; cached locally after a deploy. It does not apply when `workers_dev` is false |
 | `CF_ACCESS_READINESS_ORIGIN`   | Lets Access credentials reach the readiness check on a route or Custom Domain, for example `https://app.example.com`                          |
 | `--require-email`              | Fail instead of deploying without email when the email step cannot run, as in CI                                                              |
 | `DATABASE_URL`                 | Required in the deploy environment for PostgreSQL or MySQL provisioning and migrations                                                        |
+
+After `--skip-migrations`, direct Cloudflare deployment history shows the applied migration state as unknown. Rolling back code doesn't reverse database changes.
 
 The token needs Workers Scripts: Edit, read access to bound resources, and edit access to products Void provisions. Commit `void.lock.json` after the first deploy before using other machines or CI.
 

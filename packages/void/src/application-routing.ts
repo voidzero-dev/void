@@ -8,6 +8,7 @@ export async function completeApplicationAnalysis(
   analysis: ApplicationAnalysis,
 ): Promise<CompleteApplicationAnalysis> {
   const scan = await scanRoutes(analysis.root, {
+    trailingSlash: analysis.config.routing?.trailingSlash,
     output: analysis.config.output,
     paths: analysis.paths,
     // A framework app's pages/ follows that framework's rules, not Void Pages.

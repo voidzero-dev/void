@@ -17,7 +17,7 @@ import {
   type CloudflareTriggerConfig,
 } from '../../src/index.ts';
 import { operationFixture } from '../operation-fixture.ts';
-import { voidSecretDraftVersion } from '../secret-draft-fixture.ts';
+import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';
 
 const CURRENT = '11111111-1111-4111-8111-111111111111';
 const NEXT = '22222222-2222-4222-8222-222222222222';
@@ -58,7 +58,10 @@ function readConfigArg(args: Array<string>): Record<string, unknown> {
   return JSON.parse(readFileSync(args[args.indexOf('-c') + 1]!, 'utf8')) as Record<string, unknown>;
 }
 
-function sdkDraftActivation(source: Record<string, unknown> = voidSecretDraftVersion()) {
+function sdkDraftActivation(
+  source: Record<string, unknown> = voidSecretDraftVersion(),
+  listed: Record<string, unknown> = { annotations: { 'workers/triggered_by': 'secret' } },
+) {
   const events: Array<string> = [];
   const operations: Array<CloudflareOperation> = [];
   const message = encodeCloudflareVersionMessage([], triggersWith());
@@ -81,9 +84,7 @@ function sdkDraftActivation(source: Record<string, unknown> = voidSecretDraftVer
             {
               id: CURRENT,
               number: 2,
-              annotations: ordinary
-                ? { 'workers/message': message }
-                : { 'workers/triggered_by': 'secret' },
+              ...(ordinary ? { annotations: { 'workers/message': message } } : listed),
             },
             ...(uploaded
               ? [{ id: NEXT, number: 3, annotations: { 'workers/message': message } }]
@@ -624,6 +625,47 @@ describe('Cloudflare version activation', () => {
       ),
     ).toBe(false);
   });
+
+  it('publishes over the placeholder that the secret transport deployed in one request', async () => {
+    const draft = apiSecretDraftVersion();
+    const fixture = sdkDraftActivation(draft, {
+      source: draft.source,
+      annotations: draft.annotations,
+    });
+    const result = await activateCloudflareVersion(fixture.options);
+    expect(result).toMatchObject({ ok: true, versionId: NEXT, previousVersionId: CURRENT });
+    expect(fixture.events.slice(0, 3)).toEqual(['source', 'pin', 'publish']);
+    expect(fixture.pinActiveSecrets).toHaveBeenCalledExactlyOnceWith(CURRENT, [
+      { name: 'TOKEN', type: 'secret_text' },
+    ]);
+    expect(fixture.operations.filter((op) => op.type === 'worker.deploy')).toHaveLength(1);
+  });
+
+  it.each([
+    [
+      'application code',
+      { modules: [{ ...apiSecretDraftVersion().modules[0], content_base64: 'YXBw' }] },
+    ],
+    ['another source', { source: 'dash' }],
+    [
+      'another message',
+      {
+        annotations: { 'workers/message': 'release', 'workers/triggered_by': 'create_version_api' },
+      },
+    ],
+  ])(
+    'does not treat an API-deployed version with %s as the placeholder',
+    async (_label, change) => {
+      const draft: Record<string, unknown> = { ...apiSecretDraftVersion(), ...change };
+      const fixture = sdkDraftActivation(draft, {
+        source: draft.source,
+        annotations: draft.annotations,
+      });
+      await activateCloudflareVersion(fixture.options);
+      expect(fixture.operations.some((op) => op.type === 'worker.deploy')).toBe(false);
+      expect(fixture.events).not.toContain('publish');
+    },
+  );
 
   it('publishes an exact private SDK draft once, proving secrets and callbacks before readiness', async () => {
     const fixture = sdkDraftActivation({
@@ -1191,6 +1233,70 @@ describe('Cloudflare version activation', () => {
     );
     expect(commands.filter((command) => command === 'deployments status')).toHaveLength(4);
   });
+
+  it.each(['recovers', 'unavailable', 'concurrent', 'uploader-changed'] as const)(
+    'bounds retries of an unavailable post-upload version list (%s)',
+    async (outcome) => {
+      const base = runner();
+      let uploaded = false;
+      let reads = 0;
+      let uploaderVerified = true;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list' && uploaded) {
+          reads++;
+          if (reads === 1 || outcome === 'unavailable') {
+            return { status: 1, stdout: '', stderr: 'Version list temporarily unavailable' };
+          }
+          if (outcome === 'concurrent') {
+            return ok(
+              JSON.stringify([
+                { id: CURRENT, number: 1 },
+                { id: NEXT, number: 2 },
+                { id: CONCURRENT, number: 3 },
+              ]),
+            );
+          }
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async () => {
+        if (outcome === 'uploader-changed') {
+          uploaderVerified = false;
+        }
+      });
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => uploaderVerified,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+      });
+      expect(result).toMatchObject(
+        outcome === 'recovers'
+          ? { ok: true, versionId: NEXT }
+          : {
+              ok: false,
+              reason:
+                outcome === 'unavailable'
+                  ? 'inheritance-source-unavailable'
+                  : outcome === 'concurrent'
+                    ? 'inheritance-source-changed'
+                    : 'uploader-changed',
+            },
+      );
+      expect(reads).toBe(outcome === 'unavailable' ? 3 : outcome === 'uploader-changed' ? 1 : 2);
+      expect(sleep.mock.calls).toEqual(outcome === 'unavailable' ? [[250], [500]] : [[250]]);
+      expect(runWrangler.mock.calls.filter(([args]) => args[1] === 'upload')).toHaveLength(1);
+      expect(runWrangler.mock.calls.some(([args]) => args[1] === 'deploy')).toBe(
+        outcome === 'recovers',
+      );
+    },
+  );
 
   it('links an existing version without publishing routes or Worker settings', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-link-version-'));
@@ -2081,6 +2187,13 @@ describe('Cloudflare version activation', () => {
     });
     expect(parseCloudflareVersionMessage('manual deploy')).toBeNull();
     expect(parseCloudflareVersionMessage('void:{bad')).toBeNull();
+  });
+
+  it('preserves trigger snapshots when applied migration history is unknown', () => {
+    const triggerConfig = triggersWith({ preview_urls: false });
+    expect(
+      parseCloudflareVersionMessage(encodeCloudflareVersionMessage(null, triggerConfig)),
+    ).toEqual({ schema: 2, migrations: null, triggerConfig });
   });
 
   it('round-trips an upload digest only when it is a valid SHA-256 value', () => {

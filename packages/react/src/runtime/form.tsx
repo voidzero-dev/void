@@ -1,6 +1,6 @@
 import {
-  useEffect,
-  useState,
+  useCallback,
+  type FormEvent,
   type FormHTMLAttributes,
   type ReactElement,
   type ReactNode,
@@ -9,7 +9,6 @@ import {
   formErrorMessage,
   formRetryMessage,
   formSubmissionBlocked,
-  scheduleFormRetry,
   type FormModel,
   type FormMethod,
   type VoidActionError,
@@ -31,22 +30,18 @@ export function Form({
   children,
   ...props
 }: FormProps): ReactElement {
-  const [now, setNow] = useState(Date.now);
-  useEffect(() => scheduleFormRetry(form.error, () => setNow(Date.now())), [form.error]);
   const message = formErrorMessage(form);
   const retry = formRetryMessage(form.error);
-  const blocked = formSubmissionBlocked(form, now);
+  const onSubmit = useCallback(
+    (event: FormEvent<HTMLFormElement>) => {
+      if (formSubmissionBlocked(form)) {
+        event.preventDefault();
+      }
+    },
+    [form],
+  );
   return (
-    <form
-      {...props}
-      action={form[method]}
-      aria-busy={form.pending}
-      onSubmit={(event) => {
-        if (blocked) {
-          event.preventDefault();
-        }
-      }}
-    >
+    <form {...props} action={form[method]} aria-busy={form.pending} onSubmit={onSubmit}>
       {message && (
         <div role="alert" data-void-form-error>
           {form.error && renderError ? renderError(form.error) : message}

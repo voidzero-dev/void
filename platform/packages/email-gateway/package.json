@@ -10,7 +10,8 @@
   "dependencies": {
     "@void/platform": "workspace:*",
     "@voidcloud/api": "workspace:*",
-    "@voidcloud/proxy": "workspace:*"
+    "@voidcloud/proxy": "workspace:*",
+    "email-validator": "^2.0.4"
   },
   "devDependencies": {
     "@cloudflare/workers-types": "catalog:platform",

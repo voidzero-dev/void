@@ -1,4 +1,4 @@
-import { type JwtPayload, signJwt, verifyJwt } from './jwt.ts';
+import { signJwt } from './jwt.ts';
 
 /**
  * Fallback TTL for deploy tokens when a caller does not size one explicitly —
@@ -75,14 +75,6 @@ export async function signDeployToken(
   );
 }
 
-/**
- * Verifies a deploy token, returning its payload or `null` when invalid,
- * expired, or not an `aud:'deploy'` token.
- */
-export async function verifyDeployToken(token: string, secret: string): Promise<JwtPayload | null> {
-  return verifyJwt(token, secret, 'deploy');
-}
-
 /** Mint the bearer value for a durable, independently revocable CI credential. */
 export async function signProjectCredentialToken(
   input: {
@@ -141,12 +133,4 @@ export async function signPrerenderToken(
     secret,
     { ttlSeconds: opts?.ttlSeconds ?? PRERENDER_TOKEN_TTL_SECONDS },
   );
-}
-
-/** Verify a project-scoped prerender token. */
-export async function verifyPrerenderToken(
-  token: string,
-  secret: string,
-): Promise<JwtPayload | null> {
-  return verifyJwt(token, secret, 'prerender');
 }

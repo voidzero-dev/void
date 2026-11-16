@@ -1,4 +1,5 @@
 ---
+description: 'Query D1, PostgreSQL, or MySQL with the Drizzle client from void/db, and seed data from a script.'
 outline: deep
 ---
 
@@ -36,6 +37,8 @@ import { createDb } from 'void/db';
 const db = createDb(env.MY_OTHER_DB);
 ```
 
+For a fresh D1 read, pass `{ session: 'first-primary' }` and create the client inside the request. The default, `'first-unconstrained'`, allows the first query to use a replica. Both keep your schema and query types. See [Read replication](../../guide/database/d1.md#read-replication).
+
 For PostgreSQL and MySQL projects, pass a connection string.
 
 ```ts
@@ -48,7 +51,10 @@ const db = createDb('postgres://user:password@host:5432/app');
 
 ```ts
 // D1
-function createDb(d1: D1Database): DrizzleD1Database<Schema>;
+function createDb(
+  d1: D1Database,
+  options?: { session?: D1SessionConstraint },
+): DrizzleD1Database<Schema>;
 
 // PostgreSQL
 function createDb(connectionString: string): NodePgDatabase<Schema>;
@@ -66,6 +72,23 @@ import { db, eq, and, or, desc, like, inArray, sql } from 'void/db';
 ```
 
 **Full list:** `sql`, `eq`, `ne`, `gt`, `gte`, `lt`, `lte`, `and`, `or`, `not`, `desc`, `asc`, `like`, `ilike`, `notLike`, `inArray`, `notInArray`, `isNull`, `isNotNull`, `between`, `notBetween`, `exists`, `notExists`, `count`, `sum`, `avg`, `min`, `max`.
+
+Use the exported Drizzle types `SQL`, `SQLWrapper`, `AnyColumn`, and `BatchItem` to type query helpers and batches:
+
+```ts
+import { posts } from '@schema';
+import { db, sql, type BatchItem, type SQL, type SQLWrapper } from 'void/db';
+
+function contains(column: SQLWrapper, text: string): SQL {
+  return sql`instr(${column}, ${text}) > 0`;
+}
+
+// D1 only: `db.batch()` takes at least one query.
+const writes: [BatchItem<'sqlite'>, ...Array<BatchItem<'sqlite'>>] = [
+  db.update(posts).set({ published: true }).where(contains(posts.title, 'void')),
+];
+await db.batch(writes);
+```
 
 ## Seeding {#seeding}
 

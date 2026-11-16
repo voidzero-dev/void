@@ -5,8 +5,8 @@ import {
   type BetterAuthDBSchema,
   type DBFieldAttribute,
 } from 'better-auth/db';
-import type { VoidAuthConfig } from '../runtime/auth.ts';
-import type { VoidAuthRuntimeOptions } from '../runtime/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from '../runtime/auth/better-auth-shared.ts';
+import type { VoidAuthConfig } from '../runtime/auth/index.ts';
 import {
   VOID_EMAIL_AUTH_PROVIDER,
   isVoidSocialAuthProvider,
@@ -55,6 +55,7 @@ type GenerateVoidAuthDatabaseModuleOptions = {
   dialect: 'sqlite' | 'postgresql' | 'mysql';
   schemaImportPath: string;
   drizzleAdapterPath: string;
+  d1BindingName?: string;
 };
 
 function resolveEmailAndPassword(
@@ -180,21 +181,27 @@ function usesUnboundedMySqlText(
 }
 
 /**
- * The default of a required field when the database can store it as a literal.
+ * The default of a field when it can be written as a literal.
  * Function, date and JSON defaults have none.
  */
-function resolveFixedDefault(
-  field: DBFieldAttribute,
-): Pick<VoidAuthMigrationField, 'defaultValue'> {
-  if (field.required === false || field.type === 'date' || isJsonField(field)) {
-    return {};
+function resolveLiteralDefault(field: DBFieldAttribute): string | number | boolean | undefined {
+  if (field.type === 'date' || isJsonField(field)) {
+    return undefined;
   }
   const value = field.defaultValue;
   return typeof value === 'string' ||
     typeof value === 'boolean' ||
     (typeof value === 'number' && Number.isFinite(value))
-    ? { defaultValue: value }
-    : {};
+    ? value
+    : undefined;
+}
+
+/** The default of a required field when the database can store it as a literal. */
+function resolveFixedDefault(
+  field: DBFieldAttribute,
+): Pick<VoidAuthMigrationField, 'defaultValue'> {
+  const value = field.required === false ? undefined : resolveLiteralDefault(field);
+  return value === undefined ? {} : { defaultValue: value };
 }
 
 function resolveReferenceFieldName(
@@ -301,7 +308,23 @@ function createColumnBuilder(
   }
 }
 
+function hasBuiltInUpdateHook(options: BetterAuthOptions, model: string, field: string): boolean {
+  if (
+    field !== 'updatedAt' ||
+    (model !== 'user' && model !== 'session' && model !== 'account' && model !== 'verification')
+  ) {
+    return false;
+  }
+  // Only Better Auth's built-in hooks are known to mean the current time.
+  // A configured field replaces that definition, including its callback.
+  return (
+    options[model]?.additionalFields?.updatedAt === undefined &&
+    !options.plugins?.some((plugin) => plugin.schema?.[model]?.fields.updatedAt !== undefined)
+  );
+}
+
 function createColumnDefinition(
+  options: BetterAuthOptions,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   schema: BetterAuthDBSchema,
   idStrategy: AuthIdStrategy,
@@ -359,6 +382,19 @@ function createColumnDefinition(
   }
   if (field.unique && actualFieldName !== 'id') {
     parts.push('.unique()');
+  }
+  // Better Auth applies these on its own writes. Direct Drizzle writes need them on the column,
+  // and these runtime-only modifiers leave the DDL, and so existing migrations, unchanged.
+  const literalDefault = resolveLiteralDefault(field);
+  if (literalDefault !== undefined) {
+    parts.push(`.$defaultFn(() => ${JSON.stringify(literalDefault)})`);
+  }
+  if (
+    field.onUpdate &&
+    field.type === 'date' &&
+    hasBuiltInUpdateHook(options, defaultModelName, defaultFieldName)
+  ) {
+    parts.push('.$onUpdate(() => new Date())');
   }
 
   return parts.join('');
@@ -466,6 +502,7 @@ export function generateVoidAuthDrizzleSchema(
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(
+        options,
         runtime.dialect,
         schema,
         idStrategy,
@@ -477,6 +514,7 @@ export function generateVoidAuthDrizzleSchema(
       ...fieldEntries.map(([defaultFieldName, field]) => {
         const actualFieldName = resolveFieldName(defaultFieldName, field);
         return `  ${JSON.stringify(actualFieldName)}: ${createColumnDefinition(
+          options,
           runtime.dialect,
           schema,
           idStrategy,
@@ -583,11 +621,28 @@ export function generateVoidAuthDatabaseModule(
   const schemaImport = JSON.stringify(options.schemaImportPath);
   const provider =
     options.dialect === 'postgresql' ? 'pg' : options.dialect === 'mysql' ? 'mysql' : 'sqlite';
+  const database =
+    options.dialect === 'sqlite'
+      ? [
+          'import { createDb as __voidCreateDb } from "void/db";',
+          'import { getRuntimeRequestResource, requireRuntimeBinding } from "void/_env";',
+          '',
+          '// Keep auth reads fresh without sharing a D1 session across requests.',
+          'const __voidAuthDbKey = {};',
+          `const __voidCreateAuthDb = () => __voidCreateDb(requireRuntimeBinding<D1Database>(${JSON.stringify(options.d1BindingName ?? 'DB')}), { session: "first-primary" });`,
+          'const __voidDb = new Proxy({} as ReturnType<typeof __voidCreateDb>, {',
+          '  get(_, prop) {',
+          '    const db = getRuntimeRequestResource(__voidAuthDbKey, __voidCreateAuthDb, __voidCreateAuthDb);',
+          '    return Reflect.get(db, prop);',
+          '  },',
+          '});',
+        ].join('\n')
+      : 'import { db as __voidDb } from "void/db";';
 
   return [
     '// Auto-generated by void — do not edit',
     `import { drizzleAdapter } from ${JSON.stringify(options.drizzleAdapterPath)};`,
-    `import { db as __voidDb } from "void/db";`,
+    database,
     `import { schema as __voidAuthSchema } from ${schemaImport};`,
     '',
     '// Better Auth reads Drizzle metadata while creating the adapter.',

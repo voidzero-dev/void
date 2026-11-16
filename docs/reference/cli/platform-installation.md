@@ -1,4 +1,5 @@
 ---
+description: 'Install a Void platform from the CLI, set its domain, and run its lifecycle commands.'
 outline: deep
 ---
 
@@ -26,6 +27,7 @@ void platform install [options] [--yes]
 | `--no-dedicated-zone`                     | Skip zone-wide application catch-all routes                                          |
 | `--custom-domains`                        | Let projects add their own domains; needs a dedicated zone                           |
 | `--runtime-logs <full\|minimal>`          | `minimal` keeps request URLs and log and exception messages out of runtime logs      |
+| `--storage-location <hint\|automatic>`    | Default location hint for new project R2 buckets; `automatic` clears it              |
 | `--control-plane-domain <domain>`         | Optional API custom hostname; defaults to `workers.dev`                              |
 | `--no-control-plane-domain`               | Use the default `workers.dev` API hostname                                           |
 | `--dashboard-url <origin>`                | HTTPS origin of an optional dashboard deployed separately                            |
@@ -102,7 +104,7 @@ Use these commands to recover, update, pause, or remove an installation:
 
 ```sh
 void platform discover [--account <id>] [--installation <id-or-name>]
-void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--runtime-logs <full|minimal>] [--plan] [--yes]
+void platform upgrade [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>] [--plan] [--yes]
 void platform rollback [id] --runtime <earlier-path> [--from-runtime <current-path>] [--plan] [--yes]
 void platform repair [id] [--runtime <path>] [--dashboard-url <origin>] [--custom-domains] [--auth-config <path>] [--plan] [--yes]
 void platform disable [id] [--plan] [--yes]
@@ -115,6 +117,8 @@ void platform uninstall [id] [--plan] [--purge-data | --purge-resources] [--yes]
 Use the installation slug shown beside its name in `void platform list`. Installation IDs and saved connection IDs also work. Lifecycle commands require local installation records; use `discover` to restore them on another machine. Omit `id` when only one installation is configured, or choose from the interactive picker. Non-interactive commands need a slug or ID when several installations exist. Commands that make changes also require `--yes`; `--plan` only previews changes.
 
 `upgrade --runtime-logs <full|minimal>` changes what runtime logs record; without it, upgrades keep the current setting. See [Choose what runtime logs record](../../guide/platform/installation/setup.md#runtime-logs).
+
+`upgrade --storage-location <hint|automatic>` changes the default location hint for new project R2 buckets. Omission keeps the current setting; `automatic` clears it. Existing buckets stay in place. See [Choose a default storage location](../../guide/platform/installation/setup.md#choose-a-default-storage-location).
 
 To add or explicitly change a separately deployed dashboard after installation,
 use `repair --dashboard-url <origin>` or `upgrade --dashboard-url <origin>`.

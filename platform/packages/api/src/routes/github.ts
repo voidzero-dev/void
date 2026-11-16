@@ -1621,7 +1621,6 @@ export const githubProjectRoutes = new Hono<ApiEnv>()
     return context.json(publicGitHubConnection(result.connection));
   })
 
-  // Read the project's connection.
   .get('/:id/github', async (context) => {
     const projectId = context.req.param('id');
     const access = await requireProjectRouteCapability(context, projectId, 'read');
@@ -1637,7 +1636,6 @@ export const githubProjectRoutes = new Hono<ApiEnv>()
     return context.json(publicGitHubConnection(connection));
   })
 
-  // Update branch / build executor.
   .patch('/:id/github', async (context) => {
     const projectId = context.req.param('id');
     const access = await requireProjectRouteCapability(context, projectId, 'settings');

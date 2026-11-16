@@ -1,12 +1,19 @@
 import { eq, sql } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vite-plus/test';
+import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import { FAST_CRON, scheduled } from '../../src/index.ts';
 import { transferOperatorProjectOwner } from '../../src/operator/tenant-service.ts';
 import {
   proxyTokenRotationTarget,
   requestProxyTokenRotation,
 } from '../../src/proxy-token-rotation.ts';
-import { builds, domains, projectCleanupJobs, projects } from '../../src/schema.ts';
+import {
+  builds,
+  domains,
+  projectAiLogging,
+  projectCleanupJobs,
+  projects,
+} from '../../src/schema.ts';
 import {
   setupEnv,
   teardownEnv,
@@ -755,5 +762,43 @@ describe('scheduled() proxy token rotations', () => {
     const projectId = await dueRotation();
     await scheduled(mockController, { ...makeBindings(env), ...overrides }, mockCtx);
     expect(await rotationState(projectId)).toEqual({ gen: 0, phase: 'requested' });
+  });
+});
+
+describe('scheduled() AI logging sweep', () => {
+  const fastController = { cron: FAST_CRON, scheduledTime: Date.now() } as ScheduledController;
+
+  /** A core self-hosted install: no optional module may gate the sweep. */
+  function coreBindings() {
+    return {
+      ...makeBindings(env),
+      PLATFORM_CAPABILITIES: JSON.stringify({
+        ai: true,
+        customDomains: false,
+        email: false,
+        githubActions: false,
+        githubOAuth: true,
+        googleOAuth: false,
+        managedBuilds: false,
+        sandbox: false,
+      }),
+    } as unknown as Parameters<typeof scheduled>[1];
+  }
+
+  it('repairs a missing AI logging key on the hourly cron, not the fast one', async () => {
+    const { id } = await createTestUser(env.db, 'ai-sweep-owner');
+    const project = await createTestProject(env.db, id);
+    await env.db.insert(projectAiLogging).values({ project_id: project.id, mode: 'off' });
+    const key = aiLoggingKey(project.id);
+    await env.ROUTING.delete(key);
+
+    await scheduled(fastController, coreBindings(), mockCtx);
+    expect(await env.ROUTING.get(key)).toBeNull();
+
+    await scheduled(mockController, coreBindings(), mockCtx);
+    expect(await env.ROUTING.getWithMetadata(key)).toMatchObject({
+      value: 'off',
+      metadata: { mode: 'off' },
+    });
   });
 });

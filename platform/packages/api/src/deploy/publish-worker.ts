@@ -165,7 +165,6 @@ export async function publishWorkerDeployment(input: {
     input.currentStatus = 'cutover';
   }
 
-  // Queue setup
   input.currentStep = 'queue_setup';
   markPhase('queue_setup');
   const queueNames = (manifest.queues ?? []).map((q) => q.name);
@@ -359,7 +358,6 @@ export async function publishWorkerDeployment(input: {
   }
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
-  // Routing switch
   await snapshotCronState();
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
   markPhase('routing_switch');

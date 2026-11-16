@@ -39,7 +39,12 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
 
       // Skip the pages-client bundle when all pages are island pages
       const pageScan = await scan();
-      if (!pageScan?.pages.some((page) => !page.island)) {
+      if (
+        !pageScan?.pages.some((page) => !page.island) &&
+        !pageScan?.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        )
+      ) {
         return;
       }
 
@@ -57,6 +62,7 @@ export function pagesPlugin(pagesDir: string, options?: PagesPluginOptions): Plu
 
 function generateRendererModule(scan: PageScanResult, pagesDir: string): string {
   return `
+import { PageErrorBoundary } from "@void/solid/pages-boundary";
 import { renderToStringAsync, generateHydrationScript } from "solid-js/web";
 import { createComponent } from "solid-js";
 import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext } from "@void/solid";
@@ -89,14 +95,20 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
                     return createComponent(ParamsContext.Provider, {
                       value: pageObj.params || {},
                       get children() {
-                        // Build layout chain inside providers so contexts are available
-                        let element = createComponent(PageComponent, pageObj.props);
-                        for (let i = layoutComponents.length - 1; i >= 0; i--) {
-                          const Layout = layoutComponents[i];
-                          const child = element;
-                          element = createComponent(Layout, { get children() { return child; } });
+                        function renderSlot(index) {
+                          const content = () => {
+                            if (index < layoutComponents.length) {
+                              const child = renderSlot(index + 1);
+                              return createComponent(layoutComponents[index], { get children() { return child; } });
+                            }
+                            return createComponent(PageComponent, pageObj.props);
+                          };
+                          if (!Object.keys(boundaryManifest.plans).length) return content();
+                          return createComponent(PageErrorBoundary, { server: true, generation: 0, onFailure() {}, get children() { return content(); } });
                         }
-                        return element;
+                        return Object.keys(boundaryManifest.plans).length
+                        ? createComponent(PageErrorBoundary, { server: true, generation: 0, onFailure() {}, get children() { return renderSlot(0); } })
+                        : renderSlot(0);
                       }
                     });
                   }
@@ -119,9 +131,9 @@ export async function renderPage(pageObj, assetTags, requestUrl) {
 
   return \`<!doctype html>
 <html\${htmlAttrs}>
-<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}\${generateHydrationScript()}</head>
+<head>\${headHtml}\${assetTags.css}\${assetTags.preloads}\${pageObj.documentOnly ? "" : generateHydrationScript()}</head>
 <body\${bodyAttrs}>
-  <script id="__VOID_PAGE_DATA__" type="application/json">\${pageData}</script>
+  \${pageObj.documentOnly ? "" : '<script id="__VOID_PAGE_DATA__" type="application/json">' + pageData + '</script>'}
   <div id="app">\${html}</div>
   \${assetTags.body}
 </body>
@@ -142,8 +154,9 @@ function generateClientEntry(
 import { createSignal, createComponent, createMemo, mergeProps, untrack, batch } from "solid-js";
 import { createMutable } from "solid-js/store";
 import { hydrate, render } from "solid-js/web";
+import { PageErrorBoundary } from "@void/solid/pages-boundary";
 import { SharedContext, ErrorsContext, ParamsContext, RouterContext, NavigationContext, setActionRouter } from "@void/solid";
-import { createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
+import { pageBoundarySlots, showTerminalPageError, createRouterFacade, createVoidRouter, idleNavigationState } from "void/pages-client";
 import { parseCacheFor } from "void/pages-prefetch";
 
 ${generateComponentManifest(scan, pagesDir)}
@@ -151,6 +164,7 @@ ${generateComponentManifest(scan, pagesDir)}
 // A new page object re-creates the page; props alone update it in place.
 const [page, setPage] = createSignal({ component: null });
 const [pageProps, setPageProps] = createSignal({});
+const [boundaryGeneration, setBoundaryGeneration] = createSignal(0);
 const [layouts, setLayouts] = createSignal([]);
 const shared = createMutable({});
 const params = createMutable({});
@@ -189,6 +203,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         const current = page();
         const keep = options?.preserveState && current.id === pageData.component && current.component === comp && sameParams(routeParams(), nextParams);
         batch(() => {
+          setBoundaryGeneration(n => n + 1);
           if (!keep) setPage({ component: comp, id: pageData.component });
           setPageProps(pageData.props);
           setLayouts(layoutComps);
@@ -202,7 +217,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
         batch(() => { setPageProps({ ...props }); });
       },
     },
-    components, layoutTree, routeMeta, matchRoute,
+    components, layoutTree, routeMeta, matchRoute, boundaryManifest, dev: import.meta.env.DEV,
     staticPageData: ${!!staticPageData?.enabled},
     staticPageDataFastPath: ${!!staticPageData?.fastPath},
     viewTransitions: ${!!viewTransitions},
@@ -215,7 +230,7 @@ const { router, initialPageData, initialComponent, initialLayouts, start, commit
     onNavigationChange(next) {
       setNavigation(next);
     },
-  });
+  }).catch(error => { if (Object.keys(boundaryManifest.plans).length) showTerminalPageError(); throw error; });
 
 const reactiveRouter = createRouterFacade(router, () => routeUrl(), () => routeParams());
 
@@ -231,10 +246,21 @@ batch(() => {
   setRouteParams(initialPageData.params || {});
 });
 
+function renderSlot(depth) {
+  if (!Object.keys(boundaryManifest.plans).length) return renderSlotContent(depth);
+  return createComponent(PageErrorBoundary, {
+    get boundaries() { return pageBoundarySlots(boundaryManifest, page().id, components).filter(b => b.depth === depth); },
+    get generation() { return boundaryGeneration(); },
+    dev: import.meta.env.DEV,
+    onFailure() { router.flush(routeUrl()); },
+    get children() { return renderSlotContent(depth); },
+  });
+}
+
 // Each slot re-renders only when its own layout or page changes, so
 // layouts above it keep their state. The inner slot is created before its
 // layout to match the server render order for hydration.
-function renderSlot(depth) {
+function renderSlotContent(depth) {
   const entry = createMemo(() => {
     const list = layouts();
     return depth < list.length ? list[depth] : page();
@@ -267,7 +293,9 @@ function App() {
                   return createComponent(NavigationContext.Provider, {
                     value: navigation,
                     get children() {
-                      return renderSlot(0);
+                      return Object.keys(boundaryManifest.plans).length
+                        ? createComponent(PageErrorBoundary, { terminal: true, get url() { return routeUrl(); }, generation: 0, onFailure() { router.flush(routeUrl()); }, get children() { return renderSlot(0); } })
+                        : renderSlot(0);
                     }
                   });
                 }

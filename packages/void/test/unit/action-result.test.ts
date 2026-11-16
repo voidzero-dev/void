@@ -1,5 +1,5 @@
 import { HTTPException } from 'hono/http-exception';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createActionErrorFromResponse } from '../../src/pages/action-result.ts';
 import {
   VoidActionError,
@@ -14,6 +14,7 @@ import {
 
 declare module 'void/routes' {
   interface PageActionMap {
+    '/__action-test/users/[id]': PageActionMap['/__action-test/users/:id'];
     '/__action-test/static': { body: { name: string } };
     '/__action-test/users/:id': {
       params: { id: string };
@@ -44,6 +45,13 @@ function routerWithVisit(visit: VoidRouter['visit']): VoidRouter {
     flushAll: vi.fn(),
   };
 }
+
+function stubLocation(pathname: string, search = '') {
+  vi.stubGlobal('window', { location: { pathname, search } });
+}
+
+beforeEach(() => stubLocation('/'));
+afterEach(() => vi.unstubAllGlobals());
 
 describe('action result handling', () => {
   it('categorizes expected client errors as call-site errors', () => {
@@ -106,23 +114,58 @@ describe('action result handling', () => {
     expect(result).toEqual({ ok: false, error });
   });
 
-  it('throws structurally equivalent boundary action errors', async () => {
-    const error = {
-      body: 'Boom',
-      message: 'Action failed with 500 Internal Server Error',
-      name: 'VoidActionError',
-      status: 500,
-      statusText: 'Internal Server Error',
-      url: '/users',
-    } as VoidActionError;
-    const router = routerWithVisit(
-      vi.fn(async () => {
-        throw error;
-      }),
-    );
+  it.each([undefined, true])(
+    'throws structurally equivalent boundary action errors with throwOnError: %s',
+    async (throwOnError) => {
+      const error = {
+        body: 'Boom',
+        message: 'Action failed with 500 Internal Server Error',
+        name: 'VoidActionError',
+        status: 500,
+        statusText: 'Internal Server Error',
+        url: '/users',
+      } as VoidActionError;
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
 
-    await expect(submitAction(router, '/users', { method: 'POST' })).rejects.toBe(error);
-  });
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError }),
+      ).rejects.toBe(error);
+    },
+  );
+
+  it.each([401, 403, 405, 428, 500, 503])(
+    'returns HTTP %s inline when throwing is disabled',
+    async (status) => {
+      const error = new VoidActionError({ body: '', status, statusText: '', url: '/users' });
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
+
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError: false }),
+      ).resolves.toEqual({ ok: false, error });
+    },
+  );
+
+  it.each([new Error('Network failed'), new DOMException('Aborted', 'AbortError')])(
+    'still throws non-action errors with throwing disabled ($name)',
+    async (error) => {
+      const router = routerWithVisit(
+        vi.fn(async () => {
+          throw error;
+        }),
+      );
+      await expect(
+        submitAction(router, '/users', { method: 'POST' }, { throwOnError: false }),
+      ).rejects.toBe(error);
+    },
+  );
 
   it('recognizes action errors at every status', () => {
     for (const status of [401, 403, 409, 422, 500]) {
@@ -248,23 +291,26 @@ describe('action clients', () => {
     });
   });
 
-  it('encodes path parameters while preserving named actions and submission options', async () => {
-    const client = createActionClient();
-    const visit = vi.fn(async () => ({ props: {} }));
-    client.setActionRouter(routerWithVisit(visit));
+  it.each(['/__action-test/users/[id]?save', '/__action-test/users/:id?save'] as const)(
+    'encodes params and preserves named actions in %s',
+    async (url) => {
+      const client = createActionClient();
+      const visit = vi.fn(async () => ({ props: {} }));
+      client.setActionRouter(routerWithVisit(visit));
 
-    await client.action('/__action-test/users/:id?save', {
-      params: { id: 'a/b?c' },
-      method: 'PATCH',
-      data: { name: 'Alice' },
-    });
+      await client.action(url, {
+        params: { id: 'a/b?c' },
+        method: 'PATCH',
+        data: { name: 'Alice' },
+      });
 
-    expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
-      method: 'PATCH',
-      data: { name: 'Alice' },
-      preserveScroll: undefined,
-    });
-  });
+      expect(visit).toHaveBeenCalledWith('/__action-test/users/a%2Fb%3Fc?save', {
+        method: 'PATCH',
+        data: { name: 'Alice' },
+        preserveScroll: undefined,
+      });
+    },
+  );
 
   it('preserves validation errors as action results', async () => {
     const client = createActionClient();
@@ -274,6 +320,64 @@ describe('action clients', () => {
       ok: false,
       error: { status: 422, body: { errors: { name: 'Required' } } },
     });
+  });
+});
+
+describe('the page query', () => {
+  it.each([
+    ['/items?vote', '/items?vote&page=2&search=foo', 'page=2&search=foo'],
+    ['/items', '/items?page=2&search=foo', 'page=2&search=foo'],
+    ['/items?', '/items?page=2&search=foo', 'page=2&search=foo'],
+    ['/items?vote&page=3', '/items?vote&page=3&search=foo', 'search=foo'],
+    ['/items?vote&page=3&search=bar', '/items?vote&page=3&search=bar', undefined],
+    ['/items?vote#row-1', '/items?vote&page=2&search=foo#row-1', 'page=2&search=foo'],
+    ['/items/1?vote', '/items/1?vote', undefined],
+    ['/other?vote', '/other?vote', undefined],
+  ])('posts %s from /items?page=2&search=foo to %s', async (url, requested, preserved) => {
+    stubLocation('/items', '?page=2&search=foo');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), url, { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith(requested, {
+      method: 'POST',
+      ...(preserved === undefined ? {} : { _preservedQuery: preserved }),
+    });
+  });
+
+  it('keeps encoded parameters as the page sent them', async () => {
+    stubLocation('/items', '?q=a+b%26c&&tag=x%20y');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), '/items?vote&tag=z', { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith('/items?vote&tag=z&q=a+b%26c', {
+      method: 'POST',
+      _preservedQuery: 'q=a+b%26c',
+    });
+  });
+
+  it('leaves the URL alone on a page without a query', async () => {
+    stubLocation('/items');
+    const visit = vi.fn(async () => ({ props: {} }));
+
+    await submitAction(routerWithVisit(visit), '/items?vote', { method: 'POST' });
+
+    expect(visit).toHaveBeenCalledWith('/items?vote', { method: 'POST' });
+  });
+
+  it('adds the page query to an action() call on the current page', async () => {
+    stubLocation('/__action-test/users/a%2Fb', '?tab=profile');
+    const client = createActionClient();
+    const visit = vi.fn(async () => ({ props: {} }));
+    client.setActionRouter(routerWithVisit(visit));
+
+    await client.action('/__action-test/users/:id?save', { params: { id: 'a/b' } });
+
+    expect(visit).toHaveBeenCalledWith(
+      '/__action-test/users/a%2Fb?save&tab=profile',
+      expect.objectContaining({ _preservedQuery: 'tab=profile' }),
+    );
   });
 });
 

@@ -1,6 +1,19 @@
 import React from 'react';
-import type { VoidRouter } from 'void/pages-client';
+import type { NavigationState, VoidRouter } from 'void/pages-client';
 import { startReactPages } from '../../../src/runtime/pages-client.ts';
+import { useNavigation } from '../../../src/runtime/use-navigation.ts';
+
+declare global {
+  interface Window {
+    __navigationSnapshots: Array<
+      Pick<NavigationState, 'state' | 'method'> & { location: string | null }
+    >;
+    __navigateInAction(destination: string, method: string): void;
+    __finishAction?: () => void;
+  }
+}
+
+window.__navigationSnapshots = [];
 
 let router: VoidRouter;
 let nextLayoutInstance = 0;
@@ -25,8 +38,20 @@ function ScrollPage() {
   );
 }
 
+function useRecordNavigation() {
+  const navigation = useNavigation();
+  React.useLayoutEffect(() => {
+    window.__navigationSnapshots.push({
+      state: navigation.state,
+      location: navigation.location?.href ?? null,
+      method: navigation.method,
+    });
+  }, [navigation]);
+}
+
 function ShellLayout({ children }: { children: React.ReactNode }) {
   const [instance] = React.useState(() => ++nextLayoutInstance);
+  useRecordNavigation();
   return React.createElement('div', { 'data-layout-instance': instance }, children);
 }
 
@@ -57,6 +82,7 @@ function Dashboard() {
 }
 
 function NavigationFallback() {
+  useRecordNavigation();
   React.useLayoutEffect(() => {
     const state = window as Window & { __navigationFallbackMounts?: number };
     state.__navigationFallbackMounts = (state.__navigationFallbackMounts ?? 0) + 1;
@@ -83,7 +109,32 @@ void startReactPages({
   prefetchHoverDelay: 75,
   prefetchDefaultCacheFor: { stale: 0, expires: 5 * 60_000 },
   cacheVisitedPageData: true,
-  navigationFallback: NavigationFallback,
+  navigationFallback: location.search.includes('fallback=off') ? undefined : NavigationFallback,
 }).then((client) => {
   router = client.router;
+  window.__navigateInAction = (destination, method) => {
+    React.startTransition(async () => {
+      // This fixture exercises the data-ready reveal. Hold its frame until the shell arrives,
+      // so network latency cannot select the separate network-bound fallback path.
+      const frames: Array<FrameRequestCallback> = [];
+      const requestFrame = window.requestAnimationFrame;
+      let navigation: ReturnType<VoidRouter['visit']>;
+      try {
+        window.requestAnimationFrame = (callback) => {
+          frames.push(callback);
+          return 0;
+        };
+        navigation = router.visit(destination, { method, _resolveOnShell: true });
+      } finally {
+        window.requestAnimationFrame = requestFrame;
+      }
+      await navigation;
+      for (const callback of frames) {
+        requestFrame.call(window, callback);
+      }
+      await new Promise<void>((resolve) => {
+        window.__finishAction = resolve;
+      });
+    });
+  };
 });

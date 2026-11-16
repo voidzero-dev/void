@@ -1,5 +1,11 @@
 import type { Page, Request } from 'playwright';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { PAGES_PROTOCOL_VERSION } from '../packages/edge/src/pages-protocol.ts';
+import {
+  decodePageData,
+  deserializePageData,
+  serializePageData,
+} from '../packages/void/src/pages/serialize.ts';
 
 type TestWindow = Window & {
   __SPA_MARKER?: boolean;
@@ -37,7 +43,9 @@ export function registerSharedDevSsrTest({
     expect(probeMatch).not.toBeNull();
     const probeJson = probeMatch![1];
     expect(probeJson).not.toMatch(/<\/script/i);
-    expect(JSON.parse(probeJson).shared.scriptProbe).toBe(probe);
+    expect(
+      deserializePageData<{ shared: { scriptProbe: string } }>(probeJson).shared.scriptProbe,
+    ).toBe(probe);
     expect(rootHtml).toContain(`This is the ${framework} Pages playground.`);
 
     const usersRes = await fetch(`${base}/users`);
@@ -77,7 +85,9 @@ export function registerSharedDevSsrTest({
     expect(deferredHtml).toContain('__VOID_PAGE_DATA__');
     expect(deferredHtml).toContain('Deferred Page');
     expect(deferredHtml).toContain('window.__resolveDeferred("stats"');
-    expect(deferredHtml).toContain('"count":42');
+    expect(deferredHtml).toContain(
+      serializePageData({ count: 42, date: new Date('2026-11-08T00:00:00Z') }),
+    );
   });
 }
 
@@ -98,18 +108,76 @@ export function registerSharedClientTests({
     BASE = getBase();
   });
 
-  it('keeps action and form scroll in place, with resets for overrides and redirects', async ({
+  it('navigates to a deferred page while its prefetch is still pending', async () => {
+    const page = await newPage();
+    let release!: () => void;
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    try {
+      await page.route('**/deferred', async (route) => {
+        const response = await route.fetch();
+        if (route.request().headers()['purpose'] === 'prefetch') {
+          await pending;
+        }
+        await route.fulfill({ response });
+      });
+      await page.goto(BASE + '/');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      const prefetch = page.waitForRequest(
+        (request) =>
+          request.url() === BASE + '/deferred' && request.headers()['purpose'] === 'prefetch',
+      );
+      await page.hover('a[href="/deferred"]');
+      await prefetch;
+      await page.click('a[href="/deferred"]');
+      await page.getByRole('heading', { name: 'Deferred Page', exact: true }).waitFor();
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+    } finally {
+      release();
+      await page.context().close();
+    }
+  });
+
+  it.each(['Redirect to anchor', 'Submit to anchor'])(
+    'preserves redirect hashes and scrolls to the target through %s',
+    async (button) => {
+      const page = await newPage();
+      try {
+        await page.goto(BASE + '/scroll-restoration');
+        await waitForHydration(page);
+        await page.evaluate(() => {
+          (window as TestWindow).__SPA_MARKER = true;
+        });
+        await page.getByRole('button', { name: button, exact: true }).click();
+        await page.waitForFunction(() => window.location.search.includes('anchored=1'));
+        expect(page.url()).toBe(BASE + '/scroll-restoration?anchored=1#details');
+        await page.waitForFunction(
+          () => Math.abs(document.getElementById('details')!.getBoundingClientRect().top) < 1,
+        );
+        expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+      } finally {
+        await page.context().close();
+      }
+    },
+  );
+
+  it('keeps the page query and scroll for actions and forms, with resets for overrides and redirects', async ({
     expect,
   }) => {
     const page = await newPage();
     try {
       await page.setViewportSize({ width: 1280, height: 800 });
-      await page.goto(BASE + '/scroll-restoration');
+      await page.goto(BASE + '/scroll-restoration?page=2');
       await waitForHydration(page);
       await page.evaluate(() => {
         (window as TestWindow).__SPA_MARKER = true;
       });
       const row = page.getByTestId('scroll-row-30');
+      const historyLength = await page.evaluate(() => history.length);
       for (const [button, preserved] of [
         ['Update action', true],
         ['Update form', true],
@@ -131,8 +199,15 @@ export function registerSharedClientTests({
           (scrollY) => Math.abs(window.scrollY - scrollY) < 0.5,
           preserved ? before : 0,
         );
+        if (button !== 'Redirect action') {
+          expect(page.url()).toBe(BASE + '/scroll-restoration?page=2');
+          expect(await page.getByTestId('scroll-page').textContent()).toBe('2');
+          expect(await page.evaluate(() => history.length)).toBe(historyLength);
+        }
       }
+      // The page query only re-renders the page in place; a redirect does not carry it.
       expect(page.url()).toBe(BASE + '/scroll-restoration?redirected=1');
+      expect(await page.getByTestId('scroll-page').textContent()).toBe('');
       expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
     } finally {
       await page.context().close();
@@ -213,9 +288,9 @@ export function registerSharedClientTests({
       expect(hydrationErrors).toEqual([]);
 
       // The request origin is render context; serialized navigation URLs stay relative.
-      const pageUrl = await page.evaluate(
-        () => JSON.parse(document.getElementById('__VOID_PAGE_DATA__')!.textContent!).url,
-      );
+      const pageUrl = deserializePageData<{ url: string }>(
+        html.match(/<script id="__VOID_PAGE_DATA__"[^>]*>([\s\S]*?)<\/script>/)![1],
+      ).url;
       expect(pageUrl).toBe('/link-behavior');
       await page.getByTestId('query-only-link').click();
       await page.waitForURL(BASE + '/link-behavior?view=compact');
@@ -454,6 +529,47 @@ export function registerSharedClientTests({
     }
   });
 
+  it('hard-reloads a legacy navigation and resumes current-client navigation', async () => {
+    const page = await newPage();
+    let legacyRequests = 0;
+    const versions: Array<string | undefined> = [];
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    try {
+      await page.route('**/users', async (route) => {
+        const headers = route.request().headers();
+        if (headers['x-voidpages'] === 'true') {
+          versions.push(headers['x-voidpages-version']);
+          delete headers['x-voidpages-version'];
+          legacyRequests++;
+        }
+        await route.continue({ headers });
+      });
+      await page.goto(BASE + '/');
+      await waitForHydration(page);
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/users"]');
+      await page.waitForURL(BASE + '/users');
+      await waitForHydration(page);
+      expect(legacyRequests).toBeGreaterThan(0);
+      expect(versions.every((version) => version === PAGES_PROTOCOL_VERSION)).toBe(true);
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBeUndefined();
+      expect(await page.textContent('body')).toContain('Alice');
+      await page.unroute('**/users');
+      await page.evaluate(() => {
+        (window as TestWindow).__SPA_MARKER = true;
+      });
+      await page.click('nav a[href="/"]');
+      await page.waitForURL(BASE + '/');
+      expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.context().close();
+    }
+  });
+
   it('replaces shared data when a page response omits a previous key', async () => {
     const page = await newPage();
     await page.route('**/users', async (route) => {
@@ -462,10 +578,10 @@ export function registerSharedClientTests({
         return;
       }
       const response = await route.fetch();
-      const pageData = (await response.json()) as Record<string, unknown>;
+      const pageData = decodePageData<Record<string, unknown>>(await response.json());
       await route.fulfill({
         response,
-        body: JSON.stringify({ ...pageData, shared: {} }),
+        body: serializePageData({ ...pageData, shared: {} }),
       });
     });
 
@@ -483,6 +599,21 @@ export function registerSharedClientTests({
       await page.click('a[href="/"]');
       await page.waitForFunction(() =>
         document.querySelector('nav span')?.textContent?.includes('Pages Demo'),
+      );
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('hydrates rich page props and streamed deferred results', async () => {
+    const page = await newPage();
+    try {
+      await page.goto(BASE + '/deferred');
+      await waitForHydration(page);
+      await page.getByTestId('deferred-date').waitFor();
+      expect(await page.getByTestId('page-date').textContent()).toBe('2026-11-08T00:00:00.000Z');
+      expect(await page.getByTestId('deferred-date').textContent()).toBe(
+        '2026-11-08T00:00:00.000Z',
       );
     } finally {
       await page.context().close();
@@ -514,6 +645,10 @@ export function registerSharedClientTests({
         await page.click('a[href="/deferred"]');
         await page.waitForFunction(() =>
           document.querySelector('[data-testid="deferred-resolved"]')?.textContent?.includes('42'),
+        );
+        expect(await page.getByTestId('page-date').textContent()).toBe('2026-11-08T00:00:00.000Z');
+        expect(await page.getByTestId('deferred-date').textContent()).toBe(
+          '2026-11-08T00:00:00.000Z',
         );
         expect(await page.evaluate(() => (window as TestWindow).__SPA_MARKER)).toBe(true);
         await page.click('a[href="/"]');
@@ -691,6 +826,58 @@ export function registerSharedClientTests({
       await waitForHydration(page);
       return page;
     }
+
+    it('keeps authentication and server failures inline and allows retrying with the draft intact', async ({
+      expect,
+    }) => {
+      const page = await openForm();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      let status = 401;
+      await page.route('**/form-errors', async (route) => {
+        if (route.request().method() !== 'POST' || status === 200) {
+          await route.continue();
+          return;
+        }
+        await route.fulfill({
+          status,
+          contentType: 'application/json',
+          body: JSON.stringify({ errors: { email: 'Not a validation failure' } }),
+        });
+      });
+      try {
+        await page.getByLabel('Email', { exact: true }).fill('draft@example.com');
+        await page.getByLabel('Name', { exact: true }).fill('Keep this draft');
+        for (const failureStatus of [401, 403, 503]) {
+          status = failureStatus;
+          await page.getByRole('button', { name: 'Save', exact: true }).click();
+          await expect
+            .poll(() => page.getByTestId('action-error').textContent())
+            .toBe(String(status));
+          expect(await page.getByLabel('Email', { exact: true }).inputValue()).toBe(
+            'draft@example.com',
+          );
+          expect(await page.getByLabel('Name', { exact: true }).inputValue()).toBe(
+            'Keep this draft',
+          );
+          expect(await page.getByTestId('errors').textContent()).toBe('{}');
+        }
+        status = 200;
+        const retry = page.waitForResponse(
+          (response) =>
+            response.url() === BASE + '/form-errors' && response.request().method() === 'POST',
+        );
+        await page.getByRole('button', { name: 'Save', exact: true }).click();
+        expect((await retry).status()).toBe(200);
+        await expect
+          .poll(() => page.getByRole('button', { name: 'Save', exact: true }).isEnabled())
+          .toBe(true);
+        await expect.poll(() => page.getByTestId('action-error').textContent()).toBe('');
+        expect(errors).toEqual([]);
+      } finally {
+        await page.context().close();
+      }
+    });
 
     it('preserves new client validation errors and clears only edited fields', async ({
       expect,

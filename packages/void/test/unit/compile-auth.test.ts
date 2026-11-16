@@ -14,14 +14,14 @@ const baseOptions = {
   honoPath: '/resolved/hono/index.mjs',
   honoRoutePath: '/resolved/hono/route.mjs',
 
-  runtimeEnvPath: '/resolved/void/runtime/env.mjs',
+  runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
   reactRefresh: false,
 };
 
 const sqliteAuth: AuthCompileOptions = {
-  authRuntimePath: '/resolved/void/runtime/better-auth.mjs',
+  authRuntimePath: '/resolved/void/runtime/auth/better-auth-d1.mjs',
   authConfigPath: null,
   authDatabasePath: '/project/.void/better-auth-db.ts',
   authSchemaPath: '/project/.void/better-auth-schema.ts',
@@ -30,7 +30,7 @@ const sqliteAuth: AuthCompileOptions = {
 };
 
 const pgAuth: AuthCompileOptions = {
-  authRuntimePath: '/resolved/void/runtime/better-auth.mjs',
+  authRuntimePath: '/resolved/void/runtime/auth/better-auth-d1.mjs',
   authConfigPath: '/app/auth.ts',
   authDatabasePath: '/project/.void/better-auth-db.ts',
   authSchemaPath: '/project/.void/better-auth-schema.ts',
@@ -82,7 +82,7 @@ describe('compileRouteTable auth integration', () => {
       auth: sqliteAuth,
     });
 
-    expect(code).toContain('from "/resolved/void/runtime/better-auth.mjs"');
+    expect(code).toContain('from "/resolved/void/runtime/auth/better-auth-d1.mjs"');
     expect(code).toContain('import { __voidAuthDatabase } from "/project/.void/better-auth-db.ts"');
     expect(code).toContain(
       'import { migrationSchema as __voidAuthMigrationSchema } from "/project/.void/better-auth-schema.ts"',

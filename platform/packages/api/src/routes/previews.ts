@@ -7,11 +7,17 @@ import {
 import { and, count, eq, gt, sql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
 import { getCookie } from 'hono/cookie';
+import {
+  AiLoggingPublishError,
+  lockNewProjectAiLoggingInputs,
+  publishProjectAiLogging,
+} from '../ai-logging.ts';
 import { signJwt, verifyJwt } from '../auth/jwt.ts';
 import { activeOAuthClient, activeOAuthGrant, oauthBearer, OAuthError } from '../auth/oauth.ts';
 import { hashLoginProof, randomLoginProof } from '../auth/proofs.ts';
 import { createProject, getProject } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { initialPlanDefaultFor } from '../plans.ts';
 import { projectUrl } from '../project-url.ts';
 import { oauthRequests, previewTickets, projects, users } from '../schema.ts';
 import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
@@ -67,6 +73,7 @@ app.post('/previews', async (context) => {
   }
   const project = await context.get('db').transaction(async (tx) => {
     await lockZeroTrustConfiguration(tx, 'shared');
+    await lockNewProjectAiLoggingInputs(tx);
     await tx.select().from(users).where(eq(users.id, user.id)).for('update');
     const [existing] = await tx
       .select()
@@ -115,6 +122,22 @@ app.post('/previews', async (context) => {
       })
       .where(eq(projects.id, created.id))
       .returning();
+    // A plan AI logging default applies from the first request; a KV failure
+    // rolls the preview back.
+    await publishProjectAiLogging(tx, context.env.ROUTING, created.id, {
+      trigger: 'preview_create',
+      initialPlanDefault: initialPlanDefaultFor(context.env),
+      creating: true,
+    }).catch((error: unknown) => {
+      if (error instanceof AiLoggingPublishError) {
+        throw new OAuthError(
+          'temporarily_unavailable',
+          'The AI logging setting for the new preview could not be applied. Retry.',
+          503,
+        );
+      }
+      throw error;
+    });
     return preview!;
   });
   await initializeNewProjectZeroTrust(context.env, context.get('db'), project.id);

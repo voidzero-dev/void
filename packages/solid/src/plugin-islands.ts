@@ -202,6 +202,7 @@ function generateWrapperComponent(meta: WrapperMeta): string {
   return `import _Cmp from ${JSON.stringify(meta.src)};
 import { createComponent, createUniqueId, sharedConfig, useContext } from "solid-js";
 import { FrontmatterContext } from "@void/solid";
+import { serializePageData } from "void/pages-server";
 export default function _IslandWrap(props) {
   const context = sharedConfig.context;
   const renderId = "void-" + createUniqueId() + "-";
@@ -218,7 +219,7 @@ export default function _IslandWrap(props) {
   } finally {
     sharedConfig.context = context;
   }
-  return <div data-island="${meta.islandId}" data-props={JSON.stringify(props)} data-hydrate="${meta.hydrate}" data-solid-render-id={renderId}>{content}</div>;
+  return <div data-island="${meta.islandId}" data-props={serializePageData(props)} data-hydrate="${meta.hydrate}" data-solid-render-id={renderId}>{content}</div>;
 }
 `;
 }

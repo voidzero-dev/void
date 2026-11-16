@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 
 // Run after build:all, so integration shards do not rebuild these playgrounds.
 const artifacts = {
@@ -48,4 +48,30 @@ checkBindings('tanstack-start', 'dist/server/wrangler.json', { cron: '0 * * * *'
 checkBindings('vinext-app', 'dist/server/wrangler.json');
 checkBindings('vinext-pages', 'dist/ssr/wrangler.json');
 
-console.log('Verified metaframework build artifacts and inferred bindings.');
+// Each of these playgrounds' env.ts declares this default, and nothing else mentions it. A server
+// bundle without it reads raw values: a bundler can drop an import kept only for its side effect.
+const ENV_SCHEMA_MARKER = '48213';
+const envSchemaServerDirectories = {
+  'react-router': 'build/server',
+  'tanstack-start': 'dist/server',
+  'vinext-app': 'dist/server',
+  'vinext-pages': 'dist/ssr',
+};
+
+function containsMarker(directory) {
+  return readdirSync(directory).some((name) => {
+    const path = new URL(encodeURIComponent(name), `${directory.href}/`);
+    return statSync(path).isDirectory()
+      ? containsMarker(path)
+      : /\.m?js$/.test(name) && readFileSync(path, 'utf8').includes(ENV_SCHEMA_MARKER);
+  });
+}
+
+for (const [playground, directory] of Object.entries(envSchemaServerDirectories)) {
+  assert.ok(
+    containsMarker(artifactUrl(playground, directory)),
+    `${playground} does not bundle env.ts into its server output`,
+  );
+}
+
+console.log('Verified metaframework build artifacts, inferred bindings and env schemas.');
