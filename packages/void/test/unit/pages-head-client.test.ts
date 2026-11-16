@@ -231,6 +231,24 @@ describe('head-client', () => {
     expect(children).toEqual([]);
   });
 
+  it('clears document.title when the next head does not set a title', () => {
+    stubDocumentHead();
+    document.title = 'Previous Title';
+
+    applyClientHead({ link: [{ rel: 'stylesheet', href: '/a.css' }] });
+
+    expect(document.title).toBe('');
+  });
+
+  it('clears document.title when the next head is undefined', () => {
+    stubDocumentHead();
+    document.title = 'Previous Title';
+
+    applyClientHead(undefined);
+
+    expect(document.title).toBe('');
+  });
+
   it('does not preserve tags whose attributes only match through signature delimiters', () => {
     const staleStylesheet = new HeadElement('link', {
       'data-void-head': '',

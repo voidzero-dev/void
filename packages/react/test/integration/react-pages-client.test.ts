@@ -762,6 +762,18 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
         document.querySelector('h1')?.textContent?.includes('Welcome'),
       );
       expect(await page.title()).toBe('Home | React Pages Demo');
+
+      await page.click('a[href="/deferred"]');
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Deferred'),
+      );
+      expect(await page.title()).toBe('');
+
+      await page.goBack();
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Welcome'),
+      );
+      expect(await page.title()).toBe('Home | React Pages Demo');
     } finally {
       await page.context().close();
     }
