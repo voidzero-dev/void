@@ -15,6 +15,8 @@ export interface ComponentInfo {
   node: Node;
   dynamic: boolean;
   scope?: string;
+  dynamicStyles: boolean;
+  styles: Array<string>;
   dependencies: Set<string>;
   callbacks: Set<string>;
   templates: Map<string, string>;
@@ -110,12 +112,22 @@ export function analyze(source: string, file: string, identity = file): ModuleIn
   const add = (node: Node, name: string) => {
     let jsx = false;
     let styled = false;
+    let dynamicStyles = false;
     walk(node.body, (child) => {
       if (child.type === 'JSXElement' || child.type === 'JSXFragment') {
         jsx = true;
       }
       if (child.type === 'JSXElement' && child.openingElement.name.name === 'style') {
         styled = true;
+        dynamicStyles ||= child.children.some(
+          (item: Node) =>
+            item.type === 'JSXExpressionContainer' &&
+            item.expression.type !== 'JSXEmptyExpression' &&
+            !(item.expression.type === 'Literal' && typeof item.expression.value === 'string') &&
+            !(
+              item.expression.type === 'TemplateLiteral' && item.expression.expressions.length === 0
+            ),
+        );
       }
     });
     if (!jsx && !/^[A-Z]/.test(name)) {
@@ -137,7 +149,9 @@ export function analyze(source: string, file: string, identity = file): ModuleIn
       name,
       id,
       node,
-      dynamic: false,
+      dynamic: dynamicStyles,
+      dynamicStyles,
+      styles: [],
       scope: styled ? `data-vv-cid-${id.slice(-8)}` : undefined,
       dependencies: new Set(),
       callbacks: new Set(),
@@ -305,6 +319,8 @@ export function compile(
   }
   for (const component of info.components) {
     component.templates.clear();
+    component.styles = [];
+    let styleIndex = 0;
     const fn = component.node;
     const state = new Set<string>();
     for (const statement of fn.body.body ?? []) {
@@ -475,8 +491,54 @@ export function compile(
           }
           return slot(`${tag}({${props.join(',')}})`);
         }
+        if (tag === 'style') {
+          if (opening.attributes.length) {
+            throw new Error(`${info.file}: component style blocks do not accept attributes`);
+          }
+          const expressions: Array<string> = [];
+          const text = n.children
+            .map((item: Node) => {
+              if (item.type === 'JSXText') {
+                return decodeHTML(item.value);
+              }
+              const value = item.expression;
+              if (value?.type === 'JSXEmptyExpression') {
+                return '';
+              }
+              if (value?.type === 'Literal' && typeof value.value === 'string') {
+                return value.value;
+              }
+              if (value?.type === 'TemplateLiteral') {
+                return value.quasis
+                  .map((quasi: Node, index: number) => {
+                    let text = quasi.value.cooked;
+                    if (index < value.expressions.length) {
+                      const marker = `__vv_expr${expressions.length}__`;
+                      expressions.push(expr(value.expressions[index], shadow));
+                      text += marker;
+                    }
+                    return text;
+                  })
+                  .join('');
+              }
+              throw new Error(`${info.file}: use a template literal inside <style>`);
+            })
+            .join('');
+          const css = scopeStyles(text, component.scope!, info.file, expressions.length > 0);
+          if (!expressions.length) {
+            component.styles.push(css);
+            return '';
+          }
+          // Preserve interpolation order and evaluate each expression exactly once.
+          const parts = css.split(/(__vv_expr\d+__)/).map((part: string) => {
+            const match = /^__vv_expr(\d+)__$/.exec(part);
+            return match ? `String(__vv_values[${match[1]}])` : JSON.stringify(part);
+          });
+          const value = `((__vv_values) => ${parts.join('+')})([${expressions.join(',')}])`;
+          return slot(`__vv_style(${styleIndex++},${value})`);
+        }
         let rawText: string | undefined;
-        if (['script', 'style', 'textarea', 'title'].includes(tag)) {
+        if (['script', 'textarea', 'title'].includes(tag)) {
           const text: string = n.children
             .map((child: Node) => {
               if (child.type === 'JSXText') {
@@ -500,13 +562,15 @@ export function compile(
               );
             })
             .join('');
-          const content = tag === 'style' ? scopeStyles(text, component.scope!, info.file) : text;
+          const content = text;
           rawText =
             tag === 'title' || tag === 'textarea'
               ? escapeHtml(content)
               : content.replace(new RegExp('</' + tag, 'gi'), '<\\/' + tag);
         }
-        let attrs = component.scope ? ` ${component.scope}` : '';
+        let attrs =
+          (component.scope ? ` ${component.scope}` : '') +
+          (component.dynamicStyles ? ' data-vv-i' : '');
         const hasSpread = opening.attributes.some(
           (attr: Node) => attr.type === 'JSXSpreadAttribute',
         );
@@ -558,7 +622,7 @@ export function compile(
       }
       const html = element(node);
       component.templates.set(id, html);
-      return `__vv_template(${JSON.stringify(id)},${client ? 'null' : JSON.stringify(html)},[${bindings.join(',')}])`;
+      return `__vv_template(${JSON.stringify(id)},${client ? 'null' : JSON.stringify(html)},[${bindings.join(',')}]${component.dynamicStyles ? ',__vv_instance' : ''})`;
     }
     const parameter = fn.params[0];
     const binding = parameter?.type === 'AssignmentPattern' ? parameter.left : parameter;
@@ -609,13 +673,13 @@ export function compile(
       output.overwrite(
         fn.start,
         fn.end,
-        `(__vv_props = ${fallback}) => __vv_component(${JSON.stringify(component.id)},__vv_props,(__vv_change)=>{${setup}\n${body}},${component.dynamic})`,
+        `(__vv_props = ${fallback}) => __vv_component(${JSON.stringify(component.id)},__vv_props,(__vv_change,__vv_style,__vv_instance)=>{${setup}\n${body}},${component.dynamic}${component.dynamicStyles ? ',true' : ''})`,
       );
     } else {
       output.overwrite(
         fn.start,
         fn.end,
-        `function ${component.name}(__vv_props = ${fallback}) { return __vv_component(${JSON.stringify(component.id)},__vv_props,(__vv_change)=>{${setup}\n${body}},${component.dynamic}); }`,
+        `function ${component.name}(__vv_props = ${fallback}) { return __vv_component(${JSON.stringify(component.id)},__vv_props,(__vv_change,__vv_style,__vv_instance)=>{${setup}\n${body}},${component.dynamic}${component.dynamicStyles ? ',true' : ''}); }`,
       );
     }
     if (component.dynamic) {

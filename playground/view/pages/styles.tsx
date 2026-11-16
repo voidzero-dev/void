@@ -9,6 +9,9 @@ export default function Styles() {
       <p class="global-flat">Global through a :root selector</p>
       <a href="/styles-static">Static styled component, without View JavaScript</a>
       <p>
+        <a href="/styles-dynamic">Dynamic styles and independent instances</a>
+      </p>
+      <p>
         <a href="/">All examples</a>
       </p>
     </>

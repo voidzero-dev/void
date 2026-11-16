@@ -53,9 +53,19 @@ for (const mode of ['dev', 'preview'] as const) {
           expect(await page.locator('vv-label').count()).toBe(0);
           writeFileSync(
             file,
-            original.replace('<span class="label">', '<span class="label" onclick={() => {}}>'),
+            original
+              .replace('<span class="label">', '<span class="label" onclick={() => {}}>')
+              .replace('font-weight: bold', 'font-weight: normal'),
           );
           await page.waitForSelector('vv-label[data-vv-ready]', { timeout: 10_000 });
+          await expect
+            .poll(() =>
+              page
+                .locator('.label')
+                .first()
+                .evaluate((node) => getComputedStyle(node).fontWeight),
+            )
+            .toBe('400');
         } finally {
           writeFileSync(file, original);
           await expect
@@ -209,6 +219,113 @@ for (const mode of ['dev', 'preview'] as const) {
           expect(await page.locator('script').count()).toBe(0);
         }
         expect(errors).toEqual([]);
+      } finally {
+        await page.close();
+      }
+    });
+    it('bundles static CSS and isolates interpolated styles per instance before and after hydration', async () => {
+      const context = await browser.newContext({ javaScriptEnabled: false });
+      const ssr = await context.newPage();
+      try {
+        await ssr.goto(server.base + '/styles-dynamic');
+        const panels = ssr.locator('vv-dynamic-styles');
+        expect(await panels.count()).toBe(2);
+        expect(
+          await panels
+            .nth(0)
+            .locator('h2')
+            .evaluate((node) => getComputedStyle(node).color),
+        ).toBe('rgb(255, 0, 0)');
+        expect(
+          await panels
+            .nth(1)
+            .locator('h2')
+            .evaluate((node) => getComputedStyle(node).color),
+        ).toBe('rgb(0, 0, 255)');
+        expect(
+          await panels
+            .nth(0)
+            .locator('section')
+            .evaluate((node) => getComputedStyle(node).padding),
+        ).toBe('24px');
+        expect(await ssr.locator('vv-swatch style').count()).toBe(2);
+      } finally {
+        await context.close();
+      }
+      const page = await browser.newPage();
+      const errors: Array<string> = [];
+      page.on('pageerror', (error) => errors.push(error.message));
+      try {
+        const response = await page.goto(server.base + '/styles-dynamic');
+        const initial = await response!.text();
+        const initialIds = [
+          ...initial.matchAll(/<vv-dynamic-styles (data-vv-rid-[a-f0-9-]+)/g),
+        ].map((match) => match[1]);
+        await page.waitForSelector('vv-dynamic-styles[data-vv-ready]');
+        const panels = page.locator('vv-dynamic-styles');
+        const ids = await panels.evaluateAll((hosts) =>
+          hosts.map((host) =>
+            host.getAttributeNames().find((name) => name.startsWith('data-vv-rid-')),
+          ),
+        );
+        expect(ids).toEqual(initialIds);
+        expect(new Set(ids).size).toBe(2);
+        expect(ids.every(Boolean)).toBe(true);
+        const styles = await panels.nth(0).locator('section > style').elementHandles();
+        expect(styles).toHaveLength(2);
+        await panels.nth(0).getByRole('button').click();
+        await expect
+          .poll(() =>
+            panels
+              .nth(0)
+              .locator('h2')
+              .evaluate((node) => getComputedStyle(node).color),
+          )
+          .toBe('rgb(128, 0, 128)');
+        expect(
+          await panels
+            .nth(0)
+            .locator('h2')
+            .evaluate((node) => getComputedStyle(node).fontSize),
+        ).toBe('24px');
+        expect(
+          await panels
+            .nth(1)
+            .locator('h2')
+            .evaluate((node) => getComputedStyle(node).color),
+        ).toBe('rgb(0, 0, 255)');
+        expect(
+          await panels
+            .nth(0)
+            .locator('.swatch')
+            .evaluate((node) => getComputedStyle(node).color),
+        ).toBe('rgb(0, 128, 0)');
+        expect(await styles[0]!.evaluate((node) => node.isConnected)).toBe(true);
+        expect(await styles[1]!.evaluate((node) => node.isConnected)).toBe(true);
+        expect(
+          await panels
+            .nth(0)
+            .evaluate((host) =>
+              host.getAttributeNames().find((name) => name.startsWith('data-vv-rid-')),
+            ),
+        ).toBe(ids[0]);
+        expect(await page.locator('[data-vv-i]').count()).toBe(0);
+        expect(errors).toEqual([]);
+        await page.goto(server.base + '/styles-static');
+        expect(await page.locator('body style').count()).toBe(0);
+        expect(await page.locator('script[data-void-view], template').count()).toBe(0);
+        if (mode === 'preview') {
+          const css = await page
+            .locator('link[rel="stylesheet"]')
+            .evaluateAll(async (links) =>
+              Promise.all(
+                links.map(async (link) => (await fetch((link as HTMLLinkElement).href)).text()),
+              ),
+            );
+          expect(css.join('')).toContain('data-vv-cid-');
+          expect(css.join('')).not.toContain('data-vv-rid-');
+          expect(css.join('')).not.toContain('__vv_expr');
+        }
       } finally {
         await page.close();
       }

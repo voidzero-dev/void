@@ -4,16 +4,15 @@ import { analyze, compile } from '../../src/compiler.ts';
 import { component, Html, render, template } from '../../src/server.ts';
 
 describe('view compiler', () => {
-  it('keeps scoped style text in HTML rather than creating a binding', () => {
+  it('extracts scoped static styles out of the HTML template', () => {
     const info = analyze(
       'export function Styled(){ return <div><style>{`h1 { color: red; }`}</style></div>; }',
       '/Styled.tsx',
     );
     compile(info, false);
     const scope = info.components[0]!.scope;
-    expect([...info.components[0]!.templates.values()]).toEqual([
-      `<div ${scope}><style ${scope}>h1[${scope}]{color:red}</style></div>`,
-    ]);
+    expect([...info.components[0]!.templates.values()]).toEqual([`<div ${scope}></div>`]);
+    expect(info.components[0]!.styles).toEqual([`h1[${scope}]{color:red}`]);
   });
   it.each([
     'export default function({ label } = { label: "default" }) { return <p>{label}</p>; }',

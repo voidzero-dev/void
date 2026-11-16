@@ -1,12 +1,14 @@
 import type { ViewResult } from './index.ts';
 import {
   attribute,
+  instanceStyles,
   booleanAttributes,
   type Binding,
   type Initialize,
   type Encoded,
 } from './shared.ts';
 interface Host extends HTMLElement {
+  styles?: Map<number, HTMLStyleElement>;
   mount?: () => void;
   refresh?: () => void;
 }
@@ -65,6 +67,7 @@ export function component(
   _props: unknown,
   initialize: Initialize,
   dynamic: boolean,
+  styled = false,
 ): ViewResult {
   if (!dynamic) {
     return initialize((value) => value)() as ViewResult;
@@ -73,22 +76,44 @@ export function component(
   if (host === hydrating) {
     hydrating = undefined;
   }
+  let instance: string | undefined;
+  let style: import('./shared.ts').Style | undefined;
+  if (styled) {
+    const attribute =
+      host.getAttributeNames().find((name) => name.startsWith('data-vv-rid-')) ??
+      'data-vv-rid-' + crypto.randomUUID();
+    host.setAttribute(attribute, '');
+    const rid = attribute.slice('data-vv-rid-'.length);
+    instance = rid;
+    host.setAttribute('data-vv-cid-' + rid, '');
+    host.styles = new Map();
+    style = (key, css) => {
+      const element = host.styles!.get(key) ?? document.createElement('style');
+      host.styles!.set(key, element);
+      element.textContent = instanceStyles(css, rid);
+      return element;
+    };
+  }
   let queued = false;
-  const draw = initialize((value) => {
-    try {
-      return value;
-    } finally {
-      if (!queued) {
-        queued = true;
-        queueMicrotask(() => {
-          queued = false;
-          if (host.isConnected) {
-            host.refresh?.();
-          }
-        });
+  const draw = initialize(
+    (value) => {
+      try {
+        return value;
+      } finally {
+        if (!queued) {
+          queued = true;
+          queueMicrotask(() => {
+            queued = false;
+            if (host.isConnected) {
+              host.refresh?.();
+            }
+          });
+        }
       }
-    }
-  });
+    },
+    style,
+    instance,
+  );
   host.refresh = () => {
     const content = document.createDocumentFragment();
     append(content, draw());
@@ -124,13 +149,24 @@ export function register(id: string, factory: (props: unknown) => unknown): void
     },
   );
 }
-export function template(id: string, _html: string | null, bindings: Array<Binding>): ViewResult {
+export function template(
+  id: string,
+  _html: string | null,
+  bindings: Array<Binding>,
+  instance?: string,
+): ViewResult {
   return new Fragment(() => {
     const source = document.getElementById(id);
     if (!(source instanceof HTMLTemplateElement)) {
       throw new Error(`Missing view template: ${id}`);
     }
     const fragment = source.content.cloneNode(true) as DocumentFragment;
+    if (instance) {
+      for (const element of fragment.querySelectorAll('[data-vv-i]')) {
+        element.removeAttribute('data-vv-i');
+        element.setAttribute('data-vv-cid-' + instance, '');
+      }
+    }
     const slots = new Map<number, ChildNode>(
       Array.from(fragment.querySelectorAll('[data-vv-slot]'), (el) => [
         Number(el.getAttribute('data-vv-slot')),

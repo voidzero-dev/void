@@ -16,6 +16,8 @@ export function voidView(options: ViewOptions = {}): Array<Plugin> {
   let graphFiles = new Set<string>();
   let resources: ViewResources;
   let cssImports: Array<string> = [];
+  let staticStyles = '';
+  const stylesId = 'virtual:void-view.css';
   const ignored = new Set(['node_modules', '.git', '.void', 'dist', '.output', '.wrangler']);
   function scan(directory: string, files: Array<string> = []): Array<string> {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
@@ -191,6 +193,9 @@ export function voidView(options: ViewOptions = {}): Array<Plugin> {
     for (const info of next.values()) {
       compile(info, false);
     }
+    staticStyles = [...next.values()]
+      .flatMap((info) => info.components.flatMap((component) => component.styles))
+      .join('\n');
     resources = {
       components: Object.fromEntries(
         [...next.values()].flatMap((info) =>
@@ -258,6 +263,16 @@ export function voidView(options: ViewOptions = {}): Array<Plugin> {
     config() {
       return { optimizeDeps: { exclude: ['@void/view'] }, ssr: { noExternal: ['@void/view'] } };
     },
+    resolveId(id) {
+      if (id === stylesId) {
+        return '\0' + stylesId;
+      }
+    },
+    load(id) {
+      if (id === '\0' + stylesId) {
+        return staticStyles;
+      }
+    },
     configResolved(resolved) {
       root = resolve(options.root ?? resolved.root);
     },
@@ -321,7 +336,7 @@ export function voidView(options: ViewOptions = {}): Array<Plugin> {
       };
     },
     generateClient() {
-      return cssImports.map((file) => `import ${JSON.stringify(file)};`).join('\n');
+      return [stylesId, ...cssImports].map((file) => `import ${JSON.stringify(file)};`).join('\n');
     },
     generateRenderer(pageScan) {
       return `

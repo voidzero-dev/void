@@ -5,7 +5,13 @@ export type Binding = readonly [
   value: unknown,
 ];
 export type Change = <T>(value: T) => T;
-export type Initialize = (change: Change) => () => unknown;
+export type Style = (key: number, css: string) => unknown;
+export type Initialize = (change: Change, style?: Style, instance?: string) => () => unknown;
+export function instanceStyles(css: string, id: string): string {
+  return css
+    .replaceAll('data-vv-rid-vvINSTANCE', 'data-vv-rid-' + id)
+    .replaceAll('data-vv-cid-vvINSTANCE', 'data-vv-cid-' + id);
+}
 export const voidTags = /* @__PURE__ */ new Set(
   'area base br col embed hr img input link meta param source track wbr'.split(' '),
 );

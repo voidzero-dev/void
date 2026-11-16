@@ -1,6 +1,13 @@
 export { renderResources } from './resources.ts';
 import type { ViewResult } from './index.ts';
-import { attribute, escapeHtml, type Binding, type Initialize, type Encoded } from './shared.ts';
+import {
+  instanceStyles,
+  attribute,
+  escapeHtml,
+  type Binding,
+  type Initialize,
+  type Encoded,
+} from './shared.ts';
 export class Html implements ViewResult {
   readonly __view = true;
   constructor(
@@ -78,15 +85,26 @@ export function component(
   props: unknown,
   initialize: Initialize,
   dynamic: boolean,
+  styled = false,
 ): Html {
   const root = depth === 0;
+  const rid = styled ? crypto.randomUUID() : '';
   if (dynamic) {
     depth++;
   }
   let html: string;
   const components = new Set<string>();
   try {
-    const content = initialize((value) => value)();
+    const content = initialize(
+      (value) => value,
+      styled
+        ? (_key, css) =>
+            new Html(
+              '<style>' + instanceStyles(css, rid).replace(/<\/style/gi, '<\\/style') + '</style>',
+            )
+        : undefined,
+      rid,
+    )();
     collect(content, components);
     if (dynamic) {
       components.add(id);
@@ -100,12 +118,20 @@ export function component(
   }
   return new Html(
     dynamic
-      ? `<${id}${root ? ` data-vv-props="${escapeHtml(JSON.stringify(encode(props)))}"` : ''}>${html}</${id}>`
+      ? `<${id}${rid ? ` data-vv-rid-${rid} data-vv-cid-${rid}` : ''}${root ? ` data-vv-props="${escapeHtml(JSON.stringify(encode(props)))}"` : ''}>${html}</${id}>`
       : html,
     components,
   );
 }
-export function template(_id: string, html: string, bindings: Array<Binding>): Html {
+export function template(
+  _id: string,
+  html: string,
+  bindings: Array<Binding>,
+  instance?: string,
+): Html {
+  if (instance) {
+    html = html.replaceAll(' data-vv-i', ' data-vv-cid-' + instance);
+  }
   const children = new Map<number, unknown>();
   const components = new Set<string>();
   const attrs = new Map<number, Map<string, unknown>>();
