@@ -82,7 +82,7 @@ export async function GET(c) {
           {
             honoPath: fileURLToPath(import.meta.resolve('hono')),
             honoRoutePath: fileURLToPath(import.meta.resolve('hono/route')),
-            runtimeEnvPath: source('env.ts'),
+            runtimeEnvPath: source('env/runtime.ts'),
             projectRoot: directory,
             homeDir: tmpdir(),
             auth: null,
@@ -91,7 +91,7 @@ export async function GET(c) {
           },
         ),
       );
-      writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: source('env.ts') }));
+      writeFileSync(entry, compileWorkerEntry({ runtimeEnvPath: source('env/runtime.ts') }));
       await build({
         configFile: false,
         logLevel: 'silent',
@@ -103,11 +103,11 @@ export async function GET(c) {
               if (id === 'virtual:void-routes') {
                 return routeTable;
               }
-              if (id.endsWith('/dist/runtime/routing.mjs')) {
-                return source('routing.ts');
+              if (id.endsWith('/dist/runtime/routing/index.mjs')) {
+                return source('routing/index.ts');
               }
               if (id === 'void/db' && module === 'runtime') {
-                return source('db.ts');
+                return source('db/index.ts');
               }
             },
           },
