@@ -53,6 +53,8 @@ Pages and island actions opt in to `X-VoidPages-Redirect: manual`. The routing m
 
 Pages `_not-found`/`_error` recovery uses finite render plans that retain logical layout slots. Never serialize original exceptions through framework hydration helpers, rerun a failed loader/action, or cache an error document. Native client boundaries reset on every visit/refresh and preserve healthy ancestor layouts.
 
+Recover response-less 4xx/5xx Hono `HTTPException`s only for page GET/HEAD requests: nearest boundary for loaders/handler middleware, root boundary for application middleware. Preserve redirects, explicit responses, API routes, actions, and existing 404 recovery. Middleware recovery must identify the actual matched endpoint without loading its module or replaying request code.
+
 **Hono** is used as the runtime framework. The generated virtual module creates a Hono app with file-based routes and middleware. Route handlers receive a Hono `Context` object (`c`) and can use the full Hono API (`c.json()`, `c.text()`, `c.req.param()`, etc.) plus the Hono middleware ecosystem.
 
 - `defineHandler(fn)` — wraps a route handler `(c: CloudContext) => R`, returns `TypedHandler<{}, R>`
