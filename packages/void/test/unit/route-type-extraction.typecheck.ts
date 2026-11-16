@@ -5,7 +5,6 @@ import { z } from 'zod';
 import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
-/** Input extraction helper emitted by generateRouteTypes(). */
 type ExtractInput<V> = {
   [K in keyof V as V[K] extends StandardSchemaV1 ? K : never]: V[K] extends StandardSchemaV1
     ? StandardSchemaV1.InferInput<V[K]>
