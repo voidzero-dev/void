@@ -53,7 +53,7 @@ export type RoutingProbe = {
   workerColo: string | null;
   elapsedMs: number;
   metadata: Record<string, unknown> | null;
-  rows: unknown[];
+  rows: Array<unknown>;
   bookmark: string | null;
   error?: TrialError;
 };

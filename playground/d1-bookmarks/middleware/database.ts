@@ -82,7 +82,9 @@ export default defineMiddleware(async (c, next) => {
     return;
   }
 
-  if (experiment === 'immediate') return;
+  if (experiment === 'immediate') {
+    return;
+  }
 
   const bookmark = getBookmark();
   if (bookmark) {

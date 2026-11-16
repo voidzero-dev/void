@@ -14,7 +14,7 @@ export function RoutingProbePanel({
   count: number;
   setCount: (value: number) => void;
 }) {
-  const [results, setResults] = useState<RoutingProbe[]>([]);
+  const [results, setResults] = useState<Array<RoutingProbe>>([]);
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,10 +38,10 @@ export function RoutingProbePanel({
             `HTTP ${response.status}; request ID: ${response.headers.get('cf-ray') ?? 'unavailable'}\n${text}`,
           );
         }
-        if (body.path !== 'void-run') throw new Error(`HTTP ${response.status}\n${text}`);
+        if (body.path !== 'void-run') {throw new Error(`HTTP ${response.status}\n${text}`);}
         setResults((previous) => [...previous, body]);
         setProgress(round + 1);
-        if (!response.ok || body.error) break;
+        if (!response.ok || body.error) {break;}
       }
     } catch (cause) {
       setError(JSON.stringify(serializeError(cause), null, 2));

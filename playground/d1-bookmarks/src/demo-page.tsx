@@ -40,20 +40,32 @@ function Trials({ initial }: { initial: Observation }) {
     const params = new URLSearchParams(location.search);
     const value = (key: string) => params.get(key) ?? saved[key];
     const timing = value('experiment');
-    if (timing === 'redirect' || timing === 'immediate') setExperiment(timing);
+    if (timing === 'redirect' || timing === 'immediate') {
+      setExperiment(timing);
+    }
     const trials = Number(value('trials'));
-    if (RUN_COUNTS.some((count) => count === trials)) setTrialCount(trials);
+    if (RUN_COUNTS.some((count) => count === trials)) {
+      setTrialCount(trials);
+    }
     const probes = Number(value('probes'));
-    if (RUN_COUNTS.some((count) => count === probes)) setProbeCount(probes);
+    if (RUN_COUNTS.some((count) => count === probes)) {
+      setProbeCount(probes);
+    }
     const size = Number(
       params.get('size') ?? params.get('pressure') ?? saved.size ?? saved.pressure,
     );
-    if (PRESSURE_OPTIONS.some((option) => option === size)) setPressureMiB(size);
-    if (value('pressure') !== undefined) setPressure(Number(value('pressure')) > 0);
+    if (PRESSURE_OPTIONS.some((option) => option === size)) {
+      setPressureMiB(size);
+    }
+    if (value('pressure') !== undefined) {
+      setPressure(Number(value('pressure')) > 0);
+    }
     setSettingsReady(true);
   }, []);
   useEffect(() => {
-    if (!settingsReady) return;
+    if (!settingsReady) {
+      return;
+    }
     const settings = {
       experiment,
       trials: String(trialCount),
@@ -69,7 +81,9 @@ function Trials({ initial }: { initial: Observation }) {
     const url = new URL(location.href);
     url.searchParams.delete('reads');
     url.searchParams.delete('writes');
-    for (const [key, value] of Object.entries(settings)) url.searchParams.set(key, value);
+    for (const [key, value] of Object.entries(settings)) {
+      url.searchParams.set(key, value);
+    }
     history.replaceState(history.state, '', url);
   }, [settingsReady, experiment, trialCount, probeCount, pressure, pressureMiB]);
   const controlsDisabled = running || !settingsReady;
@@ -112,7 +126,9 @@ function Trials({ initial }: { initial: Observation }) {
           );
           try {
             const body: Observation = JSON.parse(text);
-            if (body.outcome === 'errored' && body.error) failure = body;
+            if (body.outcome === 'errored' && body.error) {
+              failure = body;
+            }
           } catch {
             // Infrastructure failures can return plain text or HTML instead of app JSON.
           }
@@ -417,7 +433,7 @@ if (bookmark) setCookie(c, 'd1-demo-bookmark', bookmark, options);`
   );
 }
 
-function ReadCounts({ reads }: { reads: Observation[] }) {
+function ReadCounts({ reads }: { reads: Array<Observation> }) {
   const completed = reads.filter((read) => read.outcome === 'fresh' || read.outcome === 'stale');
   return (
     <p className="read-counts">

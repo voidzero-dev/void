@@ -44,7 +44,7 @@ export function generateDbDts(
     `export declare function createDb(${arg}): ${type}<${schemaType}>;`,
     ...(dialect === 'sqlite'
       ? [
-          'export declare function setSession(start: D1SessionConstraint | D1SessionBookmark): void;',
+          'export declare function setSession(start: D1SessionConstraint | (D1SessionBookmark & {})): void;',
           `export declare function getBookmark(client?: ${type}<${schemaType}>): D1SessionBookmark | null;`,
         ]
       : []),

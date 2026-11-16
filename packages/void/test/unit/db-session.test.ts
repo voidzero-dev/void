@@ -37,11 +37,11 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
     load('\0virtual:void-db')
       .replace(
         JSON.stringify(fileURLToPath(import.meta.resolve('#self/_env'))),
-        JSON.stringify(new URL('../../src/runtime/env.ts', import.meta.url).href),
+        JSON.stringify(new URL('../../src/runtime/env/runtime.ts', import.meta.url).href),
       )
       .replace(
         JSON.stringify(fileURLToPath(import.meta.resolve('#self/runtime/db-session'))),
-        JSON.stringify(new URL('../../src/runtime/db-session.ts', import.meta.url).href),
+        JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href),
       ),
   );
   return import(pathToFileURL(path).href);

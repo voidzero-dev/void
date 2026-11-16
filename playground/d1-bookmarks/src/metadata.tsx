@@ -5,7 +5,9 @@ export function MetadataDetails({
   metadata?: Record<string, unknown>;
   elapsedMs?: number;
 }) {
-  if (!metadata) return null;
+  if (!metadata) {
+    return null;
+  }
   return (
     <details>
       <summary>

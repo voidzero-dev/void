@@ -6,12 +6,12 @@
  * This stub exists for the published npm package and type declarations.
  */
 import { drizzle as _drizzle, type DrizzleD1Database } from 'drizzle-orm/d1';
-import { createD1SessionAccess } from './session.ts';
 import {
   getRuntimeBinding,
   getRuntimeRequestResource,
   requireRuntimeBinding,
 } from '../env/runtime.ts';
+import { createD1SessionAccess, type DbSessionStart } from './session.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
 // to depend on drizzle-orm directly.
@@ -49,23 +49,27 @@ export type { AnyColumn, SQL, SQLWrapper } from 'drizzle-orm';
 export type { BatchItem } from 'drizzle-orm/batch';
 export type { DrizzleD1Database } from 'drizzle-orm/d1';
 
+export type { DbSessionStart };
+
+const DEFAULT_BINDING = 'DB';
+
 /**
  * Create a Drizzle D1 instance from a custom D1 binding.
  * Use this when you have multiple D1 databases or need a non-default binding.
  */
 export function createDb(
   d1: D1Database,
-  options?: { session?: D1SessionConstraint | D1SessionBookmark },
+  options?: { session?: DbSessionStart },
 ): DrizzleD1Database {
   return _drizzle(
     d1.withSession(options?.session ?? 'first-unconstrained') as unknown as D1Database,
   );
 }
 
-const sessions = createD1SessionAccess('DB');
+const sessions = createD1SessionAccess(DEFAULT_BINDING);
 
 /** Set the default D1 session's starting bookmark or constraint before using db. */
-export function setSession(start: D1SessionConstraint | D1SessionBookmark): void {
+export function setSession(start: DbSessionStart): void {
   sessions.setSession(start);
 }
 
@@ -84,14 +88,19 @@ function requireD1(): D1Database {
   // an installed package only when the package is an ES module that depends on void and the
   // app lists it or reaches it through such packages.
   if (
-    getRuntimeBinding('DB') == null &&
+    getRuntimeBinding(DEFAULT_BINDING) == null &&
     (getRuntimeBinding('HYPERDRIVE') != null || getRuntimeBinding('DATABASE_URL') != null)
   ) {
     throw new Error(
-      "db: Missing Cloudflare binding 'DB'. This app connects through HYPERDRIVE or DATABASE_URL, but its server bundle loaded the D1 client. In Nuxt or Analog, add 'void/nitro' to the Nitro modules. An installed package that imports void/db must be an ES module that lists void in its dependencies or peerDependencies, and the app must list it or reach it through such packages.",
+      `db: Missing Cloudflare binding '${DEFAULT_BINDING}'. This app connects through HYPERDRIVE or DATABASE_URL, but its server bundle loaded the D1 client. In Nuxt or Analog, add 'void/nitro' to the Nitro modules. An installed package that imports void/db must be an ES module that lists void in its dependencies or peerDependencies, and the app must list it or reach it through such packages.`,
     );
   }
-  return requireRuntimeBinding<D1Database>('DB');
+  return requireRuntimeBinding<D1Database>(DEFAULT_BINDING);
+}
+
+function d1Init() {
+  requireD1();
+  return _drizzle(sessions.getSession());
 }
 
 /**
@@ -103,16 +112,9 @@ export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
   get(_, prop) {
     const instance = getRuntimeRequestResource(
       requestDbKey,
-      () => {
-        requireD1();
-        return _drizzle(sessions.getSession() as unknown as D1Database);
-      },
-      // Framework adapters do not always enter Void's request scope. Without a
-      // shared session, each operation starts on primary to preserve fresh reads.
-      () => {
-        requireD1();
-        return _drizzle(sessions.getSession() as unknown as D1Database);
-      },
+      d1Init,
+      // Outside Void's request scope, create an uncached client.
+      d1Init,
     );
     return Reflect.get(instance, prop);
   },

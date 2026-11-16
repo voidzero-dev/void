@@ -267,7 +267,9 @@ export const POST = defineHandler(async (c) => {
         await page.route('**/api/without-bookmark*', async (route) => {
           const request = route.request();
           const headers = { ...request.headers() };
-          if (request.method() === 'POST' && ++writes >= 2) headers['x-demo-test-error'] = 'save';
+          if (request.method() === 'POST' && ++writes >= 2) {
+            headers['x-demo-test-error'] = 'save';
+          }
           await route.continue({ headers });
         });
         await page.getByRole('button', { name: 'Run trials', exact: true }).click();
