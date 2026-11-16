@@ -228,7 +228,7 @@ export function compileRouteTable(
     options.webSocketRuntimePath
   ) {
     lines.push(
-      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest } from ${JSON.stringify(options.webSocketRuntimePath)};`,
+      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest, __registerWebSocketRoutes } from ${JSON.stringify(options.webSocketRuntimePath)};`,
     );
   }
   if (options.hasLive && options.liveRuntimePath) {
@@ -414,6 +414,7 @@ export function compileRouteTable(
             params: route.params,
             className: route.className,
             bindingName: route.bindingName,
+            mode: route.mode,
             ...(route.name !== undefined && { name: route.name }),
           },
         )}, ${auth ? '__voidAuthOptions' : 'undefined'}, ${auth ? '__resolveVoidAuthState' : 'undefined'});`,
@@ -427,6 +428,7 @@ export function compileRouteTable(
           params: route.params,
           className: route.className,
           bindingName: route.bindingName,
+          mode: route.mode,
           ...(route.name !== undefined && { name: route.name }),
         })),
       )};`,
@@ -435,6 +437,10 @@ export function compileRouteTable(
   }
   for (let i = 0; i < webSockets.length; i++) {
     lines.push(`__voidWebSocketRoutes[${i}].key = websocket${i}.key;`);
+  }
+  if (webSockets.length > 0 && options.webSocketRuntimePath) {
+    // Register after `key` is attached so getRoom() shares the client's addressing.
+    lines.push('__registerWebSocketRoutes(__voidWebSocketRoutes);');
   }
   for (const className of options.webSocketTombstones ?? []) {
     lines.push(

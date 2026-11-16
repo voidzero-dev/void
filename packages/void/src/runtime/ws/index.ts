@@ -57,15 +57,35 @@ export type RoomContext<ServerEvent = unknown> = WebSocketBaseContext & {
   readonly connection: WebSocketConnection<ServerEvent>;
 };
 
+/**
+ * Context for a room action. An action runs for other server code, so it has no
+ * request or user; `id` and `params` describe the addressed room instance.
+ */
+export type RoomActionContext = {
+  /** Same instance id a connected client reads as `ctx.id`. */
+  readonly id: string;
+  readonly params: ParamsRecord;
+  readonly env: CloudEnv['Bindings'];
+  readonly storage: DurableObjectStorage;
+  readonly room: RoomController<unknown>;
+};
+
+/**
+ * Named server-side room actions. `Array<never>` accepts every annotated parameter
+ * list, so each action keeps the parameters and return type its author declares.
+ * Server events are validated at runtime, but an action's `ctx.room` is not typed
+ * against `messages.server`.
+ */
+export type RoomActions = Record<
+  string,
+  (context: RoomActionContext, ...args: Array<never>) => unknown
+>;
+
 export type SocketContext<ServerEvent = unknown> = WebSocketBaseContext & {
   readonly socket: WebSocketConnection<ServerEvent>;
 };
 
-export type RoomDefinition<
-  ClientSchema extends StandardSchemaV1 = StandardSchemaV1,
-  ServerSchema extends StandardSchemaV1 = StandardSchemaV1,
-> = {
-  readonly __kind: 'room';
+type RoomHooks<ClientSchema extends StandardSchemaV1, ServerSchema extends StandardSchemaV1> = {
   /** Optional persistent resource name. Pin the name reported by `void info` before moving this route. */
   readonly name?: string;
   /** Optional instance key; preserve existing keys when renaming route parameters. */
@@ -90,6 +110,24 @@ export type RoomDefinition<
     ctx: RoomContext<StandardSchemaV1.InferInput<ServerSchema>>,
   ) => MaybePromise<Response>;
 };
+
+/** Room definition with actions. Required here so `defineRoom()` can type action parameters. */
+export interface RoomDefinitionInput<
+  ClientSchema extends StandardSchemaV1,
+  ServerSchema extends StandardSchemaV1,
+  Actions extends RoomActions,
+> extends RoomHooks<ClientSchema, ServerSchema> {
+  readonly actions: Actions;
+}
+
+export interface RoomDefinition<
+  ClientSchema extends StandardSchemaV1 = StandardSchemaV1,
+  ServerSchema extends StandardSchemaV1 = StandardSchemaV1,
+  Actions extends RoomActions = {},
+> extends RoomHooks<ClientSchema, ServerSchema> {
+  readonly __kind: 'room';
+  readonly actions?: Actions;
+}
 
 export type SocketDefinition<
   ClientSchema extends StandardSchemaV1 = StandardSchemaV1,
@@ -121,14 +159,28 @@ export type SocketDefinition<
   ) => MaybePromise<Response>;
 };
 
-export type AnyWebSocketDefinition = RoomDefinition | SocketDefinition;
+export type AnyWebSocketDefinition =
+  | RoomDefinition<StandardSchemaV1, StandardSchemaV1, RoomActions>
+  | SocketDefinition;
 
 export function defineRoom<
   ClientSchema extends StandardSchemaV1,
   ServerSchema extends StandardSchemaV1,
 >(
-  definition: Omit<RoomDefinition<ClientSchema, ServerSchema>, '__kind'>,
-): RoomDefinition<ClientSchema, ServerSchema> {
+  definition: RoomHooks<ClientSchema, ServerSchema> & { readonly actions?: never },
+): RoomDefinition<ClientSchema, ServerSchema>;
+export function defineRoom<
+  ClientSchema extends StandardSchemaV1,
+  ServerSchema extends StandardSchemaV1,
+  const Actions extends RoomActions,
+>(
+  definition: RoomDefinitionInput<ClientSchema, ServerSchema, Actions>,
+): RoomDefinition<ClientSchema, ServerSchema, Actions>;
+export function defineRoom(
+  definition:
+    | (RoomHooks<StandardSchemaV1, StandardSchemaV1> & { readonly actions?: never })
+    | RoomDefinitionInput<StandardSchemaV1, StandardSchemaV1, RoomActions>,
+): RoomDefinition<StandardSchemaV1, StandardSchemaV1, RoomActions> {
   assertResourceName(definition.name);
   return { ...definition, __kind: 'room' };
 }
