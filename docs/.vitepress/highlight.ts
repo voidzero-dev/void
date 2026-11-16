@@ -157,7 +157,9 @@ function spanOpener(token: ThemedToken): string {
 
 // Match VitePress's non-selectable shell prompts while keeping the text for
 // its copy button, which strips the prompt from the cloned block.
-function disableShellPromptSelection(tokens: ReadonlyArray<ThemedToken>): ReadonlyArray<ThemedToken> {
+function disableShellPromptSelection(
+  tokens: ReadonlyArray<ThemedToken>,
+): ReadonlyArray<ThemedToken> {
   const content = tokens.map((token) => token.content).join('');
   const promptLength = /^ *[$>] /.exec(content)?.[0].length ?? 0;
   if (!promptLength) {
@@ -301,7 +303,9 @@ export function createCodeHighlighter(): CodeHighlighter {
           entry.remaining--;
         }
         running = running.filter((entry) => entry.remaining > 0);
-        lines.push(renderLine(shell ? disableShellPromptSelection(tokens) : tokens, [...classes].join(' ')));
+        lines.push(
+          renderLine(shell ? disableShellPromptSelection(tokens) : tokens, [...classes].join(' ')),
+        );
       });
     }
 
