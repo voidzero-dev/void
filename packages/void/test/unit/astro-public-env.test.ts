@@ -1,7 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import type { ResolvedConfig } from 'vite';
+import { fileURLToPath } from 'node:url';
+import { normalizePath, type ResolvedConfig } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { createAstroPublicEnvPlugin, findImportMetaEnv } from '../../src/plugin-framework.ts';
 
@@ -14,22 +15,22 @@ afterEach(() => {
   }
 });
 
-/** A real `env-public.mjs` and a symlinked directory that points to it. */
+/** A real `env/public.mjs` and a symlinked directory that points to it. */
 function createEnvPublicFile() {
   const root = mkdtempSync(join(tmpdir(), 'void-astro-public-env-'));
   tempDirs.push(root);
   const real = join(root, 'real');
-  mkdirSync(real);
-  const file = join(real, 'env-public.mjs');
+  mkdirSync(join(real, 'env'), { recursive: true });
+  const file = join(real, 'env', 'public.mjs');
   writeFileSync(file, CODE);
   const linked = join(root, 'linked');
   // A junction needs no extra rights on Windows.
   symlinkSync(real, linked, 'junction');
-  return { file, linkedFile: join(linked, 'env-public.mjs'), root };
+  return { file, linkedFile: join(linked, 'env', 'public.mjs'), root };
 }
 
 function transform(
-  file: string,
+  file: string | undefined,
   input: {
     id: string;
     env?: Record<string, unknown>;
@@ -41,8 +42,13 @@ function transform(
   const configResolved = plugin.configResolved as (config: ResolvedConfig) => void;
   configResolved({ env: input.env ?? {} } as ResolvedConfig);
   const hook = plugin.transform as {
+    filter: { id: RegExp };
     handler: (this: unknown, code: string, id: string) => { code: string } | undefined;
   };
+  // Vite calls the handler only for ids that pass the filter.
+  if (!hook.filter.id.test(normalizePath(input.id))) {
+    return undefined;
+  }
   const result = hook.handler.call(
     { environment: { name: input.environment ?? 'ssr', config: { define: input.define } } },
     CODE,
@@ -91,6 +97,13 @@ describe('void:astro-public-env', () => {
     );
   });
 
+  it('transforms the module that void/env resolves to', () => {
+    const file = fileURLToPath(import.meta.resolve('#self/env'));
+    expect(transform(undefined, { id: file, env: { VITE_A: 'a' } })).toBe(
+      'const values = ({"VITE_A": "a"});\n',
+    );
+  });
+
   it('matches the module through a symlinked path', () => {
     const { file, linkedFile } = createEnvPublicFile();
     expect(transform(file, { id: linkedFile, env: { VITE_A: 'a' } })).toBe(
@@ -98,11 +111,11 @@ describe('void:astro-public-env', () => {
     );
   });
 
-  it('leaves the client build and other env-public.mjs files alone', () => {
+  it('leaves the client build and other env/public.mjs files alone', () => {
     const { file, root } = createEnvPublicFile();
     expect(transform(file, { id: file, environment: 'client' })).toBeUndefined();
-    const other = join(root, 'other', 'env-public.mjs');
-    mkdirSync(join(root, 'other'));
+    const other = join(root, 'other', 'env', 'public.mjs');
+    mkdirSync(join(root, 'other', 'env'), { recursive: true });
     writeFileSync(other, CODE);
     expect(transform(file, { id: other })).toBeUndefined();
   });

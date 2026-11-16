@@ -11,6 +11,7 @@ import {
 } from 'node:fs';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { PGlite } from '@electric-sql/pglite';
 import spawn from 'cross-spawn';
 import { createServer } from 'pglite-server';
@@ -364,7 +365,7 @@ describe('playground/astro build', () => {
     getClientEnvValues: 'sk_local_function_canary',
   };
   // Set only in the build shell, as a CI secret would be.
-  const SHELL_ENV = { validatedCache: 'sk_shell_cache_canary' };
+  const SHELL_ENV = { keepResults: 'sk_shell_results_canary' };
   const ORIGIN = 'https://build.example.com';
   const DEFINED = 'https://define.example.com';
   let playground: IsolatedPlayground;
@@ -429,6 +430,11 @@ export const GET = () =>
   });
 
   it('keeps private .env and build-shell values out of the build output', () => {
+    // A canary that `void/env` no longer names would pass without testing anything.
+    const envModule = readFileSync(fileURLToPath(import.meta.resolve('#self/env')), 'utf8');
+    for (const name of Object.keys({ ...LOCAL_ENV, ...SHELL_ENV })) {
+      expect(envModule, name).toContain(name);
+    }
     const dist = join(playground.root, 'dist');
     // Local development reads .dev.vars, and a deploy leaves it out of the upload.
     const files = readdirSync(dist, { recursive: true, encoding: 'utf8' }).filter(

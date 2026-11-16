@@ -120,7 +120,7 @@ export function createAstroPublicEnvPlugin(file: string = envPublicFile): Plugin
       astroBuildEnv = resolvedConfig.env;
     },
     transform: {
-      filter: { id: /env-public\.mjs$/ },
+      filter: { id: /[\\/]env[\\/]public\.mjs$/ },
       handler(code, id) {
         if (this.environment?.name === 'client' || realPath(id) !== envPublicPath) {
           return;
