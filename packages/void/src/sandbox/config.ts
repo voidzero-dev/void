@@ -11,6 +11,7 @@ export const SANDBOX_MIGRATION_TAG = 'void-sandbox-v2';
 
 export type SandboxInstanceType =
   | 'lite'
+  | 'basic'
   | 'standard-1'
   | 'standard-2'
   | 'standard-3'

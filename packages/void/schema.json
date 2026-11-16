@@ -354,7 +354,7 @@
             },
             "instanceType": {
               "type": "string",
-              "enum": ["lite", "standard-1", "standard-2", "standard-3", "standard-4"],
+              "enum": ["lite", "basic", "standard-1", "standard-2", "standard-3", "standard-4"],
               "description": "Cloudflare Container instance type."
             }
           },
