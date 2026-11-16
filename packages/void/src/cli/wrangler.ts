@@ -916,6 +916,8 @@ export type ProvisionedWranglerPatch = {
 type ManagedQueueProvenance = {
   producerBindings: Array<string>;
   consumerQueues: Array<string>;
+  /** Consumers whose max_concurrency was set from a queue file export. */
+  consumerConcurrencyQueues: Array<string>;
   /** Void-owned consumers removed locally but not yet confirmed removed remotely. */
   pendingConsumerRemovals: Array<string>;
 };
@@ -924,6 +926,7 @@ function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
   const none: ManagedQueueProvenance = {
     producerBindings: [],
     consumerQueues: [],
+    consumerConcurrencyQueues: [],
     pendingConsumerRemovals: [],
   };
   const encoded = MANAGED_QUEUES_MARKER.exec(text)?.[1];
@@ -940,6 +943,7 @@ function readManagedQueueProvenance(text: string): ManagedQueueProvenance {
     return {
       producerBindings: strings(parsed.producerBindings),
       consumerQueues: strings(parsed.consumerQueues),
+      consumerConcurrencyQueues: strings(parsed.consumerConcurrencyQueues),
       pendingConsumerRemovals: strings(parsed.pendingConsumerRemovals),
     };
   } catch {
@@ -952,12 +956,14 @@ function writeManagedQueueProvenance(text: string, provenance: ManagedQueueProve
   const normalized: ManagedQueueProvenance = {
     producerBindings: [...new Set(provenance.producerBindings)].sort(),
     consumerQueues: [...new Set(provenance.consumerQueues)].sort(),
+    consumerConcurrencyQueues: [...new Set(provenance.consumerConcurrencyQueues)].sort(),
     pendingConsumerRemovals: [...new Set(provenance.pendingConsumerRemovals)].sort(),
   };
   const existing = MANAGED_QUEUES_MARKER.exec(text);
   if (
     normalized.producerBindings.length === 0 &&
     normalized.consumerQueues.length === 0 &&
+    normalized.consumerConcurrencyQueues.length === 0 &&
     normalized.pendingConsumerRemovals.length === 0
   ) {
     if (!existing) {
@@ -1354,6 +1360,9 @@ export function writeProvisionedWranglerConfig(
   const managedQueueProvenance = readManagedQueueProvenance(text);
   const managedProducerBindings = new Set(managedQueueProvenance.producerBindings);
   const managedConsumerQueues = new Set(managedQueueProvenance.consumerQueues);
+  const managedConsumerConcurrencyQueues = new Set(
+    managedQueueProvenance.consumerConcurrencyQueues,
+  );
   const pendingConsumerRemovals = new Set(managedQueueProvenance.pendingConsumerRemovals);
   const upsertQueueEntries = (
     section: 'producers' | 'consumers',
@@ -1424,6 +1433,16 @@ export function writeProvisionedWranglerConfig(
         index = currentList.findIndex(
           (existing) => isRecord(existing) && existing.queue === entry.queue,
         );
+      }
+
+      if (reconcileManagedQueues && section === 'consumers' && typeof entry.queue === 'string') {
+        if (entry.max_concurrency !== undefined) {
+          managedConsumerConcurrencyQueues.add(entry.queue);
+        } else if (managedConsumerConcurrencyQueues.delete(entry.queue) && index >= 0) {
+          // Removing the export restores autoscaling without clearing a cap Void never wrote.
+          set(['queues', section, index, 'max_concurrency'], undefined);
+          delete currentList[index].max_concurrency;
+        }
       }
 
       if (index >= 0) {
@@ -1588,6 +1607,9 @@ export function writeProvisionedWranglerConfig(
         finalProducerBindings.has(binding),
       ),
       consumerQueues: [...managedConsumerQueues].filter((queue) => finalConsumerQueues.has(queue)),
+      consumerConcurrencyQueues: [...managedConsumerConcurrencyQueues].filter((queue) =>
+        finalConsumerQueues.has(queue),
+      ),
       pendingConsumerRemovals: [...pendingConsumerRemovals],
     });
   }

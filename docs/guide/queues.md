@@ -115,6 +115,8 @@ Export each option directly from the queue file as a whole number, such as `expo
 
 Set `maxConcurrency` when your consumer calls a rate-limited API or another service that needs bounded parallel work. `maxBatchSize` limits messages in each batch; `maxConcurrency` limits how many batches run at once. It applies to both direct Cloudflare and Void-managed deployments. Omit it to let Cloudflare scale automatically; see [consumer concurrency](https://developers.cloudflare.com/queues/configuration/consumer-concurrency/).
 
+Void-managed deployments require platform version 1.9.2 or later.
+
 Void-managed queues do not configure a dead-letter queue. Cloudflare permanently
 deletes messages that exhaust their retries without one; see
 [Cloudflare's dead-letter queue guide](https://developers.cloudflare.com/queues/configuration/dead-letter-queues/).

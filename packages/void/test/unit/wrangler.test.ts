@@ -1087,6 +1087,37 @@ describe('writeProvisionedWranglerConfig', () => {
     });
   });
 
+  it.each([false, true])(
+    'clears Void-written concurrency when omitted (preexisting consumer: %s)',
+    (preexisting) => {
+      setup(
+        'wrangler.jsonc',
+        JSON.stringify({
+          queues: {
+            consumers: preexisting
+              ? [{ queue: 'jobs', dead_letter_queue: 'jobs-dlq', max_concurrency: 8 }]
+              : [],
+          },
+        }),
+      );
+      const queues: NonNullable<ProvisionedWranglerPatch['queues']> = {
+        consumers: [{ queue: 'jobs', max_concurrency: 2 }],
+        reconcileVoidOwned: true,
+      };
+      writeProvisionedWranglerConfig(tmpDir, { queues });
+      expect(parseRaw('wrangler.jsonc').queues).toMatchObject({
+        consumers: [{ queue: 'jobs', max_concurrency: 2 }],
+      });
+
+      queues.consumers = [{ queue: 'jobs' }];
+      expect(writeProvisionedWranglerConfig(tmpDir, { queues }).modified).toBe(true);
+      expect(parseRaw('wrangler.jsonc').queues).toEqual({
+        consumers: [{ queue: 'jobs', ...(preexisting && { dead_letter_queue: 'jobs-dlq' }) }],
+      });
+      expect(writeProvisionedWranglerConfig(tmpDir, { queues }).modified).toBe(false);
+    },
+  );
+
   it('prunes only queue entries that Void explicitly recorded as managed', () => {
     setup('wrangler.jsonc', '{}');
     writeProvisionedWranglerConfig(tmpDir, {
@@ -1305,6 +1336,7 @@ describe('writeProvisionedWranglerConfig', () => {
       queues: {
         producers: [{ queue: 'jobs', binding: 'QUEUE_JOBS' }],
         consumers: [{ queue: 'jobs', max_batch_size: 25, max_retries: 5 }],
+        reconcileVoidOwned: true,
       },
     };
 
