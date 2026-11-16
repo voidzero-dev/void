@@ -38,6 +38,7 @@ const mockNote = vi.fn();
 const mockOutro = vi.fn();
 const mockLogWarn = vi.fn();
 const mockLogInfo = vi.fn();
+const mockLogStep = vi.fn();
 const mockGetToken = vi.fn();
 const mockGetApiUrl = vi.fn();
 const mockRunLogin = vi.fn();
@@ -334,7 +335,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
     warn: (...args: Array<unknown>) => mockLogWarn(...args),
     error: vi.fn(),
     info: (...args: Array<unknown>) => mockLogInfo(...args),
-    step: vi.fn(),
+    step: (...args: Array<unknown>) => mockLogStep(...args),
   },
   confirm: (...args: Array<unknown>) => mockConfirm(...args),
   select: (...args: Array<unknown>) => mockSelect(...args),
@@ -622,6 +623,7 @@ afterEach(() => {
   mockOutro.mockReset();
   mockLogWarn.mockReset();
   mockLogInfo.mockReset();
+  mockLogStep.mockReset();
   mockGetToken.mockReset();
   mockGetApiUrl.mockReset();
   mockRunLogin.mockReset();
@@ -1448,6 +1450,11 @@ describe('isScaffoldableEmptyProject', () => {
       expect(tsconfig.compilerOptions.jsx).toBe('react-jsx');
       expect(tsconfig.include).toContain('pages');
       expect(tsconfig.include).toContain('db');
+
+      expect(mockLogInfo).toHaveBeenCalledWith('Empty project detected. Creating a Pages starter.');
+      // The starter prompt already showed the database, and the starter has its own pages.
+      expect(mockLogInfo).not.toHaveBeenCalledWith('Using default D1 (SQLite) configuration');
+      expect(mockLogInfo).not.toHaveBeenCalledWith(expect.stringContaining('skipping demo'));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1494,6 +1501,7 @@ describe('isScaffoldableEmptyProject', () => {
       expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8')).toContain(
         'CREATE TABLE "messages"',
       );
+      expect(mockLogStep).not.toHaveBeenCalledWith('Configured PostgreSQL in void.config.ts');
 
       const toolchainPrompt = mockSelect.mock.calls[0]?.[0];
       expect(toolchainPrompt.message).toBe('Choose a Pages scaffold toolchain:');
@@ -1743,6 +1751,8 @@ describe('isScaffoldableEmptyProject', () => {
 
   it('offers to scaffold in a subfolder from a non-project parent directory', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    // The user's shell stays in the parent directory.
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
     try {
       mkdirSync(join(root, 'existing-project'));
       mockSelect
@@ -1794,7 +1804,11 @@ describe('isScaffoldableEmptyProject', () => {
           shell: process.platform === 'win32',
         }),
       );
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).toContain(
+        'Run `cd my-new-app && vp dev` to start developing.',
+      );
     } finally {
+      cwd.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });

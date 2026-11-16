@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cancel, confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { dirname, join, resolve } from 'pathslash';
+import { quoteShellPath, shellDirectory } from './init-shell.ts';
 
 export async function setupGit(root: string, git?: boolean): Promise<boolean> {
   if (git === false) {
@@ -58,14 +59,8 @@ export async function setupGit(root: string, git?: boolean): Promise<boolean> {
 }
 
 export function initialCommitCommand(root: string): string {
-  // Quote paths for the user's shell, including names containing quotes, $ or
-  // backticks. Use the absolute path because init can create a subfolder.
+  // Use the absolute path because init can create a subfolder.
   const directory = resolve(root);
-  const argument = /^[A-Za-z0-9_@./:-]+$/.test(directory)
-    ? directory
-    : process.platform === 'win32'
-      ? `"${directory}"`
-      : `'${directory.replaceAll("'", "'\\''")}'`;
-  const git = directory === resolve(process.cwd()) ? 'git' : `git -C ${argument}`;
+  const git = directory === shellDirectory() ? 'git' : `git -C ${quoteShellPath(directory)}`;
   return `${git} add -A && ${git} commit -m "chore: initial commit"`;
 }
