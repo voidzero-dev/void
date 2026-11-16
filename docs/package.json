@@ -10,6 +10,7 @@
   },
   "devDependencies": {
     "@iconify/vue": "catalog:",
+    "@pierre/highlights": "catalog:",
     "@voidzero-dev/vitepress-theme": "catalog:",
     "reka-ui": "catalog:",
     "vitepress": "2.0.0-alpha.20",
