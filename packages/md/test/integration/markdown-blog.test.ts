@@ -78,9 +78,8 @@ function defineCodeCopyTests(getBase: () => string) {
       await jsxBlock.hover();
       await jsxBlock.locator('button.copy').click();
       await jsxBlock.locator('button.copy.copied').waitFor();
-      expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(
-        '<div>\n  <New />\n</div>',
-      );
+      const copiedJsx = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copiedJsx.replaceAll('\r\n', '\n')).toBe('<div>\n  <New />\n</div>');
     } finally {
       await context.close();
     }
