@@ -1,17 +1,9 @@
-import { createJavaScriptRegexEngine } from '@shikijs/engine-javascript';
-import {
-  transformerMetaHighlight,
-  transformerNotationDiff,
-  transformerNotationHighlight,
-  transformerNotationFocus,
-  transformerNotationErrorLevel,
-} from '@shikijs/transformers';
 import MarkdownExit from 'markdown-exit';
 import type { RuleCore, Token } from 'markdown-exit';
 import attrs from 'markdown-it-attrs';
 import { full as emoji } from 'markdown-it-emoji';
 import footnote from 'markdown-it-footnote';
-import { createHighlighter, bundledLanguages, isSpecialLang, type BundledLanguage } from 'shiki';
+import { createCodeHighlighter } from './highlight.ts';
 import { extractHeadings, parseFrontmatter } from './metadata.ts';
 import { containerPlugin } from './plugins/containers.ts';
 import { gitHubAlertsPlugin } from './plugins/github-alerts.ts';
@@ -39,12 +31,15 @@ export type CompileResult = Readonly<{
 export type CompileOptions = Readonly<{
   /** Title of the code block copy button. Defaults to `Copy Code`. */
   copyLabel?: string;
+  /** Code block color themes. Defaults to `github-light` and `github-dark`. */
+  themes?: { light: string; dark: string };
+  /** @deprecated Use `themes`. Removed in the next major version. */
   shiki?: {
+    /** @deprecated Use the top-level `themes` option. Removed in the next major version. */
     themes?: { light: string; dark: string };
     /**
-     * @deprecated Has no effect. Code block languages load on demand from
-     * Shiki's bundled languages. Remove this option. Removed in the next major
-     * version.
+     * @deprecated Has no effect. Every supported code block language is
+     * built in. Remove this option. Removed in the next major version.
      */
     langs?: ReadonlyArray<string>;
   };
@@ -63,48 +58,20 @@ async function getCompiler(options?: CompileOptions): Promise<MarkdownExit> {
 async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   const markdown = new MarkdownExit({ html: true, linkify: true });
 
-  // Shiki highlighting with JS RegExp engine (no WASM) + lazy language loading
-  const themes = options?.shiki?.themes ?? {
-    light: 'github-light',
-    dark: 'github-dark',
-  };
-  const highlighter = await createHighlighter({
-    engine: createJavaScriptRegexEngine(),
-    themes: [themes.light, themes.dark],
-    langs: [],
-  });
-  const shikiTransformers = [
-    transformerMetaHighlight(),
-    transformerNotationDiff(),
-    transformerNotationHighlight(),
-    transformerNotationFocus(),
-    transformerNotationErrorLevel(),
-  ];
-  markdown.renderer.rules.fence = async (tokens: ReadonlyArray<Token>, tokenIndex: number) => {
+  const highlight = await createCodeHighlighter(
+    options?.themes ?? options?.shiki?.themes ?? { light: 'github-light', dark: 'github-dark' },
+  );
+  markdown.renderer.rules.fence = (tokens: ReadonlyArray<Token>, tokenIndex: number) => {
     const token = tokens[tokenIndex];
-    const code = token.content;
-    let lang = token.info ? token.info.split(/\s+/g)[0] : 'text';
-    if (!isSpecialLang(lang) && !highlighter.getLoadedLanguages().includes(lang)) {
-      if (lang in bundledLanguages) {
-        await highlighter.loadLanguage(lang as BundledLanguage);
-      } else {
-        lang = 'text';
-      }
-    }
+    const lang = token.info ? token.info.split(/\s+/g)[0] : 'text';
     // `markdown-it-attrs` strips `{1,3-5}` line-highlight ranges from
-    // `token.info`; `stash_fence_info` keeps the original so
-    // `transformerMetaHighlight` still sees them.
+    // `token.info`; `stash_fence_info` keeps the original so the highlighter
+    // still sees them.
     const rawInfo = (token.meta as { rawInfo?: string } | null)?.rawInfo ?? token.info;
-    return highlighter.codeToHtml(code, {
-      lang,
-      themes,
-      defaultColor: 'light',
-      transformers: shikiTransformers,
-      meta: { __raw: rawInfo },
-    });
+    return highlight(token.content, lang, rawInfo);
   };
 
-  // Code block wrapping (must come after shiki, before line-numbers)
+  // Code block wrapping (must come after the fence rule, before line-numbers)
   markdown.use(preWrapperPlugin, { copyLabel: options?.copyLabel });
 
   markdown.use(containerPlugin);
@@ -114,7 +81,7 @@ async function createCompiler(options?: CompileOptions): Promise<MarkdownExit> {
   markdown.use(gitHubAlertsPlugin);
 
   // Save the raw fence info (e.g. `ts {1,3-5}`) before `markdown-it-attrs` strips the
-  // `{…}`, so `transformerMetaHighlight` still gets the line ranges via `meta.__raw`.
+  // `{…}`, so the highlighter still gets the line ranges.
   const stashFenceInfo: RuleCore = (state) => {
     for (const token of state.tokens) {
       if (token.type === 'fence') {

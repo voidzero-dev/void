@@ -61,7 +61,7 @@ describe('plugins', () => {
       expect(prose.html).not.toContain('<script');
     });
 
-    it('copy script drops the empty last line that Shiki adds', () => {
+    it('copy script drops the empty last line of the code block', () => {
       const copied: Array<string> = [];
       clickCopy(['const x = 1;', '', 'const y = 2;', ''], (text) => {
         copied.push(text);
