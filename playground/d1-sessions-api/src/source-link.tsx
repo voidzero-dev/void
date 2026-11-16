@@ -1,9 +1,9 @@
-declare const __D1_BOOKMARKS_SOURCE_ROOT__: string;
+declare const __D1_SESSIONS_API_SOURCE_ROOT__: string;
 
 export function SourceLink({ file }: { file: string }) {
   const source = new URL(
     file.split('/').map(encodeURIComponent).join('/'),
-    __D1_BOOKMARKS_SOURCE_ROOT__,
+    __D1_SESSIONS_API_SOURCE_ROOT__,
   );
   const host = source.host ? `//${source.host}` : '';
   return (

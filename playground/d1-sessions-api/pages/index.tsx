@@ -4,7 +4,7 @@ import { SourceLink } from '../src/source-link.tsx';
 export default function Home() {
   return (
     <>
-      <h1>D1 Bookmark Example</h1>
+      <h1>D1 Sessions API</h1>
       <p>
         A write succeeds on the primary. A read in the next request can reach a replica that has not
         caught up yet. Compare the same write/read flow with and without a bookmark, using a browser

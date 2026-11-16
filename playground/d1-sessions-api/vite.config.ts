@@ -4,7 +4,7 @@ import { voidPlugin } from 'void';
 
 export default defineConfig({
   define: {
-    __D1_BOOKMARKS_SOURCE_ROOT__: JSON.stringify(new URL('./', import.meta.url).href),
+    __D1_SESSIONS_API_SOURCE_ROOT__: JSON.stringify(new URL('./', import.meta.url).href),
   },
   plugins: [voidPlugin(), voidReact()],
 });

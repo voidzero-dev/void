@@ -8,7 +8,7 @@ export default function Layout({ children }: { children: ReactNode }) {
       <header>
         <nav aria-label="Demo variants">
           <strong>
-            <Link href="/">D1 Bookmark Example</Link>
+            <Link href="/">D1 Sessions API</Link>
           </strong>{' '}
           | <Link href="/without-bookmark">Without bookmark</Link> |{' '}
           <Link href="/with-bookmark">Manual bookmark</Link>

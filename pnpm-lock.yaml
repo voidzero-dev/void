@@ -1393,7 +1393,7 @@ importers:
         specifier: workspace:*
         version: link:../../packages/void
 
-  playground/d1-bookmarks:
+  playground/d1-sessions-api:
     dependencies:
       hono:
         specifier: 'catalog:'

@@ -1,4 +1,4 @@
-# D1 bookmarks
+# D1 Sessions API
 
 React Pages demo comparing real D1 read-after-write behavior with and without bookmark propagation. Choose browser-cookie transport or an immediate server-side read through an independent session. The home page includes code snippets and VS Code source links, like `playground/http-errors`.
 
@@ -8,10 +8,10 @@ From the repository root:
 
 ```sh
 vp install
-cd playground/d1-bookmarks
+cd playground/d1-sessions-api
 vp exec void db migrate
 cd ../..
-vp run --filter ./playground/d1-bookmarks dev
+vp run --filter ./playground/d1-sessions-api dev
 ```
 
 Open `/without-bookmark` and `/with-bookmark`. Choose the same **Read timing** and pressure settings in both variants:
@@ -45,30 +45,28 @@ Payload slots are shared across visitors and reused, using at most eight slots (
 
 Click **Run trials** to write and read automatically using the selected timing. Every trial finishes before the next starts; there is no one-off Save button.
 
-## Live demo
+## Deploy your own demo
 
-The Worker is named **`voidzero-void-d1-bookmarks`**, and its D1 database is **`voidzero-void-d1-bookmarks-weur`**. Their account, names, and database ID are saved in `cloudflare.config.ts` in this directory; `void.config.ts` reuses those settings for the Void build. The primary runs in Western Europe (`WEUR`), with read replication enabled (`auto`) and no jurisdiction restriction. Credentials come from the `cf` wrapper through `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+Copy `cloudflare.config.example.ts` to `cloudflare.config.ts`, replace the `YOUR_*` placeholders with your account, Worker name, database name, and database ID, and update the import in `void.config.ts` to use that file. Use a valid lowercase Worker name for `YOUR_WORKER_ID`. Credentials come from the `cf` wrapper through `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
 
-Deployed URL: <https://voidzero-void-d1-bookmarks.skoss-individual-account.workers.dev>. Sign in through the account's Cloudflare Access login to open the playground.
-
-The Worker uses the Singapore placement hint `aws:ap-southeast-1`, while the D1 primary runs in WEUR. **Worker placement / colo** displays `cf-placement` when available (for example, `remote-SIN`), falling back to the request's Cloudflare colo. Placement influences where the Worker executes; it does not force D1 reads onto a replica. Check each read's primary/replica metadata separately.
+The example uses the Singapore placement hint `aws:ap-southeast-1`. Provision a D1 primary in Western Europe (`WEUR`) with read replication enabled (`auto`) to test across regions. **Worker placement / colo** displays `cf-placement` when available (for example, `remote-SIN`), falling back to the request's Cloudflare colo. Placement influences where the Worker executes; it does not force D1 reads onto a replica. Check each read's primary/replica metadata separately.
 
 Workers Observability is enabled with persisted invocation logs and 100% log sampling. Server errors also emit a structured `d1-demo-error` log.
 
-To redeploy, run these commands from this directory. Build with Vite+ first, then pass the generated output to `cf`:
+To deploy, run these commands from this directory. Build with Vite+ first, then pass the generated output to `cf`:
 
 ```sh
 vp build
 cf deploy --prebuilt --mode production --dry-run
-cf d1 migrations apply f4a50d02-a225-47fe-8157-0622c0553fe9 --dir db/migrations
+cf d1 migrations apply YOUR_DATABASE_ID --dir db/migrations
 cf deploy --prebuilt --mode production --no-provision
 ```
 
-The migration command applies only pending files and uses the `d1_migrations` tracking table. Keep using this sequence for this database. Both checked-in migrations have been applied. Local development uses an independent SQLite database; run `vp exec void db migrate` after adopting this configuration to initialize it.
+The migration command applies only pending files and uses the `d1_migrations` tracking table. Local development uses an independent SQLite database; run `vp exec void db migrate` after changing the database configuration to initialize it.
 
 Try the control repeatedly from a region far from the Western Europe primary, then compare the manual-bookmark variant. A stale read is timing-dependent and is not guaranteed: a replica may already be caught up, or the read may hit the primary. D1 metadata identifies where each read actually ran. [D1 automatically places replicas in every supported region](https://developers.cloudflare.com/d1/best-practices/read-replication/#read-replica-locations); individual replica locations cannot be selected.
 
-The database was provisioned with `cf d1 create --name voidzero-void-d1-bookmarks-weur --primary-location-hint weur --read-replication-mode auto`. Check its current region and replication settings with `cf d1 get f4a50d02-a225-47fe-8157-0622c0553fe9`. When switching databases, clear the `d1-demo-bookmark` cookie before testing the bookmark variant so it starts a session on the new database.
+Provision a database with `cf d1 create --name YOUR_DATABASE_NAME --primary-location-hint weur --read-replication-mode auto`. Check its current region and replication settings with `cf d1 get YOUR_DATABASE_ID`. When switching databases, clear the `d1-demo-bookmark` cookie before testing the bookmark variant so it starts a session on the new database.
 
 The two variants and timing modes share implementation but have independent profile rows per browser. In redirect mode, only `/with-bookmark` and `/api/with-bookmark` read and update the HttpOnly bookmark cookie using `setSession()` and `getBookmark()`. The control ignores that cookie even after visiting the fixed page. `X-D1-Bookmark` exposes the outgoing read bookmark for inspection in DevTools in both experiments, but the control never sends it back.
 

@@ -12,10 +12,10 @@ import {
 
 const ROOT = join(import.meta.dirname, '../../../..');
 
-describe('playground/d1-bookmarks', () => {
+describe('playground/d1-sessions-api', () => {
   for (const mode of ['dev', 'preview'] as const) {
     it(`propagates bookmarks only in the fixed variant (${mode})`, async () => {
-      const fixture = createIsolatedPlayground(ROOT, 'playground/d1-bookmarks');
+      const fixture = createIsolatedPlayground(ROOT, 'playground/d1-sessions-api');
       const browser = await chromium.launch();
       let server: Awaited<ReturnType<typeof startServer>> | undefined;
       try {
@@ -68,10 +68,15 @@ export const POST = defineHandler(async (c) => {
               env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
             }),
           60_000,
-          { expectBody: 'D1 Bookmark Example' },
+          { expectBody: 'D1 Sessions API' },
         );
         const context = await browser.newContext();
         const page = await context.newPage();
+        await page.goto(server.base);
+        const heading = page.getByRole('heading', { name: 'D1 Sessions API', exact: true });
+        expect(await heading.count()).toBe(1);
+        const homeLink = page.getByRole('link', { name: 'D1 Sessions API', exact: true });
+        expect(await homeLink.count()).toBe(1);
         for (const variant of ['with-bookmark', 'without-bookmark']) {
           const fixed = variant === 'with-bookmark';
           const initial = await context.request.get(`${server.base}/api/${variant}`);

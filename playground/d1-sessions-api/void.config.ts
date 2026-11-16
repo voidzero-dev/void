@@ -1,5 +1,5 @@
 import { defineConfig } from 'void/config';
-import cloudflare from './cloudflare.config.ts';
+import cloudflare from './cloudflare.config.example.ts';
 
 export default defineConfig({
   routing: { isr: false },
