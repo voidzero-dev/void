@@ -37,9 +37,9 @@ import { createDb } from 'void/db';
 const db = createDb(env.MY_OTHER_DB);
 ```
 
-For a fresh D1 read, pass `{ session: 'first-primary' }` and create the client inside the request. The default, `'first-unconstrained'`, allows the first query to use a replica. Both keep your schema and query types. See [Read replication](../../guide/database/d1.md#read-replication).
+For a fresh D1 read, pass `{ session: 'first-primary' }` and create the client inside the request. The default, `'first-unconstrained'`, allows the first query to use a replica. Both keep your schema and query types. See [Avoid stale reads with a primary-first session](../../guide/database/d1.md#reading-from-the-primary).
 
-The `session` option also accepts a D1 bookmark from a previous request. Use `getBookmark(client)` after queries to obtain the bookmark to return to your client.
+The `session` option also accepts a D1 bookmark from a previous request. Use `getBookmark(client)` after queries to obtain the bookmark to return to your client. See [Using `createDb`](../../guide/database/d1.md#using-createdb) for an example.
 
 For PostgreSQL and MySQL projects, pass a connection string.
 
@@ -81,7 +81,9 @@ D1 only. Return the default request session's bookmark, or pass a client returne
 function getBookmark(client?: DrizzleD1Database<Schema>): D1SessionBookmark | null;
 ```
 
-`setSession()` and the no-argument `getBookmark()` require Void's request scope. For framework handlers outside that scope, use `createDb(binding, { session: bookmark })` and `getBookmark(client)` instead. See [carrying bookmarks between requests](../../guide/database/d1.md#cross-request-bookmarks) for middleware examples.
+`setSession()` and the no-argument `getBookmark()` require Void's request scope. For a framework-owned endpoint, such as an Astro API route, use an [explicit client](../../guide/database/d1.md#using-createdb) instead.
+
+For cookie and header middleware, a browser fetch wrapper, and guidance on combining both transports, see [See your writes in subsequent requests](../../guide/database/d1.md#cross-request-bookmarks).
 
 ## Query Operators {#query-operators}
 
