@@ -1234,6 +1234,70 @@ describe('Cloudflare version activation', () => {
     expect(commands.filter((command) => command === 'deployments status')).toHaveLength(4);
   });
 
+  it.each(['recovers', 'unavailable', 'concurrent', 'uploader-changed'] as const)(
+    'bounds retries of an unavailable post-upload version list (%s)',
+    async (outcome) => {
+      const base = runner();
+      let uploaded = false;
+      let reads = 0;
+      let uploaderVerified = true;
+      const runWrangler = operationFixture((args: Array<string>) => {
+        if (args[0] === 'versions' && args[1] === 'upload') {
+          uploaded = true;
+        }
+        if (args[0] === 'versions' && args[1] === 'list' && uploaded) {
+          reads++;
+          if (reads === 1 || outcome === 'unavailable') {
+            return { status: 1, stdout: '', stderr: 'Version list temporarily unavailable' };
+          }
+          if (outcome === 'concurrent') {
+            return ok(
+              JSON.stringify([
+                { id: CURRENT, number: 1 },
+                { id: NEXT, number: 2 },
+                { id: CONCURRENT, number: 3 },
+              ]),
+            );
+          }
+        }
+        return base(args);
+      });
+      const sleep = vi.fn(async () => {
+        if (outcome === 'uploader-changed') {
+          uploaderVerified = false;
+        }
+      });
+      const result = await activateCloudflareVersion({
+        runWrangler,
+        workerName: 'my-worker',
+        verifyUploader: () => uploaderVerified,
+        verifyInheritedSecrets: true,
+        message: encodeCloudflareVersionMessage([], triggersWith()),
+        fetch: async () => Response.json({ ready: true }),
+        sleep,
+      });
+      expect(result).toMatchObject(
+        outcome === 'recovers'
+          ? { ok: true, versionId: NEXT }
+          : {
+              ok: false,
+              reason:
+                outcome === 'unavailable'
+                  ? 'inheritance-source-unavailable'
+                  : outcome === 'concurrent'
+                    ? 'inheritance-source-changed'
+                    : 'uploader-changed',
+            },
+      );
+      expect(reads).toBe(outcome === 'unavailable' ? 3 : outcome === 'uploader-changed' ? 1 : 2);
+      expect(sleep.mock.calls).toEqual(outcome === 'unavailable' ? [[250], [500]] : [[250]]);
+      expect(runWrangler.mock.calls.filter(([args]) => args[1] === 'upload')).toHaveLength(1);
+      expect(runWrangler.mock.calls.some(([args]) => args[1] === 'deploy')).toBe(
+        outcome === 'recovers',
+      );
+    },
+  );
+
   it('links an existing version without publishing routes or Worker settings', async () => {
     const directory = mkdtempSync(join(tmpdir(), 'void-link-version-'));
     const configPath = join(directory, 'wrangler.json');

@@ -1310,7 +1310,22 @@ async function activateCloudflareVersionWithSecretsFile(
   }
   options.onProgress?.('Verifying the uploaded Worker...');
   if (inheritanceBaseline) {
-    const recent = await readRecentCloudflareVersionIds(options);
+    let recent = await readRecentCloudflareVersionIds(options);
+    // A failed read immediately after upload must not require another upload.
+    // Retry only unavailable metadata; unexpected version histories still fail.
+    for (let attempt = 0; recent === null && attempt < 2; attempt++) {
+      await (options.sleep ?? delay)(250 * 2 ** attempt);
+      if (!options.verifyUploader()) {
+        return {
+          ok: false,
+          reason: 'uploader-changed',
+          versionId,
+          previousVersionId: previous.versionId,
+          rollback: 'not-needed',
+        };
+      }
+      recent = await readRecentCloudflareVersionIds(options);
+    }
     const previousLatest = inheritanceBaseline.at(-1);
     const expected = [...inheritanceBaseline.map((version) => version.id), versionId].slice(-10);
     if (recent === null) {
