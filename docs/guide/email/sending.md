@@ -23,7 +23,6 @@ if (!result.ok) {
     // A request-level failure; OUTCOME_UNKNOWN may already have been submitted.
     console.error(result.error.code, result.error.message);
   } else {
-    // Some recipients failed. `deliveries` says which.
     for (const d of result.deliveries.filter((d) => !d.ok)) {
       console.error(d.recipient, d.error.code, d.error.message);
     }

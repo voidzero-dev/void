@@ -1228,7 +1228,6 @@ function setupTsconfig(
     );
     const voidPatch = createVoidTsconfigPatch(root, rootPathBaseDir);
 
-    // Check extends
     const extendsValue = tsconfig.extends;
     const target = './.void/tsconfig.json';
     const hasCorrectExtends =
@@ -1246,7 +1245,6 @@ function setupTsconfig(
       log.step('Updated tsconfig.json — added extends .void/tsconfig.json');
     }
 
-    // Check types
     const compilerOptions = asRecord(tsconfig.compilerOptions) ?? {};
     tsconfig.compilerOptions = compilerOptions;
     const types = Array.isArray(compilerOptions.types)
@@ -1730,7 +1728,6 @@ async function setupCloudflareDeployment(root: string): Promise<void> {
   }
 }
 
-/** Get the dev command for a detected framework. */
 function getDevCommand(root: string, framework?: DetectedFramework): string {
   if (!framework) {
     return formatProjectCommand(root, 'vite dev');
@@ -2628,7 +2625,6 @@ function scaffoldDemo(root: string, dialect: DatabaseDialect): void {
   writeFileSync(files.schema, demoSchemaSource(dialect));
   log.step('Created db/schema.ts');
 
-  // API route
   mkdirSync(join(paths.routesDir, 'api'), { recursive: true });
   writeFileSync(
     files.route,
@@ -2724,7 +2720,6 @@ async function injectAgentBlock(root: string, newProject: boolean): Promise<void
       writeFileSync(fullPath, updated);
       log.step(`Updated Void instructions in ${filePath}`);
     } else {
-      // Append block to end of file
       const separator = existing.endsWith('\n') ? '\n' : '\n\n';
       writeFileSync(fullPath, existing + separator + block + '\n');
       log.step(`Added Void instructions to ${filePath}`);

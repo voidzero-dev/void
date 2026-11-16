@@ -2147,7 +2147,6 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
     const project = await createTestProject(env.db, user.id, 'susp-slug');
     await env.ROUTING.put(project.slug, JSON.stringify({ workerName: 'w', projectId: project.id }));
 
-    // Suspend
     const suspBody = new URLSearchParams({ reason: 'test_reason' });
     const suspRes = await req(`/admin/users/${user.id}/suspend`, admin.adminJwt, {
       method: 'POST',
@@ -2159,7 +2158,6 @@ describe('POST /admin/users/:id/suspend + unsuspend', () => {
     const routingAfter = JSON.parse((await env.ROUTING.get(project.slug))!);
     expect(routingAfter.suspended).toBe('test_reason');
 
-    // Unsuspend
     const unsuspRes = await req(`/admin/users/${user.id}/unsuspend`, admin.adminJwt, {
       method: 'POST',
       body: '',
@@ -3472,7 +3470,6 @@ describe('POST /admin/projects/:id/delete', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/admin/projects');
 
-    // Verify project is gone from DB
     const remaining = await env.db.select().from(projects);
     expect(remaining.find((p) => p.id === project.id)).toBeUndefined();
     vi.restoreAllMocks();
@@ -3520,7 +3517,6 @@ describe('POST /admin/users/:id/delete', () => {
     expect(res.status).toBe(302);
     expect(res.headers.get('Location')).toBe('/admin/users');
 
-    // Verify user and projects are gone
     const remainingUsers = await env.db.select().from(users);
     expect(remainingUsers.find((u) => u.id === user.id)).toBeUndefined();
     const remainingProjects = await env.db.select().from(projects);
@@ -3851,7 +3847,6 @@ describe('POST /admin/signup-control/toggle', () => {
   test('toggles restriction on and off', async () => {
     const admin = await createTestUser(env.db, 'admin-sc3', 'github', undefined, 'free', 'admin');
 
-    // Toggle ON
     const res1 = await req('/admin/signup-control/toggle', admin.adminJwt, {
       method: 'POST',
       body: '',
@@ -3934,7 +3929,6 @@ describe('POST /admin/signup-control/add + delete', () => {
     const admin = await createTestUser(env.db, 'admin-sc4', 'github', undefined, 'free', 'admin');
     await env.ROUTING.delete('signup:allowlist');
 
-    // Add entry
     const addBody = new URLSearchParams({ type: 'github', pattern: 'testuser', note: 'Test' });
     const addRes = await req('/admin/signup-control/add', admin.adminJwt, {
       method: 'POST',
@@ -3948,7 +3942,6 @@ describe('POST /admin/signup-control/add + delete', () => {
     expect(entries).toHaveLength(1);
     expect(entries[0]).toEqual({ type: 'github', pattern: 'testuser', note: 'Test' });
 
-    // Delete entry
     const delBody = new URLSearchParams({ index: '0' });
     const delRes = await req('/admin/signup-control/delete', admin.adminJwt, {
       method: 'POST',

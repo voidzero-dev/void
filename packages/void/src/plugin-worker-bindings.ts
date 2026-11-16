@@ -187,7 +187,6 @@ export function mergeWorkerBindings(
     result.kv_namespaces = kv;
   }
 
-  // R2
   const r2Name = bindingNames?.r2 ?? 'STORAGE';
   if (bindings.needsR2 && !hasBinding(resolved.r2_buckets, r2Name)) {
     result.r2_buckets = [{ binding: r2Name, bucket_name: 'default' }];

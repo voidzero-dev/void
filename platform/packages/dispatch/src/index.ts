@@ -826,7 +826,6 @@ const dispatcher = {
         },
       );
 
-    // Check if project is suspended
     if (routing.suspended === 'requests_exceeded') {
       return limitResponse('requests');
     }
@@ -2055,7 +2054,6 @@ const dispatcher = {
       return;
     }
 
-    // Serialize batch for relay
     const messages = Array.from(batch.messages, (message) => ({
       id: message.id,
       timestamp: message.timestamp.toISOString(),
@@ -2471,7 +2469,6 @@ async function revalidateInBackground(
         ttl,
         originalUrl,
       );
-      // Update HTML edge cache with fresh response
       const headers = new Headers(response.headers);
       headers.set('x-isr-cache', 'HIT');
       headers.set('Cache-Control', `public, s-maxage=${ttl}, max-age=0, must-revalidate`);

@@ -24,14 +24,12 @@ Use the preconfigured auth client from `void/client`:
 ```tsx
 import { auth } from 'void/client';
 
-// sign up
 await auth.signUp.email({
   email: 'alice@example.com',
   password: 'example-password-123',
   name: 'Alice',
 });
 
-// sign in
 await auth.signIn.email({
   email: 'alice@example.com',
   password: 'example-password-123',

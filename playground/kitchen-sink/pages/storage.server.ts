@@ -18,7 +18,6 @@ export const action = defineHandler(async (c) => {
   const contentType = c.req.header('content-type') || '';
 
   if (contentType.includes('multipart/form-data')) {
-    // File upload via native FormData
     const formData = await c.req.parseBody();
     const file = formData['file'] as File;
     if (file && file.size > 0) {

@@ -84,7 +84,6 @@ export type ResolveActionBody<U extends string> =
       : PageNamedActionBody<PageActionMap[ParseActionUrl<U>['base']], ParseActionUrl<U>['action']>
     : Record<string, unknown>;
 
-/** Resolve params type */
 export type ResolveActionParams<U extends string> =
   ParseActionUrl<U>['base'] extends keyof PageActionMap
     ? PageActionMap[ParseActionUrl<U>['base']] extends { params: infer P }
@@ -92,7 +91,6 @@ export type ResolveActionParams<U extends string> =
       : never
     : never;
 
-/** Has params check */
 export type HasActionParams<U extends string> = [ResolveActionParams<U>] extends [never]
   ? false
   : ResolveActionParams<U> extends Record<string, string>

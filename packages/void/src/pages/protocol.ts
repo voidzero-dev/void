@@ -811,7 +811,6 @@ async function runPageGet(
           c.header('Cache-Control', 'no-store');
         }
 
-        // Build key-to-group mapping for the client
         const deferredKeys: Record<string, string> = {};
         for (const [group, { keys }] of Object.entries(deferredMap)) {
           for (const key of keys) {

@@ -102,8 +102,6 @@ export default function UsersPage(props: Props) {
 
 :::
 
-No manual interface is needed. Props stay in sync with whatever the loader returns.
-
 ## Action → useForm
 
 When a page action uses `withValidator()`, the body schema flows through to `useForm`. That gives you typed `data`, typed `errors` keys, and URL autocomplete:
@@ -130,7 +128,6 @@ form.errors.foo; // ✗ TypeScript error
 ```ts
 const updateForm = useForm('/users/[id]?update', { name: '' }, { params: { id } });
 const deleteForm = useForm('/users/[id]?delete', { id: '' }, { params: { id } });
-// Each form's data and errors are typed from their respective validators
 ```
 
 The `action()` helper gets the same type checking. See [Actions & Forms](./pages-routing/actions-and-forms) for the full API.

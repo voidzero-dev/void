@@ -155,8 +155,6 @@ export function islandsPlugin(
             const replacement = `import ${rawName} from ${specRaw}`;
             edits.push({ start: islandImport.start, end: islandImport.end, text: replacement });
 
-            // Generate wrapper that adds data-island attributes during SSR.
-            // Uses _React_island (imported below) for createElement.
             wrappers.push(
               `var ${name} = function ${name}(props) {` +
                 ` return _React_island.createElement("div", {` +
@@ -169,7 +167,6 @@ export function islandsPlugin(
           }
 
           if (wrappers.length > 0) {
-            // Prepend a React import for the wrapper functions
             return editIslandSource(code, edits, {
               prepend:
                 'import _React_island from "react";\nimport { serializePageData as _serializeIslandProps } from "void/pages-server";\n',

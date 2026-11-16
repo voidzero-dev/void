@@ -39,7 +39,6 @@ describe('playground/pg-test', () => {
     );
     await pglite.exec(migrationSql);
 
-    // Start wire protocol server
     pgServer = createServer(pglite);
     pgServer.listen(0);
     await once(pgServer, 'listening');
@@ -117,7 +116,6 @@ describe('playground/pg-test', () => {
     });
     expect(createRes.status).toBeLessThan(400);
 
-    // Verify user appears in page props
     const propsRes = await fetch(BASE + '/', {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
@@ -128,7 +126,6 @@ describe('playground/pg-test', () => {
   });
 
   it('creates a post via action', async () => {
-    // Get the user id first
     const propsRes = await fetch(BASE + '/', {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
@@ -139,7 +136,6 @@ describe('playground/pg-test', () => {
       throw new Error('Expected Alice to exist before creating a post');
     }
 
-    // Create post via named action
     const createRes = await fetch(BASE + '/?create-post', {
       method: 'POST',
       headers: {
@@ -156,7 +152,6 @@ describe('playground/pg-test', () => {
     });
     expect(createRes.status).toBeLessThan(400);
 
-    // Verify post appears
     const postsRes = await fetch(BASE + '/', {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
@@ -197,7 +192,6 @@ describe('playground/pg-test', () => {
   });
 
   it('deletes a user and cascade-deletes their posts', async () => {
-    // Create a post for Alice first
     const propsRes = await fetch(BASE + '/', {
       headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
@@ -246,7 +240,6 @@ describe('playground/pg-test', () => {
   });
 
   it('API routes: create and list users', async () => {
-    // Create user via API
     const createRes = await fetch(BASE + '/api/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -256,7 +249,6 @@ describe('playground/pg-test', () => {
     const created = (await createRes.json()) as User;
     expect(created.name).toBe('Bob');
 
-    // List users via API
     const listRes = await fetch(BASE + '/api/users');
     expect(listRes.status).toBe(200);
     const users = (await listRes.json()) as Array<User>;
@@ -264,7 +256,6 @@ describe('playground/pg-test', () => {
       expect.arrayContaining([expect.objectContaining({ name: 'Bob', email: 'bob@test.com' })]),
     );
 
-    // Get single user
     const getRes = await fetch(BASE + `/api/users/${created.id}`);
     expect(getRes.status).toBe(200);
     const user = (await getRes.json()) as User;

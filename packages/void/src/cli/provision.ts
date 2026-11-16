@@ -1610,7 +1610,6 @@ interface ProvisionLock {
   quarantine: (info: QuarantineInfo) => void;
 }
 
-/** The quarantine sidecar path for a lock target. */
 function quarantineSidecarPath(lockTarget: string): string {
   return `${lockTarget}.quarantine.json`;
 }

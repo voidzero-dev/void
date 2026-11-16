@@ -36,7 +36,6 @@ export async function runRollbackCommand(
   const client = new PlatformClient(token, { root });
   const { deployments, activeDeploymentId } = await client.listDeployments(linked.projectId);
 
-  // Filter to retained deployments that aren't the active one
   const candidates = deployments.filter(
     (d) => d.retained && d.status === 'live' && d.id !== activeDeploymentId,
   );

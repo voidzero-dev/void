@@ -5458,7 +5458,6 @@ describe('renderCapturedLog (terminal-visible text for the check run)', () => {
   // row untouched — an earlier revision trusted pyte here and misfiled 3J as
   // prefix-erasing.
   it('keeps the prefix across erase-FORWARD, which clears only from the cursor on', async () => {
-    // Terminal renders each of these as 'Downloading done'.
     expect(await renderCapturedLog(`Downloading${ESC}[K done`)).toBe('Downloading done');
     expect(await renderCapturedLog(`Downloading${ESC}[0K done`)).toBe('Downloading done');
     expect(await renderCapturedLog(`Downloading${ESC}[J done`)).toBe('Downloading done');

@@ -789,7 +789,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.deployment).toMatch(/^dpl_/);
     expect(done.url).toBe('https://minimal-app.void.app');
 
-    // Verify deployment is marked live in DB
     const [dpl] = await env.db
       .select({ status: deployments.status })
       .from(deployments)
@@ -1001,7 +1000,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Find the worker upload call
     const uploadCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return url.includes('/workers/dispatch/') && (call[1] as RequestInit)?.method === 'PUT';
@@ -1050,7 +1048,6 @@ describe('POST /projects/:id/deploy', () => {
     await res.text();
     await Promise.all(pending);
 
-    // Verify DO received /sync with correct payload
     const syncCall = cronDoFetches.find((f) => f.url.includes('/sync'));
     expect(syncCall).toBeDefined();
     const payload = JSON.parse(syncCall!.body);
@@ -1166,7 +1163,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify DO received /clear
     const clearCall = cronDoFetches.find((f) => f.url.includes('/clear'));
     expect(clearCall).toBeDefined();
   });
@@ -1380,7 +1376,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify resource row was created in DB
     const [resource] = await env.db
       .select({ cf_id: resources.cf_id, binding_name: resources.binding_name })
       .from(resources)
@@ -1413,7 +1408,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(res.status).toBe(200);
     await res.text();
 
-    // Verify no D1 creation call was made
     const createD1Call = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return (
@@ -1615,7 +1609,6 @@ describe('POST /projects/:id/deploy', () => {
     expect(done.urls).toContain('https://deploy.example.com');
     expect(done.urls).toContain('https://domain-deploy.void.app');
 
-    // Verify domain KV routing was written
     const domainRouting = await env.ROUTING.get('domain:deploy.example.com', 'json');
     expect(domainRouting).toEqual({
       workerName: expect.stringMatching(/^user-domain-deploy-dpl_/),
@@ -1626,7 +1619,6 @@ describe('POST /projects/:id/deploy', () => {
       limits: { cpuMs: 10, subRequests: 50 },
     });
 
-    // Verify pending domain was NOT written
     const pendingRouting = await env.ROUTING.get('domain:pending.example.com');
     expect(pendingRouting).toBeNull();
   });
@@ -2633,7 +2625,6 @@ describe('POST /projects/:id/deploy', () => {
       expect(uploadCalls).toBe(4);
       expect(dispatchScriptReads(cf)).toBe(1);
 
-      // Verify deployment is marked failed with error message
       const [dpl] = await env.db
         .select({ status: deployments.status, error_message: deployments.error_message })
         .from(deployments)
@@ -5796,7 +5787,6 @@ describe('Deploy with prerendering', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'prerender-app');
 
-    // Mock DISPATCH.get() to return a fetchable worker
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(
         () =>
@@ -5853,7 +5843,6 @@ describe('Deploy with prerendering', () => {
     );
     expect(aboutValue).not.toBeNull();
 
-    // Verify deployment is live
     expect(deployment?.status).toBe('live');
   });
 
@@ -6327,7 +6316,6 @@ describe('Deploy with prerendering', () => {
     let statusDuringPrerender: string | undefined;
     const dispatchGet = vi.fn().mockReturnValue({
       fetch: vi.fn().mockImplementation(async () => {
-        // Check deployment status during prerender
         const [dpl] = await env.db
           .select({ status: deployments.status })
           .from(deployments)
@@ -6695,7 +6683,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id);
 
-    // Create a previous deployment with known asset hashes
     const prevManifest = {
       '/index.html': { hash: 'a'.repeat(32), size: 100 },
       '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -7070,7 +7057,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment with known asset hashes
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },
@@ -7129,7 +7115,6 @@ describe('POST /projects/:id/deploy/preflight', () => {
       const user = await createTestUser(env.db);
       const project = await createTestProject(env.db, user.id);
 
-      // Create a previous STATIC deployment
       const prevManifest = {
         '/index.html': { hash: 'a'.repeat(32), size: 100 },
         '/app.js': { hash: 'b'.repeat(32), size: 200 },

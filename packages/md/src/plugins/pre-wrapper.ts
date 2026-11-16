@@ -53,7 +53,6 @@ export function preWrapperPlugin(md: MarkdownExit, options?: { copyLabel?: strin
     const token = tokens[idx];
     // Strip title bracket notation before rendering
     token.info = token.info.replace(/\[.*\]/, '');
-    // Handle active class for code-group
     const active = / active( |$)/.test(token.info) ? ' active' : '';
     token.info = token.info.replace(/ active$/, '').replace(/ active /, ' ');
     const lang = extractLang(token.info);

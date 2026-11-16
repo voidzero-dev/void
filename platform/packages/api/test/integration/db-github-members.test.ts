@@ -207,7 +207,6 @@ describe('github_installation_members', () => {
         .where(eq(githubInstallationMembers.user_id, alice.id)),
     ).toHaveLength(3);
 
-    // Delete two of alice's three installs.
     await deleteGitHubInstallationMembers(env.db, ['100', '200'], alice.id);
     const aliceLeft = await env.db
       .select()
@@ -319,7 +318,6 @@ describe('github_installation_members', () => {
 
     expect(await getGitHubAccountIdForUser(env.db, ghUser.id)).toBe('gh-provider-42');
     expect(await getGitHubAccountIdForUser(env.db, googleUser.id)).toBeNull();
-    // Unknown user id → null.
     expect(await getGitHubAccountIdForUser(env.db, 'user_does_not_exist')).toBeNull();
   });
 });

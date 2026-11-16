@@ -27,7 +27,7 @@ interface Message {
 export default defineQueue<Message>(async (batch, env) => {
   for (const msg of batch.messages) {
     console.log(`Send to ${msg.body.to}: ${msg.body.subject}`);
-    msg.ack(); // Acknowledge successful processing
+    msg.ack();
   }
 });
 ```
@@ -45,8 +45,6 @@ import { queues } from 'void/queues';
 
 export const POST = defineHandler(async (c) => {
   const order = await c.req.json();
-  // Fully typed: body must match the
-  // Message interface from queues/emails.ts
   await queues.emails.send({
     to: order.email,
     subject: 'Order confirmed',
@@ -64,9 +62,9 @@ export default defineQueue<Message>(async (batch, env) => {
   for (const msg of batch.messages) {
     try {
       await processMessage(msg.body);
-      msg.ack(); // Remove from queue
+      msg.ack();
     } catch {
-      msg.retry({ delaySeconds: 30 }); // Re-deliver after 30s
+      msg.retry({ delaySeconds: 30 });
     }
   }
 });

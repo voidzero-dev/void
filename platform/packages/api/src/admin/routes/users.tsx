@@ -13,10 +13,8 @@ import { renderOperationError } from '../operation-error.tsx';
 const app = new Hono<ApiEnv>();
 app.onError(renderOperationError);
 
-// GET /users
 app.get('/', (context) => renderFateListPage(context, 'users'));
 
-// GET /users/:id
 app.get('/:id', (context) => renderFateDetailPage(context, 'userDetail'));
 
 app.post('/:id/plan', async (context) => {

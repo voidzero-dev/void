@@ -238,7 +238,6 @@ export function compileRouteTable(
   }
   lines.push('');
 
-  // Generate eager imports for middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     const mw = scan.middleware[i];
     lines.push(`import middleware${i} from ${JSON.stringify(`${middlewareDir}/${mw.filePath}`)};`);
@@ -338,7 +337,6 @@ export function compileRouteTable(
     lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
   }
 
-  // Register user middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     lines.push(`app.use(middleware${i});`);
   }
@@ -994,19 +992,16 @@ function compilePageRoutes(
   options: CompileOptions,
   pageNames: (componentId: string) => string,
 ): void {
-  // Import protocol helpers and renderer
   lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
   if (options.dev) {
     lines.push(`import { getVoidPagesDevCss } from "virtual:void-pages-dev-assets";`);
   }
 
-  // Import island renderer if any island pages exist
   const hasIslandPages = scan.pages.pages.some((p) => p.renderMode === 'island');
   if (hasIslandPages) {
     lines.push(`import { renderIslandPage } from "virtual:void-islands-renderer";`);
   }
   lines.push('');
-  // Emit head config constant from void.json
   lines.push(`const __voidHeadConfig = ${JSON.stringify(pages.headConfig ?? null)};`);
   lines.push('');
   pushDefaultErrorPageHelpers(lines, options);
@@ -1036,7 +1031,6 @@ function compilePageRoutes(
     const layoutIds = resolveLayoutIds(page, scan.pages.layouts, scan.pages.namedLayouts);
     const layoutRoots: Array<string> = [];
     for (const layoutId of layoutIds) {
-      // Map layout IDs back to file paths
       const layout = scan.pages.layouts.find(
         (l) => (l.directory ? `${l.directory}/layout` : 'layout') === layoutId,
       );
@@ -1107,18 +1101,15 @@ function compilePageRoutes(
     );
   }
 
-  // Generate lazy loaders and route registrations for each page
   const seenServerFiles = new Set<string>();
   for (const page of scan.pages.pages) {
     const safeId = pageNames(page.componentId);
 
-    // Determine server module path
     let serverImportPath: string | null = null;
     if (page.serverPath) {
       serverImportPath = `${pages.pagesDir}/${page.serverPath}`;
     }
 
-    // Generate lazy loader for server module (if any)
     if (serverImportPath && !seenServerFiles.has(serverImportPath)) {
       seenServerFiles.add(serverImportPath);
       const loaderName = `_pload_${safeId}`;

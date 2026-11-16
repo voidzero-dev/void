@@ -166,16 +166,13 @@ const allUsers = await db.select().from(users);
 import { users } from '@schema';
 import { db, eq, and, or } from 'void/db';
 
-// Single condition
 const user = await db.select().from(users).where(eq(users.id, 1));
 
-// Multiple conditions
 const admins = await db
   .select()
   .from(users)
   .where(and(eq(users.role, 'admin'), eq(users.name, 'Alice')));
 
-// OR conditions
 const result = await db
   .select()
   .from(users)
@@ -185,19 +182,16 @@ const result = await db
 ### Insert
 
 ```ts
-// Single row
 await db.insert(users).values({
   name: 'Alice',
   email: 'alice@example.com',
 });
 
-// Insert and return the created row
 const [created] = await db
   .insert(users)
   .values({ name: 'Bob', email: 'bob@example.com' })
   .returning();
 
-// Multiple rows
 await db.insert(users).values([
   { name: 'Alice', email: 'alice@example.com' },
   { name: 'Bob', email: 'bob@example.com' },
@@ -209,7 +203,6 @@ await db.insert(users).values([
 ```ts
 await db.update(users).set({ role: 'admin' }).where(eq(users.id, 1));
 
-// Update and return the modified row
 const [updated] = await db.update(users).set({ role: 'admin' }).where(eq(users.id, 1)).returning();
 ```
 

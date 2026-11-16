@@ -80,7 +80,6 @@ Use `ai.models()` to list available models:
 ```ts
 const models = await ai.models();
 
-// Filter by task
 const textModels = await ai.models({ task: 'Text Generation' });
 ```
 

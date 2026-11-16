@@ -2883,14 +2883,11 @@ describe('github_connections', () => {
       repositoryId: '42',
     });
 
-    // Active -> resolves.
     expect(await getGitHubConnectionsByRepo(env.db, '12345', '42')).toHaveLength(1);
 
-    // Suspended -> empty.
     await markGitHubInstallationStatus(env.db, '12345', 'suspended');
     expect(await getGitHubConnectionsByRepo(env.db, '12345', '42')).toEqual([]);
 
-    // Deleted -> empty.
     await markGitHubInstallationStatus(env.db, '12345', 'deleted');
     expect(await getGitHubConnectionsByRepo(env.db, '12345', '42')).toEqual([]);
   });

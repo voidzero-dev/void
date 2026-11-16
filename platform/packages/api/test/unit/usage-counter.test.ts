@@ -559,7 +559,6 @@ describe('UsageCounter.handleRecord — sandbox', () => {
     expect(kv.store.get('sandbox-block:u1')).toBe('1');
     expect(kv.calls).toContainEqual(['put', 'sandbox-block:u1', '1']);
 
-    // DB: suspendUser called with REASON_SANDBOX_RUNTIME_EXCEEDED
     expect(dbCalls.suspend).toContainEqual({ id: 'u1', reason: 'sandbox_runtime_exceeded' });
 
     const persisted = storage.data.get('state') as CounterState;

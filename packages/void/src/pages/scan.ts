@@ -439,7 +439,6 @@ export async function scanPages(root: string, options?: PageScanOptions): Promis
       continue;
     }
 
-    // Layout files
     if (base === 'layout') {
       const dir = dirname(file);
       layouts.push({

@@ -52,7 +52,6 @@ function honoMiddleware(
         return;
       }
 
-      // Build a Request from the incoming Node.js http.IncomingMessage
       const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
       const headers = new Headers();
       for (const [key, value] of Object.entries(req.headers)) {
@@ -84,7 +83,6 @@ function honoMiddleware(
         return;
       }
 
-      // Write the Response back to Node.js http.ServerResponse
       res.statusCode = response.status;
       response.headers.forEach((value: string, key: string) => {
         res.setHeader(key, value);

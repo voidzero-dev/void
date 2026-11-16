@@ -659,12 +659,10 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Create a new project
   .post('/', async (context) =>
     createUserProject(context, await context.req.json<{ slug: string }>()),
   )
 
-  // Get project by ID
   .get('/:id', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -1791,7 +1789,6 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Get migration status for a project
   .get('/:id/migrations', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -2442,7 +2439,6 @@ const app = new Hono<ApiEnv>()
     return context.json(resources);
   })
 
-  // Fetch logs for a project
   .get('/:id/logs', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -2818,7 +2814,6 @@ const app = new Hono<ApiEnv>()
 
     const { connectionString } = await context.req.json<{ connectionString: string }>();
 
-    // Check if Hyperdrive already exists
     const existing = await getProjectResources(context.get('db'), projectId);
     const found = existing.find((r) => r.type === 'hyperdrive');
     if (found) {

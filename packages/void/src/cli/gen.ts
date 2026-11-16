@@ -446,7 +446,6 @@ async function runModel(root: string, name: string, columns: Array<ColumnSpec>):
     ].join('\n');
   }
 
-  // Write the model file
   mkdirSync(schemaDir, { recursive: true });
   writeIfNotExists(modelPath, content);
 

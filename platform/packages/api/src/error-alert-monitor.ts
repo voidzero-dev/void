@@ -100,7 +100,6 @@ export class ErrorAlertMonitor extends DurableObject<ApiEnv['Bindings']> {
       return Response.json({ ok: true });
     }
 
-    // Count cap — fire immediately
     if (state.count >= COUNT_CAP) {
       await this.fireAlert(state);
       return Response.json({ ok: true });

@@ -18,7 +18,6 @@ export const loader = defineHandler((c) => {
     bindings.push({ name, type });
   }
 
-  // Sort alphabetically
   bindings.sort((a, b) => a.name.localeCompare(b.name));
 
   return { bindings };

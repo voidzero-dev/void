@@ -220,7 +220,6 @@ export async function generateWrapper(
     await bundleFrameworkIsr(root, workerDir);
   }
 
-  // Write wrapper in place of original entry
   const wrapperSource = generateWrapperSource(
     renamedName,
     handlerFilename,
@@ -678,7 +677,6 @@ function generateWrapperSource(
       lines.push('  }');
     }
 
-    // Migration handler
     if (migrations && migrations.length > 0) {
       lines.push('  if (request.method === "POST" && url.pathname === "/__void/migrate") {');
       lines.push('    const handler = createMigrationHandler(env, __migrations);');

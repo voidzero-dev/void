@@ -99,7 +99,6 @@ Hono's standalone helpers work anywhere:
 ```ts
 import { HTTPException } from 'hono/http-exception';
 
-// Throw typed HTTP errors
 throw new HTTPException(404, { message: 'User not found' });
 ```
 

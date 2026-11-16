@@ -40,7 +40,6 @@ app.use('/*', async (context, next) => {
   await next();
 });
 
-// CORS
 app.use(
   '/*',
   cors({
@@ -50,7 +49,6 @@ app.use(
   }),
 );
 
-// Health check
 app.get('/health', (context) =>
   context.json({
     ok: true,

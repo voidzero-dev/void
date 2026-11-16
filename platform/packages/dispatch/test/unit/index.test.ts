@@ -3457,13 +3457,11 @@ describe('ISR JSON edge cache (pages protocol)', () => {
     // Wait for background writes
     await Promise.all((ctx.waitUntil as ReturnType<typeof vi.fn>).mock.calls.map((c) => c[0]));
 
-    // HTML edge cache populated
     const htmlCached = edgeCacheStore.get('https://my-app.void.app/dashboard?__void_isr=legacy');
     expect(htmlCached).toBeDefined();
     expect(htmlCached!.headers.get('Cache-Control')).toBe(
       'public, s-maxage=60, max-age=0, must-revalidate',
     );
-    // JSON edge cache populated
     const jsonCached = edgeCacheStore.get(
       'https://my-app.void.app/dashboard?__void=json&__void_isr=legacy',
     );
@@ -4764,7 +4762,6 @@ describe('queue relay', () => {
 
     await app.queue(batch, env);
 
-    // Individual ack decision applied
     expect(batch.messages[0].ack).toHaveBeenCalledOnce();
     // retryAll called for undecided messages (CF preserves individual decisions)
     expect(batch.retryAll).toHaveBeenCalledOnce();

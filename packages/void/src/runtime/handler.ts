@@ -173,9 +173,7 @@ type MiddlewareFn = (c: CloudContext, next: Next) => ReturnType<MiddlewareHandle
 type BasicAuthOptionValue = string | (() => string);
 
 export interface BasicAuthOptions {
-  /** Username required by the Basic auth challenge. */
   username: BasicAuthOptionValue;
-  /** Password required by the Basic auth challenge. */
   password: BasicAuthOptionValue;
   /** Browser prompt realm. Defaults to "Restricted". */
   realm?: BasicAuthOptionValue;
