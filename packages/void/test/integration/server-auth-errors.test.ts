@@ -36,6 +36,7 @@ const pages = [
 let playground: IsolatedPlayground;
 let server: StartedServer;
 let browser: Browser;
+let context: BrowserContext;
 let signedInState: Awaited<ReturnType<BrowserContext['storageState']>>;
 let page: Page;
 let diagnostics: () => string;
@@ -54,26 +55,22 @@ beforeAll(async () => {
   );
   browser = await launchPagesBrowser();
 
-  // A fresh copy has its own D1 database. Create a real session once, then give
-  // each signed-in scenario an independent cookie jar containing that session.
-  const context = await browser.newContext();
-  try {
-    const response = await context.request.post(`${server.base}/api/demo-login`);
-    expect(response.status(), await response.text()).toBe(200);
-    const profile = await context.request.get(`${server.base}/api/profile`);
-    expect(profile.status()).toBe(200);
-    expect(await profile.json()).toEqual({ name: 'Demo user', email: EMAIL });
-    signedInState = await context.storageState();
-  } finally {
-    await context.close();
-  }
+  // A fresh copy has its own D1 database. Create a real session once and
+  // restore its cookies before each signed-in scenario.
+  context = await browser.newContext();
+  const response = await context.request.post(`${server.base}/api/demo-login`);
+  expect(response.status(), await response.text()).toBe(200);
+  const profile = await context.request.get(`${server.base}/api/profile`);
+  expect(profile.status()).toBe(200);
+  expect(await profile.json()).toEqual({ name: 'Demo user', email: EMAIL });
+  signedInState = await context.storageState();
 });
 
 afterEach(async ({ task }) => {
   if (task.result?.state === 'fail') {
     console.error(`${diagnostics?.() ?? ''}\n${server?.output() ?? ''}`);
   }
-  await page?.context().close();
+  await page?.close();
 });
 
 afterAll(async () => {
@@ -85,7 +82,10 @@ afterAll(async () => {
 });
 
 async function newPage(signedIn = false) {
-  const context = await browser.newContext({ storageState: signedIn ? signedInState : undefined });
+  // Keep the dev server's connections and module cache across this large
+  // matrix. Recreating the network context exhausts Chromium socket buffers
+  // on Windows. Each test still gets a fresh page and reset browser storage.
+  await context.setStorageState(signedIn ? signedInState : { cookies: [], origins: [] });
   page = await context.newPage();
   page.setDefaultTimeout(10_000);
   diagnostics = collectBrowserDiagnostics(page);
