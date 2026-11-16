@@ -859,6 +859,7 @@ export type WranglerQueueConsumer = {
   queue: string;
   max_batch_size?: number;
   max_batch_timeout?: number;
+  max_concurrency?: number;
   max_retries?: number;
   retry_delay?: number;
 };

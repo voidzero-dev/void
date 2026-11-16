@@ -7744,6 +7744,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       'queues/email.ts': [
         'export const maxBatchSize = 25;',
         'export const maxBatchTimeout = 10;',
+        'export const maxConcurrency = 2;',
         'export const maxRetries = 4;',
         'export const retryDelay = 30;',
         'export default async function email() {}',
@@ -7761,6 +7762,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
             queue: 'skapp-email',
             max_batch_size: 25,
             max_batch_timeout: 10,
+            max_concurrency: 2,
             max_retries: 4,
             retry_delay: 30,
           },

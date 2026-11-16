@@ -560,7 +560,7 @@ describe('generateDeployWrapperIfNeeded', () => {
 });
 
 describe('toManifestSchedulesAndQueues', () => {
-  it('keeps queue retry options, including zero', () => {
+  it('keeps queue consumer options, including zero retries and omitted concurrency', () => {
     const { queues } = toManifestSchedulesAndQueues(
       [],
       [
@@ -570,6 +570,7 @@ describe('toManifestSchedulesAndQueues', () => {
           bindingName: 'QUEUE_EMAILS',
           maxBatchSize: 50,
           maxBatchTimeout: 10,
+          maxConcurrency: 2,
           maxRetries: 0,
           retryDelay: 30,
         },
@@ -582,6 +583,7 @@ describe('toManifestSchedulesAndQueues', () => {
         bindingName: 'QUEUE_EMAILS',
         maxBatchSize: 50,
         maxBatchTimeout: 10,
+        maxConcurrency: 2,
         maxRetries: 0,
         retryDelay: 30,
       },

@@ -24,6 +24,7 @@ describe('scanQueuesSync', () => {
       `import { defineQueue } from "void";
 export const maxBatchSize = 50;
 export const maxBatchTimeout = 10;
+export const maxConcurrency = 2;
 export const maxRetries = 3;
 export const retryDelay = 60;
 export default defineQueue(async (batch, env) => {});`,
@@ -33,8 +34,41 @@ export default defineQueue(async (batch, env) => {});`,
     expect(queues).toHaveLength(1);
     expect(queues[0].maxBatchSize).toBe(50);
     expect(queues[0].maxBatchTimeout).toBe(10);
+    expect(queues[0].maxConcurrency).toBe(2);
     expect(queues[0].maxRetries).toBe(3);
     expect(queues[0].retryDelay).toBe(60);
+  });
+
+  it.each([1, 250])('accepts maxConcurrency = %i', (value) => {
+    writeFileSync(join(queuesDir, 'jobs.ts'), `export const maxConcurrency = ${value} as const;`);
+    expect(scanQueuesSync(queuesDir)).toMatchObject([{ maxConcurrency: value }]);
+  });
+
+  it.each(['0', '-1', '251', '1.5', 'Infinity', 'NaN', '"2"', 'null', '2 + 3'])(
+    'rejects invalid maxConcurrency = %s',
+    (value) => {
+      writeFileSync(join(queuesDir, 'jobs.ts'), `export const maxConcurrency = ${value};`);
+      expect(() => scanQueuesSync(queuesDir)).toThrow(
+        "queue: maxConcurrency in 'jobs.ts' must be an integer literal between 1 and 250.",
+      );
+    },
+  );
+
+  it('rejects a re-exported maxConcurrency instead of deploying the default', () => {
+    writeFileSync(join(queuesDir, 'jobs.ts'), "export { maxConcurrency } from './_shared';");
+    expect(() => scanQueuesSync(queuesDir)).toThrow(
+      'must be declared in the queue file as `export const maxConcurrency = <integer>`',
+    );
+  });
+
+  it('leaves concurrency unset when it is not exported', () => {
+    writeFileSync(
+      join(queuesDir, 'jobs.ts'),
+      `// export const maxConcurrency = 2;
+const example = 'export const maxConcurrency = 3';
+export default async () => {};`,
+    );
+    expect(scanQueuesSync(queuesDir)[0].maxConcurrency).toBeUndefined();
   });
 
   it('ignores options mentioned only in comments and strings', () => {
@@ -130,6 +164,7 @@ export default async () => {};`,
         `export * from './_helpers';
 export const maxBatchSize = 1;
 export const maxBatchTimeout = 2;
+export const maxConcurrency = 5;
 export const maxRetries = 3;
 export const retryDelay = 4;
 export default async () => {};`,

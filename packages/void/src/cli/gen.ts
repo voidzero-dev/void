@@ -677,6 +677,7 @@ type Message = {};
 
 // export const maxBatchSize = 10;
 // export const maxBatchTimeout = 5;
+// export const maxConcurrency = 2;
 
 export default defineQueue<Message>(async (batch, env) => {
   for (const message of batch.messages) {

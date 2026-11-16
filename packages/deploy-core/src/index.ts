@@ -23,6 +23,7 @@ export type QueueMeta = {
   bindingName: string;
   maxBatchSize?: number;
   maxBatchTimeout?: number;
+  maxConcurrency?: number;
   maxRetries?: number;
   retryDelay?: number;
 };

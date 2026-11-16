@@ -652,6 +652,7 @@ export async function preflightCloudflareWorker(input: {
                   max_batch_timeout: queue.maxBatchTimeout,
                 }),
                 ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
+                ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
                 ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
               })),
               reconcileVoidOwned: true,

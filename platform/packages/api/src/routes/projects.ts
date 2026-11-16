@@ -1478,6 +1478,9 @@ const app = new Hono<ApiEnv>()
                     ...(targetQueue.maxRetries != null && {
                       max_retries: targetQueue.maxRetries,
                     }),
+                    ...(targetQueue.maxConcurrency != null && {
+                      max_concurrency: targetQueue.maxConcurrency,
+                    }),
                     ...(targetQueue.retryDelay != null && {
                       retry_delay: targetQueue.retryDelay,
                     }),

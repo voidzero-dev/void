@@ -203,6 +203,7 @@ export async function publishWorkerDeployment(input: {
               max_wait_time_ms: q.maxBatchTimeout * 1000,
             }),
             ...(q.maxRetries != null && { max_retries: q.maxRetries }),
+            ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
             ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
           },
         );

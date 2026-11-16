@@ -16,6 +16,8 @@ export type QueueDefinition = {
   maxBatchSize?: number;
   /** Optional max batch timeout (seconds) for consumer */
   maxBatchTimeout?: number;
+  /** Optional maximum concurrent consumer invocations (1–250) */
+  maxConcurrency?: number;
   /** Optional max retries before dead-lettering */
   maxRetries?: number;
   /** Optional delay (seconds) between retries */
@@ -30,7 +32,13 @@ function deriveQueueBindingName(name: string): string {
   return 'QUEUE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 }
 
-const OPTION_NAMES = ['maxBatchSize', 'maxBatchTimeout', 'maxRetries', 'retryDelay'] as const;
+const OPTION_NAMES = [
+  'maxBatchSize',
+  'maxBatchTimeout',
+  'maxConcurrency',
+  'maxRetries',
+  'retryDelay',
+] as const;
 const OPTION_NAME_SET: ReadonlySet<string> = new Set(OPTION_NAMES);
 
 /** Queue files already warned about `export *`; a dev server rescans queues on every change. */
@@ -83,9 +91,14 @@ export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
           return undefined;
         }
         const value = staticLiteral(initializer);
-        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        if (
+          typeof value !== 'number' ||
+          !Number.isInteger(value) ||
+          value < 0 ||
+          (option === 'maxConcurrency' && (value < 1 || value > 250))
+        ) {
           throw new Error(
-            `queue: ${option} in '${filePath}' must be a nonnegative integer literal.`,
+            `queue: ${option} in '${filePath}' must be ${option === 'maxConcurrency' ? 'an integer literal between 1 and 250' : 'a nonnegative integer literal'}.`,
           );
         }
         return value;
@@ -96,6 +109,7 @@ export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
         bindingName: deriveQueueBindingName(name),
         maxBatchSize: optionValue('maxBatchSize'),
         maxBatchTimeout: optionValue('maxBatchTimeout'),
+        maxConcurrency: optionValue('maxConcurrency'),
         maxRetries: optionValue('maxRetries'),
         retryDelay: optionValue('retryDelay'),
       };
