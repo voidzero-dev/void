@@ -123,14 +123,17 @@ const MARKDOWN_LANGS: ReadonlySet<string> = new Set(['md', 'markdown', 'mdx']);
  */
 function takeNotations(
   tokens: ReadonlyArray<ThemedToken>,
-  htmlCommentsOnly: boolean,
+  lang: string,
 ): Readonly<{
   tokens: ReadonlyArray<ThemedToken>;
   notations: ReadonlyArray<Notation>;
 }> {
   const notations: Array<Notation> = [];
   const kept: Array<ThemedToken> = [];
-  for (const token of tokens) {
+  const htmlCommentsOnly = MARKDOWN_LANGS.has(lang);
+  const jsx = lang === 'jsx' || lang === 'tsx';
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
     if (
       token.type !== TOKEN_COMMENT ||
       !token.content.includes('[!code ') ||
@@ -151,18 +154,22 @@ function takeNotations(
     );
     if (!EMPTY_COMMENT_RE.test(content)) {
       kept.push(content === token.content ? token : { ...token, content });
+    } else if (
+      jsx &&
+      kept.at(-1)?.content.trim() === '{' &&
+      tokens[index + 1]?.content.trim() === '}'
+    ) {
+      // JSX comments own their expression braces. Drop those with an empty
+      // notation comment so a standalone annotation applies to the next line.
+      kept.pop();
+      index++;
     }
   }
   return { tokens: kept, notations };
 }
 
-/** Whether nothing is left of a line, or only the braces of a JSX comment. */
 function isEmptyLine(tokens: ReadonlyArray<ThemedToken>): boolean {
-  const text = tokens
-    .map((token) => token.content)
-    .join('')
-    .trim();
-  return text === '' || text === '{}';
+  return tokens.every((token) => !/\S/.test(token.content));
 }
 
 /**
@@ -199,14 +206,13 @@ export async function createCodeHighlighter(themeNames: CodeThemeNames): Promise
       return `<pre class="${preClass}" style="${preStyle}" tabindex="0"><code>${body}</code></pre>`;
     }
 
-    const htmlCommentsOnly = MARKDOWN_LANGS.has(lang);
     const preClasses = new Set<string>();
     const lines: Array<string> = [];
     // Notations still to apply. One with a `:N` count stays for the lines that follow.
     let running: Array<{ classes: ReadonlyArray<string>; remaining: number }> = [];
 
     result.tokens.forEach((lineTokens, index) => {
-      const { tokens, notations } = takeNotations(lineTokens, htmlCommentsOnly);
+      const { tokens, notations } = takeNotations(lineTokens, lang);
       for (const notation of notations) {
         preClasses.add(`has-${notation.classes[0]}`);
         running.push({ classes: notation.classes, remaining: notation.count });

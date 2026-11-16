@@ -33,6 +33,15 @@ export default defineConfig({
 });
 ```
 
+```tsx
+<div>
+  {/* [!code --] */}
+  <Old />
+  {/* [!code ++] */}
+  <New />
+</div>
+```
+
 ## Line Highlighting
 
 ```ts {2,4-5}

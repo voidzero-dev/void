@@ -145,9 +145,9 @@ describe('createCodeHighlighter', () => {
     ]);
   });
 
-  it('keeps the braces of a JSX comment at the end of a line', () => {
+  it('removes the braces of a JSX annotation at the end of a line', () => {
     const html = render('<A /> {/* [!code ++] */}\n', 'tsx');
-    expect(renderedLines(html)[0]).toEqual({ classes: 'line diff add', text: '<A /> {}' });
+    expect(renderedLines(html)[0]).toEqual({ classes: 'line diff add', text: '<A /> ' });
   });
 
   it('reads only HTML comments in a Markdown block, so code fences in it stay as written', () => {
@@ -162,6 +162,47 @@ describe('createCodeHighlighter', () => {
   it('accepts a line range far past the end of the block', () => {
     const html = render('a();\nb();\n', 'ts', 'ts {2-1000000000}');
     expect(lineClasses(html)).toEqual(['line', 'line highlighted', 'line highlighted']);
+  });
+
+  describe.each(['jsx', 'tsx'])('%s comment expressions', (lang) => {
+    it('removes standalone annotation braces and applies the count to following lines', () => {
+      const html = render(
+        '<div>\n  { /* [!code --:2] */ }\n  <Old />\n  <Older />\n  <New />\n</div>\n',
+        lang,
+      );
+      expect(renderedLines(html)).toEqual([
+        { classes: 'line', text: '<div>' },
+        { classes: 'line diff remove', text: '  <Old />' },
+        { classes: 'line diff remove', text: '  <Older />' },
+        { classes: 'line', text: '  <New />' },
+        { classes: 'line', text: '</div>' },
+        { classes: 'line', text: '' },
+      ]);
+    });
+
+    it('removes inline annotation braces without removing the surrounding JSX', () => {
+      const html = render('<div><New /> {/* [!code ++] */}</div>\n', lang);
+      expect(renderedLines(html)[0]).toEqual({
+        classes: 'line diff add',
+        text: '<div><New /> </div>',
+      });
+    });
+
+    it('keeps braces around a comment with remaining text', () => {
+      const html = render('<div>{/* keep this [!code focus] */}</div>\n', lang);
+      expect(renderedLines(html)[0]).toEqual({
+        classes: 'line focused',
+        text: '<div>{/* keep this */}</div>',
+      });
+    });
+
+    it('keeps function body braces around an annotation', () => {
+      const html = render('function f() {/* [!code focus] */}\n', lang);
+      expect(renderedLines(html)[0]).toEqual({
+        classes: 'line focused',
+        text: 'function f() {}',
+      });
+    });
   });
 
   it('leaves a notation outside a comment alone', () => {
