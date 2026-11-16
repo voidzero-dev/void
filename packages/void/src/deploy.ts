@@ -159,6 +159,7 @@ export async function prepareDeployArtifact(
     {
       bindings,
       alwaysUseHttps: config.routing?.alwaysUseHttps,
+      storage: config.storage,
       vars: config.worker?.vars,
       hasEmailHandlers: scan.email !== undefined && hasEmailHandlers(scan.email),
       migrations,

@@ -3,6 +3,7 @@ import {
   addQueueConsumer,
   cfFetch,
   createD1Database,
+  createR2Bucket,
   enableD1ReadReplication,
   createHyperdrive,
   ensureHyperdriveCachingDisabled,
@@ -18,6 +19,25 @@ const ACCOUNT = 'acc_test';
 const TOKEN = 'token_test';
 const QUEUE_ID = 'queue-uuid';
 const SCRIPT = 'void-dispatch';
+
+describe('R2 bucket creation', () => {
+  afterEach(() => vi.unstubAllGlobals());
+  it.each(['apac', undefined] as const)(
+    'sends the optional location hint %s',
+    async (locationHint) => {
+      const request = vi.fn().mockResolvedValue(cfSuccess({ name: 'app-storage' }));
+      vi.stubGlobal('fetch', request);
+      await createR2Bucket(ACCOUNT, TOKEN, 'app-storage', locationHint);
+      expect(request).toHaveBeenCalledWith(
+        `https://api.cloudflare.com/client/v4/accounts/${ACCOUNT}/r2/buckets`,
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ name: 'app-storage', ...(locationHint ? { locationHint } : {}) }),
+        }),
+      );
+    },
+  );
+});
 
 function cfSuccess(result: unknown): Response {
   return Response.json({ success: true, errors: [], result });

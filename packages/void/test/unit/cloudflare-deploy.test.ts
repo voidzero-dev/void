@@ -2372,6 +2372,19 @@ const KITCHEN_SINK_NON_ID_BINDINGS = {
 // ---------------------------------------------------------------------------
 
 describe('computeDesiredCloudflareResources — desired set from source', () => {
+  it('passes the configured storage location to native R2 provisioning', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({ name: 'location-test' }),
+      'void.json': JSON.stringify({ storage: { locationHint: 'apac' } }),
+      'routes/files.ts': `import { storage } from 'void/storage'; export const GET = () => storage.list();`,
+    });
+    const result = await computeDesiredCloudflareResources(
+      root,
+      readConfig(root),
+      join(root, 'wrangler.jsonc'),
+    );
+    expect(result.desired.r2).toMatchObject({ binding: 'STORAGE', locationHint: 'apac' });
+  });
   it('does not provision resources used only by a dev route', async () => {
     const root = makeProject({
       'package.json': JSON.stringify({ name: 'myapp' }),

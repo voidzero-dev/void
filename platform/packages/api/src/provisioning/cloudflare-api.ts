@@ -1,3 +1,5 @@
+import type { R2LocationHint } from '@void/deploy-core';
+
 export const CF_API_BASE = 'https://api.cloudflare.com/client/v4/accounts';
 const CF_ZONE_API_BASE = 'https://api.cloudflare.com/client/v4/zones';
 
@@ -133,10 +135,11 @@ export async function createR2Bucket(
   accountId: string,
   apiToken: string,
   name: string,
+  locationHint?: R2LocationHint,
 ): Promise<R2BucketInfo> {
   return cfFetch<R2BucketInfo>(`${CF_API_BASE}/${accountId}/r2/buckets`, apiToken, {
     method: 'POST',
-    body: JSON.stringify({ name }),
+    body: JSON.stringify({ name, ...(locationHint ? { locationHint } : {}) }),
   });
 }
 

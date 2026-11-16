@@ -3,6 +3,22 @@ import { parsePlatformArgs } from '../../src/cli/platform-args.ts';
 import { assertNoninteractivePlatformMutationAcknowledged } from '../../src/cli/platform-lifecycle.ts';
 
 describe('platform args', () => {
+  it('accepts --storage-location only for install and upgrade', () => {
+    for (const command of ['install', 'upgrade']) {
+      for (const location of ['apac', 'eeur', 'enam', 'weur', 'wnam', 'oc', 'automatic']) {
+        expect(parsePlatformArgs([command, '--storage-location', location])).toMatchObject({
+          storageLocation: location,
+        });
+      }
+      expect(parsePlatformArgs([command])).not.toHaveProperty('storageLocation');
+      expect(() => parsePlatformArgs([command, '--storage-location', 'wrong'])).toThrow(
+        'storage-location',
+      );
+    }
+    for (const command of ['repair', 'rollback', 'enable', 'disable']) {
+      expect(() => parsePlatformArgs([command, '--storage-location', 'apac'])).toThrow();
+    }
+  });
   it('accepts explicit planned choices and rejects contradictory configuration', () => {
     expect(
       parsePlatformArgs([

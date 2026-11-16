@@ -37,6 +37,59 @@ function unproxiedEnv(api: string): NodeJS.ProcessEnv {
   };
 }
 
+it.each(['apac', undefined] as const)(
+  'creates R2 buckets with location hint %s through installed cf',
+  async (locationHint) => {
+    const directory = temporaryDirectory('void-cf-r2-location-');
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ name: 'test-worker', account_id: 'test-account' }));
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const api = await listen(
+      createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        requests.push({
+          path: request.url ?? '',
+          body: JSON.parse(Buffer.concat(chunks).toString()),
+        });
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({ success: true, errors: [], result: { name: 'test-storage' } }),
+        );
+      }),
+    );
+    const result = await runOperation(
+      directory,
+      {
+        type: 'r2.bucket.create',
+        name: 'test-storage',
+        binding: 'STORAGE',
+        configPath,
+        locationHint,
+      },
+      tokenEnv(api),
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(requests).toEqual([
+      {
+        path: '/client/v4/accounts/test-account/r2/buckets',
+        body: expect.objectContaining({
+          name: 'test-storage',
+          ...(locationHint ? { locationHint } : {}),
+        }),
+      },
+    ]);
+    if (!locationHint) {
+      expect(requests[0]!.body).not.toHaveProperty('locationHint');
+    }
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).r2_buckets).toEqual([
+      { binding: 'STORAGE', bucket_name: 'test-storage' },
+    ]);
+  },
+);
+
 it.each([
   { observability: { enabled: true } },
   { observability: { enabled: false } },

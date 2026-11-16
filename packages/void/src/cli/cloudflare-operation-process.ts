@@ -844,7 +844,14 @@ async function resources(): Promise<Result> {
     case 'r2.bucket.info':
       return runCf(['r2', 'buckets', 'get', operation.name]);
     case 'r2.bucket.create': {
-      const created = runCf(['r2', 'buckets', 'create', '--name', operation.name]);
+      const created = runCf([
+        'r2',
+        'buckets',
+        'create',
+        '--name',
+        operation.name,
+        ...(operation.locationHint ? ['--location-hint', operation.locationHint] : []),
+      ]);
       if (created.status === 0) {
         updateBinding('r2_buckets', operation.binding, { bucket_name: operation.name });
       }

@@ -298,6 +298,18 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 { "target": "node" }
 ```
 
+### `storage.locationHint`
+
+Choose a preferred region when Void creates your app's R2 bucket, on either a Void platform or a direct Cloudflare deployment:
+
+```json
+{ "storage": { "locationHint": "apac" } }
+```
+
+Supported hints are `apac` (Asia Pacific), `eeur` (Eastern Europe), `enam` (Eastern North America), `weur` (Western Europe), `wnam` (Western North America), and `oc` (Oceania). Cloudflare treats these as [best-effort location hints](https://developers.cloudflare.com/r2/reference/data-location/), not data residency guarantees.
+
+The project setting overrides the platform's default. Without either, Cloudflare chooses automatically. This only affects new buckets: changing the hint never moves or replaces an existing bucket. Apps that do not use R2 create no bucket.
+
 ### `worker`
 
 Cloudflare Workers settings, including the `compatibility_date` pinned by `void init`. Put binding arrays such as `d1_databases`, `kv_namespaces`, and `r2_buckets` in [`cloudflare`](#cloudflare).

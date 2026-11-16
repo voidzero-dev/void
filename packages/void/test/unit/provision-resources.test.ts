@@ -875,13 +875,50 @@ describe('provisionCloudflareResources — idempotent re-run', () => {
 });
 
 describe('provisionCloudflareResources — R2', () => {
+  it('passes the location hint only to the bucket creation operation', async () => {
+    setup(JSON.stringify({ name: 'app' }));
+    const operations: Array<CloudflareOperation> = [];
+    const run: RunWrangler = (operation) => {
+      operations.push(operation);
+      if (operation.type === 'r2.bucket.info') {
+        return Promise.resolve({
+          ...fail('', 'The specified bucket does not exist'),
+          errorCode: 10006,
+        });
+      }
+      simulateUpdateConfig('r2_buckets', { binding: 'STORAGE', bucket_name: 'myapp-uploads' });
+      return Promise.resolve(ok());
+    };
+    await provisionCloudflareResources(
+      tmpDir,
+      wranglerPath,
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
+      { runWrangler: run, log: silentLog },
+    );
+    expect(operations).toEqual([
+      expect.objectContaining({ type: 'r2.bucket.info', name: 'myapp-uploads' }),
+      expect.objectContaining({
+        type: 'r2.bucket.create',
+        name: 'myapp-uploads',
+        locationHint: 'apac',
+      }),
+    ]);
+    expect(operations[0]).not.toHaveProperty('locationHint');
+  });
+
   it('reuses when the bucket_name is already real (no wrangler call)', async () => {
     setup(JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'myapp-uploads' }] }));
     const { run, calls } = makeRunner([]);
     const result = await provisionCloudflareResources(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, r2: { binding: 'STORAGE', bucketName: 'myapp-uploads' } },
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
       { runWrangler: run, log: silentLog },
     );
     expect(calls).toEqual([]);
@@ -901,7 +938,10 @@ describe('provisionCloudflareResources — R2', () => {
     const result = await provisionCloudflareResources(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, r2: { binding: 'STORAGE', bucketName: 'myapp-uploads' } },
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
       { runWrangler: run, log: silentLog },
     );
     expect(calls).toEqual([

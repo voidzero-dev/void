@@ -1362,6 +1362,39 @@ describe('POST /projects/:id/deploy', () => {
     expect(cronDoFetches.find((f) => f.url.includes('/sync'))).toBeUndefined();
   });
 
+  it.each([
+    { projectHint: 'apac', platformHint: 'weur', expected: 'apac' },
+    { projectHint: undefined, platformHint: 'weur', expected: 'weur' },
+    { projectHint: undefined, platformHint: undefined, expected: undefined },
+  ])(
+    'creates project R2 buckets with resolved location $expected',
+    async ({ projectHint, platformHint, expected }) => {
+      const user = await createTestUser(env.db);
+      const project = await createTestProject(env.db, user.id, 'r2-app');
+      const fetchMock = mockCfApi();
+      const res = await app.fetch(
+        await buildDeployRequest(env, project.id, user.jwt, {
+          manifest: {
+            version: projectHint ? 5 : 3,
+            bindings: { r2: ['STORAGE'] },
+            ...(projectHint ? { storage: { locationHint: projectHint } } : {}),
+          },
+        }),
+        { ...env, ...(platformHint ? { R2_LOCATION_HINT: platformHint } : {}) },
+      );
+      expect(res.status).toBe(200);
+      await res.text();
+      const create = fetchMock.mock.calls.find(
+        ([url, init]) => String(url).endsWith('/r2/buckets') && init?.method === 'POST',
+      );
+      expect(create).toBeDefined();
+      expect(JSON.parse(String(create![1]!.body))).toEqual({
+        name: `${project.id.replaceAll('_', '-')}-storage`,
+        ...(expected ? { locationHint: expected } : {}),
+      });
+    },
+  );
+
   it('provisions D1 when manifest requires it', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'd1-app');

@@ -1,3 +1,5 @@
+import type { R2LocationHint } from '@void/deploy-core';
+
 /** Typed provider operations shared by app deployment and platform installation. */
 type ConfigTarget = { configPath?: string };
 type WorkerTarget = ConfigTarget & { workerName?: string };
@@ -20,7 +22,13 @@ export type CloudflareOperation =
     }
   | { type: 'kv.namespace.create'; name: string; binding: string; configPath: string }
   | ({ type: 'r2.bucket.info'; name: string } & ConfigTarget)
-  | { type: 'r2.bucket.create'; name: string; binding: string; configPath: string }
+  | {
+      type: 'r2.bucket.create';
+      name: string;
+      binding: string;
+      configPath: string;
+      locationHint?: R2LocationHint;
+    }
   | { type: 'hyperdrive.create'; name: string; binding: string; configPath: string }
   | ({ type: 'queues.info' | 'queues.create'; name: string } & ConfigTarget)
   | ({ type: 'queues.consumer.remove'; queueName: string; workerName: string } & ConfigTarget)

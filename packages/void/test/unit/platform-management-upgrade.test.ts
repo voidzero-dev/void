@@ -278,6 +278,24 @@ const upgrade = (overrides: { plan?: boolean; yes?: boolean; customDomains?: tru
   });
 
 describe('installed platform upgrade', () => {
+  it.each(['apac', 'automatic'] as const)(
+    'replays storage location %s in the upgrade resume command',
+    (storageLocation) => {
+      expect(
+        platformLifecycleResumeCommand(
+          {
+            subcommand: 'upgrade',
+            selector: '',
+            plan: false,
+            yes: true,
+            runtime: '',
+            storageLocation,
+          },
+          'installation',
+        ),
+      ).toBe(`void platform upgrade installation --storage-location ${storageLocation} --yes`);
+    },
+  );
   it('prints an exact rollback resume command with quoted custom runtime paths', () => {
     expect(
       platformLifecycleResumeCommand(
@@ -497,6 +515,36 @@ describe('installed platform upgrade', () => {
       );
     },
   );
+
+  it('forwards the storage location setting to the upgrade plan', async () => {
+    await runInstalledPlatformCommand({
+      subcommand: 'upgrade',
+      selector: state.manifest!.id,
+      plan: false,
+      runtime: '',
+      yes: true,
+      storageLocation: 'apac',
+    });
+    expect(createPlatformInstallPlan).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ storageLocation: 'apac' }),
+      expect.anything(),
+      expect.objectContaining({ allowStorageLocationChange: true }),
+    );
+  });
+
+  it('rejects a runtime that would ignore a saved storage location before installation', async () => {
+    state.manifest = {
+      ...state.manifest!,
+      deployment: { ...state.manifest!.deployment, storageLocationHint: 'apac', schemaVersion: 6 },
+    };
+    state.runtime = {
+      ...state.runtime!,
+      manifest: { ...state.runtime!.manifest, storageLocationHint: undefined },
+    };
+    await expect(upgrade()).rejects.toThrow('storage location hint');
+    expect(installPlatform).not.toHaveBeenCalled();
+  });
 
   describe('project Worker runtime logs', () => {
     const useMinimal = () => {

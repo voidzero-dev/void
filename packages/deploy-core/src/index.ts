@@ -1,4 +1,12 @@
-export const SUPPORTED_MANIFEST_VERSIONS: ReadonlyArray<number> = [3, 4];
+import type { StorageConfig } from './storage.ts';
+export {
+  R2_LOCATION_HINTS,
+  isR2LocationHint,
+  type R2LocationHint,
+  type StorageConfig,
+} from './storage.ts';
+
+export const SUPPORTED_MANIFEST_VERSIONS: ReadonlyArray<number> = [3, 4, 5];
 
 export type MigrationMeta = {
   name: string;
@@ -238,6 +246,8 @@ export type DurableObjectManifestMeta = {
 
 export type DeployManifest = {
   version: number;
+  /** R2 creation preferences. Requires manifest version 5. */
+  storage?: StorageConfig;
   assetManifestVersion?: 1 | 2;
   /** Authenticated framed HTTP delivery for managed inbound email. */
   emailProtocolVersion?: 1;

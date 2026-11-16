@@ -103,6 +103,7 @@ import {
   platformSetupFieldHelp,
   platformSetupLink,
 } from './platform-setup.ts';
+import { assertPlatformStorageSupported } from './platform-storage.ts';
 
 function isPlatformInstallDatabaseBound(
   checkpoint: Record<string, string> | null,
@@ -254,7 +255,8 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           !args.dedicatedZoneSpecified &&
           args.dashboardUrl === undefined &&
           !args.customDomains &&
-          args.runtimeLogs === undefined
+          args.runtimeLogs === undefined &&
+          args.storageLocation === undefined
             ? listSavedPlatformInstallPlans().filter(
                 (saved) =>
                   (!args.name || saved.args.name === normalizeInstallationSlug(args.name)) &&
@@ -798,6 +800,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
         : {}),
       installationSlug,
       ...(args.runtimeLogs !== undefined ? { runtimeLogs: args.runtimeLogs } : {}),
+      ...(args.storageLocation !== undefined ? { storageLocation: args.storageLocation } : {}),
       zoneName,
       ...(workersDev ? { workersDev: true } : {}),
     };
@@ -812,6 +815,7 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
       createPlatformInstallPlan(client, planInput, existing, planOptions),
     );
     assertPlatformRuntimeLogsSupported(plan.deployment, runtime.manifest);
+    assertPlatformStorageSupported(plan.deployment, runtime.manifest);
     const commandOptions = {
       commandName: cliCommandName(),
       accountId,
@@ -832,6 +836,9 @@ export async function runPlatformLifecycleCommand(commandArgs: PlatformArgs): Pr
           ? (externalHyperdrive?.id ?? 'create')
           : undefined,
       runtime: args.runtime,
+      ...(!existing && plan.deployment.storageLocationHint
+        ? { storageLocation: plan.deployment.storageLocationHint }
+        : {}),
       // A resume keeps the recorded value, so only a new install repeats it.
       ...(!existing && plan.deployment.runtimeLogs ? { runtimeLogs: 'minimal' as const } : {}),
       ...(existing ? { resumeId: existing.id } : {}),

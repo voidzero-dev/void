@@ -265,7 +265,13 @@ export async function computeDesiredCloudflareResources(
       );
     const bucketName =
       storedName && !generatedDefault ? storedName : suffixedResourceName(workerName, 'storage');
-    desired.r2 = { binding, bucketName };
+    desired.r2 = {
+      binding,
+      bucketName,
+      ...(voidConfig.storage?.locationHint
+        ? { locationHint: voidConfig.storage.locationHint }
+        : {}),
+    };
     reasons.set(binding, analysis.reasons.r2[0]!);
   }
 

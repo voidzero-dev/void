@@ -158,6 +158,7 @@ try {
     deploymentExecution: 1,
     appAccessSetup: 1,
     runtimeLogs: 1,
+    storageLocationHint: 1,
     emailProtocolVersion: 1,
     database,
     platformVersion: packageJson.version,

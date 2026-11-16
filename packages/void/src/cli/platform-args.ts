@@ -7,6 +7,7 @@ import {
 import { operatorGroups, parseOperatorArgs, type OperatorArgs } from './operator-args.ts';
 import { parsePlatformConfigArgs, type PlatformConfigArgs } from './platform-config-args.ts';
 import { parsePlatformPlansArgs, type PlatformPlansArgs } from './platform-plans-args.ts';
+import { parsePlatformStorageLocation, type PlatformStorageLocation } from './platform-storage.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 export const platformSubcommands: Array<SubcommandDef> = [
@@ -96,6 +97,7 @@ export type PlatformArgs =
       workersDev?: boolean;
       /** Omitted keeps the recorded value; `full` clears it. */
       runtimeLogs?: PlatformRuntimeLogsChoice;
+      storageLocation?: PlatformStorageLocation;
     }
   | {
       subcommand: 'upgrade' | 'repair' | 'disable' | 'enable';
@@ -105,6 +107,7 @@ export type PlatformArgs =
       customDomains?: true;
       /** upgrade only: omitted keeps the recorded value; `full` clears it. */
       runtimeLogs?: PlatformRuntimeLogsChoice;
+      storageLocation?: PlatformStorageLocation;
       selector: string;
       plan: boolean;
       runtime: string;
@@ -185,9 +188,11 @@ function parseLifecycleSelector(
   dashboardUrl?: string;
   customDomains?: true;
   runtimeLogs?: PlatformRuntimeLogsChoice;
+  storageLocation?: PlatformStorageLocation;
 } {
   const positional: Array<string> = [];
   let runtimeLogs: PlatformRuntimeLogsChoice | undefined;
+  let storageLocation: PlatformStorageLocation | undefined;
   let runtime = '';
   let fromRuntime = '';
   let authConfig: string | undefined;
@@ -211,6 +216,10 @@ function parseLifecycleSelector(
       (subcommand === 'upgrade' || subcommand === 'repair')
     ) {
       customDomains = true;
+    } else if (arg === '--storage-location' && subcommand === 'upgrade') {
+      const [value, next] = readValue(rest, index, arg);
+      storageLocation = parsePlatformStorageLocation(value);
+      index = next;
     } else if (arg === '--runtime-logs' && subcommand === 'upgrade') {
       const [value, next] = readValue(rest, index, arg);
       runtimeLogs = parseRuntimeLogs(value);
@@ -239,6 +248,7 @@ function parseLifecycleSelector(
     ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
     ...(customDomains ? { customDomains: true as const } : {}),
     ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
+    ...(storageLocation !== undefined ? { storageLocation } : {}),
   };
 }
 
@@ -359,6 +369,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       dashboardUrl,
       customDomains,
       runtimeLogs,
+      storageLocation,
     } = parseLifecycleSelector(rest, subcommand);
     return subcommand === 'rollback'
       ? { subcommand, selector, plan, runtime, fromRuntime, yes }
@@ -372,6 +383,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
           ...(dashboardUrl !== undefined ? { dashboardUrl } : {}),
           ...(customDomains ? { customDomains } : {}),
           ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
+          ...(storageLocation !== undefined ? { storageLocation } : {}),
         };
   }
   if (subcommand === 'uninstall') {
@@ -412,6 +424,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       '--name',
       '--runtime',
       '--runtime-logs',
+      '--storage-location',
       '--zone',
     ]);
     let workersDev = false;
@@ -471,6 +484,9 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
     const runtimeLogs = values.has('--runtime-logs')
       ? parseRuntimeLogs(values.get('--runtime-logs')!)
       : undefined;
+    const storageLocation = values.has('--storage-location')
+      ? parsePlatformStorageLocation(values.get('--storage-location')!)
+      : undefined;
     const loginMethods = values.get('--login-methods')?.split(',');
     if (
       loginMethods &&
@@ -506,6 +522,7 @@ export function parsePlatformArgs(args: Array<string>): PlatformArgs {
       ...(appAccess !== undefined ? { appAccess: appAccess as PlatformAppAccess } : {}),
       ...(workersDev ? { workersDev: true } : {}),
       ...(runtimeLogs !== undefined ? { runtimeLogs } : {}),
+      ...(storageLocation !== undefined ? { storageLocation } : {}),
       ...(values.has('--auth-config') ? { authConfig: values.get('--auth-config')! } : {}),
       account: values.get('--account') ?? '',
       applicationDomain: values.get('--application-domain') ?? '',

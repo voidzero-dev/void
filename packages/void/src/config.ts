@@ -1,4 +1,10 @@
-import { isRecord, type AssetConfig } from '@void/deploy-core';
+import {
+  isRecord,
+  isR2LocationHint,
+  R2_LOCATION_HINTS,
+  type AssetConfig,
+  type StorageConfig,
+} from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
 import {
   VOID_AUTH_PROVIDERS,
@@ -179,6 +185,7 @@ export type CloudflareConfig = Record<string, unknown> & {
 
 /** Shape of the Void project config. All fields optional. */
 export type VoidConfig = {
+  storage?: StorageConfig;
   sourceDir?: string;
   target?: 'cloudflare' | 'node' | 'bun' | 'deno';
   output?: 'server' | 'static';
@@ -466,6 +473,26 @@ function validateConfigObject(obj: unknown): VoidConfig {
   if (obj.output !== undefined) {
     if (typeof obj.output !== 'string' || !VALID_OUTPUTS.has(obj.output)) {
       throw new Error(`config: "output" in ${CONFIG_FILE} must be one of: server, static.`);
+    }
+  }
+
+  if (obj.storage !== undefined) {
+    if (
+      !isRecord(obj.storage) ||
+      Object.keys(obj.storage).some((key) => key !== 'locationHint') ||
+      (obj.storage.locationHint !== undefined && !isR2LocationHint(obj.storage.locationHint))
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} must be one of: ${R2_LOCATION_HINTS.join(', ')}.`,
+      );
+    }
+    if (
+      obj.storage.locationHint !== undefined &&
+      isNodeTarget(obj.target as VoidConfig['target'])
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} requires target: "cloudflare".`,
+      );
     }
   }
 

@@ -33,6 +33,7 @@ import type {
   CloudflareZone,
   PlatformCloudflareClient,
 } from './platform-cloudflare.ts';
+import type { PlatformStorageLocation } from './platform-storage.ts';
 
 export type PlatformInstallPlanAction = Readonly<{
   action: 'adopt' | 'create' | 'reuse' | 'update' | 'inspect';
@@ -80,6 +81,7 @@ type PlatformInstallPlanInput = Readonly<{
   installationSlug: string;
   /** `full` clears the setting; omitted keeps the recorded value. */
   runtimeLogs?: 'full' | 'minimal';
+  storageLocation?: PlatformStorageLocation;
   zoneName: string;
   workersDev?: boolean;
 }>;
@@ -119,6 +121,8 @@ export async function createPlatformInstallPlan(
     deploymentExecution?: boolean;
     /** upgrade only: a changed runtime logs setting is not drift. */
     allowRuntimeLogsChange?: boolean;
+    /** upgrade only: a changed storage default is not drift. */
+    allowStorageLocationChange?: boolean;
   },
 ): Promise<PlatformInstallPlan> {
   // Validate before even the first provider read; omission retains recorded intent.
@@ -237,6 +241,12 @@ export async function createPlatformInstallPlan(
       : input.runtimeLogs === 'minimal'
         ? 'minimal'
         : undefined;
+  const storageLocationHint =
+    input.storageLocation === undefined
+      ? existing?.deployment.storageLocationHint
+      : input.storageLocation === 'automatic'
+        ? undefined
+        : input.storageLocation;
   const deployment = createPlatformDeploymentManifest({
     authentication: input.authentication ?? existing?.deployment.authentication,
     appAccess: input.appAccess ?? existing?.deployment.appAccess,
@@ -262,6 +272,7 @@ export async function createPlatformInstallPlan(
     installationSlug,
     resources: existing?.deployment.resources ?? createPlatformResourceNames(installationSlug),
     ...(runtimeLogs ? { runtimeLogs } : {}),
+    ...(storageLocationHint ? { storageLocationHint } : {}),
   });
   const {
     emailSharedZoneId: configuredEmailZone,
@@ -313,11 +324,18 @@ export async function createPlatformInstallPlan(
   const comparable = (
     value: Omit<PlatformDeploymentManifest, 'emailSharedZoneId' | 'emailSenderDomain'>,
   ) => {
-    if (!options?.allowRuntimeLogsChange) {
+    if (!options?.allowRuntimeLogsChange && !options?.allowStorageLocationChange) {
       return JSON.stringify(value);
     }
-    const { runtimeLogs: _runtimeLogs, schemaVersion: _schemaVersion, ...rest } = value;
-    return JSON.stringify(rest);
+    const comparableValue = { ...value };
+    if (options?.allowRuntimeLogsChange) {
+      delete comparableValue.runtimeLogs;
+    }
+    if (options?.allowStorageLocationChange) {
+      delete comparableValue.storageLocationHint;
+    }
+    // The schema version follows the optional settings.
+    return JSON.stringify({ ...comparableValue, schemaVersion: undefined });
   };
   if (
     existing &&
@@ -1471,6 +1489,9 @@ export function formatPlatformInstallPlan(
       : plan.deployment.runtimeLogs
         ? [`${pc.bold('Runtime logs:')} ${plan.deployment.runtimeLogs}`]
         : []),
+    ...(plan.deployment.storageLocationHint || previous?.storageLocationHint
+      ? [`${pc.bold('New bucket location:')} ${plan.deployment.storageLocationHint ?? 'automatic'}`]
+      : []),
     `${pc.bold('Login callback:')} ${plan.apiUrl}/auth/callback`,
     `${pc.bold('Database:')} ${plan.externalHyperdrive?.database || 'PostgreSQL'} via Hyperdrive ${plan.deployment.resources.hyperdrive}`,
     '',

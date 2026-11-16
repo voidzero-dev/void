@@ -51,6 +51,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@void/deploy-core": "workspace:*",
     "pathslash": "catalog:"
   },
   "devDependencies": {

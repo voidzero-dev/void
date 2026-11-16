@@ -1,6 +1,53 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
 
+describe('R2 location hints', () => {
+  it('accepts custom Durable Objects alongside a location hint', () => {
+    expect(
+      validateManifestShape({
+        version: 5,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint: 'apac' },
+        durableObjects: {
+          bindings: [
+            { bindingName: 'WORKSPACE', className: 'WorkspaceDurableObject', storage: 'sqlite' },
+          ],
+        },
+      }),
+    ).toBeNull();
+  });
+  it.each(['apac', 'eeur', 'enam', 'weur', 'wnam', 'oc'])(
+    'accepts %s in manifest v5',
+    (locationHint) => {
+      expect(
+        validateManifestShape({
+          version: 5,
+          bindings: { r2: ['STORAGE'] },
+          storage: { locationHint },
+        }),
+      ).toBeNull();
+    },
+  );
+  it.each(['APAC', '', null, {}, true])('rejects invalid hint %j', (locationHint) => {
+    expect(
+      validateManifestShape({
+        version: 5,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint },
+      }),
+    ).toContain('locationHint');
+  });
+  it('requires manifest v5 so older platforms cannot silently ignore the hint', () => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: { r2: ['STORAGE'] },
+        storage: { locationHint: 'apac' },
+      }),
+    ).toContain('version 5');
+  });
+});
+
 describe('migration execution mode', () => {
   it.each(['apply', 'skip', undefined])('accepts %s', (migrationMode) => {
     expect(validateManifestShape({ version: 3, bindings: {}, migrationMode })).toBeNull();

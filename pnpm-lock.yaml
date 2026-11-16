@@ -647,6 +647,9 @@ importers:
 
   packages/platform:
     dependencies:
+      '@void/deploy-core':
+        specifier: workspace:*
+        version: link:../deploy-core
       pathslash:
         specifier: 'catalog:'
         version: 0.1.0

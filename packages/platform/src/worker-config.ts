@@ -207,6 +207,9 @@ export function createPlatformWorkerConfigs(input: {
       ...(deployment.appAccess ? { PLATFORM_APP_ACCESS: deployment.appAccess } : {}),
       PLATFORM_INSTALLATION_ID: installationId,
       ...runtimeLogs,
+      ...(deployment.storageLocationHint
+        ? { R2_LOCATION_HINT: deployment.storageLocationHint }
+        : {}),
       PLATFORM_TRAFFIC_STATE: trafficState,
       ...ownershipVars('api-worker', names.apiWorker),
       PLATFORM_VERSION: platformVersion,

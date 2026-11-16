@@ -4,6 +4,17 @@
   "description": "Configuration file for void projects (void.json)",
   "type": "object",
   "properties": {
+    "storage": {
+      "type": "object",
+      "description": "R2 bucket placement for new project buckets.",
+      "properties": {
+        "locationHint": {
+          "type": "string",
+          "enum": ["apac", "eeur", "enam", "weur", "wnam", "oc"]
+        }
+      },
+      "additionalProperties": false
+    },
     "$schema": {
       "type": "string",
       "description": "JSON Schema URL for IDE support"
