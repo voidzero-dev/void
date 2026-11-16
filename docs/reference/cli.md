@@ -34,8 +34,6 @@ Use this page as a command reference. If you are setting up a project for the fi
 
 ## Cheat Sheet {#cheat-sheet}
 
-Platform administrators can also choose AI Gateway logging [per project](./cli/platform-users.md#ai-gateway-logging) with `void platform project ai-logging`, or [per plan](../guide/platform/administration/plans.md#ai-gateway-logging) with `void platform config plans`.
-
 | Command                           | Purpose                                                                       |
 | --------------------------------- | ----------------------------------------------------------------------------- |
 | `void deploy`                     | Build and deploy to the configured platform                                   |
@@ -81,6 +79,8 @@ Platform administrators can also choose AI Gateway logging [per project](./cli/p
 | `void email domain`               | Send and receive at your own domain on a Cloudflare zone                      |
 | `void init`                       | Set up a new or existing project, including coding agents                     |
 | `void migrate`                    | Update project configuration                                                  |
+
+For platform administration, see [plans and account limits](../guide/platform/administration/plans.md), [users and projects](./cli/platform-users.md), and [AI logging](./cli/platform-users.md#ai-gateway-logging).
 
 ## Binary Invocation {#binary-invocation}
 

@@ -439,20 +439,22 @@ The dev server keeps route types up to date. After changing `routing.typedRoutes
 
 ## Serialization
 
-The typed fetch client reflects JSON serialization:
+The [typed fetch client](./typed-fetch.md) infers types after JSON conversion. A `Date` on the server becomes a string in the client, including inside an array or tuple.
 
-| Source type or value                                | Client type or behavior                                         |
-| --------------------------------------------------- | --------------------------------------------------------------- |
-| `string`, `number`, `boolean`, `null`               | unchanged                                                       |
-| `Date`                                              | `string`                                                        |
-| Arrays and tuples, including readonly types         | recursively serialized, preserving tuple shape and readonly     |
-| `undefined`, functions, or symbols in an array      | `null`                                                          |
-| `undefined`, functions, or symbols as object values | property omitted                                                |
-| Symbol-keyed object properties                      | omitted                                                         |
-| `Response`                                          | excluded from the inferred JSON type; passed through at runtime |
-| `bigint`                                            | unsupported by JSON                                             |
+| Source type or value                                | Client type or behavior                                                  |
+| --------------------------------------------------- | ------------------------------------------------------------------------ |
+| `string`, `number`, `boolean`, `null`               | unchanged                                                                |
+| `Date`                                              | `string`                                                                 |
+| Arrays and tuples                                   | elements converted; tuple positions and `readonly` preserved in the type |
+| `undefined`, functions, or symbols in an array      | `null`                                                                   |
+| `undefined`, functions, or symbols as object values | property omitted                                                         |
+| Symbol-keyed object properties                      | omitted                                                                  |
+| `Response`                                          | excluded from the inferred JSON type; passed through at runtime          |
+| `bigint`                                            | unsupported by JSON                                                      |
 
 Object properties whose values may be omitted become optional in the client type. For example, a handler returning `{ label: string | undefined }` produces `{ label?: string }`.
+
+[Page loaders](./pages-routing/loaders.md#defining-a-loader) preserve richer values, including `Date`, `Map`, `Set`, and `bigint`. Return props directly from a loader to keep those types in your page component.
 
 ## Context Variables
 

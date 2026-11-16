@@ -36,7 +36,7 @@ With `voidPlugin()` added to the framework's Vite config, frameworks get most of
 - **Typed database:** query types come from your Drizzle schema.
 - **Migrations:** local D1 is updated on dev startup, and migrations are validated and deployed with `void deploy`.
 - **Runtime helpers:** `void/db`, `void/kv`, `void/storage`, and `void/ai` give you typed access to Cloudflare bindings in dev and production.
-- **Environment variables:** in TanStack Start, React Router, and vinext apps, `env` from `void/env` returns the values of your [`env.ts`](../../guide/env-vars.md) schema in dev and production, with defaults, type conversions, and async validators applied. A missing or invalid value fails only the requests that read it.
+- **Environment variables:** TanStack Start, React Router, and vinext support validated values from [`void/env`](#environment-variables).
 - **Auth:** Void-managed auth is not supported in framework mode yet. For now, use Better Auth's official integration for your framework.
 - **Cron jobs:** scheduled handlers via the `crons/` directory.
 - **Queue consumers:** typed producers and consumers via the `queues/` directory.
@@ -47,6 +47,12 @@ For framework apps, Void revalidation caches public HTML document responses with
 Frameworks can also access bindings directly via the framework's own mechanisms (e.g. `env` from `cloudflare:workers` in SvelteKit 3, Analog, and Astro, `platform.env` in SvelteKit 2, `event.context.cloudflare.env` in Nuxt).
 
 ## Configuration
+
+### Environment variables
+
+In TanStack Start, React Router, and vinext, import `env` from `void/env` to read values validated by your [`env.ts`](../../guide/env-vars.md) schema. Defaults, type conversions, and async validators work in both development and production.
+
+Reading a missing or invalid value throws an error. Requests that do not read that value can still run. For other frameworks, use the framework's environment API.
 
 ### `void.config.ts`
 

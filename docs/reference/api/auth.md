@@ -9,7 +9,7 @@ Imported from `"void/auth"`. Client-side helpers imported from `"void/client"`.
 
 ## `defineAuth(config)` {#defineauth-config}
 
-Advanced escape hatch for customizing Void's Better Auth config.
+Customize Better Auth in a root-level `auth.ts` file. Spread `defaults` to keep Void's configuration:
 
 ```ts
 import { defineAuth } from 'void/auth';
@@ -44,7 +44,7 @@ function getUser(): AuthUser | null;
 
 ## `getSession()` {#getsession}
 
-Returns the current Better Auth request state, or `null`.
+Returns the current user and session, or `null` when signed out.
 
 ```ts
 import { getSession } from 'void/auth';
@@ -71,7 +71,7 @@ export const GET = defineHandler((c) => getAuth(c).handler(c.req.raw));
 
 Enable [authentication](../../guide/auth.md) before calling this helper; it throws if no instance is available. Anonymous requests can use it too. Call `requireAuth(c)` separately to require a signed-in user.
 
-Cookies set by `getAuth(c).api` calls are sent with the response, so endpoints such as `signInEmail` and `signUpEmail` sign in the current browser. They are not sent on a `POST` from another origin unless it is in `trustedOrigins`. See [server usage](../../guide/auth.md#server-usage).
+Void includes cookies set by `getAuth(c).api` calls in the response. For example, `signInEmail` and `signUpEmail` sign in the current browser. A cross-origin `POST` must come from a configured `trustedOrigins` entry for those cookies to be sent. See [Calling Better Auth APIs](../../guide/auth.md#calling-better-auth-apis) for session updates and account creation.
 
 **Signature:**
 
@@ -81,9 +81,7 @@ function getAuth(c: CloudContext): AuthInstance;
 
 ## `requireAuth(c, options?)` {#requireauth-c}
 
-Returns the authenticated user from the request context. Without `throwRedirect`, throws a 401 `HTTPException` if no session is present.
-
-Use it without options in route handlers or actions when you want a plain-text `401`, not an error page:
+Returns the signed-in user or throws a `401` `HTTPException` if no session is present:
 
 ```ts
 import { defineHandler } from 'void';
@@ -95,7 +93,7 @@ export const GET = defineHandler((c) => {
 });
 ```
 
-For protected pages, pass `throwRedirect` to [redirect unauthenticated visitors to login](../../guide/auth.md#protect-a-server-route):
+In a page loader or middleware, that exception shows the nearest applicable [`_error` component](../../guide/pages-routing/errors.md#http-exceptions). To send visitors to login instead, pass `throwRedirect`:
 
 ```ts
 import { defineHandler } from 'void';
@@ -107,9 +105,9 @@ export const loader = defineHandler((c) => {
 });
 ```
 
-`throwRedirect` works in loaders, actions, and middleware. When signed out, it throws a redirect with status `302` for GET/HEAD requests or `303` for other methods, stopping execution. When signed in, it returns the user normally.
+`throwRedirect` works in loaders, actions, and middleware. For a signed-out request, it stops execution with a `302` redirect for GET/HEAD requests or `303` for other methods. Pages client navigation follows the redirect without a document reload. Signing in does not repeat a rejected action.
 
-The destination is application-controlled.
+Choose a trusted destination in your app; validate any URL supplied by a user before passing it here.
 
 **Signature:**
 

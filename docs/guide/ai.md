@@ -142,7 +142,9 @@ const result = await ai.run('google/gemini-2.5-flash', {
 });
 ```
 
-Pass AI Gateway options as the third argument: `ai.run(model, inputs, { gateway: { skipCache: true } })`. On a team platform, the platform chooses the gateway and sets its metadata and logging; options such as `skipCache` and `cacheTtl` still apply. The platform's logging setting also covers `void dev` in a linked project; an unlinked project uses your own Cloudflare account and its gateway settings.
+Pass AI Gateway options as the third argument: `ai.run(model, inputs, { gateway: { skipCache: true } })`.
+
+On a team platform, Void selects the gateway and request metadata, and administrators control the [logging policy](./platform/administration/projects.md#ai-logging). Apps can still set cache options such as `skipCache` and `cacheTtl`. The same logging policy applies during `void dev` for a linked project. An unlinked project uses your own Cloudflare account and gateway settings.
 
 For provider-native requests on a direct deployment, configure [`ai.gateway`](../integrations/cloudflare.md#ai-self-host).
 

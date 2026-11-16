@@ -449,6 +449,8 @@ Headings include permalink anchors. Use `[[toc]]` for a table of contents. Image
 ## Plugin Options
 
 ```ts
+import { voidMarkdown } from '@void/md/plugin';
+
 voidMarkdown({
   shiki: {
     themes: { light: 'github-light', dark: 'github-dark' },
@@ -457,12 +459,14 @@ voidMarkdown({
 });
 ```
 
-| Option         | Type                             | Default                                          | Description                                               |
-| -------------- | -------------------------------- | ------------------------------------------------ | --------------------------------------------------------- |
-| `shiki.themes` | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Shiki color themes                                        |
-| `copyLabel`    | `string`                         | `"Copy Code"`                                    | Title of the code block copy button, for translated sites |
+| Option         | Type                             | Default                                          | Description                                           |
+| -------------- | -------------------------------- | ------------------------------------------------ | ----------------------------------------------------- |
+| `shiki.themes` | `{ light: string; dark: string}` | `{ light: "github-light", dark: "github-dark" }` | Shiki color themes                                    |
+| `copyLabel`    | `string`                         | `"Copy Code"`                                    | Tooltip and accessible label for the code copy button |
 
 Code block languages load on demand from Shiki's bundled languages.
+
+For a translated site, set `copyLabel` to the label in your site's language, such as `'Copier le code'`.
 
 ## Building a Sidebar
 

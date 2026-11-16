@@ -24,7 +24,13 @@ void platform project show <project-id>
 
 Project details include resources, domains, and recent builds and deployments. The [command reference](../../../reference/cli/platform.md#operator-commands) also covers suspending and restoring users, deleting projects, and removing accounts.
 
-In the admin dashboard, open a project to view its team. Search for a platform user and choose a role to add them immediately; an email address is not required. You can also change or remove existing members. Pending invitations created through other project workflows remain visible until accepted or revoked. If email is unavailable for a pending invitation, share its ID so the user can accept it with `void project team accept <invitation-id>`. The owner cannot be removed from the team; transfer ownership first. Removing a collaborator or admin, changing one to reader, or suspending or deleting their account [replaces the project's platform credentials](../../project-collaboration.md#change-or-remove-access), the same as the CLI.
+### Project Teams
+
+In the admin dashboard, open a project to view its team. Search for a platform user and choose a role to add them immediately; an email address is not required. You can also change or remove existing members. To remove the owner, transfer ownership first.
+
+Pending invitations remain visible until accepted or revoked. If an invitation cannot be sent by email, share its ID so the user can accept it with `void project team accept <invitation-id>`.
+
+Removing a collaborator or admin, changing one to reader, or suspending or deleting their account [replaces the project's platform credentials](../../project-collaboration.md#change-or-remove-access), the same as the CLI.
 
 ### AI Logging
 
@@ -36,9 +42,9 @@ void platform project ai-logging <project-id> metadata
 
 Only platform administrators can change this setting. It covers the project's AI requests through the platform, including calls with the app's own provider key and calls from `void dev`.
 
-Use `inherit` for the gateway's own setting, `off` to store no log entry, or `full` to include bodies. A project's own setting wins over its plan's [AI Gateway logging default](./plans.md#ai-gateway-logging); `inherit` removes the project's own setting.
+Use `off` to store no log entry or `full` to include prompts and responses. Use `inherit` to follow the owner's [plan default](./plans.md#ai-gateway-logging), then the gateway's own setting. A project setting overrides its plan default.
 
-The command prints when new requests are expected to follow the change, normally within 2 minutes. Check it with `void platform project show <project-id>`, which reports a line such as `AI Gateway logging: metadata (from plan "pro") — applied`. The project page in the admin dashboard shows the same line. See [AI Gateway logging](../../../reference/cli/platform-users.md#ai-gateway-logging) for each state, what the setting covers, and billing and Logpush details.
+The command reports when new requests are expected to follow the change, normally within 2 minutes after publishing. Check progress on the project's dashboard page or with `void platform project show <project-id>`. See the [command reference](../../../reference/cli/platform-users.md#ai-gateway-logging) for logging scope, status messages, and recovery steps.
 
 ### Transferring Project Ownership
 
@@ -51,7 +57,11 @@ void platform project owner <project-id> <new-owner-user-id> --yes
 
 The preview shows both owners, their plans and suspension state, blockers, and the changes to routing and usage counters. Wait for active rollbacks and builds to finish. For an ordinary active deployment, wait or use `void platform deployment cancel <id>`; rollback deployments cannot be canceled. A managed Sandbox controller also blocks transfer until its cleanup completes, even if no Sandbox container is running; the preview identifies the deployment that owns it.
 
-After the transfer, the former owner becomes a project administrator. Existing project-scoped CI deploy credentials are revoked; create replacements as the new owner. The new owner's plan and limits apply immediately. Its AI Gateway logging default applies to new AI requests, normally within 2 minutes, unless the project has its own setting. Usage before the transfer remains charged to the former owner; later usage is charged to the new owner. If an apply reports partial convergence, inspect the project and operator event log before repeating it.
+After the transfer, the former owner becomes a project administrator. Existing project-scoped CI deploy credentials are revoked; create replacements as the new owner. The new owner's plan and limits apply immediately. Its AI logging default normally applies within 2 minutes, unless the project has its own setting.
+
+Earlier usage stays with the former owner; later usage counts toward the new owner's limits. If the command reports an incomplete transfer, inspect the project and operator event log before retrying it.
+
+## Account Limits and Administrator Access
 
 By default, new users on a self-hosted installation start with the `custom` profile, which
 does not cap application requests, AI usage, deployment frequency, or retained

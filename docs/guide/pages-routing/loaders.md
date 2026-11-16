@@ -46,7 +46,9 @@ export const loader = defineHandler((c) => {
 });
 ```
 
-The status and headers apply to both the HTML document and client-side navigation responses. Client visits still display the page with its props and layouts. Middleware can also set the status before `await next()`. For pages with deferred props, set the status in the loader before streaming starts.
+The browser receives HTTP `503` and a `Retry-After` header, while the page renders with `{ message: 'Down for maintenance' }`. Client-side navigation uses the same status, props, and layouts.
+
+You can also set the status in middleware before `await next()`. Set it before deferred streaming starts. To show an error component instead of the requested page, [throw an `HTTPException`](./errors.md#http-exceptions).
 
 ## Using the Data in Page Components
 

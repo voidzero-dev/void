@@ -111,15 +111,9 @@ When multiple layers provide head data, they merge with this precedence:
 | `htmlAttrs` | Shallow merge, page wins conflicts.                                                                                  |
 | `bodyAttrs` | Shallow merge, page wins conflicts.                                                                                  |
 
-## Absolute crawler URLs
+## Social Preview URLs {#absolute-crawler-urls}
 
-Social crawlers and link previews only read an absolute URL. These meta tags are resolved against the request URL when their `content` is a relative path, so you can write them without knowing the origin:
-
-- `og:image`, `og:image:url`, `og:image:secure_url`
-- `og:video`, `og:video:url`, `og:video:secure_url`
-- `og:audio`, `og:audio:url`, `og:audio:secure_url`
-- `og:url`
-- `twitter:image`
+Use a relative path for a social preview image. Void turns it into an absolute URL using the incoming request:
 
 ```ts
 // void.config.ts
@@ -132,9 +126,20 @@ export default defineConfig({
 });
 ```
 
-A request to `https://example.com/posts/hello` renders `<meta property="og:image" content="https://example.com/og-image.jpg">`. Values that are already absolute, and every other tag, are left as written. Config, middleware and page values resolve the same way, and the client receives the same absolute value on navigation.
+A request to `https://example.com/posts/hello` produces:
 
-Prerendered pages keep the value relative, because the build does not know the site's origin.
+```html
+<meta property="og:image" content="https://example.com/og-image.jpg" />
+```
+
+This works in config, middleware, and page head data, including client-side navigation. Void resolves the following tags:
+
+- `og:image`, `og:image:url`, `og:image:secure_url`
+- `og:video`, `og:video:url`, `og:video:secure_url`
+- `og:audio`, `og:audio:url`, `og:audio:secure_url`
+- `og:url` and `twitter:image`
+
+Absolute URLs and other tags keep the values you provide. For prerendered pages, provide an absolute URL such as `https://example.com/og-image.jpg`: the build does not know your site's origin and leaves relative paths as written.
 
 ## HeadDescriptor
 
