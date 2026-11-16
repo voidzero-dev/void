@@ -152,6 +152,42 @@ function typecheck(
 }
 
 describe('getRoom() against generated route types', () => {
+  it('requires calls to satisfy both development and production action signatures', () => {
+    const roomRoute = (actions: string) => `import { defineRoom } from 'void/ws';
+${schema}
+export default defineRoom({ messages: { client: schema, server: schema }, actions: { ${actions} } });
+`;
+    const result = typecheck(
+      {
+        'relay/[accountId].dev.ws.ts': roomRoute(`
+          revoke(context, sessionId: string) { return 'dev' as const; },
+          setMode(context, mode: 'shared' | 'dev') { return mode; },
+        `),
+        'relay/[accountId].prod.ws.ts': roomRoute(`
+          async revoke(context, sessionId: string, code: number) { return 'prod' as const; },
+          setMode(context, mode: 'shared' | 'prod') { return mode; },
+        `),
+      },
+      {
+        'check.ts': `import { getRoom } from 'void/ws/server';
+const room = getRoom('/relay/[accountId]', { params: { accountId: 'acct_1' } });
+const result: Promise<'dev' | 'prod'> = room.actions.revoke('session_1', 4001);
+room.actions.setMode('shared');
+// @ts-expect-error Production requires the close code.
+room.actions.revoke('session_1');
+// @ts-expect-error Production does not accept this mode.
+room.actions.setMode('dev');
+// @ts-expect-error Development does not accept this mode.
+room.actions.setMode('prod');
+// @ts-expect-error The result can come from either environment.
+const devOnly: Promise<'dev'> = room.actions.revoke('session_1', 4001);
+`,
+      },
+    );
+    expect(result.stdout + result.stderr).toBe('');
+    expect(result.status).toBe(0);
+  });
+
   it('accepts the actions the generated declarations expose', () => {
     const result = typecheck(
       {

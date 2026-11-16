@@ -38,20 +38,15 @@ export type RoomPath = {
   [P in keyof WebSocketRouteMap]: WebSocketRouteMap[P] extends { actions: unknown } ? P : never;
 }[keyof WebSocketRouteMap];
 
-type ActionArgs<T> = T extends (context: RoomActionContext, ...args: infer A) => unknown
-  ? A
-  : never;
-
-type ActionResult<T> = T extends (context: RoomActionContext, ...args: Array<never>) => infer R
-  ? Awaited<R>
+// Preserve unions of callable signatures so calls must work in every route environment.
+type ActionHandle<T> = T extends (context: RoomActionContext, ...args: infer A) => infer R
+  ? (...args: A) => Promise<Awaited<R>>
   : never;
 
 /** Handle for one room instance. Each action is called like a local async function. */
 export type RoomHandle<P extends RoomPath> = {
   readonly actions: {
-    [K in keyof RoomActionsOf<P>]: (
-      ...args: ActionArgs<RoomActionsOf<P>[K]>
-    ) => Promise<ActionResult<RoomActionsOf<P>[K]>>;
+    [K in keyof RoomActionsOf<P>]: ActionHandle<RoomActionsOf<P>[K]>;
   };
 };
 
