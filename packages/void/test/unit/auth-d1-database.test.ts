@@ -13,8 +13,8 @@ import {
   generateVoidAuthDrizzleSchema,
 } from '../../src/auth/drizzle.ts';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
 const roots: Array<string> = [];
@@ -39,7 +39,7 @@ async function loadAuthDatabase(d1BindingName: string) {
       ),
     ),
   );
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const dbPath = join(root, 'db.mjs');
   const plugin = drizzlePlugin(root, false, 'sqlite', { d1BindingName, forceVirtualDb: true });
   const load = getHookHandler(plugin.load) as (id: string) => string;

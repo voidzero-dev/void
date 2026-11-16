@@ -4,15 +4,15 @@ import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing/index.ts';
 import {
   createPageErrorHandler,
   createPageGetHandler,
   createPageMutationHandler,
   type PageRouteOptions,
-} from '../../src/runtime/routing-pages.ts';
-import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/pages.ts';
 
 const pagesHeaders = { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION };
 const origins = ['loader', 'handler middleware', 'application middleware'] as const;

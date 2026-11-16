@@ -4,7 +4,7 @@ import {
   getRuntimeEnv,
   withRuntimeEnv,
   requireRuntimeBinding,
-} from '../../src/runtime/env.ts';
+} from '../../src/runtime/env/runtime.ts';
 
 describe('internal binding filtering (real implementation)', () => {
   const testEnv = {

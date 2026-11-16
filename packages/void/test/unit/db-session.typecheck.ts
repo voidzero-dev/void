@@ -1,5 +1,5 @@
 import { expectTypeOf } from 'vite-plus/test';
-import { createDb, type DrizzleD1Database } from '../../src/runtime/db.ts';
+import { createDb, type DrizzleD1Database } from '../../src/runtime/db/index.ts';
 
 declare const binding: D1Database;
 

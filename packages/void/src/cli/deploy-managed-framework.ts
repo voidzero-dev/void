@@ -228,7 +228,7 @@ export async function runFrameworkDeploy(
   });
 
   // Migration SQL bytes ride along inside the worker bundle (compiled in
-  // by the framework via `migration-handler.ts`); the deploy body only
+  // by the framework via `runtime/db/migrations`); the deploy body only
   // needs `manifest.migrations.pending` so the platform knows to invoke
   // the worker's `/__void/migrate` endpoint after dispatch.
   const result = await streamDirectR2Deploy({

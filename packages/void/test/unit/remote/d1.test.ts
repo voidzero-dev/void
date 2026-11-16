@@ -1,6 +1,6 @@
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { describe, it, expect, vi, afterEach } from 'vite-plus/test';
-import { createDb } from '../../../src/runtime/db.ts';
+import { createDb } from '../../../src/runtime/db/index.ts';
 import { ProxyClient } from '../../../src/runtime/remote/client.ts';
 import { ProxyD1Database } from '../../../src/runtime/remote/d1.ts';
 

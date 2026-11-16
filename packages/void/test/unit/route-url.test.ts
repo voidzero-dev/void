@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { interpolateRouteParams } from '../../src/runtime/route-url.ts';
+import { interpolateRouteParams } from '../../src/runtime/routing/route-url.ts';
 
 describe('route URL interpolation', () => {
   it.each([

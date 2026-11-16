@@ -56,7 +56,7 @@ import {
 } from './router/compile.ts';
 import type { RouteEnvironment } from './router/parse-filename.ts';
 import type { ScanResult } from './router/scan.ts';
-import type { VoidAuthRuntimeOptions } from './runtime/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from './runtime/auth/better-auth-shared.ts';
 import { loadLocalEnv } from './shared/env.ts';
 import { invalidateSourceAnalysis } from './shared/source-analysis-cache.ts';
 import {
@@ -232,17 +232,17 @@ export function routingPlugin(
   const resolveFile = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
 
   const handlerFile = resolveFile('#self/handler');
-  const runtimeDir = dirname(resolveFile('#self/client'));
+  const authRuntimeDir = dirname(resolveFile('void/auth'));
   const fetchPath = resolveFile('#self/runtime/fetch');
   const fetchStreamPath = resolveFile('#self/runtime/fetch-stream');
   const sandboxRuntimePath = resolveFile('#self/sandbox');
   const drizzleAdapterPath = resolveFile('better-auth/adapters/drizzle');
-  let authClientPath = join(runtimeDir, 'auth-client.mjs');
+  let authClientPath = join(authRuntimeDir, 'client.mjs');
   const explicitAuthClientPaths: Record<AuthClientFramework, string> = {
-    react: join(runtimeDir, 'auth-client-react.mjs'),
-    vue: join(runtimeDir, 'auth-client-vue.mjs'),
-    svelte: join(runtimeDir, 'auth-client-svelte.mjs'),
-    solid: join(runtimeDir, 'auth-client-solid.mjs'),
+    react: join(authRuntimeDir, 'client-react.mjs'),
+    vue: join(authRuntimeDir, 'client-vue.mjs'),
+    svelte: join(authRuntimeDir, 'client-svelte.mjs'),
+    solid: join(authRuntimeDir, 'client-solid.mjs'),
   };
   const remote = options.remoteMode
     ? {
@@ -311,10 +311,10 @@ export function routingPlugin(
     compileOptions.auth = {
       authRuntimePath:
         dialect === 'postgresql'
-          ? join(runtimeDir, 'better-auth-pg.mjs')
+          ? join(authRuntimeDir, 'better-auth-postgres.mjs')
           : dialect === 'mysql'
-            ? join(runtimeDir, 'better-auth-mysql.mjs')
-            : join(runtimeDir, 'better-auth.mjs'),
+            ? join(authRuntimeDir, 'better-auth-mysql.mjs')
+            : join(authRuntimeDir, 'better-auth-d1.mjs'),
       authConfigPath,
       authDatabasePath: join(outDir, 'better-auth-db.ts'),
       authSchemaPath: join(outDir, 'better-auth-schema.ts'),
@@ -431,7 +431,7 @@ export function routingPlugin(
     if (config.plugins.some((plugin) => plugin.name === 'void-solid:pages')) {
       return explicitAuthClientPaths.solid;
     }
-    return join(runtimeDir, 'auth-client.mjs');
+    return join(authRuntimeDir, 'client.mjs');
   }
 
   function getClientAuthPath(id: string): string {

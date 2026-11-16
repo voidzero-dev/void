@@ -14,10 +14,10 @@ import {
   defineMiddleware,
   type CloudContext,
   type CloudEnv,
-} from '../../src/runtime/handler.ts';
-import { revalidate } from '../../src/runtime/isr.ts';
-import { connectLiveStream } from '../../src/runtime/live-client.ts';
-import { connectEventStream } from '../../src/runtime/sse-client.ts';
+} from '../../src/runtime/handler/index.ts';
+import { revalidate } from '../../src/runtime/isr/index.ts';
+import { connectLiveStream } from '../../src/runtime/live/client.ts';
+import { connectEventStream } from '../../src/runtime/sse/client.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {

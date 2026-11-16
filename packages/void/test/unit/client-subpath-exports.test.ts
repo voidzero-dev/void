@@ -10,9 +10,9 @@ describe('client package exports', () => {
 
     for (const framework of ['react', 'vue', 'svelte', 'solid']) {
       expect(packageJson.exports[`./client/${framework}`]).toEqual({
-        import: `./dist/runtime/client-${framework}.mjs`,
-        require: `./dist/runtime/client-${framework}.mjs`,
-        types: `./dist/runtime/client-${framework}.d.mts`,
+        import: `./dist/runtime/client/${framework}.mjs`,
+        require: `./dist/runtime/client/${framework}.mjs`,
+        types: `./dist/runtime/client/${framework}.d.mts`,
       });
     }
   });

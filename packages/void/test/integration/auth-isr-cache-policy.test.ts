@@ -3,18 +3,18 @@ import { memoryAdapter } from 'better-auth/adapters/memory';
 import { Hono, type NotFoundHandler } from 'hono';
 import { etag } from 'hono/etag';
 import { describe, expect, it } from 'vite-plus/test';
-import { createVoidAuthRuntime } from '../../src/runtime/better-auth-shared.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
-import {
-  createAssetNotFound,
-  createPagesFallback,
-  createSsrFallback,
-} from '../../src/runtime/routing-pages.ts';
+import { createVoidAuthRuntime } from '../../src/runtime/auth/better-auth-shared.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
 import {
   createRoutingRuntime,
   type RoutingContext,
   type RoutingHeaderRule,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/index.ts';
+import {
+  createAssetNotFound,
+  createPagesFallback,
+  createSsrFallback,
+} from '../../src/runtime/routing/pages.ts';
 
 const env = { BETTER_AUTH_SECRET: 'local-test-secret-with-at-least-32-characters' };
 const options = { dialect: 'sqlite' as const, providers: null };

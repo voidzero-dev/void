@@ -9,7 +9,7 @@ export function createClientStubsPlugin(): Plugin {
     'void/queues': 'export const queues = {};',
     'void/storage': 'export const storage = {}; export const createStorage = () => ({});',
     'void/isr': 'export const revalidate = async () => {};',
-    // Client stub must mirror the real runtime/sandbox.ts surface so any
+    // Client stub must mirror the real runtime/sandbox/index.ts surface so any
     // client-side `instanceof` check for either runtime error doesn't crash with a
     // TypeError, and async `await getSandbox(...)` callers don't silently
     // mis-handle a sync return. Throwing here makes accidental client imports
@@ -33,7 +33,7 @@ export function createClientStubsPlugin(): Plugin {
       }
       export const sandbox = { get: getSandbox };
     `,
-    // `void/email` reaches `runtime/env-raw.ts` (`node:async_hooks`), so an
+    // `void/email` reaches `runtime/env/raw.ts` (`node:async_hooks`), so an
     // unstubbed client import builds with only a warning and white-screens on
     // load. `void/email/testing` needs its own entry (the filter is anchored)
     // because it pulls build-time router code and Node built-ins. Both throw,

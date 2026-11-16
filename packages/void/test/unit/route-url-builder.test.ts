@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { routeUrl } from '../../src/routes-stub.ts';
-import { toUrlString } from '../../src/runtime/route-url.ts';
+import { toUrlString } from '../../src/runtime/routing/route-url.ts';
 
 declare module 'void/routes' {
   interface RoutePathMap {

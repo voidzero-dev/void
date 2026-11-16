@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { afterEach, beforeEach, expect, it, vi } from 'vite-plus/test';
 import { submitIslandAction } from '../../src/pages/island-action.ts';
 import { fetchPages } from '../../src/pages/redirect.ts';
-import { createRoutingRuntime } from '../../src/runtime/routing.ts';
+import { createRoutingRuntime } from '../../src/runtime/routing/index.ts';
 
 beforeEach(() => {
   vi.stubGlobal('window', { location: { origin: 'https://app.test', pathname: '/', search: '' } });

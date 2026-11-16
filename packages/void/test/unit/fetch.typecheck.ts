@@ -1,5 +1,5 @@
 import { describe, it } from 'vite-plus/test';
-import { fetch as typedFetch } from '../../src/runtime/fetch.ts';
+import { fetch as typedFetch } from '../../src/runtime/client/fetch.ts';
 
 declare module 'void/routes' {
   interface RouteMap {

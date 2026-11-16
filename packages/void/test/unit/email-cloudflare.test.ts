@@ -21,7 +21,7 @@ import {
   type EmailWranglerRunResult,
 } from '../../src/cli/email-cloudflare.ts';
 import type { EmailHandlersScan } from '../../src/router/email.ts';
-import { compileEmailPattern } from '../../src/router/email.ts';
+import { compileEmailPattern } from '../../src/shared/email-pattern.ts';
 
 // ── Structured command fakes ───────────────────────────────────────────────────
 

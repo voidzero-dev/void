@@ -13,7 +13,7 @@ import {
 import { isClientEnvKey } from './shared/env.ts';
 
 type EnvPublicModule = Pick<
-  typeof import('./runtime/env-public.ts'),
+  typeof import('./runtime/env/public.ts'),
   '_getRegisteredSchema' | '_hasRegisteredSchema' | '_getSchemaDefaults' | 'validateAllEnv'
 >;
 
@@ -23,7 +23,7 @@ export async function loadEnvPublic(): Promise<EnvPublicModule> {
   if (cachedModule) {
     return cachedModule;
   }
-  const mod = await import('./runtime/env-public.ts');
+  const mod = await import('./runtime/env/public.ts');
   cachedModule = mod;
   return mod;
 }
@@ -226,7 +226,7 @@ function recordHit(node: AstMemberExpression, hits: Array<Hit>): void {
  * Vite plugin that fails the client build when a server-only env key
  * (anything in `defineEnv` not prefixed with `VITE_`) is referenced from a
  * module that ends up in the client bundle. The runtime proxy in
- * `env-public-client.ts` already throws for the same class of bug at
+ * `runtime/env/public-client.ts` already throws for the same class of bug at
  * request time — this plugin moves the diagnosis forward to compile time
  * so it shows up in `pnpm build` and the dev overlay, not in production
  * after an admin clicks the offending route.

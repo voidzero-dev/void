@@ -9,7 +9,7 @@ import {
   type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { renderPrerenderPaths } from '../../src/prerender-render.ts';
-import { buildPrerenderPath } from '../../src/runtime/prerender-path.ts';
+import { buildPrerenderPath } from '../../src/runtime/routing/prerender-path.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;

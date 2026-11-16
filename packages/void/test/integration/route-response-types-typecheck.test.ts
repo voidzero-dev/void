@@ -45,7 +45,7 @@ it('preserves tuples and JSON omissions in generated typed fetch responses', () 
         allowImportingTsExtensions: true,
         paths: {
           void: [join(voidDist, 'index.d.mts')],
-          'void/client': [join(voidDist, 'runtime/client.d.mts')],
+          'void/client': [join(voidDist, 'runtime/client/index.d.mts')],
           'void/routes': [join(root, '.void/routes.d.ts')],
           zod: [
             join(

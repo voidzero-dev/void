@@ -9,8 +9,8 @@ import { resolveLayoutIds } from '../pages/layout-resolution.ts';
 import { patternToRegex } from '../pages/manifest.ts';
 import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
-import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
-import { ASSET_EXTENSIONS } from '../runtime/routing-assets.ts';
+import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env/raw.ts';
+import { ASSET_EXTENSIONS } from '../runtime/routing/assets.ts';
 import { DEFAULT_SANDBOX_CLASS_NAME } from '../sandbox/config.ts';
 import type { ScanResult } from './scan.ts';
 

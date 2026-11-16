@@ -3,8 +3,8 @@ import {
   mySqlMigrationLockError,
   mySqlMigrationLockName,
   readMySqlMigrationLease,
-} from '../runtime/migration-lock-mysql.ts';
-import { splitMySqlMigrationSql } from '../runtime/mysql-migration-sql.ts';
+} from '../runtime/db/migrations/mysql-lock.ts';
+import { splitMySqlMigrationSql } from '../runtime/db/migrations/mysql-sql.ts';
 import { collectMigrations } from './collect.ts';
 
 export type MySqlClient = {

@@ -1,5 +1,5 @@
 import { expectTypeOf } from 'vite-plus/test';
-import type { ai } from '../../src/runtime/ai.ts';
+import type { ai } from '../../src/runtime/ai/index.ts';
 
 declare const client: typeof ai;
 const model = '@cf/meta/llama-3.3-70b-instruct-fp8-fast';

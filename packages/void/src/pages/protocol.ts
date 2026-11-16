@@ -1,9 +1,9 @@
 import { PAGES_PROTOCOL_VERSION } from '@void/edge';
 import type { Context } from 'hono';
 import type { HTTPException } from 'hono/http-exception';
-import { executeComposedHandler, getHandlerComposition } from '../runtime/handler-composition.ts';
-import type { CloudBindings, CloudContext } from '../runtime/handler.ts';
-import { isConvertedResponse } from '../runtime/response.ts';
+import { executeComposedHandler, getHandlerComposition } from '../runtime/handler/composition.ts';
+import type { CloudBindings, CloudContext } from '../runtime/handler/index.ts';
+import { isConvertedResponse } from '../runtime/handler/response.ts';
 import { hasActionKey, searchWithoutActionKey } from './action-key.ts';
 import { DEFERRED, separateDeferred, type ResolvedDeferredGroup } from './defer.ts';
 import {

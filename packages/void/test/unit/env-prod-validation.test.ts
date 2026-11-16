@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { formatEnvReport, validateProdEnv } from '../../src/cli/env-validation.ts';
-import { number, string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { number, string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 // The fixture env.ts only has to exist: tests register the shared schema with defineEnv.
 

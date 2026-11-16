@@ -191,17 +191,31 @@ export async function generateWrapper(
       features.migrationDialect === 'sqlite' ? buildMigrationPlanBundle(migrations) : undefined;
     const handlerName =
       features.migrationDialect === 'postgresql'
-        ? 'migration-handler-pg'
+        ? 'postgres-handler'
         : features.migrationDialect === 'mysql'
-          ? 'migration-handler-mysql'
-          : 'migration-handler';
+          ? 'mysql-handler'
+          : 'd1-handler';
     const handlerFilename_ = `${handlerName}.mjs`;
-    let handlerPath = join(import.meta.dirname, '..', 'runtime', `${handlerName}.ts`);
+    let handlerPath = join(
+      import.meta.dirname,
+      '..',
+      'runtime',
+      'db',
+      'migrations',
+      `${handlerName}.ts`,
+    );
     if (!existsSync(handlerPath)) {
-      handlerPath = join(import.meta.dirname, 'runtime', handlerFilename_);
+      handlerPath = join(import.meta.dirname, 'runtime', 'db', 'migrations', handlerFilename_);
     }
     if (!existsSync(handlerPath)) {
-      handlerPath = join(import.meta.dirname, '..', 'runtime', handlerFilename_);
+      handlerPath = join(
+        import.meta.dirname,
+        '..',
+        'runtime',
+        'db',
+        'migrations',
+        handlerFilename_,
+      );
     }
     if (!existsSync(handlerPath)) {
       throw new Error(

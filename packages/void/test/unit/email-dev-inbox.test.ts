@@ -8,7 +8,6 @@ import { Readable } from 'node:stream';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { shouldInjectEmailDevInboxVar } from '../../src/plugin-binding-utils.ts';
 import { emailDevInboxPlugin } from '../../src/plugin-email-dev-inbox.ts';
-import { sendEmail } from '../../src/runtime/email.ts';
 import {
   captureMessage,
   clearDevBuffer,
@@ -27,6 +26,7 @@ import {
   serializeCapturedMessage,
   type CapturedMessage,
 } from '../../src/runtime/email/dev-inbox.ts';
+import { sendEmail } from '../../src/runtime/email/index.ts';
 import {
   buildMime,
   MAX_ADDRESS_LENGTH,
@@ -34,7 +34,7 @@ import {
   MAX_RECIPIENTS,
   normalizeEmail,
 } from '../../src/runtime/email/mime.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 /** The per-project dev-trigger token `voidPlugin()` hands the plugin. */
 const TOKEN = 'dev-token-test';

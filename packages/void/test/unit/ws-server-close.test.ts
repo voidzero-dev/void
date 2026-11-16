@@ -1,9 +1,9 @@
 import { expect, it, vi } from 'vite-plus/test';
+import { defineRoom, defineWebSocket } from '../../src/runtime/ws/index.ts';
 import {
   createWebSocketDurableObject,
   createWebSocketTombstoneDurableObject,
-} from '../../src/runtime/ws-server.ts';
-import { defineRoom, defineWebSocket } from '../../src/runtime/ws.ts';
+} from '../../src/runtime/ws/server.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const schema: StandardSchemaV1 = {

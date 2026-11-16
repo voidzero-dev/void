@@ -12,9 +12,8 @@ import {
   type EmailWireAction,
 } from '@void/platform/email-protocol';
 import type { Email as PostalMimeEmail } from 'postal-mime';
-import { base64ToBytes } from '../base64.ts';
-import { withTimeout } from '../email-protocol.ts';
-import { getRawRuntimeEnv } from '../env-raw.ts';
+import { base64ToBytes } from '../../shared/base64.ts';
+import { getRawRuntimeEnv } from '../env/raw.ts';
 import {
   buildMime,
   MAX_ADDRESS_LENGTH,
@@ -22,6 +21,7 @@ import {
   normalizeEmail,
   validateAddressParts,
 } from './mime.ts';
+import { withTimeout } from './protocol.ts';
 import { fitsHeaderLine, replyReferences, threadingId } from './threading.ts';
 import type { Address, Attachment } from './types.ts';
 

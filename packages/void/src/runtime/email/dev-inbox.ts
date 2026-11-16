@@ -6,7 +6,7 @@
  * isolate, such as `createEmailTestHarness`.
  */
 
-import { base64ToBytes, bytesToBase64 } from '../base64.ts';
+import { base64ToBytes, bytesToBase64 } from '../../shared/base64.ts';
 import { MAX_MESSAGE_BYTES, newId } from './mime.ts';
 import type { NormalizedEmail, NormalizedAttachment } from './types.ts';
 

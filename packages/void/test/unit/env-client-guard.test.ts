@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { envClientGuardPlugin } from '../../src/plugin-env-client-guard.ts';
-import { string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 const ROOT = '/project';
 type MessagePayload =
@@ -86,7 +86,7 @@ function resetSchema() {
 // flag is one-way (can't be unset), so we mock the module instead for
 // the no-schema test.
 async function withNoSchema(fn: () => Promise<void>): Promise<void> {
-  const mod = await import('../../src/runtime/env-public.ts');
+  const mod = await import('../../src/runtime/env/public.ts');
   vi.spyOn(mod, '_hasRegisteredSchema').mockReturnValue(false);
   vi.spyOn(mod, '_getRegisteredSchema').mockReturnValue(null);
   try {

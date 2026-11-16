@@ -1,7 +1,12 @@
-import { integer, sqliteTable, text as sqliteText } from '../../src/runtime/schema-d1.ts';
-import { int, mysqlTable, text as mysqlText } from '../../src/runtime/schema-mysql.ts';
-import { pgTable, serial, text as pgText, timestamp } from '../../src/runtime/schema-pg.ts';
-import { defineSeed } from '../../src/runtime/seed.ts';
+import { integer, sqliteTable, text as sqliteText } from '../../src/runtime/db/schema/d1.ts';
+import { int, mysqlTable, text as mysqlText } from '../../src/runtime/db/schema/mysql.ts';
+import {
+  pgTable,
+  serial,
+  text as pgText,
+  timestamp,
+} from '../../src/runtime/db/schema/postgres.ts';
+import { defineSeed } from '../../src/runtime/db/seed.ts';
 
 const sqliteSchema = {
   messages: sqliteTable('messages', {

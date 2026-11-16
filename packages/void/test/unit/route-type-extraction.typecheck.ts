@@ -2,7 +2,7 @@ import { type as arktype } from 'arktype';
 import * as v from 'valibot';
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { z } from 'zod';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ExtractInput<V> = {

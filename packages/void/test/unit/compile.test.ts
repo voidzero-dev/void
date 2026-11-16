@@ -13,7 +13,7 @@ import {
   type CompileOptions,
 } from '../../src/router/compile.ts';
 import type { ScanResult } from '../../src/router/scan.ts';
-import { VoidAssetRewriteError } from '../../src/runtime/handler.ts';
+import { VoidAssetRewriteError } from '../../src/runtime/handler/index.ts';
 import {
   createRoutingRuntime,
   createHttpRouteHandler,
@@ -28,16 +28,16 @@ import {
   createSsrFallback,
   createAssetNotFound,
   type RoutingRuntime,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/index.ts';
 
 const testOptions = {
   honoPath: '/resolved/hono/index.mjs',
   honoRoutePath: '/resolved/hono/route.mjs',
 
-  runtimeEnvPath: '/resolved/void/runtime/env.mjs',
+  runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
   projectRoot: '/project',
   homeDir: '/Users/test',
-  webSocketRuntimePath: '/resolved/void/runtime/ws-server.mjs',
+  webSocketRuntimePath: '/resolved/void/runtime/ws/server.mjs',
   reactRefresh: true,
   auth: null,
 };
@@ -229,7 +229,7 @@ describe('compileRouteTable', () => {
   it('generates the shared live durable object export when live is enabled', () => {
     const code = compile({
       hasLive: true,
-      liveRuntimePath: '/resolved/void/runtime/live-server.mjs',
+      liveRuntimePath: '/resolved/void/runtime/live/server.mjs',
     });
 
     expect(code).toContain('createLiveDurableObject');

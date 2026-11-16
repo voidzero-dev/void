@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { connectEventStream } from '../../src/runtime/sse-client.ts';
+import { connectEventStream } from '../../src/runtime/sse/client.ts';
 import {
   eventStream,
   formatSse,
@@ -7,7 +7,7 @@ import {
   getLastEventId,
   SseStreamClosedError,
   type SseStream,
-} from '../../src/runtime/sse.ts';
+} from '../../src/runtime/sse/index.ts';
 import { MockEventSource } from '../helpers/mock-event-source.ts';
 
 const decoder = new TextDecoder();

@@ -10,7 +10,7 @@ import {
   renderPrerenderPaths,
   renderBoundary404,
 } from '../../src/prerender-render.ts';
-import { createAssetFallback } from '../../src/runtime/routing-worker.ts';
+import { createAssetFallback } from '../../src/runtime/routing/worker.ts';
 
 const roots: Array<string> = [];
 const pageHtml = (pageData: unknown) =>

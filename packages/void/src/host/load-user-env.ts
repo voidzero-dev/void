@@ -9,7 +9,7 @@
  *
  * Side-effect contract: loading the file evaluates the user's `defineEnv`
  * call, which registers the schema in the singleton state in
- * `runtime/env-public.ts`. Callers read the result from there.
+ * `runtime/env/public.ts`. Callers read the result from there.
  *
  * Node-only (lives under `host/`). Must not be imported from anything
  * that ships in worker bundles.

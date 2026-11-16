@@ -7,9 +7,9 @@ import {
   defineMiddleware,
   type CloudContext,
   type TypedHandler,
-} from '../../src/runtime/handler.ts';
-import { convertReturnValue } from '../../src/runtime/response.ts';
-import { createHttpRouteHandler } from '../../src/runtime/routing.ts';
+} from '../../src/runtime/handler/index.ts';
+import { convertReturnValue } from '../../src/runtime/handler/response.ts';
+import { createHttpRouteHandler } from '../../src/runtime/routing/index.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -20,7 +20,7 @@ type ValidationIssueBody = {
   }>;
 };
 
-/** Wraps the handler the way createHttpRouteHandler in runtime/routing.ts does. */
+/** Wraps the handler the way createHttpRouteHandler in runtime/routing/index.ts does. */
 function createApp(handler: (c: CloudContext) => unknown) {
   const app = new Hono();
   app.get('/test', async (c) => {

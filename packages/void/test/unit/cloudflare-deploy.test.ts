@@ -958,8 +958,8 @@ function emittedVars(vars: Record<string, unknown> = {}): EmittedWorkerVarsResul
  */
 const srcFileUrl = (...segments: Array<string>): string =>
   pathToFileURL(join(import.meta.dirname, '..', '..', 'src', ...segments)).href;
-const srcEnvPublic = srcFileUrl('runtime', 'env-public.ts');
-const srcEnvHelpers = srcFileUrl('runtime', 'env-helpers.ts');
+const srcEnvPublic = srcFileUrl('runtime', 'env/public.ts');
+const srcEnvHelpers = srcFileUrl('runtime', 'env/helpers.ts');
 
 /**
  * Cloudflare credentials the parent may hold: Wrangler's names, their `CF_*` aliases and Void's

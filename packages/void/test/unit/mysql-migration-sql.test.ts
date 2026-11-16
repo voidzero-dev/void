@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { splitMySqlMigrationSql } from '../../src/runtime/mysql-migration-sql.ts';
+import { splitMySqlMigrationSql } from '../../src/runtime/db/migrations/mysql-sql.ts';
 
 describe('splitMySqlMigrationSql', () => {
   it('splits a file without breakpoints at its semicolons', () => {

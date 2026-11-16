@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { ConfigEnv, UserConfig } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { createWorkerFetch } from '../../src/runtime/routing-worker.ts';
+import { createWorkerFetch } from '../../src/runtime/routing/worker.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV } from '../../src/shared/env.ts';
 import {
   CLOUDFLARE_PRESERVE_BINDINGS_BUILD_ENV,

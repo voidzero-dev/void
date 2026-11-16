@@ -193,10 +193,10 @@ beforeAll(async () => {
     `
     import { Hono } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono')))};
     import { compress } from ${JSON.stringify(fileURLToPath(import.meta.resolve('hono/compress')))};
-    import { createPagesFallback, createSsrFallback, createAssetNotFound } from ${JSON.stringify(runtimeSource('routing-pages.ts'))};
-    import { applyAssetCachePolicy, createAssetFallback } from ${JSON.stringify(runtimeSource('routing-worker.ts'))};
-    import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing.ts'))};
-    import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing-errors.ts'))};
+    import { createPagesFallback, createSsrFallback, createAssetNotFound } from ${JSON.stringify(runtimeSource('routing/pages.ts'))};
+    import { applyAssetCachePolicy, createAssetFallback } from ${JSON.stringify(runtimeSource('routing/worker.ts'))};
+    import { createRoutingRuntime } from ${JSON.stringify(runtimeSource('routing/index.ts'))};
+    import { createErrorRenderer } from ${JSON.stringify(runtimeSource('routing/errors.ts'))};
     const apps = {};
     for (const mode of ['pages', 'ssr', 'static', 'headers', 'compressed']) {
       const pages = mode === 'pages' || mode === 'compressed';

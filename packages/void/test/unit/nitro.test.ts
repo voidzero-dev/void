@@ -7,8 +7,8 @@ import { toSlash } from 'pathslash';
 import type { Plugin } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import voidNitroModule from '../../src/nitro.ts';
-import { db } from '../../src/runtime/db.ts';
-import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { db } from '../../src/runtime/db/index.ts';
+import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 const roots: Array<string> = [];
 const envModuleFile = fileURLToPath(import.meta.resolve('#self/_env'));

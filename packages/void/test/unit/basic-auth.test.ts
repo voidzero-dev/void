@@ -1,8 +1,12 @@
 import { Hono } from 'hono';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { env } from '../../src/runtime/env-public.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
-import { basicAuth, type BasicAuthOptions, type CloudEnv } from '../../src/runtime/handler.ts';
+import { env } from '../../src/runtime/env/public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import {
+  basicAuth,
+  type BasicAuthOptions,
+  type CloudEnv,
+} from '../../src/runtime/handler/index.ts';
 
 function authorization(value: string) {
   const bytes = new TextEncoder().encode(value);

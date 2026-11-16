@@ -53,7 +53,7 @@ const hookTimeout = 120_000 * ciTimeoutScale;
 
 const platformAlias = {
   'void/_sandbox-container': fileURLToPath(
-    new URL('packages/void/src/runtime/sandbox-container.ts', import.meta.url),
+    new URL('packages/void/src/runtime/sandbox/container.ts', import.meta.url),
   ),
   'void:sandbox-controller-source': fileURLToPath(
     new URL('platform/packages/api/test/__mocks__/sandbox-controller-source.ts', import.meta.url),

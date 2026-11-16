@@ -6,7 +6,7 @@ import type { MigrationFile } from '../../src/migrations/validate.ts';
 import {
   createMigrationHandler,
   type MigrationResponse,
-} from '../../src/runtime/migration-handler.ts';
+} from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const noBindings: InferredBindings = {
   needsD1: false,

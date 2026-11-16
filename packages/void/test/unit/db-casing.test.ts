@@ -12,8 +12,8 @@ import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { prepareProject } from '../../src/codegen/prepare.ts';
 import type { DatabaseCasing } from '../../src/config.ts';
 import { drizzlePlugin, voidDbBundlerPlugin } from '../../src/plugin-drizzle.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
@@ -32,7 +32,7 @@ type DbModule = {
 const roots: Array<string> = [];
 // The generated module imports the built runtime env; tests share the source one.
 const builtEnv = JSON.stringify(fileURLToPath(import.meta.resolve('#self/_env')));
-const sourceEnv = JSON.stringify(new URL('../../src/runtime/env.ts', import.meta.url).href);
+const sourceEnv = JSON.stringify(new URL('../../src/runtime/env/runtime.ts', import.meta.url).href);
 
 afterEach(() => {
   for (const root of roots.splice(0)) {

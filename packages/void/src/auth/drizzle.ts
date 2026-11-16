@@ -5,8 +5,8 @@ import {
   type BetterAuthDBSchema,
   type DBFieldAttribute,
 } from 'better-auth/db';
-import type { VoidAuthConfig } from '../runtime/auth.ts';
-import type { VoidAuthRuntimeOptions } from '../runtime/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from '../runtime/auth/better-auth-shared.ts';
+import type { VoidAuthConfig } from '../runtime/auth/index.ts';
 import {
   VOID_EMAIL_AUTH_PROVIDER,
   isVoidSocialAuthProvider,

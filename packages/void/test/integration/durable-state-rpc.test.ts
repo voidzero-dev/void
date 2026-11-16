@@ -21,7 +21,7 @@ describe('Durable State through the generated Worker and actual RPC', () => {
     writeFileSync(
       definition,
       `
-import { defineDurableState } from ${JSON.stringify(join(root, 'packages/void/src/runtime/durable.ts'))};
+import { defineDurableState } from ${JSON.stringify(join(root, 'packages/void/src/runtime/durable/index.ts'))};
 export default defineDurableState({
   initialState: { count: 0 },
   fetch(context) { context.state.count += 10; return Response.json(context.state.count); },
@@ -64,7 +64,7 @@ export default { async fetch(request) {
     writeFileSync(
       entry,
       compileWorkerEntry({
-        runtimeEnvPath: join(root, 'packages/void/src/runtime/env.ts'),
+        runtimeEnvPath: join(root, 'packages/void/src/runtime/env/runtime.ts'),
         durableObjects: [
           { bindingName: 'COUNTERS', className: 'CounterState', filePath: definition },
         ],

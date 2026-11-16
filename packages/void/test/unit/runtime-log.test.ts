@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { logger } from '../../src/runtime/log.ts';
+import { logger } from '../../src/runtime/log/index.ts';
 
 describe('runtime log', () => {
   beforeEach(() => {

@@ -18,14 +18,14 @@ import { parseCacheFor } from '../../src/pages/prefetch.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
 import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
 import type { PageDefinition } from '../../src/pages/types.ts';
-import type { CloudContext } from '../../src/runtime/handler.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
 import {
   createPageGetHandler,
   createPageMutationHandler,
   createNamedActionMarker,
   createRoutingRuntime,
   type RoutingContext,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/index.ts';
 
 type DeferredTestWindow = Window & {
   __resolveDeferred(group: string, data: unknown): void;
