@@ -5,6 +5,7 @@
 // This is a fork of `packages/md/src/highlight.ts` with the class names of
 // VitePress. Mirror fixes to the notation handling there.
 
+import { randomUUID } from 'node:crypto';
 import { codeToTokens, isSupportedLanguage } from '@pierre/highlights';
 import type { Lang, ThemedToken } from '@pierre/highlights';
 import dark from '@pierre/highlights/themes/github-dark';
@@ -154,6 +155,41 @@ function spanOpener(token: ThemedToken): string {
   return opener;
 }
 
+// Match VitePress's non-selectable shell prompts while keeping the text for
+// its copy button, which strips the prompt from the cloned block.
+function disableShellPromptSelection(tokens: ReadonlyArray<ThemedToken>): ReadonlyArray<ThemedToken> {
+  const content = tokens.map((token) => token.content).join('');
+  const promptLength = /^ *[$>] /.exec(content)?.[0].length ?? 0;
+  if (!promptLength) {
+    return tokens;
+  }
+  const result: Array<ThemedToken> = [];
+  let remaining = promptLength;
+  for (const token of tokens) {
+    if (remaining === 0) {
+      result.push(token);
+      continue;
+    }
+    const count = Math.min(remaining, token.content.length);
+    if (count > 0) {
+      result.push({
+        ...token,
+        content: token.content.slice(0, count),
+        htmlStyle: {
+          ...token.htmlStyle,
+          'user-select': 'none',
+          '-webkit-user-select': 'none',
+        },
+      });
+      if (count < token.content.length) {
+        result.push({ ...token, content: token.content.slice(count) });
+      }
+      remaining -= count;
+    }
+  }
+  return result;
+}
+
 function renderLine(tokens: ReadonlyArray<ThemedToken>, classes: string): string {
   let html = `<span class="${classes}">`;
   // The theme collapses a line that has no element in it.
@@ -200,11 +236,36 @@ export function createCodeHighlighter(): CodeHighlighter {
     // The build stops here, because nothing else reports a block that would
     // render without colors. VitePress does not apply `languageAlias` to a
     // highlighter of our own.
+    // VitePress uses the -vue suffix to allow Vue interpolation in a fence.
+    const vueInterpolation = lang.endsWith('-vue');
+    if (vueInterpolation) {
+      lang = lang.slice(0, -4);
+    }
     if (!isSupportedLanguage(lang)) {
       throw new Error(`The docs highlighter has no language '${lang}'. Use one that it has.`);
     }
 
-    const tokensByLine = codeToTokens(code.trimEnd(), { lang: lang as Lang, ...OPTIONS }).tokens;
+    // Keep mustaches intact for Vue while preventing the lexer from splitting
+    // an interpolation across spans in the compiled template.
+    const mustaches = new Map<string, string>();
+    const input = vueInterpolation
+      ? code.replace(/\{\{.*?\}\}/g, (match) => {
+          let marker = mustaches.get(match);
+          if (!marker) {
+            marker = `vpvue${randomUUID().replaceAll('-', '')}`;
+            mustaches.set(match, marker);
+          }
+          return marker;
+        })
+      : code;
+    const restoreMustaches = (html: string): string => {
+      for (const [mustache, marker] of mustaches) {
+        html = html.replaceAll(marker, mustache);
+      }
+      return html;
+    };
+    const tokensByLine = codeToTokens(input.trimEnd(), { lang: lang as Lang, ...OPTIONS }).tokens;
+    const shell = ['shellscript', 'shell', 'bash', 'sh', 'zsh'].includes(lang);
     const highlighted = metaHighlightedRanges(attrs);
     const preClasses = new Set<string>();
     const lines: Array<string> = [];
@@ -212,7 +273,7 @@ export function createCodeHighlighter(): CodeHighlighter {
     // Most blocks have neither notations nor a line range.
     if (!highlighted && !code.includes('[!code ')) {
       for (const tokens of tokensByLine) {
-        lines.push(renderLine(tokens, 'line'));
+        lines.push(renderLine(shell ? disableShellPromptSelection(tokens) : tokens, 'line'));
       }
     } else {
       // Notations still to apply. One with a `:N` count stays for the lines
@@ -240,14 +301,14 @@ export function createCodeHighlighter(): CodeHighlighter {
           entry.remaining--;
         }
         running = running.filter((entry) => entry.remaining > 0);
-        lines.push(renderLine(tokens, [...classes].join(' ')));
+        lines.push(renderLine(shell ? disableShellPromptSelection(tokens) : tokens, [...classes].join(' ')));
       });
     }
 
-    // `v-pre` keeps Vue from reading `{{ }}` in the code.
-    return (
-      `<pre class="${[preClass, ...preClasses].join(' ')}" style="${preStyle}" tabindex="0" dir="ltr" v-pre>` +
-      `<code>${lines.join('\n')}</code></pre>`
+    // Vue-specific fences allow interpolation; other fences render literally.
+    return restoreMustaches(
+      `<pre class="${[preClass, ...preClasses].join(' ')}" style="${preStyle}" tabindex="0" dir="ltr"${vueInterpolation ? '' : ' v-pre'}>` +
+        `<code>${lines.join('\n')}</code></pre>`,
     );
   };
 }
