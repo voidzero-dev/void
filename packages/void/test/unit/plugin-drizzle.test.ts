@@ -185,7 +185,7 @@ export function drizzle(config) {
   );
   code = code.replace(
     /^import \{ createD1SessionAccess \} from .*;$/m,
-    `import { createD1SessionAccess } from ${JSON.stringify(new URL('../../src/runtime/db-session.ts', import.meta.url).href)};`,
+    `import { createD1SessionAccess } from ${JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href)};`,
   );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
   writeFileSync(
