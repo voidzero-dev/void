@@ -11,7 +11,7 @@ const DIALECT_DB_TYPES = {
   sqlite: {
     type: 'DrizzleD1Database',
     from: 'void/_db',
-    arg: 'd1: D1Database, options?: { session?: D1SessionConstraint | D1SessionBookmark }',
+    arg: 'd1: D1Database, options?: { session?: DbSessionStart }',
   },
   postgresql: { type: 'NodePgDatabase', from: 'void/_db-pg', arg: 'connectionString: string' },
   mysql: { type: 'MySql2Database', from: 'void/_db-mysql', arg: 'connectionString: string' },
@@ -44,7 +44,9 @@ export function generateDbDts(
     `export declare function createDb(${arg}): ${type}<${schemaType}>;`,
     ...(dialect === 'sqlite'
       ? [
-          'export declare function setSession(start: D1SessionConstraint | (D1SessionBookmark & {})): void;',
+          'import type { DbSessionStart } from "void/_db";',
+          'export type { DbSessionStart } from "void/_db";',
+          'export declare function setSession(start: DbSessionStart): void;',
           `export declare function getBookmark(client?: ${type}<${schemaType}>): D1SessionBookmark | null;`,
         ]
       : []),

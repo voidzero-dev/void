@@ -211,13 +211,14 @@ function Trials({ initial }: { initial: Observation }) {
             ? `// After the write completes on writer:
 const bookmark = getBookmark(writer);
 if (!bookmark) throw new Error('Missing write bookmark');
-const reader = createDb(c.env.DB, { session: bookmark });
+const reader = createDb(c.env.DB, { session: { bookmark } });
 // Read once through reader, not writer.`
             : `// After the write completes on writer:
 const reader = createDb(c.env.DB, { session: 'first-unconstrained' });
 // Read once through reader, not writer.`
           : fixed
-            ? `setSession(getCookie(c, 'd1-demo-bookmark') ?? 'first-unconstrained');
+            ? `const incoming = getCookie(c, 'd1-demo-bookmark');
+setSession(incoming === undefined ? 'first-unconstrained' : { bookmark: incoming });
 await next();
 const bookmark = getBookmark();
 if (bookmark) setCookie(c, 'd1-demo-bookmark', bookmark, options);`

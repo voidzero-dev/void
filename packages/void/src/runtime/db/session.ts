@@ -1,7 +1,23 @@
 import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import { getRuntimeRequestResource, requireRuntimeBinding } from '../env/runtime.ts';
 
-export type DbSessionStart = D1SessionConstraint | (D1SessionBookmark & {});
+export type DbSessionStart = D1SessionConstraint | { bookmark: D1SessionBookmark };
+
+/** @internal Validate Void's input shape without interpreting opaque D1 bookmarks. */
+export function resolveD1SessionStart(
+  start: DbSessionStart,
+  helper: 'setSession' | 'createDb',
+): D1SessionConstraint | D1SessionBookmark {
+  if (start === 'first-primary' || start === 'first-unconstrained') {
+    return start;
+  }
+  if (typeof start === 'object' && start !== null && typeof start.bookmark === 'string') {
+    return start.bookmark;
+  }
+  throw new Error(
+    `db: ${helper}() requires 'first-primary', 'first-unconstrained', or { bookmark: string } for its session start.`,
+  );
+}
 
 export interface DbRequestSession {
   start: DbSessionStart;
@@ -42,12 +58,13 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
         () => ({ start: 'first-primary' }),
       );
       return (current.session ??= requireRuntimeBinding<D1Database>(bindingName).withSession(
-        current.start,
+        typeof current.start === 'object' ? current.start.bookmark : current.start,
       )) as unknown as D1Database;
     },
 
     setSession(start) {
       const current = state('setSession');
+      const value = resolveD1SessionStart(start, 'setSession');
       // Nested middleware may have no bookmark of its own. Its fallback must
       // not discard the outer requirement, even before the first DB access.
       if (start === 'first-unconstrained') {
@@ -56,18 +73,19 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
       if (current.session) {
         // Middleware runs again on local server-side fetches. Repeated inputs
         // must preserve the existing session and any progress made by queries.
-        if (start === current.start) {
+        const original = typeof current.start === 'object' ? current.start.bookmark : current.start;
+        if (typeof start === typeof current.start && value === original) {
           return;
         }
         const bookmark = current.session.getBookmark();
-        if (start !== 'first-primary' && bookmark !== null && start <= bookmark) {
+        if (typeof start === 'object' && bookmark !== null && value <= bookmark) {
           return;
         }
         throw new Error(
           'db: setSession() cannot strengthen an opened session. Call it before the first use of db, or use createDb(binding, { session }) with getBookmark(client) for an independent session.',
         );
       }
-      current.start = start;
+      current.start = typeof start === 'object' ? { bookmark: value } : start;
     },
 
     getBookmark<TSchema extends Record<string, unknown>>(

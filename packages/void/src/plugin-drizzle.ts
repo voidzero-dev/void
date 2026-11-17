@@ -302,7 +302,7 @@ export function createDb(connectionString) {
 export { ${DRIZZLE_OPERATORS} } from ${JSON.stringify(drizzleOrmResolved)};
 import { drizzle } from ${JSON.stringify(drizzleD1Resolved)};
 import { getRuntimeRequestResource } from ${JSON.stringify(envModuleResolved)};
-import { createD1SessionAccess } from ${JSON.stringify(dbSessionResolved)};
+import { createD1SessionAccess, resolveD1SessionStart } from ${JSON.stringify(dbSessionResolved)};
 ${schemaImport}
 
 const _requestResourceKey = {};
@@ -337,7 +337,10 @@ export const db = new Proxy({}, {
 });
 
 export function createDb(d1, options) {
-  return drizzle(d1.withSession(options?.session ?? "first-unconstrained")${drizzleConfig});
+  return drizzle(d1.withSession(resolveD1SessionStart(
+    options?.session === undefined ? "first-unconstrained" : options.session,
+    "createDb"
+  ))${drizzleConfig});
 }
 
 `;

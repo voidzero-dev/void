@@ -11,7 +11,7 @@ import {
   getRuntimeRequestResource,
   requireRuntimeBinding,
 } from '../env/runtime.ts';
-import { createD1SessionAccess, type DbSessionStart } from './session.ts';
+import { createD1SessionAccess, resolveD1SessionStart, type DbSessionStart } from './session.ts';
 
 // Re-export commonly used Drizzle utilities so consumers never need
 // to depend on drizzle-orm directly.
@@ -62,7 +62,12 @@ export function createDb(
   options?: { session?: DbSessionStart },
 ): DrizzleD1Database {
   return _drizzle(
-    d1.withSession(options?.session ?? 'first-unconstrained') as unknown as D1Database,
+    d1.withSession(
+      resolveD1SessionStart(
+        options?.session === undefined ? 'first-unconstrained' : options.session,
+        'createDb',
+      ),
+    ) as unknown as D1Database,
   );
 }
 

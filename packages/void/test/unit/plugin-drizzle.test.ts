@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { int, mysqlTable } from 'drizzle-orm/mysql-core';
 import { pgTable, serial } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -184,8 +184,9 @@ export function drizzle(config) {
     (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
   );
   code = code.replace(
-    /^import \{ createD1SessionAccess \} from .*;$/m,
-    `import { createD1SessionAccess } from ${JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href)};`,
+    /^import \{ (createD1SessionAccess[^}]*) \} from .*;$/m,
+    (_match, imports: string) =>
+      `import { ${imports} } from ${JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href)};`,
   );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
   writeFileSync(
@@ -429,11 +430,83 @@ describe('drizzlePlugin db typing generation', () => {
 
     const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
     expect(dts).toContain('import type { DrizzleD1Database } from "void/_db";');
-    expect(dts).toContain('options?: { session?: D1SessionConstraint | D1SessionBookmark }');
+    expect(dts).toContain('options?: { session?: DbSessionStart }');
+    expect(dts).toContain('export type { DbSessionStart } from "void/_db";');
     expect(dts).toContain('export declare function setSession(');
     expect(dts).toContain('export declare function getBookmark(');
     expect(dts).toContain('): DrizzleD1Database<Schema>;');
     expect(dts).not.toContain('void/_db-pg');
+  });
+
+  it.each([false, true])('typechecks generated D1 session inputs (schema: %s)', (schema) => {
+    const root = createProjectRoot({ schema });
+    drizzlePlugin(root, false, 'sqlite', { forceVirtualDb: true });
+    symlinkSync(
+      fileURLToPath(new URL('../../../../node_modules', import.meta.url)),
+      join(root, 'node_modules'),
+    );
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    const fixture = join(root, 'session-inputs.ts');
+    writeFileSync(
+      fixture,
+      `
+import { createDb, setSession, getBookmark, type DbSessionStart } from 'void/db';
+declare const binding: D1Database;
+declare const bookmark: string;
+const start: DbSessionStart = { bookmark };
+setSession(start);
+setSession('first-primary');
+setSession('first-unconstrained');
+createDb(binding, { session: start });
+createDb(binding, { session: 'first-primary' });
+createDb(binding, { session: 'first-unconstrained' });
+const returned: string | null = getBookmark(createDb(binding));
+void returned;
+// @ts-expect-error Constraint typos must not compile.
+setSession('first-primray');
+// @ts-expect-error Constraint typos must not compile.
+createDb(binding, { session: 'first-primray' });
+// @ts-expect-error Bookmark strings require a wrapper.
+setSession(bookmark);
+// @ts-expect-error Bookmark strings require a wrapper.
+createDb(binding, { session: bookmark });
+// @ts-expect-error Missing bookmarks require an explicit fallback.
+setSession({ bookmark: undefined });
+// @ts-expect-error Null is not a bookmark.
+createDb(binding, { session: { bookmark: null } });
+`,
+    );
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          noEmit: true,
+          strict: true,
+          skipLibCheck: true,
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          allowImportingTsExtensions: true,
+          types: ['node', '@cloudflare/workers-types'],
+          typeRoots: [join(root, 'node_modules/@types'), join(root, 'node_modules')],
+          paths: {
+            'void/db': [join(root, '.void/db.d.ts')],
+            'void/_db': [fileURLToPath(new URL('../../src/runtime/db/index.ts', import.meta.url))],
+            '@schema': [join(root, 'db/schema.ts')],
+          },
+        },
+        files: [fixture],
+      }),
+    );
+    const tsc = join(
+      dirname(fileURLToPath(import.meta.resolve('typescript/package.json'))),
+      'bin/tsc',
+    );
+    const result = spawnSync(process.execPath, [tsc, '--project', join(root, 'tsconfig.json')], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(result.status, `${result.error ?? ''}${result.stdout}${result.stderr}`).toBe(0);
   });
 
   it('keeps postgres-only types off the shared db runtime entry', () => {
@@ -997,3 +1070,4 @@ export const requestPoolOptions = (env) =>
     expect(warnMock).not.toHaveBeenCalled();
   });
 });
+import { spawnSync } from 'node:child_process';

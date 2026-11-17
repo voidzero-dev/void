@@ -69,7 +69,8 @@ export default function Home() {
           <p>
             <SourceLink file="middleware/database.ts" />
           </p>
-          <pre>{`setSession(getCookie(c, 'd1-demo-bookmark') ?? 'first-unconstrained');
+          <pre>{`const incoming = getCookie(c, 'd1-demo-bookmark');
+setSession(incoming === undefined ? 'first-unconstrained' : { bookmark: incoming });
 await next();
 const bookmark = getBookmark();
 if (bookmark) setCookie(c, 'd1-demo-bookmark', bookmark, options);`}</pre>

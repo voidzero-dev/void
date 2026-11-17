@@ -115,7 +115,9 @@ export const action = defineHandler(async (c) => {
     }
     const incomingBookmark = mode === 'with-bookmark' ? writeBookmark : null;
     c.set('demoReadBookmark', incomingBookmark);
-    const reader = createDb(c.env.DB, { session: incomingBookmark ?? 'first-unconstrained' });
+    const reader = createDb(c.env.DB, {
+      session: incomingBookmark === null ? 'first-unconstrained' : { bookmark: incomingBookmark },
+    });
     const observation = await readObservation(c, reader, revision, incomingBookmark, writeBookmark);
     if (observation.outgoingBookmark) {
       c.header('X-D1-Bookmark', observation.outgoingBookmark);

@@ -35,7 +35,8 @@ export default defineMiddleware(async (c, next) => {
 
   // The control ignores the bookmark cookie, even after visiting the fixed variant.
   if (experiment === 'redirect' && variant === 'with-bookmark') {
-    setSession(getCookie(c, BOOKMARK_COOKIE) ?? 'first-unconstrained');
+    const incoming = getCookie(c, BOOKMARK_COOKIE);
+    setSession(incoming === undefined ? 'first-unconstrained' : { bookmark: incoming });
   }
 
   await next();

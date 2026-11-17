@@ -64,7 +64,7 @@ export default async (c, next) => {
   Object.prototype.toString.call(db);
   Reflect.get(db, Symbol.for('nodejs.util.inspect.custom'));
   const incoming = ${transport === 'cookie' ? "getCookie(c, 'db-bookmark')" : "c.req.header('X-DB-Bookmark')"};
-  setSession(incoming ?? 'first-unconstrained');
+  setSession(incoming === undefined ? 'first-unconstrained' : { bookmark: incoming });
   await next();
   const bookmark = getBookmark();
   if (bookmark) {
@@ -84,7 +84,10 @@ export async function POST(c) {
 }
 export async function GET(c) {
   const name = await db.get(sql\`SELECT name FROM profile WHERE id = 1\`);
-  const client = createDb(c.env[${JSON.stringify(bindingName)}], { session: getBookmark() ?? 'first-unconstrained' });
+  const bookmark = getBookmark();
+  const client = createDb(c.env[${JSON.stringify(bindingName)}], {
+    session: bookmark === null ? 'first-unconstrained' : { bookmark },
+  });
   const explicit = await client.get(sql\`SELECT name FROM profile WHERE id = 1\`);
   return c.json({ name, explicit, bookmark: getBookmark(client) });
 }
