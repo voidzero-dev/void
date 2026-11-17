@@ -1,11 +1,33 @@
 import { fontFromUrl } from 'takumi-js/helpers';
 import { Renderer, type FontLoader } from 'takumi-js/wasm/no-init';
+import { cachedFontData } from './font-data-cache.ts';
 
 const FONT_CACHE_MAX_BYTES = 8 * 1024 * 1024;
 const FONT_CACHE_MAX_ENTRIES = 128;
 
 let initialized: Promise<void> | undefined;
 let idle: ImageRenderer | undefined;
+
+type FontBytes = ArrayBuffer | Uint8Array;
+type NormalizedFont = FontBytes | (Exclude<FontLoader, string | FontBytes> & { key: string });
+
+function normalizeFont(input: FontLoader): NormalizedFont {
+  let font = input;
+  if (typeof font === 'string') {
+    const loader = fontFromUrl(font);
+    font = {
+      ...loader,
+      data: () => cachedFontData(`url:${loader.key}`, loader.data),
+    };
+  }
+  if (font instanceof ArrayBuffer || font instanceof Uint8Array) {
+    return font;
+  }
+  if (!('key' in font) || typeof font.key !== 'string') {
+    throw new TypeError('@void/image: font loaders must have a stable key.');
+  }
+  return { ...font, key: font.key };
+}
 
 function initialize(): Promise<void> {
   return (initialized ??= import('takumi-js/wasm')
@@ -44,19 +66,33 @@ export async function withImageRenderer<T>(use: (renderer: Renderer) => Promise<
 class ImageRenderer extends Renderer {
   private fontBytes = 0;
   private fontEntries = 0;
+  private fontKeys: Array<string | ArrayBuffer | Uint8Array> = [];
 
   constructor() {
     super({ fontCacheMaxBytes: FONT_CACHE_MAX_BYTES });
   }
 
   override async prepare(...[source, options]: Parameters<Renderer['prepare']>) {
+    const fonts = ((await options?.fonts) ?? []).map(normalizeFont);
+    const keys = fonts.map((font) =>
+      font instanceof ArrayBuffer || font instanceof Uint8Array ? font : font.key,
+    );
+    // Takumi selects entire families, not individual registrations. Keeping an
+    // old face of a current family would let it participate in this image.
+    if (
+      keys.length !== this.fontKeys.length ||
+      keys.some((key, index) => key !== this.fontKeys[index])
+    ) {
+      this.clearFonts();
+    }
+    this.fontKeys = keys;
     // Takumi's budget evicts whole families, except the family just loaded.
     // Same-family subsets can therefore grow indefinitely; an image larger
     // than the budget can also lose fonts before it renders. Pin this image's
     // fonts and trim BETWEEN renders instead. The lease prevents concurrent
     // images from clearing fonts another image is still preparing or drawing.
     const loaded = await Promise.allSettled(
-      ((await options?.fonts) ?? []).map(async (font) => this.registerFont(this.countedFont(font))),
+      fonts.map(async (font) => this.registerFont(this.countedFont(font))),
     );
     // All loads must settle before a failed render returns its renderer to the
     // pool, including when several fallback downloads fail together.
@@ -65,19 +101,15 @@ class ImageRenderer extends Renderer {
         throw result.reason;
       }
     }
-    return super.prepare(source, options);
+    return super.prepare(source, { ...options, fonts });
   }
 
-  private countedFont(input: FontLoader): FontLoader {
-    const font = typeof input === 'string' ? fontFromUrl(input) : input;
+  private countedFont(font: NormalizedFont): FontLoader {
     // Void supplies URL loaders or descriptors with stable keys (including
     // Inter), so wrapping data() preserves Takumi's registration identity.
     if (font instanceof ArrayBuffer || font instanceof Uint8Array) {
       this.countBytes(font);
       return font;
-    }
-    if (!('key' in font) || typeof font.key !== 'string') {
-      throw new TypeError('@void/image: font loaders must have a stable key.');
     }
     return {
       ...font,
@@ -95,11 +127,16 @@ class ImageRenderer extends Renderer {
     this.fontEntries++;
   }
 
+  override clearFonts() {
+    super.clearFonts();
+    this.fontBytes = 0;
+    this.fontEntries = 0;
+    this.fontKeys = [];
+  }
+
   trimFonts() {
     if (this.fontBytes >= FONT_CACHE_MAX_BYTES || this.fontEntries >= FONT_CACHE_MAX_ENTRIES) {
       this.clearFonts();
-      this.fontBytes = 0;
-      this.fontEntries = 0;
     }
   }
 }

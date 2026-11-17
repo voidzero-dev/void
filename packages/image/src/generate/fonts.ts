@@ -4,6 +4,7 @@
  */
 import type { FontLoader, Node } from 'takumi-js';
 import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
+import { cachedFontData } from './font-data-cache.ts';
 import { interCoverage, interData } from './inter-font.ts';
 
 export type DefaultFont = 'Inter' | 'Geist';
@@ -312,6 +313,9 @@ export async function fallbackFonts(
     if (unicodeRange.length === 0) {
       return [];
     }
+    // A retry can use a different font list (or renderer). Keep this image's
+    // successful downloads even when its registrations must be cleared.
+    let data: ReturnType<typeof subset.data> | undefined;
     return {
       ...subset,
       unicodeRange,
@@ -320,16 +324,20 @@ export async function fallbackFonts(
       name: `${prefix} ${subset.name}`,
       key: `${prefix} ${subset.key}`,
       data: () =>
-        subset.data().catch((cause: unknown) => {
-          // Record and report each failed file here: when several fail at
-          // once, Takumi's rejection carries only the first.
-          failed.add(`${prefix} ${subset.key}`);
-          console.warn(
-            `@void/image: could not download ${subset.name}. Rendering without it.`,
-            cause,
-          );
-          throw new FallbackFontError(`@void/image: could not download ${subset.name}.`, { cause });
-        }),
+        (data ??= cachedFontData(`subset:${subset.key}`, () => subset.data()).catch(
+          (cause: unknown) => {
+            // Record and report each failed file here: when several fail at
+            // once, Takumi's rejection carries only the first.
+            failed.add(`${prefix} ${subset.key}`);
+            console.warn(
+              `@void/image: could not download ${subset.name}. Rendering without it.`,
+              cause,
+            );
+            throw new FallbackFontError(`@void/image: could not download ${subset.name}.`, {
+              cause,
+            });
+          },
+        )),
     };
   });
   // Takumi downloads the subsets of its list-marker sample as well, so keep

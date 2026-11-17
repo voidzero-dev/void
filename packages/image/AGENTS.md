@@ -9,6 +9,9 @@ Takumi stays an external runtime dependency of this package. Always pass the exp
 WASM renderer to `render`; the default Takumi backend uses native addons on Node.js and Bun.
 Cloudflare bundles the WASM into its Worker; Node.js and Bun use installed production dependencies.
 
+Retain renderer registrations only for an identical ordered font list. Downloaded font bytes have
+a separate bounded cache; cache raw downloads before per-image fallback failure bookkeeping.
+
 Keep the embedded Inter module, generation script, and `licenses/Inter.txt` together. Normal builds
 must remain offline; only `node packages/image/scripts/embed-inter.mjs` downloads font sources.
 
