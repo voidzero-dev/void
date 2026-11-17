@@ -1,13 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  symlinkSync,
-  writeFileSync,
-} from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -24,6 +16,16 @@ import { readConfig } from '../../src/config.ts';
 const packageRoot = join(import.meta.dirname, '../..');
 const adapterSource = (path: string) => JSON.stringify(join(packageRoot, '..', path));
 const roots: Array<string> = [];
+const compilers = [
+  createRequire(import.meta.url),
+  createRequire(join(packageRoot, '../../playground/analog/package.json')),
+].map((require) => ({
+  version: require('typescript/package.json').version as string,
+  tsc: join(dirname(require.resolve('typescript/package.json')), 'bin/tsc'),
+}));
+const declarationChecks = compilers.flatMap((compiler) =>
+  (['generated', 'package'] as const).map((declarations) => ({ ...compiler, declarations })),
+);
 
 afterEach(() => {
   for (const root of roots.splice(0)) {
@@ -456,6 +458,7 @@ function typecheck(
   declarations: 'generated' | 'package',
   include: Array<string>,
   compilerOptions: Record<string, unknown> = {},
+  tsc = compilers[0].tsc,
 ) {
   const config = `tsconfig.${include.join('-')}.json`;
   writeFileSync(
@@ -477,10 +480,6 @@ function typecheck(
       include,
     }),
   );
-  const tsc = join(
-    dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-    'bin/tsc',
-  );
   const result = spawnSync(process.execPath, [tsc, '-p', join(root, config)], {
     encoding: 'utf8',
   });
@@ -488,9 +487,9 @@ function typecheck(
 }
 
 describe('standalone routeUrl utility', () => {
-  it.each(['generated', 'package'] as const)(
-    'preserves generic helpers and structural options through the %s declarations',
-    async (declarations) => {
+  it.each(declarationChecks)(
+    'preserves generic helpers and structural options through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
           'check-compatibility.ts': `import { routeUrl, type RouteDestination, type RouteOptions, type RoutePath } from 'void/routes';
@@ -523,14 +522,111 @@ const destination: RouteDestination<'/users/[id]'> = {
 routeUrl('/users/[id]', destination);
 const staticDestination: RouteDestination<'/about'> = { pathname: '/about' };
 routeUrl('/about', staticDestination);
+declare const indexedParams: Record<string, unknown> & { id: number };
+routeUrl('/users/[id]', { params: indexedParams });
 void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs];
 `,
         },
       });
-      expect(typecheck(root, declarations, ['check-compatibility.ts'])).toEqual({
+      expect(typecheck(root, declarations, ['check-compatibility.ts'], {}, tsc)).toEqual({
         output: '',
         status: 0,
       });
+    },
+  );
+
+  it.each(declarationChecks)(
+    'checks function helpers through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-function-helpers.ts': `import { routeUrl, type RouteOptions, type RoutePath } from 'void/routes';
+function forward(...args: Parameters<typeof routeUrl>) {
+  return routeUrl(...args);
+}
+declare const options: RouteOptions<RoutePath>;
+const userUrl = routeUrl.bind(undefined, '/users/[id]');
+userUrl(options);
+routeUrl.call(undefined, '/users/[id]', options);
+routeUrl.apply(undefined, ['/users/[id]', options]);
+forward('/users/[id]', options);
+const specificUserUrl = (routeUrl<'/users/[id]'>).bind(undefined, '/users/[id]');
+specificUserUrl({ params: { id: 42 } });
+// @ts-expect-error bound functions retain required params
+userUrl();
+// @ts-expect-error bound functions retain param value checks
+userUrl({ params: { id: true } });
+// @ts-expect-error bound functions retain query value checks
+userUrl({ ...options, query: { nested: { id: 42 } } });
+// @ts-expect-error call retains required params
+routeUrl.call(undefined, '/users/[id]');
+// @ts-expect-error call retains param value checks
+routeUrl.call(undefined, '/users/[id]', { params: { id: true } });
+// @ts-expect-error call retains route checks
+routeUrl.call(undefined, '/missing', options);
+// @ts-expect-error apply retains required params
+routeUrl.apply(undefined, ['/users/[id]']);
+// @ts-expect-error apply retains param value checks
+routeUrl.apply(undefined, ['/users/[id]', { params: { id: true } }]);
+// @ts-expect-error apply retains hash checks
+routeUrl.apply(undefined, ['/users/[id]', { ...options, hash: 42 }]);
+// @ts-expect-error extracted arguments retain required params
+forward('/users/[id]');
+// @ts-expect-error extracted arguments retain param value checks
+forward('/users/[id]', { params: { id: true } });
+// @ts-expect-error widening a route type cannot bypass static-route checks
+routeUrl<string>('/about', options);
+// @ts-expect-error widening a route type cannot bypass dynamic-route checks
+routeUrl<string>('/users/[id]', options);
+// @ts-expect-error explicit diagnostic type arguments cannot widen the route type
+routeUrl<string, [path: string, options?: unknown]>('/about', options);
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-function-helpers.ts'], {}, tsc)).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each([false, true])(
+    'retains legacy Node URL checks with skipLibCheck=%s',
+    async (skipLibCheck) => {
+      const root = await createFixture({
+        typedRoutes: true,
+        extraFiles: {
+          'check-legacy.ts': `import { routeUrl, type Href } from 'void/routes';
+routeUrl('/about');
+routeUrl('/users/[id]', { params: { id: 42 } });
+// @ts-expect-error unknown route patterns remain checked
+routeUrl('/missing');
+// @ts-expect-error required params remain checked
+routeUrl('/users/[id]');
+// @ts-expect-error raw URLs retain their existing checks
+const unknown: Href = '/missing';
+void unknown;
+`,
+        },
+      });
+      const { scan } = await analyzeApplication(root, { config: readConfig(root) });
+      // Legacy resolution can consume generated routes without resolving SDK runtime imports.
+      scan.routes = scan.routes.map((route) => ({ ...route, methods: [] }));
+      writeFileSync(
+        join(root, '.void/routes.d.ts'),
+        generateRouteTypes(scan, join(root, 'routes'), join(root, '.void'), undefined, {
+          typedRoutes: true,
+        }).dts,
+      );
+      expect(
+        typecheck(
+          root,
+          'generated',
+          ['check-legacy.ts'],
+          { moduleResolution: 'node', ignoreDeprecations: '6.0', skipLibCheck },
+          compilers[1].tsc,
+        ),
+      ).toEqual({ output: '', status: 0 });
     },
   );
 
@@ -549,17 +645,48 @@ void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forward
           'route-types.ts',
         )
       ).code;
-      function createSdkVersion(version: string): string {
+      function createSdkVersion(version: string, updateQueryTypes = false): string {
         const directory = join(root, 'node_modules/.pnpm', `void@${version}/node_modules/void`);
         mkdirSync(join(directory, 'src/codegen'), { recursive: true });
-        cpSync(join(packageRoot, 'dist'), join(directory, 'dist'), { recursive: true });
+        const copied = new Set<string>();
+        function copyDeclaration(path: string): void {
+          if (copied.has(path)) {
+            return;
+          }
+          copied.add(path);
+          const content = readFileSync(join(packageRoot, path), 'utf8');
+          mkdirSync(dirname(join(directory, path)), { recursive: true });
+          writeFileSync(join(directory, path), content);
+          for (const [, specifier] of content.matchAll(
+            /(?:from\s*|import\()\s*["'](\.[^"']+)["']/g,
+          )) {
+            copyDeclaration(join(dirname(path), specifier.replace(/\.mjs$/, '.d.mts')));
+          }
+        }
+        copyDeclaration(manifest.exports['./routes'].types);
+        copyDeclaration(manifest.exports['./_route-url-types'].types);
+        if (updateQueryTypes) {
+          // Give the second SDK a different contract, not just a different location.
+          const path = [...copied].find((path) =>
+            readFileSync(join(directory, path), 'utf8').includes('type RouteQueryValue ='),
+          );
+          expect(path).toBeDefined();
+          const file = join(directory, path!);
+          const previous = readFileSync(file, 'utf8');
+          const updated = previous.replace(
+            'type RouteQueryValue = string | number | boolean | null | undefined;',
+            'type RouteQueryValue = string | number | null | undefined;',
+          );
+          expect(updated).not.toBe(previous);
+          writeFileSync(file, updated);
+        }
         symlinkSync(join(packageRoot, 'node_modules'), join(directory, 'node_modules'), 'junction');
         writeFileSync(join(directory, 'src/codegen/route-types.mjs'), generatorCode);
         writeFileSync(join(directory, 'package.json'), JSON.stringify({ ...manifest, version }));
         return directory;
       }
       const oldSdk = createSdkVersion('1.9.1');
-      const newSdk = createSdkVersion('1.9.2');
+      const newSdk = createSdkVersion('1.9.2', true);
       symlinkSync(oldSdk, packageLink, 'junction');
       writeFileSync(join(root, 'package.json'), '{"type":"module"}');
       const generator = pathToFileURL(join(oldSdk, 'src/codegen/route-types.mjs')).href;
@@ -587,11 +714,11 @@ process.stdout.write(generateRouteTypes(scan, ${JSON.stringify(join(root, 'route
         join(outDir, 'tsconfig.json'),
         JSON.stringify(createProjectTsconfig(root, true)),
       );
-      writeFileSync(
-        join(root, 'check-upgrade.ts'),
-        `import { routeUrl, type Href } from 'void/routes';
+      const upgradeCheck = `import { routeUrl, type Href, type RouteQuery } from 'void/routes';
 const href: Href = routeUrl('/users/[id]', { params: { id: 42 } });
 routeUrl('/about');
+const query: RouteQuery = { enabled: true };
+routeUrl('/about', { query: { enabled: true } });
 // @ts-expect-error unknown route patterns remain checked
 routeUrl('/missing');
 // @ts-expect-error required params remain checked
@@ -600,9 +727,9 @@ routeUrl('/users/[id]');
 routeUrl('/users/[id]', { params: { id: true } });
 // @ts-expect-error raw URLs retain their existing route checks
 const unknown: Href = '/missing';
-void [href, unknown];
-`,
-      );
+void [href, unknown, query];
+`;
+      writeFileSync(join(root, 'check-upgrade.ts'), upgradeCheck);
       expect(typecheck(root, declarations, ['check-upgrade.ts'])).toEqual({
         output: '',
         status: 0,
@@ -613,6 +740,18 @@ void [href, unknown];
       rmSync(oldSdk, { force: true, recursive: true });
 
       expect(readFileSync(routeTypesPath, 'utf8')).toBe(generation.stdout);
+      writeFileSync(
+        join(root, 'check-upgrade.ts'),
+        upgradeCheck
+          .replace(
+            'const query:',
+            '// @ts-expect-error the new SDK query type is used\nconst query:',
+          )
+          .replace(
+            "routeUrl('/about', { query:",
+            "// @ts-expect-error the new SDK function signature is used\nrouteUrl('/about', { query:",
+          ),
+      );
       expect(typecheck(root, declarations, ['check-upgrade.ts'])).toEqual({
         output: '',
         status: 0,
@@ -620,9 +759,9 @@ void [href, unknown];
     },
   );
 
-  it.each(['generated', 'package'] as const)(
-    'rejects invalid unions and numeric keys through the %s declarations',
-    async (declarations) => {
+  it.each(declarationChecks)(
+    'rejects invalid unions and numeric keys through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
           'check-invalid-unions.ts': `import { routeUrl } from 'void/routes';
@@ -654,16 +793,16 @@ routeUrl<string>('/users/[id]');
 `,
         },
       });
-      expect(typecheck(root, declarations, ['check-invalid-unions.ts'])).toEqual({
+      expect(typecheck(root, declarations, ['check-invalid-unions.ts'], {}, tsc)).toEqual({
         output: '',
         status: 0,
       });
     },
   );
 
-  it.each(['generated', 'package'] as const)(
-    'explains invalid routeUrl calls through the %s declarations',
-    async (declarations) => {
+  it.each(declarationChecks)(
+    'explains invalid routeUrl calls through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
       const cases = [
         ["routeUrl('/missing');", 'Unknown route: /missing.'],
         ["routeUrl('/missing', {});", 'Unknown route: /missing.'],
@@ -689,6 +828,34 @@ routeUrl<string>('/users/[id]');
         ],
         ["routeUrl('/about', { params: {} });", 'Route /about has no path params.'],
         ["routeUrl('/about', { hash: 123 });", 'Hash for route /about must be a string.'],
+        [
+          "routeUrl('/users/[id]', { params: {} as Record<string, string> });",
+          'Missing param id for route /users/[id].',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: {} as { id?: string } });",
+          'Missing param id for route /users/[id].',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: {} as Record<string, unknown> & { id: boolean } });",
+          'Param id for route /users/[id] must be a string or number.',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: {} as Record<string, string> & { id: string }, query: { nested: {} } });",
+          'Invalid query param nested for route /users/[id].',
+        ],
+        [
+          "routeUrl('/about', { query: () => 'x' });",
+          'Query for route /about must be an object with supported query values.',
+        ],
+        [
+          "routeUrl('/about', { query: null });",
+          'Query for route /about must be an object with supported query values.',
+        ],
+        [
+          "routeUrl('/about', () => 'x');",
+          'Invalid options for route /about. Pass an object with params, query, or hash.',
+        ],
         [
           "routeUrl('/about', { query: { nested: { value: 'x' } } });",
           'Invalid query param nested for route /about.',
@@ -718,14 +885,16 @@ routeUrl<string>('/users/[id]');
           ].join('\n'),
         },
       });
-      const { output, status } = typecheck(root, declarations, ['check-diagnostics.ts']);
-      expect(status).toBe(1);
+      const { output, status } = typecheck(root, declarations, ['check-diagnostics.ts'], {}, tsc);
+      expect(status).not.toBe(0);
       const diagnostics = output
         .split(/.*check-diagnostics\.ts\(\d+,\d+\): error TS\d+: /)
         .slice(1);
       expect(diagnostics).toHaveLength(cases.length);
       cases.forEach(([, message], index) => expect(diagnostics[index]).toContain(message));
       expect(output).not.toContain('TS2554');
+      expect(output).not.toContain('UrlTypeError<never>');
+      expect(output).not.toContain('Unknown param ${string}');
     },
   );
 

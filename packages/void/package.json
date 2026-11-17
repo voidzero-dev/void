@@ -26,6 +26,13 @@
     "sandbox.Dockerfile"
   ],
   "type": "module",
+  "typesVersions": {
+    "*": {
+      "_route-url-types": [
+        "./dist/runtime/routing/route-url.d.mts"
+      ]
+    }
+  },
   "imports": {
     "#self/_env": "./dist/runtime/env/runtime.mjs",
     "#self/email": "./dist/runtime/email/index.mjs",
