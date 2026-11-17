@@ -28,6 +28,24 @@ while building unrelated apps, including fixtures that have not generated their 
 Type-only contracts use `*.typecheck.ts`. Package typechecking verifies them; the Vitest runtime
 does not need to execute their `expectTypeOf` assertions.
 
+### Iterating on imported code
+
+`vp run test:iterate <test-file>` uses Vitest 5.1's native `--since-last-run` selection.
+The first run executes the selection and records loaded dependencies. Subsequent runs select
+changed dependencies, new test files, and previously failed files. The task command itself is
+never cached. Use it for fast feedback while editing import-based unit tests:
+
+```sh
+vp run test:iterate packages/void/test/unit/plugin-routing.test.ts
+vp run test:iterate --project unit
+```
+
+This is an iteration shortcut, not the final verification command. Native dependency records do
+not cover arbitrary filesystem reads, new routes, subprocess inputs, or changed environment
+variables. After changes to those inputs, use `vp run test` with its integration fallbacks or run
+the known consumer without `--since-last-run`. Finish with the affected and full verification below.
+See [Vitest's dependency-selection contract](https://main.vitest.dev/guide/recipes/affected-tests).
+
 ### Affected local tests
 
 `vp run test` is the local affected-tests default; `vp test run`, `vp run test:full`, and CI still
@@ -102,9 +120,13 @@ vpr test:all
 `vpr test:all` formats, lints, builds, typechecks, and tests the merged monorepo. Investigate slow
 or hanging tests when they occur instead of routinely increasing timeouts.
 
-Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
-process deadlines can overlap database work. The remaining SDK unit and integration files then
-share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
+SDK, platform, and subprocess tests share the worker budget and start longest files first.
+This lets process deadlines overlap database and browser work. Each test subprocess's Rolldown
+and Rayon pools get the available CPUs divided by the worker budget (at least one thread), so
+concurrent compilers do not each allocate a pool for the whole machine.
+Explicit `ROLLDOWN_WORKER_THREADS` and `RAYON_NUM_THREADS` overrides
+are respected; normal package builds keep their defaults.
+`vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
 The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
 not serialize the whole runner suite. Both files use the same fixture helpers with per-file
 isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
@@ -113,8 +135,8 @@ API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-p
 WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
 that change the process timezone also use forks, because threads cannot change Node's timezone. Select every
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
-This keeps database engines from competing with all framework compilers at startup. Keep module
-isolation enabled: these suites mock globals, keep database state, and exercise real process/lock boundaries.
+Keep module isolation enabled: these suites mock globals, keep database state, and exercise real
+process/lock boundaries. Native compiler limits do not change test concurrency or assertions.
 Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
 can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
 The full verification command builds before running static checks, so it also works without
@@ -207,6 +229,11 @@ Its suggestions require correctness checks: this repository's native dependencie
 tests rule out blanket VM pools, and shared mocks/state require keeping isolation enabled.
 
 ## Suite organization and CI scheduling
+
+CI build checks, SDK test shards, and platform checks use the same remote Vite Task cache when
+`VP_REMOTE_CACHE_URL` is configured. Only pushes to main can upload; pull requests and releases
+only read. Each job can build on a cache miss without waiting for an unrelated build job.
+Concurrent cold jobs can still build the same missing artifact; the cache is not a cross-job lock.
 
 CI builds and typechecks every playground once per OS in a dedicated required job. Integration
 shards build the public packages and then only the fixtures their tests use; they do not depend

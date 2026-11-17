@@ -49,6 +49,7 @@ vp run build:core                   # Build shared packages, CLI, and platform r
 vp run test                         # Affected local tests, with integration fallbacks
 vp run test --list                  # Preview affected test files without builds/hooks
 vp run test --base origin/main      # Include committed branch changes
+vp run test:iterate <test-file>      # Native dependency-based iteration; see TESTING.md for limits
 vp test run                         # Run tests (unit + integration tests)
 vpr test:all                        # Format, lint, build, typecheck, and run all SDK/platform tests
 vp test run packages/void           # Only test the core plugin

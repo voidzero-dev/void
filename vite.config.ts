@@ -4,6 +4,7 @@ import { defineConfig } from 'vite-plus';
 import { SuiteSequencer } from './test/sequencer.ts';
 
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
+const nativeThreads = String(Math.max(1, Math.floor(availableParallelism() / maxWorkers)));
 const apiTimezoneTests = [
   'platform/packages/api/test/integration/api-delete-accounting.test.ts',
   'platform/packages/api/test/integration/email-connections.test.ts',
@@ -109,6 +110,7 @@ export default defineConfig({
         ],
       },
       test: { command: 'node test/affected.mjs', cache: false },
+      'test:iterate': { command: 'vp test run --since-last-run', cache: false },
       'test:benchmark': {
         command: 'vp test run --reporter=default --reporter=./test/performance-reporter.ts',
         cache: false,
@@ -523,6 +525,10 @@ export default defineConfig({
     // Reuse Node's compiled JS/TypeScript across real subprocesses and forks.
     // Vitest disables it for V8 coverage; also honor standalone Node coverage.
     env: {
+      // Parallel test processes each need a small native compiler pool, not all host CPUs.
+      // Keep ordinary package builds and explicit operator overrides unchanged.
+      ROLLDOWN_WORKER_THREADS: process.env.ROLLDOWN_WORKER_THREADS ?? nativeThreads,
+      RAYON_NUM_THREADS: process.env.RAYON_NUM_THREADS ?? nativeThreads,
       NODE_COMPILE_CACHE:
         process.env.NODE_COMPILE_CACHE ??
         fileURLToPath(new URL('./node_modules/.cache/node-compile', import.meta.url)),
@@ -560,7 +566,6 @@ export default defineConfig({
           css: { include: [/starter-ui\.css(?:\?|$)/] },
           include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
-          sequence: { groupOrder: 2 },
           pool: 'threads',
           maxWorkers,
           // Windows unit tests that import the plugin or spawn a CLI can exceed Vitest's
@@ -574,7 +579,6 @@ export default defineConfig({
           name: 'unit-pglite',
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
-          sequence: { groupOrder: 2 },
           // Native Node 24 worker crashes can abort the run on Linux and macOS.
           // Keep PGlite's Wasm heap in a separate process for each database.
           pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
@@ -652,9 +656,6 @@ export default defineConfig({
           globalSetup: ['test/build-setup.ts'],
           fsModuleCache: true,
           pool: 'forks',
-          // Bound simultaneous database engines and framework compilers locally.
-          // Unit tests still fill unused integration workers in the same phase.
-          sequence: { groupOrder: 2 },
           // maxWorkers limits files, not describe.concurrent tests. On Windows CI, two files
           // at Vitest's default concurrency open up to ten isolated browser contexts at once.
           // Reduce socket pressure while keeping file-level parallelism and other OSes unchanged.
