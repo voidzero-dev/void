@@ -38,7 +38,7 @@
     "@void/react": "workspace:*",
     "@xterm/headless": "^6.0.0",
     "aws4fetch": "^1.0.20",
-    "blake3-jit": "^1.1.0",
+    "blake3-jit": "catalog:",
     "cron-parser": "catalog:",
     "drizzle-orm": "^0.45.4",
     "hono": "catalog:platform",

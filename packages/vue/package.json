@@ -43,7 +43,7 @@
     "typecheck": "tsc --noEmit --rootDir ../.."
   },
   "dependencies": {
-    "@vitejs/plugin-vue": "^6.0.10"
+    "@vitejs/plugin-vue": "catalog:"
   },
   "devDependencies": {
     "@types/node": "catalog:",
