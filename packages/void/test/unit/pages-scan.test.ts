@@ -27,6 +27,66 @@ function writeFile(relativePath: string, content: string): void {
 }
 
 describe('scanPages', () => {
+  it('discovers standalone server views without promoting handler-only companions', async () => {
+    writeFile('index.server.tsx', 'export default function () { return <h1>Home</h1>; }');
+    writeFile(
+      'posts/[id]/index.server.tsx',
+      'export default async function Post() { return <h1>Post</h1>; }',
+    );
+    writeFile('about.dev.server.ts', 'const view = () => "About"; export { view as default };');
+    writeFile('layout.server.tsx', 'export default () => <main />;');
+    writeFile(
+      '_not-found.server.tsx',
+      'export default function Missing() { return <h1>Missing</h1>; }',
+    );
+    writeFile('unused.server.ts', 'export function loader() {}');
+    writeFile('named.server.tsx', 'export function Page() { return <h1>Not a route</h1>; }');
+    writeFile('type-only.server.ts', 'export default interface View {}');
+    writeFile('type-alias.server.ts', 'interface View {} export type { View as default };');
+    const prod = await scanPages(TMP, { environment: 'prod' });
+    expect(prod.pages.map(({ pattern, serverView }) => [pattern, serverView])).toEqual([
+      ['/', true],
+      ['/posts/:id', true],
+    ]);
+    expect(prod.layouts).toMatchObject([{ filePath: 'layout.server.tsx', serverView: true }]);
+    expect(prod.boundaries).toMatchObject([{ kind: 'not-found', serverView: true }]);
+    expect(
+      (await scanPages(TMP, { environment: 'dev' })).pages.map((page) => page.pattern),
+    ).toContain('/about');
+  });
+
+  it('reports a server view and adapter view that claim the same route', async () => {
+    writeFile('about.server.tsx', 'export default () => <h1>About</h1>;');
+    writeFile('about/index.vue', '<template><h1>About</h1></template>');
+    await expect(scanPages(TMP)).rejects.toThrow(/about\.server\.tsx.*about\/index\.vue/);
+  });
+
+  it('rejects client-only rendering on server pages', async () => {
+    writeFile('about.server.tsx', 'export const ssr = false; export default () => <h1>About</h1>;');
+    await expect(scanPages(TMP)).rejects.toThrow(
+      "pages: Server component 'about.server.tsx' cannot set ssr = false.",
+    );
+  });
+
+  it('reads the same layout metadata on server pages as on adapter pages', async () => {
+    writeFile('layout.server.tsx', 'export default () => <main />;');
+    writeFile('_layouts/landing.server.tsx', 'export default () => <aside />;');
+    writeFile(
+      'about.server.tsx',
+      'export const layout = false; export default () => <h1>About</h1>;',
+    );
+    writeFile(
+      'index.server.tsx',
+      'export const layout = "!landing"; export default () => <h1>Home</h1>;',
+    );
+    const scan = await scanPages(TMP);
+    expect(scan.pages.map(({ pattern, layout }) => [pattern, layout])).toEqual([
+      ['/', '!landing'],
+      ['/about', false],
+    ]);
+    expect(scan.namedLayouts).toMatchObject([{ name: 'landing', serverView: true }]);
+  });
+
   it('uses trailing slashes for page patterns when configured, including dynamic pages', async () => {
     writeFile('index.vue', '<template>Home</template>');
     writeFile('posts/index.vue', '<template>Posts</template>');

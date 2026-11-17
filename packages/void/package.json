@@ -75,6 +75,21 @@
       "import": "./dist/runtime/handler/index.mjs",
       "require": "./dist/runtime/handler/index.mjs"
     },
+    "./jsx": {
+      "types": "./dist/runtime/jsx/index.d.mts",
+      "import": "./dist/runtime/jsx/index.mjs",
+      "require": "./dist/runtime/jsx/index.mjs"
+    },
+    "./jsx/jsx-runtime": {
+      "types": "./dist/runtime/jsx/jsx-runtime.d.mts",
+      "import": "./dist/runtime/jsx/jsx-runtime.mjs",
+      "require": "./dist/runtime/jsx/jsx-runtime.mjs"
+    },
+    "./jsx/jsx-dev-runtime": {
+      "types": "./dist/runtime/jsx/jsx-dev-runtime.d.mts",
+      "import": "./dist/runtime/jsx/jsx-dev-runtime.mjs",
+      "require": "./dist/runtime/jsx/jsx-dev-runtime.mjs"
+    },
     "./response": {
       "types": "./dist/runtime/handler/response.d.mts",
       "import": "./dist/runtime/handler/response.mjs",

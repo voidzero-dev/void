@@ -2260,11 +2260,14 @@ function scaffoldPagesApp(
     starterMode,
     toolchain,
     voidPackageSpec: resolveScaffoldDependencySpec(root, 'void', getOwnVersion()),
-    adapterPackageSpec: resolveScaffoldDependencySpec(
-      root,
-      SCAFFOLD_FRAMEWORKS[framework].adapterPackage,
-      getOwnVersion(),
-    ),
+    adapterPackageSpec:
+      framework === 'none'
+        ? ''
+        : resolveScaffoldDependencySpec(
+            root,
+            SCAFFOLD_FRAMEWORKS[framework].adapterPackage,
+            getOwnVersion(),
+          ),
   });
   let pkg: JsonObject = {};
 

@@ -152,14 +152,14 @@ export function islandCssFiles(
     }
     for (const layout of resolveEffectiveLayoutChain(
       page,
-      pageScan.layouts,
-      pageScan.namedLayouts,
+      pageScan.layouts.filter((layout) => !layout.serverView),
+      pageScan.namedLayouts.filter((layout) => !layout.serverView),
     )) {
       files.add(normalizePath(resolve(pagesDir, layout.filePath)));
     }
   }
   for (const boundary of pageScan.boundaries ?? []) {
-    if (componentPattern.test(boundary.filePath)) {
+    if (!boundary.serverView && componentPattern.test(boundary.filePath)) {
       files.add(normalizePath(resolve(pagesDir, boundary.filePath)));
     }
   }
@@ -221,8 +221,8 @@ export function islandStyleRoots(pageScan: PageScanResult, pagesDir: string): Ar
     }
     for (const layout of resolveEffectiveLayoutChain(
       page,
-      pageScan.layouts,
-      pageScan.namedLayouts,
+      pageScan.layouts.filter((layout) => !layout.serverView),
+      pageScan.namedLayouts.filter((layout) => !layout.serverView),
     )) {
       layouts.add(normalizePath(resolve(pagesDir, layout.filePath)));
     }
@@ -231,9 +231,9 @@ export function islandStyleRoots(pageScan: PageScanResult, pagesDir: string): Ar
   return [
     ...layouts,
     ...pages,
-    ...(pageScan.boundaries ?? []).map((boundary) =>
-      normalizePath(resolve(pagesDir, boundary.filePath)),
-    ),
+    ...(pageScan.boundaries ?? [])
+      .filter((boundary) => !boundary.serverView)
+      .map((boundary) => normalizePath(resolve(pagesDir, boundary.filePath))),
   ];
 }
 

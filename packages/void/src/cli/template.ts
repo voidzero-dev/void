@@ -18,7 +18,7 @@ export const SCAFFOLD_GITIGNORE_LINES = [
   '.DS_Store',
 ] as const;
 
-export type ScaffoldFramework = 'react' | 'vue' | 'svelte' | 'solid';
+export type ScaffoldFramework = 'none' | 'react' | 'vue' | 'svelte' | 'solid';
 export type ScaffoldStarterMode = 'sqlite' | 'postgresql' | 'mysql' | 'static';
 export type ScaffoldToolchain = 'vite-plus' | 'vite';
 
@@ -56,6 +56,7 @@ const REACT_SCAFFOLD_COMPILER_DEV_DEPENDENCIES = {
 } as const;
 
 export const SCAFFOLD_FRAMEWORK_OPTIONS = [
+  { value: 'none', label: 'None', hint: 'Server-rendered JSX Pages without a framework adapter.' },
   { value: 'react', label: 'React', hint: 'TSX Pages starter with the React adapter.' },
   { value: 'vue', label: 'Vue', hint: 'Vue SFC Pages starter with the Vue adapter.' },
   { value: 'svelte', label: 'Svelte', hint: 'Svelte 5 Pages starter with the Svelte adapter.' },
@@ -79,6 +80,16 @@ type ScaffoldFrameworkConfig = {
 };
 
 export const SCAFFOLD_FRAMEWORKS: Record<ScaffoldFramework, ScaffoldFrameworkConfig> = {
+  none: {
+    label: 'Void',
+    docsUrl: 'https://void.cloud/guide/pages-routing/server-components',
+    adapterPackage: '',
+    adapterImport: '',
+    adapterPlugin: '',
+    pageExtension: 'server.tsx',
+    dependencies: {},
+    tsconfigCompilerOptions: { jsx: 'react-jsx', jsxImportSource: 'void/jsx' },
+  },
   react: {
     label: 'React',
     docsUrl: 'https://react.dev/',
@@ -158,7 +169,7 @@ export function detectScaffoldFrameworkFromDependencies(
   for (const [framework, config] of Object.entries(SCAFFOLD_FRAMEWORKS) as Array<
     [ScaffoldFramework, ScaffoldFrameworkConfig]
   >) {
-    if (config.adapterPackage in deps) {
+    if (config.adapterPackage && config.adapterPackage in deps) {
       return framework;
     }
   }
@@ -199,12 +210,16 @@ export function createPagesStarterTemplate(options: {
     'pages/vite-env.d.ts': '/// <reference types="vite/client" />\n',
     'public/stack.svg': readFileSync(join(assets, 'stack.svg'), 'utf8'),
     'public/void.svg': readFileSync(join(assets, 'void.svg'), 'utf8'),
-    [`public/${framework}.svg`]: readFileSync(join(assets, `${framework}.svg`), 'utf8'),
     'public/icons.svg': readFileSync(join(assets, 'icons.svg'), 'utf8'),
   };
+  if (framework !== 'none') {
+    files[`public/${framework}.svg`] = readFileSync(join(assets, `${framework}.svg`), 'utf8');
+  }
 
   if (starterMode !== 'static') {
-    files['pages/index.server.ts'] = getIndexServer();
+    if (framework !== 'none') {
+      files['pages/index.server.ts'] = getIndexServer();
+    }
     files['routes/api/hello.ts'] = getHelloRoute(config.label, starterMode);
     files['db/schema.ts'] = getSchemaFile(starterMode);
     files['db/seed.ts'] = getSeedFile();
@@ -228,7 +243,7 @@ export function createPagesStarterTemplate(options: {
       void: voidPackageSpec,
       ...SCAFFOLD_BASE_DEV_DEPENDENCIES,
       ...(toolchain === 'vite-plus' ? SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES : {}),
-      [config.adapterPackage]: adapterPackageSpec,
+      ...(config.adapterPackage && { [config.adapterPackage]: adapterPackageSpec }),
       ...config.devDependencies,
     },
     files,
@@ -236,6 +251,13 @@ export function createPagesStarterTemplate(options: {
 }
 
 function getViteConfig(framework: ScaffoldFramework, config: ScaffoldFrameworkConfig): string {
+  if (framework === 'none') {
+    return `import { defineConfig } from "vite";
+import { voidPlugin } from "void";
+
+export default defineConfig({ plugins: [voidPlugin()] });
+`;
+  }
   if (framework === 'react') {
     return `import { defineConfig } from "vite";
 import { voidPlugin } from "void";
@@ -348,6 +370,22 @@ export default defineSeed<typeof import("./schema")>(async ({ db, schema }) => {
 }
 
 function getIndexPage(framework: ScaffoldFramework, starterMode: ScaffoldStarterMode): string {
+  if (framework === 'none') {
+    return `${starterMode === 'static' ? 'export const prerender = true;\n' : ''}
+import "./style.css";
+
+export default function Page() {
+  return (
+    <main>
+      <img src="/void.svg" alt="Void" width="96" />
+      <h1>Start building with Void</h1>
+      <p>Edit <code>pages/index.server.tsx</code> to update this page.</p>
+      <a href="https://void.cloud/guide/pages-routing/server-components">Server Components guide</a>
+    </main>
+  );
+}
+`;
+  }
   const { label, docsUrl } = SCAFFOLD_FRAMEWORKS[framework];
   const hasDatabase = starterMode !== 'static';
   const description =
@@ -485,7 +523,7 @@ ${body}
   }
 }
 
-function getMessagesDemo(framework: ScaffoldFramework): string {
+function getMessagesDemo(framework: Exclude<ScaffoldFramework, 'none'>): string {
   const empty = `<p class="empty-state">
   No messages yet. Run <code>void db seed</code> to load the sample row from <code>db/seed.ts</code>.
 </p>`;

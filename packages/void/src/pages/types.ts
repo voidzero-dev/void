@@ -9,6 +9,7 @@ export type PrerenderMode = 'auto' | 'force' | 'disabled';
 export type PageRenderMode = 'server' | 'client' | 'island';
 
 export type PageDefinition = {
+  serverView?: boolean;
   /** URL pattern, e.g. "/users/:id" */
   pattern: string;
   /** Route params, e.g. ["id"] */
@@ -47,6 +48,7 @@ export type PageDefinition = {
 };
 
 export type LayoutDefinition = {
+  serverView?: boolean;
   /** Directory path relative to pages/, e.g. "" (root) or "users" */
   directory: string;
   /** Layout file relative path, e.g. "layout.vue" or "users/layout.vue" */
@@ -56,6 +58,7 @@ export type LayoutDefinition = {
 };
 
 export type NamedLayoutDefinition = {
+  serverView?: boolean;
   name: string;
   /** Directory containing _layouts/, e.g. "" (root) or "guide" */
   directory: string;
@@ -72,6 +75,7 @@ export type PageScanResult = {
 };
 
 export type PageBoundaryDefinition = {
+  serverView?: boolean;
   kind: 'error' | 'not-found';
   directory: string;
   componentId: string;
