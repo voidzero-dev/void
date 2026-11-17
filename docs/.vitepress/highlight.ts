@@ -101,10 +101,13 @@ type Notation = Readonly<{ line: ReadonlyArray<string>; pre: string; count: numb
  */
 function takeNotations(
   tokens: ReadonlyArray<ThemedToken>,
+  lang: string,
 ): Readonly<{ tokens: Array<ThemedToken>; notations: ReadonlyArray<Notation> }> {
   const notations: Array<Notation> = [];
   const kept: Array<ThemedToken> = [];
-  for (const token of tokens) {
+  const jsx = lang === 'jsx' || lang === 'tsx';
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
     if (token.type !== TOKEN_COMMENT || !token.content.includes('[!code ')) {
       kept.push(token);
       continue;
@@ -118,6 +121,15 @@ function takeNotations(
     );
     if (!EMPTY_COMMENT_RE.test(content)) {
       kept.push(content === token.content ? token : { ...token, content });
+    } else if (
+      jsx &&
+      kept.at(-1)?.content.trim() === '{' &&
+      tokens[index + 1]?.content.trim() === '}'
+    ) {
+      // Empty JSX annotation comments own their expression braces. Remove
+      // those too so standalone annotations apply to the following code.
+      kept.pop();
+      index++;
     }
   }
   // The space that separated the code from a removed comment goes with it.
@@ -282,7 +294,7 @@ export function createCodeHighlighter(): CodeHighlighter {
       // that follow.
       let running: Array<{ line: ReadonlyArray<string>; remaining: number }> = [];
       tokensByLine.forEach((lineTokens, index) => {
-        const { tokens, notations } = takeNotations(lineTokens);
+        const { tokens, notations } = takeNotations(lineTokens, lang);
         for (const entry of notations) {
           preClasses.add(entry.pre);
           running.push({ line: entry.line, remaining: entry.count });
