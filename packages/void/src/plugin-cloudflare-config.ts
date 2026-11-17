@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { convertToWranglerConfig } from '@cloudflare/config';
-import type { ParsedInputConfigWithWorker, PluginConfig } from '@cloudflare/vite-plugin';
+import type { CloudflareConfig, PluginConfig } from '@cloudflare/vite-plugin';
 import { resolve, dirname, basename, join } from 'pathslash';
 import { parse as parseToml } from 'smol-toml';
 import { migrateBuiltWranglerConfig } from './cli/cf-config-migrate.ts';
@@ -50,10 +50,7 @@ export function mergeCloudflareConfig(patch: object, fallback: object): Record<s
 }
 
 /** Use Cloudflare's public migration API rather than maintaining a second binding translator. */
-export function toNativeCloudflareConfig(
-  raw: WorkerConfig,
-  root: string,
-): ParsedInputConfigWithWorker {
+export function toNativeCloudflareConfig(raw: WorkerConfig, root: string): CloudflareConfig {
   const packagePath = join(root, 'package.json');
   const packageName = existsSync(packagePath)
     ? JSON.parse(readFileSync(packagePath, 'utf8')).name
@@ -113,7 +110,7 @@ export function toNativeCloudflareConfig(
  * any other unsafe binding comes from the user's config and may name another Worker,
  * even one with a class of the same name, so it stays as written.
  */
-export function restoreLocalContainerBindings(worker: ParsedInputConfigWithWorker['worker']): void {
+export function restoreLocalContainerBindings(worker: CloudflareConfig['worker']): void {
   for (const [name, binding] of Object.entries(worker.env ?? {})) {
     if (
       binding.type !== 'unsafe:durable_object_namespace' ||

@@ -405,6 +405,11 @@ export default {
 
   it('builds native output and the existing dist layout, then previews the native artifact', async () => {
     const root = project();
+    // Upgrading a checkout must replace v0 instead of leaving two versions that
+    // the RC CLI refuses to publish.
+    const oldOutput = join(root, '.cloudflare/output/v0');
+    mkdirSync(oldOutput, { recursive: true });
+    writeFileSync(join(oldOutput, 'config.json'), '{}');
     writeFileSync(
       join(root, 'worker.js'),
       "export default { fetch: (_request, env) => new Response(env.PREVIEW_VALUE ?? 'built-worker') };",
@@ -430,7 +435,8 @@ export default {
     });
     await builder.buildApp();
     const output = await readBuildOutput(root);
-    expect(output.rootConfig.accountId).toBe('account-id');
+    expect(existsSync(oldOutput)).toBe(false);
+    expect(output.rootConfig.settings?.accountId).toBe('account-id');
     expect(existsSync(join(root, 'cloudflare.config.ts'))).toBe(false);
     expect(output.workers.default.config.manifest?.mainModule).toBe('index.js');
     expect(existsSync(join(root, 'dist/ssr/index.js'))).toBe(true);

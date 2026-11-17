@@ -62,3 +62,22 @@ it('rejects unresolved blocking follow-ups instead of silently dropping settings
   ).toThrow('cf cannot migrate Cloudflare setting config.routes.0');
   expect(existsSync(String(vi.mocked(spawnSync).mock.calls[0]![2]!.cwd))).toBe(false);
 });
+
+it.each(
+  [undefined, null, 7].flatMap((maxConcurrency) =>
+    [false, true].map((named) => ({ maxConcurrency, named })),
+  ),
+)('preserves Queue concurrency ($maxConcurrency, named=$named)', ({ maxConcurrency, named }) => {
+  const queues = { consumers: [{ queue: 'jobs', max_concurrency: maxConcurrency }] };
+  const raw = {
+    name: 'void-queue-migrate',
+    compatibility_date: '2026-11-16',
+    ...(named ? { env: { staging: { queues } } } : { queues }),
+  };
+  const before = structuredClone(raw);
+  const migrated = migrateBuiltWranglerConfig(raw, named ? 'staging' : 'production');
+  expect(migrated.worker?.triggers).toEqual([
+    { type: 'queue', name: 'jobs', ...(maxConcurrency == null ? {} : { maxConcurrency }) },
+  ]);
+  expect(raw).toEqual(before);
+});

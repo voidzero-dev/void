@@ -10,8 +10,8 @@ import {
 } from '@cloudflare/build-output-utils';
 import {
   convertToWranglerConfig,
-  type ParsedInputConfig,
-  type ParsedOutputWorkerConfig,
+  type ParsedCloudflareConfig,
+  type ParsedBuildOutputWorkerConfig,
 } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import ignore from 'ignore';
@@ -372,7 +372,7 @@ export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json
       convertToWranglerConfig({
         worker: { exports: entries },
         containers: [],
-      } as unknown as ParsedInputConfig).exports,
+      } as unknown as ParsedCloudflareConfig).exports,
     ) ?? {};
   const result: Json = {};
   for (const type of ['worker', 'durable-object', 'workflow']) {
@@ -381,9 +381,7 @@ export function exportsFromOutput(exports: unknown, bindings: Array<Json>): Json
       if (entry?.type !== type) {
         continue;
       }
-      // cf uploads Workflow identity only. Execution settings stay in the immutable
-      // Build Output and are applied by its separate typed trigger deployment.
-      result[name] = type === 'workflow' ? { type, name: entry.name } : entry;
+      result[name] = entry;
     }
   }
   return Object.keys(result).length > 0 ? result : undefined;
@@ -456,7 +454,7 @@ type PlacementTarget = { kind: 'region' | 'host' | 'hostname'; value: string };
 
 /** The region, host or hostname of a targeted placement. */
 function placementTarget(
-  placement: ParsedOutputWorkerConfig['placement'],
+  placement: ParsedBuildOutputWorkerConfig['placement'],
 ): PlacementTarget | undefined {
   if (!placement) {
     return undefined;
@@ -471,7 +469,9 @@ function placementTarget(
 }
 
 /** The version API placement, in the shape cf's own version uploads send. */
-function placementFromOutput(placement: ParsedOutputWorkerConfig['placement']): Json | undefined {
+function placementFromOutput(
+  placement: ParsedBuildOutputWorkerConfig['placement'],
+): Json | undefined {
   if (!placement) {
     return undefined;
   }
@@ -508,6 +508,7 @@ async function apiResult(
   body: Json | FormData | undefined,
   verifyUploader: () => boolean,
   timeout = 120_000,
+  headers?: Record<string, string>,
 ): Promise<Json> {
   assertUploaderUnchanged(verifyUploader);
   const form = body instanceof FormData;
@@ -517,6 +518,7 @@ async function apiResult(
       'User-Agent': getVoidUserAgent(),
       Authorization: `Bearer ${token}`,
       ...(body && !form ? { 'Content-Type': 'application/json' } : {}),
+      ...headers,
     },
     ...(body ? { body: form ? body : JSON.stringify(body) } : {}),
     redirect: 'manual',
@@ -1301,6 +1303,11 @@ export async function uploadPinnedCloudflareVersion(options: {
       annotations: { 'workers/message': options.message ?? '' },
     },
     options.verifyUploader,
+    undefined,
+    // Match cf's schema negotiation for Workflow exports and execution settings.
+    Object.values(exports ?? {}).some((entry) => object(entry)?.type === 'workflow')
+      ? { 'Cloudflare-Workers-Script-Api-Date': '2026-11-09' }
+      : undefined,
   );
   const versionId = uploaded.id;
   if (

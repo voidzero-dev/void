@@ -13,11 +13,7 @@ import {
   readBuildOutput,
   writeContainerConfig,
 } from '@cloudflare/build-output-utils';
-import {
-  convertToWranglerConfig,
-  OutputContainerSchema,
-  type ParsedInputConfig,
-} from '@cloudflare/config';
+import { BuildOutputContainerConfigSchema } from '@cloudflare/config';
 import type { CloudflareCommandResult } from '@void/deploy-cloudflare';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { cloudflareCommandDiagnostic } from '../../../deploy-cloudflare/src/diagnostics.ts';
@@ -510,8 +506,15 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
         storage: 'sqlite',
         transfer_from: 'source-worker',
       },
-      LocalJob: { type: 'workflow', name: 'local-workflow' },
-      ExportOnlyJob: { type: 'workflow', name: 'export-only-workflow' },
+      LocalJob: {
+        type: 'workflow',
+        name: 'local-workflow',
+        limits: { steps: 7 },
+        concurrency: { limit: 2 },
+        schedules: ['0 * * * *'],
+        default_retention: { success_retention: '1 day', error_retention: '3 days' },
+      },
+      ExportOnlyJob: { type: 'workflow', name: 'export-only-workflow', limits: { steps: 3 } },
     });
     expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(
       originalWorkerConfig,
@@ -596,22 +599,8 @@ it('converts Container and transfer exports as cf does', () => {
     },
     Entry: { type: 'worker' },
   };
-  // cf's upload: the converter's entries, Worker entrypoints first, then Durable
-  // Objects, then Workflows reduced to their identity.
-  const converted = Object.entries(
-    convertToWranglerConfig({ worker: { exports }, containers: [] } as unknown as ParsedInputConfig)
-      .exports as Record<string, { type: string; name?: string }>,
-  );
-  const fromCf = Object.fromEntries(
-    ['worker', 'durable-object', 'workflow'].flatMap((type) =>
-      converted
-        .filter(([, value]) => value.type === type)
-        .map(([name, value]) => [name, type === 'workflow' ? { type, name: value.name } : value]),
-    ),
-  );
-  expectSameJson(exportsFromOutput(exports, []), fromCf);
-  // What cf sends today, kept readable.
-  expect(fromCf).toEqual({
+  // Order and field names must match cf's wire format, including Workflow settings.
+  expectSameJson(exportsFromOutput(exports, []), {
     Entry: { type: 'worker' },
     Box: { type: 'durable-object', storage: 'sqlite', container: 'box' },
     LegacyBox: { type: 'durable-object', storage: 'legacy-kv' },
@@ -628,7 +617,11 @@ it('converts Container and transfer exports as cf does', () => {
       storage: 'legacy-kv',
       transfer_from: 'source-worker',
     },
-    Flow: { type: 'workflow', name: 'flow' },
+    Flow: {
+      type: 'workflow',
+      name: 'flow',
+      default_retention: { success_retention: 1, error_retention: '2 days' },
+    },
   });
   expect(exportsFromOutput({}, [])).toBeUndefined();
   expect(() =>
@@ -648,6 +641,8 @@ it(
       Job: {
         type: 'workflow',
         name: 'jobs',
+        concurrency: { limit: 2 },
+        schedules: ['0 * * * *'],
         limits: { steps: 3 },
         defaultRetention: { successRetention: '1 day' },
       },
@@ -665,7 +660,7 @@ it(
       },
     };
     writeFileSync(getWorkerConfigPath(prepared.directory), JSON.stringify(worker));
-    const uploads: Array<{ path: string; exports: unknown }> = [];
+    const uploads: Array<{ path: string; exports: unknown; apiDate: string | undefined }> = [];
     const server = createServer(async (request, response) => {
       const chunks: Array<Buffer> = [];
       for await (const chunk of request) {
@@ -680,13 +675,21 @@ it(
           headers: { 'content-type': request.headers['content-type']! },
           body,
         }).formData();
-        uploads.push({ path, exports: JSON.parse(String(form.get('metadata'))).exports });
+        uploads.push({
+          path,
+          exports: JSON.parse(String(form.get('metadata'))).exports,
+          apiDate: request.headers['cloudflare-workers-script-api-date'] as string | undefined,
+        });
         result = { id: '33333333-3333-4333-8333-333333333333', number: 2 };
       } else if (
         request.method === 'POST' &&
         path.endsWith('/workers/workers/void-test/versions')
       ) {
-        uploads.push({ path, exports: JSON.parse(body.toString('utf8')).exports });
+        uploads.push({
+          path,
+          exports: JSON.parse(body.toString('utf8')).exports,
+          apiDate: request.headers['cloudflare-workers-script-api-date'] as string | undefined,
+        });
         result = { id: '22222222-2222-4222-8222-222222222222', urls: [] };
       } else if (path.endsWith('/services/void-test')) {
         result = {
@@ -728,6 +731,7 @@ it(
         verifyUploader: () => true,
       });
       expect(uploads.map(({ path }) => path.split('/').at(-3))).toEqual(['scripts', 'workers']);
+      expect(uploads.map(({ apiDate }) => apiDate)).toEqual(['2026-11-09', '2026-11-09']);
       const [cf, pinned] = uploads.map(({ exports }) => JSON.stringify(exports, null, 2));
       expect(pinned).toBe(cf);
       expect(JSON.parse(pinned!)).toEqual({
@@ -743,7 +747,14 @@ it(
           storage: 'sqlite',
           transfer_from: 'source-worker',
         },
-        Job: { type: 'workflow', name: 'jobs' },
+        Job: {
+          type: 'workflow',
+          name: 'jobs',
+          concurrency: { limit: 2 },
+          schedules: ['0 * * * *'],
+          limits: { steps: 3 },
+          default_retention: { success_retention: '1 day' },
+        },
       });
     } finally {
       prepared.dispose();
@@ -1267,7 +1278,7 @@ it.each([
         await writeContainerConfig({
           root: prepared.directory,
           directoryName: 'scheduler',
-          config: OutputContainerSchema.parse({
+          config: BuildOutputContainerConfigSchema.parse({
             name: 'scheduler',
             image: { reference: 'example.test/image:tag' },
           }),
@@ -1316,7 +1327,7 @@ it('refuses a new imageless Container before version publication', async () => {
     await writeContainerConfig({
       root: prepared.directory,
       directoryName: 'sandbox',
-      config: OutputContainerSchema.parse({ ...built.containers[0].config, images: {} }),
+      config: BuildOutputContainerConfigSchema.parse({ ...built.containers[0].config, images: {} }),
     });
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       Response.json({
@@ -1464,7 +1475,7 @@ async function containerApi(mode: ContainerMode) {
   await writeContainerConfig({
     root: prepared.directory,
     directoryName: 'sandbox',
-    config: OutputContainerSchema.parse({
+    config: BuildOutputContainerConfigSchema.parse({
       ...built.containers[0].config,
       observability: { logs: { enabled: true } },
       ...(mode === 'keys-change'
