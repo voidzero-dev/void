@@ -55,6 +55,36 @@ export const GET = defineHandler(async (c) => {
 
 JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown in [Without React](./image-generation.md#without-react).
 
+## Await rendering
+
+Use `renderOgImage(content, options?)` to await PNG bytes before creating a response. It defaults to 1200 × 630 and accepts the same presets, custom dimensions, and rendering options as `OgImageResponse`:
+
+```ts
+import { renderOgImage } from '@void/image/generate';
+import { defineHandler } from 'void';
+import { html } from 'void/html';
+
+export const GET = defineHandler(async (c) => {
+  try {
+    const png = await renderOgImage(html`<div style="display: flex">Built with Void</div>`, {
+      preset: 'x',
+    });
+    return new Response(png, {
+      headers: {
+        'Content-Type': 'image/png',
+        'Cache-Control': 'public, max-age=86400',
+      },
+    });
+  } catch {
+    return c.text('Image generation failed', 500);
+  }
+});
+```
+
+Unlike `OgImageResponse`, `renderOgImage` returns bytes, not an HTTP response, so it sets no headers or cache policy. Import `RenderOgImageOptions` for rendering options, or `OgImageResponseOptions` for rendering and response options.
+
+`OgImageResponse` starts rendering only when its body is read. Await `renderOgImage` instead when rendering failures need to be caught before your route returns a response. See [Await rendering](./image-generation.md#await-rendering) for body consumption and cancellation behavior.
+
 ## Add the image to a page
 
 Point an `og:image` tag at the route from your page's [`head()`](./pages-routing/head.md):

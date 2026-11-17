@@ -25,6 +25,11 @@ export const GET = defineHandler(
 
 Use `ImageResponse` from the same module for images with explicit `width` and `height`. Both classes use Takumi's WebAssembly renderer.
 
+The response classes render lazily when their body is read. To await completion and handle
+rendering failures before returning an HTTP response, use `renderImage(content, options)` or
+`renderOgImage(content, options?)` from the same module. Both return PNG bytes; set HTTP headers
+and caching on your own `Response`.
+
 For React JSX with `tw`, CSS custom properties, or `textFit`, append `@void/image/react` to
 `compilerOptions.types` in `tsconfig.json`. Alternatively, add
 `import type {} from '@void/image/react'` to an included source file. See

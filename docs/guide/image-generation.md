@@ -138,6 +138,36 @@ An `ImageNode` is a `container` with optional `children`, a `text` node with a `
 
 Import `ImageJsxElement` to type reusable JSX elements and `ImageFont` to type custom font entries. All these types are available from `@void/image/generate`.
 
+## Await rendering
+
+Use `renderImage(content, options)` when you need the PNG bytes, or want to handle rendering failures before returning an HTTP response. It returns a `Promise<Uint8Array>` and accepts the same content and rendering options as `ImageResponse`:
+
+```ts
+import { renderImage } from '@void/image/generate';
+import { defineHandler } from 'void';
+import { html } from 'void/html';
+
+export const GET = defineHandler(async (c) => {
+  try {
+    const png = await renderImage(html`<div style="display: flex">Built with Void</div>`, {
+      width: 800,
+      height: 400,
+    });
+    return new Response(png, {
+      headers: { 'Content-Type': 'image/png' },
+    });
+  } catch {
+    return c.text('Image generation failed', 500);
+  }
+});
+```
+
+Pass response options such as `status` and `headers` to `Response`, not to `renderImage`. The byte API sets no HTTP headers or cache policy. For social preview presets, use [`renderOgImage`](./og-images.md#await-rendering).
+
+`ImageResponse` and `OgImageResponse` are convenient alternatives that render only when their body is read, such as when the server sends the response or you call `arrayBuffer()`. Constructing one does not start rendering. Rendering failures reject body consumption; to catch them inside your route before returning a response, await `renderImage` or `renderOgImage` instead.
+
+Cancelling an unread response body prevents rendering. If rendering has already started, cancellation discards the result but does not interrupt the renderer.
+
 ## Options
 
 The second argument is required and sets the image and the response. Import `RenderImageOptions` for rendering options or `ImageResponseOptions` for rendering and response options from `@void/image/generate`.

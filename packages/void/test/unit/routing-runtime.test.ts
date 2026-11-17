@@ -34,6 +34,7 @@ import {
   createSsrFallback,
   markRouteHandler,
 } from '../../src/runtime/routing/pages.ts';
+import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 import {
   applyAssetCachePolicy,
   createAssetCachePolicy,
@@ -42,7 +43,6 @@ import {
   filterInternalBindings,
   type RuntimeEnvironment,
 } from '../../src/runtime/routing/worker.ts';
-import { markStaticAsset } from '../../src/runtime/routing/static-asset-marker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };

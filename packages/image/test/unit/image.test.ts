@@ -9,6 +9,7 @@ import {
   type ImageNode,
   type ImageResponseOptions,
 } from '../../src/generate/index.ts';
+import * as imageApi from '../../src/generate/index.ts';
 import { interData } from '../../src/generate/inter-font.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
@@ -89,6 +90,114 @@ afterEach(() => {
 });
 
 describe('ImageResponse', () => {
+  it('defers rendering until the body is read, then renders only once', async () => {
+    const component = vi.fn(() => ({ type: 'div', props: { children: 'Lazy' } }));
+    const response = new ImageResponse(
+      { type: component, props: {} },
+      { width: 320, height: 168, fallbackFonts: false },
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(component).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+    const reader = response.body!.getReader();
+    expect(component).not.toHaveBeenCalled();
+    expect((await reader.read()).value!.subarray(0, 8)).toEqual(
+      new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]),
+    );
+    expect(await reader.read()).toEqual({ value: undefined, done: true });
+    expect(component).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not render a body cancelled before reading', async () => {
+    const component = vi.fn(() => ({ type: 'div', props: { children: 'Cancelled' } }));
+    const response = new ImageResponse({ type: component, props: {} }, { width: 320, height: 168 });
+    await response.body!.cancel();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(component).not.toHaveBeenCalled();
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('defers content failures until consumption and preserves the original error', async () => {
+    const error = new Error('invalid content');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const component = vi.fn(() => {
+      throw error;
+    });
+    const response = new ImageResponse({ type: component, props: {} }, { width: 320, height: 168 });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(component).not.toHaveBeenCalled();
+    expect(logged).not.toHaveBeenCalled();
+    await expect(response.arrayBuffer()).rejects.toBe(error);
+    expect(component).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(['resolve', 'reject'] as const)(
+    'handles cancellation during rendering when the renderer later %ss',
+    async (outcome) => {
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      let finish!: () => void;
+      let entered!: () => void;
+      const started = new Promise<void>((resolve) => {
+        entered = resolve;
+      });
+      vi.mocked(render).mockImplementationOnce(() => {
+        entered();
+        return new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) => {
+          finish = () =>
+            outcome === 'resolve'
+              ? resolve(new Uint8Array([1]))
+              : reject(new Error('cancelled render'));
+        });
+      });
+      const response = new ImageResponse(card, {
+        width: 320,
+        height: 168,
+        fallbackFonts: false,
+      });
+      const reader = response.body!.getReader();
+      const reading = reader.read();
+      await started;
+      await reader.cancel();
+      finish();
+      expect(await reading).toEqual({ value: undefined, done: true });
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      expect(logged).not.toHaveBeenCalled();
+    },
+  );
+
+  it('renders a cloned response only once', async () => {
+    const component = vi.fn(() => ({ type: 'div', props: { children: 'Clone' } }));
+    const response = new ImageResponse(
+      { type: component, props: {} },
+      { width: 320, height: 168, fallbackFonts: false },
+    );
+    const clone = response.clone();
+    const [original, copy] = await Promise.all([response.arrayBuffer(), clone.arrayBuffer()]);
+    expect(new Uint8Array(original)).toEqual(new Uint8Array(copy));
+    expect(component).toHaveBeenCalledTimes(1);
+  });
+
+  it('exposes renderImage as an awaitable PNG primitive matching ImageResponse', async () => {
+    const options = { width: 320, height: 168, fallbackFonts: false };
+    const bytes = await imageApi.renderImage(card, options);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes).toEqual(await imageBytes(card, options));
+  });
+
+  it('rejects renderImage before a response is created, without logging', async () => {
+    const error = new Error('render failed');
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(render).mockRejectedValueOnce(error);
+    await expect(
+      imageApi.renderImage(card, {
+        width: 320,
+        height: 168,
+        fallbackFonts: false,
+      }),
+    ).rejects.toBe(error);
+    expect(logged).not.toHaveBeenCalled();
+  });
+
   it('always supplies the WASM renderer instead of selecting the native backend', async () => {
     await imageBytes(card, { width: 320, height: 168, fallbackFonts: false });
     expect(vi.mocked(render).mock.lastCall![1]).toEqual(

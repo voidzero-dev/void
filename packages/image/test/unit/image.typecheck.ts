@@ -3,6 +3,8 @@ import { html, raw, type HtmlEscapedString } from 'void/html';
 import {
   ImageResponse,
   OgImageResponse,
+  renderImage,
+  renderOgImage,
   type ImageFont,
   type ImageInput,
   type ImageJsxElement,
@@ -10,12 +12,28 @@ import {
   type ImageRgbaData,
   type ImageStyle,
   type RenderImageOptions,
+  type RenderOgImageOptions,
+  type OgImageResponseOptions,
 } from '../../src/generate/index.ts';
 
 type ImageResponseInput = ConstructorParameters<typeof ImageResponse>[0];
 type OgImageResponseInput = ConstructorParameters<typeof OgImageResponse>[0];
 
 describe('image response input types', () => {
+  it('exposes awaitable PNG bytes with rendering-only options', () => {
+    expectTypeOf<Parameters<typeof renderImage>[0]>().toEqualTypeOf<ImageInput>();
+    expectTypeOf<Parameters<typeof renderOgImage>[0]>().toEqualTypeOf<ImageInput>();
+    expectTypeOf<ReturnType<typeof renderImage>>().toEqualTypeOf<
+      Promise<Uint8Array<ArrayBuffer>>
+    >();
+    expectTypeOf<ReturnType<typeof renderOgImage>>().toEqualTypeOf<
+      Promise<Uint8Array<ArrayBuffer>>
+    >();
+    expectTypeOf<'headers'>().not.toExtend<keyof RenderImageOptions>();
+    expectTypeOf<'headers'>().not.toExtend<keyof RenderOgImageOptions>();
+    expectTypeOf<'headers'>().toExtend<keyof OgImageResponseOptions>();
+  });
+
   it('uses ImageInput for both constructors', () => {
     expectTypeOf<ImageResponseInput>().toEqualTypeOf<ImageInput>();
     expectTypeOf<OgImageResponseInput>().toEqualTypeOf<ImageInput>();
