@@ -20,8 +20,16 @@ export interface DbSessionAccess {
 export function createD1SessionAccess(bindingName: string): DbSessionAccess {
   const key = {};
 
-  function state(): DbRequestSession {
-    return getRuntimeRequestResource(key, () => ({ start: 'first-unconstrained' }));
+  function state(helper: 'setSession' | 'getBookmark'): DbRequestSession {
+    return getRuntimeRequestResource(
+      key,
+      () => ({ start: 'first-unconstrained' }),
+      () => {
+        throw new Error(
+          `db: ${helper}() requires Void's request scope. In framework-owned handlers, use createDb(binding, { session }) and getBookmark(client).`,
+        );
+      },
+    );
   }
 
   return {
@@ -39,7 +47,7 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
     },
 
     setSession(start) {
-      const current = state();
+      const current = state('setSession');
       // Nested middleware may have no bookmark of its own. Its fallback must
       // not discard the outer requirement, even before the first DB access.
       if (start === 'first-unconstrained') {
@@ -74,7 +82,7 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
         return session.getBookmark();
       }
       // Inspect only: middleware on a route without database queries must not open a session.
-      return state().session?.getBookmark() ?? null;
+      return state('getBookmark').session?.getBookmark() ?? null;
     },
   };
 }

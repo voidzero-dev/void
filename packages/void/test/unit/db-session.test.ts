@@ -418,11 +418,31 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     ]);
   });
 
-  it('requires a Void request scope for the default-session middleware helpers', async () => {
-    const { getBookmark, setSession } = await loadClient();
-    expect(() => setSession(AFTER_SAVE)).toThrow('outside a runtime handler');
-    expect(() => getBookmark()).toThrow('outside a runtime handler');
-  });
+  it.each([false, true])(
+    'explains default-session helpers outside request scope (bindings available: %s)',
+    async (withBindings) => {
+      const { db, getBookmark, setSession } = await loadClient();
+      const { withSession, env } = mockBinding();
+      const guidance =
+        'In framework-owned handlers, use createDb(binding, { session }) and getBookmark(client).';
+      const check = () => {
+        for (const start of [AFTER_SAVE, 'first-unconstrained']) {
+          expect(() => setSession(start)).toThrow(
+            `db: setSession() requires Void's request scope. ${guidance}`,
+          );
+        }
+        for (const inspect of [() => getBookmark(), () => getBookmark(db)]) {
+          expect(inspect).toThrow(`db: getBookmark() requires Void's request scope. ${guidance}`);
+        }
+      };
+      if (withBindings) {
+        envContext.run(env, check);
+      } else {
+        check();
+      }
+      expect(withSession).not.toHaveBeenCalled();
+    },
+  );
 
   it('reads an explicit client bookmark without a Void request scope', async () => {
     const { createDb, getBookmark } = await loadClient();
