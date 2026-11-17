@@ -1,13 +1,13 @@
 import { type ChildProcess } from 'node:child_process';
-import {} from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  buildPlayground,
+  createIsolatedPlayground,
+  restorePlaygroundBuild,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
@@ -23,6 +23,7 @@ import {
 type NavElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+const playground = createIsolatedPlayground(ROOT, 'playground/svelte-pages');
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
@@ -33,7 +34,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await browser?.close();
+  try {
+    await browser?.close();
+  } finally {
+    playground.cleanup();
+  }
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -126,7 +131,7 @@ describe('svelte-pages client (dev)', () => {
 
   beforeAll(async () => {
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'dev', port)),
+      (port) => (child = spawnFixtureServer(playground.root, 'dev', port)),
       20_000,
     );
     DEV_BASE = server.base;
@@ -150,8 +155,8 @@ describe('svelte-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(ROOT, 'playground/svelte-pages/pages/blog/_Counter.svelte'),
-    islandFile: join(ROOT, 'playground/svelte-pages/pages/blog/index.island.svelte'),
+    counterFile: join(playground.root, 'pages/blog/_Counter.svelte'),
+    islandFile: join(playground.root, 'pages/blog/index.island.svelte'),
     hmrKeepsState: false,
   });
 });
@@ -160,10 +165,10 @@ describe('svelte-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    buildPlayground(ROOT, 'svelte-pages');
+    restorePlaygroundBuild(ROOT, 'svelte-pages', playground.root);
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(playground.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;
