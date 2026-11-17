@@ -40,6 +40,7 @@ const sdkPgliteUnitTests = [
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
 const e2eWorkerEnv = {
+  VOID_TEST_FRESH_BUILDS: process.env.VOID_TEST_FRESH_BUILDS ?? '',
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
   VOID_E2E_CF_ACCOUNT_ID: process.env.VOID_E2E_CF_ACCOUNT_ID ?? '',

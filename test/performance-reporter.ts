@@ -54,6 +54,7 @@ export default class PerformanceReporter implements Reporter {
           recordedAt: new Date().toISOString(),
           durationMs: performance.now() - this.started,
           publicBuildMilliseconds: this.vitest?.getProvidedContext().publicBuildMilliseconds,
+          fixtureTaskCache: process.env.VOID_TEST_FRESH_BUILDS === '1' ? 'disabled' : 'enabled',
           reason,
           unhandledErrors: errors.length,
           machine: {

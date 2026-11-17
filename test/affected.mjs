@@ -1,10 +1,10 @@
-import { spawnSync } from 'node:child_process';
 import { globSync, readFileSync, realpathSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
 import { deletedFiles, planAffectedTests } from './affected-tests.ts';
 import { createAffectedVcsProvider } from './affected-vcs.ts';
+import { preparePublicPackages } from './build-setup.ts';
 
 async function runAffected(root, values) {
   root = realpathSync(root);
@@ -37,19 +37,10 @@ async function runAffected(root, values) {
     console.log('Documentation-only changes: no runtime tests selected. Verify docs separately.');
     return;
   }
+  let publicBuildMilliseconds;
   if (initial.build && !values.list) {
     console.log('Refreshing public package builds before testing their installed exports.');
-    const build = spawnSync('vp', ['run', 'build'], {
-      cwd: root,
-      stdio: 'inherit',
-      shell: process.platform === 'win32',
-    });
-    if (build.error) {
-      throw build.error;
-    }
-    if (build.status !== 0) {
-      throw new Error(`Public package build failed (${build.status ?? build.signal}).`);
-    }
+    publicBuildMilliseconds = await preparePublicPackages(root);
   }
   console.log('Initializing Vitest and discovering test files...');
   const { createVitest } = await import('vite-plus/test/node');
@@ -62,6 +53,9 @@ async function runAffected(root, values) {
       ? { project: ['unit', 'unit-pglite', 'cli-unit', 'platform-unit', 'platform-unit-pglite'] }
       : {}),
   });
+  if (publicBuildMilliseconds !== undefined) {
+    vitest.provide('publicBuildMilliseconds', publicBuildMilliseconds);
+  }
   try {
     const all = await vitest.globTestSpecifications();
     if (!all.length) {

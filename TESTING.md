@@ -154,11 +154,15 @@ Capture machine information, per-file phases, and individual test durations with
 ```sh
 vp run test:benchmark --outputFile=/tmp/void-test-baseline.json
 vp run test:benchmark packages/react/test/integration --outputFile=/tmp/void-react-tests.json
+VOID_TEST_FRESH_BUILDS=1 vp run test:benchmark --outputFile=/tmp/void-fresh-fixtures.json
 ```
 
 The reporter is opt-in and never skips tests. Keep the same selection, toolchain, cache state,
 and machine load when comparing reports. Per-file and per-case durations overlap when tests
 run concurrently; their sums are work estimates, not elapsed time or additive savings.
+`VOID_TEST_FRESH_BUILDS=1` bypasses fixture build caching while preserving the same test selection
+and assertions. Public package preparation still uses its task cache; use
+`vp run --no-cache build` separately when measuring a fresh SDK build too.
 
 Vitest 5's import diagnostics are opt-in so ordinary runs stay quiet:
 
