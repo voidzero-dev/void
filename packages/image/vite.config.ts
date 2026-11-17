@@ -2,7 +2,7 @@ import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
   pack: {
-    entry: { generate: 'src/generate/index.ts' },
+    entry: { generate: 'src/generate/index.ts', react: 'src/react.ts' },
     format: 'esm',
     dts: true,
     clean: true,
