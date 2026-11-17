@@ -313,6 +313,9 @@
         "require": "./dist/runtime/env/public.mjs"
       }
     },
+    "./_route-url-types": {
+      "types": "./dist/runtime/routing/route-url.d.mts"
+    },
     "./_env": {
       "types": "./dist/runtime/env/runtime.d.mts",
       "import": "./dist/runtime/env/runtime.mjs",

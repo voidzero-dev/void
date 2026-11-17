@@ -1,11 +1,20 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { chromium } from 'playwright';
-import { build } from 'vite';
+import { build, transformWithOxc } from 'vite';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
@@ -484,7 +493,7 @@ describe('standalone routeUrl utility', () => {
     async (declarations) => {
       const root = await createFixture({
         extraFiles: {
-          'check-compatibility.ts': `import { routeUrl, type RouteDestination, type RouteOptions } from 'void/routes';
+          'check-compatibility.ts': `import { routeUrl, type RouteDestination, type RouteOptions, type RoutePath } from 'void/routes';
 function userUrl<T extends string | number>(id: T) {
   return routeUrl('/users/[id]', { params: { id } });
 }
@@ -500,6 +509,9 @@ function forwardDestination<T extends RouteDestination<'/users/[id]'>>(destinati
 function forwardArgs(...args: Parameters<typeof routeUrl<'/users/[id]'>>) {
   return routeUrl(...args);
 }
+function forwardGenericArgs<P extends RoutePath>(...args: Parameters<typeof routeUrl<P>>) {
+  return routeUrl(...args);
+}
 forwardArgs('/users/[id]', { params: { id: 42 } });
 const user = { id: 42, name: 'Alice' };
 routeUrl('/users/[id]', { params: user });
@@ -511,11 +523,97 @@ const destination: RouteDestination<'/users/[id]'> = {
 routeUrl('/users/[id]', destination);
 const staticDestination: RouteDestination<'/about'> = { pathname: '/about' };
 routeUrl('/about', staticDestination);
-void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forwardArgs];
+void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs];
 `,
         },
       });
       expect(typecheck(root, declarations, ['check-compatibility.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
+    'retains URL checks after an SDK upgrade without regenerating the %s declarations',
+    async (declarations) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-route-upgrade-'));
+      roots.push(root);
+      const outDir = join(root, '.void');
+      const packageLink = join(root, 'node_modules/void');
+      mkdirSync(outDir, { recursive: true });
+      const manifest = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
+      const generatorCode = (
+        await transformWithOxc(
+          readFileSync(join(packageRoot, 'src/codegen/route-types.ts'), 'utf8'),
+          'route-types.ts',
+        )
+      ).code;
+      function createSdkVersion(version: string): string {
+        const directory = join(root, 'node_modules/.pnpm', `void@${version}/node_modules/void`);
+        mkdirSync(join(directory, 'src/codegen'), { recursive: true });
+        cpSync(join(packageRoot, 'dist'), join(directory, 'dist'), { recursive: true });
+        symlinkSync(join(packageRoot, 'node_modules'), join(directory, 'node_modules'), 'junction');
+        writeFileSync(join(directory, 'src/codegen/route-types.mjs'), generatorCode);
+        writeFileSync(join(directory, 'package.json'), JSON.stringify({ ...manifest, version }));
+        return directory;
+      }
+      const oldSdk = createSdkVersion('1.9.1');
+      const newSdk = createSdkVersion('1.9.2');
+      symlinkSync(oldSdk, packageLink, 'junction');
+      writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+      const generator = pathToFileURL(join(oldSdk, 'src/codegen/route-types.mjs')).href;
+      const generation = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import { generateRouteTypes } from ${JSON.stringify(generator)};
+const scan = { routes: [
+  { pattern: '/about', params: [], methods: [] },
+  { pattern: '/users/:id', params: ['id'], methods: [] },
+], pages: { pages: [] } };
+process.stdout.write(generateRouteTypes(scan, ${JSON.stringify(join(root, 'routes'))}, ${JSON.stringify(outDir)}, undefined, { typedRoutes: true }).dts);`,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect({ status: generation.status, errors: generation.stderr }).toEqual({
+        status: 0,
+        errors: '',
+      });
+      const routeTypesPath = join(outDir, 'routes.d.ts');
+      writeFileSync(routeTypesPath, generation.stdout);
+      writeFileSync(
+        join(outDir, 'tsconfig.json'),
+        JSON.stringify(createProjectTsconfig(root, true)),
+      );
+      writeFileSync(
+        join(root, 'check-upgrade.ts'),
+        `import { routeUrl, type Href } from 'void/routes';
+const href: Href = routeUrl('/users/[id]', { params: { id: 42 } });
+routeUrl('/about');
+// @ts-expect-error unknown route patterns remain checked
+routeUrl('/missing');
+// @ts-expect-error required params remain checked
+routeUrl('/users/[id]');
+// @ts-expect-error param values remain checked
+routeUrl('/users/[id]', { params: { id: true } });
+// @ts-expect-error raw URLs retain their existing route checks
+const unknown: Href = '/missing';
+void [href, unknown];
+`,
+      );
+      expect(typecheck(root, declarations, ['check-upgrade.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+
+      rmSync(packageLink, { force: true, recursive: true });
+      symlinkSync(newSdk, packageLink, 'junction');
+      rmSync(oldSdk, { force: true, recursive: true });
+
+      expect(readFileSync(routeTypesPath, 'utf8')).toBe(generation.stdout);
+      expect(typecheck(root, declarations, ['check-upgrade.ts'])).toEqual({
         output: '',
         status: 0,
       });

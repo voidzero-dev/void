@@ -1,5 +1,4 @@
-import { fileURLToPath } from 'node:url';
-import { isAbsolute, relative } from 'pathslash';
+import { relative } from 'pathslash';
 import type { RouteDefinition } from '../router/parse-filename.ts';
 import type { ScanResult } from '../router/scan.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
@@ -140,17 +139,9 @@ export function generateRouteTypes(
   lines.push('  export interface WebSocketRouteMap {}');
   lines.push('  export interface PageActionMap {}');
   lines.push('');
-  // Keep URL contracts and diagnostics in the runtime declarations. Referencing
-  // void/routes here would be circular when this file augments that package entry.
-  const sdkRoutesPath = relative(
-    outDir,
-    fileURLToPath(import.meta.resolve('#self/runtime/route-url')),
-  );
-  const sdkRoutesModule = JSON.stringify(
-    isAbsolute(sdkRoutesPath) || sdkRoutesPath.startsWith('.')
-      ? sdkRoutesPath
-      : `./${sdkRoutesPath}`,
-  );
+  // A bare types-only entry follows the installed SDK through upgrades.
+  // void/routes would be circular because this file augments that entry.
+  const sdkRoutesModule = JSON.stringify('void/_route-url-types');
   for (const name of [
     'RoutePath',
     'RouteQueryValue',

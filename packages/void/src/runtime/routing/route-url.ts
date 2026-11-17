@@ -233,7 +233,7 @@ export function routeUrl<
         >
     ),
   ...args: [A] extends [never]
-    ? RouteUrlArgs<Extract<RoutePath, NoInfer<P>>>
+    ? RouteUrlArgs<NoInfer<P> & RoutePath>
     : A &
         [options?: RouteUrlOptionsInput<Extract<NoInfer<P>, RoutePath>>] &
         UrlTypeError<RouteUrlOptionsError<NoInfer<P>, NoInfer<A>[0]>>
