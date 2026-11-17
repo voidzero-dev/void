@@ -30,6 +30,7 @@ import {
   writeJournal,
 } from '../migrations/collect.ts';
 import type { MySqlClient } from '../migrations/runner-mysql.ts';
+import type { SqliteDatabase, SqliteStatement } from '../migrations/runner.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
@@ -823,7 +824,8 @@ async function runSeed(
  * in either form, because PostgreSQL executes the analyzed statement.
  */
 function isSafeStatement(sql: string): boolean {
-  const stripped = stripSqlDecoration(sql);
+  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  const stripped = decommented.replace(/;\s*$/, '');
   if (stripped.includes(';')) {
     return false;
   }
@@ -843,20 +845,25 @@ function isSafeStatement(sql: string): boolean {
   return false;
 }
 
-/** Strip comments and a trailing semicolon so statement classification ignores decoration. */
-function stripSqlDecoration(sql: string): string {
-  return sql
-    .replace(/\/\*[\s\S]*?\*\//g, ' ')
-    .replace(/--[^\n]*/g, ' ')
-    .replace(/;\s*$/, '');
-}
-
 /**
- * True when `sql` holds more than one statement. This reads a semicolon inside a literal as a
- * second statement, which only costs a script-style run.
+ * Prepare one statement. better-sqlite3 refuses SQL that holds no statement or more than one
+ * with a `RangeError`, before it runs anything (`src/objects/statement.cpp`). Those are the
+ * only errors this call can raise that way, so the caller runs the same text through
+ * `exec()`, which handles a script and reports no rows. Execution errors never come back
+ * here, so nothing is replayed.
  */
-function hasMultipleStatements(sql: string): boolean {
-  return stripSqlDecoration(sql).includes(';');
+function prepareSingleStatement(
+  db: SqliteDatabase,
+  sql: string,
+): SqliteStatement<Record<string, unknown>> | undefined {
+  try {
+    return db.prepare<Record<string, unknown>>(sql);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -1107,26 +1114,19 @@ async function runExecute(
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    try {
-      const statement = db.prepare(sql);
+    const statement = prepareSingleStatement(db, sql);
+    if (!statement) {
+      db.exec(sql);
+    } else if (statement.reader) {
       // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
       // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
       // target.
-      if (statement.reader) {
-        const rows = statement.all() as Array<Record<string, unknown>>;
-        if (rows.length > 0) {
-          printTable(rows);
-        }
-      } else {
-        statement.run();
+      const rows = statement.all();
+      if (rows.length > 0) {
+        printTable(rows);
       }
-    } catch (error) {
-      // prepare() takes one statement at a time and exec() reports nothing back, so a
-      // script runs without printed results.
-      if (!hasMultipleStatements(sql)) {
-        throw error;
-      }
-      db.exec(sql);
+    } else {
+      statement.run();
     }
   } finally {
     db.close();

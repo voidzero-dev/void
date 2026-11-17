@@ -5,7 +5,7 @@ import { hasPackageDependency, readNearestPackageJson } from '../shared/package-
 import { collectMigrations } from './collect.ts';
 import { classifyMigration } from './plan.ts';
 
-type SqliteStatement<T = unknown> = {
+export type SqliteStatement<T = unknown> = {
   /** True when the statement returns rows (SELECT, PRAGMA reads, EXPLAIN, RETURNING). */
   readonly reader: boolean;
   get(...params: Array<unknown>): T | undefined;
@@ -18,7 +18,7 @@ type SqliteTransaction<T = unknown> = {
   immediate(): T;
 };
 
-type SqliteDatabase = {
+export type SqliteDatabase = {
   prepare<T = unknown>(sql: string): SqliteStatement<T>;
   exec(sql: string): void;
   close(): void;

@@ -697,6 +697,76 @@ describe('void db execute', () => {
     expect(tableOutput()).toMatch(/items_touch/);
   });
 
+  it('SQLite: runs a script whose literals hold comment markers', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command:
+        "INSERT INTO items (name) VALUES ('--');\nINSERT INTO items (name) VALUES ('plain--');",
+    });
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO items (name) VALUES ('/*');\nINSERT INTO items (name) VALUES ('*/');",
+    });
+
+    expect(tableOutput()).toBe('');
+    await runDbCommand(root, { action: 'execute', command: 'SELECT name FROM items ORDER BY id' });
+    expect(tableOutput()).toContain('plain--');
+    expect(tableOutput()).toContain('/*');
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      const rows = db.prepare('SELECT name FROM items ORDER BY id').all() as Array<{
+        name: string;
+      }>;
+      expect(rows.map((row) => row.name)).toEqual(['--', 'plain--', '/*', '*/']);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SQLite: a failing single statement runs once', async () => {
+    const root = await createLocalSqliteProject();
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'CREATE TABLE counters (id INTEGER PRIMARY KEY, hits INTEGER, label TEXT UNIQUE)',
+    });
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO counters (id, hits, label) VALUES (1, 0, 'one'), (2, 0, 'two')",
+    });
+
+    await expect(
+      runDbCommand(root, {
+        action: 'execute',
+        command: "UPDATE OR FAIL counters SET hits = hits + 1, label = 'done;x' WHERE id IN (1, 2)",
+      }),
+    ).rejects.toThrow(/UNIQUE constraint failed/);
+
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      const rows = db.prepare('SELECT id, hits, label FROM counters ORDER BY id').all();
+      // FAIL keeps the row it already updated, and the failed statement is not replayed.
+      expect(rows).toEqual([
+        { id: 1, hits: 1, label: 'done;x' },
+        { id: 2, hits: 0, label: 'two' },
+      ]);
+    } finally {
+      db.close();
+    }
+  });
+
+  it('SQLite: SQL without a statement is a no-op', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, { action: 'execute', command: '-- nothing to run' });
+
+    expect(tableOutput()).toBe('');
+    expect(mockLog.error).not.toHaveBeenCalled();
+  });
+
   it('SQLite: prints no table for writes, DDL and empty results', async () => {
     const root = await createLocalSqliteProject();
 
