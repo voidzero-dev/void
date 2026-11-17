@@ -871,7 +871,7 @@ describe('routingPlugin', () => {
       configFile: false,
       logLevel: 'silent',
       plugins: [createRoutingPlugin(root, { isAuthEnabled: () => true })],
-      optimizeDeps: { noDiscovery: true },
+      optimizeDeps: { noDiscovery: true, exclude: ['better-auth'] },
       server: { middlewareMode: true, ws: false, watch: null, preTransformRequests: false },
     });
     try {

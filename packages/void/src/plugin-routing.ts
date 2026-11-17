@@ -418,20 +418,10 @@ export function routingPlugin(
   let isrPages: Array<{ pattern: string; revalidate?: number }> | undefined;
   let isrPathRevalidate: Record<string, number> | undefined;
 
-  function resolveAuthClientPath(config: import('vite').ResolvedConfig): string {
-    if (config.plugins.some((plugin) => plugin.name === 'void-react:pages')) {
-      return explicitAuthClientPaths.react;
-    }
-    if (config.plugins.some((plugin) => plugin.name === 'void-vue:pages')) {
-      return explicitAuthClientPaths.vue;
-    }
-    if (config.plugins.some((plugin) => plugin.name === 'void-svelte:pages')) {
-      return explicitAuthClientPaths.svelte;
-    }
-    if (config.plugins.some((plugin) => plugin.name === 'void-solid:pages')) {
-      return explicitAuthClientPaths.solid;
-    }
-    return join(authRuntimeDir, 'client.mjs');
+  function resolveAuthClientFramework(config: import('vite').ResolvedConfig) {
+    return (['react', 'vue', 'svelte', 'solid'] as const).find((framework) =>
+      config.plugins.some((plugin) => plugin.name === `void-${framework}:pages`),
+    );
   }
 
   function getClientAuthPath(id: string): string {
@@ -710,10 +700,25 @@ export function routingPlugin(
     enforce: 'pre',
     configResolved(config) {
       resolvedConfig = config;
-      authClientPath = resolveAuthClientPath(config);
+      const authClientFramework = resolveAuthClientFramework(config);
+      authClientPath = authClientFramework
+        ? explicitAuthClientPaths[authClientFramework]
+        : join(authRuntimeDir, 'client.mjs');
       // `vite preview` reports `command: 'serve'` but runs the built bundle,
       // so it never compiles the route table as dev.
       compileOptions.dev = config.command === 'serve' && !previewing;
+      const clientOptimizer = config.environments?.client?.optimizeDeps;
+      if (compileOptions.dev && options.isAuthEnabled() && clientOptimizer) {
+        const specifier = `better-auth/${authClientFramework ?? 'client'}`;
+        const excluded = clientOptimizer.exclude?.some(
+          (dependency) => specifier === dependency || specifier.startsWith(`${dependency}/`),
+        );
+        if (!excluded) {
+          // Virtual auth imports are invisible to the initial dependency scan.
+          clientOptimizer.include ??= [];
+          clientOptimizer.include.push(specifier);
+        }
+      }
       compileOptions.assetsDir = config.build.assetsDir;
       compileOptions.cloudflareQueueNames =
         config.command === 'build' ? readDeployBuildQueueNames() : undefined;
