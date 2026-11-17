@@ -135,6 +135,25 @@ Playground preparation validates its own cached build without restoring those sh
 again while other workers are using them. Source-mutating build regressions still execute their
 build commands directly.
 
+Reusable application inputs live in `test/fixtures`. Their adapter's Vite+ config declares an
+uncached input-preparation task and a cached build task. For example:
+
+```sh
+vp run '@void/react#build:test:islands'
+vp run build:test-fixtures
+```
+
+Each named fixture has one test-file owner. Compatible contracts in that file can share a lazy
+`buildFixture()` result and clean it up in `afterAll`; runtime copies have their own source and
+storage directories. Only immutable build artifacts are shared. Keep variants that assert
+the absence of CSS, JavaScript, or regular Pages entries separate from fixtures that include
+those features. Build-behavior regressions continue to invoke real fresh builds.
+
+The materializer owns its generated directory and refuses to replace an unrelated application.
+It replaces authored inputs, including removed routes, before Vite Task validates the cached
+output. The build-cache integration contract covers edits, additions, deletions, environment
+files, failed builds, and restoring missing artifacts.
+
 Persistent `fsModuleCache` is enabled to reuse transformations across invocations. It does not
 cache test results or remove per-file module isolation. The first run primes it; compare repeated
 runs with the same selection and machine load. For a control use `--no-fsModuleCache`; use

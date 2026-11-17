@@ -95,6 +95,19 @@ export default defineConfig({
       },
       'build:core': { command: [], dependsOn: ['void#build'] },
       'build:platform': { command: [], dependsOn: ['@voidcloud/dashboard#build'] },
+      'build:test-fixtures': {
+        command: [],
+        dependsOn: [
+          '@void/react#build:test:islands',
+          '@void/react#build:test:bare',
+          '@void/react#build:test:markdown-scripts',
+          '@void/vue#build:test:islands',
+          '@void/svelte#build:test:islands',
+          '@void/svelte#build:test:mixed',
+          '@void/solid#build:test:islands',
+          '@void/solid#build:test:hydration',
+        ],
+      },
       test: { command: 'node test/affected.mjs', cache: false },
       'test:benchmark': {
         command: 'vp test run --reporter=default --reporter=./test/performance-reporter.ts',

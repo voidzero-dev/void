@@ -5,49 +5,10 @@ import { preview, type PreviewServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from './browser-helpers.ts';
 import type { BuiltFixture } from './fixture-app.ts';
-import { buildIslandApp } from './island-css-build.ts';
 
-export function definePrivatePagesBuildTest(
-  app:
-    | {
-        packageDir: string;
-        pluginName: 'voidReact' | 'voidSolid';
-        counter: string;
-      }
-    | { build: () => BuiltFixture },
-): void {
+export function definePrivatePagesBuildTest(app: { build: () => BuiltFixture }): void {
   it('excludes private helpers from the Pages client and hydrates explicit private islands', async () => {
-    const supplied = 'build' in app;
-    const classAttribute = !supplied && app.pluginName === 'voidReact' ? 'className' : 'class';
-    const build = supplied
-      ? app.build()
-      : buildIslandApp({
-          packageDir: app.packageDir,
-          pluginName: app.pluginName,
-          files: {
-            'tsconfig.json': JSON.stringify({
-              compilerOptions: {
-                jsx: app.pluginName === 'voidReact' ? 'react-jsx' : 'preserve',
-                jsxImportSource: app.pluginName === 'voidReact' ? 'react' : 'solid-js',
-              },
-            }),
-            'pages/_ui/frame.tsx': `import './frame.css';
-export function Frame(props) {
-  return <main ${classAttribute}="private-frame" data-frame="575_SERVER_FRAME">{props.children}</main>;
-}`,
-            'pages/_ui/frame.css': '.private-frame { outline-offset: 11px; }',
-            'pages/_ui/counter.tsx': app.counter,
-            'pages/_layouts/docs.tsx': `import './docs.css';
-export default function Docs(props) {
-  return <section ${classAttribute}="private-layout" data-layout="docs">{props.children}</section>;
-}`,
-            'pages/_layouts/docs.css': '.private-layout { word-spacing: 3px; }',
-            'pages/index.island.tsx': `import { Frame } from './_ui/frame';
-import Counter from './_ui/counter' with { island: 'load' };
-export const layout = 'docs';
-export default function Home() { return <Frame><Counter /></Frame>; }`,
-          },
-        });
+    const build = app.build();
     let server: PreviewServer | undefined;
     let browser: Browser | undefined;
     try {
@@ -60,7 +21,7 @@ export default function Home() { return <Frame><Counter /></Frame>; }`,
       expect(Object.values(manifest)).toContainEqual(
         expect.objectContaining({ name: 'islands-client', isEntry: true }),
       );
-      const pageFile = supplied ? 'private.html' : 'index.html';
+      const pageFile = 'private.html';
       const { html, css } = build.page(pageFile);
       expect(html).toContain('data-frame="575_SERVER_FRAME"');
       expect(html).toContain('data-layout="docs"');
@@ -95,9 +56,6 @@ export default function Home() { return <Frame><Counter /></Frame>; }`,
     } finally {
       await browser?.close();
       await server?.close();
-      if (!supplied) {
-        build.cleanup();
-      }
     }
   }, 120_000);
 }
