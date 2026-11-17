@@ -1015,69 +1015,71 @@ it('imports large D1 SQL without putting its contents in process arguments', asy
   ]);
 }, 30_000);
 
-it('uses the configured HTTP proxy for cf resource requests', async () => {
-  const directory = temporaryDirectory('void-cf-resource-proxy-');
-  let proxied = 0;
-  let queried = 0;
-  const api = await listen(
-    createServer((request, response) => {
-      queried++;
-      expect(request.url).toBe('/client/v4/accounts/test-account/d1/database/test-database/query');
-      response.setHeader('Content-Type', 'application/json');
-      response.end(JSON.stringify({ success: true, result: [{ results: [], success: true }] }));
-    }),
-  );
-  const proxy = createServer((request, response) => {
-    proxied++;
-    const upstream = httpRequest(
-      request.url!,
-      { method: request.method, headers: request.headers },
-      (upstreamResponse) => {
-        response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
-        upstreamResponse.pipe(response);
+it.each(['', '127.0.0.1'])(
+  'uses the configured HTTP proxy with NO_PROXY=%j',
+  async (noProxy) => {
+    const directory = temporaryDirectory('void-cf-resource-proxy-');
+    let proxied = 0;
+    let queried = 0;
+    const api = await listen(
+      createServer((request, response) => {
+        queried++;
+        expect(request.url).toBe(
+          '/client/v4/accounts/test-account/d1/database/test-database/query',
+        );
+        response.setHeader('Content-Type', 'application/json');
+        response.end(JSON.stringify({ success: true, result: [{ results: [], success: true }] }));
+      }),
+    );
+    const proxy = createServer((request, response) => {
+      proxied++;
+      const upstream = httpRequest(
+        request.url!,
+        { method: request.method, headers: request.headers },
+        (upstreamResponse) => {
+          response.writeHead(upstreamResponse.statusCode ?? 502, upstreamResponse.headers);
+          upstreamResponse.pipe(response);
+        },
+      );
+      request.pipe(upstream);
+      upstream.on('error', () => response.destroy());
+    });
+    proxy.on('connect', (request, socket, head) => {
+      proxied++;
+      const [host, port] = request.url!.split(':');
+      const upstream = connect(Number(port), host!, () => {
+        socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
+        if (head.length) {
+          upstream.write(head);
+        }
+        socket.pipe(upstream).pipe(socket);
+      });
+      upstream.on('error', () => socket.destroy());
+    });
+    const proxyUrl = await listen(proxy);
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        account_id: 'test-account',
+        d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+      }),
+    );
+    const output = await runOperation(
+      directory,
+      { type: 'd1.execute', database: 'DB', sql: 'SELECT 1', configPath },
+      {
+        ...tokenEnv(api, 'CF_API_TOKEN'),
+        HTTP_PROXY: proxyUrl,
+        NO_PROXY: noProxy,
       },
     );
-    request.pipe(upstream);
-    upstream.on('error', () => response.destroy());
-  });
-  proxy.on('connect', (request, socket, head) => {
-    proxied++;
-    const [host, port] = request.url!.split(':');
-    const upstream = connect(Number(port), host!, () => {
-      socket.write('HTTP/1.1 200 Connection Established\r\n\r\n');
-      if (head.length) {
-        upstream.write(head);
-      }
-      socket.pipe(upstream).pipe(socket);
-    });
-    upstream.on('error', () => socket.destroy());
-  });
-  const proxyUrl = await listen(proxy);
-  const configPath = join(directory, 'wrangler.json');
-  writeFileSync(
-    configPath,
-    JSON.stringify({
-      account_id: 'test-account',
-      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
-    }),
-  );
-  const output = await runOperation(
-    directory,
-    { type: 'd1.execute', database: 'DB', sql: 'SELECT 1', configPath },
-    {
-      ...process.env,
-      CF_API_TOKEN: 'synthetic-token',
-      CLOUDFLARE_ACCOUNT_ID: 'test-account',
-      CLOUDFLARE_API_BASE_URL: `${api}/client/v4`,
-      HTTP_PROXY: proxyUrl,
-      HTTPS_PROXY: '',
-      NO_PROXY: '',
-    },
-  );
-  expect(output.status, output.stderr).toBe(0);
-  expect(queried).toBe(1);
-  expect(proxied).toBe(1);
-}, 30_000);
+    expect(output.status, output.stderr).toBe(0);
+    expect(queried).toBe(1);
+    expect(proxied).toBe(noProxy ? 0 : 1);
+  },
+  30_000,
+);
 
 it.each([401, 403, 404, 503])(
   'stops a prebuilt platform upload before cf can provision an unavailable R2 bucket (HTTP %s)',

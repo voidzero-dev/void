@@ -4,11 +4,11 @@ Overview of the latest saved benchmark reports. Lower is better except throughpu
 
 ## Benchmarks
 
-| Benchmark | Measured (UTC) | Data |
-| --- | --- | --- |
-| [baseline-void](./baseline-void/report.md) | 2026-11-17T03:17:44.865Z | [report.json](./baseline-void/report.json) |
-| [baseline-workers](./baseline-workers/report.md) | 2026-11-17T03:04:55.867Z | [report.json](./baseline-workers/report.json) |
-| [image-response](./image-response/report.md) | 2026-11-17T06:59:17.908Z | [report.json](./image-response/report.json) |
+| Benchmark                                              | Measured (UTC)           | Data                                             |
+| ------------------------------------------------------ | ------------------------ | ------------------------------------------------ |
+| [baseline-void](./baseline-void/report.md)             | 2026-11-17T03:17:44.865Z | [report.json](./baseline-void/report.json)       |
+| [baseline-workers](./baseline-workers/report.md)       | 2026-11-17T03:04:55.867Z | [report.json](./baseline-workers/report.json)    |
+| [image-response](./image-response/report.md)           | 2026-11-17T06:59:17.908Z | [report.json](./image-response/report.json)      |
 | [image-response-bare](./image-response-bare/report.md) | 2026-11-17T04:18:13.658Z | [report.json](./image-response-bare/report.json) |
 
 ## Bundle size
@@ -50,12 +50,12 @@ xychart-beta horizontal
 
 #### Values
 
-| Benchmark / workload | Raw | Gzip |
-| --- | --- | --- |
-| baseline-void | 142.649 KB | 39.872 KB |
-| baseline-workers | 0.187 KB | 0.161 KB |
-| image-response | 5,077.982 KB | 2,342.532 KB |
-| image-response-bare | 5,076.039 KB | 2,341.931 KB |
+| Benchmark / workload | Raw          | Gzip         |
+| -------------------- | ------------ | ------------ |
+| baseline-void        | 142.649 KB   | 39.872 KB    |
+| baseline-workers     | 0.187 KB     | 0.161 KB     |
+| image-response       | 5,077.982 KB | 2,342.532 KB |
+| image-response-bare  | 5,076.039 KB | 2,341.931 KB |
 
 #### Methodology
 
@@ -132,12 +132,12 @@ xychart-beta horizontal
 
 #### Values
 
-| Benchmark / workload | Build | Upload | Worker startup | `cf deploy` |
-| --- | --- | --- | --- | --- |
-| baseline-void | 139.2 ms | 7,543 ms | 5.9 ms | 13,680.044 ms |
-| baseline-workers | 8.833 ms | 4,930.333 ms | 2.167 ms | 8,411.52 ms |
-| image-response | 211.167 ms | 8,795.667 ms | 5.4 ms | 15,283.349 ms |
-| image-response-bare | 203.867 ms | 8,592.333 ms | 4.433 ms | 14,963.854 ms |
+| Benchmark / workload | Build      | Upload       | Worker startup | `cf deploy`   |
+| -------------------- | ---------- | ------------ | -------------- | ------------- |
+| baseline-void        | 139.2 ms   | 7,543 ms     | 5.9 ms         | 13,680.044 ms |
+| baseline-workers     | 8.833 ms   | 4,930.333 ms | 2.167 ms       | 8,411.52 ms   |
+| image-response       | 211.167 ms | 8,795.667 ms | 5.4 ms         | 15,283.349 ms |
+| image-response-bare  | 203.867 ms | 8,592.333 ms | 4.433 ms       | 14,963.854 ms |
 
 #### Methodology
 
@@ -259,16 +259,16 @@ xychart-beta horizontal
 
 #### Values
 
-| Benchmark / workload | Mean | Minimum | P50 | P95 | P99 | Maximum | Throughput |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| baseline-void / latency | 38.183 ms | 23.777 ms | 34.9 ms | 52.354 ms | 104.2 ms | 1,256.625 ms | 26.174 req/s |
-| baseline-workers / latency | 35.121 ms | 21.831 ms | 32.609 ms | 45.887 ms | 85.976 ms | 1,282.302 ms | 28.455 req/s |
-| image-response / baseline | 50.328 ms | 26.783 ms | 46.008 ms | 77.235 ms | 125.645 ms | 936.569 ms | 19.858 req/s |
-| image-response / small-image | 65.315 ms | 39.368 ms | 60.356 ms | 93.155 ms | 136.818 ms | 1,539.108 ms | 15.303 req/s |
-| image-response / og-image | 81.367 ms | 50.248 ms | 76.305 ms | 112.691 ms | 168.154 ms | 1,484.766 ms | 12.285 req/s |
-| image-response / emoji-image | 107.919 ms | 68.133 ms | 102.757 ms | 147.95 ms | 192.632 ms | 1,287.151 ms | 9.264 req/s |
-| image-response-bare / baseline | 42.477 ms | 25.37 ms | 39.187 ms | 61.129 ms | 91.51 ms | 1,517.031 ms | 23.528 req/s |
-| image-response-bare / render | 53.556 ms | 33.282 ms | 50.106 ms | 71.704 ms | 111.615 ms | 1,245.402 ms | 18.662 req/s |
+| Benchmark / workload           | Mean       | Minimum   | P50        | P95        | P99        | Maximum      | Throughput   |
+| ------------------------------ | ---------- | --------- | ---------- | ---------- | ---------- | ------------ | ------------ |
+| baseline-void / latency        | 38.183 ms  | 23.777 ms | 34.9 ms    | 52.354 ms  | 104.2 ms   | 1,256.625 ms | 26.174 req/s |
+| baseline-workers / latency     | 35.121 ms  | 21.831 ms | 32.609 ms  | 45.887 ms  | 85.976 ms  | 1,282.302 ms | 28.455 req/s |
+| image-response / baseline      | 50.328 ms  | 26.783 ms | 46.008 ms  | 77.235 ms  | 125.645 ms | 936.569 ms   | 19.858 req/s |
+| image-response / small-image   | 65.315 ms  | 39.368 ms | 60.356 ms  | 93.155 ms  | 136.818 ms | 1,539.108 ms | 15.303 req/s |
+| image-response / og-image      | 81.367 ms  | 50.248 ms | 76.305 ms  | 112.691 ms | 168.154 ms | 1,484.766 ms | 12.285 req/s |
+| image-response / emoji-image   | 107.919 ms | 68.133 ms | 102.757 ms | 147.95 ms  | 192.632 ms | 1,287.151 ms | 9.264 req/s  |
+| image-response-bare / baseline | 42.477 ms  | 25.37 ms  | 39.187 ms  | 61.129 ms  | 91.51 ms   | 1,517.031 ms | 23.528 req/s |
+| image-response-bare / render   | 53.556 ms  | 33.282 ms | 50.106 ms  | 71.704 ms  | 111.615 ms | 1,245.402 ms | 18.662 req/s |
 
 #### Methodology
 
@@ -276,16 +276,16 @@ Client latency includes network and Access overhead. Values describe pooled requ
 
 #### Workload context
 
-| Benchmark / workload | Request | Rounds | Requests / duration per round | Connections | Rate limit |
-| --- | --- | --- | --- | --- | --- |
-| baseline-void / latency | GET / | 10 | 500 | 1 | None |
-| baseline-workers / latency | GET / | 10 | 500 | 1 | None |
-| image-response / baseline | GET / | 10 | 500 | 1 | None |
-| image-response / small-image | GET /run?width=64&amp;height=64 | 10 | 500 | 1 | None |
-| image-response / og-image | GET /run?width=1200&amp;height=630 | 10 | 500 | 1 | None |
-| image-response / emoji-image | GET /run?width=1200&amp;height=630&amp;text=Hello%20%F0%9F%91%8B%20%F0%9F%8C%8D%20%F0%9F%9A%80&amp;emoji=twemoji | 10 | 500 | 1 | None |
-| image-response-bare / baseline | GET / | 10 | 500 | 1 | None |
-| image-response-bare / render | GET /run | 10 | 500 | 1 | None |
+| Benchmark / workload           | Request                                                                                                          | Rounds | Requests / duration per round | Connections | Rate limit |
+| ------------------------------ | ---------------------------------------------------------------------------------------------------------------- | ------ | ----------------------------- | ----------- | ---------- |
+| baseline-void / latency        | GET /                                                                                                            | 10     | 500                           | 1           | None       |
+| baseline-workers / latency     | GET /                                                                                                            | 10     | 500                           | 1           | None       |
+| image-response / baseline      | GET /                                                                                                            | 10     | 500                           | 1           | None       |
+| image-response / small-image   | GET /run?width=64&amp;height=64                                                                                  | 10     | 500                           | 1           | None       |
+| image-response / og-image      | GET /run?width=1200&amp;height=630                                                                               | 10     | 500                           | 1           | None       |
+| image-response / emoji-image   | GET /run?width=1200&amp;height=630&amp;text=Hello%20%F0%9F%91%8B%20%F0%9F%8C%8D%20%F0%9F%9A%80&amp;emoji=twemoji | 10     | 500                           | 1           | None       |
+| image-response-bare / baseline | GET /                                                                                                            | 10     | 500                           | 1           | None       |
+| image-response-bare / render   | GET /run                                                                                                         | 10     | 500                           | 1           | None       |
 
 </details>
 
@@ -343,16 +343,16 @@ xychart-beta horizontal
 
 #### Values
 
-| Benchmark / workload | CPU | Wall time | Isolate memory |
-| --- | --- | --- | --- |
-| baseline-void / latency | 391 µs | 971 µs | 3.004 MiB |
-| baseline-workers / latency | 210 µs | 816 µs | 2 MiB |
-| image-response / baseline | 446 µs | 1,110 µs | 5.427 MiB |
-| image-response / small-image | 2,984 µs | 3,932 µs | 13.967 MiB |
-| image-response / og-image | 16,137 µs | 17,531 µs | 16.715 MiB |
-| image-response / emoji-image | 32,814 µs | 34,667 µs | 16.709 MiB |
-| image-response-bare / baseline | 404 µs | 996 µs | 5.673 MiB |
-| image-response-bare / render | 1,961 µs | 2,691 µs | 13.963 MiB |
+| Benchmark / workload           | CPU       | Wall time | Isolate memory |
+| ------------------------------ | --------- | --------- | -------------- |
+| baseline-void / latency        | 391 µs    | 971 µs    | 3.004 MiB      |
+| baseline-workers / latency     | 210 µs    | 816 µs    | 2 MiB          |
+| image-response / baseline      | 446 µs    | 1,110 µs  | 5.427 MiB      |
+| image-response / small-image   | 2,984 µs  | 3,932 µs  | 13.967 MiB     |
+| image-response / og-image      | 16,137 µs | 17,531 µs | 16.715 MiB     |
+| image-response / emoji-image   | 32,814 µs | 34,667 µs | 16.709 MiB     |
+| image-response-bare / baseline | 404 µs    | 996 µs    | 5.673 MiB      |
+| image-response-bare / render   | 1,961 µs  | 2,691 µs  | 13.963 MiB     |
 
 #### Methodology
 
@@ -405,16 +405,16 @@ xychart-beta horizontal
     bar [3.7539177, 2.2500114, 6.4272728, 14.718846, 17.4655, 17.366219, 6.4233665, 14.964092]
 ```
 
-| Benchmark / workload | CPU | Wall time | Isolate memory |
-| --- | --- | --- | --- |
-| baseline-void / latency | 629 µs | 1,542 µs | 3.754 MiB |
-| baseline-workers / latency | 337 µs | 1,285 µs | 2.25 MiB |
-| image-response / baseline | 833 µs | 1,981 µs | 6.427 MiB |
-| image-response / small-image | 5,077 µs | 7,033 µs | 14.719 MiB |
-| image-response / og-image | 26,801 µs | 29,541 µs | 17.465 MiB |
-| image-response / emoji-image | 54,208 µs | 57,758 µs | 17.366 MiB |
-| image-response-bare / baseline | 653 µs | 1,667 µs | 6.423 MiB |
-| image-response-bare / render | 3,173 µs | 4,427 µs | 14.964 MiB |
+| Benchmark / workload           | CPU       | Wall time | Isolate memory |
+| ------------------------------ | --------- | --------- | -------------- |
+| baseline-void / latency        | 629 µs    | 1,542 µs  | 3.754 MiB      |
+| baseline-workers / latency     | 337 µs    | 1,285 µs  | 2.25 MiB       |
+| image-response / baseline      | 833 µs    | 1,981 µs  | 6.427 MiB      |
+| image-response / small-image   | 5,077 µs  | 7,033 µs  | 14.719 MiB     |
+| image-response / og-image      | 26,801 µs | 29,541 µs | 17.465 MiB     |
+| image-response / emoji-image   | 54,208 µs | 57,758 µs | 17.366 MiB     |
+| image-response-bare / baseline | 653 µs    | 1,667 µs  | 6.423 MiB      |
+| image-response-bare / render   | 3,173 µs  | 4,427 µs  | 14.964 MiB     |
 
 #### P99
 
@@ -463,16 +463,16 @@ xychart-beta horizontal
     bar [4.2539177, 2.5000114, 6.9272728, 15.22042, 18.219961, 17.876713, 6.6733665, 15.715374]
 ```
 
-| Benchmark / workload | CPU | Wall time | Isolate memory |
-| --- | --- | --- | --- |
-| baseline-void / latency | 1,211 µs | 3,252 µs | 4.254 MiB |
-| baseline-workers / latency | 717 µs | 2,133 µs | 2.5 MiB |
-| image-response / baseline | 1,832 µs | 3,883 µs | 6.927 MiB |
-| image-response / small-image | 7,813 µs | 11,751 µs | 15.22 MiB |
-| image-response / og-image | 33,733 µs | 38,438 µs | 18.22 MiB |
-| image-response / emoji-image | 65,703 µs | 73,909 µs | 17.877 MiB |
-| image-response-bare / baseline | 1,585 µs | 3,111 µs | 6.673 MiB |
-| image-response-bare / render | 5,030 µs | 7,294 µs | 15.715 MiB |
+| Benchmark / workload           | CPU       | Wall time | Isolate memory |
+| ------------------------------ | --------- | --------- | -------------- |
+| baseline-void / latency        | 1,211 µs  | 3,252 µs  | 4.254 MiB      |
+| baseline-workers / latency     | 717 µs    | 2,133 µs  | 2.5 MiB        |
+| image-response / baseline      | 1,832 µs  | 3,883 µs  | 6.927 MiB      |
+| image-response / small-image   | 7,813 µs  | 11,751 µs | 15.22 MiB      |
+| image-response / og-image      | 33,733 µs | 38,438 µs | 18.22 MiB      |
+| image-response / emoji-image   | 65,703 µs | 73,909 µs | 17.877 MiB     |
+| image-response-bare / baseline | 1,585 µs  | 3,111 µs  | 6.673 MiB      |
+| image-response-bare / render   | 5,030 µs  | 7,294 µs  | 15.715 MiB     |
 
 #### P99.9
 
@@ -521,16 +521,16 @@ xychart-beta horizontal
     bar [4.5039177, 2.5000114, 6.9272728, 15.97042, 18.7155, 18.387207, 6.6733665, 16.212811]
 ```
 
-| Benchmark / workload | CPU | Wall time | Isolate memory |
-| --- | --- | --- | --- |
-| baseline-void / latency | 4,437 µs | 6,724 µs | 4.504 MiB |
-| baseline-workers / latency | 1,007 µs | 5,342 µs | 2.5 MiB |
-| image-response / baseline | 5,053 µs | 9,128 µs | 6.927 MiB |
-| image-response / small-image | 11,758 µs | 35,738 µs | 15.97 MiB |
-| image-response / og-image | 41,315 µs | 52,201 µs | 18.715 MiB |
-| image-response / emoji-image | 78,241 µs | 92,433 µs | 18.387 MiB |
-| image-response-bare / baseline | 5,054 µs | 8,555 µs | 6.673 MiB |
-| image-response-bare / render | 8,779 µs | 15,791 µs | 16.213 MiB |
+| Benchmark / workload           | CPU       | Wall time | Isolate memory |
+| ------------------------------ | --------- | --------- | -------------- |
+| baseline-void / latency        | 4,437 µs  | 6,724 µs  | 4.504 MiB      |
+| baseline-workers / latency     | 1,007 µs  | 5,342 µs  | 2.5 MiB        |
+| image-response / baseline      | 5,053 µs  | 9,128 µs  | 6.927 MiB      |
+| image-response / small-image   | 11,758 µs | 35,738 µs | 15.97 MiB      |
+| image-response / og-image      | 41,315 µs | 52,201 µs | 18.715 MiB     |
+| image-response / emoji-image   | 78,241 µs | 92,433 µs | 18.387 MiB     |
+| image-response-bare / baseline | 5,054 µs  | 8,555 µs  | 6.673 MiB      |
+| image-response-bare / render   | 8,779 µs  | 15,791 µs | 16.213 MiB     |
 
 </details>
 

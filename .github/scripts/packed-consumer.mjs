@@ -183,6 +183,7 @@ environment.NPM_CONFIG_REGISTRY = registry.origin;
 environment.PNPM_CONFIG_REGISTRY = registry.origin;
 const voidManifest = packages.find((pkg) => pkg.manifest.name === 'void').manifest;
 const version = voidManifest.version;
+const imageVersion = packages.find((pkg) => pkg.manifest.name === '@void/image').manifest.version;
 const managers = process.env.VOID_PACKED_PM ? [process.env.VOID_PACKED_PM] : ['npm', 'pnpm'];
 assert(managers.every((manager) => ['npm', 'pnpm'].includes(manager)));
 const frameworks = process.env.VOID_PACKED_FRAMEWORK
@@ -290,8 +291,8 @@ try {
         await run(
           manager,
           manager === 'npm'
-            ? ['install', `@void/image@${version}`]
-            : ['add', `@void/image@${version}`],
+            ? ['install', `@void/image@${imageVersion}`]
+            : ['add', `@void/image@${imageVersion}`],
           fixture,
         );
         assert(existsSync(join(fixture, 'node_modules/@void/image/licenses/Inter.txt')));
