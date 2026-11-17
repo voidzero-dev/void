@@ -3,6 +3,7 @@ import { extendConfig } from '@voidzero-dev/vitepress-theme/config';
 import { defineConfig, type DefaultTheme } from 'vitepress';
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons';
 import llmstxt from 'vitepress-plugin-llms';
+import { createCodeHighlighter } from './highlight.ts';
 
 type SidebarItem = DefaultTheme.SidebarItem;
 
@@ -239,6 +240,7 @@ export default extendConfig(
     ignoreDeadLinks: [/\/index$/],
 
     markdown: {
+      highlight: createCodeHighlighter(),
       config(md) {
         md.use(groupIconMdPlugin);
       },

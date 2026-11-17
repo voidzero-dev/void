@@ -252,6 +252,9 @@ catalogs:
     '@nkzw/fate':
       specifier: 2.0.1
       version: 2.0.1
+    '@pierre/highlights':
+      specifier: ^0.5.1
+      version: 0.5.1
     '@react-router/dev':
       specifier: ^8.5.1
       version: 8.5.1
@@ -472,6 +475,9 @@ importers:
       '@iconify/vue':
         specifier: 'catalog:'
         version: 5.0.5(vue@3.5.45(typescript@7.0.2))
+      '@pierre/highlights':
+        specifier: 'catalog:'
+        version: 0.5.1
       '@voidzero-dev/vitepress-theme':
         specifier: 'catalog:'
         version: 5.0.7(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(focus-trap@8.2.4)(vitepress@2.0.0-alpha.20(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(postcss@8.5.32)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(vue@3.5.45(typescript@7.0.2))
@@ -587,7 +593,7 @@ importers:
   packages/md:
     dependencies:
       '@pierre/highlights':
-        specifier: ^0.5.1
+        specifier: 'catalog:'
         version: 0.5.1
       gray-matter:
         specifier: ^4.0.3

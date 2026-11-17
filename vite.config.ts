@@ -467,7 +467,7 @@ export default defineConfig({
           name: 'unit',
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
-          include: ['packages/*/test/unit/**/*.test.ts'],
+          include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },
           pool: 'threads',
