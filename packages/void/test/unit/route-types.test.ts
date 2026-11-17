@@ -298,9 +298,6 @@ describe('generateRouteTypes', () => {
       '    "/café/[id]": "/caf%C3%A9/[id]";',
       '    "/café/:id": "/caf%C3%A9/:id";',
     ]);
-    expect(dts).toContain(
-      'type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
-    );
   });
 
   it('turns on typed route URLs only when routing.typedRoutes is set', () => {
@@ -327,8 +324,8 @@ describe('generateRouteTypes', () => {
     expect(typesConfig(off).trim()).toBe('');
     expect(typesConfig(on).trim()).toBe('typedRoutes: true;');
     expect(on.replace('    typedRoutes: true;\n', '')).toBe(off);
-    expect(off).toContain('export type RouteUrlInput = Href | URL | RouteDestination;');
-    expect(off).toContain('  ): RouteUrl;');
+    expect(off).toMatch(/export type RouteUrlInput = import\("[^"]+"\)\.RouteUrlInput;/);
+    expect(off).toMatch(/export const routeUrl: typeof import\("[^"]+"\)\.routeUrl;/);
   });
 
   it('generates PageActionMap for pages with actions', () => {

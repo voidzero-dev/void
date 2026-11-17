@@ -480,6 +480,90 @@ function typecheck(
 
 describe('standalone routeUrl utility', () => {
   it.each(['generated', 'package'] as const)(
+    'preserves generic helpers and structural options through the %s declarations',
+    async (declarations) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-compatibility.ts': `import { routeUrl, type RouteDestination, type RouteOptions } from 'void/routes';
+function userUrl<T extends string | number>(id: T) {
+  return routeUrl('/users/[id]', { params: { id } });
+}
+function forwardOptions<T extends RouteOptions<'/users/[id]'>>(options: T) {
+  return routeUrl('/users/[id]', options);
+}
+function forwardStaticOptions<T extends RouteOptions<'/about'>>(options: T) {
+  return routeUrl('/about', options);
+}
+function forwardDestination<T extends RouteDestination<'/users/[id]'>>(destination: T) {
+  return routeUrl('/users/[id]', destination);
+}
+function forwardArgs(...args: Parameters<typeof routeUrl<'/users/[id]'>>) {
+  return routeUrl(...args);
+}
+forwardArgs('/users/[id]', { params: { id: 42 } });
+const user = { id: 42, name: 'Alice' };
+routeUrl('/users/[id]', { params: user });
+const options = { params: user, trace: 'request' };
+routeUrl('/users/[id]', options);
+const destination: RouteDestination<'/users/[id]'> = {
+  pathname: '/users/[id]', params: { id: 42 },
+};
+routeUrl('/users/[id]', destination);
+const staticDestination: RouteDestination<'/about'> = { pathname: '/about' };
+routeUrl('/about', staticDestination);
+void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forwardArgs];
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-compatibility.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
+    'rejects invalid unions and numeric keys through the %s declarations',
+    async (declarations) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-invalid-unions.ts': `import { routeUrl } from 'void/routes';
+declare const query: { q: string } | { filter: { id: number } };
+// @ts-expect-error every query union member must contain supported values
+routeUrl('/about', { query });
+declare const optionalQuery: { q?: string } | { filter?: { id: number } };
+// @ts-expect-error optional query keys cannot hide invalid union members
+routeUrl('/about', { query: optionalQuery });
+// @ts-expect-error numeric params do not supply the required id
+routeUrl('/users/[id]', { params: { 0: 'missing-id' } });
+// @ts-expect-error fresh numeric extra params are still rejected
+routeUrl('/users/[id]', { params: { id: 42, 0: 'extra' } });
+declare const params: { id: number } | { 0: string };
+// @ts-expect-error every params union member must supply id
+routeUrl('/users/[id]', { params });
+declare const key: unique symbol;
+// @ts-expect-error symbol keys cannot hide a missing id
+routeUrl('/users/[id]', { params: { [key]: 42 } });
+// @ts-expect-error numeric option keys do not belong to RouteOptions
+routeUrl('/about', { 0: 'unknown-option' });
+declare const options: { query: { q: string } } | { query: { filter: { id: number } } };
+// @ts-expect-error every options union member must be valid
+routeUrl('/about', options);
+// @ts-expect-error explicit type arguments retain fresh-object excess checks
+routeUrl<'/users/[id]'>('/users/[id]', { params: { id: 42, extra: 'x' } });
+// @ts-expect-error widening the type argument cannot omit required params
+routeUrl<string>('/users/[id]');
+`,
+        },
+      });
+      expect(typecheck(root, declarations, ['check-invalid-unions.ts'])).toEqual({
+        output: '',
+        status: 0,
+      });
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
     'explains invalid routeUrl calls through the %s declarations',
     async (declarations) => {
       const cases = [
@@ -511,6 +595,15 @@ describe('standalone routeUrl utility', () => {
           "routeUrl('/about', { query: { nested: { value: 'x' } } });",
           'Invalid query param nested for route /about.',
         ],
+        [
+          "routeUrl('/about', { query: null as unknown as { q: string } | { filter: { id: number } } });",
+          'Invalid query param filter for route /about.',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: { 0: 'missing-id' } });",
+          'Unknown param 0 for route /users/[id].',
+        ],
+        ["routeUrl('/about', { 0: 'unknown' });", 'Unknown routeUrl option: 0.'],
         ["routeUrl('/about', { search: 'x' });", 'Unknown routeUrl option: search.'],
         ["routeUrl('/users/[id]', undefined);", 'Missing param id for route /users/[id].'],
         ["routeUrl('' as '/about' | '/users/[id]');", 'Missing param id for route /users/[id].'],

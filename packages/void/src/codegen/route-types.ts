@@ -1,4 +1,5 @@
-import { relative } from 'pathslash';
+import { fileURLToPath } from 'node:url';
+import { isAbsolute, relative } from 'pathslash';
 import type { RouteDefinition } from '../router/parse-filename.ts';
 import type { ScanResult } from '../router/scan.ts';
 import type { WebSocketRouteDefinition } from '../router/websocket.ts';
@@ -139,175 +140,34 @@ export function generateRouteTypes(
   lines.push('  export interface WebSocketRouteMap {}');
   lines.push('  export interface PageActionMap {}');
   lines.push('');
-  // Projects resolve void/routes to this generated declaration through their
-  // tsconfig paths, so keep the standalone helper's declarations here as well.
-  lines.push('  export type RoutePath = keyof RoutePathMap & string;');
-  lines.push('  export type RouteQueryValue = string | number | boolean | null | undefined;');
-  lines.push(
-    '  export type RouteQuery = Record<string, RouteQueryValue | ReadonlyArray<RouteQueryValue>>;',
+  // Keep URL contracts and diagnostics in the runtime declarations. Referencing
+  // void/routes here would be circular when this file augments that package entry.
+  const sdkRoutesPath = relative(
+    outDir,
+    fileURLToPath(import.meta.resolve('#self/runtime/route-url')),
   );
-  lines.push('  export type RouteOptions<P extends RoutePath> = {');
-  lines.push('    query?: RouteQuery;');
-  lines.push('    hash?: string;');
-  lines.push('  } & ([RoutePathMap[P]] extends [never]');
-  lines.push('    ? { params?: never }');
-  lines.push('    : { params: { [K in RoutePathMap[P] & string]: string | number } });');
-  lines.push(
-    '  export type RouteDestination<P extends RoutePath = RoutePath> = P extends RoutePath',
+  const sdkRoutesModule = JSON.stringify(
+    isAbsolute(sdkRoutesPath) || sdkRoutesPath.startsWith('.')
+      ? sdkRoutesPath
+      : `./${sdkRoutesPath}`,
   );
-  lines.push('    ? { pathname: P } & RouteOptions<P>');
-  lines.push('    : never;');
+  for (const name of [
+    'RoutePath',
+    'RouteQueryValue',
+    'RouteQuery',
+    'RouteUrl',
+    'Href',
+    'RouteUrlInput',
+  ]) {
+    lines.push(`  export type ${name} = import(${sdkRoutesModule}).${name};`);
+  }
   lines.push(
-    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | "*" ? string : S;',
-  );
-  lines.push(
-    '  type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`',
-  );
-  lines.push('    ? Rest extends ""');
-  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
-  lines.push('      : P');
-  lines.push('    : P extends `/${infer Segment}`');
-  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
-  lines.push('      : P;');
-  lines.push(
-    '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
-  );
-  lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
-  lines.push('    : RouteUrlSegment<P>;');
-  lines.push(
-    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}/`',
-  );
-  lines.push('    ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`');
-  lines.push('    : P extends `${infer Prefix}/${"*" | "[...]"}`');
-  lines.push(
-    '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
-  );
-  lines.push('    : RouteSegmentsUrl<P>;');
-  lines.push('  type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;');
-  lines.push(
-    '  type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
-  );
-  lines.push('  type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };');
-  lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
-  lines.push('  export type RouteUrl = TypedRoutes extends true');
-  lines.push('    ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
-  lines.push('    : string;');
-  lines.push('  export type Href = TypedRoutes extends true');
-  lines.push(
-    '    ? RouteUrl | `${"?" | "#"}${string}` | `${"http://" | "https://" | "mailto:" | "tel:"}${string}`',
-  );
-  lines.push('    : string;');
-  lines.push('  export type RouteUrlInput = Href | URL | RouteDestination;');
-  lines.push('  // Keep route/option shapes visible to editor completion while inferring the');
-  lines.push("  // caller's input separately, so invalid calls can explain the correction.");
-  lines.push(
-    '  type RouteUrlError<Message extends string> = { readonly __routeUrlError: Message };',
-  );
-  lines.push('  type RouteUrlOptionsInput<P extends RoutePath> = {');
-  lines.push(
-    '    params?: { [K in RoutePathMap[P] & string]?: unknown } | Record<string, unknown>;',
-  );
-  lines.push('    query?: Record<string, unknown>;');
-  lines.push('    hash?: unknown;');
-  lines.push('  };');
-  lines.push('  type RouteUrlArgs<P extends RoutePath> = [RoutePathMap[P]] extends [never]');
-  lines.push('    ? [options?: RouteOptions<P>]');
-  lines.push('    : [options: RouteOptions<P>];');
-  lines.push(
-    '  type MissingRouteParam<P extends RoutePath, K extends string> = P extends RoutePath',
-  );
-  lines.push('    ? K extends RoutePathMap[P]');
-  lines.push('      ? `Missing param ${K} for route ${P}. Pass it in { params: { ... } }.`');
-  lines.push('      : never');
-  lines.push('    : never;');
-  lines.push('  type MissingRouteParamKeys<P extends RoutePath, Params> = {');
-  lines.push('    [K in RoutePathMap[P] & string]: Params extends Record<K, unknown> ? never : K;');
-  lines.push('  }[RoutePathMap[P] & string];');
-  lines.push('  type InvalidRouteParamKeys<P extends RoutePath, Params> = {');
-  lines.push(
-    '    [K in RoutePathMap[P] & string]: Params extends Record<K, string | number> ? never : K;',
-  );
-  lines.push('  }[RoutePathMap[P] & string];');
-  lines.push('  type InvalidRouteValueKeys<Values, Allowed> = {');
-  lines.push('    [K in keyof Values]-?: [Values[K]] extends [Allowed] ? never : K;');
-  lines.push('  }[keyof Values] &');
-  lines.push('    string;');
-  lines.push(
-    '  type RouteUrlParamError<P extends RoutePath, O> = [RoutePathMap[P]] extends [never]',
-  );
-  lines.push("    ? 'params' extends keyof O");
-  lines.push("      ? [O['params']] extends [undefined]");
-  lines.push('        ? never');
-  lines.push('        : `Route ${P} has no path params. Remove params.`');
-  lines.push('      : never');
-  lines.push('    : O extends { params: infer Params }');
-  lines.push('      ? Params extends object');
-  lines.push('        ? [Exclude<keyof Params, RoutePathMap[P]>] extends [never]');
-  lines.push('          ? [MissingRouteParamKeys<P, Params>] extends [never]');
-  lines.push('            ? [InvalidRouteParamKeys<P, Params>] extends [never]');
-  lines.push('              ? never');
-  lines.push(
-    '              : `Param ${InvalidRouteParamKeys<P, Params>} for route ${P} must be a string or number.`',
-  );
-  lines.push('            : MissingRouteParam<P, MissingRouteParamKeys<P, Params>>');
-  lines.push(
-    '          : `Unknown param ${Exclude<keyof Params, RoutePathMap[P]> & string} for route ${P}. Use the parameter names in the route pattern.`',
+    `  export type RouteOptions<P extends RoutePath> = import(${sdkRoutesModule}).RouteOptions<P>;`,
   );
   lines.push(
-    "        : `Params for route ${P} must be an object with the route's parameter names.`",
+    `  export type RouteDestination<P extends RoutePath = RoutePath> = import(${sdkRoutesModule}).RouteDestination<P>;`,
   );
-  lines.push('      : MissingRouteParam<P, RoutePathMap[P] & string>;');
-  lines.push(
-    '  type RouteUrlQueryError<P extends RoutePath, Query> = [Query] extends [RouteQuery | undefined]',
-  );
-  lines.push('    ? never');
-  lines.push(
-    '    : `Invalid query param ${InvalidRouteValueKeys<Exclude<Query, undefined>, RouteQueryValue | ReadonlyArray<RouteQueryValue>>} for route ${P}. Use a string, number, boolean, null, undefined, or an array of these.`;',
-  );
-  lines.push('  type RouteUrlOptionsError<P extends string, O> = [P] extends [RoutePath]');
-  lines.push('    ? O extends undefined');
-  lines.push('      ? MissingRouteParam<P, RoutePathMap[P] & string>');
-  lines.push('      : O extends object');
-  lines.push('        ?');
-  lines.push('            | RouteUrlParamError<P, O>');
-  lines.push("            | ('query' extends keyof O ? RouteUrlQueryError<P, O['query']> : never)");
-  lines.push("            | ('hash' extends keyof O");
-  lines.push("                ? [O['hash']] extends [string | undefined]");
-  lines.push('                  ? never');
-  lines.push('                  : `Hash for route ${P} must be a string.`');
-  lines.push('                : never)');
-  lines.push(
-    "            | (Exclude<keyof O, 'params' | 'query' | 'hash'> extends infer K extends string",
-  );
-  lines.push('                ? `Unknown routeUrl option: ${K}. Use params, query, or hash.`');
-  lines.push('                : never)');
-  lines.push('        : `Options for route ${P} must be an object with params, query, or hash.`');
-  lines.push('    : never;');
-  lines.push('  type ValidateRouteUrlArgs<P extends string, A extends [options?: unknown]> = [');
-  lines.push('    RouteUrlOptionsError<P, A[0]>,');
-  lines.push('  ] extends [never]');
-  lines.push('    ? unknown');
-  lines.push('    : RouteUrlOptionsError<P, A[0]>;');
-  lines.push('');
-  lines.push('  export function routeUrl<');
-  lines.push('    P extends RoutePath | (string & {}),');
-  lines.push('    A extends [options?: unknown] = RouteUrlArgs<Extract<P, RoutePath>>,');
-  lines.push('  >(');
-  lines.push('    path: P &');
-  lines.push('      (');
-  lines.push('        | RoutePath');
-  lines.push('        | RouteUrlError<');
-  lines.push('            string extends NoInfer<P>');
-  lines.push("              ? 'Pass a route pattern literal to routeUrl(); string is too broad.'");
-  lines.push(
-    '              : `Unknown route: ${NoInfer<P>}. Pass a registered route pattern as the first argument.`',
-  );
-  lines.push('          >');
-  lines.push('      ),');
-  lines.push('    ...args: A &');
-  lines.push('      [options?: RouteUrlOptionsInput<Extract<NoInfer<P>, RoutePath>>] &');
-  lines.push('      ValidateRouteUrlArgs<NoInfer<P>, NoInfer<A>>');
-  lines.push('  ): RouteUrl;');
+  lines.push(`  export const routeUrl: typeof import(${sdkRoutesModule}).routeUrl;`);
   lines.push('');
   lines.push('  export interface RouteTypesConfig {');
   if (options.typedRoutes) {
