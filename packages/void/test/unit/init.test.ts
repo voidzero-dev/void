@@ -220,6 +220,88 @@ describe('init scaffold arguments', () => {
   });
 });
 
+describe('init question order', () => {
+  const DEPLOY_PROMPT = 'Where should this project deploy?';
+  const answers: Record<string, unknown> = {
+    'Choose a Pages scaffold toolchain:': 'vite',
+    'Choose a Pages framework to scaffold:': 'react',
+    'Choose a Pages starter:': 'static',
+    'Choose a database setup for this project:': 'none',
+    [DEPLOY_PROMPT]: 'none',
+  };
+
+  it('asks where a new starter deploys before writing its files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-'));
+    let entriesAtDeployPrompt: Array<string> | undefined;
+    try {
+      mockSelect.mockImplementation((options: { message: string }) => {
+        if (options.message === DEPLOY_PROMPT) {
+          entriesAtDeployPrompt = readdirSync(root);
+        }
+        return answers[options.message];
+      });
+
+      await runInitCommand(root);
+
+      expect(entriesAtDeployPrompt).toEqual([]);
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(readDeploymentPlatform(root)).toBe('none');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the folder empty when the deployment question is cancelled', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-cancel-'));
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('Cancelled');
+    });
+    try {
+      mockSelect.mockImplementation((options: { message: string }) =>
+        options.message === DEPLOY_PROMPT ? Symbol.for('cancel') : answers[options.message],
+      );
+
+      await expect(runInitCommand(root)).rejects.toThrow('Cancelled');
+
+      expect(exit).toHaveBeenCalledWith(0);
+      expect(readdirSync(root)).toEqual([]);
+    } finally {
+      exit.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['an empty folder', 'Empty project detected. Creating a Pages starter.', false],
+    ['an existing app', 'Existing project detected. Configuring Void.', true],
+  ])('says what it does in %s before asking about Git', async (_name, message, existing) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-git-'));
+    // Outside CI, init asks whether to initialize Git.
+    delete process.env.CI;
+    try {
+      if (existing) {
+        writeExistingViteApp(root, { void: '^0.0.1' });
+      }
+      mockSelect.mockImplementation((options: { message: string }) => answers[options.message]);
+      mockConfirm.mockResolvedValue(false);
+
+      await runInitCommand(root);
+
+      const infoIndex = mockLogInfo.mock.calls.findIndex(([text]) => text === message);
+      const gitIndex = mockConfirm.mock.calls.findIndex(
+        ([options]) => options?.message === 'Initialize a git repository?',
+      );
+      expect(infoIndex).not.toBe(-1);
+      expect(gitIndex).not.toBe(-1);
+      expect(mockLogInfo.mock.invocationCallOrder[infoIndex]).toBeLessThan(
+        mockConfirm.mock.invocationCallOrder[gitIndex]!,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('GitHub Actions deployment workflows', () => {
   it('requires a selected URL for a Void deployment workflow', () => {
     expect(() => getWorkflowYaml('/project', 'npm', 'my-app', 'void')).toThrow('void connect');

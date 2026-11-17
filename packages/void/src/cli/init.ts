@@ -1664,12 +1664,12 @@ async function promptDatabaseSetup(root: string): Promise<DatabaseSetupChoice> {
   return choice as DatabaseSetupChoice;
 }
 
-async function promptDeploymentPlatform(
+/** Ask where the project deploys, unless `deploy` answers it. The caller saves the answer. */
+async function askDeploymentPlatform(
   root: string,
   deploy?: DeploymentPlatform,
 ): Promise<DeploymentPlatform> {
   if (deploy) {
-    writeDeploymentPlatform(root, deploy);
     return deploy;
   }
   assertInteractive('deploy', DEPLOYMENT_PLATFORMS);
@@ -1701,9 +1701,7 @@ async function promptDeploymentPlatform(
     process.exit(0);
   }
 
-  const platform = choice as DeploymentPlatform;
-  writeDeploymentPlatform(root, platform);
-  return platform;
+  return choice as DeploymentPlatform;
 }
 
 export async function ensureVoidPlatformConnection(
@@ -2581,7 +2579,6 @@ function ensureExistingProjectViteConfig(root: string, framework?: DetectedFrame
 
 /** Returns whether a dependency was added. */
 function setupExistingProject(root: string, framework?: DetectedFramework): boolean {
-  log.info('Existing project detected. Configuring Void...');
   const dependencyAdded = ensureExistingProjectPackage(root, {
     plainViteSetup: framework?.class !== 'c',
   });
@@ -2775,25 +2772,31 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
       'init: The --git/--no-git options are not available when adding a package to an existing monorepo.',
     );
   }
+  // Say what init will do before its first question. `.git` is allowed in an
+  // empty project, so detecting before `git init` gives the same result.
+  const framework = detectFramework(root);
+  const scaffoldStarter = !targeted && !framework && isScaffoldableEmptyProject(root);
+  if (framework) {
+    log.info(`Detected ${framework.name} framework`);
+  } else if (scaffoldStarter) {
+    log.info('Empty project detected. Creating a Pages starter.');
+  } else if (!targeted) {
+    log.info('Existing project detected. Configuring Void.');
+  }
   const gitInitialized =
     !workspaceSubpackage && (!targeted || initArgs?.git !== undefined)
       ? await setupGit(root, initArgs?.git)
       : false;
-  const framework = detectFramework(root);
   const preScaffoldState = detectProjectState(root);
   const detectedPagesFramework = detectPagesFramework(root);
   let scaffoldedPagesFramework: ScaffoldFramework | undefined;
   let scaffoldedStarterMode: Exclude<ScaffoldStarterMode, 'static'> | undefined;
+  let starterDeploymentPlatform: DeploymentPlatform | undefined;
   let didScaffoldStarter = false;
   let scaffoldAddedDependencies = false;
   let workspaceSubpackageSkip = false;
 
-  if (framework) {
-    log.info(`Detected ${framework.name} framework`);
-  }
-
-  if (!targeted && !framework && isScaffoldableEmptyProject(root)) {
-    log.info('Empty project detected. Creating a Pages starter.');
+  if (scaffoldStarter) {
     const scaffoldToolchain = await promptScaffoldToolchain(initArgs?.toolchain);
     if (detectedPagesFramework) {
       scaffoldedPagesFramework = detectedPagesFramework;
@@ -2804,11 +2807,9 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
       scaffoldedPagesFramework = await promptScaffoldFramework(initArgs?.framework);
     }
     const starterMode = await promptStarterMode(initArgs?.starter);
-    // A partial starter takes the existing-project path on retry, so check
-    // the last required flag before creating its files.
-    if (initArgs?.deploy === undefined) {
-      assertInteractive('deploy', DEPLOYMENT_PLATFORMS);
-    }
+    // A partial starter takes the existing-project path on retry, so ask every
+    // question before creating its files. The deployment choice is saved below.
+    starterDeploymentPlatform = await askDeploymentPlatform(root, initArgs?.deploy);
     const existingPackageJson = readPackageJson(root);
     const hasPackageManager =
       hasLocalLockfile(root) ||
@@ -2956,10 +2957,15 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
     }
   }
 
-  // Targeted runs keep the saved deployment preference without prompting.
-  const deploymentPlatform = !targeted
-    ? await promptDeploymentPlatform(root, initArgs?.deploy)
-    : readDeploymentPlatform(root);
+  let deploymentPlatform: DeploymentPlatform | null;
+  if (targeted) {
+    // Targeted runs keep the saved deployment preference without prompting.
+    deploymentPlatform = readDeploymentPlatform(root);
+  } else {
+    deploymentPlatform =
+      starterDeploymentPlatform ?? (await askDeploymentPlatform(root, initArgs?.deploy));
+    writeDeploymentPlatform(root, deploymentPlatform);
+  }
   let voidPlatformDiscovery: PlatformDiscoveryDocument | null = null;
 
   if (!targeted && deploymentPlatform === 'cloudflare') {
