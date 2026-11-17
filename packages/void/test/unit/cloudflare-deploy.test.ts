@@ -7744,6 +7744,7 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
       'queues/email.ts': [
         'export const maxBatchSize = 25;',
         'export const maxBatchTimeout = 10;',
+        'export const maxConcurrency = 2;',
         'export const maxRetries = 4;',
         'export const retryDelay = 30;',
         'export default async function email() {}',
@@ -7761,12 +7762,52 @@ describe('runCloudflareDeploy — framework artifact guard', () => {
             queue: 'skapp-email',
             max_batch_size: 25,
             max_batch_timeout: 10,
+            max_concurrency: 2,
             max_retries: 4,
             retry_delay: 30,
           },
         ],
       },
     });
+  });
+
+  it('clears removed framework concurrency from generated config and the lock before building', async () => {
+    const root = makeProject({
+      'package.json': JSON.stringify({
+        name: 'skapp',
+        dependencies: { '@sveltejs/kit': '2.0.0' },
+      }),
+      'void.config.ts': `export default { cloudflare: { account_id: 'acc123', name: 'skapp' } };\n`,
+      'queues/email.ts': 'export const maxConcurrency = 2; export default async () => {};',
+    });
+    const { deps, exitCalls } = harness();
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(exitCalls).toEqual([]);
+    const readLockedQueues = () =>
+      JSON.parse(readFileSync(join(root, 'void.lock.json'), 'utf8')).resolved.queues;
+    expect(readLockedQueues().consumers).toEqual([{ queue: 'skapp-email', max_concurrency: 2 }]);
+
+    writeFileSync(join(root, 'queues/email.ts'), 'export default async () => {};');
+    const expectedQueues = {
+      producers: [{ queue: 'skapp-email', binding: 'QUEUE_EMAIL' }],
+      consumers: [{ queue: 'skapp-email' }],
+    };
+    const runBuild = vi.fn(() => {
+      expect(parseRootWranglerConfig(materializeCloudflareConfig(root)).queues).toEqual(
+        expectedQueues,
+      );
+      expect(readLockedQueues()).toEqual(expectedQueues);
+    });
+    deps.runBuild = runBuild;
+    await runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps);
+    expect(exitCalls).toEqual([]);
+    expect(runBuild).toHaveBeenCalledOnce();
+
+    rmSync(join(root, '.void-wrangler.jsonc'));
+    expect(parseRootWranglerConfig(materializeCloudflareConfig(root)).queues).toEqual(
+      expectedQueues,
+    );
+    expect(readLockedQueues()).toEqual(expectedQueues);
   });
 
   it('gives the framework wrapper the queue names it binds', async () => {

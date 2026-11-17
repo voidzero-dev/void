@@ -239,6 +239,7 @@ export async function createQueue(
 export type QueueConsumerSettings = Readonly<{
   batch_size?: number;
   max_wait_time_ms?: number;
+  max_concurrency?: number;
   max_retries?: number;
   retry_delay?: number;
 }>;

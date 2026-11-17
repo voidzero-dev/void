@@ -177,6 +177,15 @@ export function validateManifestShape(manifest: unknown): string | null {
       if (typeof queue.name !== 'string' || typeof queue.bindingName !== 'string') {
         return 'invalid manifest shape: queues entries must have string name and bindingName';
       }
+      if (
+        queue.maxConcurrency !== undefined &&
+        (typeof queue.maxConcurrency !== 'number' ||
+          !Number.isInteger(queue.maxConcurrency) ||
+          queue.maxConcurrency < 1 ||
+          queue.maxConcurrency > 250)
+      ) {
+        return 'invalid manifest shape: queues entry maxConcurrency must be an integer between 1 and 250';
+      }
       for (const tuning of [
         'maxBatchSize',
         'maxBatchTimeout',

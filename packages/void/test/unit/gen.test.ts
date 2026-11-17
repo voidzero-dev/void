@@ -1268,6 +1268,7 @@ describe('gen queue', () => {
     expect(content).toContain('type Message = {};');
     expect(content).toContain('// export const maxBatchSize = 10;');
     expect(content).toContain('// export const maxBatchTimeout = 5;');
+    expect(content).toContain('// export const maxConcurrency = 2;');
     expect(content).toContain('export default defineQueue<Message>(');
     expect(content).toContain('batch.messages');
   });

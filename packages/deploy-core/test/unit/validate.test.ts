@@ -1,6 +1,33 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { validateManifestShape, type DeployManifest } from '../../src/index.ts';
 
+describe('queue concurrency', () => {
+  it.each([undefined, 1, 2, 250])('accepts maxConcurrency = %s', (maxConcurrency) => {
+    expect(
+      validateManifestShape({
+        version: 3,
+        bindings: {},
+        queues: [{ name: 'jobs', bindingName: 'QUEUE_JOBS', maxConcurrency }],
+      }),
+    ).toBeNull();
+  });
+
+  it.each([0, -1, 251, 1.5, Infinity, NaN, '2', null])(
+    'rejects invalid maxConcurrency = %s',
+    (maxConcurrency) => {
+      expect(
+        validateManifestShape({
+          version: 3,
+          bindings: {},
+          queues: [{ name: 'jobs', bindingName: 'QUEUE_JOBS', maxConcurrency }],
+        }),
+      ).toBe(
+        'invalid manifest shape: queues entry maxConcurrency must be an integer between 1 and 250',
+      );
+    },
+  );
+});
+
 describe('R2 location hints', () => {
   it('accepts custom Durable Objects alongside a location hint', () => {
     expect(

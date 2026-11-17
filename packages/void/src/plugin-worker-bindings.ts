@@ -286,6 +286,7 @@ export function mergeWorkerBindings(
         queue: cloudflareQueueName(q.name, cloudflareNames),
         ...(q.maxBatchSize != null && { max_batch_size: q.maxBatchSize }),
         ...(q.maxBatchTimeout != null && { max_batch_timeout: q.maxBatchTimeout }),
+        ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
         ...(q.maxRetries != null && { max_retries: q.maxRetries }),
         ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
       })),
