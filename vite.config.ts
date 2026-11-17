@@ -110,7 +110,7 @@ export default defineConfig({
         ],
       },
       test: { command: 'node test/affected.mjs', cache: false },
-      'test:iterate': { command: 'vp test run --since-last-run', cache: false },
+      'test:iterate': { command: 'vp test run --since-last-run=true', cache: false },
       'test:benchmark': {
         command: 'vp test run --reporter=default --reporter=./test/performance-reporter.ts',
         cache: false,
