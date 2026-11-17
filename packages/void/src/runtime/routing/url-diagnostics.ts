@@ -1,5 +1,7 @@
 /** An unsatisfied marker for diagnostic fallbacks, never an accepted input. */
-export type UrlTypeError<Message extends string> = { readonly __voidUrlError: Message };
+export type UrlTypeError<Message extends string> = [Message] extends [never]
+  ? never
+  : { readonly [K in Message]: never };
 
 /** Inspect every union member, including members with disjoint property names. */
 export type InvalidValueKeys<Values, Allowed> = Values extends unknown

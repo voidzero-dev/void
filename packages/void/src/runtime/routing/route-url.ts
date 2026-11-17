@@ -160,11 +160,6 @@ type UrlOptions = {
 
 // Diagnostics describe invalid calls; the valid-call overload below remains
 // independent so generic helpers and structural objects retain their contract.
-type RouteUrlOptionsInput<P extends RoutePath> = {
-  params?: { [K in RoutePathMap[P] & string]?: unknown } | Record<string, unknown>;
-  query?: Record<string, unknown>;
-  hash?: unknown;
-};
 type RouteUrlArgs<P extends RoutePath> = [RoutePathMap[P]] extends [never]
   ? [options?: RouteOptions<P>]
   : [options: RouteOptions<P>];
@@ -224,18 +219,16 @@ type RouteUrlOptionsError<P extends string, O> = [P] extends [RoutePath]
   ? O extends undefined
     ? MissingRouteParam<P, RoutePathMap[P] & string>
     : O extends object
-      ?
-          | RouteUrlParamError<P, O>
-          | ('query' extends keyof O ? RouteUrlQueryError<P, O['query']> : never)
-          | ('hash' extends keyof O
-              ? [O['hash']] extends [string | undefined]
-                ? never
-                : `Hash for route ${P} must be a string.`
-              : never)
-          | `Unknown routeUrl option: ${DiagnosticKeyName<Exclude<keyof O, 'params' | 'query' | 'hash'>>}. Use params, query, or hash.`
+      ? | RouteUrlParamError<P, O>
+        | ('query' extends keyof O ? RouteUrlQueryError<P, O['query']> : never)
+        | ('hash' extends keyof O
+            ? [O['hash']] extends [string | undefined]
+              ? never
+              : `Hash for route ${P} must be a string.`
+            : never)
+        | `Unknown routeUrl option: ${DiagnosticKeyName<Exclude<keyof O, 'params' | 'query' | 'hash'>>}. Use params, query, or hash.`
       : `Options for route ${P} must be an object with params, query, or hash.`
   : never;
-type RouteUrlCallArgs = [path: RoutePath | (string & {}), options?: unknown];
 type RouteUrlCallError<P extends string, O> = [P] extends [RoutePath]
   ? [RouteUrlOptionsError<P, O>] extends [never]
     ? `Invalid options for route ${P}. Pass an object with params, query, or hash.`
@@ -243,21 +236,42 @@ type RouteUrlCallError<P extends string, O> = [P] extends [RoutePath]
   : string extends P
     ? 'Pass a route pattern literal to routeUrl(); string is too broad.'
     : `Unknown route: ${P}. Pass a registered route pattern as the first argument.`;
+type UnknownRouteUrlOptions<O> = {
+  [
+    K in Exclude<keyof O, 'params' | 'query' | 'hash'>
+  ]: UrlTypeError<`Unknown routeUrl option: ${DiagnosticKeyName<K>}. Use params, query, or hash.`>;
+};
+// Keep the diagnostic branch uninhabitable, even for boxed strings or index signatures.
+declare const invalid: unique symbol;
 /** Build a relative URL from a known route pattern. */
 export function routeUrl<P extends RoutePath>(path: P, ...args: RouteUrlArgs<NoInfer<P>>): RouteUrl;
-// Function helpers instantiate A at its constraint, where they must see the
-// native checked tuple. Inferred calls capture a specific tuple and require an
-// unsatisfied diagnostic marker. Both type arguments are required so <P> keeps
-// selecting the native overload, including in Parameters<typeof routeUrl<P>>.
-export function routeUrl<P extends RoutePath, const A extends RouteUrlCallArgs>(
-  ...args: RouteUrlCallArgs extends A
-    ? [path: P, ...args: RouteUrlArgs<NoInfer<P>>]
-    : A &
-        [
-          path: RoutePath | (string & {}),
-          options?: RouteUrlOptionsInput<Extract<NoInfer<A>[0], RoutePath>>,
-        ] &
-        UrlTypeError<RouteUrlCallError<NoInfer<A>[0], NoInfer<A>[1]>>
+// Function helpers instantiate O as unknown and retain the native checked signature.
+// Calls infer S and O independently, so diagnostics point at the incorrect argument.
+// Requiring two type arguments keeps <P> and Parameters<typeof routeUrl<P>> native.
+export function routeUrl<P extends RoutePath, S extends RoutePath | (string & {}), O = never>(
+  path: unknown extends O
+    ? S & P
+    : [O] extends [never]
+      ? {
+          readonly 'This route may require params. Pass its options as the second argument.': never;
+          readonly [invalid]: never;
+        } & UrlTypeError<RouteUrlCallError<S, undefined>>
+      : S &
+          ([S] extends [RoutePath]
+            ? unknown
+            : UrlTypeError<RouteUrlCallError<NoInfer<S>, undefined>>),
+  ...args: unknown extends O
+    ? RouteUrlArgs<NoInfer<P>>
+    : [O] extends [never]
+      ? [options?: never]
+      : [
+          options: [O] extends [object]
+            ? ([Exclude<keyof O, 'params' | 'query' | 'hash'>] extends [never]
+                ? RouteUrlCallError<NoInfer<S>, NoInfer<O>>
+                : UnknownRouteUrlOptions<O>) &
+                O & { readonly [invalid]: never }
+            : UrlTypeError<RouteUrlCallError<NoInfer<S>, NoInfer<O>>>,
+        ]
 ): RouteUrl;
 export function routeUrl(path: string, ...args: [options?: unknown]): RouteUrl {
   return buildRouteUrl(path, args[0] as UrlOptions | undefined) as RouteUrl;

@@ -790,6 +790,22 @@ routeUrl('/about', options);
 routeUrl<'/users/[id]'>('/users/[id]', { params: { id: 42, extra: 'x' } });
 // @ts-expect-error widening the type argument cannot omit required params
 routeUrl<string>('/users/[id]');
+declare const uncheckedOptions: Record<string, any>;
+// @ts-expect-error index signatures cannot satisfy the diagnostic rejection guard
+routeUrl('/users/[id]', uncheckedOptions);
+const boxed = Object.assign('Param id for route /users/[id] must be a string or number.' as const, { params: { id: true } });
+// @ts-expect-error a boxed diagnostic message is still invalid options
+routeUrl('/users/[id]', boxed);
+// @ts-expect-error diagnostic message strings cannot act as options
+routeUrl('/about', 'Invalid options for route /about. Pass an object with params, query, or hash.');
+// @ts-expect-error diagnostic message values cannot turn unknown options into valid ones
+routeUrl('/about', { search: 'Unknown routeUrl option: search. Use params, query, or hash.' });
+const fakePath = {
+  get 'This route may require params. Pass its options as the second argument.'(): never { throw new Error(); },
+  get 'Pass a route pattern literal to routeUrl(); string is too broad.'(): never { throw new Error(); },
+};
+// @ts-expect-error diagnostic objects cannot act as route patterns
+routeUrl(fakePath);
 `,
         },
       });
@@ -895,6 +911,102 @@ routeUrl<string>('/users/[id]');
       expect(output).not.toContain('TS2554');
       expect(output).not.toContain('UrlTypeError<never>');
       expect(output).not.toContain('Unknown param ${string}');
+      expect(output).not.toContain('RouteUrlOptionsInput');
+      expect(output).not.toContain('__voidUrlError');
+      expect(diagnostics[7]).toContain(
+        `parameter of type '"Unknown param userId for route /users/[id].`,
+      );
+      expect(diagnostics[7]).not.toContain('Argument of type \'["/users/[id]"');
+    },
+  );
+
+  it.each(declarationChecks)(
+    'explains missing options for generic routes through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
+      const root = await createFixture({
+        extraFiles: {
+          'check-generic-diagnostic.ts': `import { routeUrl, type RoutePath } from 'void/routes';
+function bare<P extends RoutePath>(path: P) {
+  return routeUrl(path);
+}
+void bare;
+`,
+        },
+      });
+      const { output, status } = typecheck(
+        root,
+        declarations,
+        ['check-generic-diagnostic.ts'],
+        {},
+        tsc,
+      );
+      expect(status).not.toBe(0);
+      expect(output).toContain(
+        'This route may require params. Pass its options as the second argument.',
+      );
+    },
+  );
+
+  it.each(['generated', 'package'] as const)(
+    'keeps diagnostic details out of completions through the %s declarations',
+    async (declarations) => {
+      const root = await createFixture();
+      const check = join(root, 'check-completions.ts');
+      writeFileSync(
+        check,
+        `import { routeUrl } from 'void/routes';
+routeUrl('/*route*/');
+routeUrl('/users/[id]', { /*options*/ });
+routeUrl('/users/[id]', { params: { /*params*/ } });
+`,
+      );
+      const tsModule = createRequire(compilers[1].tsc).resolve('typescript');
+      const options = {
+        target: 'ES2022',
+        module: declarations === 'generated' ? 'ESNext' : 'NodeNext',
+        moduleResolution: declarations === 'generated' ? 'Bundler' : 'NodeNext',
+        strict: true,
+        skipLibCheck: true,
+        types: [],
+        paths:
+          declarations === 'generated' ? { 'void/routes': [join(root, '.void/routes.d.ts')] } : {},
+      };
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import ts from ${JSON.stringify(pathToFileURL(tsModule).href)};
+const root = ${JSON.stringify(root)};
+const file = ${JSON.stringify(check)};
+const content = ts.sys.readFile(file);
+const options = ts.convertCompilerOptionsFromJson(${JSON.stringify(options)}, root).options;
+const service = ts.createLanguageService({
+  getScriptFileNames: () => [file, ${JSON.stringify(join(root, '.void/routes.d.ts'))}],
+  getScriptVersion: () => '0',
+  getScriptSnapshot: (path) => ts.sys.fileExists(path) ? ts.ScriptSnapshot.fromString(ts.sys.readFile(path)) : undefined,
+  getCurrentDirectory: () => root,
+  getCompilationSettings: () => options,
+  getDefaultLibFileName: (settings) => ts.getDefaultLibFilePath(settings),
+  fileExists: ts.sys.fileExists,
+  readFile: ts.sys.readFile,
+  readDirectory: ts.sys.readDirectory,
+});
+const completions = Object.fromEntries(['route', 'options', 'params'].map((marker) => [
+  marker,
+  (service.getCompletionsAtPosition(file, content.indexOf('/*' + marker + '*/'), {})?.entries ?? []).map((entry) => entry.name).sort(),
+]));
+service.dispose();
+process.stdout.write(JSON.stringify(completions));`,
+        ],
+        { encoding: 'utf8' },
+      );
+      expect({ status: result.status, errors: result.stderr }).toEqual({ status: 0, errors: '' });
+      const completions = JSON.parse(result.stdout);
+      expect(completions.route).toEqual(expect.arrayContaining(['/about', '/users/[id]']));
+      expect(completions.route.every((name: string) => name.startsWith('/'))).toBe(true);
+      expect(completions.options).toEqual(['hash', 'params', 'query']);
+      expect(completions.params).toEqual(['id']);
     },
   );
 

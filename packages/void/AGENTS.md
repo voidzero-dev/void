@@ -173,6 +173,11 @@ Vite/CLI dependency graph.
 `void/remote` stays exported only for semver. Generated code imports
 `#self/remote`. Remove the subpath in the next major version.
 
+Generated `.void/routes.d.ts` files import `void/_route-url-types`. Keep this
+types-only export and its legacy `typesVersions` mapping stable across compatible
+SDK releases, including when an app has not regenerated its declarations.
+Removing or renaming it requires an explicit breaking-change migration plan.
+
 Build output uses `.mjs` / `.d.mts` extensions (`vp pack` / tsdown default).
 
 ### Route Filename Parsing Rules
