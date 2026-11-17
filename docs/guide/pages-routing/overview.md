@@ -5,6 +5,8 @@ outline: deep
 
 # Pages Routing
 
+To render JSX as HTML without a framework adapter or browser hydration, see [Server Components](./server-components).
+
 Put UI components in `pages/` to make them routes. A page's server loader returns data, and the component receives it as props. This pattern is inspired by [Inertia.js](https://inertiajs.com/) and works with React, Vue, Svelte, and Solid.
 
 Pages mode starts when a `pages/` directory exists. It can live alongside `routes/`: use pages for UI and routes for APIs. Page components normally run on the server for the first render and in the browser for navigation and interaction.
@@ -13,9 +15,9 @@ You can also use your own client-side router and call Void's APIs with [typed fe
 
 ## Setup
 
-In an empty project, `void init` can set up Pages for you. Choose Vite+ or plain Vite, then React, Vue, Svelte, or Solid and a database or static starter. The generated app includes the matching Vite config and page files.
+In an empty project, `void init` can set up Pages for you. Choose Vite+ or plain Vite, then **None** for built-in server components or choose React, Vue, Svelte, or Solid. The generated app includes the matching Vite config and page files.
 
-If you're adding Pages mode manually, install a framework adapter alongside `void`:
+If you're adding Pages mode manually and want hydration, install a framework adapter alongside `void`:
 
 ::: code-group
 

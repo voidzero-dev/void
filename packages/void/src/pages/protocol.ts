@@ -71,6 +71,7 @@ type PageHeadHandler =
 type PageRequestContext = Context | CloudContext;
 type PageRenderOptions = {
   renderMode?: PageRenderMode;
+  serverView?: boolean;
   /** Dev server build: rejected deferred props keep their raw error message. */
   dev?: boolean;
   boundaries?: { notFound?: string; notFoundErrors?: Array<string>; errors: Array<string> };
@@ -86,6 +87,7 @@ type RenderPage = (
   pageObj: PageObject,
   assetTags: AssetTags,
   requestUrl: string,
+  context?: CloudContext,
 ) => Promise<PageRenderResult>;
 type RenderPageWithMetadata = RenderPage & {
   preambleScript?: string;
@@ -244,9 +246,12 @@ async function renderWithAssetTags(
   pageObj: PageObject,
   assetTags: AssetTags,
   requestUrl: string,
+  context?: CloudContext,
 ): Promise<PageRenderResult> {
   try {
-    return await renderFn(pageObj, assetTags, requestUrl);
+    return context
+      ? await renderFn(pageObj, assetTags, requestUrl, context)
+      : await renderFn(pageObj, assetTags, requestUrl);
   } catch (error) {
     attachRenderErrorAssetTags(error, assetTags);
   }
@@ -281,13 +286,20 @@ async function renderPageHtml(
   renderMode: PageRenderMode,
   renderFn: RenderPageWithMetadata,
   getAssetTags: GetAssetTags,
+  serverView?: boolean,
 ): Promise<{ html: PageRenderResult; assetTags: AssetTags }> {
   const assetTags = prepareAssetTags(await getAssetTags(c.req.raw, c.env, componentId));
   // Keep the request origin in render context, rather than serialized navigation URLs.
   const html =
     renderMode === 'client'
       ? renderClientOnlyPage(pageObj, assetTags, renderFn)
-      : await renderWithAssetTags(renderFn, pageObj, assetTags, c.req.url);
+      : await renderWithAssetTags(
+          renderFn,
+          pageObj,
+          assetTags,
+          c.req.url,
+          serverView ? c : undefined,
+        );
   return { html, assetTags };
 }
 
@@ -433,7 +445,7 @@ export async function recoverPageHttpException(
     return undefined;
   }
   const context = asCloudContext(c);
-  if (options?.renderMode !== 'island' && needsPageReload(context)) {
+  if (!options?.serverView && options?.renderMode !== 'island' && needsPageReload(context)) {
     return legacyPageResponse(context);
   }
   return renderPageFailure(context, error, undefined, renderFn, getAssetTags, configHead, options);
@@ -529,7 +541,7 @@ async function renderPageFailure(
     };
     try {
       let response: Response;
-      if (isPagesRequest(c) && options?.renderMode !== 'island') {
+      if (!options?.serverView && isPagesRequest(c) && options?.renderMode !== 'island') {
         response = pageJsonResponse(c, page);
       } else {
         const { html, assetTags } = await renderPageHtml(
@@ -539,6 +551,7 @@ async function renderPageFailure(
           options?.renderMode ?? 'server',
           renderFn,
           getAssetTags,
+          options?.serverView,
         );
         response = renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
       }
@@ -629,6 +642,45 @@ function stripDeferred(props: Record<string, unknown>): Record<string, unknown> 
     }
   }
   return result;
+}
+
+async function assignDeferredGroup(
+  props: Record<string, unknown>,
+  { resolver, keys }: ResolvedDeferredGroup,
+  c: CloudContext,
+): Promise<void> {
+  const data = await resolver(c);
+  if (keys.length === 1) {
+    props[keys[0]] = data ?? null;
+  } else {
+    const values =
+      typeof data === 'object' && data !== null ? (data as Record<string, unknown>) : {};
+    for (const key of keys) {
+      props[key] = values[key];
+    }
+  }
+}
+
+async function resolveDeferredProps(
+  props: Record<string, unknown>,
+  deferredMap: Record<string, ResolvedDeferredGroup>,
+  c: CloudContext,
+): Promise<void> {
+  await Promise.all(
+    Object.values(deferredMap).map((group) => assignDeferredGroup(props, group, c)),
+  );
+}
+
+async function resolveServerViewProps(
+  props: Record<string, unknown>,
+  c: CloudContext,
+): Promise<Record<string, unknown>> {
+  const { immediateProps, deferredMap } = separateDeferred(props);
+  if (Object.keys(deferredMap).length === 0) {
+    return props;
+  }
+  await resolveDeferredProps(immediateProps, deferredMap, c);
+  return immediateProps;
 }
 
 async function writeRenderResult(
@@ -784,7 +836,7 @@ async function runPageGet(
 ): Promise<Response> {
   const renderMode = options?.renderMode ?? 'server';
 
-  if (renderMode !== 'island' && needsPageReload(c)) {
+  if (!options?.serverView && renderMode !== 'island' && needsPageReload(c)) {
     return legacyPageResponse(c);
   }
 
@@ -798,6 +850,9 @@ async function runPageGet(
       try {
         // Read at render time so per-route middleware can set them before next()
         const shared = (c.get('shared') as Record<string, unknown> | undefined) ?? {};
+        if (options?.serverView) {
+          props = await resolveServerViewProps(props, c);
+        }
         const pageHead = headFn ? headFn(c, props) : undefined;
         const middlewareHead = c.get('headDefaults') as HeadConfig | undefined;
         const head = resolveRequestHead(c, configHead, middlewareHead, pageHead);
@@ -805,16 +860,21 @@ async function runPageGet(
           varyPagesResponse(c);
         }
 
-        const { immediateProps, deferredMap } = separateDeferred(props);
+        const { immediateProps, deferredMap }: ReturnType<typeof separateDeferred> =
+          options?.serverView
+            ? { immediateProps: props, deferredMap: {} }
+            : separateDeferred(props);
         const hasDeferred = Object.keys(deferredMap).length > 0;
         if (hasDeferred && (options?.boundaries?.notFound || options?.boundaries?.errors.length)) {
           c.header('Cache-Control', 'no-store');
         }
 
         const deferredKeys: Record<string, string> = {};
-        for (const [group, { keys }] of Object.entries(deferredMap)) {
-          for (const key of keys) {
-            deferredKeys[key] = group;
+        if (hasDeferred) {
+          for (const [group, { keys }] of Object.entries(deferredMap)) {
+            for (const key of keys) {
+              deferredKeys[key] = group;
+            }
           }
         }
 
@@ -833,30 +893,19 @@ async function runPageGet(
         };
 
         // Island pages always render HTML — no Inertia JSON navigation
-        if (renderMode !== 'island' && isPagesRequest(c)) {
+        if (!options?.serverView && renderMode !== 'island' && isPagesRequest(c)) {
           // Prefetch requests: resolve all deferred props inline (plain JSON, no streaming)
           const isPrefetch = c.req.header('purpose') === 'prefetch';
           if (isPrefetch && hasDeferred) {
             const resolvedProps: Record<string, unknown> = { ...immediateProps };
             let deferredErrors: Record<string, string> | undefined;
             await Promise.all(
-              Object.entries(deferredMap).map(async ([group, { resolver, keys }]) => {
+              Object.entries(deferredMap).map(async ([group, deferred]) => {
                 try {
-                  const data = await resolver(c);
-                  if (keys.length === 1) {
-                    resolvedProps[keys[0]] = data ?? null;
-                  } else {
-                    const obj =
-                      typeof data === 'object' && data !== null
-                        ? (data as Record<string, unknown>)
-                        : {};
-                    for (const key of keys) {
-                      resolvedProps[key] = obj[key];
-                    }
-                  }
+                  await assignDeferredGroup(resolvedProps, deferred, c);
                 } catch (err) {
                   (deferredErrors ??= {})[group] = deferredErrorMessage(err, options?.dev === true);
-                  for (const key of keys) {
+                  for (const key of deferred.keys) {
                     delete resolvedProps[key];
                   }
                 }
@@ -894,6 +943,7 @@ async function runPageGet(
           renderMode,
           renderFn,
           getAssetTags,
+          options?.serverView,
         );
 
         if (!hasDeferred) {
@@ -1017,14 +1067,17 @@ async function runPageMutation(
 
   /** Re-run the GET loader and respond with the page, optionally carrying validation errors. */
   async function respondWithPage(errors: Record<string, string> | null): Promise<Response> {
-    if (needsPageReload(c)) {
+    if (!options?.serverView && needsPageReload(c)) {
       return legacyPageResponse(c, errors);
     }
     try {
       return await runLoader(getHandler, c, async (props) => {
-        const pageObj = buildMutationPageObj(stripDeferred(props), errors);
+        const pageObj = buildMutationPageObj(
+          options?.serverView ? await resolveServerViewProps(props, c) : stripDeferred(props),
+          errors,
+        );
         varyPagesResponse(c);
-        if (isPagesRequest(c)) {
+        if (!options?.serverView && isPagesRequest(c)) {
           return pageJsonResponse(c, pageObj);
         }
         const { html, assetTags } = await renderPageHtml(
@@ -1034,6 +1087,7 @@ async function runPageMutation(
           renderMode,
           renderFn,
           getAssetTags,
+          options?.serverView,
         );
         return renderedResponse(c, html, 'text/html; charset=utf-8', assetTags);
       });

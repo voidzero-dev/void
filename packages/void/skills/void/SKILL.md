@@ -76,6 +76,7 @@ Use `void deploy --skip-migrations` when database migrations run separately; it 
 | Auth login/logout/whoami                   | `docs/reference/cli/auth.md`                                                              |
 | Overview / introduction                    | `docs/guide/index.md`                                                                     |
 | API surface details                        | `docs/reference/api.md`                                                                   |
+| Server Components without an adapter       | `docs/guide/pages-routing/server-components.md`                                           |
 | Meta framework integration                 | `docs/integrations/frameworks/*.md`                                                       |
 | Coding agent setup                         | `docs/integrations/agents.md`                                                             |
 | Node.js / Bun / Deno targets               | `docs/integrations/nodejs-bun-deno.md`                                                    |

@@ -93,7 +93,7 @@ export type ClientAssetOptions = {
   extraEntryUrl?: string;
   pageCssKeys?: Record<string, Array<string>>;
   devRootPhases?: Record<string, Array<Array<string>>>;
-  kind: 'ssr' | 'pages' | 'islands';
+  kind: 'ssr' | 'pages' | 'islands' | 'server-view';
   dev?: boolean;
   reactRefresh?: boolean;
   devCss?: (
@@ -168,6 +168,24 @@ export function createClientAssetTags(
 ): (request: Request, env: RuntimeEnvironment, componentId?: string) => Promise<ClientAssetTags> {
   return async (request, env, componentId = '') => {
     const empty = { css: '', preloads: '', body: '' };
+    if (options.kind === 'server-view') {
+      if (options.dev) {
+        const devCss = await options.devCss?.(request, env, {
+          kind: 'pages',
+          componentId,
+          rootPhases: options.devRootPhases?.[componentId] ?? [],
+        });
+        return { ...empty, devCss: Array.isArray(devCss) ? (devCss as Array<DevCssAsset>) : [] };
+      }
+      const manifest = await loadManifest(request, env);
+      const css = collectRouteCss(manifest ?? {}, options.pageCssKeys?.[componentId] ?? []);
+      return {
+        ...empty,
+        css: [...css]
+          .map((file) => `<link rel="stylesheet" href="/${escapeAttribute(file)}">`)
+          .join('\n'),
+      };
+    }
     const manifest = await loadManifest(request, env);
     if (!manifest || typeof manifest !== 'object') {
       if (!options.dev) {

@@ -315,6 +315,7 @@ export default extendConfig(
                 collapsed: true,
                 items: [
                   { text: 'Overview', link: '/guide/pages-routing/overview' },
+                  { text: 'Server Components', link: '/guide/pages-routing/server-components' },
                   { text: 'Layouts & Shared Data', link: '/guide/pages-routing/layouts' },
                   { text: 'Loaders & Props', link: '/guide/pages-routing/loaders' },
                   { text: 'Actions & Forms', link: '/guide/pages-routing/actions-and-forms' },

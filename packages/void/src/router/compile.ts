@@ -5,8 +5,13 @@ import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
 import { createBoundaryManifest } from '../pages/boundary-plans.ts';
-import { resolveLayoutIds } from '../pages/layout-resolution.ts';
+import {
+  resolveEffectiveLayoutChain,
+  resolveLayoutIds,
+  toLayoutId,
+} from '../pages/layout-resolution.ts';
 import { patternToRegex } from '../pages/manifest.ts';
+import { SERVER_VIEW_QUERY, serverViewStyleId } from '../pages/server-components-plugin.ts';
 import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
 import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env/raw.ts';
@@ -993,7 +998,13 @@ function compilePageRoutes(
   options: CompileOptions,
   pageNames: (componentId: string) => string,
 ): void {
-  lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
+  const boundaryManifest = createBoundaryManifest(scan.pages);
+  const rootPlan = boundaryManifest.root && boundaryManifest.plans[boundaryManifest.root];
+  const serverPages = scan.pages.pages.filter((page) => page.serverView);
+  const serverPlans = Object.values(boundaryManifest.plans).filter((plan) => plan.serverView);
+  if (scan.pages.pages.some((page) => !page.serverView) || (rootPlan && !rootPlan.serverView)) {
+    lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
+  }
   if (options.dev) {
     lines.push(`import { getVoidPagesDevCss } from "virtual:void-pages-dev-assets";`);
   }
@@ -1012,12 +1023,64 @@ function compilePageRoutes(
   const relPagesDir = pages.pagesDirRelative;
   const pageCssKeys: Record<string, Array<string>> = {};
   const pageDevRootPhases: Record<string, Array<Array<string>>> = {};
-  const boundaryManifest = createBoundaryManifest(scan.pages);
   const projectRoot = options.projectRoot;
   const toDevRootUrl = (absolutePath: string): string =>
     '/' + absolutePath.replaceAll('\\', '/').slice(projectRoot.replaceAll('\\', '/').length + 1);
   const virtualDevUrl = (id: string): string => '/@id/__x00__' + id;
+  const serverLayouts = scan.pages.layouts.filter((layout) => layout.serverView);
+  const serverNamedLayouts = scan.pages.namedLayouts.filter((layout) => layout.serverView);
+  const serverCssKeys: Record<string, Array<string>> = {};
+  const serverDevRoots: Record<string, Array<Array<string>>> = {};
+  if (serverPages.length || serverPlans.length) {
+    lines.push(
+      `import { createServerViewRenderer as __createServerViewRenderer } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    );
+    const load = (file: string) =>
+      `() => import(${JSON.stringify(`${pages.pagesDir}/${file}${SERVER_VIEW_QUERY}`)})`;
+    const serverLayoutPaths = new Map(
+      [...serverLayouts, ...serverNamedLayouts].map((layout) => {
+        const id = toLayoutId(layout);
+        return [
+          scan.pages.pages.some((page) => page.componentId === id)
+            ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
+            : id,
+          layout.filePath,
+        ];
+      }),
+    );
+    const entry = (id: string, file: string, layouts: Array<string>, boundary = false) => {
+      const styles = [...layouts, file].map((path) =>
+        serverViewStyleId(`${pages.pagesDir}/${path}`),
+      );
+      serverCssKeys[id] = styles.map((path) => relative(projectRoot, path).replaceAll('\\', '/'));
+      serverDevRoots[id] = styles.map((path) => [toDevRootUrl(path)]);
+      return `[${JSON.stringify(id)}]: { load: ${load(file)}, layouts: [${layouts.map(load).join(', ')}]${boundary ? ', boundary: true' : ''} }`;
+    };
+    const entries = serverPages.map((page) =>
+      entry(
+        page.componentId,
+        page.componentPath,
+        resolveEffectiveLayoutChain(page, serverLayouts, serverNamedLayouts).map(
+          (layout) => layout.filePath,
+        ),
+      ),
+    );
+    entries.push(
+      ...serverPlans.map((plan) =>
+        entry(
+          plan.id,
+          plan.filePath,
+          plan.layouts.flatMap((id) => serverLayoutPaths.get(id) ?? []),
+          true,
+        ),
+      ),
+    );
+    lines.push(`const renderServerView = __createServerViewRenderer({ ${entries.join(', ')} });`);
+  }
   for (const page of scan.pages.pages) {
+    if (page.serverView) {
+      continue;
+    }
     const keys: Array<string> = [];
     const routeRootPhases: Array<Array<string>> = [
       [
@@ -1029,12 +1092,14 @@ function compilePageRoutes(
     if (page.island && pages.mdClientEntryId) {
       routeRootPhases[0].push(virtualDevUrl(pages.mdClientEntryId));
     }
-    const layoutIds = resolveLayoutIds(page, scan.pages.layouts, scan.pages.namedLayouts);
+    const layoutIds = resolveLayoutIds(
+      page,
+      scan.pages.layouts.filter((l) => !l.serverView),
+      scan.pages.namedLayouts.filter((l) => !l.serverView),
+    );
     const layoutRoots: Array<string> = [];
     for (const layoutId of layoutIds) {
-      const layout = scan.pages.layouts.find(
-        (l) => (l.directory ? `${l.directory}/layout` : 'layout') === layoutId,
-      );
+      const layout = scan.pages.layouts.find((l) => !l.serverView && toLayoutId(l) === layoutId);
       if (layout) {
         keys.push(`${relPagesDir}/${layout.filePath}`);
         layoutRoots.push(toDevRootUrl(`${pages.pagesDir}/${layout.filePath}`));
@@ -1042,7 +1107,7 @@ function compilePageRoutes(
       }
       const named = scan.pages.namedLayouts.find((nl) => {
         const id = nl.directory ? `${nl.directory}/_layouts/${nl.name}` : `_layouts/${nl.name}`;
-        return id === layoutId;
+        return !nl.serverView && id === layoutId;
       });
       if (named) {
         keys.push(`${relPagesDir}/${named.filePath}`);
@@ -1056,8 +1121,14 @@ function compilePageRoutes(
     pageDevRootPhases[page.componentId] = routeRootPhases.filter((phase) => phase.length > 0);
   }
   for (const plan of Object.values(boundaryManifest.plans)) {
+    if (plan.serverView) {
+      continue;
+    }
     const files = [...scan.pages.layouts, ...scan.pages.namedLayouts]
       .filter((layout) => {
+        if (layout.serverView) {
+          return false;
+        }
         const id =
           'name' in layout
             ? layout.directory
@@ -1086,6 +1157,11 @@ function compilePageRoutes(
     dev: options.dev === true,
   };
   const devCssOption = options.dev ? ', devCss: getVoidPagesDevCss' : '';
+  if (serverPages.length || serverPlans.length) {
+    lines.push(
+      `const getServerViewAssets = __createClientAssetTags({ ...${JSON.stringify({ kind: 'server-view', pageCssKeys: serverCssKeys, devRootPhases: options.dev ? serverDevRoots : undefined, dev: options.dev === true })}${devCssOption} }, __loadPagesManifest);`,
+    );
+  }
   lines.push(
     `const getPagesAssetTags = __createClientAssetTags({ ...${JSON.stringify({ ...assetMetadata, entryId: pages.clientEntryId, entryUrl: '/@id/__x00__' + pages.clientEntryId, kind: 'pages' })}${devCssOption} }, __loadPagesManifest);`,
   );
@@ -1097,8 +1173,15 @@ function compilePageRoutes(
 
   if (boundaryManifest.root) {
     const island = scan.pages.pages.length > 0 && scan.pages.pages.every((page) => page.island);
+    const serverView = !!(rootPlan && rootPlan.serverView);
+    const renderer = serverView ? 'renderServerView' : island ? 'renderIslandPage' : 'renderPage';
+    const assets = serverView
+      ? 'getServerViewAssets'
+      : island && pages.islandClientEntryId
+        ? 'getIslandsAssetTags'
+        : 'getPagesAssetTags';
     lines.push(
-      `const __voidRootNotFoundOptions = { componentId: ${JSON.stringify(boundaryManifest.root)}, load: async () => ({ loader: () => new Response(null, { status: 404 }) }), render: ${island ? 'renderIslandPage' : 'renderPage'}, assets: ${island && pages.islandClientEntryId ? 'getIslandsAssetTags' : 'getPagesAssetTags'}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: island ? 'island' : 'server', dev: options.dev === true, boundaries: { notFound: boundaryManifest.root, errors: boundaryManifest.rootErrors ?? [] } })} }; const __voidRootNotFound = __createPageGetHandler(__voidRootNotFoundOptions); export const __voidRenderStaticNotFound = __createStaticNotFound({ ...__voidRootNotFoundOptions, render: renderPage, assets: getPagesAssetTags });`,
+      `const __voidRootNotFoundOptions = { componentId: ${JSON.stringify(boundaryManifest.root)}, load: async () => ({ loader: () => new Response(null, { status: 404 }) }), render: ${renderer}, assets: ${assets}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ ...(serverView && { serverView }), renderMode: island ? 'island' : 'server', dev: options.dev === true, boundaries: { notFound: boundaryManifest.root, errors: boundaryManifest.rootErrors ?? [] } })} }; const __voidRootNotFound = __createPageGetHandler(__voidRootNotFoundOptions); export const __voidRenderStaticNotFound = __createStaticNotFound({ ...__voidRootNotFoundOptions, render: ${serverView ? renderer : 'renderPage'}, assets: ${serverView ? assets : 'getPagesAssetTags'} });`,
     );
   }
 
@@ -1108,7 +1191,7 @@ function compilePageRoutes(
 
     let serverImportPath: string | null = null;
     if (page.serverPath) {
-      serverImportPath = `${pages.pagesDir}/${page.serverPath}`;
+      serverImportPath = `${pages.pagesDir}/${page.serverPath}${page.serverView ? SERVER_VIEW_QUERY : ''}`;
     }
 
     if (serverImportPath && !seenServerFiles.has(serverImportPath)) {
@@ -1135,16 +1218,25 @@ function compilePageRoutes(
     }
 
     // Choose renderer and asset tags based on normalized render mode
-    const renderer = page.renderMode === 'island' ? 'renderIslandPage' : 'renderPage';
-    const assetTags =
-      page.renderMode === 'island' && pages.islandClientEntryId
+    const renderer = page.serverView
+      ? 'renderServerView'
+      : page.renderMode === 'island'
+        ? 'renderIslandPage'
+        : 'renderPage';
+    const assetTags = page.serverView
+      ? 'getServerViewAssets'
+      : page.renderMode === 'island' && pages.islandClientEntryId
         ? 'getIslandsAssetTags'
         : 'getPagesAssetTags';
     const trailingCatchAll = options.trailingSlash && page.catchAll;
     const pattern = trailingCatchAll ? page.pattern.slice(0, -1) : page.pattern;
     const catchAllParam = page.pattern.match(/:([^/{}]+)\{\.\+\}\/$/)?.[1];
-    const middlewareBoundaries = `middlewareBoundaries: ${JSON.stringify({ notFound: boundaryManifest.root, errors: (boundaryManifest.pages[page.componentId]?.errors ?? []).filter((id) => !boundaryManifest.plans[id].directory) })}, `;
-    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}${middlewareBoundaries}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
+    const middlewareNotFound =
+      rootPlan && Boolean(rootPlan.serverView) === Boolean(page.serverView)
+        ? boundaryManifest.root
+        : undefined;
+    const middlewareBoundaries = `middlewareBoundaries: ${JSON.stringify({ notFound: middlewareNotFound, errors: (boundaryManifest.pages[page.componentId]?.errors ?? []).filter((id) => !boundaryManifest.plans[id].directory) })}, `;
+    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}${middlewareBoundaries}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ ...(page.serverView && { serverView: true }), renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
     lines.push(`app.get(${JSON.stringify(pattern)}, __createPageGetHandler(${routeOptions}));`);
     if (page.methods.includes('action') || page.methods.includes('actions')) {
       lines.push(

@@ -606,3 +606,4 @@ export {
 export { createClientAssetTags, createManifestLoader } from './assets.ts';
 export { createSsrFallback, createAssetNotFound } from './pages.ts';
 export { buildPrerenderPath } from './prerender-path.ts';
+export { createServerViewRenderer } from './server-components.ts';
