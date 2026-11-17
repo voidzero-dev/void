@@ -1,8 +1,5 @@
-export {
-  ImageResponse,
-  type ImageResponseOptions,
-  type RenderImageOptions,
-} from './image-response.ts';
+export { ImageResponse, type ImageResponseOptions } from './image-response.ts';
+export { renderImage, type RenderImageOptions } from './render-image.ts';
 export type {
   ImageFont,
   ImageInput,
@@ -11,11 +8,12 @@ export type {
   ImageRgbaData,
   ImageStyle,
 } from './image-input.ts';
+export { OgImageResponse, type OgImageResponseOptions } from './og-image-response.ts';
 export {
-  OgImageResponse,
+  renderOgImage,
   ogImageSizes,
   type OgImagePreset,
   type RenderOgImageOptions,
   type RenderOgImageOptionsPreset,
   type RenderOgImageOptionsSize,
-} from './og-image-response.ts';
+} from './render-og-image.ts';

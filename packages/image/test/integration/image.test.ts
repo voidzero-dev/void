@@ -41,8 +41,22 @@ it('publishes renderer-independent image declarations without React imports', ()
 });
 
 const IMAGE_ROUTE = `import { html } from 'void/html';
-import { ImageResponse } from '@void/image/generate';
-export const GET = (c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
+import { ImageResponse, renderImage } from '@void/image/generate';
+export const GET = async (c) => {
+  const content = html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`;
+  const options = { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' };
+  if (c.req.query('render') === 'async') {
+    try {
+      const input = c.req.query('fail')
+        ? { type: () => { throw new Error('render failed'); }, props: {} }
+        : content;
+      return new Response(await renderImage(input, options), { headers: { 'Content-Type': 'image/png' } });
+    } catch {
+      return new Response('render failed', { status: 503 });
+    }
+  }
+  return new ImageResponse(content, options);
+};
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { ImageResponse } from '@void/image/generate';
@@ -185,6 +199,10 @@ async function expectFontSelection(
   const geist = await expectImage(await request('?font=Geist'), cacheControl);
   expect(inter).not.toEqual(geist);
   expect(await expectImage(await request(''), cacheControl)).toEqual(inter);
+  expect(await expectImage(await request('?render=async'), cacheControl)).toEqual(inter);
+  const failed = await request('?render=async&fail=1');
+  expect(failed.status).toBe(503);
+  expect(await failed.text()).toBe('render failed');
 }
 
 function builtFiles(root: string): Array<string> {
@@ -200,7 +218,7 @@ afterAll(() => {
 it('typechecks a public image consumer without loading renderer or React declarations', () => {
   const root = createApp(
     {
-      'input.ts': `import { ImageResponse, OgImageResponse, type ImageFont, type ImageInput, type ImageJsxElement, type ImageNode, type ImageRgbaData, type ImageStyle } from '@void/image/generate';
+      'input.ts': `import { ImageResponse, OgImageResponse, renderImage, renderOgImage, type ImageFont, type ImageInput, type ImageJsxElement, type ImageNode, type ImageRgbaData, type ImageStyle, type OgImageResponseOptions } from '@void/image/generate';
 import { html } from 'void/html';
 const style: ImageStyle = { display: 'flex', fontSize: 24, '--ink': '#123', textFit: 'shrink' };
 const pixels: ImageRgbaData = { width: 1, height: 1, data: new Uint8Array([255, 0, 0, 255]) };
@@ -211,7 +229,15 @@ const inputs: ImageInput[] = [node, jsx, html\`<div>Hello</div>\`];
 for (const input of inputs) {
   new ImageResponse(input, { width: 320, height: 168, fonts: [font] });
   new OgImageResponse(input);
+  new Response(await renderImage(input, { width: 320, height: 168 }));
+  new Response(await renderOgImage(input, { preset: 'x' }));
 }
+const responseOptions: OgImageResponseOptions = { preset: 'x', status: 201, headers: { 'x-image': 'card' } };
+new OgImageResponse(node, responseOptions);
+// @ts-expect-error HTTP options belong to the response wrapper.
+renderOgImage(node, { headers: {} });
+// @ts-expect-error HTTP options belong to the response wrapper.
+renderImage(node, { width: 320, height: 168, status: 200 });
 `,
       'tsconfig.json': JSON.stringify({
         compilerOptions: {

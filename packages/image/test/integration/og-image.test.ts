@@ -21,8 +21,24 @@ const CACHE_HEADER = 'public, max-age=86400';
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
 const OG_ROUTE = `import { html } from 'void/html';
-import { OgImageResponse } from '@void/image/generate';
-export const GET = (c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { preset: 'default', fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
+import { OgImageResponse, renderOgImage } from '@void/image/generate';
+export const GET = async (c) => {
+  const content = html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`;
+  const options = { preset: 'default', fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' };
+  if (c.req.query('render') === 'async') {
+    try {
+      const input = c.req.query('fail')
+        ? { type: () => { throw new Error('render failed'); }, props: {} }
+        : content;
+      return new Response(await renderOgImage(input, options), {
+        headers: { 'Content-Type': 'image/png', 'Cache-Control': 'public, max-age=86400' },
+      });
+    } catch {
+      return new Response('render failed', { status: 503 });
+    }
+  }
+  return new OgImageResponse(content, options);
+};
 `;
 // A .tsx route, as the guide shows.
 const CARD_ROUTE = `import { OgImageResponse } from '@void/image/generate';
@@ -144,6 +160,10 @@ async function expectFontSelection(
   const geist = await expectImage(await request('?font=Geist'), cacheControl);
   expect(inter).not.toEqual(geist);
   expect(await expectImage(await request(''), cacheControl)).toEqual(inter);
+  expect(await expectImage(await request('?render=async'), cacheControl)).toEqual(inter);
+  const failed = await request('?render=async&fail=1');
+  expect(failed.status).toBe(503);
+  expect(await failed.text()).toBe('render failed');
 }
 
 function builtFiles(root: string): Array<string> {

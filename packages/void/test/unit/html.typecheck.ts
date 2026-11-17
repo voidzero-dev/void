@@ -1,6 +1,6 @@
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { html, raw, type HtmlEscapedString } from 'void/html';
-import { defineHandler } from '../../src/runtime/handler.ts';
+import { defineHandler } from '../../src/runtime/handler/index.ts';
 
 describe('void/html types', () => {
   it('returns escaped HTML from templates, including asynchronous templates', () => {
