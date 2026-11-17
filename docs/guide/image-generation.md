@@ -162,7 +162,7 @@ export const GET = defineHandler(async (c) => {
 });
 ```
 
-Pass response options such as `status` and `headers` to `Response`, not to `renderImage`. The byte API sets no HTTP headers or cache policy. For social preview presets, use [`renderOgImage`](./og-images.md#await-rendering).
+Pass response options such as `status` and `headers` to `Response`, not to `renderImage`. The byte API sets no HTTP headers or cache policy. For social previews with a default size of 1200 × 630, use [`renderOgImage`](./og-images.md#await-rendering).
 
 `ImageResponse` and `OgImageResponse` are convenient alternatives that render only when their body is read, such as when the server sends the response or you call `arrayBuffer()`. Constructing one does not start rendering. Rendering failures reject body consumption; to catch them inside your route before returning a response, await `renderImage` or `renderOgImage` instead.
 
