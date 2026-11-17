@@ -17,6 +17,66 @@ import {
   tokenEnv,
 } from '../helpers/cloudflare-operation-process.ts';
 
+it.each(['CLOUDFLARE_API_TOKEN', 'CF_API_TOKEN'] as const)(
+  'keeps OAuth storage and terminal UI unloaded when %s supplies the bearer',
+  async (name) => {
+    const root = temporaryDirectory('void-token-only-startup-');
+    const preload = join(root, 'reject-auth-imports.mjs');
+    writeFileSync(
+      preload,
+      `import { registerHooks } from 'node:module';
+registerHooks({ resolve(specifier, context, nextResolve) {
+  if (specifier.includes('/cf-session') || specifier.includes('/cloudflare-login-output') ||
+      specifier.startsWith('@cloudflare/workers-auth') || specifier === '@voidzero-dev/vite-plus-prompts') {
+    throw new Error('Token-only operations must not load OAuth storage or terminal UI');
+  }
+  return nextResolve(specifier, context);
+} });`,
+    );
+    const result = await runOperation(
+      root,
+      { type: 'auth.token' },
+      tokenEnv(undefined, name),
+      preload,
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(JSON.parse(result.stdout).data).toEqual({ type: 'api_token', token: 'synthetic-token' });
+  },
+);
+
+it('loads the live terminal presentation when the login operation needs it', async () => {
+  const root = temporaryDirectory('void-login-presentation-');
+  const preload = join(root, 'login-child.mjs');
+  writeFileSync(
+    preload,
+    `import childProcess from 'node:child_process';
+import { EventEmitter } from 'node:events';
+import { syncBuiltinESMExports } from 'node:module';
+import { PassThrough } from 'node:stream';
+childProcess.spawn = (_command, args) => {
+  if (!args.includes('login') || !args.includes('--force')) throw new Error('Expected forced login');
+  const child = new EventEmitter();
+  child.stdout = new PassThrough();
+  child.stderr = new PassThrough();
+  setImmediate(() => {
+    child.stderr.write('Visit this link to authenticate: https://example.test/device\\nand enter the code: TEST-1234\\n');
+    child.stdout.end(); child.stderr.end(); child.emit('close', 0, null);
+  });
+  return child;
+};
+syncBuiltinESMExports();`,
+  );
+  const result = await runOperation(
+    root,
+    { type: 'auth.login' },
+    { ...systemEnv, CLOUDFLARE_AUTH_USE_KEYRING: 'false' },
+    preload,
+  );
+  expect(result.status, result.stderr).toBe(0);
+  expect(result.stdout).toContain('TEST-1234');
+  expect(result.stdout).toContain('https://example.test/device');
+});
+
 it.each([
   ['clear-crons', 'true'],
   ['clear-domains', 'false'],

@@ -20,15 +20,8 @@ import {
   readCfUploadOutput,
   safePositional,
 } from './cf-command-values.ts';
-import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
-import {
-  cloudflareDeviceCode,
-  cloudflareVerificationUrl,
-  printCloudflareLoginLink,
-  printCloudflareLoginPrompt,
-} from './cloudflare-login-output.ts';
 import { platformWorkerUploadAttribution } from './platform-worker-user-agent.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
@@ -148,7 +141,13 @@ function runCf(
   return result(child.status, child.stdout ?? '', stderr);
 }
 
-function runInteractiveCf(command: Array<string>): Promise<Result> {
+async function runInteractiveCf(command: Array<string>): Promise<Result> {
+  const {
+    cloudflareDeviceCode,
+    cloudflareVerificationUrl,
+    printCloudflareLoginLink,
+    printCloudflareLoginPrompt,
+  } = await import('./cloudflare-login-output.ts');
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [cf, ...command, '--quiet'], {
       cwd: process.cwd(),
@@ -556,6 +555,7 @@ async function sessionCredential(): Promise<
   if (state.authenticated !== true || state.tokenValid !== true) {
     return { failure: NO_OAUTH_BEARER };
   }
+  const { readCfSessionCredential } = await import('./cf-session.ts');
   const credential = readCfSessionCredential(process.cwd(), state);
   return credential ? { type: 'oauth', token: credential } : { failure: NO_OAUTH_BEARER };
 }
@@ -564,6 +564,7 @@ async function auth(): Promise<Result> {
   if (operation.type === 'auth.login') {
     const loggedIn = await runInteractiveCf(['auth', 'login', '--force']);
     if (loggedIn.status === 0) {
+      const { persistCfKeyringPreference } = await import('./cf-session.ts');
       persistCfKeyringPreference(process.cwd());
     }
     return loggedIn;
@@ -581,6 +582,7 @@ async function auth(): Promise<Result> {
       return result(1, '', 'Cloudflare authentication is required.', { loggedIn: false });
     }
     if (String(identity.authSource).startsWith('OAuth token from ')) {
+      const { persistCfKeyringPreference } = await import('./cf-session.ts');
       persistCfKeyringPreference(process.cwd());
     }
     return result(0, '', called.stderr, {
