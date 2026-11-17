@@ -35,6 +35,7 @@ import { maybeSetupDeployProject } from './deploy-setup.ts';
 import { maybeScaffoldEnvTs } from './env-scaffold.ts';
 import { migrateFrameworkAdapterPaths } from './framework-config-migrate.ts';
 import { initialCommitCommand, setupGit } from './init-git.ts';
+import { commandInProject } from './init-shell.ts';
 import { configureVitePlusScaffold } from './init-vite-plus.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
 import { formatUrl, note, printSuccess } from './output.ts';
@@ -1423,19 +1424,27 @@ function writeDatabaseDialect(root: string, config: VoidConfig, dialect: Databas
   writeVoidProjectConfig(root, next);
 }
 
+/** `quiet` is for a new starter, whose prompt already showed the database. */
+type DatabaseDialectOptions = { quiet?: boolean };
+
 function clearConfiguredDatabase(
   root: string,
   messages: { unchanged: string; updated: string },
+  options: DatabaseDialectOptions,
 ): void {
   const config = readConfig(root);
 
   if (getDatabaseDialect(config) === 'sqlite') {
-    log.info(messages.unchanged);
+    if (!options.quiet) {
+      log.info(messages.unchanged);
+    }
     return;
   }
 
   writeDatabaseDialect(root, config, 'sqlite');
-  log.step(messages.updated);
+  if (!options.quiet) {
+    log.step(messages.updated);
+  }
 }
 
 /** Remove `database` entirely: its casing alone still makes Void serve `void/db`. */
@@ -1451,35 +1460,51 @@ function removeDatabaseConfig(root: string): void {
   log.step('Removed database config from void.config.ts');
 }
 
-function applyDatabaseDialect(root: string, dialect: DatabaseDialect): void {
+function applyDatabaseDialect(
+  root: string,
+  dialect: DatabaseDialect,
+  options: DatabaseDialectOptions = {},
+): void {
   const config = readConfig(root);
 
   if (dialect === 'postgresql') {
     if (getDatabaseDialect(config) === 'postgresql') {
-      log.info('PostgreSQL already configured in void.config.ts');
+      if (!options.quiet) {
+        log.info('PostgreSQL already configured in void.config.ts');
+      }
       return;
     }
 
     writeDatabaseDialect(root, config, 'postgresql');
-    log.step('Configured PostgreSQL in void.config.ts');
+    if (!options.quiet) {
+      log.step('Configured PostgreSQL in void.config.ts');
+    }
     return;
   }
 
   if (dialect === 'mysql') {
     if (getDatabaseDialect(config) === 'mysql') {
-      log.info('MySQL already configured in void.config.ts');
+      if (!options.quiet) {
+        log.info('MySQL already configured in void.config.ts');
+      }
       return;
     }
 
     writeDatabaseDialect(root, config, 'mysql');
-    log.step('Configured MySQL in void.config.ts');
+    if (!options.quiet) {
+      log.step('Configured MySQL in void.config.ts');
+    }
     return;
   }
 
-  clearConfiguredDatabase(root, {
-    unchanged: 'Using default D1 (SQLite) configuration',
-    updated: 'Updated void.config.ts to use the default D1 (SQLite) configuration',
-  });
+  clearConfiguredDatabase(
+    root,
+    {
+      unchanged: 'Using default D1 (SQLite) configuration',
+      updated: 'Updated void.config.ts to use the default D1 (SQLite) configuration',
+    },
+    options,
+  );
 }
 
 function detectDatabaseSetup(root: string): DatabaseSetupChoice {
@@ -2330,7 +2355,7 @@ function scaffoldPagesApp(
 
   ensureGitignore(root);
   if (starterMode !== 'static') {
-    applyDatabaseDialect(root, starterMode);
+    applyDatabaseDialect(root, starterMode, { quiet: true });
   }
 
   if (starterMode === 'postgresql') {
@@ -2768,7 +2793,7 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
   }
 
   if (!targeted && !framework && isScaffoldableEmptyProject(root)) {
-    log.info('Empty project detected. Scaffolding a Pages starter...');
+    log.info('Empty project detected. Creating a Pages starter.');
     const scaffoldToolchain = await promptScaffoldToolchain(initArgs?.toolchain);
     if (detectedPagesFramework) {
       scaffoldedPagesFramework = detectedPagesFramework;
@@ -2891,10 +2916,11 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
     log.info('Bundled Void docs: node_modules/void/docs/');
   }
 
-  // Demo code only in the full flow, and not for meta-frameworks.
-  if (!targeted && !framework) {
+  // Demo code only in the full flow, and not for meta-frameworks or a new
+  // starter, which already has its own pages.
+  if (!targeted && !framework && !didScaffoldStarter) {
     const existingDemoFiles = Object.values(demoFiles(root)).filter((file) => existsSync(file));
-    if (didScaffoldStarter || state.hasRoutes || state.hasMigrations || state.hasPages) {
+    if (state.hasRoutes || state.hasMigrations || state.hasPages) {
       log.info('Project already has pages, routes, or migrations, skipping demo');
     } else if (hasDrizzleSchema(root)) {
       log.info('Project already has a database schema, skipping demo');
@@ -3038,8 +3064,7 @@ export async function runInitCommand(root: string, initArgs?: InitArgs): Promise
       printSuccess('Project initialized. Run your workspace install to finish setup.');
     }
   } else {
-    printSuccess(
-      `Project initialized. Run \`${getDevCommand(root, framework)}\` to start developing.`,
-    );
+    const devCommand = commandInProject(root, getDevCommand(root, framework));
+    printSuccess(`Project initialized. Run \`${devCommand}\` to start developing.`);
   }
 }
