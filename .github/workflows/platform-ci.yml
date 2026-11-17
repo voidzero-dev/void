@@ -24,11 +24,6 @@ on:
 
 permissions: {}
 
-env:
-  VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
-  # Platform checks share the SDK build graph. Keep the main-only upload policy used by CI.
-  VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'read-write' || 'read' }}
-
 jobs:
   build-api-container:
     if: github.event_name == 'pull_request'
@@ -47,7 +42,6 @@ jobs:
     runs-on: ${{ github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     permissions:
       contents: read
-      id-token: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -71,7 +65,6 @@ jobs:
     runs-on: ${{ github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || 'ubuntu-latest' }}
     permissions:
       contents: read
-      id-token: write
     strategy:
       fail-fast: false
       matrix:
@@ -99,7 +92,6 @@ jobs:
     timeout-minutes: 10
     permissions:
       contents: read
-      id-token: write
     env:
       POSTGRES_USER: void_ci
       POSTGRES_PASSWORD: void_ci_pass
@@ -148,7 +140,6 @@ jobs:
     permissions:
       contents: read
       deployments: read
-      id-token: write
     env:
       PRODUCTION_REF: ${{ vars.VOID_PLATFORM_PRODUCTION_REF }}
       PRODUCTION_ENVIRONMENT: ${{ vars.VOID_PLATFORM_PRODUCTION_ENV || 'Prod' }}

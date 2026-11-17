@@ -13,7 +13,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { createServer, type AddressInfo } from 'node:net';
-import { basename, dirname, join, relative } from 'node:path/posix';
+import { basename, join, relative } from 'node:path/posix';
 import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';
 import crossSpawn from 'cross-spawn';
@@ -50,40 +50,6 @@ export type IsolatedPlayground = {
   cleanup: () => void;
 };
 
-export function fixtureBuildCacheArgs(): Array<string> {
-  return process.env.VOID_TEST_FRESH_BUILDS === '1' ? ['--no-cache'] : [];
-}
-
-/**
- * Validate/restore a playground build without rewriting SDK artifacts while workers use them.
- * The shared global setup prepares those prerequisites before any test file is imported.
- */
-export function buildPlayground(workspaceRoot: string, playground: string): void {
-  const result = crossSpawn.sync(
-    'vp',
-    [
-      'run',
-      '--ignore-depends-on',
-      ...fixtureBuildCacheArgs(),
-      '--filter',
-      `./playground/${playground}`,
-      'build',
-    ],
-    {
-      cwd: workspaceRoot,
-      encoding: 'utf8',
-      env: { ...process.env, NODE_ENV: undefined },
-      maxBuffer: 10 * 1024 * 1024,
-    },
-  );
-  if (result.error || result.status !== 0) {
-    throw new Error(
-      `Could not prepare playground/${playground}.\n${result.stdout ?? ''}${result.stderr ?? ''}`,
-      { cause: result.error },
-    );
-  }
-}
-
 function shouldCopyPlaygroundPath(sourceRoot: string, path: string): boolean {
   const normalizedSourceRoot = sourceRoot.replaceAll('\\', '/');
   const normalizedPath = path.replaceAll('\\', '/');
@@ -116,67 +82,16 @@ export function createIsolatedPlayground(
     },
   });
 
-  linkFixtureDependencies(sourceRoot, root);
-
-  // Avoid duplicate workspace package names when multiple copies exist concurrently.
-  const packagePath = join(root, 'package.json');
-  const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8')) as { name?: string };
-  packageJson.name = `${packageJson.name ?? basename(sourceWorkspacePath)}-${basename(root)}`;
-  writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
-
-  return {
-    root,
-    workspacePath: relative(workspaceRoot, root),
-    cleanup() {
-      rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
-    },
-  };
-}
-
-/** Restore immutable production output, then give the server its own source and storage root. */
-export function createBuiltPlayground(
-  workspaceRoot: string,
-  playground: string,
-): IsolatedPlayground {
-  buildPlayground(workspaceRoot, playground);
-  const source = join(workspaceRoot, 'playground', playground);
-  const fixture = createIsolatedPlayground(workspaceRoot, `playground/${playground}`);
-  try {
-    for (const directory of ['dist', '.cloudflare']) {
-      if (existsSync(join(source, directory))) {
-        cpSync(join(source, directory), join(fixture.root, directory), { recursive: true });
-      }
-    }
-    return fixture;
-  } catch (error) {
-    fixture.cleanup();
-    throw error;
-  }
-}
-
-/** Link installed dependencies into a fixture without archiving or copying node_modules. */
-export function linkFixtureDependencies(
-  sourceRoot: string,
-  root: string,
-  additionalPackages: Record<string, string> = {},
-): void {
-  const fixtureNodeModules = join(root, 'node_modules');
-  mkdirSync(fixtureNodeModules, { recursive: true });
-  const linkDependency = (source: string, destination: string) => {
-    const target = realpathSync.native(source);
-    try {
-      if (realpathSync.native(destination) === target) {
-        return;
-      }
-    } catch {
-      // A fresh fixture has no links yet.
-    }
-    rmSync(destination, { recursive: true, force: true });
-    mkdirSync(dirname(destination), { recursive: true });
-    symlinkSync(target, destination, process.platform === 'win32' ? 'junction' : 'dir');
-  };
   const sourceNodeModules = join(sourceRoot, 'node_modules');
   if (existsSync(sourceNodeModules)) {
+    const fixtureNodeModules = join(root, 'node_modules');
+    mkdirSync(fixtureNodeModules);
+    const linkDependency = (source: string, destination: string) =>
+      symlinkSync(
+        realpathSync(source),
+        destination,
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
     // Linking the whole directory leaves pnpm's relative package links behind
     // a Windows junction at a different depth. Pin each package's real target.
     for (const entry of readdirSync(sourceNodeModules, { withFileTypes: true })) {
@@ -193,7 +108,7 @@ export function linkFixtureDependencies(
       const source = join(sourceNodeModules, entry.name);
       const destination = join(fixtureNodeModules, entry.name);
       if (entry.name.startsWith('@')) {
-        mkdirSync(destination, { recursive: true });
+        mkdirSync(destination);
         for (const name of readdirSync(source)) {
           linkDependency(join(source, name), join(destination, name));
         }
@@ -202,9 +117,20 @@ export function linkFixtureDependencies(
       }
     }
   }
-  for (const [name, directory] of Object.entries(additionalPackages)) {
-    linkDependency(directory, join(fixtureNodeModules, name));
-  }
+
+  // Avoid duplicate workspace package names when multiple copies exist concurrently.
+  const packagePath = join(root, 'package.json');
+  const packageJson = JSON.parse(readFileSync(packagePath, 'utf-8')) as { name?: string };
+  packageJson.name = `${packageJson.name ?? basename(sourceWorkspacePath)}-${basename(root)}`;
+  writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+
+  return {
+    root,
+    workspacePath: relative(workspaceRoot, root),
+    cleanup() {
+      rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+    },
+  };
 }
 
 /** Returns a port that is free right now. Another process can still take it before use. */

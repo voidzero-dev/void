@@ -23,6 +23,7 @@
     "access": "public"
   },
   "scripts": {
+    "build": "vp pack",
     "typecheck": "tsc --noEmit"
   },
   "devDependencies": {

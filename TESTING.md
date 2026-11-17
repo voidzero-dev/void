@@ -30,21 +30,18 @@ does not need to execute their `expectTypeOf` assertions.
 
 ### Iterating on imported code
 
-`vp run test:iterate <test-file>` uses Vitest 5.1's native `--since-last-run` selection.
-The first run executes the selection and records loaded dependencies. Subsequent runs select
-changed dependencies, new test files, and previously failed files. The task command itself is
-never cached. Use it for fast feedback while editing import-based unit tests:
+`vp run test:iterate <test-file>` uses Vitest's native dependency records to select files changed
+since their last run. New tests and previously failed tests run too. The task itself is never
+cached. For example:
 
 ```sh
 vp run test:iterate packages/void/test/unit/plugin-routing.test.ts
-vp run test:iterate --project unit
 ```
 
-This is an iteration shortcut, not the final verification command. Native dependency records do
-not cover arbitrary filesystem reads, new routes, subprocess inputs, or changed environment
-variables. After changes to those inputs, use `vp run test` with its integration fallbacks or run
-the known consumer without `--since-last-run`. Finish with the affected and full verification below.
-See [Vitest's dependency-selection contract](https://main.vitest.dev/guide/recipes/affected-tests).
+This is an iteration shortcut. Records do not cover arbitrary filesystem reads, newly added
+routes, subprocess inputs, or environment changes. For those changes, use `vp run test` with its
+integration fallbacks, or run the known consumer without incremental selection. Finish with the
+affected and full verification below.
 
 ### Affected local tests
 
@@ -120,11 +117,9 @@ vpr test:all
 `vpr test:all` formats, lints, builds, typechecks, and tests the merged monorepo. Investigate slow
 or hanging tests when they occur instead of routinely increasing timeouts.
 
-Subprocess and provisioning-lock tests start alongside the platform projects, so their real
-process deadlines overlap database work. Remaining SDK units and integrations share the next
-phase. Keep this barrier: overlapping every project can delay a child process beyond a real
-deadline before it has even started.
-`vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
+Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
+process deadlines can overlap database work. The remaining SDK unit and integration files then
+share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
 The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
 not serialize the whole runner suite. Both files use the same fixture helpers with per-file
 isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
@@ -133,46 +128,14 @@ API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-p
 WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
 that change the process timezone also use forks, because threads cannot change Node's timezone. Select every
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
-Keep module isolation enabled: these suites mock globals, keep database state, and exercise real
-process/lock boundaries.
+This keeps database engines from competing with all framework compilers at startup. Keep module
+isolation enabled: these suites mock globals, keep database state, and exercise real process/lock boundaries.
 Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
 can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
 The full verification command builds before running static checks, so it also works without
 pre-existing generated playground or dashboard tsconfigs.
 
 ## Reusing transforms
-
-Package and playground `build` tasks are declared in their Vite+ configurations and cache their
-outputs through Vite Task. Their workspace prerequisites run before the consumer build. Use
-`vp run build`, `vp run build:all`, or `vp run --filter ./playground/react-pages build` for both
-fresh builds and cache restoration. Use `vp run --no-cache build:all` when verifying a fresh
-build. `vp run --dry-run -vv build:all` explains the selected tasks and cache misses.
-
-Test commands explicitly disable Vite Task result caching, including when `--cache` is passed
-to the task runner. Build prerequisites can reuse their artifacts while test assertions run.
-Shared integration setup prepares public packages in production mode before workers import them.
-Playground preparation validates its own cached build without restoring those shared packages
-again while other workers are using them. Source-mutating build regressions still execute their
-build commands directly.
-
-Reusable application inputs live in `test/fixtures`. Their adapter's Vite+ config declares an
-uncached input-preparation task and a cached build task. For example:
-
-```sh
-vp run '@void/react#build:test:islands'
-vp run build:test-fixtures
-```
-
-Each named fixture has one test-file owner. Compatible contracts in that file can share a lazy
-`buildFixture()` result and clean it up in `afterAll`; runtime copies have their own source and
-storage directories. Only immutable build artifacts are shared. Keep variants that assert
-the absence of CSS, JavaScript, or regular Pages entries separate from fixtures that include
-those features. Build-behavior regressions continue to invoke real fresh builds.
-
-The materializer owns its generated directory and refuses to replace an unrelated application.
-It replaces authored inputs, including removed routes, before Vite Task validates the cached
-output. The build-cache integration contract covers edits, additions, deletions, environment
-files, failed builds, and restoring missing artifacts.
 
 Persistent `fsModuleCache` is enabled to reuse transformations across invocations. It does not
 cache test results or remove per-file module isolation. The first run primes it; compare repeated
@@ -188,21 +151,17 @@ the cache for V8 coverage, and `NODE_V8_COVERAGE` disables it too, to preserve p
 
 ## Profiling slow tests
 
-Capture machine information, per-file phases, and individual test durations with:
+Capture comparable full-suite or focused measurements with the opt-in reporter:
 
 ```sh
-vp run test:benchmark --outputFile=/tmp/void-test-baseline.json
-vp run test:benchmark packages/react/test/integration --outputFile=/tmp/void-react-tests.json
-vp run test --base origin/main --report /tmp/void-affected-tests.json
-VOID_TEST_FRESH_BUILDS=1 vp run test:benchmark --outputFile=/tmp/void-fresh-fixtures.json
+vp run test:benchmark --outputFile=/tmp/void-tests.json
+vp run test:benchmark packages/void/test/unit/plugin-routing.test.ts --outputFile=/tmp/void-routing.json
 ```
 
-The reporter is opt-in and never skips tests. Keep the same selection, toolchain, cache state,
-and machine load when comparing reports. Per-file and per-case durations overlap when tests
-run concurrently; their sums are work estimates, not elapsed time or additive savings.
-`VOID_TEST_FRESH_BUILDS=1` bypasses fixture build caching while preserving the same test selection
-and assertions. Public package preparation still uses its task cache; use
-`vp run --no-cache build` separately when measuring a fresh SDK build too.
+Reports contain total elapsed time, per-file setup/import/execution costs, test names and outcomes,
+and machine/toolchain details. Every selected test executes. Compare identical selections on the
+same machine and record whether builds and transform caches were prepared. Per-file durations
+overlap; summing them does not measure wall-clock savings.
 
 Vitest 5's import diagnostics are opt-in so ordinary runs stay quiet:
 
@@ -227,11 +186,6 @@ Its suggestions require correctness checks: this repository's native dependencie
 tests rule out blanket VM pools, and shared mocks/state require keeping isolation enabled.
 
 ## Suite organization and CI scheduling
-
-CI build checks, SDK test shards, and platform checks use the same remote Vite Task cache when
-`VP_REMOTE_CACHE_URL` is configured. Only pushes to main can upload; pull requests and releases
-only read. Each job can build on a cache miss without waiting for an unrelated build job.
-Concurrent cold jobs can still build the same missing artifact; the cache is not a cross-job lock.
 
 CI builds and typechecks every playground once per OS in a dedicated required job. Integration
 shards build the public packages and then only the fixtures their tests use; they do not depend

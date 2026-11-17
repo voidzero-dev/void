@@ -1,6 +1,6 @@
-import { spawn, spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 // Copied to RUNNER_TEMP: native filesystem paths must work without workspace dependencies.
 // eslint-disable-next-line no-restricted-imports
@@ -164,65 +164,12 @@ async function runIsolatedCompatibilityTests(options: {
   return failures;
 }
 
-/** Prepare once before parallel runners can import or restore the same public artifacts. */
-export function prepareCompatibilityBuild(root: string): string | undefined {
-  // Deployed revisions predating shared preparation keep their original test configuration.
-  if (!existsSync(join(root, 'test/build-setup.ts'))) {
-    return undefined;
-  }
-  const build = spawnSync('vp', ['run', 'build'], {
-    cwd: root,
-    env: { ...process.env, NODE_ENV: undefined },
-    stdio: 'inherit',
-  });
-  if (build.error || build.status !== 0) {
-    throw new Error('Could not prepare public artifacts before the database test runners.', {
-      cause: build.error,
-    });
-  }
-  const original = ['ts', 'mts', 'js', 'mjs', 'cts', 'cjs']
-    .map((extension) => join(root, `vite.config.${extension}`))
-    .find(existsSync);
-  if (!original) {
-    throw new Error('The database test runners require the checkout’s Vite configuration.');
-  }
-  const directory = join(root, 'node_modules/.cache/void-schema-compat');
-  mkdirSync(directory, { recursive: true });
-  const config = join(directory, 'vite.config.mjs');
-  const source = `import original from ${JSON.stringify(pathToFileURL(original).href)};
-export default async (environment) => {
-  const config = await (typeof original === 'function' ? original(environment) : original);
-  return { ...config, test: { ...config.test,
-    provide: { ...config.test?.provide, publicBuildMilliseconds: 0 }
-  } };
-};
-`;
-  if (!existsSync(config) || readFileSync(config, 'utf8') !== source) {
-    writeFileSync(config, source);
-  }
-  return config;
-}
-
-function runFile(
-  root: string,
-  file: string,
-  databaseUrl: string,
-  config?: string,
-): Promise<number> {
+function runFile(root: string, file: string, databaseUrl: string): Promise<number> {
   console.log(`[schema-compat] ${file}`);
   return new Promise((resolvePromise, reject) => {
     const child = spawn(
       'vp',
-      [
-        'test',
-        'run',
-        ...(config ? ['--config', config] : []),
-        '--project',
-        'platform-api-integration*',
-        '--maxWorkers',
-        '1',
-        file,
-      ],
+      ['test', 'run', '--project', 'platform-api-integration*', '--maxWorkers', '1', file],
       {
         cwd: root,
         env: { ...process.env, VOID_TEST_DATABASE_URL: databaseUrl },
@@ -274,7 +221,6 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
     throw new Error('Select existing platform API integration test files.');
   }
   const files = selected.length ? selected : allFiles;
-  const testConfig = prepareCompatibilityBuild(root);
   for (const [fixture, correct] of [
     ['platform/packages/api/test/integration/email-connections.test.ts', correctLegacyEmailFixture],
     ['platform/packages/api/test/integration/deploy-direct-r2.test.ts', correctLegacyDeployFixture],
@@ -303,7 +249,7 @@ if (process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url) 
       templateUrl: template.href,
       files,
       query: (statement) => pool.query(statement),
-      runTest: (file, databaseUrl) => runFile(root, file, databaseUrl, testConfig),
+      runTest: (file, databaseUrl) => runFile(root, file, databaseUrl),
     });
     console.log(`[schema-compat] ${files.length - failures.length}/${files.length} files passed.`);
     if (failures.length) {

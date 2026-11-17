@@ -213,7 +213,7 @@ export async function loader() {
   it('generates route types from scratch and queries MySQL in the built Worker', async () => {
     // The dev server generates these too, so do not let the previous test mask a missing build step.
     rmSync(join(playground.root, '.react-router'), { recursive: true, force: true });
-    execFileSync('vp', ['run', '--ignore-depends-on', '--no-cache', 'build'], {
+    execFileSync('vp', ['run', 'build'], {
       cwd: playground.root,
       stdio: 'pipe',
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },

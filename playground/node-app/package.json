@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "vp build",
     "dev": "vp dev",
     "preview": "vp preview",
     "start": "node dist/ssr/index.js"

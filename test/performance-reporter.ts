@@ -8,10 +8,8 @@ export default class PerformanceReporter implements Reporter {
   private root = process.cwd();
   private output = '';
   private started = 0;
-  private vitest: Vitest | undefined;
 
   onInit(vitest: Vitest): void {
-    this.vitest = vitest;
     this.root = vitest.config.root;
     const configured = vitest.config.outputFile;
     this.output = resolve(
@@ -53,8 +51,6 @@ export default class PerformanceReporter implements Reporter {
           version: 1,
           recordedAt: new Date().toISOString(),
           durationMs: performance.now() - this.started,
-          publicBuildMilliseconds: this.vitest?.getProvidedContext().publicBuildMilliseconds,
-          fixtureTaskCache: process.env.VOID_TEST_FRESH_BUILDS === '1' ? 'disabled' : 'enabled',
           reason,
           unhandledErrors: errors.length,
           machine: {

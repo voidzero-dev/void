@@ -42,7 +42,6 @@ jobs:
     permissions:
       contents: read
       deployments: read
-      id-token: write
 
   deploy:
     if: ${{ vars.VOID_PLATFORM_DEPLOY_ENABLED == 'true' && github.ref == 'refs/heads/main' }}

@@ -58,14 +58,6 @@ function injectWorkersTypesReferencePlugin() {
 }
 
 export default defineConfig({
-  run: {
-    tasks: {
-      build: {
-        command: 'node scripts/sync-docs.mjs && vp pack',
-        dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
-      },
-    },
-  },
   pack: {
     entry: [
       'src/index.ts',

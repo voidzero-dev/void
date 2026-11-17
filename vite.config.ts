@@ -40,7 +40,6 @@ const sdkPgliteUnitTests = [
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
 const e2eWorkerEnv = {
-  VOID_TEST_FRESH_BUILDS: process.env.VOID_TEST_FRESH_BUILDS ?? '',
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
   VOID_E2E_CF_ACCOUNT_ID: process.env.VOID_E2E_CF_ACCOUNT_ID ?? '',
@@ -76,103 +75,14 @@ const platformAlias = {
 export default defineConfig({
   run: {
     tasks: {
-      build: {
-        command: [],
-        dependsOn: [
-          'create-void#build',
-          '@void/deploy-cloudflare#build',
-          '@void/deploy-core#build',
-          '@void/edge#build',
-          '@void/isr#build',
-          '@void/md#build',
-          '@void/platform#build',
-          '@void/react#build',
-          '@void/solid#build',
-          '@void/svelte#build',
-          'void#build',
-          '@void/vue#build',
-        ],
-      },
-      'build:core': { command: [], dependsOn: ['void#build'] },
-      'build:platform': { command: [], dependsOn: ['@voidcloud/dashboard#build'] },
-      'build:test-fixtures': {
-        command: [],
-        dependsOn: [
-          '@void/react#build:test:islands',
-          '@void/react#build:test:bare',
-          '@void/react#build:test:markdown-scripts',
-          '@void/vue#build:test:islands',
-          '@void/svelte#build:test:islands',
-          '@void/svelte#build:test:mixed',
-          '@void/solid#build:test:islands',
-          '@void/solid#build:test:hydration',
-        ],
-      },
-      test: { command: 'node test/affected.mjs', cache: false },
       'test:iterate': { command: 'vp test run --since-last-run=true', cache: false },
       'test:benchmark': {
         command: 'vp test run --reporter=default --reporter=./test/performance-reporter.ts',
         cache: false,
       },
-      'test:full': { command: 'vp test run', cache: false },
-      'test:integration': { command: 'vp test run --project parallel-integration', cache: false },
-      'test:metaframeworks': {
-        command:
-          'vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts',
-        cache: false,
-      },
-      'test:pages:react-vue': {
-        command: 'vp test run --project parallel-integration packages/react packages/vue',
-        cache: false,
-      },
-      'test:pages:svelte-solid': {
-        command: 'vp test run --project parallel-integration packages/svelte packages/solid',
-        cache: false,
-      },
-      'test:platform': { command: "vp test run --project 'platform-*'", cache: false },
-      'test:profile': {
-        command:
-          'vp test run --reporter=default --experimental.importDurations.print --experimental.importDurations.limit=20',
-        cache: false,
-      },
-      'test:unit': {
-        command: 'vp test run --project unit --project unit-pglite --project cli-unit',
-        cache: false,
-      },
       'build:all': {
-        command: [],
-        dependsOn: [
-          'build',
-          'build:platform',
-          'playground-analog#build',
-          'playground-astro#build',
-          'playground-http-errors#build',
-          'playground-kitchen-sink#build',
-          'playground-markdown-blog#build',
-          'playground-mysql-test#build',
-          'playground-named-layouts#build',
-          'playground-node-app#build',
-          'playground-node-static#build',
-          'playground-node-static-md#build',
-          'playground-nuxt#build',
-          'playground-pg-api-test#build',
-          'playground-pg-test#build',
-          'playground-react-pages#build',
-          'playground-react-router#build',
-          'playground-server-auth-errors#build',
-          'playground-solid-pages#build',
-          'playground-spa#build',
-          'playground-ssr#build',
-          'playground-static-pages#build',
-          'playground-svelte-pages#build',
-          'playground-sveltekit#build',
-          'playground-tanstack-start#build',
-          'playground-vinext-app#build',
-          'playground-vinext-pages#build',
-          'playground-vue-pages#build',
-          'playground-websockets#build',
-          'playground-zero-js#build',
-        ],
+        command:
+          "vp run build && vp run --filter './platform/packages/**' build && vp run --filter './playground/**' --parallel build",
       },
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
@@ -180,7 +90,13 @@ export default defineConfig({
       'test:all': {
         command:
           'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp test run',
-        cache: false,
+        // `vp run` passes ONLY the env vars a task declares to that task — not the full environment.
+        // Without this, the gated live Cloudflare e2e's credentials never reach `vp test run`, so it
+        // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
+        // into the task's cache fingerprint (credentials must not bust the cache).
+        cache: {
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
       },
     },
   },
@@ -557,11 +473,11 @@ export default defineConfig({
         extends: false,
         test: {
           name: 'unit',
-          sequence: { groupOrder: 2 },
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
           include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
+          sequence: { groupOrder: 2 },
           pool: 'threads',
           maxWorkers,
           // Windows unit tests that import the plugin or spawn a CLI can exceed Vitest's
@@ -573,9 +489,9 @@ export default defineConfig({
         extends: false,
         test: {
           name: 'unit-pglite',
-          sequence: { groupOrder: 2 },
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
+          sequence: { groupOrder: 2 },
           // Native Node 24 worker crashes can abort the run on Linux and macOS.
           // Keep PGlite's Wasm heap in a separate process for each database.
           pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
@@ -615,10 +531,7 @@ export default defineConfig({
           name: 'platform-api-integration',
           fsModuleCache: true,
           include: apiTimezoneTests,
-          globalSetup: [
-            'test/build-setup.ts',
-            'platform/packages/api/test/integration/global-setup.ts',
-          ],
+          globalSetup: ['platform/packages/api/test/integration/global-setup.ts'],
           setupFiles: ['platform/packages/api/test/integration/setup.ts'],
           ...(process.env.VOID_TEST_DATABASE_URL ? { fileParallelism: false } : {}),
           maxWorkers,
@@ -635,10 +548,7 @@ export default defineConfig({
           pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
           include: ['platform/packages/api/test/integration/**/*.test.ts'],
           exclude: apiTimezoneTests,
-          globalSetup: [
-            'test/build-setup.ts',
-            'platform/packages/api/test/integration/global-setup.ts',
-          ],
+          globalSetup: ['platform/packages/api/test/integration/global-setup.ts'],
           setupFiles: ['platform/packages/api/test/integration/setup.ts'],
           ...(process.env.VOID_TEST_DATABASE_URL ? { fileParallelism: false } : {}),
           maxWorkers,
@@ -650,11 +560,11 @@ export default defineConfig({
           // Every integration file here owns its fixture directory, so one worker pool can
           // schedule the longest files first and fill idle slots across package boundaries.
           name: 'parallel-integration',
-          // Keep real process deadlines and database engines ahead of framework compilers.
-          sequence: { groupOrder: 2 },
-          globalSetup: ['test/build-setup.ts'],
           fsModuleCache: true,
           pool: 'forks',
+          // Bound simultaneous database engines and framework compilers locally.
+          // Unit tests still fill unused integration workers in the same phase.
+          sequence: { groupOrder: 2 },
           // maxWorkers limits files, not describe.concurrent tests. On Windows CI, two files
           // at Vitest's default concurrency open up to ten isolated browser contexts at once.
           // Reduce socket pressure while keeping file-level parallelism and other OSes unchanged.

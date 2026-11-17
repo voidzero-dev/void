@@ -30,14 +30,6 @@ function injectWorkersTypesReferencePlugin() {
 }
 
 export default defineConfig({
-  run: {
-    tasks: {
-      build: {
-        command: 'vp pack',
-        dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
-      },
-    },
-  },
   pack: {
     entry: ['src/index.ts', 'src/core.ts', 'src/runtime.ts'],
     format: 'esm',

@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "vp build",
     "deploy": "node ../../scripts/wrangler-deploy.ts --build",
     "deploy:staging": "node ../../scripts/wrangler-deploy.ts --build --env staging",
     "dev": "node scripts/refresh-access-token.mjs && vp dev",

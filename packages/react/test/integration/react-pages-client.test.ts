@@ -1,11 +1,10 @@
-import { type ChildProcess } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execSync, type ChildProcess } from 'node:child_process';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -1334,7 +1333,12 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   let serverOutput = () => '';
 
   beforeAll(async () => {
-    buildPlayground(ROOT, 'react-pages');
+    if (!existsSync(join(ROOT, 'playground/react-pages/dist'))) {
+      execSync('vp run --filter ./playground/react-pages build', {
+        cwd: ROOT,
+        stdio: 'pipe',
+      });
+    }
 
     const server = await startServer(
       (port) => (child = spawnPlaygroundServer(ROOT, 'react-pages', 'preview', port)),

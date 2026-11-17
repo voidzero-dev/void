@@ -1,11 +1,10 @@
-import { type ChildProcess } from 'node:child_process';
+import { execSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -270,7 +269,12 @@ describe('solid-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    buildPlayground(ROOT, 'solid-pages');
+    if (!existsSync(join(ROOT, 'playground/solid-pages/dist'))) {
+      execSync('vp run --filter ./playground/solid-pages build', {
+        cwd: ROOT,
+        stdio: 'pipe',
+      });
+    }
 
     const server = await startServer(
       (port) => (child = spawnPlaygroundServer(ROOT, 'solid-pages', 'preview', port)),

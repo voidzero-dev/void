@@ -219,7 +219,6 @@ export default {
       vi.stubEnv('WRANGLER_DOCKER_BIN', docker);
       const plugins = () =>
         cloudflare({
-          inspectorPort: false,
           config: () => ({
             name: 'container-app',
             main: 'worker.js',

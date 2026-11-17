@@ -1,10 +1,11 @@
+import { execSync } from 'node:child_process';
 import { readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerConfigPath } from '@cloudflare/build-output-utils';
 import spawn from 'cross-spawn';
 import { chromium, type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { buildPlayground, killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { killChild, startServer } from '../../../../test/integration-helpers.ts';
 
 declare global {
   interface Window {
@@ -46,7 +47,10 @@ describe('playground/kitchen-sink', () => {
     // dev-mode dependency optimization makes browser checks unreliable.
     const pg = join(ROOT, 'playground/kitchen-sink');
     rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    buildPlayground(ROOT, 'kitchen-sink');
+    execSync('vp run --filter ./playground/kitchen-sink build', {
+      cwd: ROOT,
+      stdio: 'pipe',
+    });
     const previewDatabaseId = preparePreviewWranglerConfig(pg);
 
     // Start preview server — pre-built assets, no lazy optimization.

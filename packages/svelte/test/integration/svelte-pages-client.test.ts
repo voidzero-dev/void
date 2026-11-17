@@ -1,11 +1,10 @@
-import { type ChildProcess } from 'node:child_process';
-import {} from 'node:fs';
+import { execSync, type ChildProcess } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -160,7 +159,12 @@ describe('svelte-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    buildPlayground(ROOT, 'svelte-pages');
+    if (!existsSync(join(ROOT, 'playground/svelte-pages/dist'))) {
+      execSync('vp run --filter ./playground/svelte-pages build', {
+        cwd: ROOT,
+        stdio: 'pipe',
+      });
+    }
 
     const server = await startServer(
       (port) => (child = spawnPlaygroundServer(ROOT, 'svelte-pages', 'preview', port)),

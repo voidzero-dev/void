@@ -42,7 +42,6 @@ jobs:
     permissions:
       contents: read
       deployments: read
-      id-token: write
 
   prepublish-test:
     name: Prepublish Test

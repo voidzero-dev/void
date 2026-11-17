@@ -74,15 +74,11 @@ describe('playground/websockets', () => {
   beforeAll(async () => {
     const playground = join(ROOT, 'playground/websockets');
     rmSync(join(playground, 'dist'), { recursive: true, force: true });
-    const build = spawn.sync(
-      'vp',
-      ['run', '--ignore-depends-on', '--filter', './playground/websockets', 'build'],
-      {
-        cwd: ROOT,
-        encoding: 'utf8',
-        env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
-      },
-    );
+    const build = spawn.sync('vp', ['run', '--filter', './playground/websockets', 'build'], {
+      cwd: ROOT,
+      encoding: 'utf8',
+      env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
+    });
     expect(build.status).toBe(0);
 
     browser = await chromium.launch();

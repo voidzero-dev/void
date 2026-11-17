@@ -3,10 +3,6 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   run: {
     tasks: {
-      build: {
-        command: 'vp pack && node scripts/build-runtime.mjs && vp run build:stamp',
-        dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
-      },
       // The last step of the `build` script: records the source revision in the runtime manifest.
       // It isn't cached, so a new revision reruns only this step, and it gets the full
       // environment, including VOID_PLATFORM_SOURCE_REVISION.

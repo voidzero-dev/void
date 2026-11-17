@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "build": "astro build",
     "dev": "astro dev"
   },
   "dependencies": {
