@@ -1,4 +1,5 @@
 import type { FixtureApp } from '../fixture-app.ts';
+import { markdownScripts } from './markdown-scripts.ts';
 import { privatePages } from './private-pages.ts';
 
 const tsconfig = JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } });
@@ -46,4 +47,8 @@ export const bare: FixtureApp = {
   },
 };
 
-export const fixtures: Readonly<Record<string, FixtureApp>> = { islands, bare };
+export const fixtures: Readonly<Record<string, FixtureApp>> = {
+  islands,
+  bare,
+  'markdown-scripts': markdownScripts,
+};

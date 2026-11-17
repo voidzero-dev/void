@@ -4,40 +4,11 @@ import { chromium, type Browser } from 'playwright';
 import { preview, type PreviewServer } from 'vite';
 import { expect, it } from 'vite-plus/test';
 import { waitForIslandsHydrated } from '../../../../test/browser-helpers.ts';
-import { buildIslandApp } from '../../../../test/island-css-build.ts';
+import { buildFixture } from '../../../../test/fixture-app.ts';
+import { markdownScripts } from '../../../../test/fixtures/markdown-scripts.ts';
 
 it('runs client scripts in a production build with no .island. file in pages/', async () => {
-  const build = buildIslandApp({
-    packageDir: join(import.meta.dirname, '../../../react'),
-    pluginName: 'voidReact',
-    files: {
-      'tsconfig.json': JSON.stringify({ compilerOptions: { jsx: 'react-jsx' } }),
-      'components/Counter.island.tsx': `import { useState } from 'react';
-export default function Counter() {
-  const [count, setCount] = useState(0);
-  return <button onClick={() => setCount(count + 1)}>Count: {count}</button>;
-}`,
-      'pages/script.md': `<script>
-document.querySelector('#out').textContent = 'set-by-script';
-</script>
-
-# Script
-
-<span id="out">unset</span>
-`,
-      'pages/mixed.md': `<script>
-import Counter from '../components/Counter.island.tsx' with { island: 'load' };
-document.querySelector('#out').textContent = 'set-by-script';
-</script>
-
-# Mixed
-
-<span id="out">unset</span>
-
-<Counter />
-`,
-    },
-  });
+  const build = buildFixture(markdownScripts);
   let server: PreviewServer | undefined;
   let browser: Browser | undefined;
   try {
