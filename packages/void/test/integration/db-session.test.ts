@@ -8,7 +8,11 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { analyzeApplication } from '../../src/application-routing.ts';
 import { readConfig } from '../../src/config.ts';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
-import { compileRouteTable, compileWorkerEntry } from '../../src/router/compile.ts';
+import {
+  compileRouteTable,
+  compileWorkerClient,
+  compileWorkerEntry,
+} from '../../src/router/compile.ts';
 
 const source = (file: string) =>
   fileURLToPath(new URL(`../../src/runtime/${file}`, import.meta.url));
@@ -25,13 +29,15 @@ afterEach(async () => {
 describe('D1 bookmarks in generated Workers', () => {
   // Local D1 has no replica lag. The unit reproduction controls lag; this verifies
   // real D1 bookmarks, middleware, redirects, bundling and request scope in workerd.
-  it.each([
-    { module: 'runtime', bindingName: 'DB' },
-    { module: 'generated', bindingName: 'DB' },
-    { module: 'generated', bindingName: 'APP_DB' },
-  ])(
-    '$module / $bindingName carries a bookmark through middleware',
-    async ({ module, bindingName }) => {
+  it.each(
+    [
+      { module: 'runtime', bindingName: 'DB' },
+      { module: 'generated', bindingName: 'DB' },
+      { module: 'generated', bindingName: 'APP_DB' },
+    ].flatMap((client) => ['direct', 'server-fetch'].map((dispatch) => ({ ...client, dispatch }))),
+  )(
+    '$module / $bindingName carries a bookmark through middleware ($dispatch)',
+    async ({ module, bindingName, dispatch }) => {
       directory = mkdtempSync(join(tmpdir(), 'void-db-bookmark-worker-'));
       const routes = join(directory, 'routes');
       const middleware = join(directory, 'middleware');
@@ -67,6 +73,20 @@ export async function GET(c) {
 `,
       );
       writeFileSync(join(routes, 'unused.ts'), 'export function GET() { return "unused"; }');
+      if (dispatch === 'server-fetch') {
+        writeFileSync(
+          join(routes, 'nested.ts'),
+          `
+import { fetch } from 'void/client';
+import { db, sql } from 'void/db';
+export async function GET(c) {
+  // Open the outer session before local dispatch reruns the database middleware.
+  await db.get(sql\`SELECT name FROM profile WHERE id = 1\`);
+  return c.json(await fetch('/profile'));
+}
+`,
+        );
+      }
       const { scan } = await analyzeApplication(directory, { config: readConfig(directory) });
       const routeTable = join(directory, 'generated-routes.ts');
       const entry = join(directory, 'generated-worker.ts');
@@ -108,6 +128,17 @@ export async function GET(c) {
               }
               if (id === 'void/db' && module === 'runtime') {
                 return source('db/index.ts');
+              }
+              if (id === 'void/client') {
+                return '\0bookmark-worker-client';
+              }
+              if (id.endsWith('/dist/runtime/client/fetch-server.mjs')) {
+                return source('client/fetch-server.ts');
+              }
+            },
+            load(id) {
+              if (id === '\0bookmark-worker-client') {
+                return compileWorkerClient(source('auth/client.ts'));
               }
             },
           },
@@ -152,10 +183,13 @@ export async function GET(c) {
       expect(saved.headers.get('Location')).toBe('/profile');
       const bookmark = saved.headers.get('X-DB-Bookmark');
       expect(bookmark).toBeTruthy();
-      const loaded = await runtime.dispatchFetch('https://app.test/profile', {
-        headers: { 'X-DB-Bookmark': bookmark! },
-      });
-      expect(loaded.status).toBe(200);
+      const loaded = await runtime.dispatchFetch(
+        `https://app.test/${dispatch === 'server-fetch' ? 'nested' : 'profile'}`,
+        {
+          headers: { 'X-DB-Bookmark': bookmark! },
+        },
+      );
+      expect(loaded.status, await loaded.clone().text()).toBe(200);
       expect(await loaded.json()).toEqual({
         name: { name: 'Alice' },
         explicit: { name: 'Alice' },
