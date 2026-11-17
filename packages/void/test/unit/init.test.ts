@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -556,6 +557,29 @@ describe('init summary', () => {
 
       expect(summaryMessages('✓')).toEqual(['No files changed.']);
     } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Root can write to a read-only file.
+  it.skipIf(process.getuid?.() === 0)('does not list a file that it failed to write', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-readonly-'));
+    const tsconfigPath = join(root, 'tsconfig.json');
+    const original = '{ "compilerOptions": { "strict": true } }\n';
+    try {
+      writeExistingViteApp(root);
+      // The run stops here, before it changes any other file.
+      writeFileSync(tsconfigPath, original);
+      chmodSync(tsconfigPath, 0o444);
+
+      await expect(runInitCommand(root, { tsconfig: true, github: false })).rejects.toThrow(
+        /EACCES|EPERM/,
+      );
+
+      expect(readFileSync(tsconfigPath, 'utf-8')).toBe(original);
+      expect(mockLogWarn).not.toHaveBeenCalled();
+    } finally {
+      chmodSync(tsconfigPath, 0o644);
       rmSync(root, { recursive: true, force: true });
     }
   });

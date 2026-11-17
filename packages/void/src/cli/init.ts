@@ -1224,7 +1224,8 @@ function setupTsconfig(
       return false;
     }
 
-    let updated = false;
+    // Recorded only after the file is written, so that a failed write lists nothing.
+    const changes: Array<string> = [];
     const rootPathBaseDir = effectiveConfigPathBaseDir(tsconfig, tsconfigPath);
     const existingPatch = collectTsconfigPatchFromConfig(
       tsconfig,
@@ -1248,8 +1249,7 @@ function setupTsconfig(
       } else {
         tsconfig.extends = target;
       }
-      updated = true;
-      report.updated('tsconfig.json', 'extends .void/tsconfig.json');
+      changes.push('extends .void/tsconfig.json');
     }
 
     const compilerOptions = asRecord(tsconfig.compilerOptions) ?? {};
@@ -1259,16 +1259,14 @@ function setupTsconfig(
       : [];
     if (!types.includes('void/env')) {
       types.push('void/env');
-      updated = true;
-      report.updated('tsconfig.json', 'added void/env to types');
+      changes.push('added void/env to types');
     }
 
     // Remove @cloudflare/workers-types — void/env includes it
     const cfIdx = types.indexOf('@cloudflare/workers-types');
     if (cfIdx !== -1) {
       types.splice(cfIdx, 1);
-      updated = true;
-      report.updated('tsconfig.json', 'removed @cloudflare/workers-types from types');
+      changes.push('removed @cloudflare/workers-types from types');
     }
 
     compilerOptions.types = types;
@@ -1278,8 +1276,7 @@ function setupTsconfig(
       const files = uniqueStrings([...existingFiles, ...voidPatch.files]);
       if (JSON.stringify(tsconfig.files) !== JSON.stringify(files)) {
         tsconfig.files = files;
-        updated = true;
-        report.updated('tsconfig.json', 'merged Void type files');
+        changes.push('merged Void type files');
       }
     }
 
@@ -1289,16 +1286,18 @@ function setupTsconfig(
       const existingPaths = readPaths(compilerOptions.paths);
       if (JSON.stringify(existingPaths) !== JSON.stringify(paths)) {
         compilerOptions.paths = paths;
-        updated = true;
-        report.updated('tsconfig.json', 'merged Void path aliases');
+        changes.push('merged Void path aliases');
       }
     }
 
-    if (updated) {
+    if (changes.length > 0) {
       // Rebuild with extends first so it appears at the top of the file
       const { extends: ext, ...rest } = tsconfig;
       const ordered = { extends: ext, ...rest };
       writeFileSync(tsconfigPath, JSON.stringify(ordered, null, 2) + '\n');
+      for (const change of changes) {
+        report.updated('tsconfig.json', change);
+      }
     }
 
     // Remove @cloudflare/workers-types from package.json — void/env includes it
