@@ -1,6 +1,6 @@
 # ImageResponse Playground
 
-Demo of `ImageResponse` from `void/image`.
+Demo of `ImageResponse` from `@void/image/generate`.
 
 To start dev server, run the repository root:
 

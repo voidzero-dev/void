@@ -1,5 +1,5 @@
+import { ImageResponse, type ImageResponseOptions } from '@void/image/generate';
 import { defineHandler } from 'void';
-import { ImageResponse, type ImageResponseOptions } from 'void/image';
 import { Card } from '../../src/card.tsx';
 
 const styles = ['twemoji', 'blobmoji', 'noto', 'openmoji', 'fluent', 'fluentFlat'] as const;

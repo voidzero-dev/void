@@ -11,9 +11,9 @@ export default function Home() {
         one family and watch server memory.
       </p>
       <p>
-        Eight distinct uses of <code>ImageResponse</code> from <code>void/image</code>. Each example
-        has a live preview, source links, and expected results. Options that exercise the same use
-        case stay together on one page.
+        Eight distinct uses of <code>ImageResponse</code> from <code>@void/image/generate</code>.
+        Each example has a live preview, source links, and expected results. Options that exercise
+        the same use case stay together on one page.
       </p>
       <p>
         Start with the JSX or HTML examples for an offline baseline. Fonts, multilingual text,

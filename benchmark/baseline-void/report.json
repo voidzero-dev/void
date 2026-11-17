@@ -1,0 +1,1321 @@
+{
+  "kind": "void-benchmark-report",
+  "schemaVersion": 1,
+  "status": "success",
+  "benchmark": "baseline-void",
+  "startedAt": "2026-11-17T03:01:59.221Z",
+  "finishedAt": "2026-11-17T03:17:44.865Z",
+  "quietAttempts": 1,
+  "metricsAttempts": 1,
+  "runtime": {
+    "node": "v24.22.1",
+    "osRelease": "25.6.0"
+  },
+  "machine": {
+    "hostnameSha256": "ac84d7c6ed5458a31e79a25f931f16b87220758dc1677e9cdf9022505db370aa",
+    "platform": "darwin",
+    "cpu": {
+      "models": [
+        "Apple M5 Pro"
+      ],
+      "architecture": "arm64",
+      "logicalCores": 18,
+      "availableParallelism": 18
+    },
+    "network": {
+      "type": "ethernet",
+      "interface": "en7"
+    }
+  },
+  "settings": {
+    "metricsPaddingMs": 90000,
+    "metricsWaitMs": 180000,
+    "metricsIntervalMs": 10000
+  },
+  "deploy": {
+    "status": "success",
+    "workerName": "void-perf-baseline-void",
+    "workerId": "564710ff32b14cbdb179ca5ea82f80f4",
+    "versionId": "341b139a-c4f4-4c0f-8e0b-efb55bff1334",
+    "url": "https://void-perf-baseline-void.cloudflare-internal-11e.workers.dev",
+    "timings": {
+      "buildReportedMs": 124,
+      "uploadReportedMs": 7440,
+      "triggersReportedMs": 1770,
+      "workerStartupMs": 3,
+      "cfDeployWallMs": 13567.028541999985,
+      "workflowWallMs": 17726.218249999976,
+      "accessWallMs": 2798.93637499999,
+      "cleanWallMs": 5.512041999958456,
+      "workerLookupWallMs": 1354.1765840000007
+    },
+    "bundle": {
+      "rawBytes": 142649,
+      "gzipBytes": 39872
+    },
+    "batch": {
+      "requestedRuns": 30,
+      "completedRuns": 30,
+      "failedRuns": 0,
+      "notRun": 0,
+      "startedAt": "2026-11-17T03:01:59.735Z",
+      "finishedAt": "2026-11-17T03:09:30.257Z",
+      "bootstrap": {
+        "method": "percentile bootstrap",
+        "confidenceLevel": 0.95,
+        "resamples": 10000,
+        "seed": 1987012964,
+        "quantiles": "linear interpolation (R-7)",
+        "relativeHalfWidthTarget": 0.05,
+        "assumptions": "IID resampling; intervals describe this batch, not independent environments."
+      },
+      "statistics": {
+        "buildReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 139.2,
+          "median": 131,
+          "standardDeviation": 13.902120899964919,
+          "min": 124,
+          "max": 161,
+          "q1": 130,
+          "q3": 157,
+          "iqr": 27,
+          "meanCI95": [
+            134.33333333333334,
+            144.23333333333332
+          ],
+          "medianCI95": [
+            131,
+            145.5
+          ],
+          "relativeMeanCIHalfWidth": 0.035560344827586125,
+          "meetsPrecisionTarget": true
+        },
+        "uploadReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 7543,
+          "median": 7675,
+          "standardDeviation": 809.1508959482113,
+          "min": 3600,
+          "max": 8390,
+          "q1": 7432.5,
+          "q3": 7835,
+          "iqr": 402.5,
+          "meanCI95": [
+            7216,
+            7763
+          ],
+          "medianCI95": [
+            7470,
+            7765
+          ],
+          "relativeMeanCIHalfWidth": 0.03625878297759512,
+          "meetsPrecisionTarget": true
+        },
+        "triggersReportedMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 1759.3333333333333,
+          "median": 1830,
+          "standardDeviation": 370.031996131307,
+          "min": 600,
+          "max": 2250,
+          "q1": 1792.5,
+          "q3": 1915,
+          "iqr": 122.5,
+          "meanCI95": [
+            1619.6666666666665,
+            1875.0083333333332
+          ],
+          "medianCI95": [
+            1815,
+            1885
+          ],
+          "relativeMeanCIHalfWidth": 0.07256773399014779,
+          "meetsPrecisionTarget": false
+        },
+        "workerStartupMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 5.9,
+          "median": 4,
+          "standardDeviation": 6.8800060144320145,
+          "min": 3,
+          "max": 41,
+          "q1": 4,
+          "q3": 5.75,
+          "iqr": 1.75,
+          "meanCI95": [
+            4.233333333333333,
+            8.733333333333333
+          ],
+          "medianCI95": [
+            4,
+            5
+          ],
+          "relativeMeanCIHalfWidth": 0.38135593220338976,
+          "meetsPrecisionTarget": false
+        },
+        "cfDeployWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 13680.044044399996,
+          "median": 13863.893125000002,
+          "standardDeviation": 1142.4091295582334,
+          "min": 7954.279459000001,
+          "max": 14594.310624999998,
+          "q1": 13577.712583499975,
+          "q3": 14166.248531249978,
+          "iqr": 588.5359477500024,
+          "meanCI95": [
+            13222.609051883332,
+            13975.676169980828
+          ],
+          "medianCI95": [
+            13700.961416500002,
+            14056.176687499996
+          ],
+          "relativeMeanCIHalfWidth": 0.02752429435363438,
+          "meetsPrecisionTarget": true
+        },
+        "cleanWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 5.305505566661714,
+          "median": 5.385645999980625,
+          "standardDeviation": 0.613186515968317,
+          "min": 3.318790999997873,
+          "max": 7.028457999986131,
+          "q1": 5.089229499972134,
+          "q3": 5.553457999994862,
+          "iqr": 0.46422850002272753,
+          "meanCI95": [
+            5.081886528323515,
+            5.510735828326933
+          ],
+          "medianCI95": [
+            5.293041500008258,
+            5.523395999975037
+          ],
+          "relativeMeanCIHalfWidth": 0.040415498072246404,
+          "meetsPrecisionTarget": true
+        },
+        "workerLookupWallMs": {
+          "count": 30,
+          "missing": 0,
+          "mean": 1237.4837222666727,
+          "median": 1269.3695420000004,
+          "standardDeviation": 196.73627017865238,
+          "min": 634.4683749999967,
+          "max": 1520.6268329999984,
+          "q1": 1246.0306977499977,
+          "q3": 1321.0203337500134,
+          "iqr": 74.98963600001571,
+          "meanCI95": [
+            1162.8799769175093,
+            1299.1161593175007
+          ],
+          "medianCI95": [
+            1250.5998125000042,
+            1302.8089165000129
+          ],
+          "relativeMeanCIHalfWidth": 0.055045646237047226,
+          "meetsPrecisionTarget": false
+        }
+      },
+      "bundle": {
+        "rawBytes": {
+          "count": 30,
+          "min": 142649,
+          "max": 142649
+        },
+        "gzipBytes": {
+          "count": 30,
+          "min": 39872,
+          "max": 39872
+        }
+      },
+      "runs": [
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:01:59.736Z",
+          "finishedAt": "2026-11-17T03:02:15.237Z",
+          "versionId": "1f40ecec-f323-4d6f-97e4-cfbf53d4695a",
+          "timings": {
+            "buildReportedMs": 132,
+            "uploadReportedMs": 8390,
+            "triggersReportedMs": 730,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14250.457417,
+            "workflowWallMs": 15501.324209,
+            "accessWallMs": null,
+            "cleanWallMs": 3.9563339999999982,
+            "workerLookupWallMs": 1245.924332999999
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:02:15.238Z",
+          "finishedAt": "2026-11-17T03:02:24.719Z",
+          "versionId": "080974a4-97e4-4313-a873-5ab84ddd2b29",
+          "timings": {
+            "buildReportedMs": 127,
+            "uploadReportedMs": 3600,
+            "triggersReportedMs": 600,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 7954.279459000001,
+            "workflowWallMs": 9481.178917,
+            "accessWallMs": null,
+            "cleanWallMs": 5.601916999999958,
+            "workerLookupWallMs": 1520.6268329999984
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:02:24.719Z",
+          "finishedAt": "2026-11-17T03:02:40.066Z",
+          "versionId": "b3f4bd43-61f8-45c4-a507-1e6c8a84243e",
+          "timings": {
+            "buildReportedMs": 125,
+            "uploadReportedMs": 7820,
+            "triggersReportedMs": 1830,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 13970.380333999998,
+            "workflowWallMs": 15346.867792000001,
+            "accessWallMs": null,
+            "cleanWallMs": 5.638041999998677,
+            "workerLookupWallMs": 1370.2788749999963
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:02:40.066Z",
+          "finishedAt": "2026-11-17T03:02:55.440Z",
+          "versionId": "ed3e6a69-6916-4932-bc20-034d67c374eb",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7890,
+            "triggersReportedMs": 1840,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14083.012917,
+            "workflowWallMs": 15373.720209000006,
+            "accessWallMs": null,
+            "cleanWallMs": 5.337666999999783,
+            "workerLookupWallMs": 1284.5642920000028
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:02:55.441Z",
+          "finishedAt": "2026-11-17T03:03:10.476Z",
+          "versionId": "9d699a18-0536-40fb-9ffb-d49d979c6d01",
+          "timings": {
+            "buildReportedMs": 158,
+            "uploadReportedMs": 7600,
+            "triggersReportedMs": 1760,
+            "workerStartupMs": 6,
+            "cfDeployWallMs": 13762.630167000003,
+            "workflowWallMs": 15035.462458000002,
+            "accessWallMs": null,
+            "cleanWallMs": 5.299916000003577,
+            "workerLookupWallMs": 1266.6515420000069
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:03:10.476Z",
+          "finishedAt": "2026-11-17T03:03:25.996Z",
+          "versionId": "ba616f0e-8960-4197-871d-edfe4aefdc03",
+          "timings": {
+            "buildReportedMs": 157,
+            "uploadReportedMs": 8020,
+            "triggersReportedMs": 1830,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14264.784791999991,
+            "workflowWallMs": 15519.455957999991,
+            "accessWallMs": null,
+            "cleanWallMs": 5.313624999995227,
+            "workerLookupWallMs": 1248.7402500000026
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:03:25.996Z",
+          "finishedAt": "2026-11-17T03:03:40.867Z",
+          "versionId": "1c6df054-cdc7-4c67-8d34-fc4be744f208",
+          "timings": {
+            "buildReportedMs": 158,
+            "uploadReportedMs": 7430,
+            "triggersReportedMs": 1920,
+            "workerStartupMs": 6,
+            "cfDeployWallMs": 13670.326207999999,
+            "workflowWallMs": 14871.100624999992,
+            "accessWallMs": null,
+            "cleanWallMs": 4.86387499999546,
+            "workerLookupWallMs": 1195.7168330000131
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:03:40.868Z",
+          "finishedAt": "2026-11-17T03:03:56.069Z",
+          "versionId": "b901c919-57d9-4015-a0f6-61ddd95e935b",
+          "timings": {
+            "buildReportedMs": 135,
+            "uploadReportedMs": 7770,
+            "triggersReportedMs": 1850,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 13976.799333000003,
+            "workflowWallMs": 15200.256332999998,
+            "accessWallMs": null,
+            "cleanWallMs": 5.680082999999286,
+            "workerLookupWallMs": 1217.117333000002
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:03:56.069Z",
+          "finishedAt": "2026-11-17T03:04:11.437Z",
+          "versionId": "64a9b1ca-0fa1-48d9-be5f-89fd7d857a1d",
+          "timings": {
+            "buildReportedMs": 133,
+            "uploadReportedMs": 8280,
+            "triggersReportedMs": 1920,
+            "workerStartupMs": 41,
+            "cfDeployWallMs": 14594.310624999998,
+            "workflowWallMs": 15362.606165999998,
+            "accessWallMs": null,
+            "cleanWallMs": 4.975875000003725,
+            "workerLookupWallMs": 762.6990830000141
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:04:11.437Z",
+          "finishedAt": "2026-11-17T03:04:26.449Z",
+          "versionId": "f6b282ae-f0a4-4d30-b0b7-0bee47beb99a",
+          "timings": {
+            "buildReportedMs": 130,
+            "uploadReportedMs": 8240,
+            "triggersReportedMs": 1790,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 14370.235790999985,
+            "workflowWallMs": 15010.201167000021,
+            "accessWallMs": null,
+            "cleanWallMs": 5.26004200000898,
+            "workerLookupWallMs": 634.4683749999967
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:04:26.449Z",
+          "finishedAt": "2026-11-17T03:04:40.661Z",
+          "versionId": "8a69163a-3bcd-483d-b82c-9c6a689f9942",
+          "timings": {
+            "buildReportedMs": 128,
+            "uploadReportedMs": 7370,
+            "triggersReportedMs": 1890,
+            "workerStartupMs": 6,
+            "cfDeployWallMs": 13527.500750000007,
+            "workflowWallMs": 14210.852583,
+            "accessWallMs": null,
+            "cleanWallMs": 3.318790999997873,
+            "workerLookupWallMs": 679.3912910000072
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:04:40.661Z",
+          "finishedAt": "2026-11-17T03:04:55.791Z",
+          "versionId": "dc12ae4b-e124-4c30-9533-7289fb10cb22",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7660,
+            "triggersReportedMs": 1830,
+            "workerStartupMs": 12,
+            "cfDeployWallMs": 13798.904250000021,
+            "workflowWallMs": 15129.583125000005,
+            "accessWallMs": null,
+            "cleanWallMs": 5.787624999997206,
+            "workerLookupWallMs": 1324.296417000005
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:04:55.791Z",
+          "finishedAt": "2026-11-17T03:05:11.475Z",
+          "versionId": "645eda39-14b2-45dd-9e2c-8a87b48fa9dd",
+          "timings": {
+            "buildReportedMs": 161,
+            "uploadReportedMs": 8039.999999999999,
+            "triggersReportedMs": 2000,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 14370.99754099999,
+            "workflowWallMs": 15683.552875000023,
+            "accessWallMs": null,
+            "cleanWallMs": 5.400041000015335,
+            "workerLookupWallMs": 1306.5345000000088
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:05:11.475Z",
+          "finishedAt": "2026-11-17T03:05:27.072Z",
+          "versionId": "2be9e738-658f-4e36-857f-74394ec14536",
+          "timings": {
+            "buildReportedMs": 130,
+            "uploadReportedMs": 7700,
+            "triggersReportedMs": 2250,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 14332.76212499998,
+            "workflowWallMs": 15596.429375000007,
+            "accessWallMs": null,
+            "cleanWallMs": 5.3985000000102445,
+            "workerLookupWallMs": 1257.6611250000133
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:05:27.072Z",
+          "finishedAt": "2026-11-17T03:05:42.366Z",
+          "versionId": "f1312d9d-ac5a-4548-bd6f-b8b256af8388",
+          "timings": {
+            "buildReportedMs": 158,
+            "uploadReportedMs": 7710,
+            "triggersReportedMs": 1960,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 14029.340457999991,
+            "workflowWallMs": 15293.319334,
+            "accessWallMs": null,
+            "cleanWallMs": 5.286167000012938,
+            "workerLookupWallMs": 1258.072583000001
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:05:42.366Z",
+          "finishedAt": "2026-11-17T03:05:57.123Z",
+          "versionId": "28a5ad71-6b2e-4608-921f-06bafa47a994",
+          "timings": {
+            "buildReportedMs": 157,
+            "uploadReportedMs": 7300,
+            "triggersReportedMs": 1850,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13498.980917000008,
+            "workflowWallMs": 14757.577124999982,
+            "accessWallMs": null,
+            "cleanWallMs": 5.548957999999402,
+            "workerLookupWallMs": 1252.4593750000058
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:05:57.124Z",
+          "finishedAt": "2026-11-17T03:06:11.397Z",
+          "versionId": "c58adaac-88e5-4da6-8643-975f5f4a7acf",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7840,
+            "triggersReportedMs": 810,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13020.948749999981,
+            "workflowWallMs": 14273.322583000001,
+            "accessWallMs": null,
+            "cleanWallMs": 5.5549579999933485,
+            "workerLookupWallMs": 1246.3497919999936
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:06:11.397Z",
+          "finishedAt": "2026-11-17T03:06:26.103Z",
+          "versionId": "190f0f9a-b885-4e4f-b5bc-34be90e4df73",
+          "timings": {
+            "buildReportedMs": 156,
+            "uploadReportedMs": 7210,
+            "triggersReportedMs": 1880,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13427.027415999997,
+            "workflowWallMs": 14705.156917000015,
+            "accessWallMs": null,
+            "cleanWallMs": 5.39391699997941,
+            "workerLookupWallMs": 1272.0875419999938
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:06:26.103Z",
+          "finishedAt": "2026-11-17T03:06:41.672Z",
+          "versionId": "649daef6-2c5f-4097-8c77-e2e90e09ade3",
+          "timings": {
+            "buildReportedMs": 130,
+            "uploadReportedMs": 7760,
+            "triggersReportedMs": 1820,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14151.630375000008,
+            "workflowWallMs": 15568.892208000005,
+            "accessWallMs": null,
+            "cleanWallMs": 7.028457999986131,
+            "workerLookupWallMs": 1409.554541999998
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:06:41.672Z",
+          "finishedAt": "2026-11-17T03:06:56.774Z",
+          "versionId": "c38c5902-90a9-42bd-9335-321c12f1343b",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7500,
+            "triggersReportedMs": 1800,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 13731.596625000006,
+            "workflowWallMs": 15102.008457999968,
+            "accessWallMs": null,
+            "cleanWallMs": 5.377374999981839,
+            "workerLookupWallMs": 1364.4533330000122
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:06:56.775Z",
+          "finishedAt": "2026-11-17T03:07:12.373Z",
+          "versionId": "1aa7484e-fb26-45de-b06a-cea2322e2343",
+          "timings": {
+            "buildReportedMs": 127,
+            "uploadReportedMs": 7750,
+            "triggersReportedMs": 2080,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 14226.475040999998,
+            "workflowWallMs": 15597.952583000006,
+            "accessWallMs": null,
+            "cleanWallMs": 4.968708000029437,
+            "workerLookupWallMs": 1365.853792000038
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:07:12.373Z",
+          "finishedAt": "2026-11-17T03:07:27.792Z",
+          "versionId": "d007caef-7fa4-4cb4-bddb-fa9b99255e17",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7950,
+            "triggersReportedMs": 1810,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 14171.121249999967,
+            "workflowWallMs": 15419.229457999987,
+            "accessWallMs": null,
+            "cleanWallMs": 5.0322919999598525,
+            "workerLookupWallMs": 1242.4445830000332
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:07:27.792Z",
+          "finishedAt": "2026-11-17T03:07:42.376Z",
+          "versionId": "735b208b-3edf-46ca-a3ab-fdea3cdf8de8",
+          "timings": {
+            "buildReportedMs": 161,
+            "uploadReportedMs": 7140,
+            "triggersReportedMs": 1820,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13332.642082999984,
+            "workflowWallMs": 14584.09604199999,
+            "accessWallMs": null,
+            "cleanWallMs": 5.534749999991618,
+            "workerLookupWallMs": 1245.2393750000047
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:07:42.377Z",
+          "finishedAt": "2026-11-17T03:07:57.497Z",
+          "versionId": "0cc28536-9922-46ab-8299-d7b9fd7cce88",
+          "timings": {
+            "buildReportedMs": 124,
+            "uploadReportedMs": 7490,
+            "triggersReportedMs": 1950,
+            "workerStartupMs": 5,
+            "cfDeployWallMs": 13763.16066699999,
+            "workflowWallMs": 15120.339666999993,
+            "accessWallMs": null,
+            "cleanWallMs": 5.4920839999685995,
+            "workerLookupWallMs": 1351.060291999951
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:07:57.497Z",
+          "finishedAt": "2026-11-17T03:08:12.691Z",
+          "versionId": "e06cd849-c4d4-4373-87c6-bb67d057ebf8",
+          "timings": {
+            "buildReportedMs": 158,
+            "uploadReportedMs": 7620,
+            "triggersReportedMs": 1900,
+            "workerStartupMs": 7,
+            "cfDeployWallMs": 13891.158291,
+            "workflowWallMs": 15193.345292000042,
+            "accessWallMs": null,
+            "cleanWallMs": 4.81416700000409,
+            "workerLookupWallMs": 1296.8289579999982
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:08:12.691Z",
+          "finishedAt": "2026-11-17T03:08:27.565Z",
+          "versionId": "9eeb1b3f-e287-461e-9ec6-2b12d5c97ee3",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7450,
+            "triggersReportedMs": 1830,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 13609.764707999944,
+            "workflowWallMs": 14873.755833000003,
+            "accessWallMs": null,
+            "cleanWallMs": 5.735125000006519,
+            "workerLookupWallMs": 1257.6267090000329
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:08:27.565Z",
+          "finishedAt": "2026-11-17T03:08:42.207Z",
+          "versionId": "80fd781b-8c2b-4bbf-bfe4-820e06f18e27",
+          "timings": {
+            "buildReportedMs": 158,
+            "uploadReportedMs": 7200,
+            "triggersReportedMs": 1770,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13325.278250000032,
+            "workflowWallMs": 14642.057708000008,
+            "accessWallMs": null,
+            "cleanWallMs": 4.9267499999841675,
+            "workerLookupWallMs": 1311.1920840000384
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:08:42.208Z",
+          "finishedAt": "2026-11-17T03:08:57.367Z",
+          "versionId": "c3b703eb-6cb0-4778-ba5d-3e7188bb05cb",
+          "timings": {
+            "buildReportedMs": 131,
+            "uploadReportedMs": 7690,
+            "triggersReportedMs": 1760,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13870.14512500004,
+            "workflowWallMs": 15159.399875000003,
+            "accessWallMs": null,
+            "cleanWallMs": 5.321832999994513,
+            "workerLookupWallMs": 1283.3577090000035
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:08:57.367Z",
+          "finishedAt": "2026-11-17T03:09:12.530Z",
+          "versionId": "498c3952-5d93-4a2e-9a78-d77fc392410b",
+          "timings": {
+            "buildReportedMs": 132,
+            "uploadReportedMs": 7430,
+            "triggersReportedMs": 1930,
+            "workerStartupMs": 4,
+            "cfDeployWallMs": 13857.641124999966,
+            "workflowWallMs": 15163.118167000008,
+            "accessWallMs": null,
+            "cleanWallMs": 5.805249999975786,
+            "workerLookupWallMs": 1299.0833330000169
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        },
+        {
+          "status": "success",
+          "startedAt": "2026-11-17T03:09:12.531Z",
+          "finishedAt": "2026-11-17T03:09:30.257Z",
+          "versionId": "341b139a-c4f4-4c0f-8e0b-efb55bff1334",
+          "timings": {
+            "buildReportedMs": 124,
+            "uploadReportedMs": 7440,
+            "triggersReportedMs": 1770,
+            "workerStartupMs": 3,
+            "cfDeployWallMs": 13567.028541999985,
+            "workflowWallMs": 17726.218249999976,
+            "accessWallMs": 2798.93637499999,
+            "cleanWallMs": 5.512041999958456,
+            "workerLookupWallMs": 1354.1765840000007
+          },
+          "bundle": {
+            "rawBytes": 142649,
+            "gzipBytes": 39872
+          }
+        }
+      ]
+    }
+  },
+  "latency": {
+    "status": "success",
+    "url": "https://void-perf-baseline-void.cloudflare-internal-11e.workers.dev/",
+    "ohaVersion": "oha 1.17.0",
+    "measurementStartedAt": "2026-11-17T03:09:38.707Z",
+    "measurementFinishedAt": "2026-11-17T03:13:13.101Z",
+    "settings": {
+      "requests": 500,
+      "runs": 10,
+      "duration": null,
+      "connections": 1,
+      "rate": null,
+      "timeout": "30s",
+      "httpVersion": "1.1",
+      "keepAlive": true,
+      "warmupRequests": 50,
+      "access": "temporary-login"
+    },
+    "oha": {
+      "summary": {
+        "successRate": 1,
+        "total": 191.02738862500001,
+        "totalData": 0,
+        "average": 0.03818343979519999,
+        "fastest": 0.023777375,
+        "slowest": 1.256624833,
+        "requestsPerSec": 26.17425718892774
+      },
+      "latencyPercentiles": {
+        "p50": 0.034899521,
+        "p95": 0.05235433155,
+        "p99": 0.10419998200000022
+      },
+      "statusCodeDistribution": {
+        "200": 5000
+      }
+    },
+    "runs": [
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:09:40.840Z",
+        "measurementFinishedAt": "2026-11-17T03:09:58.938Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 17.923547666,
+            "slowest": 0.118312875,
+            "fastest": 0.024608,
+            "average": 0.035825988500000024,
+            "requestsPerSec": 27.8962630232224,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.028142792,
+            "p25": 0.030554833,
+            "p50": 0.033407208,
+            "p75": 0.037688292,
+            "p90": 0.04291725,
+            "p95": 0.047818541,
+            "p99": 0.096283209,
+            "p99.9": 0.118312875,
+            "p99.99": 0.118312875
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:10:01.020Z",
+        "measurementFinishedAt": "2026-11-17T03:10:21.181Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 19.988944917,
+            "slowest": 0.832089417,
+            "fastest": 0.025734292,
+            "average": 0.039957301992000024,
+            "requestsPerSec": 25.013826496403265,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.029542291,
+            "p25": 0.032091333,
+            "p50": 0.035716583,
+            "p75": 0.040690667,
+            "p90": 0.045996,
+            "p95": 0.052779625,
+            "p99": 0.119050125,
+            "p99.9": 0.832089417,
+            "p99.99": 0.832089417
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:10:23.726Z",
+        "measurementFinishedAt": "2026-11-17T03:10:44.939Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 20.999956292,
+            "slowest": 0.476373791,
+            "fastest": 0.026095416,
+            "average": 0.041975343660000025,
+            "requestsPerSec": 23.809573365182505,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.031195875,
+            "p25": 0.03345675,
+            "p50": 0.037227791,
+            "p75": 0.042930167,
+            "p90": 0.051017875,
+            "p95": 0.062751625,
+            "p99": 0.129240125,
+            "p99.9": 0.476373791,
+            "p99.99": 0.476373791
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:10:47.097Z",
+        "measurementFinishedAt": "2026-11-17T03:11:04.552Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 17.27615,
+            "slowest": 0.184511583,
+            "fastest": 0.024215375,
+            "average": 0.034534265490000014,
+            "requestsPerSec": 28.941633407906274,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.027950958,
+            "p25": 0.030031083,
+            "p50": 0.03282575,
+            "p75": 0.0364905,
+            "p90": 0.041553375,
+            "p95": 0.044271375,
+            "p99": 0.06633475,
+            "p99.9": 0.184511583,
+            "p99.99": 0.184511583
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:11:06.758Z",
+        "measurementFinishedAt": "2026-11-17T03:11:25.273Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 18.358042333,
+            "slowest": 0.828811875,
+            "fastest": 0.025101458,
+            "average": 0.03669648946600005,
+            "requestsPerSec": 27.23601955646498,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.028657083,
+            "p25": 0.030460542,
+            "p50": 0.033299542,
+            "p75": 0.037049583,
+            "p90": 0.041426041,
+            "p95": 0.045565125,
+            "p99": 0.097189959,
+            "p99.9": 0.828811875,
+            "p99.99": 0.828811875
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:11:27.300Z",
+        "measurementFinishedAt": "2026-11-17T03:11:46.244Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 18.765565125,
+            "slowest": 0.180884666,
+            "fastest": 0.024994958,
+            "average": 0.03750678090799996,
+            "requestsPerSec": 26.644547961621807,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.029027833,
+            "p25": 0.031676125,
+            "p50": 0.034648083,
+            "p75": 0.03824725,
+            "p90": 0.043984375,
+            "p95": 0.049354375,
+            "p99": 0.112742542,
+            "p99.9": 0.180884666,
+            "p99.99": 0.180884666
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:11:48.374Z",
+        "measurementFinishedAt": "2026-11-17T03:12:06.810Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 18.2619235,
+            "slowest": 0.135934042,
+            "fastest": 0.024633542,
+            "average": 0.036501761258000004,
+            "requestsPerSec": 27.379372167449937,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.0291705,
+            "p25": 0.031244875,
+            "p50": 0.034347042,
+            "p75": 0.03769675,
+            "p90": 0.042186792,
+            "p95": 0.048022583,
+            "p99": 0.101469792,
+            "p99.9": 0.135934042,
+            "p99.99": 0.135934042
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:12:08.925Z",
+        "measurementFinishedAt": "2026-11-17T03:12:28.121Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 18.972484833,
+            "slowest": 1.256624833,
+            "fastest": 0.024471625,
+            "average": 0.037921615663999986,
+            "requestsPerSec": 26.353954392432534,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.028606375,
+            "p25": 0.030302,
+            "p50": 0.033386208,
+            "p75": 0.036699375,
+            "p90": 0.04142325,
+            "p95": 0.047202333,
+            "p99": 0.1151575,
+            "p99.9": 1.256624833,
+            "p99.99": 1.256624833
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:12:30.381Z",
+        "measurementFinishedAt": "2026-11-17T03:12:48.728Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 18.16669775,
+            "slowest": 0.11768925,
+            "fastest": 0.023777375,
+            "average": 0.036312100026,
+            "requestsPerSec": 27.522888687901464,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.028991,
+            "p25": 0.030779917,
+            "p50": 0.033890792,
+            "p75": 0.038174209,
+            "p90": 0.043405458,
+            "p95": 0.052447125,
+            "p99": 0.098940459,
+            "p99.9": 0.11768925,
+            "p99.99": 0.11768925
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      },
+      {
+        "status": "success",
+        "measurementStartedAt": "2026-11-17T03:12:50.625Z",
+        "measurementFinishedAt": "2026-11-17T03:13:13.099Z",
+        "oha": {
+          "summary": {
+            "successRate": 1,
+            "total": 22.314076209,
+            "slowest": 0.175392333,
+            "fastest": 0.032202334,
+            "average": 0.04460275098800001,
+            "requestsPerSec": 22.407380673833746,
+            "totalData": 0,
+            "sizePerRequest": 0,
+            "sizePerSec": 0
+          },
+          "latencyPercentiles": {
+            "p10": 0.037064708,
+            "p25": 0.039406583,
+            "p50": 0.042660792,
+            "p75": 0.047027417,
+            "p90": 0.053032542,
+            "p95": 0.0578105,
+            "p99": 0.084038083,
+            "p99.9": 0.175392333,
+            "p99.99": 0.175392333
+          },
+          "statusCodeDistribution": {
+            "200": 500
+          }
+        }
+      }
+    ],
+    "statistics": {
+      "rounds": 10,
+      "requests": 5000,
+      "units": "seconds",
+      "min": 0.023777375,
+      "max": 1.256624833,
+      "p99": 0.10419998200000022,
+      "bootstrap": {
+        "method": "percentile bootstrap",
+        "confidenceLevel": 0.95,
+        "resamples": 10000,
+        "seed": 1987012964,
+        "quantiles": "linear interpolation (R-7)",
+        "relativeHalfWidthTarget": 0.05,
+        "assumptions": "Rounds are exchangeable independent clusters; within-round observations remain together. Sequential rounds may still be correlated.",
+        "unit": "whole round",
+        "estimand": "request-weighted pooled mean and pooled request percentiles"
+      },
+      "metrics": {
+        "mean": {
+          "estimate": 0.03818343979519999,
+          "ci95": [
+            0.036486596213915,
+            0.04009698895800498
+          ],
+          "relativeCIHalfWidth": 0.04727694471025422,
+          "meetsPrecisionTarget": true
+        },
+        "p50": {
+          "estimate": 0.034899521,
+          "ci95": [
+            0.033632229,
+            0.037141229
+          ],
+          "relativeCIHalfWidth": 0.05027289629562535,
+          "meetsPrecisionTarget": false
+        },
+        "p95": {
+          "estimate": 0.05235433155,
+          "ci95": [
+            0.047470680552500005,
+            0.05537307549249999
+          ],
+          "relativeCIHalfWidth": 0.07547030690720363,
+          "meetsPrecisionTarget": false
+        }
+      }
+    }
+  },
+  "metrics": {
+    "status": "success",
+    "window": {
+      "requested": {
+        "start": "2026-11-17T03:09:38.707Z",
+        "end": "2026-11-17T03:13:13.101Z"
+      },
+      "queried": {
+        "start": "2026-11-17T03:08:08.000Z",
+        "end": "2026-11-17T03:14:44.000Z"
+      }
+    },
+    "units": {
+      "cpuTime": "microseconds",
+      "wallTime": "microseconds",
+      "memoryUsageBytes": "bytes"
+    },
+    "metrics": {
+      "sum": {
+        "errors": 0,
+        "requests": 5500,
+        "subrequests": 0
+      },
+      "quantiles": {
+        "cpuTimeP50": 391,
+        "cpuTimeP90": 629,
+        "cpuTimeP99": 1211,
+        "cpuTimeP999": 4437,
+        "memoryUsageBytesP50": 3149836,
+        "memoryUsageBytesP90": 3936268,
+        "memoryUsageBytesP99": 4460556,
+        "memoryUsageBytesP999": 4722700,
+        "wallTimeP50": 971,
+        "wallTimeP90": 1542,
+        "wallTimeP99": 3252,
+        "wallTimeP999": 6724
+      }
+    }
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "name": "benchmark",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "access-token": "node scripts/access-token.ts",
+    "benchmark": "node scripts/benchmark.ts",
+    "deploy": "node scripts/deploy.ts",
+    "latency": "node scripts/latency.ts",
+    "machine": "node scripts/machine.ts",
+    "metrics": "node scripts/metrics.ts",
+    "report": "node scripts/report.ts",
+    "test": "node --test test/deploy.test.mjs test/machine.test.mjs test/latency.test.mjs test/access-token.test.mjs test/metrics.test.mjs test/benchmark.test.mjs",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "typescript": "catalog:"
+  }
+}
