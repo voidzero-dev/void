@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSyn
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vite-plus/test';
+import type { BuiltFixture } from './fixture-app.ts';
 
 const MD_PLUGIN = join(import.meta.dirname, '../packages/md/dist/plugin.mjs');
 
@@ -102,9 +103,16 @@ export function countOf(text: string, part: string): number {
  * Production must link that CSS on island and Markdown pages, as dev does,
  * even though the pages ship no JavaScript.
  */
-export function defineIslandCssBuildTest(app: IslandCssApp): void {
+export function defineIslandCssBuildTest(
+  app:
+    | IslandCssApp
+    | (Pick<IslandCssApp, 'expectedCss' | 'check' | 'checkBuild'> & {
+        build: () => BuiltFixture;
+      }),
+): void {
   it('links the CSS that a layout component imports on island and Markdown pages', () => {
-    const build = buildIslandApp(app);
+    const supplied = 'build' in app;
+    const build = supplied ? app.build() : buildIslandApp(app);
     try {
       for (const file of ['index.html', 'about.html']) {
         const { html, css } = build.page(file);
@@ -124,7 +132,9 @@ export function defineIslandCssBuildTest(app: IslandCssApp): void {
       }
       app.checkBuild?.(build);
     } finally {
-      build.cleanup();
+      if (!supplied) {
+        build.cleanup();
+      }
     }
   }, 120_000);
 }
