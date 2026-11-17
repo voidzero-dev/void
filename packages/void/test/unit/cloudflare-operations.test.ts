@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { encodeCloudflareVersionMessage } from '@void/deploy-cloudflare';
@@ -8,6 +8,7 @@ import {
   changeCloudflareDomain,
   deleteCloudflareSecret,
   executeCloudflareD1Sql,
+  importCloudflareD1Sql,
   applyCloudflareD1Migrations,
   listCloudflareDomains,
   listCloudflareSecrets,
@@ -573,6 +574,46 @@ describe('Cloudflare D1 operations', () => {
       sql: 'select * from users',
       configPath: join(root, 'wrangler.jsonc').replaceAll('\\', '/'),
     });
+  });
+
+  it.each([
+    { fail: false, bulk: true },
+    { fail: true, bulk: true },
+    { fail: false, bulk: false },
+    { fail: true, bulk: false },
+  ])('cleans up private SQL files (failure: $fail, bulk: $bulk)', async ({ fail, bulk }) => {
+    const contents = "INSERT INTO messages VALUES ('測試');\n".repeat(4096);
+    let file: string | undefined;
+    const runner = vi.fn<CloudflareOperationRunner>().mockImplementation((operation) => {
+      expect(operation.type).toBe(bulk ? 'd1.import' : 'd1.execute');
+      if ((operation.type !== 'd1.import' && operation.type !== 'd1.execute') || !operation.file) {
+        throw new Error('Expected file import');
+      }
+      file = operation.file;
+      expect(readFileSync(file, 'utf8')).toBe(contents);
+      if (process.platform !== 'win32') {
+        expect(statSync(file).mode & 0o777).toBe(0o600);
+      }
+      return fail ? { ...ok(), status: 1, stderr: 'Import rejected' } : ok([]);
+    });
+    const pending = (bulk ? importCloudflareD1Sql : executeCloudflareD1Sql)(
+      {
+        operation: context(runner),
+        binding: 'DB',
+        migrateToken: 'my-data',
+        migrationsDir: undefined,
+        migrationsTable: 'd1_migrations',
+      },
+      contents,
+    );
+    if (fail) {
+      await expect(pending).rejects.toThrow('Import rejected');
+    } else {
+      await expect(pending).resolves.toEqual(bulk ? undefined : []);
+    }
+    expect(file).toBeDefined();
+    expect(existsSync(file!)).toBe(false);
+    expect(runner).toHaveBeenCalledTimes(1);
   });
 
   it('leaves migrationsDir unset when the D1 binding has none', () => {

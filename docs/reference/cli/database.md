@@ -64,6 +64,8 @@ By default, targets the local database. Pass `--remote` to run against the deplo
 - **Hosted PostgreSQL and MySQL projects**: fetches the stored connection string from the platform and connects directly.
 - **Direct Cloudflare PostgreSQL and MySQL projects**: uses `DATABASE_URL` from the current shell; Cloudflare cannot return the password from Hyperdrive.
 
+On direct Cloudflare D1 deployments, `--file` uses bulk import. Void waits for the import to finish and reports failures; bulk imports do not return individual query rows. Pass SQL inline to return query rows.
+
 For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. Non-TTY environments (CI) skip the prompt.
 
 ## `void db migrate` {#void-db-migrate}

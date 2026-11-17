@@ -20,6 +20,7 @@ import {
   readCfUploadOutput,
   safePositional,
 } from './cf-command-values.ts';
+import { importD1SqlFile } from './cf-d1-import.ts';
 import { persistCfKeyringPreference, readCfSessionCredential } from './cf-session.ts';
 import { getCfCliVersion, getVoidUserAgent } from './cf-user-agent.ts';
 import { publishCloudflareWorkerSettings } from './cf-worker-settings.ts';
@@ -717,6 +718,15 @@ async function readAllQueues(): Promise<Array<Json>> {
 
 async function resources(): Promise<Result> {
   switch (operation.type) {
+    case 'd1.import': {
+      const database = d1Database(operation.database);
+      await importD1SqlFile({
+        endpoint: `${apiBaseUrl()}/accounts/${encodeURIComponent(accountId())}/d1/database/${encodeURIComponent(database.id)}/import`,
+        headers: await apiHeaders(),
+        file: operation.file,
+      });
+      return result(0, '', '', []);
+    }
     case 'workers.subdomain.get': {
       const body = await cloudflareApiGet(
         `/accounts/${encodeURIComponent(accountId())}/workers/subdomain`,
@@ -730,8 +740,11 @@ async function resources(): Promise<Result> {
     }
     case 'd1.execute': {
       const database = d1Database(operation.database);
-      // One argv item, so cf cannot read SQL that starts with "-" (such as a comment) as a flag.
-      return runCf(['d1', 'query', database.id, `--sql=${operation.sql}`]);
+      const sql =
+        operation.file !== undefined ? readFileSync(operation.file, 'utf8') : operation.sql;
+      return withSecretFile(JSON.stringify({ sql }), (path) =>
+        runCf(['d1', 'query', database.id, '--body', '@' + path]),
+      );
     }
     case 'd1.migrations.list':
     case 'd1.migrations.apply': {

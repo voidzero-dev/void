@@ -933,14 +933,16 @@ async function runExecute(
         process.exit(0);
       }
       if (dialect === 'sqlite') {
-        const { executeCloudflareD1Sql, resolveCloudflareD1Context } =
+        const { executeCloudflareD1Sql, importCloudflareD1Sql, resolveCloudflareD1Context } =
           await import('./cloudflare-operations.ts');
-        const rows = await executeCloudflareD1Sql(
-          resolveCloudflareD1Context(root, configuredD1Binding(root)),
-          sql,
-        );
-        if (rows.length > 0) {
-          printTable(rows);
+        const context = resolveCloudflareD1Context(root, configuredD1Binding(root));
+        if (file) {
+          await importCloudflareD1Sql(context, sql);
+        } else {
+          const rows = await executeCloudflareD1Sql(context, sql);
+          if (rows.length > 0) {
+            printTable(rows);
+          }
         }
       } else {
         const dbUrl = process.env.DATABASE_URL;

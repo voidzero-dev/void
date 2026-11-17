@@ -3,6 +3,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+const mockReadDeploymentPlatform = vi.fn(() => 'void');
+const mockExecuteD1 = vi.fn();
+const mockImportD1 = vi.fn();
+const mockD1Context = { binding: 'DB' };
+vi.mock('../../src/cli/cloudflare-operations.ts', () => ({
+  executeCloudflareD1Sql: (...args: Array<unknown>) => mockExecuteD1(...args),
+  importCloudflareD1Sql: (...args: Array<unknown>) => mockImportD1(...args),
+  resolveCloudflareD1Context: () => mockD1Context,
+}));
+
 const mockGetToken = vi.fn<() => string | null>(() => null);
 const mockReadProjectConfig = vi.fn<() => { projectId: string; slug: string } | null>(() => null);
 const mockGetProxyUrl = vi.fn<() => string>(() => 'https://proxy.void.cloud');
@@ -20,7 +30,7 @@ vi.mock('../../src/cli/auth', () => ({
 
 vi.mock('../../src/cli/project', () => ({
   readProjectConfig: () => mockReadProjectConfig(),
-  readDeploymentPlatform: () => 'void',
+  readDeploymentPlatform: () => mockReadDeploymentPlatform(),
 }));
 
 vi.mock('../../src/cli/client', () => ({
@@ -111,6 +121,7 @@ describe('void db execute --remote (D1)', () => {
 
   beforeEach(async () => {
     vi.clearAllMocks();
+    mockReadDeploymentPlatform.mockReturnValue('void');
     originalFetch = globalThis.fetch;
     globalThis.fetch = fetchMock as unknown as typeof globalThis.fetch;
 
@@ -139,6 +150,34 @@ describe('void db execute --remote (D1)', () => {
     for (const root of roots.splice(0, roots.length)) {
       rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it.each([false, true])(
+    'returns direct D1 query rows regardless of SQL size (large: %s)',
+    async (large) => {
+      mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+      mockExecuteD1.mockResolvedValue([{ answer: 42 }]);
+      const sql = (large ? '/*' + 'comment '.repeat(4096) + '*/ ' : '') + 'SELECT 42 AS answer';
+      await runDbCommand(createProjectRoot(), { action: 'execute', command: sql, remote: true });
+      expect(mockExecuteD1).toHaveBeenCalledWith(mockD1Context, sql);
+      expect(mockImportD1).not.toHaveBeenCalled();
+      expect(vi.mocked(console.log).mock.calls.flat().join(' ')).toContain('42');
+    },
+  );
+
+  it('uses bulk import only for direct D1 file execution', async () => {
+    mockReadDeploymentPlatform.mockReturnValue('cloudflare');
+    mockImportD1.mockResolvedValue(undefined);
+    const root = createProjectRoot();
+    const sql = 'INSERT INTO samples VALUES (1);';
+    writeFileSync(join(root, 'seed.sql'), sql);
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    mockConfirm.mockResolvedValue(true);
+    await runDbCommand(root, { action: 'execute', file: 'seed.sql', remote: true });
+    expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
+    expect(mockExecuteD1).not.toHaveBeenCalled();
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('POSTs to /d1/query with correct URL, body, and auth headers', async () => {
