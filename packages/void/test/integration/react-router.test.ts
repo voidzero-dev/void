@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
@@ -210,13 +210,21 @@ export async function loader() {
     }
   });
 
-  it('queries MySQL through void/db in the built Worker', async () => {
-    execFileSync('vp', ['build'], {
+  it('generates route types from scratch and queries MySQL in the built Worker', async () => {
+    // The dev server generates these too, so do not let the previous test mask a missing build step.
+    rmSync(join(playground.root, '.react-router'), { recursive: true, force: true });
+    execFileSync('vp', ['run', 'build'], {
       cwd: playground.root,
       stdio: 'pipe',
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
       shell: process.platform === 'win32',
     });
+    for (const route of ['smoke', 'users']) {
+      expect(
+        existsSync(join(playground.root, '.react-router/types/app/routes/+types', `${route}.ts`)),
+        `The build should generate ${route} route types`,
+      ).toBe(true);
+    }
     const server = await start('preview');
     try {
       await expectUsers(server);

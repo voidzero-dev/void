@@ -3,7 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vp build",
+    "build": "react-router typegen && vp build",
     "dev": "vp dev"
   },
   "dependencies": {
