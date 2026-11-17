@@ -353,7 +353,7 @@ describe('init summary', () => {
   });
 
   it('lists the files it created and changed in an existing project', async () => {
-    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-existing-'));
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-init-summary-existing-')));
     try {
       writeExistingViteApp(root);
       writeFileSync(

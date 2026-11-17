@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { log } from '@voidzero-dev/vite-plus-prompts';
@@ -11,7 +11,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({ log: { warn: vi.fn() } }));
 let root: string;
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'void-skills-'));
+  root = realpathSync(mkdtempSync(join(tmpdir(), 'void-skills-')));
 });
 
 afterEach(() => {
