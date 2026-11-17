@@ -84,6 +84,19 @@ export type RoutePath = keyof RoutePathMap & string;
 // so `/users/[id]` accepts `/users/${string}`. Template
 // literal types cannot exclude empty or `/`-leading text without per-character unions.
 type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | '*' ? string : S;
+// Root params and catch-alls would accept every absolute path. Keep those
+// patterns available to routeUrl(), but require explicit construction for them.
+type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`
+  ? Rest extends ''
+    ? string extends RouteUrlSegment<Segment>
+      ? never
+      : P
+    : P
+  : P extends `/${infer Segment}`
+    ? string extends RouteUrlSegment<Segment>
+      ? never
+      : P
+    : P;
 type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`
   ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`
   : RouteUrlSegment<P>;
@@ -95,14 +108,17 @@ type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${'*' | '[..
     : RouteSegmentsUrl<P>;
 // Fixed segments are also accepted percent-encoded, as `routeUrl()` returns them.
 type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;
-type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;
+type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;
+// Use a structural marker so package and generated declarations agree when a
+// helper-built URL crosses into a navigation, form, or stream client.
+type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };
 
 /** Whether `routing.typedRoutes` is on in the generated route types. */
 export type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;
 
 /** The URL of one of the app's routes. A plain string unless `routing.typedRoutes` is on. */
 export type RouteUrl = TypedRoutes extends true
-  ? RoutePathUrl | `${RoutePathUrl}${'?' | '#'}${string}`
+  ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${'?' | '#'}${string}`
   : string;
 
 /** Anything a link can point to: a route URL, a same-page query or hash, or an external URL. */

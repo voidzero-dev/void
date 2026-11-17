@@ -298,7 +298,9 @@ describe('generateRouteTypes', () => {
       '    "/café/[id]": "/caf%C3%A9/[id]";',
       '    "/café/:id": "/caf%C3%A9/:id";',
     ]);
-    expect(dts).toContain('type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+    expect(dts).toContain(
+      'type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
+    );
   });
 
   it('turns on typed route URLs only when routing.typedRoutes is set', () => {
