@@ -318,6 +318,15 @@ export function getBookmark(client) {
 
 export const db = new Proxy({}, {
   get(_, prop) {
+    // Promise assimilation and inspection are not database use.
+    if (
+      prop === 'then' ||
+      prop === 'toJSON' ||
+      prop === Symbol.toStringTag ||
+      prop === Symbol.for('nodejs.util.inspect.custom')
+    ) {
+      return undefined;
+    }
     const instance = getRuntimeRequestResource(
       _requestResourceKey,
       () => drizzle(sessions.getSession()${drizzleConfig}),

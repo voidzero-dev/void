@@ -69,6 +69,8 @@ function createDb(connectionString: string): MySql2Database<Schema>;
 
 D1 only. Set the starting bookmark or constraint for the default request's `db`. Call it in middleware before the first use of `db`. It does not change explicitly created clients or later requests.
 
+The session opens when you read a database property, including extracting a method or accessing `$client`; it does not wait for a query to execute. Awaiting or inspecting the `db` object does not open it.
+
 Passing `'first-unconstrained'` preserves any bookmark or primary-first requirement already configured, even before the first use of `db`. Other starting values replace the configuration until the session opens.
 
 After the session opens, repeated calls preserve it when the requirement is already satisfied: the original starting value, `'first-unconstrained'`, or a bookmark no newer than the session's current bookmark. This lets middleware run again during a local server-side fetch without resetting database progress. Repeating `'first-primary'` does not force another primary read.

@@ -110,6 +110,15 @@ function d1Init() {
  */
 export const db: DrizzleD1Database = new Proxy({} as DrizzleD1Database, {
   get(_, prop) {
+    // Promise assimilation and inspection are not database use.
+    if (
+      prop === 'then' ||
+      prop === 'toJSON' ||
+      prop === Symbol.toStringTag ||
+      prop === Symbol.for('nodejs.util.inspect.custom')
+    ) {
+      return undefined;
+    }
     const instance = getRuntimeRequestResource(
       requestDbKey,
       d1Init,

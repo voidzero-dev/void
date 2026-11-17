@@ -2,6 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { inspect } from 'node:util';
 import { drizzle } from 'drizzle-orm/d1';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { Hono } from 'hono';
@@ -215,6 +216,76 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     expect(withSession).not.toHaveBeenCalled();
     expect(withRuntimeEnv(env, getBookmark)).toBeNull();
   });
+
+  const probes = [
+    { name: 'Promise.resolve', read: (db: typeof runtimeDb.db) => Promise.resolve(db) },
+    {
+      name: 'await',
+      read: async (db: typeof runtimeDb.db) => {
+        await db;
+      },
+    },
+    {
+      name: 'JSON.stringify',
+      read: (db: typeof runtimeDb.db) => {
+        JSON.stringify(db);
+      },
+    },
+    {
+      name: 'Object.prototype.toString',
+      read: (db: typeof runtimeDb.db) => {
+        Object.prototype.toString.call(db);
+      },
+    },
+    {
+      name: 'inspect',
+      read: (db: typeof runtimeDb.db) => {
+        inspect(db);
+      },
+    },
+    {
+      name: 'custom inspection hook',
+      read: (db: typeof runtimeDb.db) => {
+        Reflect.get(db, inspect.custom);
+      },
+    },
+  ];
+
+  it.each(probes)('keeps $name probes from opening or locking the session', async ({ read }) => {
+    const { db, getBookmark, setSession } = await loadClient();
+    const { withSession, env } = mockBinding();
+    await withRuntimeEnv(env, async () => {
+      setSession(BEFORE_SAVE);
+      await read(db);
+      expect(withSession).not.toHaveBeenCalled();
+      expect(getBookmark()).toBeNull();
+      setSession(AFTER_SAVE);
+      void db.select;
+      await read(db);
+      expect(getBookmark()).toBe(AFTER_SAVE);
+    });
+    expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
+  });
+
+  it('allows promise and inspection probes without request bindings', async () => {
+    const { db } = await loadClient();
+    for (const { read } of probes) {
+      await read(db);
+    }
+  });
+
+  it.each(['select', 'batch', '$client'])(
+    'still opens the session when reading %s',
+    async (prop) => {
+      const { db, setSession } = await loadClient();
+      const { withSession, env } = mockBinding();
+      withRuntimeEnv(env, () => {
+        void Reflect.get(db, prop);
+        expect(() => setSession(AFTER_SAVE)).toThrow('createDb');
+      });
+      expect(withSession).toHaveBeenCalledExactlyOnceWith('first-unconstrained');
+    },
+  );
 
   it.each([AFTER_SAVE, 'first-primary'])(
     'preserves configured %s when nested middleware supplies no bookmark before db use',

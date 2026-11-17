@@ -55,9 +55,14 @@ describe('D1 bookmarks in generated Workers', () => {
       writeFileSync(
         join(middleware, '01.database.ts'),
         `
-import { setSession, getBookmark } from 'void/db';
+import { db, setSession, getBookmark } from 'void/db';
 import { getCookie, setCookie } from 'hono/cookie';
 export default async (c, next) => {
+  // Incidental probes must not open the session before middleware configures it.
+  await Promise.resolve(db);
+  JSON.stringify(db);
+  Object.prototype.toString.call(db);
+  Reflect.get(db, Symbol.for('nodejs.util.inspect.custom'));
   const incoming = ${transport === 'cookie' ? "getCookie(c, 'db-bookmark')" : "c.req.header('X-DB-Bookmark')"};
   setSession(incoming ?? 'first-unconstrained');
   await next();
@@ -257,7 +262,7 @@ export default {
       expect(loaded.status, await loaded.clone().text()).toBe(200);
       // Local D1 has no replica lag, so explicitly assert that middleware
       // preserved the outer bookmark even when nested dispatch happens first.
-      const starts = JSON.parse(loaded.headers.get('X-Test-Session-Starts')!) as string[];
+      const starts = JSON.parse(loaded.headers.get('X-Test-Session-Starts')!) as Array<string>;
       expect(starts[0]).toBe(bookmark);
       // Direct GET also creates an explicit client from its wrapped env.
       // Local fetch receives cloudflare:workers env for explicit clients,
