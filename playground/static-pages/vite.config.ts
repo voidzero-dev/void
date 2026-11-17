@@ -22,5 +22,13 @@ function virtualTagsPlugin(): Plugin {
 }
 
 export default defineConfig({
+  run: {
+    tasks: {
+      build: {
+        command: 'vp build',
+        dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
+      },
+    },
+  },
   plugins: [voidPlugin(), voidVue(), virtualTagsPlugin()],
 });

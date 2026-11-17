@@ -1,4 +1,4 @@
-import { execSync, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { once } from 'node:events';
 import { rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
@@ -7,6 +7,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { createServer } from 'pglite-server';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -99,7 +100,7 @@ describe('playground/pg-api-test', () => {
 
   it('queries PostgreSQL through void/db and createDb in the built Worker', async () => {
     rmSync(join(PLAYGROUND, 'dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/pg-api-test build', { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, 'pg-api-test');
     const server = await start('preview');
     try {
       await expectUsers(server);

@@ -2,10 +2,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vp run --filter './packages/**' --filter '!./packages/md' build && vp run --filter ./packages/md build",
-    "build:core": "vp run --filter ./packages/deploy-core --filter ./packages/deploy-cloudflare --filter ./packages/edge --filter ./packages/isr --filter ./packages/platform --filter ./packages/void build",
     "build:docs": "vp run --filter ./docs build",
-    "build:platform": "vp run --filter './platform/packages/**' build",
     "check:platform": "vp run --filter './platform/**' --parallel typecheck",
     "check:sdk": "vp run --filter './packages/**' --parallel typecheck",
     "check:types": "vp run --filter './**' --filter '!./playground-local/**' --parallel --concurrency-limit=4 typecheck",
@@ -16,16 +13,6 @@
     "install:void-dev": "vp run build:core && node scripts/void-dev-link.mjs install",
     "lint": "vp lint",
     "prepare": "vp config && vp run build:core",
-    "test": "node test/affected.mjs",
-    "test:benchmark": "vp test run --reporter=default --reporter=./test/performance-reporter.ts",
-    "test:full": "vp test run",
-    "test:integration": "vp test run --project parallel-integration",
-    "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",
-    "test:pages:react-vue": "vp test run --project parallel-integration packages/react packages/vue",
-    "test:pages:svelte-solid": "vp test run --project parallel-integration packages/svelte packages/solid",
-    "test:platform": "vp test run --project 'platform-*'",
-    "test:profile": "vp test run --reporter=default --experimental.importDurations.print --experimental.importDurations.limit=20",
-    "test:unit": "vp test run --project unit --project unit-pglite --project cli-unit",
     "uninstall:void-dev": "node scripts/void-dev-link.mjs uninstall"
   },
   "devDependencies": {

@@ -1,7 +1,7 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { buildPlayground } from '../../../../test/integration-helpers.ts';
 
 // A Markdown-only pages app still needs a client build: its closeBundle
 // prerenders. Markdown pages are implicit islands, so the client input comes
@@ -15,7 +15,7 @@ describe('playground/node-static-md build (Markdown-only, target: node, output: 
     const pg = join(ROOT, PLAYGROUND);
     rmSync(join(pg, 'dist'), { recursive: true, force: true });
     rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, PLAYGROUND.slice('playground/'.length));
   });
 
   it('emits the Node SSR entry', () => {

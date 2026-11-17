@@ -1,8 +1,8 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { buildPlayground } from '../../../../test/integration-helpers.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 import { deserializePageData } from '../../src/pages/serialize.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
@@ -22,7 +22,7 @@ describe('playground/static-pages build (output: static)', () => {
     rmSync(join(pg, 'dist'), { recursive: true, force: true });
     rmSync(join(pg, '.void'), { recursive: true, force: true });
     removeWranglerConfig(pg);
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, PLAYGROUND.slice('playground/'.length));
   });
 
   it('emits worker entry and client manifest', () => {

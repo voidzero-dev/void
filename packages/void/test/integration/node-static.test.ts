@@ -1,10 +1,10 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import { extname, isAbsolute, join, relative, resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -118,7 +118,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
     const pg = join(ROOT, PLAYGROUND);
     rmSync(join(pg, 'dist'), { recursive: true, force: true });
     rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, PLAYGROUND.slice('playground/'.length));
 
     const clientDir = join(DIST, 'client');
     staticServer = createServer((req, res) => {
@@ -437,7 +437,7 @@ describe('playground/node-static redirects (target: node, output: static)', () =
     const pg = join(ROOT, PLAYGROUND);
     rmSync(join(pg, 'dist'), { recursive: true, force: true });
     rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, PLAYGROUND.slice('playground/'.length));
     writeFileSync(VOID_CONFIG, originalConfig);
 
     externalServer = createServer((_req, res) => {

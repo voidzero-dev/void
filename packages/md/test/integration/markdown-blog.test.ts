@@ -1,9 +1,8 @@
-import { execSync } from 'node:child_process';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { chromium, type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { buildPlayground, killChild, startServer } from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 let DEV_BASE: string;
@@ -287,10 +286,7 @@ describe('markdown-blog playground', () => {
     let child: ReturnType<typeof spawn>;
 
     beforeAll(async () => {
-      execSync('vp run --filter ./playground/markdown-blog build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
+      buildPlayground(ROOT, 'markdown-blog');
 
       const server = await startServer((port) => {
         child = spawn(

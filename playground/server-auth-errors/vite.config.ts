@@ -3,6 +3,14 @@ import { defineConfig } from 'vite-plus';
 import { voidPlugin } from 'void';
 
 export default defineConfig({
+  run: {
+    tasks: {
+      build: {
+        command: 'vp build',
+        dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
+      },
+    },
+  },
   define: {
     __SERVER_AUTH_ERRORS_SOURCE_ROOT__: JSON.stringify(new URL('./', import.meta.url).href),
   },

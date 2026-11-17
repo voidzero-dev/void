@@ -1,8 +1,9 @@
-import { execSync, type ChildProcess } from 'node:child_process';
+import { type ChildProcess } from 'node:child_process';
 import { rmSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
+  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -77,7 +78,7 @@ describe('playground/mysql-test', () => {
 
   it('queries MySQL through void/db and createDb in the built Worker', async () => {
     rmSync(join(PLAYGROUND, 'dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/mysql-test build', { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, 'mysql-test');
     const server = await start('preview');
     try {
       await expectUsers(server);

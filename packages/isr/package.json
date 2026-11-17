@@ -34,7 +34,6 @@
     "access": "public"
   },
   "scripts": {
-    "build": "vp pack",
     "dev": "vp pack --watch",
     "typecheck": "tsc --noEmit"
   },

@@ -1,10 +1,9 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { getWorkerAssetsDir, getWorkerConfigPath } from '@cloudflare/build-output-utils';
 import spawn from 'cross-spawn';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import { buildPlayground, killChild, startServer } from '../../../../test/integration-helpers.ts';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
@@ -83,7 +82,7 @@ describe('playground/ssr build + preview', () => {
 
   beforeAll(async () => {
     rmSync(join(ROOT, 'playground/ssr/dist'), { recursive: true, force: true });
-    execSync('vp run --filter ./playground/ssr build', { cwd: ROOT, stdio: 'pipe' });
+    buildPlayground(ROOT, 'ssr');
 
     const server = await startServer((port) => {
       child = spawn(

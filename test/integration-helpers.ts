@@ -50,6 +50,29 @@ export type IsolatedPlayground = {
   cleanup: () => void;
 };
 
+/**
+ * Validate/restore a playground build without rewriting SDK artifacts while workers use them.
+ * The shared global setup prepares those prerequisites before any test file is imported.
+ */
+export function buildPlayground(workspaceRoot: string, playground: string): void {
+  const result = crossSpawn.sync(
+    'vp',
+    ['run', '--ignore-depends-on', '--filter', `./playground/${playground}`, 'build'],
+    {
+      cwd: workspaceRoot,
+      encoding: 'utf8',
+      env: { ...process.env, NODE_ENV: 'production' },
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  );
+  if (result.error || result.status !== 0) {
+    throw new Error(
+      `Could not prepare playground/${playground}.\n${result.stdout ?? ''}${result.stderr ?? ''}`,
+      { cause: result.error },
+    );
+  }
+}
+
 function shouldCopyPlaygroundPath(sourceRoot: string, path: string): boolean {
   const normalizedSourceRoot = sourceRoot.replaceAll('\\', '/');
   const normalizedPath = path.replaceAll('\\', '/');

@@ -122,6 +122,19 @@ pre-existing generated playground or dashboard tsconfigs.
 
 ## Reusing transforms
 
+Package and playground `build` tasks are declared in their Vite+ configurations and cache their
+outputs through Vite Task. Their workspace prerequisites run before the consumer build. Use
+`vp run build`, `vp run build:all`, or `vp run --filter ./playground/react-pages build` for both
+fresh builds and cache restoration. Use `vp run --no-cache build:all` when verifying a fresh
+build. `vp run --dry-run -vv build:all` explains the selected tasks and cache misses.
+
+Test commands explicitly disable Vite Task result caching, including when `--cache` is passed
+to the task runner. Build prerequisites can reuse their artifacts while test assertions run.
+Shared integration setup prepares public packages in production mode before workers import them.
+Playground preparation validates its own cached build without restoring those shared packages
+again while other workers are using them. Source-mutating build regressions still execute their
+build commands directly.
+
 Persistent `fsModuleCache` is enabled to reuse transformations across invocations. It does not
 cache test results or remove per-file module isolation. The first run primes it; compare repeated
 runs with the same selection and machine load. For a control use `--no-fsModuleCache`; use

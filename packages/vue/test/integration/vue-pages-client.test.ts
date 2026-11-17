@@ -1,10 +1,11 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { type ChildProcess } from 'node:child_process';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  buildPlayground,
   killChild,
   spawnPlaygroundServer,
   startServer,
@@ -342,12 +343,7 @@ describe('vue-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/vue-pages/dist'))) {
-      execSync('vp run --filter ./playground/vue-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    buildPlayground(ROOT, 'vue-pages');
 
     const server = await startServer(
       (port) => (child = spawnPlaygroundServer(ROOT, 'vue-pages', 'preview', port)),
