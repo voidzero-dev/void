@@ -30,6 +30,9 @@ rendering failures before returning an HTTP response, use `renderImage(content, 
 `renderOgImage(content, options?)` from the same module. Both return PNG bytes; set HTTP headers
 and caching on your own `Response`.
 
+`OgImageResponse` and `renderOgImage` default to 1200 × 630. Set `width` and `height`
+to generate a different size.
+
 For React JSX with `tw`, CSS custom properties, or `textFit`, append `@void/image/react` to
 `compilerOptions.types` in `tsconfig.json`. Alternatively, add
 `import type {} from '@void/image/react'` to an included source file. See

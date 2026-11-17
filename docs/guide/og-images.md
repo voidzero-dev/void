@@ -4,7 +4,7 @@ outline: deep
 
 # Open Graph Images
 
-Use `OgImageResponse` from `@void/image/generate` to generate Open Graph and social preview images in a route handler. `OgImageResponse` extends [`ImageResponse`](./image-generation.md) with a default settings suitable for Open Graph images, such as default size of 1200 × 630 and `cache-control` set to 24 hours.
+Use `OgImageResponse` from `@void/image/generate` to generate Open Graph and social preview images in a route handler. It extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630 and a public cache lifetime of 24 hours.
 
 It draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
 
@@ -57,7 +57,7 @@ JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template
 
 ## Await rendering
 
-Use `renderOgImage(content, options?)` to await PNG bytes before creating a response. It defaults to 1200 × 630 and accepts the same presets, custom dimensions, and rendering options as `OgImageResponse`:
+Use `renderOgImage(content, options?)` to await PNG bytes before creating a response. It defaults to 1200 × 630 and accepts the same dimensions and rendering options as `OgImageResponse`:
 
 ```ts
 import { renderOgImage } from '@void/image/generate';
@@ -66,9 +66,7 @@ import { html } from 'void/html';
 
 export const GET = defineHandler(async (c) => {
   try {
-    const png = await renderOgImage(html`<div style="display: flex">Built with Void</div>`, {
-      preset: 'x',
-    });
+    const png = await renderOgImage(html`<div style="display: flex">Built with Void</div>`);
     return new Response(png, {
       headers: {
         'Content-Type': 'image/png',
@@ -87,21 +85,28 @@ Unlike `OgImageResponse`, `renderOgImage` returns bytes, not an HTTP response, s
 
 ## Add the image to a page
 
-Point an `og:image` tag at the route from your page's [`head()`](./pages-routing/head.md):
+Point an `og:image` tag at the route from your page's [`head()`](./pages-routing/head.md). Use an absolute image URL and include its dimensions, alt text, and the page's title, description, and URL:
 
 ```ts
 // pages/posts/[slug].server.ts
 import { defineHead } from 'void';
 
 export interface Props {
-  post: { title: string; slug: string };
+  post: { title: string; slug: string; description: string };
 }
 
 export const head = defineHead<Props>((c, props) => {
   return {
     title: props.post.title,
     meta: [
+      { property: 'og:type', content: 'article' },
+      { property: 'og:title', content: props.post.title },
+      { property: 'og:description', content: props.post.description },
+      { property: 'og:url', content: c.req.url },
       { property: 'og:image', content: new URL(`/og/${props.post.slug}`, c.req.url).href },
+      { property: 'og:image:width', content: '1200' },
+      { property: 'og:image:height', content: '630' },
+      { property: 'og:image:alt', content: props.post.title },
       { name: 'twitter:card', content: 'summary_large_image' },
     ],
   };
@@ -110,67 +115,52 @@ export const head = defineHead<Props>((c, props) => {
 
 ## Image sizes
 
-`OgImageResponse` uses the default Open Graph size of 1200 × 630, which is the most common size, used by Facebook, Discord, Bluesky and many others. There are outliers, such as X summary
+`OgImageResponse` and `renderOgImage` default to 1200 × 630, a general-purpose landscape size that follows Facebook's recommendation. The [Open Graph specification](https://ogp.me/#structured) does not require particular dimensions.
 
-Set `preset` to choose a social preview size:
-
-```ts
-import { OgImageResponse } from '@void/image/generate';
-// routes/og/x.ts
-import { html } from 'void/html';
-
-export const GET = () =>
-  new OgImageResponse(html`<div style="display: flex; font-size: 72px">Hello, world!</div>`, {
-    preset: 'x',
-  });
-```
-
-The `default` preset is 1200 × 630, the same size used when you omit sizing options. A preset determines both dimensions. For a custom size, set `width` and `height` without a preset:
+Set `width` and `height` for a different layout. For example, generate a 2:1 image for an X large-image card:
 
 ```ts
 import { OgImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
 
 export const GET = () =>
-  new OgImageResponse(html`<div style="display: flex">Custom preview</div>`, {
-    width: 1000,
-    height: 500,
+  new OgImageResponse(html`<div style="display: flex">Hello, world!</div>`, {
+    width: 1200,
+    height: 600,
   });
 ```
 
-Import `ogImageSizes` to read a preset's `[width, height]` tuple, or `OgImagePreset` to type a preset name:
+Update the page's image URL and dimension tags to match. To use a separate image on X, set `twitter:image` to its absolute URL and add `twitter:image:alt`. Set `twitter:card` to `summary_large_image` for a landscape card or `summary` for a square thumbnail. X's [documented fallbacks](https://web.archive.org/web/20250101200326/https://developer.x.com/en/docs/x-for-websites/cards/overview/markup) use `og:image`, `og:title`, and `og:description` when their `twitter:` equivalents are absent.
 
-```ts
-import { ogImageSizes, type OgImagePreset } from '@void/image/generate';
+### Platform guidance
 
-const preset: OgImagePreset = 'x-summary';
-const [width, height] = ogImageSizes[preset]; // 600, 600
-```
+Use the following first-party guidance when choosing dimensions and metadata. These are website link-preview specifications, not uploaded-photo or advertising specifications. Clients may crop or resize images.
 
-The presets combine published recommendations with general-purpose sizes where a service does not specify exact dimensions. They are not platform-enforced requirements, and clients may crop or resize images.
+| Platform and official documentation                                                                                                                          | Image metadata                                                                                                     | Dimensions and limits                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [Facebook](https://developers.facebook.com/documentation/sharing/webmasters/images)                                                                          | `og:image`, `og:image:width`, `og:image:height`                                                                    | Recommended: at least **1200 × 630**, close to **1.91:1**. Minimum: **200 × 200**; at least **600 × 315** for a large preview. Maximum **8 MB**.                                    |
+| [LinkedIn](https://www.linkedin.com/help/linkedin/answer/a521928)                                                                                            | `og:image`, plus `og:title`, `og:description`, `og:url`                                                            | Published sharing-module minimum: **1200 × 627**. Recommended ratio: **1.91:1**. Maximum **5 MB**.                                                                                  |
+| [WhatsApp](https://developers.facebook.com/documentation/business-messaging/whatsapp/link-previews)                                                          | `og:image`, plus `og:title`, `og:description`, `og:url`                                                            | At least **300 px wide**, with a width-to-height ratio of **4:1 or less**. Keep the image **under 600 KB**.                                                                         |
+| [X large-image card](https://web.archive.org/web/20250118225525/https://developer.x.com/en/docs/x-for-websites/cards/overview/summary-card-with-large-image) | `twitter:image`, `twitter:card="summary_large_image"`                                                              | Documented ratio: **2:1**; **1200 × 600** matches it. Minimum **300 × 157**, maximum **4096 × 4096**; **under 5 MB**.                                                               |
+| [X summary card](https://web.archive.org/web/20250107211007/https://developer.x.com/en/docs/x-for-websites/cards/overview/summary)                           | `twitter:image`, `twitter:card="summary"`                                                                          | **1:1**, cropped square. Minimum **144 × 144**, maximum **4096 × 4096**; **under 5 MB**.                                                                                            |
+| [Discord](https://docs.discord.com/developers/link-previews/overview)                                                                                        | `og:image` or `twitter:image`; width, height, and alt tags; `twitter:card="summary_large_image"` for a large image | Official example: **1200 × 630**, not a required size. No pixel limits or required ratio specified.                                                                                 |
+| [Slack](https://docs.slack.dev/messaging/unfurling-links-in-messages/#classic_unfurl)                                                                        | Open Graph or X/Twitter Card metadata                                                                              | No fixed dimensions or image file-size limit specified in the linked guide.                                                                                                         |
+| [Bluesky](https://bsky.network/docs/about-bluesky-content/posts/#website-card-embeds)                                                                        | `og:image`, `og:title`, `og:description`                                                                           | No fixed dimensions specified for website cards.                                                                                                                                    |
+| [Apple Messages](https://developer.apple.com/documentation/technotes/tn3156-create-rich-previews-for-messages)                                               | `og:image`, `og:title`; `og:site_name` for branding                                                                | Recommended width: at least **900 px**. Images below **150 px wide** may become icons or be ignored. Associated images, icons, and videos have a **10 MB combined** resource limit. |
+| [Pinterest Article Pins](https://developer.pinterest.com/docs/web-features/article-rich-pins/)                                                               | `og:image`; `og:type="article"` or `"blog"`, `og:title`, `og:description`                                          | Up to **six** high-resolution `og:image` URLs; no exact OG-image dimensions specified.                                                                                              |
 
-| Key         | Size        | Guidance                                                                                                                                                   |
-| ----------- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `facebook`  | 1200 × 630  | [Meta's recommended size](https://developers.facebook.com/docs/sharing/webmasters/images/).                                                                |
-| `linkedin`  | 1200 × 627  | [LinkedIn's sharing-image minimum](https://www.linkedin.com/help/linkedin/answer/a521928).                                                                 |
-| `discord`   | 1200 × 630  | Size used in [Discord's link-preview example](https://docs.discord.com/developers/link-previews/overview).                                                 |
-| `bluesky`   | 1200 × 630  | Matches the [Bluesky client's card aspect ratio](https://github.com/bluesky-social/social-app/blob/main/src/lib/constants.ts).                             |
-| `x`         | 1200 × 600  | 2:1 large-card preset; see this [Twitter Card sizing guide](https://renderscreenshot.com/blog/twitter-card-image-size).                                    |
-| `x-summary` | 600 × 600   | Square summary-card preset; see the same sizing guide.                                                                                                     |
-| `pinterest` | 1000 × 1500 | [Pinterest's recommended 2:3 Pin size](https://help.pinterest.com/en/business/article/pinterest-product-specs), rather than a landscape link-preview size. |
-| `default`   | 1200 × 630  | General-purpose landscape preset for other social networks and chats.                                                                                      |
+The X links are archived official documentation; their former live URLs redirect to the developer homepage. Pinterest separately [recommends 1000 × 1500 (2:3) for Pin creative](https://help.pinterest.com/en/business/article/pinterest-product-specs), not as an OG-image requirement.
 
-These presets describe rendering dimensions; they do not add page metadata. Point the page's `og:image` or `twitter:image` metadata at the generated image. For X, set `twitter:card` to `summary_large_image` with `x`, or `summary` with `x-summary`.
+When sharing one image across services including WhatsApp, aim for **1200 × 630 under 600 KB**. Serve the metadata in the page's initial HTML and keep the image URL publicly accessible.
 
 ## Options
 
 The optional second argument sets the image and the response:
 
-| Option   | Default | Description                                                         |
-| -------- | ------- | ------------------------------------------------------------------- |
-| `preset` |         | An `OgImagePreset` name from the [image sizes](#image-sizes) table. |
-| `width`  | `1200`  | Image width in pixels when no preset is set.                        |
-| `height` | `630`   | Image height in pixels when no preset is set.                       |
+| Option   | Default | Description             |
+| -------- | ------- | ----------------------- |
+| `width`  | `1200`  | Image width in pixels.  |
+| `height` | `630`   | Image height in pixels. |
 
 See [Image Generation options](./image-generation.md#options) for all other options, response headers, and image-loading behavior.
 

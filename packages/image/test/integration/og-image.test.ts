@@ -24,7 +24,7 @@ const OG_ROUTE = `import { html } from 'void/html';
 import { OgImageResponse, renderOgImage } from '@void/image/generate';
 export const GET = async (c) => {
   const content = html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`;
-  const options = { preset: 'default', fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' };
+  const options = { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' };
   if (c.req.query('render') === 'async') {
     try {
       const input = c.req.query('fail')

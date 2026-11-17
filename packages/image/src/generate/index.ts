@@ -9,11 +9,4 @@ export type {
   ImageStyle,
 } from './image-input.ts';
 export { OgImageResponse, type OgImageResponseOptions } from './og-image-response.ts';
-export {
-  renderOgImage,
-  ogImageSizes,
-  type OgImagePreset,
-  type RenderOgImageOptions,
-  type RenderOgImageOptionsPreset,
-  type RenderOgImageOptionsSize,
-} from './render-og-image.ts';
+export { renderOgImage, type RenderOgImageOptions } from './render-og-image.ts';
