@@ -17,10 +17,8 @@ import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
 import {
-  provisionCloudflareResources as provisionCloudflareResourcesImpl,
   type DesiredResourceSet,
   type ProvisionLogger,
-  type ProvisionOptions,
   type RunWrangler,
   type RunWranglerResult,
   type WranglerCallContext,
@@ -176,21 +174,7 @@ export function uuid(seed: string): string {
 
 export const emptyDesired: DesiredResourceSet = { kvNamespaces: [], queues: [] };
 
-/**
- * `provisionCloudflareResources` with the D1 replication update stubbed whenever the runner is
- * injected. Tests of the real API path call the implementation directly.
- */
-export function provisionCloudflareResources(
-  ...args: Parameters<typeof provisionCloudflareResourcesImpl>
-): ReturnType<typeof provisionCloudflareResourcesImpl> {
-  const [root, configPath, desired, opts] = args;
-  const replicationStub: ProvisionOptions['enableD1ReadReplication'] = async () => {};
-  return provisionCloudflareResourcesImpl(root, configPath, desired, {
-    ...opts,
-    enableD1ReadReplication:
-      opts?.enableD1ReadReplication ?? (opts?.runWrangler ? replicationStub : undefined),
-  });
-}
+export { provisionCloudflareResources } from '../../src/cli/provision.ts';
 
 /** Poll until `pid` no longer exists, or `timeoutMs` passes. */
 export async function waitForDead(pid: number, timeoutMs: number): Promise<boolean> {

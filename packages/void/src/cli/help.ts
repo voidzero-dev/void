@@ -183,7 +183,7 @@ const HELP_TREE: HelpTree = {
       {
         command: '--provision',
         description:
-          'Run resource provisioning again, for example to enable D1 read replication (with --platform cloudflare)',
+          'Run resource provisioning again even when every resource exists (with --platform cloudflare)',
       },
       {
         command: '--atomic',

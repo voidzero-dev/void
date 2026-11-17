@@ -5,7 +5,7 @@ import type { DeployManifest, Resource } from '../../src/types.ts';
 
 vi.mock('../../src/provisioning/cloudflare-api', () => ({
   createD1Database: vi.fn().mockResolvedValue({ uuid: 'd1-uuid-123', name: 'test-DB' }),
-  enableD1ReadReplication: vi.fn().mockResolvedValue(undefined),
+  setD1ReadReplication: vi.fn().mockResolvedValue(undefined),
   ensureHyperdriveCachingDisabled: vi.fn().mockResolvedValue(undefined),
   createKVNamespace: vi.fn().mockResolvedValue({ id: 'kv-id-456', title: 'test-KV' }),
   createR2Bucket: vi.fn().mockResolvedValue({ name: 'test-STORAGE' }),
@@ -39,7 +39,7 @@ vi.mock('../../src/db', () => ({
 import { getProjectResources, createResource } from '../../src/db.ts';
 import {
   createD1Database,
-  enableD1ReadReplication,
+  setD1ReadReplication,
   ensureHyperdriveCachingDisabled,
   createKVNamespace,
   createR2Bucket,
@@ -122,7 +122,9 @@ describe('provisionBindings', () => {
       { projectSlug: PROJECT_SLUG, proxyToken: PROXY_TOKEN },
     );
 
-    expect(createD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db');
+    expect(createD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db', {
+      readReplication: undefined,
+    });
     expect(createResource).toHaveBeenCalledWith(mockDb, PROJECT_ID, 'd1', 'd1-uuid-123', 'DB');
     expect(bindings[0]).toEqual({ type: 'd1', name: 'DB', id: 'd1-uuid-123' });
     // + 4 always-injected platform bindings
@@ -144,7 +146,9 @@ describe('provisionBindings', () => {
     ).rejects.toThrow('insert failed');
 
     // CF created it...
-    expect(createD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db');
+    expect(createD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db', {
+      readReplication: undefined,
+    });
     // ...and the rollback deleted exactly that object.
     expect(deleteD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'd1-uuid-123');
   });
@@ -280,7 +284,7 @@ describe('provisionBindings', () => {
     );
 
     expect(createD1Database).not.toHaveBeenCalled();
-    expect(enableD1ReadReplication).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'existing-d1-id');
+    expect(setD1ReadReplication).not.toHaveBeenCalled();
     expect(createResource).not.toHaveBeenCalled();
     expect(bindings[0]).toEqual({ type: 'd1', name: 'DB', id: 'existing-d1-id' });
     expect(bindings).toHaveLength(5);
@@ -575,6 +579,49 @@ describe('provisionBindings', () => {
 });
 
 describe('ensureResource — already exists fallback', () => {
+  for (const state of ['created', 'reused', 'adopted'] as const) {
+    it.each([undefined, false, true])(
+      `${state} D1 applies only explicitly configured replication: %s`,
+      async (readReplication) => {
+        if (state === 'reused') {
+          vi.mocked(getProjectResources).mockResolvedValue([
+            { type: 'd1', binding_name: 'DB', cf_id: 'existing-d1-id' } as Resource,
+          ]);
+        } else if (state === 'adopted') {
+          vi.mocked(createD1Database).mockRejectedValueOnce(new Error('already exists'));
+        }
+        await provisionBindings(
+          mockDb,
+          ACCOUNT_ID,
+          API_TOKEN,
+          PROJECT_ID,
+          {
+            version: 3,
+            bindings: { d1: ['DB'] },
+            ...(readReplication !== undefined && { database: { readReplication } }),
+          },
+          'void-proxy',
+          { projectSlug: PROJECT_SLUG, proxyToken: PROXY_TOKEN },
+        );
+        if (state !== 'reused') {
+          expect(createD1Database).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db', {
+            readReplication,
+          });
+        }
+        if (state !== 'created' && readReplication !== undefined) {
+          expect(setD1ReadReplication).toHaveBeenCalledExactlyOnceWith(
+            ACCOUNT_ID,
+            API_TOKEN,
+            state === 'reused' ? 'existing-d1-id' : 'd1-looked-up',
+            readReplication,
+          );
+        } else {
+          expect(setD1ReadReplication).not.toHaveBeenCalled();
+        }
+      },
+    );
+  }
+
   it("falls back to lookup when D1 create returns 'already exists'", async () => {
     vi.mocked(createD1Database).mockRejectedValueOnce(
       new Error('Cloudflare API error: A database with that name already exists'),
@@ -593,7 +640,7 @@ describe('ensureResource — already exists fallback', () => {
 
     expect(createD1Database).toHaveBeenCalledOnce();
     expect(getD1DatabaseByName).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'proj-abc123-db');
-    expect(enableD1ReadReplication).toHaveBeenCalledWith(ACCOUNT_ID, API_TOKEN, 'd1-looked-up');
+    expect(setD1ReadReplication).not.toHaveBeenCalled();
     expect(createResource).toHaveBeenCalledWith(mockDb, PROJECT_ID, 'd1', 'd1-looked-up', 'DB');
     expect(bindings[0]).toEqual({ type: 'd1', name: 'DB', id: 'd1-looked-up' });
   });

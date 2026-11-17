@@ -40,7 +40,7 @@ import {
 /** The Cloudflare resources an app needs, computed by the deploy orchestrator. */
 export interface DesiredResourceSet {
   /** `migrationsDir` is config-relative and defaults to `./db/migrations`. */
-  d1?: { binding: string; name: string; migrationsDir?: string };
+  d1?: { binding: string; name: string; migrationsDir?: string; readReplication?: boolean };
   /** KV namespaces (app KV + `ISR_CACHE`). Titles are NOT account-unique. */
   kvNamespaces: Array<{ binding: string; title: string }>;
   /** R2 bucket — bucket names ARE account-unique. */
@@ -2530,7 +2530,7 @@ export interface ProvisionOptions {
   accountId?: string;
   apiToken?: string;
   /** Test seam for the D1 database-level read-replication update. */
-  enableD1ReadReplication?: (context: D1ReplicationContext) => Promise<void>;
+  setD1ReadReplication?: (context: D1ReplicationContext) => Promise<void>;
   listHyperdriveConfigs?: ListHyperdriveConfigs;
   log?: ProvisionLogger;
   /** Test-only override of the `proper-lockfile` stale/update/retries/fs knobs. */
@@ -2543,9 +2543,10 @@ export type D1ReplicationContext = {
   databaseId: string;
   accountId: string;
   apiBaseUrl: string;
+  readReplication: boolean;
 };
 
-export async function enableD1ReadReplicationViaApi(
+export async function setD1ReadReplicationViaApi(
   context: D1ReplicationContext,
   token: string,
   fetchImpl: typeof fetch = fetch,
@@ -2555,14 +2556,16 @@ export async function enableD1ReadReplicationViaApi(
     {
       method: 'PUT',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ read_replication: { mode: 'auto' } }),
+      body: JSON.stringify({
+        read_replication: { mode: context.readReplication ? 'auto' : 'disabled' },
+      }),
       signal: AbortSignal.timeout(15_000),
     },
   );
   const envelope = (await response.json().catch(() => null)) as { success?: unknown } | null;
   if (!response.ok || envelope?.success !== true) {
     throw new Error(
-      `provision: could not enable D1 read replication for database ${context.databaseId} ` +
+      `provision: could not ${context.readReplication ? 'enable' : 'disable'} D1 read replication for database ${context.databaseId} ` +
         `(Cloudflare API status ${response.status}). The credential needs D1 Edit permission.`,
     );
   }
@@ -2699,8 +2702,11 @@ async function reconcileD1(
       }
     }
 
-    // The database-level setting is separate from the Worker binding. A reused
-    // database may predate this feature, so converge it on every provision run.
+    // Omitted never changes existing replication or acquires an API bearer.
+    if (desired.d1.readReplication === undefined) {
+      return;
+    }
+    // The database-level setting is separate from the Worker binding.
     const databaseId = readBindingEntry(configPath, 'd1_databases', binding)?.database_id;
     if (!isRealD1Id(databaseId)) {
       throw new Error(`provision: D1 binding ${binding} has no real database id after setup.`);
@@ -2709,9 +2715,10 @@ async function reconcileD1(
       databaseId,
       accountId: transportAccountId,
       apiBaseUrl: transportApiBaseUrl,
+      readReplication: desired.d1.readReplication,
     };
-    if (opts?.enableD1ReadReplication) {
-      await opts.enableD1ReadReplication(context);
+    if (opts?.setD1ReadReplication) {
+      await opts.setD1ReadReplication(context);
     } else {
       let token = opts?.apiToken ?? process.env.CLOUDFLARE_API_TOKEN;
       if (!token) {
@@ -2730,7 +2737,7 @@ async function reconcileD1(
             'Run `void cloudflare login`, or set CLOUDFLARE_API_TOKEN, then retry.',
         );
       }
-      await enableD1ReadReplicationViaApi(context, token);
+      await setD1ReadReplicationViaApi(context, token);
     }
   }
 }

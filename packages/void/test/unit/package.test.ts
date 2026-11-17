@@ -38,6 +38,32 @@ afterEach(() => {
 });
 
 describe('worker packaging', () => {
+  it.each([undefined, false, true])(
+    'publishes explicit D1 replication settings: %s',
+    (readReplication) => {
+      for (const dialect of ['sqlite', 'postgresql', 'mysql'] as const) {
+        for (const needsD1 of [false, true]) {
+          const bindings = makeBindings({ needsD1 });
+          for (const manifest of [
+            buildVoidManifest({ bindings, dialect, database: { readReplication } }),
+            buildFrameworkManifest({
+              frameworkName: 'nuxt',
+              workerMain: 'index.mjs',
+              bindings,
+              dialect,
+              database: { readReplication },
+            }),
+          ]) {
+            if (needsD1 && dialect === 'sqlite' && readReplication !== undefined) {
+              expect(manifest.database).toEqual({ readReplication });
+            } else {
+              expect(manifest).not.toHaveProperty('database');
+            }
+          }
+        }
+      }
+    },
+  );
   it.each([true, false])('only includes the storage hint when R2 is used: %s', (needsR2) => {
     const bindings = makeBindings({ needsR2 });
     for (const manifest of [

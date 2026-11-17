@@ -415,7 +415,7 @@
       "additionalProperties": false
     },
     "database": {
-      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive, or use an object to also set the column casing.",
+      "description": "Database backend. Omit for D1 (SQLite, default). Set to \"pg\" for PostgreSQL or \"mysql\" for MySQL via Hyperdrive, or use an object for database options.",
       "oneOf": [
         {
           "type": "string",
@@ -433,8 +433,14 @@
               "type": "string",
               "enum": ["snake_case", "camelCase"],
               "description": "Drizzle casing: how columns declared without a name are named in the database, for queries and generated migrations."
+            },
+            "readReplication": {
+              "type": "boolean",
+              "description": "Enable or disable D1 read replication during deployment. Omit to preserve existing settings; new databases default to replication off."
             }
           },
+          "if": { "required": ["readReplication"] },
+          "then": { "properties": { "dialect": { "const": "sqlite" } } },
           "additionalProperties": false
         }
       ]

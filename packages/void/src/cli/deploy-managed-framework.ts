@@ -201,6 +201,7 @@ export async function runFrameworkDeploy(
     frameworkName: detected.name,
     alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
     storage: voidConfig.storage,
+    database: typeof voidConfig.database === 'object' ? voidConfig.database : undefined,
     workerMain: actualWorkerMain,
     bindings,
     migrations: validatedMigrations,
