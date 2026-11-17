@@ -562,6 +562,7 @@ export default defineConfig({
         extends: false,
         test: {
           name: 'unit',
+          sequence: { groupOrder: 2 },
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
           include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
@@ -577,6 +578,7 @@ export default defineConfig({
         extends: false,
         test: {
           name: 'unit-pglite',
+          sequence: { groupOrder: 2 },
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
           // Native Node 24 worker crashes can abort the run on Linux and macOS.
@@ -653,6 +655,8 @@ export default defineConfig({
           // Every integration file here owns its fixture directory, so one worker pool can
           // schedule the longest files first and fill idle slots across package boundaries.
           name: 'parallel-integration',
+          // Keep real process deadlines and database engines ahead of framework compilers.
+          sequence: { groupOrder: 2 },
           globalSetup: ['test/build-setup.ts'],
           fsModuleCache: true,
           pool: 'forks',

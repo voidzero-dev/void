@@ -120,10 +120,12 @@ vpr test:all
 `vpr test:all` formats, lints, builds, typechecks, and tests the merged monorepo. Investigate slow
 or hanging tests when they occur instead of routinely increasing timeouts.
 
-SDK, platform, and subprocess tests share the worker budget and start longest files first.
-This lets process deadlines overlap database and browser work. Each test subprocess's Rolldown
-and Rayon pools get the available CPUs divided by the worker budget (at least one thread), so
-concurrent compilers do not each allocate a pool for the whole machine.
+Subprocess and provisioning-lock tests start alongside the platform projects, so their real
+process deadlines overlap database work. Remaining SDK units and integrations share the next
+phase. Keep this barrier: overlapping every project can delay a child process beyond a real
+deadline before it has even started. Each test subprocess's Rolldown and Rayon pools get the
+available CPUs divided by the worker budget (at least one thread), so concurrent compilers do
+not each allocate a pool for the whole machine.
 Explicit `ROLLDOWN_WORKER_THREADS` and `RAYON_NUM_THREADS` overrides
 are respected; normal package builds keep their defaults.
 `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
