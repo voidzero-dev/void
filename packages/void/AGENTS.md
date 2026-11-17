@@ -166,8 +166,6 @@ Two features need extra wiring on a self-hosted `vite build && wrangler deploy` 
 ### Package Exports
 
 - `void/remote` — Legacy compatibility export; generated code uses `#self/remote`.
-- `void/image` — `ImageResponse` for generating images with explicit dimensions.
-- `void/og` — `OgImageResponse` with standard Open Graph dimensions.
 - `void/html` — Hono's `html`, `raw`, and `HtmlEscapedString` for HTML templates.
 
 ### Route Filename Parsing Rules

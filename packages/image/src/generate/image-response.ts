@@ -1,5 +1,5 @@
 /**
- * `void/image` — an `ImageResponse` that renders JSX or HTML to an image with
+ * `@void/image/generate` — an `ImageResponse` that renders JSX or HTML to an image with
  * Takumi.
  *
  * Takumi does the rendering. This module adds what a route handler needs around it:
@@ -10,14 +10,8 @@ import type { ImageFetchCache } from 'takumi-js/helpers';
 import { extractEmojis } from 'takumi-js/helpers/emoji';
 import { fromHtml } from 'takumi-js/helpers/html';
 import { fromJsx } from 'takumi-js/helpers/jsx';
-import type { HtmlEscapedString } from './html.ts';
-import {
-  FallbackFontError,
-  fallbackFonts,
-  interFont,
-  keyedFont,
-  type Font,
-} from './image-fonts.ts';
+import type { HtmlEscapedString } from 'void/html';
+import { FallbackFontError, fallbackFonts, interFont, keyedFont, type Font } from './fonts.ts';
 import { withImageRenderer } from './image-renderer.ts';
 
 /** React JSX, a Takumi node tree, or HTML from the `void/html` template tag. */
@@ -93,7 +87,7 @@ export class ImageResponse extends Response {
           controller.enqueue(image);
           controller.close();
         } catch (error) {
-          console.error('void/image: failed to render the image.', error);
+          console.error('@void/image: failed to render the image.', error);
           controller.error(error);
         }
       },

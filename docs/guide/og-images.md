@@ -4,25 +4,33 @@ outline: deep
 
 # Open Graph Images
 
-Use `OgImageResponse` from `void/og` to generate Open Graph and social preview images in a route handler. It draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
+Use `OgImageResponse` from `@void/image/generate` to generate Open Graph and social preview images in a route handler. `OgImageResponse` extends [`ImageResponse`](./image-generation.md) with a default settings suitable for Open Graph images, such as default size of 1200 × 630 and `cache-control` set to 24 hours.
 
-`OgImageResponse` extends [`ImageResponse`](./image-generation.md) with a default size of 1200 × 630. For other generated images, use `ImageResponse` from `void/image`.
+It draws JSX or HTML to a PNG with [Takumi](https://takumi.kane.tw/docs/), without a headless browser.
 
-## Create an image route
+For other generated images, use `ImageResponse` from the same module.
+
+## Setup
+
+Install alongside `void`:
+
+```sh
+npm install @void/image
+```
+
+## Usage
 
 Return an `OgImageResponse` from a [`.tsx` route](./server-routing.md#jsx-handlers):
 
 ```tsx
 // routes/og/[slug].tsx
+
+import { OgImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
-import { OgImageResponse } from 'void/og';
-import { getPost } from '../../src/posts';
+import { ensurePost } from '../../src/posts';
 
 export const GET = defineHandler(async (c) => {
-  const post = await getPost(c.req.param('slug'));
-  if (!post) {
-    return c.notFound();
-  }
+  const post = await ensurePost(c.req.param('slug'));
   return new OgImageResponse(
     <div
       style={{
@@ -45,32 +53,7 @@ export const GET = defineHandler(async (c) => {
 
 `GET /og/hello-world` now returns a 1200 × 630 PNG.
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown in [Without React](#without-react). Elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
-
-### Without React
-
-Use the [`html` template tag from `void/html`](../reference/api/html.md) instead of JSX. It escapes dynamic text automatically; plain strings are not accepted:
-
-```ts
-// routes/og/[slug].ts
-
-import { defineHandler } from 'void';
-import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
-import { getPost } from '../../src/posts';
-
-export const GET = defineHandler(async (c) => {
-  const post = await getPost(c.req.param('slug'));
-  if (!post) {
-    return c.notFound();
-  }
-  return new OgImageResponse(
-    html`<div style="display: flex; width: 100%; height: 100%; padding: 80px; font-size: 72px">
-      ${post.title}
-    </div>`,
-  );
-});
-```
+JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown in [Without React](./image-generation.md#without-react).
 
 ## Add the image to a page
 
@@ -97,12 +80,14 @@ export const head = defineHead<Props>((c, props) => {
 
 ## Image sizes
 
+`OgImageResponse` uses the default Open Graph size of 1200 × 630, which is the most common size, used by Facebook, Discord, Bluesky and many others. There are outliers, such as X summary
+
 Set `preset` to choose a social preview size:
 
 ```ts
+import { OgImageResponse } from '@void/image/generate';
 // routes/og/x.ts
 import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
 
 export const GET = () =>
   new OgImageResponse(html`<div style="display: flex; font-size: 72px">Hello, world!</div>`, {
@@ -113,8 +98,8 @@ export const GET = () =>
 The `default` preset is 1200 × 630, the same size used when you omit sizing options. A preset determines both dimensions. For a custom size, set `width` and `height` without a preset:
 
 ```ts
+import { OgImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
 
 export const GET = () =>
   new OgImageResponse(html`<div style="display: flex">Custom preview</div>`, {
@@ -126,7 +111,7 @@ export const GET = () =>
 Import `ogImageSizes` to read a preset's `[width, height]` tuple, or `OgImagePreset` to type a preset name:
 
 ```ts
-import { ogImageSizes, type OgImagePreset } from 'void/og';
+import { ogImageSizes, type OgImagePreset } from '@void/image/generate';
 
 const preset: OgImagePreset = 'x-summary';
 const [width, height] = ogImageSizes[preset]; // 600, 600
@@ -172,8 +157,8 @@ Updates at the same URL may take up to 24 hours to appear in caches that follow 
 Override the policy through `headers` if your images need a shorter or longer cache lifetime. For example, cache an image for one hour:
 
 ```ts
+import { OgImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
 
 return new OgImageResponse(html`<div>${title}</div>`, {
   headers: { 'Cache-Control': 'public, max-age=3600' },

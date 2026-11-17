@@ -1,16 +1,14 @@
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { render } from 'takumi-js';
+import { Renderer } from 'takumi-js/wasm/no-init';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { nodeTargetPlugin } from '../../src/plugin-node-target.ts';
-import { html, raw } from '../../src/runtime/html.ts';
-import { fallbackFonts, interFont } from '../../src/runtime/image-fonts.ts';
-import { interData } from '../../src/runtime/image-inter.ts';
+import { html, raw } from 'void/html';
+import { fallbackFonts, interFont } from '../../src/generate/fonts.ts';
 import {
   ImageResponse,
   type ImageInput,
   type ImageResponseOptions,
-} from '../../src/runtime/image.ts';
+} from '../../src/generate/image-response.ts';
+import { interData } from '../../src/generate/inter-font.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
   const takumi = await importOriginal<typeof import('takumi-js')>();
@@ -90,6 +88,13 @@ afterEach(() => {
 });
 
 describe('ImageResponse', () => {
+  it('always supplies the WASM renderer instead of selecting the native backend', async () => {
+    await imageBytes(card, { width: 320, height: 168, fallbackFonts: false });
+    expect(vi.mocked(render).mock.lastCall![1]).toEqual(
+      expect.objectContaining({ renderer: expect.any(Renderer) }),
+    );
+  });
+
   it('defaults to offline Inter and switches to Takumi Geist without leaking fonts', async () => {
     const requests = stubFetch(() => {
       throw new Error('unexpected fetch');
@@ -245,7 +250,7 @@ describe('ImageResponse', () => {
       height: 168,
       emoji: 'noto',
       lang: 'ja',
-      // Takumi takes these, but void/image does not.
+      // Takumi takes these, but @void/image does not.
       format: 'jpeg',
       devicePixelRatio: 2,
       drawDebugBorder: true,
@@ -313,7 +318,7 @@ describe('ImageResponse', () => {
       return fonts[0]!.key;
     };
     const key = await fontKey(new Uint8Array([1, 2, 3]));
-    expect(key).toMatch(/^void\/image Broken:::[0-9a-f]{16}$/);
+    expect(key).toMatch(/^@void\/image Broken:::[0-9a-f]{16}$/);
     expect(await fontKey(new Uint8Array([1, 2, 3]))).toBe(key);
     expect(await fontKey(new Uint8Array([1, 2, 4]))).not.toBe(key);
   });
@@ -338,7 +343,7 @@ describe('ImageResponse', () => {
     expect(fonts.map(({ name, weight }) => [name, weight])).toEqual([
       ['Medium', 550],
       ['Variable', undefined],
-      ['void/image Inter', undefined],
+      ['@void/image Inter', undefined],
     ]);
   });
 
@@ -429,7 +434,7 @@ describe('ImageResponse fallback fonts', () => {
       'https://fonts.gstatic.com/noto-sans-jp/kana.woff2',
     ]);
     expect(warned).toHaveBeenCalledWith(
-      'void/image: could not download Noto Sans JP. Rendering without it.',
+      '@void/image: could not download Noto Sans JP. Rendering without it.',
       expect.anything(),
     );
   });
@@ -459,7 +464,7 @@ describe('ImageResponse fallback fonts', () => {
       .catch(() => {});
     expect(requests).toEqual([]);
     const fonts = vi.mocked(render).mock.lastCall?.[1]?.fonts as Array<{ name: string }>;
-    expect(fonts.map(({ name }) => name)).toEqual(['App', 'void/image Inter']);
+    expect(fonts.map(({ name }) => name)).toEqual(['App', '@void/image Inter']);
   });
 
   it('asks each family for only the characters it draws', async () => {
@@ -563,8 +568,8 @@ describe('ImageResponse fallback fonts', () => {
     // A face without a fixed weight follows `font-weight` along its axis; one
     // pinned to 400 is only thickened for bold text.
     expect(weights).toEqual({
-      'void/image Geist fallback Noto Sans JP': undefined,
-      'void/image Geist fallback Noto Sans Math': 400,
+      '@void/image Geist fallback Noto Sans JP': undefined,
+      '@void/image Geist fallback Noto Sans Math': 400,
     });
   });
 
@@ -586,7 +591,7 @@ describe('ImageResponse fallback fonts', () => {
     expect(requests.slice(1)).toEqual(['https://fonts.gstatic.com/math.woff2']);
     const [, options] = vi.mocked(render).mock.calls.at(-2)!;
     const [font] = options!.fonts as Array<{ name: string; unicodeRange: Array<[number, number]> }>;
-    expect(font!.name).toBe('void/image Geist fallback Noto Sans Math');
+    expect(font!.name).toBe('@void/image Geist fallback Noto Sans Math');
     const covers = (codepoint: number) =>
       font!.unicodeRange.some(([start, end]) => codepoint >= start && codepoint <= end);
     expect(covers(0x2192)).toBe(true);
@@ -747,7 +752,10 @@ describe('ImageResponse fallback fonts', () => {
         ((options?.fonts ?? []) as Array<{ name?: string }>).map((font) => font.name),
       );
     expect(attempts.map((fonts) => fonts.length)).toEqual([4, 2]);
-    expect(attempts.at(-1)).toEqual(['void/image Inter', 'void/image Inter fallback Noto Sans JP']);
+    expect(attempts.at(-1)).toEqual([
+      '@void/image Inter',
+      '@void/image Inter fallback Noto Sans JP',
+    ]);
     // A file that failed is not requested again.
     expect(
       requests.filter((url) => url.includes('Symbols')).filter((url) => url.endsWith('.woff2')),
@@ -767,39 +775,8 @@ describe('ImageResponse fallback fonts', () => {
     });
     await expectPng(response);
     expect(warned).toHaveBeenCalledWith(
-      'void/image: could not load Noto Sans KR from Google Fonts.',
+      '@void/image: could not load Noto Sans KR from Google Fonts.',
       expect.anything(),
     );
-  });
-});
-
-describe('void/image on Node.js targets', () => {
-  function rendererPlugin() {
-    return nodeTargetPlugin('node').find(
-      (candidate) => candidate.name === 'void:node-target-image-renderer',
-    )!;
-  }
-
-  function resolveRenderer(
-    importer = fileURLToPath(import.meta.resolve('takumi-js')),
-    plugin = rendererPlugin(),
-  ) {
-    const resolveId = plugin.resolveId as {
-      handler: (this: unknown, id: string, importer: string) => Promise<unknown>;
-    };
-    return resolveId.handler.call({}, '#backend', importer);
-  }
-  it("selects WASM for Void's Takumi", async () => {
-    await expect(resolveRenderer()).resolves.toBe('\0void:image-wasm-backend');
-    await expect(
-      resolveRenderer(join(dirname(fileURLToPath(import.meta.resolve('takumi-js'))), 'render.mjs')),
-    ).resolves.toBe('\0void:image-wasm-backend');
-  });
-
-  it('leaves other packages and separately installed Takumi copies alone', async () => {
-    await expect(
-      resolveRenderer('/app/node_modules/takumi-js/dist/render.mjs'),
-    ).resolves.toBeUndefined();
-    await expect(resolveRenderer('/app/src/image.ts')).resolves.toBeUndefined();
   });
 });
