@@ -265,10 +265,10 @@ export async function runCloudflareEmailStep(
   }
   const bindingPresent = shipsBinding || out.patch.sendEmail !== undefined;
   const written = out.patch.addresses ?? [];
-  // `satisfied` mirrors preflight readiness (binding plus complete inbound), not binding
-  // presence; the map follows the binding, since the worker ships with email either way.
+  // Require the capabilities the app uses; sending-only apps need no inbound setup.
+  // The map follows the binding, since the worker ships with email either way.
   return {
-    satisfied: bindingPresent && out.inboundReady,
+    satisfied: out.ready,
     configWritten: true,
     map: bindingPresent
       ? mapFor(

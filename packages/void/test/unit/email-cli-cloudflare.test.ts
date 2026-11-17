@@ -343,6 +343,49 @@ const sendingOnboarded: EmailWranglerRunResult = {
   stderr: BETA_WARNING,
 };
 
+describe('sending-only email setup and status', () => {
+  it.each(['setup', 'status'] as const)(
+    '%s succeeds without inbound configuration or prompts',
+    async (command) => {
+      const root = makeProject({
+        wrangler: JSON.stringify({
+          account_id: ACCOUNT,
+          name: 'acme-support',
+          send_email: [{ name: 'SEND_EMAIL' }],
+          vars: { __VOID_EMAIL_FROM: 'noreply@mail.acme.com' },
+        }),
+      });
+      roots.push(root);
+      rmSync(join(root, 'email'), { recursive: true });
+      const { deps, calls, fetchCalls, printed } = transcriptDeps({
+        runnerTable: { 'email sending settings mail.acme.com': sendingOnboarded },
+        fetchTable: {
+          'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+        },
+      });
+      const code = await run(root, command, {
+        ...deps,
+        isInteractive: false,
+        confirm: async () => {
+          throw new Error('Sending is already configured');
+        },
+      });
+      expect(code).toBe(0);
+      expect(printed.join('\n')).toContain('inbound   not required');
+      expect(printed.join('\n')).not.toContain('enable Email Routing');
+      expect(calls.some(({ operation }) => operation.type.startsWith('email.routing.'))).toBe(
+        false,
+      );
+      expect(
+        fetchCalls.every(({ method, url }) => method === 'GET' && url.includes('/zones?name=')),
+      ).toBe(true);
+      const config = readJsonc(join(root, 'wrangler.jsonc'));
+      expect(config.addresses).toBeUndefined();
+      expect(config.send_email).toEqual([{ name: 'SEND_EMAIL' }]);
+    },
+  );
+});
+
 describe('void email setup --platform cloudflare', () => {
   it('first run: checklist, one confirm, exact provider operations + REST calls, wrangler.jsonc written', async () => {
     const root = makeProject();

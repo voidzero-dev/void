@@ -18,7 +18,8 @@ export const EMAIL_FROM_VAR = '__VOID_EMAIL_FROM';
 const CLOUDFLARE_API_BASE_URL = 'https://api.cloudflare.com/client/v4';
 
 /** OAuth scopes the session needs (`whoami` `tokenPermissions`). */
-const REQUIRED_EMAIL_SCOPES: ReadonlyArray<string> = ['email_routing:write', 'email_sending:write'];
+const SENDING_SCOPES = ['email_sending:write'];
+const INBOUND_SCOPES = ['email_routing:write', ...SENDING_SCOPES];
 
 /** Cloudflare Email API error codes with a known meaning; others are reported verbatim. */
 const CF_EMAIL_ERROR_CODES: Readonly<Record<number, string>> = {
@@ -480,8 +481,9 @@ export interface EmailPreflight {
    */
   sendingRetryable: boolean;
   /**
-   * True when apply has no account work left, apart from a `sendingRetryable` row. Routing
-   * rules (`rulesPending`) and the config rows (`sender`, `addressesStale`) are not account work.
+   * True when the app's capabilities are configured. Inbound apps may keep verified-destination
+   * sending without onboarding. Sending-only apps require an onboarded sending domain.
+   * Routing rules and stale sender/address config are reconciled during deployment.
    */
   ready: boolean;
 }
@@ -563,6 +565,11 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     ...(inputs.handlers.defaultHandler ? [`email/${inputs.handlers.defaultHandler}`] : []),
   ];
 
+  const receivesEmail = usageHandlers.length > 0;
+  const permissions = receivesEmail
+    ? 'Email Routing Edit + Email Sending Edit'
+    : 'Zone Read + Email Sending Edit';
+
   const pre: EmailPreflight = {
     from: inputs.from,
     domain,
@@ -598,7 +605,7 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     block('all', conflict);
   }
 
-  // 1. Session. An OAuth session must carry both email scopes. An API token's permissions
+  // 1. Session. Require only the email scopes this app uses. An API token's permissions
   //    cannot be listed, so the reads below gate it and fail closed. A Global API Key has no
   //    bearer to borrow, so it is refused by name. `void cloudflare login` reuses a readable
   //    session, so an insufficient one is told what to clear first.
@@ -618,12 +625,14 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       pre.session.state = 'api-key';
       block(
         'all',
-        'the Cloudflare session is a Global API Key (CLOUDFLARE_API_KEY), which has no bearer to borrow for the subaddressing calls — unset CLOUDFLARE_API_KEY, then run `void cloudflare login` or set CLOUDFLARE_API_TOKEN to a token with Email Routing Edit + Email Sending Edit',
+        `the Cloudflare session is a Global API Key (CLOUDFLARE_API_KEY), which has no bearer to borrow for ${receivesEmail ? 'the subaddressing calls' : 'zone verification'} — unset CLOUDFLARE_API_KEY, then run \`void cloudflare login\` or set CLOUDFLARE_API_TOKEN to a token with ${permissions}`,
       );
     } else if (who.authType === undefined || who.authType === 'OAuth Token') {
       // A missing `authType` is an older payload shape: keep the scope gate (fail closed).
       const scopes = new Set(who.tokenPermissions ?? []);
-      pre.session.missingScopes = REQUIRED_EMAIL_SCOPES.filter((s) => !scopes.has(s));
+      pre.session.missingScopes = (receivesEmail ? INBOUND_SCOPES : SENDING_SCOPES).filter(
+        (s) => !scopes.has(s),
+      );
       if (pre.session.missingScopes.length > 0) {
         pre.session.state = 'missing-scopes';
         block(
@@ -640,14 +649,14 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
   const tokenSession = pre.session.state === 'ok' && pre.session.authType !== 'OAuth Token';
   // Appended to a row an API-token session could not read: the likeliest cause is scope.
   const tokenHint = tokenSession
-    ? ' (an API token needs Email Routing Edit + Email Sending Edit on the zone and account)'
+    ? ` (an API token needs ${permissions} on the zone and account)`
     : '';
 
-  // 2. Zone: the first label candidate that `email routing settings` finds in the pinned
-  //    account is the apex; its data also carries routing status and the zone id.
+  // 2. Inbound routing settings also identify the zone. Sending-only apps resolve the
+  //    zone through the bearer read below, without requiring access to Email Routing.
   let settings: RoutingSettings | null = null;
   let settingsMiss = false;
-  if (pre.session.state === 'ok') {
+  if (receivesEmail && pre.session.state === 'ok') {
     for (const candidate of zoneCandidates(domain)) {
       const result = await run({ type: 'email.routing.settings', domain: candidate });
       if (isHardFailure(result)) {
@@ -677,13 +686,16 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       'all',
       `could not read Email Routing settings — unknown — run \`void email setup --platform cloudflare\`${tokenHint}`,
     );
-  } else if (pre.session.state === 'ok') {
+  } else if (receivesEmail && pre.session.state === 'ok') {
     pre.zone.state = 'not-found';
   }
 
   // 3. Public DNS. Foreign MX on the mail domain is the one thing Void never routes over.
-  pre.domainMx = await probeMx(inputs.dns, domain);
-  pre.apexMx = pre.apex && pre.apex !== domain ? await probeMx(inputs.dns, pre.apex) : pre.domainMx;
+  if (receivesEmail) {
+    pre.domainMx = await probeMx(inputs.dns, domain);
+    pre.apexMx =
+      pre.apex && pre.apex !== domain ? await probeMx(inputs.dns, pre.apex) : pre.domainMx;
+  }
   const dmarc = await probeTxt(inputs.dns, `_dmarc.${domain}`);
   const bounce = await probeTxt(inputs.dns, `cf-bounce.${domain}`);
   if (dmarc === 'present') {
@@ -705,6 +717,9 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     bearer = await inputs.getSessionBearer().catch(() => null);
   }
   if (bearer) {
+    if (!receivesEmail) {
+      pre.zone.state = 'not-found';
+    }
     const candidates = pre.apex ? [pre.apex] : zoneCandidates(domain);
     for (const candidate of candidates) {
       const zones = await fetchWithSessionBearer(
@@ -716,12 +731,29 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
         apiBaseUrl,
       );
       if (!zones.ok) {
+        if (!receivesEmail) {
+          pre.zone.state = 'unknown';
+        }
+        break;
+      }
+      if (!receivesEmail && !Array.isArray(zones.result)) {
+        pre.zone.state = 'unknown';
         break;
       }
       const list = Array.isArray(zones.result) ? (zones.result as Array<ZoneRecord>) : [];
       const zone = list[0];
       if (!zone) {
         continue;
+      }
+      if (
+        !receivesEmail &&
+        (typeof zone.id !== 'string' ||
+          zone.name !== candidate ||
+          typeof zone.type !== 'string' ||
+          typeof zone.account?.id !== 'string')
+      ) {
+        pre.zone.state = 'unknown';
+        break;
       }
       pre.zone.type = zone.type;
       if (zone.account?.id && zone.account.id !== inputs.accountId) {
@@ -737,7 +769,7 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       }
       break;
     }
-    if (pre.zone.state === 'found' && pre.zone.zoneId) {
+    if (receivesEmail && pre.zone.state === 'found' && pre.zone.zoneId) {
       const routing = await fetchWithSessionBearer(
         inputs.fetchImpl,
         bearer,
@@ -753,6 +785,12 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     }
   }
   bearer = null;
+  if (!receivesEmail && pre.session.state === 'ok' && pre.zone.state === 'unknown') {
+    block(
+      'all',
+      `could not verify the sending domain's Cloudflare zone${tokenHint}; check zone access, then retry \`void email status --platform cloudflare\``,
+    );
+  }
 
   switch (pre.zone.state) {
     case 'not-found':
@@ -770,7 +808,7 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     case 'partial':
       block(
         'all',
-        `${pre.apex ?? domain} is a ${pre.zone.type} zone; Email Routing needs a full zone on Cloudflare DNS`,
+        `${pre.apex ?? domain} is a ${pre.zone.type} zone; ${receivesEmail ? 'Email Routing' : 'Email Sending'} needs a full zone on Cloudflare DNS`,
       );
       break;
     default:
@@ -824,7 +862,7 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       }
     }
   }
-  if (pre.routing.state !== 'ready') {
+  if (receivesEmail && pre.routing.state !== 'ready') {
     if (pre.domainMx.state === 'foreign') {
       block(
         'all',
@@ -842,52 +880,58 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
 
   // 6. Derivation, then rules: mine / foreign / absent per derived address.
   pre.derived = deriveAddresses(inputs.handlers, domain, mode);
-  const rulesResult = await run({ type: 'email.routing.rules.list', domain: apex });
-  const rules =
-    isHardFailure(rulesResult) || rulesResult.status !== 0
-      ? null
-      : readRoutingRules(rulesResult.data);
-  if (!rules) {
-    pre.rules.state = 'unknown';
-    block(
-      'all',
-      `could not read Email Routing rules — unknown — run \`void email setup --platform cloudflare\`${tokenHint}`,
-    );
-  } else {
-    const workerToken = `worker:${inputs.workerName}`;
-    for (const address of pre.derived.addresses) {
-      if (address.startsWith('*@')) {
-        if (!rules.catchAll || !rules.catchAll.enabled || rules.catchAll.actions.includes('drop')) {
-          pre.rules.absent.push(address);
-        } else if (rules.catchAll.actions.includes(workerToken)) {
-          pre.rules.mine.push(address);
-        } else {
-          pre.rules.foreign.push({ address, owner: rules.catchAll.actions.join(', ') });
+  if (receivesEmail) {
+    const rulesResult = await run({ type: 'email.routing.rules.list', domain: apex });
+    const rules =
+      isHardFailure(rulesResult) || rulesResult.status !== 0
+        ? null
+        : readRoutingRules(rulesResult.data);
+    if (!rules) {
+      pre.rules.state = 'unknown';
+      block(
+        'all',
+        `could not read Email Routing rules — unknown — run \`void email setup --platform cloudflare\`${tokenHint}`,
+      );
+    } else {
+      const workerToken = `worker:${inputs.workerName}`;
+      for (const address of pre.derived.addresses) {
+        if (address.startsWith('*@')) {
+          if (
+            !rules.catchAll ||
+            !rules.catchAll.enabled ||
+            rules.catchAll.actions.includes('drop')
+          ) {
+            pre.rules.absent.push(address);
+          } else if (rules.catchAll.actions.includes(workerToken)) {
+            pre.rules.mine.push(address);
+          } else {
+            pre.rules.foreign.push({ address, owner: rules.catchAll.actions.join(', ') });
+          }
+          continue;
         }
-        continue;
-      }
-      // An enabled rule decides the row. A disabled one routes nothing: OUR disabled rule
-      // reads `absent`, like the disabled catch-all above — the address stays in
-      // `addresses`, and wrangler's plan (which writes every rule `enabled: true`) turns
-      // it back on at the next deploy. A disabled FOREIGN rule stays `foreign`: the
-      // matcher is still somebody else's, and taking it over is the same conflict the
-      // enabled case prunes the address to avoid.
-      const rule =
-        rules.rules.find((r) => r.enabled && r.to.includes(address)) ??
-        rules.rules.find((r) => r.to.includes(address));
-      if (!rule) {
-        pre.rules.absent.push(address);
-      } else if (rule.actions.includes(workerToken)) {
-        if (rule.enabled) {
-          pre.rules.mine.push(address);
-        } else {
+        // An enabled rule decides the row. A disabled one routes nothing: OUR disabled rule
+        // reads `absent`, like the disabled catch-all above — the address stays in
+        // `addresses`, and wrangler's plan (which writes every rule `enabled: true`) turns
+        // it back on at the next deploy. A disabled FOREIGN rule stays `foreign`: the
+        // matcher is still somebody else's, and taking it over is the same conflict the
+        // enabled case prunes the address to avoid.
+        const rule =
+          rules.rules.find((r) => r.enabled && r.to.includes(address)) ??
+          rules.rules.find((r) => r.to.includes(address));
+        if (!rule) {
           pre.rules.absent.push(address);
+        } else if (rule.actions.includes(workerToken)) {
+          if (rule.enabled) {
+            pre.rules.mine.push(address);
+          } else {
+            pre.rules.absent.push(address);
+          }
+        } else {
+          pre.rules.foreign.push({ address, owner: rule.actions.join(', ') });
         }
-      } else {
-        pre.rules.foreign.push({ address, owner: rule.actions.join(', ') });
       }
+      pre.rules.state = pre.rules.absent.length === 0 ? 'ready' : 'pending';
     }
-    pre.rules.state = pre.rules.absent.length === 0 ? 'ready' : 'pending';
   }
   const foreign = new Set(pre.rules.foreign.map((f) => f.address));
   pre.addresses = pre.derived.addresses.filter((a) => !foreign.has(a));
@@ -959,10 +1003,8 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     senderVar === inputs.from ? 'ready' : senderVar === undefined ? 'absent' : 'stale';
   pre.rulesPending = pre.rules.absent.filter((a) => pre.addresses.includes(a));
 
-  // A sending-scoped blocker is not work Void can act on. A pending sending row with the
-  // binding committed is settled too: no read tells Workers Free from "never onboarded", but
-  // apply writes `send_email` only on a run that already tried `sending enable`, so the binding
-  // records a refused onboarding. `void email setup` offers the retry (`sendingRetryable`).
+  // Inbound apps can keep their routing-backed, verified-destination sending when onboarding
+  // is blocked or previously refused. That does not establish sending-only readiness.
   const sendingBlocked = pre.blockers.some((b) => b.scope === 'sending');
   pre.sendingRetryable = pre.sending.state === 'pending' && !sendingBlocked;
   const sendingSettled =
@@ -971,9 +1013,9 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     (pre.sending.state === 'pending' && pre.binding.state === 'present');
   pre.ready =
     !pre.blockers.some((b) => b.scope === 'all') &&
-    pre.routing.state === 'ready' &&
-    pre.subaddressing.state === 'on' &&
-    sendingSettled &&
+    (receivesEmail
+      ? pre.routing.state === 'ready' && pre.subaddressing.state === 'on' && sendingSettled
+      : pre.sending.state === 'ready') &&
     pre.binding.state === 'present';
   return pre;
 }
@@ -993,6 +1035,7 @@ function pad(text: string, width: number): string {
  */
 export function renderEmailChecklist(pre: EmailPreflight): string {
   const apex = pre.apex ?? '?';
+  const receivesEmail = pre.usage.handlers.length > 0;
   const lines: Array<string> = [];
   const inUse =
     pre.usage.handlers.length > 0
@@ -1017,36 +1060,40 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
     .filter(Boolean)
     .join(' · ');
   row('zone', pre.zone.state === 'found' ? apex : `${apex} ${pre.zone.state}`, session);
-  if (pre.mode === 'subdomain') {
-    row(
-      'apex MX',
-      pre.apexMx.exchanges[0] ?? (pre.apexMx.state === 'unknown' ? 'unknown' : 'none'),
-      'left alone — mail lives on the subdomain',
-    );
+  if (receivesEmail) {
+    if (pre.mode === 'subdomain') {
+      row(
+        'apex MX',
+        pre.apexMx.exchanges[0] ?? (pre.apexMx.state === 'unknown' ? 'unknown' : 'none'),
+        'left alone — mail lives on the subdomain',
+      );
+    } else {
+      row(
+        'apex MX',
+        pre.apexMx.exchanges[0] ?? (pre.apexMx.state === 'unknown' ? 'unknown' : 'none'),
+        pre.apexMx.state === 'cloudflare'
+          ? 'Cloudflare Email Routing'
+          : pre.apexMx.state === 'empty'
+            ? 'empty — the apex can take routing'
+            : '',
+      );
+    }
+    const routingWord =
+      pre.routing.state === 'ready'
+        ? 'enabled'
+        : pre.routing.state === 'unknown'
+          ? 'unknown — run void email setup --platform cloudflare'
+          : `not enabled${pre.mode === 'apex' && pre.routing.status && pre.routing.status !== 'unconfigured' ? ` (${pre.routing.status})` : ''}`;
+    const subWord =
+      pre.subaddressing.state === 'on'
+        ? 'subaddressing on'
+        : pre.subaddressing.state === 'off'
+          ? 'subaddressing off'
+          : 'subaddressing unknown';
+    row('routing', `${pre.domain}  ${routingWord} · ${subWord}`);
   } else {
-    row(
-      'apex MX',
-      pre.apexMx.exchanges[0] ?? (pre.apexMx.state === 'unknown' ? 'unknown' : 'none'),
-      pre.apexMx.state === 'cloudflare'
-        ? 'Cloudflare Email Routing'
-        : pre.apexMx.state === 'empty'
-          ? 'empty — the apex can take routing'
-          : '',
-    );
+    row('inbound', 'not required');
   }
-  const routingWord =
-    pre.routing.state === 'ready'
-      ? 'enabled'
-      : pre.routing.state === 'unknown'
-        ? 'unknown — run void email setup --platform cloudflare'
-        : `not enabled${pre.mode === 'apex' && pre.routing.status && pre.routing.status !== 'unconfigured' ? ` (${pre.routing.status})` : ''}`;
-  const subWord =
-    pre.subaddressing.state === 'on'
-      ? 'subaddressing on'
-      : pre.subaddressing.state === 'off'
-        ? 'subaddressing off'
-        : 'subaddressing unknown';
-  row('routing', `${pre.domain}  ${routingWord} · ${subWord}`);
   // A pending row the committed binding remembers as refused (see `preflightEmail`) reads
   // settled, so it says what still works and where the retry lives; a sending-scoped
   // blocker keeps the bare word — its ✘ row at the end carries the reason.
@@ -1054,12 +1101,12 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
     pre.sending.state === 'ready'
       ? 'onboarded'
       : pre.sending.state === 'unknown'
-        ? 'unknown — run void email setup --platform cloudflare'
+        ? 'unknown — could not verify; retry void email status --platform cloudflare'
         : pre.sendingRetryable && pre.binding.state === 'present'
           ? 'not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare'
           : 'not onboarded';
   row('sending', `${pre.domain}  ${sendingWord}`);
-  if (pre.derived.addresses.length === 0) {
+  if (receivesEmail && pre.derived.addresses.length === 0) {
     row('rules', '(none — no email/ handlers)');
   }
   for (const address of pre.derived.addresses) {
@@ -1091,21 +1138,21 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
   // A subdomain is added to a zone that already routes; when the apex does not, the apply
   // step makes no call (see `applyEmailSetup`) and the dashboard step is the row instead.
   const subdomainNeedsApex = pre.mode === 'subdomain' && pre.routing.enabled !== true;
-  if (pre.routing.state !== 'ready' && subdomainNeedsApex) {
+  if (receivesEmail && pre.routing.state !== 'ready' && subdomainNeedsApex) {
     warn(
       `enable Email Routing on ${pre.domain}`,
       `Email Routing is not enabled on ${apex}; Void never enables it on the apex from the subdomain path — ${subdomainDashboardFallback(apex, pre.domain)}`,
     );
-  } else if (pre.routing.state !== 'ready') {
+  } else if (receivesEmail && pre.routing.state !== 'ready') {
     change(
       `enable Email Routing on ${pre.domain}`,
       `Cloudflare writes and locks 3 MX + 1 SPF record ${pre.mode === 'subdomain' ? 'there' : 'on the apex'}`,
     );
   }
-  if (pre.subaddressing.state !== 'on') {
+  if (receivesEmail && pre.subaddressing.state !== 'on') {
     change(`turn on subaddressing for ${apex}`, 'support+anything@ reaches support@');
   }
-  if (pre.sending.state !== 'ready' && !pre.blockers.some((b) => b.scope === 'sending')) {
+  if (pre.sending.state === 'pending' && !pre.blockers.some((b) => b.scope === 'sending')) {
     change(
       `onboard ${pre.domain} for Email Sending`,
       `MX/SPF/DKIM on cf-bounce.${pre.domain}, _dmarc.${pre.domain} (p=reject)`,
@@ -1143,7 +1190,11 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
     changes.push(`    ✘ ${blocker.message}`);
   }
   if (changes.length === 0) {
-    lines.push('  Nothing to change — email is set up.');
+    lines.push(
+      receivesEmail
+        ? '  Nothing to change — email is set up.'
+        : '  Nothing to change — email sending is configured.',
+    );
   } else {
     lines.push(
       `  This changes YOUR Cloudflare account.${pre.mode === 'subdomain' && !subdomainNeedsApex ? ` ${apex} itself is not touched.` : ''}`,
@@ -1242,10 +1293,11 @@ export interface EmailApplyResult {
   subaddressingReady: boolean;
   sendingReady: boolean;
   /**
-   * Routing ready, subaddressing on, and `addresses` written. `void email setup` exits 0 on
-   * this, and `--require-email` gates on it plus the binding.
+   * Routing ready, subaddressing on, and `addresses` written for an app with inbound handlers.
    */
   inboundReady: boolean;
+  /** The capabilities used by the app are configured, including its send binding. */
+  ready: boolean;
 }
 
 /**
@@ -1264,6 +1316,7 @@ export async function applyEmailSetup(
   pre: EmailPreflight,
   inputs: EmailCloudflareInputs,
 ): Promise<EmailApplyResult> {
+  const receivesEmail = pre.usage.handlers.length > 0;
   const lines: Array<string> = [];
   const result: EmailApplyResult = {
     patch: {},
@@ -1272,6 +1325,7 @@ export async function applyEmailSetup(
     subaddressingReady: pre.subaddressing.state === 'on',
     sendingReady: pre.sending.state === 'ready',
     inboundReady: false,
+    ready: false,
   };
   const blocked = pre.blockers.filter((b) => b.scope === 'all');
   if (blocked.length > 0 || !pre.apex || !pre.mode) {
@@ -1343,7 +1397,7 @@ export async function applyEmailSetup(
 
   // 1. Routing.
   const apexRoutingOff = pre.mode === 'subdomain' && pre.routing.enabled !== true;
-  if (!result.routingReady) {
+  if (receivesEmail && !result.routingReady) {
     if (pre.mode === 'apex') {
       const enable = await run({ type: 'email.routing.enable', domain: apex });
       if (!isHardFailure(enable) && enable.status === 0) {
@@ -1379,7 +1433,7 @@ export async function applyEmailSetup(
   }
 
   // 2. Subaddressing: per zone, off by default, and reachable only through the REST API.
-  if (!result.subaddressingReady && !bearerFailed && !apexRoutingOff) {
+  if (receivesEmail && !result.subaddressingReady && !bearerFailed && !apexRoutingOff) {
     const response = await withBearer('PATCH', `/zones/${pre.zone.zoneId}/email/routing`, {
       support_subaddress: true,
     });
@@ -1392,7 +1446,7 @@ export async function applyEmailSetup(
         `    turn it on in the Cloudflare dashboard → ${apex} → Email → Settings → Subaddressing`,
       );
     }
-  } else if (!result.subaddressingReady) {
+  } else if (receivesEmail && !result.subaddressingReady) {
     // Skipped because an earlier bearer step failed: name the actual reason.
     lines.push(
       `  ✘ routing   subaddressing on ${apex}: skipped (${
@@ -1423,7 +1477,9 @@ export async function applyEmailSetup(
       lines.push(
         `  ! sending   ${pre.domain} not onboarded${code ? ` [code: ${code}]` : ''}${known ? ` — ${known}` : ''}`,
       );
-      lines.push(`    ${SENDING_FREE_PLAN_HINT}`);
+      lines.push(
+        `    ${receivesEmail ? SENDING_FREE_PLAN_HINT : 'Workers Paid needed for arbitrary recipients. Email Sending is not configured; verified destinations only with an existing send binding.'}`,
+      );
     }
   }
 
@@ -1446,7 +1502,11 @@ export async function applyEmailSetup(
     }
   }
   lines.push('  ✔ config    void.lock.json updated');
-  result.inboundReady = result.routingReady && result.subaddressingReady && !addressesWithheld;
+  result.inboundReady =
+    receivesEmail && result.routingReady && result.subaddressingReady && !addressesWithheld;
+  result.ready =
+    (receivesEmail ? result.inboundReady : result.sendingReady) &&
+    (result.patch.sendEmail !== undefined || pre.binding.state === 'present');
   return result;
 }
 

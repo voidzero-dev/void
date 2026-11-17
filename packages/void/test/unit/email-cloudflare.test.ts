@@ -1301,6 +1301,151 @@ describe('preflightEmail', () => {
   });
 });
 
+describe('sending-only Cloudflare email', () => {
+  function sendingOnly(domain = 'mail.acme.com') {
+    return transcriptInputs({
+      handlers: scan([]),
+      from: `Pocket Folio <noreply@${domain}>`,
+      existingSendEmail: [{ name: 'SEND_EMAIL' }],
+      existingVars: { __VOID_EMAIL_FROM: `Pocket Folio <noreply@${domain}>` },
+      runnerTable: {
+        'whoami --json': {
+          status: 0,
+          stdout: '',
+          stderr: '',
+          data: {
+            loggedIn: true,
+            authType: 'OAuth Token',
+            tokenPermissions: ['email_sending:write'],
+          },
+        },
+        [`email sending settings ${domain}`]: {
+          status: 0,
+          stdout: '',
+          stderr: '',
+          data: { name: domain, enabled: true, tag: '19af4fdbee924a92916afea0de5a8fdd' },
+        },
+      },
+      fetchTable: {
+        'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+      },
+      dns: {
+        resolveMx: async () => {
+          throw new Error('Sending-only apps must not inspect inbound MX');
+        },
+        resolveTxt: async () => [],
+      },
+    });
+  }
+
+  it.each(['acme.com', 'mail.acme.com'])(
+    'accepts onboarded sending on %s without routing scopes or probes',
+    async (domain) => {
+      const { inputs, calls, fetchCalls } = sendingOnly(domain);
+      const pre = await preflightEmail(inputs);
+      expect(pre.ready).toBe(true);
+      expect(pre.blockers).toEqual([]);
+      expect(pre.session.missingScopes).toEqual([]);
+      expect(pre.sender.state).toBe('ready');
+      expect(calls.map(({ operation }) => operation.type)).toEqual([
+        'auth.whoami',
+        'email.sending.settings',
+      ]);
+      expect(fetchCalls.every(({ url }) => url.includes('/zones?name='))).toBe(true);
+      const printed = renderEmailChecklist(pre);
+      expect(printed).toContain('sending only');
+      expect(printed).toContain('inbound   not required');
+      expect(printed).toContain('email sending is configured');
+      expect(printed).not.toMatch(/enable Email Routing|subaddressing|apex MX|This changes/);
+    },
+  );
+
+  it('writes the binding and sender without touching inbound configuration', async () => {
+    const { inputs, calls, fetchCalls } = sendingOnly();
+    inputs.existingSendEmail = undefined;
+    inputs.existingVars = undefined;
+    const pre = await preflightEmail(inputs);
+    expect(pre.ready).toBe(false);
+    calls.length = 0;
+    fetchCalls.length = 0;
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(true);
+    expect(out.inboundReady).toBe(false);
+    expect(out.patch).toEqual({
+      sendEmail: { name: 'SEND_EMAIL' },
+      vars: { __VOID_EMAIL_FROM: inputs.from },
+      addresses: null,
+    });
+    expect(calls).toEqual([]);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it('onboards sending only, and never enables routing or subaddressing', async () => {
+    const { inputs, calls, fetchCalls } = sendingOnly();
+    const original = inputs.runWrangler;
+    inputs.runWrangler = (operation, options) => {
+      if (operation.type === 'email.sending.settings') {
+        return sendingNotFound('mail.acme.com');
+      }
+      if (operation.type === 'email.sending.enable') {
+        calls.push({ operation, args: operationWords(operation), capture: options.capture });
+        return { status: 0, stdout: '', stderr: '' };
+      }
+      return original(operation, options);
+    };
+    const pre = await preflightEmail(inputs);
+    expect(pre.ready).toBe(false);
+    calls.length = 0;
+    fetchCalls.length = 0;
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(true);
+    expect(calls.map(({ operation }) => operation.type)).toEqual(['email.sending.enable']);
+    expect(fetchCalls).toEqual([]);
+  });
+
+  it.each([sendingNotFound('mail.acme.com'), apiFailure(10000, 'sending settings')])(
+    'does not mistake a binding for verified sending',
+    async (sending) => {
+      const { inputs } = sendingOnly();
+      const original = inputs.runWrangler;
+      inputs.runWrangler = (operation, options) => {
+        if (operation.type === 'email.sending.settings') {
+          return sending;
+        }
+        if (operation.type === 'email.sending.enable') {
+          return apiFailure(10105, 'sending');
+        }
+        return original(operation, options);
+      };
+      const pre = await preflightEmail(inputs);
+      expect(pre.ready).toBe(false);
+      const out = await applyEmailSetup(pre, inputs);
+      expect(out.ready).toBe(false);
+      expect(out.lines.join('\n')).not.toContain('Inbound works');
+      expect(renderEmailChecklist(pre)).not.toContain('email sending is configured');
+    },
+  );
+
+  it('reports an unreadable zone as unknown without proposing routing setup', async () => {
+    const { inputs } = sendingOnly();
+    inputs.fetchImpl = (async () => jsonResponse(403, { success: false })) as typeof fetch;
+    const pre = await preflightEmail(inputs);
+    expect(pre.zone.state).toBe('unknown');
+    expect(pre.ready).toBe(false);
+    expect(renderEmailChecklist(pre)).toContain('could not verify the sending domain');
+    expect(renderEmailChecklist(pre)).not.toContain('enable Email Routing');
+  });
+
+  it('keeps stale inbound addresses visible and refuses to silently remove them', async () => {
+    const { inputs } = sendingOnly();
+    inputs.existingAddresses = ['support@mail.acme.com'];
+    const pre = await preflightEmail(inputs);
+    expect(pre.ready).toBe(false);
+    expect(renderEmailChecklist(pre)).toContain('support@mail.acme.com');
+    expect((await applyEmailSetup(pre, inputs)).patch).toEqual({});
+  });
+});
+
 // ── Checklist ────────────────────────────────────────────────────────────────────
 
 describe('renderEmailChecklist', () => {

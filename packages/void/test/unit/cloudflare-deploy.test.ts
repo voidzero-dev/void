@@ -11030,6 +11030,7 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
     const ok = (result: unknown) => () =>
       new Response(JSON.stringify({ success: true, result }), { status: 200 });
     const table: Record<string, () => Response> = {
+      'GET /zones?name=mail.acme.com': ok([]),
       'GET /zones?name=acme.com': ok([
         { id: ZONE_ID, name: 'acme.com', type: 'full', account: { id: 'acc123' } },
       ]),
@@ -11157,6 +11158,100 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
     toSlash(join(root, 'wrangler.jsonc')),
     '--env=',
   ];
+
+  it.each([true, false])(
+    'sending-only --require-email accepts configured sending (CI: %s)',
+    async (isCI) => {
+      const root = emailProject(
+        {
+          ...PROVISIONED_D1,
+          send_email: [{ name: 'SEND_EMAIL' }],
+          vars: { __VOID_EMAIL_FROM: 'noreply@mail.acme.com' },
+        },
+        {
+          'routes/send.ts': `import { sendEmail } from 'void/email'; export const POST = () => sendEmail({to: 'a@example.com', subject: 'Hello', text: 'Hello'});`,
+        },
+      );
+      rmSync(join(root, 'email'), { recursive: true });
+      const { deps, spawns, fetchCalls, exitCalls, trace } = emailHarness({
+        isCI,
+        runner: { 'email sending settings mail.acme.com': sendingEnabled },
+        fetchOverrides: {
+          'GET /zones?name=mail.acme.com': () =>
+            new Response(JSON.stringify({ success: true, result: [] })),
+        },
+        confirm: async () => {
+          throw new Error('No inbound setup should be offered');
+        },
+      });
+      const output = captureOutput();
+      try {
+        await runCloudflareDeploy(
+          root,
+          { platform: 'cloudflare', requireEmail: true },
+          silentCliLog,
+          deps,
+        );
+      } finally {
+        output.restore();
+      }
+      expect(exitCalls).toEqual([]);
+      expect(trace).toContain('build');
+      expect(spawns.some(({ args }) => args[0] === 'deploy')).toBe(true);
+      expect(spawns.some(({ args }) => args[0] === 'email' && args[1] === 'routing')).toBe(false);
+      expect(fetchCalls.every(({ method }) => method === 'GET')).toBe(true);
+      expect(output.lines.join('\n')).not.toMatch(
+        /not fully set up|enable Email Routing|subaddressing/,
+      );
+      expect(readRootConfig(root).addresses).toBeUndefined();
+    },
+  );
+
+  it.each([true, false])(
+    'sending-only --require-email follows sending onboarding success: %s',
+    async (enabled) => {
+      const root = emailProject(PROVISIONED_D1, {
+        'routes/send.ts': `import { sendEmail } from 'void/email'; export const POST = () => sendEmail({to: 'a@example.com', subject: 'Hello', text: 'Hello'});`,
+      });
+      rmSync(join(root, 'email'), { recursive: true });
+      const { deps, spawns, fetchCalls, confirms, exitCalls, trace } = emailHarness({
+        runner: {
+          'email sending enable mail.acme.com': enabled
+            ? cleanExit
+            : {
+                ...cleanExit,
+                status: 1,
+                errorCode: 10105,
+                stderr: 'Email Sending is unavailable on this plan [code: 10105]',
+              },
+        },
+      });
+      const output = captureOutput();
+      try {
+        const deploy = runCloudflareDeploy(
+          root,
+          { platform: 'cloudflare', requireEmail: true },
+          silentCliLog,
+          deps,
+        );
+        if (enabled) {
+          await deploy;
+        } else {
+          await expect(deploy).rejects.toBeInstanceOf(ExitError);
+        }
+      } finally {
+        output.restore();
+      }
+      expect(confirms).toEqual(['Set up email on mail.acme.com?']);
+      expect(exitCalls).toEqual(enabled ? [] : [1]);
+      expect(trace.includes('build')).toBe(enabled);
+      expect(spawns.some(({ args }) => args[0] === 'email' && args[1] === 'routing')).toBe(false);
+      expect(fetchCalls.every(({ method }) => method === 'GET')).toBe(true);
+      expect(output.lines.join('\n')).toContain('inbound   not required');
+      expect(output.lines.join('\n')).not.toContain('Inbound works');
+      expect(readRootConfig(root).addresses).toBeUndefined();
+    },
+  );
 
   it('first deploy, one Enter: preflight → checklist → confirm → apply → write → re-parse → deploy', async () => {
     const root = emailProject();
@@ -12194,8 +12289,9 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
     }
     expect(exitCalls).toEqual([]);
     expect(confirms).toEqual([]);
-    // The email step RAN (preflight probes), then blocked — no write, array untouched.
-    expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'routing')).toBe(true);
+    // Sending-only preflight still flags stale configured addresses without probing routing.
+    expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'routing')).toBe(false);
+    expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'sending')).toBe(true);
     expect(readRootConfig(root).addresses).toEqual(['support@mail.acme.com']);
     const printed = output.lines.join('\n');
     expect(printed).toContain(
