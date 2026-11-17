@@ -1,4 +1,6 @@
 packages:
+  - benchmark
+  - benchmark/*
   - docs
   - packages/*
   - platform

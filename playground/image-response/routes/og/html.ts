@@ -1,6 +1,6 @@
+import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler((c) => {
   const title = (c.req.query('title') ?? 'Hello without JSX').slice(0, 200);

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import process from 'node:process';
 import { setImmediate } from 'node:timers/promises';
-import { ImageResponse } from 'void/image';
+import { ImageResponse } from '@void/image/generate';
 import type { FontMemorySample } from './font-memory.ts';
 
 const startedAt = Date.now();

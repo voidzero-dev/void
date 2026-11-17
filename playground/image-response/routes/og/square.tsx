@@ -1,5 +1,5 @@
+import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
-import { ImageResponse } from 'void/image';
 import { Card } from '../../src/card.tsx';
 
 export const GET = defineHandler(
