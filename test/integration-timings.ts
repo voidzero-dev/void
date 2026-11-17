@@ -2,6 +2,9 @@
 // Edited suites use conservative estimates adjusted for removed browser cases and duplicate builds.
 // These values schedule shards only; every discovered test is still included.
 export const integrationTimings: Readonly<Record<string, number>> = {
+  'packages/void/test/integration/server-auth-errors-signed-in.test.ts': 22000,
+  'packages/void/test/integration/server-auth-errors-signed-out.test.ts': 22000,
+  'packages/void/test/integration/server-auth-errors-session.test.ts': 16000,
   'packages/void/test/integration/http-errors-dev.test.ts': 27000,
   'packages/void/test/integration/http-errors-production.test.ts': 20000,
   'packages/solid/test/integration/page-errors.test.ts': 15000,
