@@ -30,6 +30,9 @@ const useVitePlus = toolchain === 'vite-plus';
 const vitePlusVersion = JSON.parse(
   readFileSync(join(root, 'node_modules/vite-plus/package.json'), 'utf8'),
 ).version;
+const vitePlusCoreVersion = JSON.parse(
+  readFileSync(join(root, 'node_modules/vite/package.json'), 'utf8'),
+).version;
 const work = mkdtempSync(join(tmpdir(), 'void-packed-consumer-'));
 const archiveDir = join(work, 'archives');
 mkdirSync(archiveDir);
@@ -279,7 +282,7 @@ try {
           );
           assert.equal(
             manifest.devDependencies.vite,
-            `npm:@voidzero-dev/vite-plus-core@^${vitePlusVersion}`,
+            `npm:@voidzero-dev/vite-plus-core@^${vitePlusCoreVersion}`,
             'Vite+ init must use the matching core alias',
           );
           const installedVitePlus = JSON.parse(
