@@ -3,6 +3,15 @@ import { defineConfig } from 'vite-plus';
 export default defineConfig({
   run: {
     tasks: {
+      'prepare:test:islands': {
+        command: 'node ../../test/prepare-fixture.ts solid islands',
+        dependsOn: ['build', '@void/md#build'],
+        cache: false,
+      },
+      'build:test:islands': {
+        command: 'node ../../playground-local/.build-fixtures/solid-islands/build.mjs',
+        dependsOn: ['prepare:test:islands'],
+      },
       build: {
         command: 'vp pack',
         dependsOn: [{ task: 'build', from: ['dependencies', 'devDependencies'] }],
