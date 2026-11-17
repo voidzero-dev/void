@@ -72,6 +72,7 @@ export function islandsPlugin(
       },
 
       configureServer(server) {
+        islandManifest.configureServer(server);
         watchPagesForRescan(server, pagesDir, root, (scan: PageScanResult) => {
           pageScan = scan;
         });

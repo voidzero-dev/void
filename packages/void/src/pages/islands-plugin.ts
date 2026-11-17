@@ -84,6 +84,11 @@ export type IslandManifest = {
    * build may load the islands client entry before their transforms run.
    */
   registerPages(pageScan: PageScanResult, pagesDir: string): void;
+  /**
+   * Invalidate the dev islands client entry when a page transform records a
+   * new island, so the next page load hydrates it without a server restart.
+   */
+  configureServer(server: ViteDevServer): void;
 };
 
 /** `extensions` are tried, in order, for an island import without one. */
@@ -92,6 +97,7 @@ export function createIslandManifest(
   extensions: ReadonlyArray<string>,
 ): IslandManifest {
   const entries = new Map<string, IslandEntry>();
+  let server: ViteDevServer | null = null;
 
   function register(
     specifier: string,
@@ -103,7 +109,16 @@ export function createIslandManifest(
       return { absPath, islandId: specifier };
     }
     const islandId = normalizePath(relative(root, absPath)).replace(/\.[^.]+$/, '');
+    const isNew = entries.get(islandId)?.componentPath !== absPath;
     entries.set(islandId, { componentPath: absPath, islandId, hydrate });
+    if (isNew && server) {
+      for (const env of Object.values(server.environments)) {
+        const mod = env.moduleGraph.getModuleById('\0' + ISLANDS_CLIENT_ENTRY_ID);
+        if (mod) {
+          env.moduleGraph.invalidateModule(mod);
+        }
+      }
+    }
     return { absPath, islandId };
   }
 
@@ -126,6 +141,9 @@ export function createIslandManifest(
           register(islandImport.specifier, dirname(filePath), islandImport.hydrate);
         }
       }
+    },
+    configureServer(devServer) {
+      server = devServer;
     },
   };
 }
