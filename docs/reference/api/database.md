@@ -73,6 +73,8 @@ D1 only. Set the starting bookmark or constraint for the default request's `db`.
 
 Pass `'first-primary'`, `'first-unconstrained'`, or `{ bookmark: string }`. Wrap bookmark strings in an object, including strings returned by `getBookmark()`. If no incoming bookmark is available, pass `'first-unconstrained'`.
 
+Use bookmarks only with the database that issued them. Keep client-side storage database-specific and clear saved bookmarks when switching databases; clearing them starts a new consistency chain.
+
 The session opens when you read a database property, including extracting a method or accessing `$client`; it does not wait for a query to execute. Awaiting or inspecting the `db` object does not open it.
 
 Passing `'first-unconstrained'` preserves any bookmark or primary-first requirement already configured, even before the first use of `db`. Other starting values replace the configuration until the session opens.
@@ -88,6 +90,8 @@ function setSession(start: DbSessionStart): void;
 ## `getBookmark(client?)` {#getbookmark}
 
 D1 only. Return the default request session's bookmark, or pass a client returned by `createDb()` to read that client's bookmark. Returns `null` when no bookmark is available. Reading the default bookmark does not open a database session.
+
+Await consistency-critical database work before capturing the bookmark you send to the client. Deferred or background queries that finish after capture are not guaranteed to be reflected in that bookmark.
 
 ```ts
 function getBookmark<TSchema extends Record<string, unknown>>(
