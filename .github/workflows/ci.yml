@@ -17,18 +17,17 @@ permissions: {}
 
 jobs:
   checks:
+    env:
+      # Share native build artifacts across build checks and test shards. Only main publishes;
+      # pull requests and release runs consume reviewed entries without uploading their own.
+      VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
+      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'read-write' || 'read' }}
     name: build and typecheck (${{ matrix.os }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || matrix.os }}
     permissions:
       contents: read
       # Remote cache uploads authenticate with a GitHub Actions OIDC token.
       id-token: write
-    env:
-      # Remote task cache, on when the repository variable is set. Only pushes to main upload
-      # results; pull requests and release runs only download, so unreviewed code can't publish
-      # entries that main restores.
-      VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
-      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'read-write' || 'read' }}
     strategy:
       fail-fast: false
       matrix:
@@ -48,10 +47,16 @@ jobs:
       - run: vp run check:types
 
   test:
+    env:
+      # Share native build artifacts across build checks and test shards. Only main publishes;
+      # pull requests and release runs consume reviewed entries without uploading their own.
+      VP_REMOTE_CACHE_URL: ${{ vars.VP_REMOTE_CACHE_URL }}
+      VP_REMOTE_CACHE: ${{ !vars.VP_REMOTE_CACHE_URL && 'off' || (github.event_name == 'push' && github.ref == 'refs/heads/main') && 'read-write' || 'read' }}
     name: test (${{ matrix.os }}, ${{ matrix.shard }})
     runs-on: ${{ matrix.os == 'ubuntu-latest' && github.repository == 'voidzero-dev/void' && 'blacksmith-4vcpu-ubuntu-2404' || matrix.os }}
     permissions:
       contents: read
+      id-token: write
     # No Cloudflare creds in this job. The credentialed live deploy e2e runs in the separate
     # `live-e2e` job (below), whose secrets are bound to the `cloudflare-e2e` environment. Here the
     # live suite (part of `vp run test:all`) sees empty creds and self-skips on every event.
