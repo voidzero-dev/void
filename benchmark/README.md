@@ -30,6 +30,15 @@ The complete flow deploys, measures latency, retrieves Worker metrics, and write
 Commit both files. Detailed local logs and request samples remain in the ignored
 `benchmark/<id>/artifacts/` directory. Failed runs preserve the previous report.
 
+Generate the cross-benchmark overview from saved reports:
+
+```sh
+vp run --filter ./benchmark compare
+```
+
+The overview is **[`benchmark/report.md`](./report.md)**, with Mermaid charts and
+links to the individual reports. Commit it alongside the source reports.
+
 An optional `benchmark/<id>/benchmark.json` configures deployment count and latency
 workloads. Missing fields use defaults: 30 deployments, then 10 latency rounds of
 500 requests with 50 warmup requests per round. CLI options override configuration;
@@ -163,6 +172,24 @@ vp run --filter ./benchmark report baseline-workers \
 By default, uses `benchmark/<id>/report.json`, falling back to the latest successful
 combined artifacts if no snapshot exists. The snapshot reproduces the report
 without local artifacts; it contains summaries, not individual request samples.
+
+### `compare`
+
+Reads every `benchmark/*/report.json` and writes `benchmark/report.md` with Mermaid
+bar charts comparing bundle sizes, deployment timings, client latency, throughput,
+and Worker CPU, wall time, and memory. Includes every recorded workload.
+
+```sh
+vp run --filter ./benchmark compare
+```
+
+No arguments other than `-h` / `--help`. Worker charts show P50; P90/P99/P99.9
+charts, exact values, and comparison context are under Details. Missing measurements
+are unavailable, not zero. Reports with no latency workloads contribute deployment
+measurements only.
+
+The command uses only saved snapshots: no build, deployment, request traffic,
+credentials, or Cloudflare query is needed. Source reports are not modified.
 
 ### `access-token`
 
