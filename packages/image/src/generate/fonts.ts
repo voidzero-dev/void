@@ -1,18 +1,18 @@
 /**
- * Fonts for `void/image`: the app's own fonts, keyed for reuse in Takumi,
+ * Fonts for `@void/image/generate`: the app's own fonts, keyed for reuse in Takumi,
  * bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
 import type { FontLoader, Node } from 'takumi-js';
 import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
-import { interCoverage, interData } from './image-inter.ts';
+import { interCoverage, interData } from './inter-font.ts';
 
 export type DefaultFont = 'Inter' | 'Geist';
 
 // A private family keeps custom Inter faces separate from the bundled font.
 // A stable key lets Takumi reuse the registration until the renderer's cache is cleared.
 export const interFont: FontLoader = {
-  name: 'void/image Inter',
-  key: 'void/image Inter 4.1',
+  name: '@void/image Inter',
+  key: '@void/image Inter 4.1',
   data: interData,
 };
 
@@ -212,7 +212,7 @@ export async function keyedFont(font: Font): Promise<FontLoader> {
   }
   return {
     ...details,
-    key: `void/image ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${await hash}`,
+    key: `@void/image ${details.name ?? ''}:${details.weight ?? ''}:${details.style ?? ''}:${await hash}`,
     data: () => data,
   };
 }
@@ -296,7 +296,7 @@ export async function fallbackFonts(
           timeout,
         });
       } catch (error) {
-        console.warn(`void/image: could not load ${family} from Google Fonts.`, error);
+        console.warn(`@void/image: could not load ${family} from Google Fonts.`, error);
         return [];
       }
     }),
@@ -304,7 +304,7 @@ export async function fallbackFonts(
   // Subtract the default font's entire coverage, not just this image's text:
   // a range-based Google subset keeps the same registration on later images.
   // Keep each default's faces separate, since their allowed ranges differ.
-  const prefix = `void/image ${defaultFont} fallback`;
+  const prefix = `@void/image ${defaultFont} fallback`;
   const stripped = subsets.flat().flatMap((subset) => {
     const unicodeRange = (
       subset.unicodeRange.length > 0 ? subset.unicodeRange : [[0, 0x10ffff] as const]
@@ -325,10 +325,10 @@ export async function fallbackFonts(
           // once, Takumi's rejection carries only the first.
           failed.add(`${prefix} ${subset.key}`);
           console.warn(
-            `void/image: could not download ${subset.name}. Rendering without it.`,
+            `@void/image: could not download ${subset.name}. Rendering without it.`,
             cause,
           );
-          throw new FallbackFontError(`void/image: could not download ${subset.name}.`, { cause });
+          throw new FallbackFontError(`@void/image: could not download ${subset.name}.`, { cause });
         }),
     };
   });

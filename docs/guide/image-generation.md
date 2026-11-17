@@ -4,18 +4,29 @@ outline: deep
 
 # Image Generation
 
-Use `ImageResponse` from `void/image` to generate PNG images from JSX or HTML in a route handler. It renders with [Takumi](https://takumi.kane.tw/docs/), without a headless browser. Use it for favicons, badges, banners, and other images built from your app's data.
+Use `ImageResponse` from `@void/image/generate` to generate PNG images from JSX or HTML in a route handler.
 
-For Open Graph and social previews, use [`OgImageResponse` from `void/og`](./og-images.md), which predefines standard Open Graph options, such as standard width and height.
+It renders with [Takumi](https://takumi.kane.tw/docs/), without a headless browser. Use it for favicons, badges, banners, and other images built from your app's data.
 
-## Create a favicon route
+For Open Graph and social previews, use [`OgImageResponse`](./og-images.md) from the same module, which predefines standard Open Graph options, such as standard width and height.
+
+## Setup
+
+Install alongside `void`:
+
+```sh
+npm install @void/image
+```
+
+## Usage
 
 Return an `ImageResponse` from a [`.tsx` route](./server-routing.md#jsx-handlers), passing the required `width` and `height` in pixels:
 
 ```tsx
 // routes/favicon.png.tsx
+
+import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
-import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler(() => {
   return new ImageResponse(
@@ -46,7 +57,9 @@ export const GET = defineHandler(() => {
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
 ```
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown below. JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
+JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown below.
+
+JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
 
 ### Without React
 
@@ -55,9 +68,9 @@ Use the [`html` template tag from `void/html`](../reference/api/html.md) instead
 ```ts
 // routes/favicon.png.ts
 
+import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler(() => {
   return new ImageResponse(
@@ -71,15 +84,16 @@ export const GET = defineHandler(() => {
 });
 ```
 
-Both `ImageResponse` and `OgImageResponse` accept nested and asynchronous `html` templates without an extra `await`. Import `ImageInput` from `void/image` to type reusable image content.
+Both `ImageResponse` and `OgImageResponse` accept nested and asynchronous `html` templates without an extra `await`. Import `ImageInput` from `@void/image/generate` to type reusable image content.
 
 ## Options
 
-The second argument is required and sets the image and the response. Import `RenderImageOptions` for rendering options or `ImageResponseOptions` for rendering and response options from `void/image`.
+The second argument is required and sets the image and the response. Import `RenderImageOptions` for rendering options or `ImageResponseOptions` for rendering and response options from `@void/image/generate`.
 
 | Option                            | Default     | Description                                                                                                                                  |
 | --------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `width`, `height`                 | Required    | Image size in pixels.                                                                                                                        |
+| `width`                           | Required    | Image width in pixels.                                                                                                                       |
+| `height`                          | Required    | Image height in pixels.                                                                                                                      |
 | `defaultFont`                     | `'Inter'`   | Bundled font: `'Inter'` or `'Geist'`. Neither needs a download. See [Fonts](#fonts).                                                         |
 | `fonts`                           |             | Custom fonts to use before the default font. See [Fonts](#fonts).                                                                            |
 | `fallbackFonts`                   | `true`      | Set to `false` to download no fonts from Google Fonts. See [Control font downloads](#control-font-downloads).                                |
@@ -106,8 +120,8 @@ Text uses bundled Inter by default. It supports Latin, extended Latin, Cyrillic,
 To use Takumi's built-in Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
 
 ```ts
+import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
   width: 800,
@@ -125,8 +139,8 @@ When the text includes characters the default font cannot draw, such as Japanese
 Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text:
 
 ```ts
+import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 return new ImageResponse(html`<div lang="zh-TW" style="display: flex">台灣咖啡</div>`, {
   width: 800,
@@ -139,8 +153,8 @@ One style applies to all Chinese characters in an image, so an image cannot mix 
 To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data:
 
 ```ts
+import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
   width: 800,
@@ -163,8 +177,8 @@ Void keeps a bounded in-memory font cache on every target. Images with new text 
 To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor the selected default font can draw are drawn as boxes:
 
 ```ts
+import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
 
 return new ImageResponse(html`<div style="display: flex">こんにちは</div>`, {
   width: 800,
@@ -197,4 +211,4 @@ Void never caches paths under `/api`, so serve images from another path, such as
 
 ## Worker size
 
-On Cloudflare, importing `void/image` or `void/og` adds Takumi's WebAssembly renderer and bundled Inter to your Worker: about 4.9 MB, or 2.3 MB compressed. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that import neither module include neither the renderer nor Inter.
+On Cloudflare, importing `@void/image/generate` adds Takumi's WebAssembly renderer and bundled Inter to your Worker. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that do not import this module include neither the renderer nor Inter.

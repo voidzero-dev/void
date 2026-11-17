@@ -84,6 +84,11 @@ jobs:
       - run: vp run build
         if: ${{ matrix.shard != 'unit' }}
 
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        if: ${{ matrix.shard != 'unit' }}
+        with:
+          bun-version: '1.4.4'
+
       - run: vp test run --project parallel-integration --shard=${{ matrix.shard }}
         if: ${{ matrix.shard != 'unit' }}
 

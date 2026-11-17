@@ -263,7 +263,9 @@ workspace links can hide. They do not publish packages or deploy applications.
 
 Smoke coverage checks package contents and exports, real initialization, CLI help, a frozen
 reinstall, public Vite builds, TypeScript, and development HTTP requests for pages, assets, and
-KV. It uses no browser. Full coverage adds Vue, Svelte, Solid, Markdown, production preview,
+KV. It also renders images through the installed `@void/image/generate` module on Node.js and,
+when available locally, Bun. CI installs Bun and requires both runtimes. It uses no browser.
+Full coverage adds Vue, Svelte, Solid, Markdown, production preview,
 and browser hydration/navigation. Superseded PR/main runs are cancelled; release runs are not.
 
 The selector reads all PR file pages or the complete pushed commit range. Renames consider both

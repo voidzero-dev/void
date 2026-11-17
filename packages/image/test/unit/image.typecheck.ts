@@ -1,8 +1,7 @@
 import type { Node, ReactElementLike } from 'takumi-js';
 import { describe, expectTypeOf, it } from 'vite-plus/test';
-import { html, raw, type HtmlEscapedString } from '../../src/runtime/html.ts';
-import { ImageResponse, type ImageInput } from '../../src/runtime/image.ts';
-import { OgImageResponse } from '../../src/runtime/og.ts';
+import { html, raw, type HtmlEscapedString } from 'void/html';
+import { ImageResponse, OgImageResponse, type ImageInput } from '../../src/generate/index.ts';
 
 type ImageResponseInput = ConstructorParameters<typeof ImageResponse>[0];
 type OgImageResponseInput = ConstructorParameters<typeof OgImageResponse>[0];

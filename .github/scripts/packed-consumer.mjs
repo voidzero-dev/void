@@ -120,12 +120,12 @@ async function run(command, args, cwd, env = environment) {
 }
 
 const packedOgRoute = `import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
+import { OgImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
 export const GET = defineHandler((c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${Promise.resolve('Packed <OG> Привет Ελληνικά Łódź')}</div>\`, { fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
 const packedImageRoute = `import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
+import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
 export const GET = defineHandler((c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#000;color:#fff">\${'Packed <image> Привет Ελληνικά Łódź'}</div>\`, { width: 600, height: 600, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' }));
 `;
@@ -246,7 +246,6 @@ try {
         assert.equal(agentInstructions.match(/^- /gm)?.length, 2);
         assert(agentInstructions.includes('node_modules/void/docs/'));
         assert(existsSync(join(fixture, 'node_modules/void/docs/guide/quickstart.md')));
-        assert(existsSync(join(fixture, 'node_modules/void/licenses/Inter.txt')));
         assert(
           existsSync(join(fixture, '.git')),
           'Init should initialize the accepted Git repository',
@@ -288,6 +287,35 @@ try {
         );
         const cli = join(fixture, 'node_modules/void/dist/cli/cli.mjs');
         await run(process.execPath, [cli, '--help'], fixture);
+        await run(
+          manager,
+          manager === 'npm'
+            ? ['install', `@void/image@${version}`]
+            : ['add', `@void/image@${version}`],
+          fixture,
+        );
+        assert(existsSync(join(fixture, 'node_modules/@void/image/licenses/Inter.txt')));
+        writeFileSync(
+          join(fixture, 'check-image.mjs'),
+          `import assert from 'node:assert/strict';
+import { ImageResponse, OgImageResponse } from '@void/image/generate';
+import { html } from 'void/html';
+await assert.rejects(import('@void/image'));
+for (const path of ['void/image', 'void/og']) await assert.rejects(import(path));
+for (const response of [
+  new ImageResponse(html\`<div>Hello</div>\`, { width: 320, height: 168, fallbackFonts: false }),
+  new OgImageResponse(html\`<div>Hello</div>\`, { fallbackFonts: false }),
+]) {
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  assert.equal(response.headers.get('content-type'), 'image/png');
+  assert.deepEqual([...bytes.slice(0, 8)], [137, 80, 78, 71, 13, 10, 26, 10]);
+}
+`,
+        );
+        await run(process.execPath, ['check-image.mjs'], fixture);
+        if (process.env.CI || spawnSync('bun', ['--version']).status === 0) {
+          await run('bun', ['check-image.mjs'], fixture);
+        }
         if (full && framework === 'react') {
           await run(
             manager,
@@ -378,7 +406,7 @@ try {
           join(fixture, 'routes/api/packed-email.ts'),
           `import { defineHandler } from 'void';\nimport { sendEmail } from 'void/email';\nexport const GET = defineHandler(async () => { return sendEmail({ from: 'packed@example.com', to: 'inbox@example.com', subject: 'Packed', text: 'ok' }); });\n`,
         );
-        // Both image entry points import the renderer's Wasm, and React only when the app has it.
+        // Both response classes use the generate subpath and React only when the app has it.
         writeFileSync(join(fixture, 'routes/api/packed-og.ts'), packedOgRoute);
         writeFileSync(join(fixture, 'routes/api/packed-image.ts'), packedImageRoute);
         mkdirSync(join(fixture, 'public'), { recursive: true });

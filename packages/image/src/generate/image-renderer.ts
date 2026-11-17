@@ -10,8 +10,8 @@ let idle: ImageRenderer | undefined;
 function initialize(): Promise<void> {
   return (initialized ??= import('takumi-js/wasm')
     .then(async ({ default: source, init }) => {
-      // Node's auto entry has initialized the bindings already; workerd exports
-      // a compiled module. Void's server build supplies a lazy asset loader.
+      // Node and Bun's auto entry initializes the bindings; workerd exports
+      // a compiled module. Always use WASM, never Takumi's native backend.
       if (typeof source === 'function') {
         await source();
       } else {
@@ -77,7 +77,7 @@ class ImageRenderer extends Renderer {
       return font;
     }
     if (!('key' in font) || typeof font.key !== 'string') {
-      throw new TypeError('void/image: font loaders must have a stable key.');
+      throw new TypeError('@void/image: font loaders must have a stable key.');
     }
     return {
       ...font,

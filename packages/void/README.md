@@ -37,10 +37,10 @@ Read the [Void documentation](https://void.cloud) online or use the Markdown gui
 `void init` adds a minimal `AGENTS.md` in new projects and asks before changing instructions in existing projects. It also links bundled skills for detected coding agents.
 
 - [Server routes](https://void.cloud/guide/server-routing) and [pages](https://void.cloud/guide/pages-routing/overview)
-- [HTML templates](https://void.cloud/reference/api/html) and [image generation](https://void.cloud/guide/image-generation)
 - [Database](https://void.cloud/guide/database) and [type safety](https://void.cloud/guide/type-safety)
 - [Deployment](https://void.cloud/guide/deployment)
 - [Framework integrations](https://void.cloud/integrations/frameworks/overview)
+- [HTML templates](https://void.cloud/reference/api/html) and [image generation](https://void.cloud/guide/image-generation) with `@void/image`
 - [API](https://void.cloud/reference/api) and [CLI](https://void.cloud/reference/cli) reference
 - [Coding agents](https://void.cloud/integrations/agents)
 

@@ -2,11 +2,11 @@ import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path/posix';
+import { dirname, join } from 'node:path/posix';
 import { test } from 'node:test';
 import { inspectPackage } from './packed-registry.mjs';
 
-function createPackage(t, overrides = {}, includeLicense = true) {
+function createPackage(t, overrides = {}, includeLicense = true, extraFiles = {}) {
   const root = mkdtempSync(join(tmpdir(), 'void-packed-metadata-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   const directory = join(root, 'package');
@@ -25,6 +25,11 @@ function createPackage(t, overrides = {}, includeLicense = true) {
   writeFileSync(join(directory, 'index.mjs'), 'export {};\n');
   if (includeLicense) {
     writeFileSync(join(directory, 'LICENSE'), 'MIT License\n');
+  }
+  for (const [path, content] of Object.entries(extraFiles)) {
+    const file = join(directory, path);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, content);
   }
   const tarball = join(root, 'package.tgz');
   execFileSync('tar', ['-czf', tarball, '-C', root, 'package']);
@@ -61,4 +66,39 @@ void test('rejects blank descriptions and invalid package links', (t) => {
 
 void test('requires the license file as well as its manifest field', (t) => {
   assert.throws(() => inspectPackage(createPackage(t, {}, false)), /missing packaged LICENSE/);
+});
+
+const imageManifest = {
+  name: '@void/image',
+  exports: { './generate': './dist/generate.mjs' },
+  dependencies: { 'takumi-js': '~2.20.0' },
+  peerDependencies: { void: '^1.8.0' },
+};
+const imageFiles = {
+  'dist/generate.mjs': 'import { render } from "takumi-js";\nimport("takumi-js/wasm");\n',
+  'licenses/Inter.txt': 'SIL Open Font License\n',
+};
+
+test('accepts the image subpath with external Takumi and its font license', (t) => {
+  inspectPackage(createPackage(t, imageManifest, true, imageFiles));
+});
+
+test('rejects image packages that expose the root or omit the void peer', (t) => {
+  for (const overrides of [
+    { exports: { ...imageManifest.exports, '.': './dist/generate.mjs' } },
+    { peerDependencies: {} },
+  ]) {
+    assert.throws(() =>
+      inspectPackage(createPackage(t, { ...imageManifest, ...overrides }, true, imageFiles)),
+    );
+  }
+});
+
+test('rejects image packages that omit the font license or bundle Takumi', (t) => {
+  for (const files of [
+    { 'dist/generate.mjs': imageFiles['dist/generate.mjs'] },
+    { ...imageFiles, 'dist/generate.mjs': 'export class ImageResponse {}\n' },
+  ]) {
+    assert.throws(() => inspectPackage(createPackage(t, imageManifest, true, files)));
+  }
 });

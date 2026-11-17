@@ -18,7 +18,6 @@
   "files": [
     "dist",
     "docs",
-    "licenses",
     "schema.json",
     "skills",
     "templates",
@@ -349,16 +348,6 @@
       "import": "./dist/runtime/limits/index.mjs",
       "require": "./dist/runtime/limits/index.mjs"
     },
-    "./image": {
-      "types": "./dist/runtime/image.d.mts",
-      "import": "./dist/runtime/image.mjs",
-      "require": "./dist/runtime/image.mjs"
-    },
-    "./og": {
-      "types": "./dist/runtime/og.d.mts",
-      "import": "./dist/runtime/og.mjs",
-      "require": "./dist/runtime/og.mjs"
-    },
     "./deploy": {
       "types": "./dist/deploy.d.mts",
       "import": "./dist/deploy.mjs"
@@ -407,7 +396,6 @@
     "postal-mime": "catalog:",
     "proper-lockfile": "^4.1.2",
     "smol-toml": "catalog:",
-    "takumi-js": "~2.20.0",
     "terminal-link": "^5.0.0",
     "yaml": "^2.9.1"
   },

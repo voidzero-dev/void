@@ -1,8 +1,8 @@
 import { render, type FontLoader, type Node } from 'takumi-js';
 import { Renderer } from 'takumi-js/wasm/no-init';
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { interData } from '../../src/runtime/image-inter.ts';
-import { withImageRenderer } from '../../src/runtime/image-renderer.ts';
+import { withImageRenderer } from '../../src/generate/image-renderer.ts';
+import { interData } from '../../src/generate/inter-font.ts';
 
 const options = { width: 320, height: 80 };
 const text: Node = { type: 'text', text: 'A Ω', style: { fontSize: 24 } };

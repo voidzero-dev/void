@@ -13,7 +13,7 @@ import spawn from 'cross-spawn';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer, waitForServer } from '../../../../test/integration-helpers.ts';
-import { collectPrerenderWorkerModules } from '../../src/prerender.ts';
+import { collectPrerenderWorkerModules } from '../../../void/src/prerender.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
 const CACHE_HEADER = 'public, max-age=86400';
@@ -21,11 +21,11 @@ const CACHE_HEADER = 'public, max-age=86400';
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
 const OG_ROUTE = `import { html } from 'void/html';
-import { OgImageResponse } from 'void/og';
+import { OgImageResponse } from '@void/image/generate';
 export const GET = (c) => new OgImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { preset: 'default', fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
-const CARD_ROUTE = `import { OgImageResponse } from 'void/og';
+const CARD_ROUTE = `import { OgImageResponse } from '@void/image/generate';
 function Card({ title }: { title: string }) {
   return <div style={{ display: 'flex', width: '100%', height: '100%', fontSize: 64 }}>{title}</div>;
 }
@@ -50,9 +50,11 @@ function createApp(
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'test-og-'));
   fixtures.push(root);
+  const needsImage = Object.values(files).some((source) => source.includes('@void/image/generate'));
   const packages = {
     'vite-plus': 'node_modules/vite-plus',
     void: 'packages/void',
+    ...(needsImage ? { '@void/image': 'packages/image' } : {}),
     ...links,
   };
   for (const [name, source] of Object.entries(packages)) {
@@ -154,7 +156,7 @@ afterAll(() => {
   }
 });
 
-describe('void/og in a Cloudflare app', () => {
+describe('OgImageResponse in a Cloudflare app', () => {
   let root: string;
   beforeAll(() => {
     root = createApp(
@@ -206,7 +208,7 @@ describe('void/og in a Cloudflare app', () => {
   });
 });
 
-describe('void/og in a Cloudflare app without React', () => {
+describe('OgImageResponse in a Cloudflare app without React', () => {
   it('renders HTML in the built Worker', async () => {
     // Takumi's JSX helper imports React as an optional peer; the HTML route needs none.
     const root = createApp({ 'routes/api/og.ts': OG_ROUTE }, {});
@@ -215,7 +217,7 @@ describe('void/og in a Cloudflare app without React', () => {
   });
 });
 
-describe('a Cloudflare app without void/og or void/image', () => {
+describe('a Cloudflare app without image generation', () => {
   it('bundles no image renderer', () => {
     const root = createApp({ 'routes/api/hello.ts': "export const GET = () => 'hello';\n" }, {});
     build(root);
@@ -229,7 +231,7 @@ describe('a Cloudflare app without void/og or void/image', () => {
   });
 });
 
-describe('void/og on the Node.js target', () => {
+describe('OgImageResponse on the Node.js target', () => {
   let child: ReturnType<typeof spawn> | undefined;
   afterAll(async () => {
     if (child) {
@@ -237,7 +239,7 @@ describe('void/og on the Node.js target', () => {
     }
   });
 
-  it('renders bundled WASM without app-installed Takumi', async () => {
+  it('renders installed WASM without app-installed Takumi', async () => {
     const root = createApp(
       { 'routes/api/og.ts': OG_ROUTE },
       {
@@ -247,7 +249,7 @@ describe('void/og on the Node.js target', () => {
     );
     build(root);
     expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
-    expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
+    expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(0);
     const server = await startServer((port) => {
       child = spawn('node', ['dist/ssr/index.js'], {
         cwd: root,
