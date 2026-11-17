@@ -7,7 +7,7 @@
  */
 import { render, type FontLoader, type Node, type ReactElementLike } from 'takumi-js';
 import type { ImageFetchCache } from 'takumi-js/helpers';
-import { extractEmojis } from 'takumi-js/helpers/emoji';
+import { extractEmojis, isEmojiImageUrl } from 'takumi-js/helpers/emoji';
 import { fromHtml } from 'takumi-js/helpers/html';
 import { fromJsx } from 'takumi-js/helpers/jsx';
 import type { HtmlEscapedString } from 'void/html';
@@ -63,7 +63,6 @@ export interface ImageResponseOptions extends ResponseInit, RenderImageOptions {
 
 // Emoji come from jsDelivr by code point and never change, so keep them for the
 // life of the isolate; other images are fetched for each render.
-const EMOJI_ORIGIN = 'https://cdn.jsdelivr.net/';
 const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 
 /**
@@ -143,8 +142,8 @@ async function renderImage(element: ImageInput, options: RenderImageOptions): Pr
   // failing the image.
   // Takumi downloads the files together and rejects the render on the first
   // failure, so retry without the files that failed, and only those: a flaky
-  // symbol font must not also drop the Japanese one. Files that did download
-  // can reuse their registration while the renderer's font cache holds them.
+  // symbol font must not also drop the Japanese one. Successful downloads are
+  // retained for this image even if the changed font list clears registrations.
   let remaining = fallback;
   for (;;) {
     try {
@@ -186,10 +185,10 @@ function isTakumiNode(element: unknown): element is Node {
 function imageCache(): ImageFetchCache {
   const cache = new Map<string, Promise<ArrayBuffer>>();
   return {
-    get: (url) => cache.get(url) ?? emojiCache.get(url),
+    get: (url) => cache.get(url) ?? (isEmojiImageUrl(url) ? emojiCache.get(url) : undefined),
     set(url, data) {
       cache.set(url, data);
-      if (url.startsWith(EMOJI_ORIGIN)) {
+      if (isEmojiImageUrl(url)) {
         if (emojiCache.size >= 256) {
           emojiCache.delete(emojiCache.keys().next().value!);
         }

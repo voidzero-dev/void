@@ -146,6 +146,32 @@ describe('ImageResponse', () => {
     expect(interFont).not.toHaveProperty('weight');
   });
 
+  it.each([false, true])(
+    'does not retain earlier faces of a custom family (explicit family: %s)',
+    async (explicitFamily) => {
+      const name = `Brand ${explicitFamily}`;
+      const node: ImageInput = {
+        type: 'text',
+        text: 'Brand example',
+        style: {
+          fontSize: 40,
+          fontWeight: 900,
+          ...(explicitFamily ? { fontFamily: name } : {}),
+        },
+      };
+      const draw = (weight: number) =>
+        imageBytes(node, {
+          width: 400,
+          height: 90,
+          fallbackFonts: false,
+          fonts: [{ name, data: interData(), weight }],
+        });
+      const regular = await draw(400);
+      expect(await draw(900)).not.toEqual(regular);
+      expect(await draw(400)).toEqual(regular);
+    },
+  );
+
   it.each([
     ['synchronous', (value: string) => html`<div style="display:flex">${value}</div>`],
     [
@@ -362,7 +388,7 @@ describe('ImageResponse', () => {
 });
 
 describe('ImageResponse fallback fonts', () => {
-  it('evicts old subsets even when every image uses the same fallback family', async () => {
+  it('reuses subset downloads across changes in a fallback family', async () => {
     const requests = stubFetch((url) => {
       if (url.startsWith('https://fonts.googleapis.com/')) {
         const point = new URL(url).searchParams.get('text')!.codePointAt(0)!.toString(16);
@@ -379,16 +405,15 @@ describe('ImageResponse fallback fonts', () => {
         defaultFont: 'Geist',
       });
     const first = await renderTitle(0x410);
-    // Reuse a warm subset, then exceed the retained-font budget with different
-    // subsets of the SAME family. A family-level LRU alone cannot evict these.
+    // Font-list changes clear registrations, but not downloaded subset bytes.
     expect(await renderTitle(0x410)).toEqual(first);
     const firstUrl = 'https://fonts.gstatic.com/cache-regression/410.woff2';
     expect(requests.filter((url) => url === firstUrl)).toHaveLength(1);
-    for (let point = 0x411; point < 0x430; point++) {
+    for (let point = 0x411; point < 0x414; point++) {
       await renderTitle(point);
     }
     expect(await renderTitle(0x410)).toEqual(first);
-    expect(requests.filter((url) => url === firstUrl)).toHaveLength(2);
+    expect(requests.filter((url) => url === firstUrl)).toHaveLength(1);
   });
 
   it('requests no font for text the built-in font draws', async () => {
@@ -668,14 +693,43 @@ describe('ImageResponse fallback fonts', () => {
     ]);
   });
 
-  it('draws emoji as images, fetched once per isolate, without a font', async () => {
-    const requests = stubFetch(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"/>'));
-    const emoji = html`<div style="display:flex">🪩</div>`;
-    await expectPng(new ImageResponse(emoji, { width: 320, height: 168 }));
-    expect(requests).toHaveLength(1);
-    expect(requests[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/.*\.svg$/);
-    await new ImageResponse(emoji, { width: 320, height: 168 }).arrayBuffer();
-    expect(requests).toHaveLength(1);
+  it.each(['twemoji', 'blobmoji', 'noto', 'openmoji', 'fluent', 'fluentFlat'] as const)(
+    'draws %s emoji as images, fetched once per isolate, without a font',
+    async (emoji) => {
+      const requests = stubFetch(() => new Response('<svg xmlns="http://www.w3.org/2000/svg"/>'));
+      const markup = html`<div style="display:flex">🪩</div>`;
+      const options = { width: 320, height: 168, emoji };
+      await expectPng(new ImageResponse(markup, options));
+      expect(requests).toHaveLength(1);
+      expect(requests[0]).toMatch(/^https:\/\/cdn\.jsdelivr\.net\/.*\.svg$/);
+      await new ImageResponse(markup, options).arrayBuffer();
+      expect(requests).toHaveLength(1);
+    },
+  );
+
+  it.each([
+    'https://cdn.jsdelivr.net/gh/example/brand@main/logo.svg',
+    'https://cdn.jsdelivr.net/npm/example-brand/logo.svg',
+    'https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/../../logo.svg',
+  ])('fetches ordinary jsDelivr images anew for each render: %s', async (url) => {
+    let version = 0;
+    const requests = stubFetch(
+      () =>
+        new Response(
+          `<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32"><rect width="32" height="32" fill="${version++ === 0 ? 'red' : 'blue'}"/></svg>`,
+          { headers: { 'content-type': 'image/svg+xml' } },
+        ),
+    );
+    const node: ImageInput = {
+      type: 'image',
+      src: url,
+      style: { width: 32, height: 32 },
+    };
+    const options = { width: 32, height: 32, fallbackFonts: false };
+    const first = await imageBytes(node, options);
+    const second = await imageBytes(node, options);
+    expect(requests).toEqual([url, url]);
+    expect(second).not.toEqual(first);
   });
 
   it('fails on an emoji that cannot download, unless told to leave it out', async () => {
@@ -762,6 +816,37 @@ describe('ImageResponse fallback fonts', () => {
     ).toHaveLength(2);
     expect(requests.filter((url) => url.endsWith('Noto-Sans-JP.woff2'))).toHaveLength(1);
     expect(warned).toHaveBeenCalledTimes(2);
+  });
+
+  it('records shared fallback download failures separately for concurrent images', async () => {
+    const warned = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const requests = stubFetch((url) => {
+      if (url.startsWith('https://fonts.googleapis.com/')) {
+        const family = new URL(url).searchParams.get('family')!.split(':')[0]!;
+        const range = family === 'Noto Sans JP' ? 'U+65E5, U+672C' : 'U+265C';
+        return new Response(
+          `@font-face { font-family: '${family}'; src: url(https://fonts.gstatic.com/concurrent/${family.replaceAll(' ', '-')}.woff2); unicode-range: ${range}; }`,
+        );
+      }
+      return url.endsWith('Noto-Sans-JP.woff2')
+        ? new Response(new Uint8Array(interData()))
+        : new Response(null, { status: 404 });
+    });
+    vi.mocked(render).mockClear();
+    const draw = () =>
+      imageBytes(html`<div style="display:flex">日本 ♜</div>`, { width: 320, height: 168 });
+    const [first, second] = await Promise.all([draw(), draw()]);
+    expect(second).toEqual(first);
+    const retries = vi
+      .mocked(render)
+      .mock.calls.map(([, options]) => (options?.fonts ?? []) as Array<{ name?: string }>)
+      .filter((fonts) => fonts.length < 4);
+    expect(retries.map((fonts) => fonts.map((font) => font.name))).toEqual([
+      ['@void/image Inter', '@void/image Inter fallback Noto Sans JP'],
+      ['@void/image Inter', '@void/image Inter fallback Noto Sans JP'],
+    ]);
+    expect(requests.filter((url) => url.endsWith('.woff2'))).toHaveLength(3);
+    expect(warned).toHaveBeenCalledTimes(4);
   });
 
   it('renders without fallback fonts when Google Fonts cannot be reached', async () => {
