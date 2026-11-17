@@ -384,7 +384,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
     ((incomingManifest.sandbox.image !== 'cloudflare/debian-trixie' &&
       !isSandboxRegistryImage(incomingManifest.sandbox.image)) ||
       (incomingManifest.sandbox.instanceType !== undefined &&
-        !['lite', 'standard-1', 'standard-2', 'standard-3', 'standard-4'].includes(
+        !['lite', 'basic', 'standard-1', 'standard-2', 'standard-3', 'standard-4'].includes(
           incomingManifest.sandbox.instanceType,
         )))
   ) {

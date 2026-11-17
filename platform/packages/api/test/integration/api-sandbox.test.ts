@@ -57,6 +57,7 @@ const SANDBOX_IMAGE_V1 =
 function buildSandboxManifest(overrides?: {
   image?: string;
   containerName?: string;
+  instanceType?: string;
 }): Record<string, unknown> {
   return {
     version: 3,
@@ -67,7 +68,7 @@ function buildSandboxManifest(overrides?: {
       className: 'Sandbox',
       containerName: overrides?.containerName ?? 'void-sandbox',
       image: overrides?.image ?? SANDBOX_IMAGE_V1,
-      instanceType: 'lite',
+      instanceType: overrides?.instanceType ?? 'lite',
       maxInstances: 20,
       migrations: [{ tag: 'sandbox-v1', newSqliteClasses: ['Sandbox'] }],
     },
@@ -888,6 +889,16 @@ describe('per-deploy sandbox integration', () => {
 
     const raw = await env.ROUTING.get(`project:${project.id}`);
     expect(raw).toBeNull();
+  });
+
+  it('accepts basic sandbox instanceType at deploy validation', async () => {
+    const user = await createTestUser(env.db, 'sb-basic-user', 'github', undefined, 'pro');
+    const project = await createTestProject(env.db, user.id, 'sb-basic-size');
+    mockCfApi();
+
+    const res = await deploy(project.id, user.jwt, buildSandboxManifest({ instanceType: 'basic' }));
+    expect(res.status).toBe(200);
+    expect(getDoneEvent(await readAllEvents(res))).toBeDefined();
   });
 
   it('rejects manifest.sandbox for static/spa deployments at validation time', async () => {

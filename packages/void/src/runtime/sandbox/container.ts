@@ -1,7 +1,13 @@
 import { Files, type FileOperationOptions } from '@cloudflare/sandbox';
 import { DurableObject, RpcTarget } from 'cloudflare:workers';
 
-export type SandboxInstance = 'lite' | 'standard-1' | 'standard-2' | 'standard-3' | 'standard-4';
+export type SandboxInstance =
+  | 'lite'
+  | 'basic'
+  | 'standard-1'
+  | 'standard-2'
+  | 'standard-3'
+  | 'standard-4';
 export type SandboxOptions = {
   inactivityTimeoutMs?: number;
   enableInternet?: boolean;
