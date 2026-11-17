@@ -18,6 +18,55 @@ function makeDirectAi(
 }
 
 describe('runtime ai', () => {
+  it.each(['direct', 'http', 'service'] as const)(
+    'cancels provider response streams on the %s transport without serializing the signal',
+    async (transport) => {
+      vi.resetModules();
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
+      const controller = new AbortController();
+      const request = vi.fn(
+        async (_url: string, init: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(stream) {
+                init.signal?.addEventListener('abort', () => stream.error(init.signal!.reason));
+              },
+            }),
+          ),
+      );
+      vi.stubGlobal('fetch', request);
+      const env =
+        transport === 'direct'
+          ? { AI: makeDirectAi().AI, __VOID_AI_GATEWAY: 'gateway' }
+          : transport === 'service'
+            ? {
+                __VOID_PROXY: { fetch: request },
+                __PROJECT_ID: 'project',
+                __VOID_PROXY_TOKEN: 'token',
+              }
+            : {
+                __VOID_TOKEN: 'token',
+                __VOID_PROJECT_ID: 'project',
+                __VOID_PROXY_URL: 'https://proxy.test',
+              };
+      await envContext.run({ ...env, OPENAI_API_KEY: 'synthetic-provider-key' }, async () => {
+        const response = await ai.provider('openai').fetch('/chat/completions', {
+          body: { messages: [] },
+          signal: controller.signal,
+        });
+        const init = request.mock.calls[0]![1];
+        expect(init.signal).toBe(controller.signal);
+        const payload = JSON.parse(init.body as string);
+        expect(payload).not.toHaveProperty('signal');
+        expect(payload.options).toBeUndefined();
+        const reading = response.text();
+        controller.abort(new Error('provider request cancelled'));
+        await expect(reading).rejects.toThrow('provider request cancelled');
+      });
+    },
+  );
+
   it.each(['http', 'service'] as const)(
     'keeps cancellation on the %s transport instead of serializing it as a binding option',
     async (transport) => {

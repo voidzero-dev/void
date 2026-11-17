@@ -156,6 +156,17 @@ through that installation's proxy. AI Gateway cache, timeout and retry headers,
 such as `cf-aig-cache-ttl` and `cf-aig-max-attempts`, still apply there; the
 platform ignores logging, metadata and cost headers.
 
+Pass an `AbortSignal` to cancel a request or stop reading its response stream:
+
+```ts
+import { ai } from 'void/ai';
+
+const response = await ai.provider('openai').fetch('/chat/completions', {
+  signal: AbortSignal.timeout(30_000),
+  body: { model: 'gpt-4o', messages: [{ role: 'user', content: 'Hello' }] },
+});
+```
+
 ### OpenAI
 
 ```ts

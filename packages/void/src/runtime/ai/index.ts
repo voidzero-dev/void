@@ -376,7 +376,7 @@ function makeProxyBackend(send: ProxySend, runtimeEnv: RuntimeEnv): AiBackend {
   async function proxyFetch(
     action: string,
     payload: Record<string, unknown>,
-    options: { throwOnError?: boolean } = {},
+    options: { throwOnError?: boolean; signal?: AbortSignal | null } = {},
   ): Promise<Response> {
     let signal: AbortSignal | undefined;
     if (typeof payload.options === 'object' && payload.options !== null) {
@@ -385,7 +385,7 @@ function makeProxyBackend(send: ProxySend, runtimeEnv: RuntimeEnv): AiBackend {
       signal = bindingSignal;
       payload = { ...payload, options: wireOptions };
     }
-    const res = await send(action, payload, signal);
+    const res = await send(action, payload, options.signal ?? signal);
     const limit = await limitFromResponse(res, 'ai');
     if (limit) {
       throw limit;
@@ -412,7 +412,7 @@ function makeProxyBackend(send: ProxySend, runtimeEnv: RuntimeEnv): AiBackend {
       return proxyFetch(
         'provider',
         await providerRequestBody(provider, path, init, options, runtimeEnv),
-        { throwOnError: false },
+        { throwOnError: false, signal: init?.signal },
       );
     },
     async models(params) {
@@ -546,6 +546,7 @@ function makeDirectBackend(
         method: init?.method ?? 'POST',
         headers,
         body,
+        signal: init?.signal,
       });
     },
     models: directAi.models.bind(directAi),

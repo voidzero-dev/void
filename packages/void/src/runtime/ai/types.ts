@@ -48,6 +48,7 @@ export type AiProviderFetchInit = {
   method?: string;
   headers?: HeadersInit;
   body?: unknown;
+  signal?: AbortSignal | null;
 };
 
 /** Maps provider prefix to expected env var name for the API key */
