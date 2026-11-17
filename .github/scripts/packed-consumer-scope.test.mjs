@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { resolvePackedSuite, selectPackedSuite } from './packed-consumer-scope.mjs';
 
-test('skips documentation-only changes and keeps ordinary runtime changes small', () => {
+void test('skips documentation-only changes and keeps ordinary runtime changes small', () => {
   assert.equal(
     selectPackedSuite([
       'README.md',
@@ -19,7 +19,7 @@ test('skips documentation-only changes and keeps ordinary runtime changes small'
   assert.equal(selectPackedSuite(['platform/packages/api/src/routes/projects.ts']), 'smoke');
 });
 
-test('runs the full matrix for dependencies, adapters, scaffolding, and packaging', () => {
+void test('runs the full matrix for dependencies, adapters, scaffolding, and packaging', () => {
   for (const path of [
     'pnpm-lock.yaml',
     'pnpm-workspace.yaml',
@@ -41,7 +41,7 @@ test('runs the full matrix for dependencies, adapters, scaffolding, and packagin
 });
 
 const repository = { full_name: 'voidzero-dev/void' };
-test('reads every PR file page and considers the old path of renamed files', async () => {
+void test('reads every PR file page and considers the old path of renamed files', async () => {
   const calls = [];
   const result = await resolvePackedSuite({
     eventName: 'pull_request',
@@ -58,7 +58,7 @@ test('reads every PR file page and considers the old path of renamed files', asy
   assert(calls[1].endsWith('page=2'));
 });
 
-test('compares the full pushed range rather than just the last commit', async () => {
+void test('compares the full pushed range rather than just the last commit', async () => {
   const before = '1'.repeat(40),
     after = '2'.repeat(40);
   const result = await resolvePackedSuite({
@@ -72,7 +72,7 @@ test('compares the full pushed range rather than just the last commit', async ()
   assert.equal(result, 'smoke');
 });
 
-test('retains full coverage for unavailable or truncated changed-file lists', async () => {
+void test('retains full coverage for unavailable or truncated changed-file lists', async () => {
   const event = { repository, before: '1'.repeat(40), after: '2'.repeat(40) };
   for (const request of [
     async () => {
@@ -93,7 +93,7 @@ test('retains full coverage for unavailable or truncated changed-file lists', as
   );
 });
 
-test('release and manual full runs do not depend on changed paths', async () => {
+void test('release and manual full runs do not depend on changed paths', async () => {
   const request = async () => {
     throw new Error('Should not inspect paths');
   };

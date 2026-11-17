@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -604,7 +605,7 @@ describe('POST /email/send — request validation', () => {
         return new Promise(() => {});
       });
       const env = createMockEnv(kv, { SEND_EMAIL: { send } });
-      const apiFetch = (env.API as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      const apiFetch = (env.API as { fetch: ReturnType<typeof vi.fn<typeof fetch>> }).fetch;
       const normalFetch = apiFetch.getMockImplementation()!;
       let markAdmissionStarted!: () => void;
       const admissionStarted = new Promise<void>((resolve) => {

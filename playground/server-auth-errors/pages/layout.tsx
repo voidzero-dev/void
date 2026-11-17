@@ -33,7 +33,7 @@ export default function Layout({ children }: { children: ReactNode }) {
         throw new Error(result.error.message);
       }
       setMessage('');
-      router.refresh();
+      await router.refresh();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : 'Could not sign out.');
     }

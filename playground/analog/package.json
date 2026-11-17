@@ -23,6 +23,7 @@
     "@analogjs/vite-plugin-angular": "catalog:",
     "@angular/build": "catalog:",
     "@angular/compiler-cli": "catalog:",
+    "h3": "^1.15.11",
     "nitro-cloudflare-dev": "^0.2.2",
     "typescript": "catalog:angular",
     "vite": "catalog:",

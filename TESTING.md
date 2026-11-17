@@ -7,8 +7,23 @@ Start with the smallest relevant test file or case while developing:
 ```sh
 vp test run packages/void/test/unit/plugin-routing.test.ts
 vp test run packages/void/test/unit/plugin-routing.test.ts -t 'routing'
-vp run check
+vp check
 ```
+
+`vp check` is the root static-check command: formatting, lint rules (including floating
+promises), and tsrs typechecking. Run `vp run build:all`
+once after installing dependencies or changing generated app types; framework projects
+need their generated configs and workspace package declarations. For types only, use
+`vp check --no-fmt --no-lint`.
+
+CI also runs `vp run check:types`, the package TypeScript compiler checks. Keep this
+compatibility gate: native checks follow lint file selection, while the compiler checks
+whole projects and preserve SvelteKit's TypeScript 6 validation. Do not exclude authored
+source or type contracts from linting to silence a type error.
+
+Shared helpers have local configs in `test/tsconfig.json` and `.github/scripts/tsconfig.json`.
+Avoid root project references to generated playground configs: Vite reads those references
+while building unrelated apps, including fixtures that have not generated their types yet.
 
 Type-only contracts use `*.typecheck.ts`. Package typechecking verifies them; the Vitest runtime
 does not need to execute their `expectTypeOf` assertions.
@@ -62,7 +77,7 @@ vp test related --run packages/void/src/runtime/sse/index.ts --project unit --pr
 vp test list packages/void/test/unit/plugin-routing.test.ts --filesOnly
 ```
 
-Agents should run a focused regression first, then affected verification and `vp run check` after a
+Agents should run a focused regression first, then affected verification and `vp check` after a
 batch. Use unit-only runs during iteration, but run the affected integration selection before
 handoff. Run the full suite once for final verification, not after every edit. For interactive
 development, `vp test watch <test-file>` keeps the transform graph in memory between edits.
@@ -102,8 +117,8 @@ This keeps database engines from competing with all framework compilers at start
 isolation enabled: these suites mock globals, keep database state, and exercise real process/lock boundaries.
 Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
 can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
-The full verification command builds before running the platform's type-aware lint, so it also
-works without a pre-existing dashboard `.void/tsconfig.json`.
+The full verification command builds before running static checks, so it also works without
+pre-existing generated playground or dashboard tsconfigs.
 
 ## Reusing transforms
 

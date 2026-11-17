@@ -194,7 +194,7 @@ if (helpPath) {
     process.exit(1);
   }
 
-  import('./deploy.ts').then(({ runDeploy }) => {
+  void import('./deploy.ts').then(({ runDeploy }) => {
     runDeploy(root, deployArgs).catch((err) => {
       log.error(formatCloudflareUserMessage(err.message ?? String(err)));
       process.exit(1);
@@ -210,9 +210,9 @@ if (helpPath) {
     process.exit(1);
   });
 } else if (command && Object.hasOwn(subcommandGroups, command)) {
-  subcommandGroups[command]!();
+  void subcommandGroups[command]!();
 } else if (command === 'info') {
-  import('./info.ts').then(async ({ runInfoCommand }) => {
+  void import('./info.ts').then(async ({ runInfoCommand }) => {
     try {
       await runInfoCommand(process.cwd(), parseInfoArgs(args.slice(1)));
     } catch (err) {
@@ -234,7 +234,7 @@ if (helpPath) {
     process.exit(1);
   }
 
-  import('./prepare.ts').then(({ runPrepareCommand }) => {
+  void import('./prepare.ts').then(({ runPrepareCommand }) => {
     runPrepareCommand(root).catch((err) => {
       log.error(formatCloudflareUserMessage(err.message ?? String(err)));
       process.exit(1);
@@ -242,7 +242,7 @@ if (helpPath) {
   });
 } else if (command === 'init') {
   const root = process.cwd();
-  import('./init.ts').then(({ runInitCommand, parseInitArgs }) => {
+  void import('./init.ts').then(({ runInitCommand, parseInitArgs }) => {
     let initArgs;
     try {
       initArgs = parseInitArgs(args.slice(1));
@@ -260,7 +260,7 @@ if (helpPath) {
     log.error('migrate: This command takes no arguments.');
     process.exit(1);
   }
-  import('./migrate.ts').then(({ runMigrateCommand }) => {
+  void import('./migrate.ts').then(({ runMigrateCommand }) => {
     runMigrateCommand(process.cwd()).catch((err) => {
       log.error(formatCloudflareUserMessage(err instanceof Error ? err.message : String(err)));
       process.exit(1);

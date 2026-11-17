@@ -12,5 +12,5 @@
     "allowImportingTsExtensions": true,
     "noEmit": true
   },
-  "include": ["pages", "routes", "middleware", "lib", "ui"]
+  "include": ["pages", "routes", "middleware", "lib", "ui", "test"]
 }

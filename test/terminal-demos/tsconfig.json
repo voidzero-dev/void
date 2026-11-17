@@ -1,0 +1,8 @@
+{
+  "extends": "../../docs/tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "../.."
+  },
+  "files": ["../../docs/env.d.ts"],
+  "include": ["*.ts"]
+}

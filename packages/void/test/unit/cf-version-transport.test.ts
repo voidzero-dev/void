@@ -215,7 +215,7 @@ it(
       expect(requests).toEqual(['/client/v4/accounts/account-id/workers/services/void-test']);
       expect(userAgents).toEqual([cfUserAgent]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -262,7 +262,7 @@ it(
         { method: 'GET', path: '/client/v4/accounts/account-id/workers/services/void-test' },
       ]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -313,7 +313,7 @@ it(
         'Aborting the upload operation because of conflicts. To override and upload anyway, remove the `--strict` flag',
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -398,7 +398,7 @@ it.each([false, true])(
         });
       }
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -609,7 +609,7 @@ it.each([
       ).toHaveLength(2);
       expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(originalConfig);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_ACTIVATION_TIMEOUT_MS,
@@ -747,6 +747,6 @@ it('treats a verified empty deployment list as missing but rejects malformed sta
       expect(calls).toHaveLength('deployments' in body ? 2 : 1);
     }
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });

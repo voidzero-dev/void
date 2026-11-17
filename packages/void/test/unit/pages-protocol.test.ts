@@ -68,7 +68,7 @@ function createTestContext(
 
   const url = `http://localhost${path}`;
   const req = new Request(url, { method, headers: options.headers });
-  app.fetch(req);
+  void app.fetch(req);
 
   return contextPromise;
 }

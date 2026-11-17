@@ -704,7 +704,7 @@ function App({
             dispatch({ type: 'reveal', resource: next });
           }
         };
-        next.shell.then((result) => {
+        void next.shell.then((result) => {
           shellSettled = true;
           if (result) {
             reveal(true);
@@ -750,7 +750,7 @@ function App({
 
   useEffect(() => {
     engine.setPopStateHandler((url, options) => {
-      router.visit(url, options);
+      void router.visit(url, options);
     });
   }, [engine, router]);
 

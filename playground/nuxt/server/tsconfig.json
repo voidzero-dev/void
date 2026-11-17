@@ -1,0 +1,8 @@
+{
+  "extends": ["../.nuxt/tsconfig.server.json", "../.void/tsconfig.json"],
+  "compilerOptions": {
+    "noEmit": true,
+    "types": ["void/env"]
+  },
+  "include": [".", "../.nuxt/types/nitro.d.ts"]
+}

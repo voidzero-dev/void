@@ -564,7 +564,7 @@ async function verifyPinnedUpload(atomic: boolean): Promise<void> {
       Array(5).fill('Bearer asset-token'),
     );
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 }
 
@@ -757,7 +757,7 @@ it(
         },
       });
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -874,7 +874,7 @@ it.each(
           : [],
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -926,7 +926,7 @@ it('fails a pinned upload when prepared _headers cannot be read', async () => {
     ).rejects.toMatchObject({ code: 'EISDIR' });
     expect(posts.some((url) => url.endsWith('/versions'))).toBe(false);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -996,7 +996,7 @@ it('uploads Worker limits, placement and cache with pinned secrets', async () =>
     expect(uploads[0]).not.toHaveProperty('logpush');
     expect(uploads[0]).not.toHaveProperty('tail_consumers');
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -1062,7 +1062,7 @@ async function uploadTargeted(
       uploads,
     };
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 }
 
@@ -1167,7 +1167,7 @@ it.each(['missing name', 'duplicate name', 'external collision', 'class collisio
       );
       expect(fetch).not.toHaveBeenCalled();
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -1239,7 +1239,7 @@ it.each(['missing', 'owned', 'foreign', 'malformed', 'unrelated 404'] as const)(
       }
       expect(requests[1]?.path).toBe('/client/v4/accounts/account-id/workflows/jobs');
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -1315,7 +1315,7 @@ it.each([
       expect(fetch).not.toHaveBeenCalled();
       expect(runCf).not.toHaveBeenCalled();
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -1355,7 +1355,7 @@ it('refuses a new imageless Container before version publication', async () => {
     expect(fetch.mock.calls[0][1]?.method).toBe('GET');
     expect(runCf).not.toHaveBeenCalled();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -1396,7 +1396,7 @@ it('bounds pending Container image preparation before uploading a Worker version
     expect(requests).toHaveLength(2);
     expect(requests.at(-1)).toContain('/image-preparations');
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -1705,7 +1705,7 @@ it.each(['settings-change', 'keys-change', 'readiness-failure'] as const)(
         expect(api.requests.every((row) => row.method === 'GET')).toBe(true);
       }
     } finally {
-      api.prepared.dispose();
+      await api.prepared.dispose();
     }
   },
 );
@@ -1861,7 +1861,7 @@ it.each([
   } finally {
     inspect?.mockRestore();
     syncBuiltinESMExports();
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2015,7 +2015,7 @@ it('does not pin active secrets during an existing-Worker handoff', async () => 
       createActiveSecretPinner({ output: prepared, handoffPending: true, requiredNames: [] }),
     ).toBeUndefined();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2031,7 +2031,7 @@ it('refuses to pin when a required secret is absent from the live version', asyn
       }),
     ).toBe(false);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2141,7 +2141,7 @@ it('preserves interruption provenance before interpreting an empty cf deployment
     expect(result.signal).toBe('SIGTERM');
     expect(result.errorCode).toBeUndefined();
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2295,7 +2295,7 @@ it('preserves activation metadata and sorts cf version history for the existing 
       versions: [{ version_id: '00000000-0000-0000-0000-000000000001', percentage: 100 }],
     });
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2332,7 +2332,7 @@ it.each([undefined, false, true])(
         expect(args).toContain('--versions');
       }
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2371,7 +2371,7 @@ it.each(['newest-first', 'oldest-first'] as const)(
       ).toEqual(Array.from({ length: 10 }, (_, index) => index + 16));
       expect(pages).toEqual(order === 'newest-first' ? [1, 2] : [1, 2, 3]);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2447,7 +2447,7 @@ it.each([
       );
       expect(requests.some(({ path }) => path.includes('/versions'))).toBe(false);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -2486,7 +2486,7 @@ it('applies the immutable trigger snapshot through a private cf output copy', as
     expect(existsSync(privateDirectory)).toBe(false);
     expect(existsSync(prepared.directory)).toBe(true);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2558,7 +2558,7 @@ it.each(['restore', 'remove'] as const)(
         operation === 'restore' ? ['0 * * * *'] : undefined,
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2643,7 +2643,7 @@ it(
       expect(requests.some(({ path }) => path.includes('/versions'))).toBe(false);
       expect(readFileSync(getWorkerConfigPath(prepared.directory), 'utf8')).toBe(original);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   REAL_CF_TIMEOUT_MS,
@@ -2736,7 +2736,7 @@ it.each([
           : [],
       );
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
 );
@@ -2822,7 +2822,7 @@ it('uses cf for Queue triggers, consumer cleanup, and version binding reads', as
       '--force',
     ]);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2859,7 +2859,7 @@ it('accepts only the staged static assets directory already sealed into prebuilt
     ).toBe(1);
     expect(calls).toHaveLength(1);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 
@@ -2915,7 +2915,7 @@ it.each(['r2', 'queue'] as const)(
       expect(cfCalls.every((args) => args[0] === 'r2' && args[1] === 'buckets')).toBe(true);
       expect(cfCalls).toHaveLength(missing === 'r2' ? 3 : 0);
     } finally {
-      prepared.dispose();
+      await prepared.dispose();
     }
   },
   15_000,
@@ -2970,7 +2970,7 @@ it('uploads when existing R2 and Queue bindings are verified by exact identity',
       ],
     ]);
   } finally {
-    prepared.dispose();
+    await prepared.dispose();
   }
 });
 

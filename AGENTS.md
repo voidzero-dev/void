@@ -24,7 +24,7 @@ Deploy hosted production before publishing the npm packages: the CLI checks the 
 - Every implementation plan should include the following:
   - During plan generation: ask clarifying questions when necessary, especially around developer-experience defining design decisions.
   - Verification:
-    - Run `vp run check` for package typechecking after completing a batch of tasks.
+    - Run `vp check` for formatting, linting, and workspace typechecking after completing a batch of tasks.
     - During development, run an exact test file (and `-t` for a focused case) first. Use `vp run test --list` to inspect affected coverage, then `vp run test` for changed-file validation. Use `--base <ref>` when changes are already committed; the default includes only staged, unstaged, and untracked files.
     - `vp run test --unit` is an iteration-only shortcut, not integration verification. Native `vp test related --run <source>` misses filesystem/subprocess inputs; prefer the smart runner's conservative fallbacks before handing off. See `TESTING.md` for builds, integration selection, and import profiling.
     - Run `vp test run` once when everything is done for final verification. CI and `vpr test:all` retain full-suite coverage. Do not repeatedly run the full suite during iteration, enable result caching for the smart selector, or disable module isolation to make tests faster.
@@ -54,7 +54,7 @@ vpr test:all                        # Format, lint, build, typecheck, and run al
 vp test run packages/void           # Only test the core plugin
 vp lint                             # Oxlint through Vite+
 vp fmt                              # Oxfmt through Vite+
-vp run check                        # Typecheck all packages with TypeScript
+vp check                            # Format, lint, and typecheck the workspace
 vp run --filter ./packages/vue typecheck # Typecheck a specific package
 ```
 

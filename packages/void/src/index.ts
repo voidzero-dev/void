@@ -549,7 +549,7 @@ export function voidPlugin(options?: {
             // Fire-and-forget interactive setup
             afterServerReady(server, () => {
               console.log();
-              runAiSetupPrompt(root, credentials.token, credentials.apiUrl, server);
+              void runAiSetupPrompt(root, credentials.token, credentials.apiUrl, server);
             });
           } else {
             afterServerReady(server, () => {

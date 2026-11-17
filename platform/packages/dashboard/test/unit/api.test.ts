@@ -95,7 +95,7 @@ describe('dashboard API helpers', () => {
 
   it('treats non-JSON /me responses as unauthenticated', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const fetchMock = vi.fn(() =>
+    const fetchMock = vi.fn<typeof fetch>(() =>
       Promise.resolve(
         new Response('<!DOCTYPE html><html><body>Access required</body></html>', {
           headers: { 'content-type': 'text/html; charset=utf-8' },

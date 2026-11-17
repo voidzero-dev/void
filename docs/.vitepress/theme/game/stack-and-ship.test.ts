@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import { frameworks } from './frameworks.ts';
 import { advanceStackGame, createStackGame, dropStackTile } from './stack-and-ship.ts';
 
-test('perfect drops preserve the footprint and reward streaks', () => {
+void test('perfect drops preserve the footprint and reward streaks', () => {
   let game = createStackGame(() => 0);
   for (let level = 1; level <= 6; level++) {
     const top = game.tiles[game.tiles.length - 1]!;
@@ -21,7 +21,7 @@ test('perfect drops preserve the footprint and reward streaks', () => {
   assert.equal(game.perfects, 6);
 });
 
-test('overhangs on either side leave a matching cut piece and reduce the next tile', () => {
+void test('overhangs on either side leave a matching cut piece and reduce the next tile', () => {
   for (const delta of [-40, 40]) {
     const initial = createStackGame(() => 0);
     const moving = { ...initial.moving!, x: -120 + delta };
@@ -38,7 +38,7 @@ test('overhangs on either side leave a matching cut piece and reduce the next ti
   }
 });
 
-test('a zero-overlap drop ends the run without adding a layer or points', () => {
+void test('a zero-overlap drop ends the run without adding a layer or points', () => {
   const initial = createStackGame(() => 0);
   const result = dropStackTile({ ...initial, moving: { ...initial.moving!, x: 120 } });
   assert.equal(result.game.moving, null);
@@ -48,7 +48,7 @@ test('a zero-overlap drop ends the run without adding a layer or points', () => 
   assert.equal(dropStackTile(result.game).game, result.game);
 });
 
-test('movement reflects at both ends and is independent of frame rate', () => {
+void test('movement reflects at both ends and is independent of frame rate', () => {
   const initial = createStackGame(() => 0);
   const once = advanceStackGame(initial, 5);
   let stepped = initial;
@@ -61,7 +61,7 @@ test('movement reflects at both ends and is independent of frame rate', () => {
   assert.equal(advanceStackGame(initial, 4.8).moving!.x, -300);
 });
 
-test('tiles enter from all four directions independently of the framework shuffle', () => {
+void test('tiles enter from all four directions independently of the framework shuffle', () => {
   for (let entry = 0; entry < 4; entry++) {
     let call = 0;
     const game = createStackGame(() => (call++ === 0 ? (entry + 0.5) / 4 : 0.875));
@@ -77,7 +77,7 @@ test('tiles enter from all four directions independently of the framework shuffl
   }
 });
 
-test('a new entry direction can change both axis and sign after a drop', () => {
+void test('a new entry direction can change both axis and sign after a drop', () => {
   const initial = createStackGame(() => 0);
   initial.moving = { ...initial.moving!, x: -120 };
   let call = 0;
@@ -88,7 +88,7 @@ test('a new entry direction can change both axis and sign after a drop', () => {
   assert.equal(game.moving!.framework, 2);
 });
 
-test('each shuffled set includes all nine frameworks before any repeat', () => {
+void test('each shuffled set includes all nine frameworks before any repeat', () => {
   let seed = 42;
   const random = () => (seed = (seed * 1664525 + 1013904223) >>> 0) / 2 ** 32;
   let game = createStackGame(random);
@@ -117,7 +117,7 @@ test('each shuffled set includes all nine frameworks before any repeat', () => {
   assert.notDeepEqual(sets[0], sets[1]);
 });
 
-test('a new shuffled set cannot repeat the last logo of the previous set', () => {
+void test('a new shuffled set cannot repeat the last logo of the previous set', () => {
   const initial = createStackGame(() => 0);
   const top = initial.tiles[0]!;
   const result = dropStackTile(

@@ -152,6 +152,7 @@ function createFakeMessage(opts: {
       }
       forwardCalls.push({ to, headers: h });
       order.push(`forward:${to}`);
+      return { messageId: 'forwarded' };
     },
     async reply(reply: unknown) {
       const r = reply as RecordedReply;
@@ -160,6 +161,7 @@ function createFakeMessage(opts: {
       }
       replyCalls.push(r);
       order.push(`reply:${r.from}->${r.to}`);
+      return { messageId: 'replied' };
     },
   };
   return {
@@ -972,7 +974,7 @@ describe('routeInbound — action enaction', () => {
     const forward = vi.fn(() => {
       submissions++;
       (submissions === 1 ? firstSubmit : secondSubmit)();
-      return new Promise<void>(() => {});
+      return new Promise<EmailSendResult>(() => {});
     });
     message.forward = forward;
     const { ctx } = createCtx();
@@ -1006,7 +1008,7 @@ describe('routeInbound — action enaction', () => {
     const { message } = createFakeMessage({ to: `myslug@${PROD_DOMAIN}` });
     message.reply = vi.fn(() => {
       markSubmitted();
-      return new Promise<void>(() => {});
+      return new Promise<EmailSendResult>(() => {});
     });
     const { ctx } = createCtx();
     const pending = routeInbound(message, env, ctx);

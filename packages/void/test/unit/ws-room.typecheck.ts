@@ -71,9 +71,9 @@ getRoom('/relay/[accountId]');
 // @ts-expect-error Parameter names come from the route.
 getRoom('/relay/[accountId]', { params: { accountId: 'acct_1', extra: 'x' } });
 // @ts-expect-error Action arguments are typed.
-room.actions.revokeSession(1, 4001);
+void room.actions.revokeSession(1, 4001);
 // @ts-expect-error Action arguments are required.
-room.actions.revokeSession('session_1');
+void room.actions.revokeSession('session_1');
 // @ts-expect-error Only declared actions exist.
 room.actions.missing();
 // @ts-expect-error defineWebSocket() routes expose no actions.

@@ -204,13 +204,13 @@ function _typeTests() {
   postForm.setData('authorId', 'not-a-number');
 
   // @ts-expect-error — invalid action name
-  action('/?nonexistent-action', { data: {} });
+  void action('/?nonexistent-action', { data: {} });
 
   // @ts-expect-error — missing required field "id"
-  action('/?delete-user', { data: {} });
+  void action('/?delete-user', { data: {} });
 
   // @ts-expect-error — wrong field type (id should be number)
-  action('/?delete-user', { data: { id: 'not-a-number' } });
+  void action('/?delete-user', { data: { id: 'not-a-number' } });
 }
 
 void _typeTests;

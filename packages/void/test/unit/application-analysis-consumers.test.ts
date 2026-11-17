@@ -50,7 +50,7 @@ async function pluginConfig(root: string): Promise<Record<string, unknown>> {
   if (!handler) {
     throw new Error('Expected the Cloudflare config or framework Wrangler sync plugin.');
   }
-  handler.call({} as never, { command: 'serve' } as ResolvedConfig);
+  await handler.call({} as never, { command: 'serve' } as ResolvedConfig);
   return JSON.parse(readFileSync(join(root, 'wrangler.jsonc'), 'utf8')) as Record<string, unknown>;
 }
 

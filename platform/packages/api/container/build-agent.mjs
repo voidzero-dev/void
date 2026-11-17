@@ -334,7 +334,10 @@ const AGENT_TOKEN = process.env.AGENT_TOKEN ?? '';
 delete process.env.AGENT_TOKEN;
 delete process.env.DO_LOG_URL;
 
-/** Derive a sibling DO endpoint (e.g. /status) from DO_LOG_URL's origin. */
+/**
+ * Derive a sibling DO endpoint (e.g. /status) from DO_LOG_URL's origin.
+ * @param {string} pathname
+ */
 function doEndpoint(pathname) {
   if (!DO_LOG_URL) {
     return '';
@@ -383,7 +386,10 @@ async function postToDo(url, body) {
   }
 }
 
-/** Report a build status to the DO (best-effort). */
+/**
+ * Report a build status to the DO (best-effort).
+ * @param {string} status
+ */
 async function reportStatus(status) {
   await postToDo(DO_STATUS_URL, { status });
 }
@@ -399,12 +405,13 @@ async function reportStatus(status) {
  * MAX_LOG_PULL_PAGES x MAX_LOG_RESPONSE_BYTES a teardown drain can fetch. Stored
  * on the entry NON-ENUMERABLY, so it is measured once and never reaches the
  * response body.
- * @param {{ seq: number, line: string, stream: string, ts: number }} entry
+ * @template {{ seq: number, line: string, stream: string, ts: number }} T
+ * @param {T} entry
+ * @returns {asserts entry is T & { bytes: number }}
  */
 function measureEntry(entry) {
   const bytes = Buffer.byteLength(JSON.stringify(entry)) + 1; // + separator
   Object.defineProperty(entry, 'bytes', { value: bytes, enumerable: false });
-  return bytes;
 }
 
 /**
@@ -418,8 +425,9 @@ export function record(line, stream, lineEnding) {
   const ts = Date.now();
   logSeq += 1;
   const entry = { seq: logSeq, line, stream, ts, ...(lineEnding ? { lineEnding } : {}) };
+  measureEntry(entry);
   logBuffer.push(entry);
-  bufferedBytes += measureEntry(entry);
+  bufferedBytes += entry.bytes;
   // Bound the retained history (see MAX_BUFFERED_LOG_LINES): once over the cap,
   // drop the oldest fifth in one splice so eviction is amortized O(1) per line —
   // a per-line front-shift would be O(n^2) over a long, verbose build.
@@ -468,7 +476,10 @@ export function record(line, stream, lineEnding) {
   }
 }
 
-/** Agent-originated line (not from the child) — surfaced on both streams' UI. */
+/**
+ * Agent-originated line (not from the child) — surfaced on both streams' UI.
+ * @param {string} line
+ */
 function agentLog(line) {
   record(`[build-agent] ${line}`, 'stdout', 'crlf');
 }
@@ -494,7 +505,10 @@ export function getPendingLogLineCount() {
   return pendingLines.length;
 }
 
-/** In-flight flush promise, or null when idle. See flushLogs. */
+/**
+ * In-flight flush promise, or null when idle. See flushLogs.
+ * @type {Promise<void> | null}
+ */
 let flushInFlight = null;
 
 /**
@@ -563,7 +577,11 @@ export function pipeStream(source, stream) {
   let pendingCr = false; // a CR at the prior chunk seam; classification needs one-byte lookahead
   let dropping = false; // truncated an over-cap line — drop bytes until its terminator
 
-  /** Record `line`, truncated if it exceeds the per-line cap. */
+  /**
+   * Record `line`, truncated if it exceeds the per-line cap.
+   * @param {string} line
+   * @param {'cr' | 'lf' | 'crlf' | 'none'} lineEnding
+   */
   const recordLine = (line, lineEnding) => {
     record(
       line.length > MAX_PARTIAL_LINE_CHARS
@@ -574,14 +592,20 @@ export function pipeStream(source, stream) {
     );
   };
 
-  /** Finish the bounded current row with its exact delimiter. */
+  /**
+   * Finish the bounded current row with its exact delimiter.
+   * @param {'cr' | 'lf' | 'crlf' | 'none'} lineEnding
+   */
   const finishLine = (lineEnding) => {
     recordLine(tail, lineEnding);
     tail = '';
     dropping = false;
   };
 
-  /** Append data while retaining at most one capped row until its delimiter. */
+  /**
+   * Append data while retaining at most one capped row until its delimiter.
+   * @param {string} text
+   */
   const appendToTail = (text) => {
     if (dropping) {
       return;
@@ -988,7 +1012,8 @@ export async function finishBuildLogging(server, drainOptions) {
  * than spending the phase budget three times over.
  * @param {string} message
  * @param {boolean} retryable
- * @returns {Error & { retryable: boolean }}
+ * @param {number | null} [retryAfterMs]
+ * @returns {Error & { retryable: boolean, retryAfterMs: number | null }}
  */
 function sourceError(message, retryable, retryAfterMs = null) {
   const err = /** @type {Error & { retryable: boolean, retryAfterMs: number | null }} */ (
@@ -1002,14 +1027,6 @@ function sourceError(message, retryable, retryAfterMs = null) {
 }
 
 /**
- * How long the server asked us to wait, in ms, or null. Handles `retry-after` in
- * both of its documented forms (delta-seconds and an HTTP-date) and GitHub's
- * `x-ratelimit-reset` (epoch SECONDS). Clamped at zero: a reset time already in
- * the past means "retry now", not a negative sleep.
- * @param {{ get(name: string): string | null } | undefined | null} headers
- * @param {number} now
- */
-/**
  * GitHub's secondary-limit wording. Matched against a BOUNDED prefix of the error
  * body, never the whole response.
  */
@@ -1021,6 +1038,14 @@ export const ERROR_BODY_SNIFF_BYTES = 2048;
 /** Fallback wait for a rate limit that names no delay (GitHub advises >= 60s). */
 export const SECONDARY_RATE_LIMIT_DELAY_MS = 60000;
 
+/**
+ * How long the server asked us to wait, in ms, or null. Handles `retry-after` in
+ * both of its documented forms (delta-seconds and an HTTP-date) and GitHub's
+ * `x-ratelimit-reset` (epoch SECONDS). Clamped at zero: a reset time already in
+ * the past means "retry now", not a negative sleep.
+ * @param {{ get(name: string): string | null } | undefined | null} headers
+ * @param {number} [now]
+ */
 export function parseRetryAfterMs(headers, now = Date.now()) {
   if (!headers || typeof headers.get !== 'function') {
     return null;
@@ -1080,7 +1105,11 @@ export function isRetryableSourceStatus(status, headers = null, body = '') {
   return SECONDARY_RATE_LIMIT_PATTERN.test(body);
 }
 
-/** `headers.get`, tolerant of the plain objects the unit tests hand in. */
+/**
+ * `headers.get`, tolerant of the plain objects the unit tests hand in.
+ * @param {{ get(name: string): string | null } | undefined | null} headers
+ * @param {string} name
+ */
 function headerValue(headers, name) {
   return headers && typeof headers.get === 'function' ? headers.get(name) : null;
 }
@@ -1160,7 +1189,10 @@ async function resetWorkDirTree() {
   mkdirSync(WORK_DIR, { recursive: true });
 }
 
-/** Render a byte count for a log line. Whole units — this is progress, not telemetry. */
+/**
+ * Render a byte count for a log line. Whole units — this is progress, not telemetry.
+ * @param {number} bytes
+ */
 function formatBytes(bytes) {
   if (bytes >= 1024 * 1024) {
     return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -1176,11 +1208,16 @@ function formatBytes(bytes) {
  * rounding them to seconds prints "0s", which reads as a bug in the very message
  * that is supposed to explain a failure.
  */
+/** @param {number} ms */
 function formatDuration(ms) {
   return ms < 1000 ? `${Math.round(ms)}ms` : `${Math.round(ms / 1000)}s`;
 }
 
-/** Average transfer rate over an elapsed span, rendered as bytes-per-second. */
+/**
+ * Average transfer rate over an elapsed span, rendered as bytes-per-second.
+ * @param {number} bytes
+ * @param {number} elapsedMs
+ */
 function formatRate(bytes, elapsedMs) {
   return `${formatBytes((bytes * 1000) / Math.max(1, elapsedMs))}/s`;
 }
@@ -1198,7 +1235,7 @@ function formatRate(bytes, elapsedMs) {
  * Exported so the retry loop above it is unit-testable without spawning `tar`.
  *
  * @param {unknown} body web ReadableStream from `fetch`
- * @param {{ onBytes?: (length: number) => void, signal?: AbortSignal }} [options]
+ * @param {{ onBytes?: (length: number) => void, signal?: AbortSignal, spawnImpl?: typeof spawn, killGraceMs?: number }} [options]
  * @returns {Promise<void>}
  */
 export function extractTarball(body, options = {}) {
@@ -1222,7 +1259,10 @@ export function extractTarball(body, options = {}) {
     // web stream — which also aborts the in-flight fetch body pull.
     activeChild = tar;
 
-    /** First failure seen. The promise still settles from 'close', never before. */
+    /**
+     * First failure seen. The promise still settles from 'close', never before.
+     * @type {Error | null}
+     */
     let settleError = null;
     /** @type {NodeJS.Timeout | undefined} */
     let killTimer;
@@ -1251,6 +1291,7 @@ export function extractTarball(body, options = {}) {
       }
     };
 
+    /** @param {unknown} err */
     const fail = (err) => {
       if (!settleError) {
         settleError = err instanceof Error ? err : new Error(String(err));
@@ -1394,6 +1435,7 @@ export async function downloadSource(options = {}) {
 
   agentLog(`downloading source from ${redactUrl(tarballUrl)}`);
 
+  /** @type {Error & { retryable?: boolean, retryAfterMs?: number | null }} */
   let lastError = sourceError('source download made no attempt', false);
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     if (isCancelled()) {
@@ -1433,7 +1475,7 @@ export async function downloadSource(options = {}) {
       });
       return;
     } catch (err) {
-      lastError = /** @type {Error & { retryable?: boolean }} */ (
+      lastError = /** @type {Error & { retryable?: boolean, retryAfterMs?: number | null }} */ (
         err instanceof Error ? err : new Error(String(err))
       );
       // A cancel is not a download failure and must never be retried.
@@ -1972,6 +2014,7 @@ export function sanitizeChildEnv(baseEnv, extra = {}) {
   return env;
 }
 
+/** @param {string} name */
 function requireEnv(name) {
   const value = process.env[name];
   if (!value) {
@@ -1980,8 +2023,11 @@ function requireEnv(name) {
   return value;
 }
 
-/** Strip query/userinfo from a URL for logging (codeload URLs are tokenless,
- *  but be defensive about anything sensitive in the query string). */
+/**
+ * Strip query/userinfo from a URL for logging (codeload URLs are tokenless,
+ * but be defensive about anything sensitive in the query string).
+ * @param {string} raw
+ */
 function redactUrl(raw) {
   try {
     const u = new URL(raw);
@@ -2033,6 +2079,7 @@ export function resolveSourceVoidCli(root = WORK_DIR) {
  *   hasLocalVoid?: () => boolean,
  *   resolveSourceVoidCli?: () => string | null,
  *   chownWorkDir?: () => Promise<void>,
+ *   killBuilderProcesses?: () => Promise<void>,
  * }} [deps]
  * @returns {Promise<number>}
  */
@@ -2251,13 +2298,15 @@ export async function runBuild(deps = {}) {
       cfAccessClientId && cfAccessClientSecret
         ? JSON.stringify(
             Object.fromEntries(
-              [apiUrl, proxyUrl].filter(Boolean).map((url) => [
-                new URL(url).origin,
-                {
-                  CF_ACCESS_CLIENT_ID: cfAccessClientId,
-                  CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
-                },
-              ]),
+              [apiUrl, proxyUrl]
+                .filter((url) => url !== undefined && url !== '')
+                .map((url) => [
+                  new URL(/** @type {string} */ (url)).origin,
+                  {
+                    CF_ACCESS_CLIENT_ID: cfAccessClientId,
+                    CF_ACCESS_CLIENT_SECRET: cfAccessClientSecret,
+                  },
+                ]),
             ),
           )
         : undefined;

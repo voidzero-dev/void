@@ -1,11 +1,14 @@
-import type { IconOption } from '@voidzero-dev/vitepress-theme';
-import { extendConfig } from '@voidzero-dev/vitepress-theme/config';
-import { defineConfig, type DefaultTheme } from 'vitepress';
+import type { IconOption, VoidZeroThemeConfig } from '@voidzero-dev/vitepress-theme';
+import { extendConfig } from '@voidzero-dev/vitepress-theme/config.js';
+import { defineConfigWithTheme, type DefaultTheme } from 'vitepress';
 import { groupIconMdPlugin, groupIconVitePlugin } from 'vitepress-plugin-group-icons';
 import llmstxt from 'vitepress-plugin-llms';
 import { createCodeHighlighter } from './highlight.ts';
 
-type SidebarItem = DefaultTheme.SidebarItem;
+type SidebarItem = Omit<DefaultTheme.SidebarItem, 'items'> & {
+  icon?: IconOption;
+  items?: Array<SidebarItem>;
+};
 
 function hasDocumentLink(items: Array<SidebarItem>): boolean {
   return items.some((item) => {
@@ -62,7 +65,7 @@ function llmsSidebar(sidebar: DefaultTheme.Sidebar | undefined): DefaultTheme.Si
   return unique;
 }
 
-const referenceItems = [
+const referenceItems: Array<SidebarItem> = [
   {
     text: 'General',
     collapsed: false,
@@ -225,7 +228,7 @@ const companyLinks = {
 };
 
 export default extendConfig(
-  defineConfig({
+  defineConfigWithTheme<VoidZeroThemeConfig>({
     title: 'Void',
     description: 'Build with Vite. Deploy with Void.',
     cleanUrls: true,
@@ -303,7 +306,6 @@ export default extendConfig(
           },
           {
             text: 'Routing & Rendering',
-            // @ts-expect-error
             icon: 'lucide:route',
             collapsed: false,
             items: [
@@ -441,10 +443,10 @@ export default extendConfig(
           };
           return referenceItems.map((item) => ({
             ...item,
-            icon: icons[item.text],
+            icon: icons[item.text ?? ''],
             items: item.items?.map((child) => ({
               ...child,
-              icon: icons[child.text] ?? child.icon,
+              icon: icons[child.text ?? ''] ?? child.icon,
             })),
           }));
         })(),

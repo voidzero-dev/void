@@ -463,9 +463,15 @@ importers:
 
   .:
     devDependencies:
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261117.1
       '@types/cross-spawn':
         specifier: ^6.0.6
         version: 6.0.6
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
       cross-spawn:
         specifier: ^7.0.6
         version: 7.0.6
@@ -487,6 +493,9 @@ importers:
       vite-plus:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
+      vue:
+        specifier: 'catalog:'
+        version: 3.5.45(typescript@7.0.2)
 
   docs:
     devDependencies:
@@ -998,9 +1007,15 @@ importers:
       typescript:
         specifier: 'catalog:'
         version: 7.0.2
+      valibot:
+        specifier: ^1.5.0
+        version: 1.5.0(typescript@7.0.2)
       vite-plus:
         specifier: 'catalog:'
         version: 1.7.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.1)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.3)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(vitest@5.1.0)(yaml@2.9.1)
+      void:
+        specifier: workspace:*
+        version: link:../packages/void
 
   platform/packages/api:
     dependencies:
@@ -1334,6 +1349,9 @@ importers:
       '@angular/compiler-cli':
         specifier: 'catalog:'
         version: 22.2.6(@angular/compiler@22.2.6)(typescript@6.0.3)
+      h3:
+        specifier: ^1.15.11
+        version: 1.15.11
       nitro-cloudflare-dev:
         specifier: ^0.2.2
         version: 0.2.2
