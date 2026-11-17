@@ -1,9 +1,16 @@
 export {
   ImageResponse,
-  type ImageInput,
   type ImageResponseOptions,
   type RenderImageOptions,
 } from './image-response.ts';
+export type {
+  ImageFont,
+  ImageInput,
+  ImageJsxElement,
+  ImageNode,
+  ImageRgbaData,
+  ImageStyle,
+} from './image-input.ts';
 export {
   OgImageResponse,
   ogImageSizes,

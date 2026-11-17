@@ -6,8 +6,9 @@ import { fallbackFonts, interFont } from '../../src/generate/fonts.ts';
 import {
   ImageResponse,
   type ImageInput,
+  type ImageNode,
   type ImageResponseOptions,
-} from '../../src/generate/image-response.ts';
+} from '../../src/generate/index.ts';
 import { interData } from '../../src/generate/inter-font.ts';
 
 vi.mock('takumi-js', async (importOriginal) => {
@@ -209,10 +210,43 @@ describe('ImageResponse', () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
-  it('renders Takumi node trees', async () => {
-    const node = { type: 'text', text: 'Hello' } as const;
+  it('renders image node trees with nested metadata and styles', async () => {
+    const node: ImageNode = {
+      type: 'container',
+      tagName: 'section',
+      id: 'card',
+      className: 'card',
+      lang: 'en',
+      dir: 'ltr',
+      attributes: { 'data-card': 'title' },
+      tw: 'flex',
+      style: { display: 'flex', '--ink': '#123', color: 'var(--ink)' },
+      preset: { padding: 4 },
+      children: [{ type: 'text', tagName: 'span', text: 'Hello', style: { fontSize: 24 } }],
+    };
+    const before = structuredClone(node);
     await expectPng(new ImageResponse(node, { width: 320, height: 168 }));
     expect(vi.mocked(render).mock.lastCall![0]).toMatchObject(node);
+    expect(node).toEqual(before);
+  });
+
+  it('renders encoded and raw RGBA image node sources', async () => {
+    const options = { width: 1, height: 1, fallbackFonts: false };
+    const png = await imageBytes(
+      { type: 'container', style: { width: 1, height: 1, backgroundColor: 'red' } },
+      options,
+    );
+    const sources = [
+      `data:image/png;base64,${Buffer.from(png).toString('base64')}`,
+      png,
+      new Uint8Array(png).buffer,
+      { width: 1, height: 1, data: new Uint8Array([255, 0, 0, 255]) },
+      { width: 1, height: 1, data: new Uint8Array([255, 0, 0, 255]).buffer, premultiplied: true },
+    ];
+    for (const src of sources) {
+      const node: ImageNode = { type: 'image', src, width: 1, height: 1 };
+      expect(await imageBytes(node, options)).toEqual(png);
+    }
   });
 
   it('renders a PNG response', async () => {

@@ -750,6 +750,9 @@ importers:
 
   packages/image:
     dependencies:
+      csstype:
+        specifier: ^3.2.3
+        version: 3.2.3
       takumi-js:
         specifier: ~2.20.0
         version: 2.20.0(csstype@3.2.3)(react@19.3.1)
@@ -757,6 +760,9 @@ importers:
       '@types/node':
         specifier: 'catalog:'
         version: 26.6.6
+      '@types/react':
+        specifier: ^19.3.0
+        version: 19.3.0
       miniflare:
         specifier: 'catalog:'
         version: 5.20261110.1-beta(@types/node@26.6.6)

@@ -1,6 +1,6 @@
 # @void/image
 
-Image generation for [Void](https://void.cloud). Build PNG images and Open Graph previews from JSX, HTML templates, or Takumi nodes without a headless browser.
+Image generation for [Void](https://void.cloud). Build PNG images and Open Graph previews from JSX, HTML templates, or image node trees without a headless browser.
 
 ## Setup
 
@@ -24,6 +24,11 @@ export const GET = defineHandler(
 ```
 
 Use `ImageResponse` from the same module for images with explicit `width` and `height`. Both classes use Takumi's WebAssembly renderer.
+
+For React JSX with `tw`, CSS custom properties, or `textFit`, append `@void/image/react` to
+`compilerOptions.types` in `tsconfig.json`. Alternatively, add
+`import type {} from '@void/image/react'` to an included source file. See
+[React JSX types](https://void.cloud/guide/image-generation#react-jsx-types) for examples.
 
 ## Documentation
 

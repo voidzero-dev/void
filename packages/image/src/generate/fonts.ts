@@ -5,6 +5,7 @@
 import type { FontLoader, Node } from 'takumi-js';
 import { collectCodepoints, googleFonts, subsetFonts, type FontSubset } from 'takumi-js/helpers';
 import { cachedFontData } from './font-data-cache.ts';
+import type { ImageFont } from './image-input.ts';
 import { interCoverage, interData } from './inter-font.ts';
 
 export type DefaultFont = 'Inter' | 'Geist';
@@ -16,27 +17,6 @@ export const interFont: FontLoader = {
   key: '@void/image Inter 4.1',
   data: interData,
 };
-
-/** A font file's URL, or a font's bytes with its name, weight and style. */
-export type Font =
-  | string
-  | {
-      name: string;
-      data: ArrayBuffer | Uint8Array;
-      /**
-       * The weight the font draws, from 1 to 1000. Leave it out for a variable
-       * font, so each element's `fontWeight` sets the weight; with it, the font
-       * draws only this weight.
-       */
-      weight?: number;
-      style?: 'normal' | 'italic';
-      /**
-       * Accepted and ignored: text uses the first font that has the glyph. The
-       * `lang` option, or attribute on the root element, chooses the font for
-       * Chinese characters instead.
-       */
-      lang?: string;
-    };
 
 /** A fallback font file that failed to download. */
 export class FallbackFontError extends Error {}
@@ -184,7 +164,7 @@ function withoutDefaultGlyphs(
   return ranges;
 }
 
-function hasBytes(font: Font): font is Exclude<Font, string> {
+function hasBytes(font: ImageFont): font is Exclude<ImageFont, string> {
   return (
     typeof font === 'object' &&
     (font.data instanceof ArrayBuffer || font.data instanceof Uint8Array)
@@ -195,7 +175,7 @@ const fontHashes = new WeakMap<ArrayBuffer | Uint8Array, Promise<string>>();
 
 // Takumi tells unkeyed fonts apart by buffer identity, so a font read anew for
 // each request would be registered again every time. Key it by content.
-export async function keyedFont(font: Font): Promise<FontLoader> {
+export async function keyedFont(font: ImageFont): Promise<FontLoader> {
   if (!hasBytes(font)) {
     return font;
   }

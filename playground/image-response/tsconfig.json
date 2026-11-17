@@ -10,7 +10,7 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "jsx": "react-jsx",
-    "types": ["vite/client"],
+    "types": ["vite/client", "@void/image/react"],
     "noEmit": true,
     "allowImportingTsExtensions": true
   },
