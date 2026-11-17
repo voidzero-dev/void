@@ -25,6 +25,7 @@ import { detectFramework, type DetectedFramework } from '../plugin-inference.ts'
 import { readProjectPaths } from '../project-paths.ts';
 import { ensureGitignoreLines } from '../shared/gitignore.ts';
 import {
+  getPackageDependencies,
   hasPackageDependency,
   readPackageJson,
   type PackageDependencyField,
@@ -36,7 +37,7 @@ import { maybeScaffoldEnvTs } from './env-scaffold.ts';
 import { migrateFrameworkAdapterPaths } from './framework-config-migrate.ts';
 import { initialCommitCommand, setupGit } from './init-git.ts';
 import { commandInProject } from './init-shell.ts';
-import { configureVitePlusScaffold } from './init-vite-plus.ts';
+import { configureVitePlusScaffold, resolveVitePlusBootstrapSpec } from './init-vite-plus.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
 import { formatUrl, note, printSuccess } from './output.ts';
 import { discoverPlatform, saveDiscoveredPlatform } from './platform-cmd.ts';
@@ -56,7 +57,6 @@ import {
   SCAFFOLD_FRAMEWORK_OPTIONS,
   SCAFFOLD_GITIGNORE_LINES,
   SCAFFOLD_TOOLCHAIN_OPTIONS,
-  SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES,
   type ScaffoldFramework,
   type ScaffoldStarterMode,
   type ScaffoldToolchain,
@@ -2181,7 +2181,7 @@ export function installProjectDependencies(
         // npx void init must also work without a globally installed vp. Avoid
         // asking an older pnpm to switch itself to a pinned native pnpm 12.
         command = 'npx';
-        const packageArg = `--package=vite-plus@${SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus']}`;
+        const packageArg = `--package=vite-plus@${resolveVitePlusBootstrapSpec(root, pkg!)}`;
         args = [
           '--yes',
           // cmd.exe treats the semver caret as an escape outside quotes.
@@ -2301,6 +2301,19 @@ function scaffoldPagesApp(
   pkg.dependencies = dependencies;
   pkg.devDependencies = devDependencies;
 
+  let existingDependencies = getPackageDependencies(pkg);
+  const workspace = resolveWorkspaceDeferral(root, pkg);
+  if (!existingDependencies['vite-plus'] && workspace) {
+    const workspacePackage = readPackageJson(workspace.workspaceRoot);
+    if (workspacePackage) {
+      existingDependencies = getPackageDependencies(workspacePackage);
+    }
+  }
+  const existingVite = existingDependencies.vite;
+  const preserveVitePlus =
+    !!existingDependencies['vite-plus'] &&
+    (existingVite?.startsWith('npm:@voidzero-dev/vite-plus-core@') ||
+      existingVite?.startsWith('catalog:'));
   let dependencyAdded = false;
   const ensureDependency = (
     group: 'dependencies' | 'devDependencies',
@@ -2310,11 +2323,16 @@ function scaffoldPagesApp(
     const otherGroup = group === 'dependencies' ? 'devDependencies' : 'dependencies';
     const targetGroup = group === 'dependencies' ? dependencies : devDependencies;
     const sourceGroup = otherGroup === 'dependencies' ? dependencies : devDependencies;
-    const existing = targetGroup[name] ?? sourceGroup[name];
-    const selectToolchainVersion =
+    const isVitePlusDependency =
       toolchain === 'vite-plus' && (name === 'vite' || name === 'vite-plus');
-    if (!targetGroup[name] || (selectToolchainVersion && existing !== fallbackVersion)) {
-      targetGroup[name] = selectToolchainVersion ? fallbackVersion : (existing ?? fallbackVersion);
+    const existing =
+      isVitePlusDependency && preserveVitePlus
+        ? existingDependencies[name]
+        : (targetGroup[name] ?? sourceGroup[name]);
+    const selectToolchainVersion = isVitePlusDependency && !preserveVitePlus;
+    const version = selectToolchainVersion ? fallbackVersion : (existing ?? fallbackVersion);
+    if (targetGroup[name] !== version) {
+      targetGroup[name] = version;
       dependencyAdded = true;
     }
     if (sourceGroup[name]) {
@@ -2336,7 +2354,7 @@ function scaffoldPagesApp(
     ensurePnpmAllowBuilds(root, pkg);
   }
 
-  if (toolchain === 'vite-plus') {
+  if (toolchain === 'vite-plus' && !preserveVitePlus) {
     configureVitePlusScaffold(
       packageManager === 'pnpm' ? resolvePnpmConfigRoot(root, pkg) : root,
       packageManager,

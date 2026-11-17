@@ -71,21 +71,82 @@ describe('init dependency installation (real subprocesses)', () => {
     );
   });
 
-  it('bootstraps Vite+ when neither a local nor a global vp is installed', () => {
-    executable('npx');
-    executable('pnpm', 1);
+  it.each(['1.6.0', '^1.3.0'])(
+    'bootstraps the project-selected Vite+ %s without a local or global vp',
+    (version) => {
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      pkg.devDependencies['vite-plus'] = version;
+      writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
+      executable('npx');
+      executable('pnpm', 1);
 
-    installProjectDependencies(root, 'pnpm');
+      installProjectDependencies(root, 'pnpm');
 
-    // Assert the received argv: Windows cmd.exe must preserve the semver caret.
-    expect(calls()).toEqual([
-      {
-        command: 'npx',
-        args: ['--yes', '--package=vite-plus@^1.7.0', 'vp', 'install', '--no-frozen-lockfile'],
-        cwd: root,
-      },
-    ]);
-  });
+      // Assert the received argv: Windows cmd.exe must preserve the semver caret.
+      expect(calls()).toEqual([
+        {
+          command: 'npx',
+          args: [
+            '--yes',
+            `--package=vite-plus@${version}`,
+            'vp',
+            'install',
+            '--no-frozen-lockfile',
+          ],
+          cwd: root,
+        },
+      ]);
+    },
+  );
+
+  it.each([
+    ['pnpm', ''],
+    ['pnpm', 'tools'],
+    ['bun', ''],
+    ['bun', 'tools'],
+  ] as const)(
+    'bootstraps the Vite+ version from the %s workspace catalog (%s)',
+    (manager, catalog) => {
+      const member = join(root, 'packages/app');
+      mkdirSync(member, { recursive: true });
+      writeFileSync(
+        join(member, 'package.json'),
+        JSON.stringify({
+          devDependencies: { 'vite-plus': 'catalog:' + catalog },
+        }),
+      );
+      if (manager === 'pnpm') {
+        writeFileSync(
+          join(root, 'pnpm-workspace.yaml'),
+          'packages: [packages/*]\n' +
+            (catalog
+              ? 'catalogs: { tools: { vite-plus: "1.6.0" } }\n'
+              : 'catalog: { vite-plus: "1.6.0" }\n'),
+        );
+      } else {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({
+            workspaces: {
+              packages: ['packages/*'],
+              ...(catalog
+                ? { catalogs: { tools: { 'vite-plus': '1.6.0' } } }
+                : { catalog: { 'vite-plus': '1.6.0' } }),
+            },
+          }),
+        );
+      }
+      executable('npx');
+      installProjectDependencies(member, manager);
+      expect(calls()).toEqual([
+        {
+          command: 'npx',
+          args: ['--yes', '--package=vite-plus@1.6.0', 'vp', 'install', '--no-frozen-lockfile'],
+          cwd: member,
+        },
+      ]);
+    },
+  );
 
   it('reports a Vite+ install failure without retrying through another installer', () => {
     executable('vp', 7);

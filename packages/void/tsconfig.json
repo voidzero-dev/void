@@ -4,6 +4,7 @@
     "module": "NodeNext",
     "lib": ["ES2022"],
     "moduleResolution": "NodeNext",
+    "resolveJsonModule": true,
     "paths": {
       "*": ["./*"],
       "void": ["./src/index.ts"],

@@ -26,6 +26,7 @@ import {
 } from '../../src/cli/init.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { readDeploymentPlatform } from '../../src/cli/project.ts';
+import { SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES } from '../../src/cli/template.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
 import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';
@@ -1453,8 +1454,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.react).toBeDefined();
       expect(pkg.dependencies['react-dom']).toBeDefined();
       expect(pkg.dependencies.hono).toBeDefined();
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.7.0');
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies.typescript).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
@@ -1672,8 +1675,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.hono).toBeDefined();
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.7.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.packageManager).toBeUndefined();
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
@@ -1734,19 +1739,94 @@ describe('isScaffoldableEmptyProject', () => {
         );
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-        expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
+        expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {
-          expect(pkg.overrides.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
+          expect(pkg.overrides.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         } else if (packageManager.startsWith('yarn@')) {
-          expect(pkg.resolutions.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
+          expect(pkg.resolutions.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         }
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     },
   );
+
+  it.each(['npm', 'pnpm', 'yarn', 'bun'])(
+    'preserves an existing Vite+ pairing and overrides with %s',
+    async (manager) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-existing-vp-'));
+      const core = 'npm:@voidzero-dev/vite-plus-core@8.4.1000';
+      const policy = { vite: core, vitest: '5.2.0', unrelated: '^2.0.0' };
+      try {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({
+            packageManager: manager + '@1.0.0',
+            devDependencies: { 'vite-plus': '1.8.0', vite: core, '@void/react': '^1.10.0' },
+            ...(manager === 'yarn' ? { resolutions: policy } : { overrides: policy }),
+          }),
+        );
+        if (manager === 'pnpm') {
+          writeFileSync(
+            join(root, 'pnpm-workspace.yaml'),
+            '# User toolchain\noverrides: { "vite@*": "' + core + '", "vitest@*": "5.2.0" }\n',
+          );
+        }
+        mockSelect.mockResolvedValueOnce('vite-plus').mockResolvedValueOnce('static');
+        mockConfirm.mockResolvedValueOnce(false);
+        await runInitCommand(root);
+        expect(existsSync(join(root, 'pages/index.tsx'))).toBe(true);
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+        expect(pkg.devDependencies).toMatchObject({ 'vite-plus': '1.8.0', vite: core });
+        expect(manager === 'yarn' ? pkg.resolutions : pkg.overrides).toEqual(policy);
+        if (manager === 'pnpm') {
+          expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+            '"vite@*": "' + core + '"',
+          );
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('preserves catalog references when scaffolding with an existing Vite+ toolchain', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-catalog-vp-'));
+    try {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({
+          packageManager: 'pnpm@12.4.1',
+          devDependencies: {
+            '@void/react': '^1.10.0',
+            'vite-plus': 'catalog:tools',
+            vite: 'catalog:',
+          },
+        }),
+      );
+      writeFileSync(
+        join(root, 'pnpm-workspace.yaml'),
+        '# Selected toolchain\ncatalog: { vite: "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n' +
+          'catalogs: { tools: { vite-plus: "1.6.0" } }\noverrides: { "vite@*": "catalog:" }\n',
+      );
+      mockSelect.mockResolvedValueOnce('vite-plus').mockResolvedValueOnce('static');
+      mockConfirm.mockResolvedValueOnce(false);
+      await runInitCommand(root);
+      expect(existsSync(join(root, 'pages/index.tsx'))).toBe(true);
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devDependencies).toMatchObject({ 'vite-plus': 'catalog:tools', vite: 'catalog:' });
+      expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+        '"vite@*": "catalog:"',
+      );
+      expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+        'vite-plus: "1.6.0"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it.each(['package-lock.json', 'yarn.lock', 'bun.lock'])(
     'preserves %s without switching a Vite+ starter to pnpm',
@@ -1815,7 +1895,9 @@ describe('isScaffoldableEmptyProject', () => {
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.7.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.devDependencies.void).toBe('^0.8.9');
       expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8')).toContain(
         'voidReact({ react: { compiler: true } })',
@@ -1852,7 +1934,9 @@ describe('isScaffoldableEmptyProject', () => {
 
       const appRoot = join(root, 'my-new-app');
       const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf-8'));
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.7.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf-8')).toContain(
         'Welcome to Void',
@@ -2974,8 +3058,10 @@ export default config;
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.7.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^8.3.8000');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.devDependencies.void).toBe('^0.2.3');
       expect(pkg.devDependencies['@void/react']).toBe('^0.2.3');
       expect(pkg.devDependencies['oxc-transform-react']).toBe('>=0.152.0 <0.157.0');
@@ -3843,6 +3929,46 @@ export default config;
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  it.each([false, true])(
+    'keeps the workspace Vite+ toolchain for a new member (catalog: %s)',
+    async (catalog) => {
+      const wsroot = mkdtempSync(join(tmpdir(), 'void-init-vp-workspace-'));
+      try {
+        const pair = {
+          'vite-plus': catalog ? 'catalog:tools' : '1.6.0',
+          vite: catalog ? 'catalog:' : 'npm:@voidzero-dev/vite-plus-core@1.6.0',
+        };
+        writeFileSync(
+          join(wsroot, 'package.json'),
+          JSON.stringify({ private: true, devDependencies: pair }),
+        );
+        writeFileSync(
+          join(wsroot, 'pnpm-workspace.yaml'),
+          'packages: [packages/*]\ncatalog: { vite: "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n' +
+            'catalogs: { tools: { vite-plus: "1.6.0" } }\noverrides: { "vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n',
+        );
+        const member = join(wsroot, 'packages/app');
+        mkdirSync(member, { recursive: true });
+        mockSelect
+          .mockResolvedValueOnce('vite-plus')
+          .mockResolvedValueOnce('react')
+          .mockResolvedValueOnce('static');
+        mockConfirm.mockResolvedValueOnce(false);
+        await runInitCommand(member);
+        expect(existsSync(join(member, 'pages/index.tsx'))).toBe(true);
+        expect(
+          JSON.parse(readFileSync(join(member, 'package.json'), 'utf8')).devDependencies,
+        ).toMatchObject(pair);
+        expect(readFileSync(join(wsroot, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+          '"vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0"',
+        );
+        expect(installCalls()).toHaveLength(0);
+      } finally {
+        rmSync(wsroot, { recursive: true, force: true });
+      }
+    },
+  );
 
   it('void init in an empty pnpm workspace subpackage skips leaf install and starter migration', async () => {
     const wsroot = mkdtempSync(join(tmpdir(), 'void-init-'));

@@ -277,12 +277,12 @@ try {
         if (useVitePlus) {
           assert.equal(
             manifest.devDependencies['vite-plus'],
-            `^${vitePlusVersion}`,
+            vitePlusVersion,
             'Vite+ init must match the tested workspace toolchain',
           );
           assert.equal(
             manifest.devDependencies.vite,
-            `npm:@voidzero-dev/vite-plus-core@^${vitePlusCoreVersion}`,
+            `npm:@voidzero-dev/vite-plus-core@${vitePlusCoreVersion}`,
             'Vite+ init must use the matching core alias',
           );
           const installedVitePlus = JSON.parse(
@@ -290,9 +290,18 @@ try {
           );
           assert.equal(installedVitePlus.name, 'vite-plus');
           assert.equal(
-            installedVitePlus.version.split('.')[0],
-            vitePlusVersion.split('.')[0],
-            'The consumer must use a compatible Vite+ release',
+            installedVitePlus.version,
+            vitePlusVersion,
+            'The consumer must use the tested Vite+ release',
+          );
+          const installedCore = JSON.parse(
+            readFileSync(join(fixture, 'node_modules/vite/package.json'), 'utf8'),
+          );
+          assert.equal(installedCore.version, vitePlusCoreVersion);
+          assert.equal(
+            installedVitePlus.dependencies.vite,
+            `npm:@voidzero-dev/vite-plus-core@${installedCore.version}`,
+            'The installed CLI and core must belong to the same toolchain release',
           );
         } else {
           assert(

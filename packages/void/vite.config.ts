@@ -194,6 +194,8 @@ export default defineConfig({
         'picocolors',
         'ofetch',
         'pathslash',
+        // Only package.json is imported, to embed the tested starter toolchain.
+        'vite-plus',
         // Dependency-free; bundled so the CLI interactivity gate (`isWranglerNonInteractiveOrCI`)
         // adds no runtime dependency.
         'ci-info',

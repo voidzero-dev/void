@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
+import vitePlus from 'vite-plus/package.json' with { type: 'json' };
 import { renderVoidConfig } from '../config-write.ts';
 import { getPackageDir } from './agents.ts';
 import starterStyles from './starter-ui.css?raw';
@@ -30,10 +31,12 @@ export const SCAFFOLD_BASE_DEV_DEPENDENCIES = {
   typescript: '^7.0.2',
 } as const;
 
-export const SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES = {
-  vite: 'npm:@voidzero-dev/vite-plus-core@^8.3.8000',
-  'vite-plus': '^1.7.0',
-} as const;
+// Bundle the tested release's metadata into the CLI: Vite+ and its core must
+// upgrade together, and their version numbers need not match.
+export const SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES: Readonly<Record<'vite' | 'vite-plus', string>> = {
+  vite: vitePlus.dependencies.vite,
+  'vite-plus': vitePlus.version,
+};
 
 export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
   {
