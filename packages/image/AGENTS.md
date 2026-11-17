@@ -1,0 +1,17 @@
+# @void/image
+
+Image generation and Open Graph image responses for Void.
+
+The public entry is `@void/image/generate`; do not add generation exports to the package root.
+Keep `void/html` in the core package and import only public Void APIs across the package boundary.
+
+Takumi stays an external runtime dependency of this package. Always pass the explicitly initialized
+WASM renderer to `render`; the default Takumi backend uses native addons on Node.js and Bun.
+Cloudflare bundles the WASM into its Worker; Node.js and Bun use installed production dependencies.
+
+Keep the embedded Inter module, generation script, and `licenses/Inter.txt` together. Normal builds
+must remain offline; only `node packages/image/scripts/embed-inter.mjs` downloads font sources.
+
+Tests live in `test/unit` and `test/integration`. Follow [TESTING.md](../../TESTING.md) for
+verification, including packed npm/pnpm consumers and real Bun execution. Keep renderer retention,
+concurrent font loading, HTML escaping, no-React, and no-image consumer coverage.

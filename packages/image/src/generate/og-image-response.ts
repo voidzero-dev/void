@@ -1,6 +1,6 @@
-import { ImageResponse, type ImageInput, type RenderImageOptions } from './image.ts';
+import { ImageResponse, type ImageInput, type RenderImageOptions } from './image-response.ts';
 
-const DEFAULT_CACHE_MAX_AGE = 86400;
+const DEFAULT_CACHE_MAX_AGE = 86400; // 24hrs
 
 export type OgImagePreset =
   | 'facebook'
@@ -12,7 +12,7 @@ export type OgImagePreset =
   | 'pinterest'
   | 'default';
 
-const DEFAULT_IMAGE_SIZE : [number, number] = [1200, 630];
+const DEFAULT_IMAGE_SIZE: [number, number] = [1200, 630];
 
 /**
  * Social preview rendering presets in [width, height] pixels.
@@ -35,9 +35,9 @@ export const ogImageSizes: Record<OgImagePreset, [number, number]> = {
   'x-summary': [600, 600],
 
   // https://help.pinterest.com/en/business/article/pinterest-product-specs
-  'pinterest': [1000, 1500],
+  pinterest: [1000, 1500],
 
-  default: DEFAULT_IMAGE_SIZE
+  default: DEFAULT_IMAGE_SIZE,
 };
 
 type RenderOgImageOptionsBase = Omit<RenderImageOptions, 'width' | 'height'>;

@@ -120,8 +120,6 @@ export default defineConfig({
       'src/runtime/limits/index.ts',
       'src/runtime/email/index.ts',
       'src/runtime/email/protocol.ts',
-      'src/runtime/image.ts',
-      'src/runtime/og.ts',
       'src/runtime/html.ts',
       'src/runtime/email/testing.ts',
       'src/runtime/sandbox/index.ts',

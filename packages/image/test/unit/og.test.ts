@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { html } from '../../src/runtime/html.ts';
-import { ImageResponse } from '../../src/runtime/image.ts';
-import { OgImageResponse } from '../../src/runtime/og.ts';
+import { html } from 'void/html';
+import { ImageResponse, OgImageResponse } from '../../src/generate/index.ts';
 
 const card = html`<div style="display:flex">Hello</div>`;
 

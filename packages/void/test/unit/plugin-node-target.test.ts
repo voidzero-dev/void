@@ -46,6 +46,22 @@ async function requestThrough(middleware: Middleware, path: string): Promise<Res
 }
 
 describe('nodeTargetPlugin request bridge', () => {
+  it('leaves image generation and its WASM loader with installed dependencies', async () => {
+    const config = await getHookHandler(servePlugin().config)!.call(
+      {} as never,
+      {},
+      { command: 'serve', mode: 'development', isSsrBuild: false, isPreview: false },
+    );
+    expect(config?.ssr?.external).toContain('@void/image');
+    const noExternal = config?.ssr?.noExternal as Array<string | RegExp>;
+    expect(
+      noExternal.some((entry) =>
+        typeof entry === 'string' ? entry === '@void/image' : entry.test('@void/image'),
+      ),
+    ).toBe(false);
+    expect(noExternal).not.toContain('takumi-js');
+  });
+
   it('keeps every Set-Cookie header in dev', async () => {
     let middleware: Middleware | undefined;
     const app = {

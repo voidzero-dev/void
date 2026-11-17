@@ -1,0 +1,48 @@
+{
+  "name": "@void/image",
+  "version": "1.8.0",
+  "description": "Image generation and Open Graph image responses for Void.",
+  "homepage": "https://void.cloud",
+  "bugs": {
+    "url": "https://github.com/voidzero-dev/void/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/voidzero-dev/void.git",
+    "directory": "packages/image"
+  },
+  "files": [
+    "dist",
+    "licenses"
+  ],
+  "type": "module",
+  "exports": {
+    "./generate": {
+      "types": "./dist/generate.d.mts",
+      "import": "./dist/generate.mjs"
+    }
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "build": "vp pack",
+    "dev": "vp pack --watch",
+    "typecheck": "tsc --noEmit --rootDir ../.."
+  },
+  "dependencies": {
+    "takumi-js": "~2.20.0"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "miniflare": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:",
+    "void": "workspace:*"
+  },
+  "peerDependencies": {
+    "void": "workspace:*"
+  }
+}

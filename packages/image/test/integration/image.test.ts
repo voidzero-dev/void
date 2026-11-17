@@ -15,19 +15,25 @@ import spawn from 'cross-spawn';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { killChild, startServer, waitForServer } from '../../../../test/integration-helpers.ts';
-import { collectPrerenderWorkerModules } from '../../src/prerender.ts';
+import { collectPrerenderWorkerModules } from '../../../void/src/prerender.ts';
 
 const repository = join(import.meta.dirname, '..', '..', '..', '..');
 const CACHE_HEADER = null;
 // Vitest sets NODE_ENV=test, which would make Vite build in development mode.
 const { NODE_ENV: _nodeEnv, ...userEnv } = process.env;
 
+it('has Bun available in CI', () => {
+  if (process.env.CI) {
+    expect(spawn.sync('bun', ['--version']).status).toBe(0);
+  }
+});
+
 const IMAGE_ROUTE = `import { html } from 'void/html';
-import { ImageResponse } from 'void/image';
+import { ImageResponse } from '@void/image/generate';
 export const GET = (c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
 `;
 // A .tsx route, as the guide shows.
-const CARD_ROUTE = `import { ImageResponse } from 'void/image';
+const CARD_ROUTE = `import { ImageResponse } from '@void/image/generate';
 function Card({ title }: { title: string }) {
   return <div style={{ display: 'flex', width: '100%', height: '100%', fontSize: 64 }}>{title}</div>;
 }
@@ -52,9 +58,11 @@ function createApp(
   mkdirSync(parent, { recursive: true });
   const root = mkdtempSync(join(parent, 'test-image-'));
   fixtures.push(root);
+  const needsImage = Object.values(files).some((source) => source.includes('@void/image/generate'));
   const packages = {
     'vite-plus': 'node_modules/vite-plus',
     void: 'packages/void',
+    ...(needsImage ? { '@void/image': 'packages/image' } : {}),
     ...links,
   };
   for (const [name, source] of Object.entries(packages)) {
@@ -70,6 +78,10 @@ function createApp(
       name: `image-${root.slice(-6)}`,
       private: true,
       type: 'module',
+      dependencies: {
+        ...(needsImage ? { '@void/image': 'workspace:*' } : {}),
+        void: 'workspace:*',
+      },
     }),
     'vite.config.ts': `import { defineConfig } from 'vite-plus';
 import { voidPlugin } from 'void';
@@ -165,7 +177,7 @@ afterAll(() => {
   }
 });
 
-describe('void/image in a Cloudflare app', () => {
+describe('@void/image/generate in a Cloudflare app', () => {
   let root: string;
   beforeAll(() => {
     root = createApp(
@@ -217,7 +229,7 @@ describe('void/image in a Cloudflare app', () => {
   });
 });
 
-describe('void/image in a Cloudflare app without React', () => {
+describe('@void/image/generate in a Cloudflare app without React', () => {
   it('renders HTML in the built Worker', async () => {
     // Takumi's JSX helper imports React as an optional peer; the HTML route needs none.
     const root = createApp({ 'routes/api/image.ts': IMAGE_ROUTE }, {});
@@ -227,7 +239,7 @@ describe('void/image in a Cloudflare app without React', () => {
 });
 
 describe.each(['cloudflare', 'node'] as const)(
-  'a %s app with void/html but without void/image',
+  'a %s app with void/html but without image generation',
   (target) => {
     it('bundles no image renderer for escaped HTML', async () => {
       const root = createApp(
@@ -264,113 +276,123 @@ export const GET = defineHandler(async (c) => c.html(await html\`<h1>\${Promise.
   },
 );
 
-describe.each(['node', 'bun', 'deno'] as const)('void/image on the %s target', (target) => {
-  let child: ReturnType<typeof spawn> | undefined;
-  afterAll(async () => {
-    if (child) {
-      await killChild(child);
-    }
-  });
-
-  it.skipIf(spawn.sync(target, ['--version']).status !== 0)(
-    'renders bundled WASM without app-installed Takumi, even after moving the output',
-    async () => {
-      const root = createApp(
-        { 'routes/api/image.ts': IMAGE_ROUTE },
-        {
-          hono: 'packages/void/node_modules/hono',
-          '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server',
-        },
-        `{ target: '${target}' }`,
-      );
-      build(root);
-      expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
-      const code = builtFiles(root)
-        .filter((file) => file.endsWith('.js'))
-        .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
-        .join('\n');
-      expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(1);
-      expect(code).not.toContain('@takumi-rs/core');
-      expect(code).not.toMatch(/^import .* from ["']takumi-js/m);
-      const relocated = mkdtempSync(join(tmpdir(), 'void-image-output-'));
-      fixtures.push(relocated);
-      cpSync(join(root, 'dist'), join(relocated, 'dist'), { recursive: true });
-      // Only HTTP dependencies are external. Neither Void nor Takumi is installed here.
-      mkdirSync(join(relocated, 'node_modules/@hono'), { recursive: true });
-      symlinkSync(
-        realpathSync(join(repository, 'playground/node-app/node_modules/@hono/node-server')),
-        join(relocated, 'node_modules/@hono/node-server'),
-        process.platform === 'win32' ? 'junction' : 'dir',
-      );
-      symlinkSync(
-        realpathSync(join(repository, 'packages/void/node_modules/hono')),
-        join(relocated, 'node_modules/hono'),
-        process.platform === 'win32' ? 'junction' : 'dir',
-      );
-      writeFileSync(
-        join(relocated, 'package.json'),
-        JSON.stringify({
-          type: 'module',
-          dependencies: { hono: '*', '@hono/node-server': '*' },
-        }),
-      );
-      const server = await startServer((port) => {
-        const entry = join(relocated, 'dist/ssr/index.js');
-        child = spawn(target, target === 'deno' ? ['run', '--allow-all', entry] : [entry], {
-          cwd: repository,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: { ...userEnv, PORT: String(port) },
-        });
-        return child;
-      }, 20_000);
-      await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
-    },
-  );
-
-  it.runIf(target === 'node')(
-    'keeps an app-owned incompatible Takumi separate in build and dev',
-    async () => {
-      const root = createApp(
-        {
-          'routes/api/image.ts': IMAGE_ROUTE,
-          'routes/api/renderer.ts':
-            "import { renderer } from 'takumi-js'; export const GET = () => renderer;",
-          'node_modules/takumi-js/package.json': JSON.stringify({
-            name: 'takumi-js',
-            version: '3.0.0',
-            type: 'module',
-            exports: './index.mjs',
-          }),
-          'node_modules/takumi-js/index.mjs': "export const renderer = 'app-owned';",
-        },
-        { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
-        `{ target: 'node' }`,
-      );
-      build(root);
-      const code = builtFiles(root)
-        .filter((file) => file.endsWith('.js'))
-        .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
-        .join('\n');
-      expect(code).toMatch(/^import .* from ["']takumi-js/m);
+describe.each(['node', 'bun', 'deno'] as const)(
+  '@void/image/generate on the %s target',
+  (target) => {
+    let child: ReturnType<typeof spawn> | undefined;
+    afterAll(async () => {
       if (child) {
         await killChild(child);
       }
-      const server = await startServer((port) => {
-        child = spawn(
-          'vp',
-          ['dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+    });
+
+    it.skipIf(spawn.sync(target, ['--version']).status !== 0)(
+      'renders installed WASM without app-installed Takumi, even after moving the output',
+      async () => {
+        const root = createApp(
+          { 'routes/api/image.ts': IMAGE_ROUTE },
           {
-            cwd: root,
-            stdio: ['ignore', 'pipe', 'pipe'],
-            env: userEnv,
+            hono: 'packages/void/node_modules/hono',
+            '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server',
           },
+          `{ target: '${target}' }`,
         );
-        return child;
-      }, 30_000);
-      await expectImage(await fetch(`${server.base}/api/image`), 'no-store');
-      const response = await fetch(`${server.base}/api/renderer`);
-      expect(response.status, server.output()).toBe(200);
-      expect(await response.text()).toBe('app-owned');
-    },
-  );
-});
+        build(root);
+        expect(builtFiles(root).filter((file) => file.endsWith('.node'))).toEqual([]);
+        const code = builtFiles(root)
+          .filter((file) => file.endsWith('.js'))
+          .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
+          .join('\n');
+        expect(builtFiles(root).filter((file) => file.endsWith('.wasm'))).toHaveLength(0);
+        expect(code).not.toContain('@takumi-rs/core');
+        expect(code).not.toMatch(/^import .* from ["']takumi-js/m);
+        expect(code).toContain('@void/image/generate');
+        const relocated = mkdtempSync(join(tmpdir(), 'void-image-output-'));
+        fixtures.push(relocated);
+        cpSync(join(root, 'dist'), join(relocated, 'dist'), { recursive: true });
+        // Install the image package with its own transitive dependencies, not app-owned Takumi.
+        mkdirSync(join(relocated, 'node_modules/@void'), { recursive: true });
+        symlinkSync(
+          realpathSync(join(repository, 'packages/image')),
+          join(relocated, 'node_modules/@void/image'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        );
+        mkdirSync(join(relocated, 'node_modules/@hono'), { recursive: true });
+        symlinkSync(
+          realpathSync(join(repository, 'playground/node-app/node_modules/@hono/node-server')),
+          join(relocated, 'node_modules/@hono/node-server'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        );
+        symlinkSync(
+          realpathSync(join(repository, 'packages/void/node_modules/hono')),
+          join(relocated, 'node_modules/hono'),
+          process.platform === 'win32' ? 'junction' : 'dir',
+        );
+        writeFileSync(
+          join(relocated, 'package.json'),
+          JSON.stringify({
+            type: 'module',
+            dependencies: { hono: '*', '@hono/node-server': '*', '@void/image': '*' },
+          }),
+        );
+        const server = await startServer((port) => {
+          const entry = join(relocated, 'dist/ssr/index.js');
+          child = spawn(target, target === 'deno' ? ['run', '--allow-all', entry] : [entry], {
+            cwd: repository,
+            stdio: ['ignore', 'pipe', 'pipe'],
+            env: { ...userEnv, PORT: String(port) },
+          });
+          return child;
+        }, 20_000);
+        await expectFontSelection((query) => fetch(`${server.base}/api/image${query}`));
+      },
+    );
+
+    it.runIf(target === 'node')(
+      'keeps an app-owned incompatible Takumi separate in build and dev',
+      async () => {
+        const root = createApp(
+          {
+            'routes/api/image.ts': IMAGE_ROUTE,
+            'routes/api/renderer.ts':
+              "import { renderer } from 'takumi-js'; export const GET = () => renderer;",
+            'node_modules/takumi-js/package.json': JSON.stringify({
+              name: 'takumi-js',
+              version: '3.0.0',
+              type: 'module',
+              exports: './index.mjs',
+            }),
+            'node_modules/takumi-js/index.mjs': "export const renderer = 'app-owned';",
+          },
+          { '@hono/node-server': 'playground/node-app/node_modules/@hono/node-server' },
+          `{ target: 'node' }`,
+        );
+        build(root);
+        const code = builtFiles(root)
+          .filter((file) => file.endsWith('.js'))
+          .map((file) => readFileSync(join(root, 'dist/ssr', file), 'utf8'))
+          .join('\n');
+        expect(code).toMatch(/^import .* from ["']takumi-js/m);
+        if (child) {
+          await killChild(child);
+        }
+        const server = await startServer((port) => {
+          child = spawn(
+            'vp',
+            ['dev', '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
+            {
+              cwd: root,
+              stdio: ['ignore', 'pipe', 'pipe'],
+              env: userEnv,
+            },
+          );
+          return child;
+        }, 30_000);
+        await expectImage(await fetch(`${server.base}/api/image`), 'no-store');
+        const response = await fetch(`${server.base}/api/renderer`);
+        expect(response.status, server.output()).toBe(200);
+        expect(await response.text()).toBe('app-owned');
+      },
+    );
+  },
+);

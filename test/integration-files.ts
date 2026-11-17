@@ -9,6 +9,7 @@ export const integrationTestDirs: ReadonlyArray<string> = [
   // silently undiscovered; it runs only when its env vars are set.
   'packages/void/test/e2e',
   'packages/md/test/integration',
+  'packages/image/test/integration',
   'packages/react/test/integration',
   'packages/vue/test/integration',
   'packages/svelte/test/integration',
