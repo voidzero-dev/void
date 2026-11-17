@@ -2,12 +2,14 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { drizzle } from 'drizzle-orm/d1';
 import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core';
 import { Hono } from 'hono';
 import { convertV4MiniflareOptions, Miniflare } from 'miniflare';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
 import * as runtimeDb from '../../src/runtime/db/index.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
 import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { getHookHandler } from '../helpers/vite-hooks.ts';
 
@@ -51,8 +53,8 @@ async function loadGeneratedDb(bindingName: string): Promise<typeof runtimeDb> {
 // Model only the session boundary here, as in auth-d1-database.test.ts:
 // PRIMARY advances after a write, REPLICA stays at the original profile.
 // These opaque tokens belong to this fixture, not to Miniflare's Sessions API.
-const BEFORE_SAVE = 'test-bookmark-before-save';
-const AFTER_SAVE = 'test-bookmark-after-save';
+const BEFORE_SAVE = 'test-bookmark-001-before-save';
+const AFTER_SAVE = 'test-bookmark-002-after-save';
 
 function laggingBinding(primary: D1Database, replica: D1Database) {
   const withSession = vi.fn((start: string = 'first-unconstrained') => {
@@ -194,7 +196,9 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
 
   function mockBinding() {
     const withSession = vi.fn((start: string) => ({
-      getBookmark: () => (start === 'first-unconstrained' ? null : start),
+      getBookmark: vi.fn((): string | null =>
+        start === 'first-unconstrained' || start === 'first-primary' ? null : start,
+      ),
     }));
     return { withSession, env: { [testCase.bindingName]: { withSession } } };
   }
@@ -212,17 +216,91 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     expect(withRuntimeEnv(env, getBookmark)).toBeNull();
   });
 
-  it('rejects reconfiguration after db is used and keeps the original session', async () => {
+  it.each([AFTER_SAVE, 'first-primary'])(
+    'preserves configured %s when nested middleware supplies no bookmark before db use',
+    async (start) => {
+      const { db, setSession } = await loadClient();
+      const { withSession, env } = mockBinding();
+      withRuntimeEnv(env, () => {
+        setSession(start);
+        setSession('first-unconstrained');
+        void db.select();
+      });
+      expect(withSession).toHaveBeenCalledExactlyOnceWith(start);
+    },
+  );
+
+  it.each([
+    [AFTER_SAVE, BEFORE_SAVE],
+    [BEFORE_SAVE, AFTER_SAVE],
+    [AFTER_SAVE, 'first-primary'],
+    ['first-primary', AFTER_SAVE],
+  ] as const)('still replaces unopened %s with %s', async (start, replacement) => {
+    const { db, setSession } = await loadClient();
+    const { withSession, env } = mockBinding();
+    withRuntimeEnv(env, () => {
+      setSession(start);
+      setSession(replacement);
+      void db.select();
+    });
+    expect(withSession).toHaveBeenCalledExactlyOnceWith(replacement);
+  });
+
+  it('rejects stronger requirements after db is used and keeps the original session', async () => {
     const { db, getBookmark, setSession } = await loadClient();
     const { withSession, env } = mockBinding();
     withRuntimeEnv(env, () => {
-      setSession(AFTER_SAVE);
+      setSession(BEFORE_SAVE);
       void db.select();
-      expect(() => setSession(BEFORE_SAVE)).toThrow('before the first use of db');
+      expect(() => setSession(AFTER_SAVE)).toThrow('createDb');
+      expect(() => setSession('first-primary')).toThrow('createDb');
+      expect(getBookmark()).toBe(BEFORE_SAVE);
+      expect(getBookmark(db)).toBe(BEFORE_SAVE);
+      withSession.mock.results[0]!.value.getBookmark.mockReturnValue(AFTER_SAVE);
+      expect(() => setSession('test-bookmark-003-newer')).toThrow('createDb');
+      expect(() => setSession('first-primary')).toThrow('createDb');
       expect(getBookmark()).toBe(AFTER_SAVE);
-      expect(getBookmark(db)).toBe(AFTER_SAVE);
     });
-    expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
+    expect(withSession).toHaveBeenCalledExactlyOnceWith(BEFORE_SAVE);
+  });
+
+  it.each(['first-unconstrained', 'first-primary', BEFORE_SAVE])(
+    'preserves an opened %s session when repeated middleware requirements are satisfied',
+    async (start) => {
+      const { db, getBookmark, setSession } = await loadClient();
+      const { withSession, env } = mockBinding();
+      withRuntimeEnv(env, () => {
+        setSession(start);
+        void db.select();
+        setSession(start);
+        setSession('first-unconstrained');
+        const session = withSession.mock.results[0]!.value;
+        // D1 advances the bookmark as queries complete. Compare against that
+        // progress, not just the session's original starting value.
+        session.getBookmark.mockReturnValue(AFTER_SAVE);
+        setSession(BEFORE_SAVE);
+        setSession(AFTER_SAVE);
+        setSession('first-unconstrained');
+        setSession(start);
+        expect(getBookmark()).toBe(AFTER_SAVE);
+        expect(getBookmark(db)).toBe(AFTER_SAVE);
+        void db.select();
+      });
+      expect(withSession).toHaveBeenCalledExactlyOnceWith(start);
+    },
+  );
+
+  it('rejects a bookmark requirement on an opened session with no observed bookmark', async () => {
+    const { db, setSession, getBookmark } = await loadClient();
+    const { withSession, env } = mockBinding();
+    withRuntimeEnv(env, () => {
+      void db.select();
+      setSession('first-unconstrained');
+      expect(() => setSession(BEFORE_SAVE)).toThrow('createDb');
+      expect(() => setSession('first-primary')).toThrow('createDb');
+      expect(getBookmark()).toBeNull();
+    });
+    expect(withSession).toHaveBeenCalledExactlyOnceWith('first-unconstrained');
   });
 
   it('keeps overlapping requests and explicit clients independent', async () => {
@@ -237,7 +315,8 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
       void db.select();
       await resumed;
       expect(getBookmark()).toBe(AFTER_SAVE);
-      expect(() => setSession(BEFORE_SAVE)).toThrow('before the first use of db');
+      setSession(BEFORE_SAVE);
+      expect(getBookmark()).toBe(AFTER_SAVE);
     });
     try {
       await withRuntimeEnv(env, async () => {
@@ -283,4 +362,22 @@ describe.each(clients)('$module / $bindingName session lifecycle', (testCase) =>
     expect(getBookmark(client)).toBe(AFTER_SAVE);
     expect(withSession).toHaveBeenCalledExactlyOnceWith(AFTER_SAVE);
   });
+
+  it('rejects bookmark inspection of a client backed by a bare D1 binding', async () => {
+    const { getBookmark } = await loadClient();
+    const { env } = mockBinding();
+    const client = drizzle(env[testCase.bindingName] as unknown as D1Database);
+    expect(() => getBookmark(client)).toThrow('requires a D1 session-backed client');
+  });
+});
+
+it('starts each published db access on primary outside a Void request scope', () => {
+  const withSession = vi.fn(() => ({ getBookmark: () => null }));
+  envContext.run({ DB: { withSession } }, () => {
+    void runtimeDb.db.select;
+    void runtimeDb.db.select;
+    void runtimeDb.db.select;
+  });
+  expect(withSession.mock.calls).toEqual([['first-primary'], ['first-primary'], ['first-primary']]);
+  expect(new Set(withSession.mock.results.map((result) => result.value)).size).toBe(3);
 });

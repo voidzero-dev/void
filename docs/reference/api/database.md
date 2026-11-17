@@ -67,7 +67,13 @@ function createDb(connectionString: string): MySql2Database<Schema>;
 
 ## `setSession(start)` {#setsession}
 
-D1 only. Set the starting bookmark or constraint for the default request's `db`. Call it in middleware before the first use of `db`; calling it after that throws. It does not change explicitly created clients or later requests.
+D1 only. Set the starting bookmark or constraint for the default request's `db`. Call it in middleware before the first use of `db`. It does not change explicitly created clients or later requests.
+
+Passing `'first-unconstrained'` preserves any bookmark or primary-first requirement already configured, even before the first use of `db`. Other starting values replace the configuration until the session opens.
+
+After the session opens, repeated calls preserve it when the requirement is already satisfied: the original starting value, `'first-unconstrained'`, or a bookmark no newer than the session's current bookmark. This lets middleware run again during a local server-side fetch without resetting database progress. Repeating `'first-primary'` does not force another primary read.
+
+A newer bookmark or changing an opened session to `'first-primary'` throws. Configure these before using `db`, or use `createDb(binding, { session })` for an independent session.
 
 ```ts
 function setSession(start: D1SessionConstraint | D1SessionBookmark): void;

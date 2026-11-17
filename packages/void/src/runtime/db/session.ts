@@ -40,9 +40,23 @@ export function createD1SessionAccess(bindingName: string): DbSessionAccess {
 
     setSession(start) {
       const current = state();
+      // Nested middleware may have no bookmark of its own. Its fallback must
+      // not discard the outer requirement, even before the first DB access.
+      if (start === 'first-unconstrained') {
+        return;
+      }
       if (current.session) {
+        // Middleware runs again on local server-side fetches. Repeated inputs
+        // must preserve the existing session and any progress made by queries.
+        if (start === current.start) {
+          return;
+        }
+        const bookmark = current.session.getBookmark();
+        if (start !== 'first-primary' && bookmark !== null && start <= bookmark) {
+          return;
+        }
         throw new Error(
-          'db: setSession() must be called before the first use of db in this request.',
+          'db: setSession() cannot strengthen an opened session. Call it before the first use of db, or use createDb(binding, { session }) with getBookmark(client) for an independent session.',
         );
       }
       current.start = start;
