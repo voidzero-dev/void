@@ -133,6 +133,27 @@ export function createIsolatedPlayground(
   };
 }
 
+/** Restore immutable production output, then give the server its own source and storage root. */
+export function createBuiltPlayground(
+  workspaceRoot: string,
+  playground: string,
+): IsolatedPlayground {
+  buildPlayground(workspaceRoot, playground);
+  const source = join(workspaceRoot, 'playground', playground);
+  const fixture = createIsolatedPlayground(workspaceRoot, `playground/${playground}`);
+  try {
+    for (const directory of ['dist', '.cloudflare']) {
+      if (existsSync(join(source, directory))) {
+        cpSync(join(source, directory), join(fixture.root, directory), { recursive: true });
+      }
+    }
+    return fixture;
+  } catch (error) {
+    fixture.cleanup();
+    throw error;
+  }
+}
+
 /** Link installed dependencies into a fixture without archiving or copying node_modules. */
 export function linkFixtureDependencies(
   sourceRoot: string,
