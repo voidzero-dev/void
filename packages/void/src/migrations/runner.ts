@@ -6,6 +6,8 @@ import { collectMigrations } from './collect.ts';
 import { classifyMigration } from './plan.ts';
 
 type SqliteStatement<T = unknown> = {
+  /** True when the statement returns rows (SELECT, PRAGMA reads, EXPLAIN, RETURNING). */
+  readonly reader: boolean;
   get(...params: Array<unknown>): T | undefined;
   all(...params: Array<unknown>): Array<T>;
   run(...params: Array<unknown>): unknown;

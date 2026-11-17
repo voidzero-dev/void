@@ -823,8 +823,7 @@ async function runSeed(
  * in either form, because PostgreSQL executes the analyzed statement.
  */
 function isSafeStatement(sql: string): boolean {
-  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
-  const stripped = decommented.replace(/;\s*$/, '');
+  const stripped = stripSqlDecoration(sql);
   if (stripped.includes(';')) {
     return false;
   }
@@ -842,6 +841,22 @@ function isSafeStatement(sql: string): boolean {
     return true;
   }
   return false;
+}
+
+/** Strip comments and a trailing semicolon so statement classification ignores decoration. */
+function stripSqlDecoration(sql: string): string {
+  return sql
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+    .replace(/--[^\n]*/g, ' ')
+    .replace(/;\s*$/, '');
+}
+
+/**
+ * True when `sql` holds more than one statement. This reads a semicolon inside a literal as a
+ * second statement, which only costs a script-style run.
+ */
+function hasMultipleStatements(sql: string): boolean {
+  return stripSqlDecoration(sql).includes(';');
 }
 
 /**
@@ -1092,15 +1107,25 @@ async function runExecute(
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    const trimmed = sql.trimStart();
-    if (/^SELECT\b/i.test(trimmed)) {
-      const rows = db.prepare(sql).all() as Array<Record<string, unknown>>;
-      if (rows.length === 0) {
-        log.info('No rows returned.');
+    try {
+      const statement = db.prepare(sql);
+      // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
+      // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
+      // target.
+      if (statement.reader) {
+        const rows = statement.all() as Array<Record<string, unknown>>;
+        if (rows.length > 0) {
+          printTable(rows);
+        }
       } else {
-        printTable(rows);
+        statement.run();
       }
-    } else {
+    } catch (error) {
+      // prepare() takes one statement at a time and exec() reports nothing back, so a
+      // script runs without printed results.
+      if (!hasMultipleStatements(sql)) {
+        throw error;
+      }
       db.exec(sql);
     }
   } finally {

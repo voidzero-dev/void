@@ -583,6 +583,24 @@ describe('void db export', () => {
   });
 });
 
+/** A project whose local D1 database is a real SQLite file, opened by the unmocked runner. */
+async function createLocalSqliteProject(): Promise<string> {
+  const root = mkdtempSync(join(tmpdir(), 'void-execute-sqlite-'));
+  rootsToClean.push(root);
+  writeFileSync(join(root, 'void.json'), JSON.stringify({}));
+  const dbPath = join(root, '.void', 'local.sqlite');
+  mkdirSync(join(root, '.void'), { recursive: true });
+  mockGetMiniflareDatabasePath.mockReturnValue(dbPath);
+  const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+  const db = await openSqliteDatabase(dbPath);
+  try {
+    db.exec('CREATE TABLE items (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT)');
+  } finally {
+    db.close();
+  }
+  return root;
+}
+
 describe('void db execute', () => {
   let runDbCommand: typeof import('../../src/cli/db.ts').runDbCommand;
 
@@ -594,10 +612,21 @@ describe('void db execute', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    mockGetMiniflareDatabasePath.mockReset();
+    mockOpenSqliteDatabase.mockReset();
     for (const root of rootsToClean.splice(0, rootsToClean.length)) {
       rmSync(root, { recursive: true, force: true });
     }
   });
+
+  // `runDbCommand` opens with a blank line, so only non-empty calls carry a table.
+  function tableOutput(): string {
+    return vi
+      .mocked(console.log)
+      .mock.calls.map((call) => String(call[0] ?? ''))
+      .filter((line) => line.length > 0)
+      .join('\n');
+  }
 
   it('reads an absolute --file path as given', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-execute-abs-'));
@@ -624,6 +653,82 @@ describe('void db execute', () => {
     await runDbCommand(root, { action: 'execute', file: join(elsewhere, 'query.sql') });
 
     expect(mockPgQuery).toHaveBeenCalledWith('UPDATE users SET id = id;');
+  });
+
+  it('SQLite: prints rows for any single statement that returns them', async () => {
+    const root = await createLocalSqliteProject();
+    const reads: Array<[string, RegExp]> = [
+      ['-- leading comment\nSELECT 1 AS value', /value/],
+      ['WITH example AS (SELECT 1 AS value) SELECT value FROM example', /value/],
+      ['PRAGMA database_list', /main/],
+      ['EXPLAIN QUERY PLAN SELECT 1', /SCAN|CONSTANT ROW/i],
+      ["INSERT INTO items (name) VALUES ('first') RETURNING id, name", /first/],
+    ];
+
+    for (const [sql, pattern] of reads) {
+      vi.mocked(console.log).mockClear();
+      await runDbCommand(root, { action: 'execute', command: sql });
+      expect(tableOutput(), sql).toMatch(pattern);
+    }
+  });
+
+  it('SQLite: keeps a single statement whose literal holds a semicolon', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, { action: 'execute', command: "SELECT 'a;b' AS value" });
+
+    expect(tableOutput()).toMatch(/a;b/);
+  });
+
+  it('SQLite: runs a trigger whose body holds semicolons', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command:
+        'CREATE TRIGGER items_touch AFTER INSERT ON items BEGIN UPDATE items SET name = name WHERE id = new.id; END;',
+    });
+
+    expect(tableOutput()).toBe('');
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "SELECT name FROM sqlite_master WHERE type = 'trigger'",
+    });
+    expect(tableOutput()).toMatch(/items_touch/);
+  });
+
+  it('SQLite: prints no table for writes, DDL and empty results', async () => {
+    const root = await createLocalSqliteProject();
+
+    for (const sql of [
+      "INSERT INTO items (name) VALUES ('second')",
+      'CREATE TABLE extra (id INTEGER)',
+      'SELECT * FROM items WHERE id < 0',
+    ]) {
+      vi.mocked(console.log).mockClear();
+      mockLog.info.mockClear();
+      await runDbCommand(root, { action: 'execute', command: sql });
+      expect(tableOutput(), sql).toBe('');
+      expect(mockLog.info, sql).not.toHaveBeenCalled();
+    }
+  });
+
+  it('SQLite: runs a multi-statement script without printing results', async () => {
+    const root = await createLocalSqliteProject();
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: "INSERT INTO items (name) VALUES ('script'); SELECT name FROM items;",
+    });
+
+    expect(tableOutput()).toBe('');
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      expect(db.prepare('SELECT name FROM items ORDER BY id').all()).toEqual([{ name: 'script' }]);
+    } finally {
+      db.close();
+    }
   });
 });
 
