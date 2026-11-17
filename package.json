@@ -17,6 +17,7 @@
     "lint": "vp lint",
     "prepare": "vp config && vp run build:core",
     "test": "node test/affected.mjs",
+    "test:benchmark": "vp test run --reporter=default --reporter=./test/performance-reporter.ts",
     "test:full": "vp test run",
     "test:integration": "vp test run --project parallel-integration",
     "test:metaframeworks": "vp test run --project parallel-integration analog.test.ts astro.test.ts nitro-worker.test.ts nuxt.test.ts react-router.test.ts sveltekit.test.ts tanstack-start.test.ts vinext-app.test.ts vinext-pages.test.ts",

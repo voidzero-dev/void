@@ -136,6 +136,17 @@ the cache for V8 coverage, and `NODE_V8_COVERAGE` disables it too, to preserve p
 
 ## Profiling slow tests
 
+Capture machine information, per-file phases, and individual test durations with:
+
+```sh
+vp run test:benchmark --outputFile=/tmp/void-test-baseline.json
+vp run test:benchmark packages/react/test/integration --outputFile=/tmp/void-react-tests.json
+```
+
+The reporter is opt-in and never skips tests. Keep the same selection, toolchain, cache state,
+and machine load when comparing reports. Per-file and per-case durations overlap when tests
+run concurrently; their sums are work estimates, not elapsed time or additive savings.
+
 Vitest 5's import diagnostics are opt-in so ordinary runs stay quiet:
 
 ```sh
