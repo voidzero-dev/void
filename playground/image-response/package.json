@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@void/image": "workspace:*",
     "hono": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"

@@ -1,0 +1,25 @@
+{
+  "name": "benchmark-image-response-bare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vp build",
+    "deploy": "cf deploy",
+    "deploy:prebuilt": "cf deploy --prebuilt",
+    "dev": "vp dev",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@void/image": "workspace:*",
+    "void": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/config": "catalog:",
+    "@cloudflare/workers-types": "catalog:",
+    "@types/node": "catalog:",
+    "cf": "catalog:",
+    "typescript": "catalog:",
+    "vite": "catalog:",
+    "vite-plus": "catalog:"
+  }
+}

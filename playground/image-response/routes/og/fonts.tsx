@@ -1,5 +1,5 @@
+import { ImageResponse, type ImageResponseOptions } from '@void/image/generate';
 import { defineHandler } from 'void';
-import { ImageResponse, type ImageResponseOptions } from 'void/image';
 import { Card } from '../../src/card.tsx';
 import { fontPresets } from '../../src/fonts.ts';
 

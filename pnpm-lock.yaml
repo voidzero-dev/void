@@ -503,6 +503,138 @@ importers:
         specifier: 'catalog:'
         version: 3.5.45(typescript@7.0.2)
 
+  benchmark:
+    devDependencies:
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.30(@types/node@26.6.6)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+
+  benchmark/baseline-void:
+    dependencies:
+      void:
+        specifier: workspace:*
+        version: link:../../packages/void
+    devDependencies:
+      '@cloudflare/config':
+        specifier: 'catalog:'
+        version: 0.32.0
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261110.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.30(@types/node@26.6.6)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
+
+  benchmark/baseline-workers:
+    devDependencies:
+      '@cloudflare/vite-plugin':
+        specifier: 'catalog:'
+        version: 2.0.0-beta.v.15(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261110.1)
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261110.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.30(@types/node@26.6.6)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
+
+  benchmark/image-response:
+    dependencies:
+      '@void/image':
+        specifier: workspace:*
+        version: link:../../packages/image
+      void:
+        specifier: workspace:*
+        version: link:../../packages/void
+    devDependencies:
+      '@cloudflare/build-output-utils':
+        specifier: 'catalog:'
+        version: 0.9.13
+      '@cloudflare/config':
+        specifier: 'catalog:'
+        version: 0.32.0
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261110.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.30(@types/node@26.6.6)
+      miniflare:
+        specifier: 'catalog:'
+        version: 5.20261110.1-beta(@types/node@26.6.6)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
+
+  benchmark/image-response-bare:
+    dependencies:
+      '@void/image':
+        specifier: workspace:*
+        version: link:../../packages/image
+      void:
+        specifier: workspace:*
+        version: link:../../packages/void
+    devDependencies:
+      '@cloudflare/config':
+        specifier: 'catalog:'
+        version: 0.32.0
+      '@cloudflare/workers-types':
+        specifier: 'catalog:'
+        version: 5.20261110.1
+      '@types/node':
+        specifier: 'catalog:'
+        version: 26.6.6
+      cf:
+        specifier: 'catalog:'
+        version: 1.0.0-beta.30(@types/node@26.6.6)
+      typescript:
+        specifier: 'catalog:'
+        version: 7.0.2
+      vite:
+        specifier: 'catalog:'
+        version: '@voidzero-dev/vite-plus-core@1.6.0(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'
+      vite-plus:
+        specifier: 'catalog:'
+        version: 1.6.0(@astrojs/compiler-rs@0.5.3)(@types/node@26.6.6)(@vitest/ui@5.1.0)(esbuild@0.28.2)(happy-dom@21.0.4)(jiti@2.7.0)(playwright@1.65.0)(sass-embedded@1.104.1)(sass@1.104.1)(svelte@5.57.2)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)
+
   docs:
     devDependencies:
       '@iconify/vue':
