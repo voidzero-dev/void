@@ -226,7 +226,7 @@ catalogs:
       specifier: ^1.0.3
       version: 1.0.3
     '@cloudflare/vite-plugin':
-      specifier: ^2.0.0-beta.v.15
+      specifier: '>=2.0.0-beta.v.15 <2.0.0-rc.0'
       version: 2.0.0-beta.v.15
     '@cloudflare/workers-auth':
       specifier: ^0.18.1

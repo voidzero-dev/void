@@ -43,7 +43,8 @@ catalog:
   '@cloudflare/build-output-utils': ^0.9.13
   '@cloudflare/codemods': ^0.7.7
   '@cloudflare/config': ^0.32.0
-  '@cloudflare/vite-plugin': ^2.0.0-beta.v.15
+  # RC releases require a coordinated migration to Cloudflare Build Output v1.
+  '@cloudflare/vite-plugin': '>=2.0.0-beta.v.15 <2.0.0-rc.0'
   '@cloudflare/workers-auth': ^0.18.1
   '@nkzw/fate': 2.0.1
   '@vitejs/plugin-react': ^6.3.0
