@@ -1,5 +1,6 @@
 import type { FixtureApp } from '../fixture-app.ts';
 import { privatePages } from './private-pages.ts';
+import { hydration } from './solid-hydration.ts';
 
 const cssFiles = {
   'tsconfig.json': JSON.stringify({
@@ -39,4 +40,4 @@ export default function Counter() {
     ),
   },
 };
-export const fixtures: Readonly<Record<string, FixtureApp>> = { islands };
+export const fixtures: Readonly<Record<string, FixtureApp>> = { islands, hydration };
