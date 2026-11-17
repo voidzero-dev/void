@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -54,7 +54,8 @@ let customAsset: string;
 let uncachedAsset: string;
 
 beforeAll(async () => {
-  directory = mkdtempSync(join(tmpdir(), 'void-native-asset-policy-'));
+  // Match Vite's native realpath before deriving input paths and manifest keys.
+  directory = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-native-asset-policy-')));
   const assets = join(directory, 'client');
   const output = join(directory, 'output');
   const clientRoot = join(directory, 'app');

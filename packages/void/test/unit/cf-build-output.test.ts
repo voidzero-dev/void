@@ -521,8 +521,8 @@ it('rejects a mismatching explicit target account', async () => {
 it(
   'preserves additional module types from a real Cloudflare Vite build',
   async () => {
-    // Vite canonicalizes root; use the same path for Cloudflare's output directory.
-    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
+    // Match Vite's native realpath so Windows short-path aliases use one build root.
+    const root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-cf-additional-modules-')));
     roots.push(root);
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
     const assets = {
