@@ -492,9 +492,9 @@ export default defineConfig({
           fsModuleCache: true,
           include: sdkPgliteUnitTests,
           sequence: { groupOrder: 2 },
-          // Native Node 24 worker crashes can abort the run on Linux and macOS.
-          // Keep PGlite's Wasm heap in a separate process for each database.
-          pool: ['linux', 'darwin'].includes(process.platform) ? 'forks' : 'threads',
+          // PGlite's Wasm JIT teardown can crash Node 24 worker threads, including Windows.
+          // Keep each database in a separate process on every platform.
+          pool: 'forks',
           maxWorkers,
           ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
         },

@@ -124,8 +124,9 @@ The cf runner's transport checks live in `cf-version-transport.test.ts` so real 
 not serialize the whole runner suite. Both files use the same fixture helpers with per-file
 isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
 Unit files and most API integration files use isolated worker threads to reduce startup time. On Linux and macOS,
-API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-pglite`) use forks to isolate PGlite's
-WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
+API integration files and platform PGlite unit files (`platform-unit-pglite`) use forks to isolate PGlite's
+WebAssembly JIT allocations after native Node 24 crashes in shared worker processes.
+SDK PGlite units (`unit-pglite`) use forks on every platform; Windows also exhibits the JIT teardown crash. API tests
 that change the process timezone also use forks, because threads cannot change Node's timezone. Select every
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
 This keeps database engines from competing with all framework compilers at startup. Keep module
