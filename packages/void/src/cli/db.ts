@@ -818,16 +818,18 @@ async function runSeed(
 
 /**
  * Fail-closed check for read-only SQL (SELECT or plain EXPLAIN), which skips the remote
- * confirmation prompt. Comments are stripped first so they cannot hide `ANALYZE`.
- * Multiple statements and `WITH` (a CTE can write) are rejected, and so is `EXPLAIN ANALYZE`
- * in either form, because PostgreSQL executes the analyzed statement.
+ * confirmation prompt. A semicolon anywhere but the end means a script, and it is read from the
+ * raw text: a semicolon inside a literal must stay visible, or `SELECT '--' ; DROP TABLE users`
+ * reads as one comment-only SELECT and skips the prompt. Comments are stripped for the read-only
+ * test so they cannot hide `ANALYZE`. `WITH` (a CTE can write) is rejected, and so is
+ * `EXPLAIN ANALYZE` in either form, because PostgreSQL executes the analyzed statement.
  */
 function isSafeStatement(sql: string): boolean {
-  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
-  const stripped = decommented.replace(/;\s*$/, '');
-  if (stripped.includes(';')) {
+  if (sql.replace(/;\s*$/, '').includes(';')) {
     return false;
   }
+  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  const stripped = decommented.replace(/;\s*$/, '');
   if (/^\s*SELECT\b/i.test(stripped)) {
     return true;
   }
