@@ -5,9 +5,10 @@ import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  buildPlayground,
+  createIsolatedPlayground,
+  restorePlaygroundBuild,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
   waitForServer,
 } from '../../../../test/integration-helpers.ts';
@@ -42,7 +43,8 @@ type PageHead = {
 };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const REACT_PAGES_ROOT = join(ROOT, 'playground/react-pages');
+const playground = createIsolatedPlayground(ROOT, 'playground/react-pages');
+const REACT_PAGES_ROOT = playground.root;
 const REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
 const LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
 const OPTIMIZER_PROBE_FILES = {
@@ -204,7 +206,11 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  await browser?.close();
+  try {
+    await browser?.close();
+  } finally {
+    playground.cleanup();
+  }
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -1000,7 +1006,7 @@ describe('react-pages client (dev)', () => {
 
       const serverTimeout = process.platform === 'win32' ? 45_000 : 20_000;
       const server = await startServer((port) => {
-        child = spawnPlaygroundServer(ROOT, 'react-pages', 'dev', port);
+        child = spawnFixtureServer(playground.root, 'dev', port);
         stderr = '';
         child.stderr!.on('data', (chunk: Buffer) => {
           stderr += String(chunk);
@@ -1334,10 +1340,10 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   let serverOutput = () => '';
 
   beforeAll(async () => {
-    buildPlayground(ROOT, 'react-pages');
+    restorePlaygroundBuild(ROOT, 'react-pages', playground.root);
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'react-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(playground.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;
