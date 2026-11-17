@@ -16,6 +16,110 @@ function deferred<T>() {
 }
 
 describe('image renderer font retention', () => {
+  it('reuses downloaded bytes after switching font lists', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(new Uint8Array(interData())));
+    try {
+      const a = 'https://example.com/font-cache/brand-a.woff2';
+      const b = 'https://example.com/font-cache/brand-b.woff2';
+      const draw = (url: string) =>
+        withImageRenderer((renderer) => render(text, { ...options, fonts: [url], renderer }));
+      const first = await draw(a);
+      expect(await draw(a)).toEqual(first);
+      await draw(b);
+      expect(await draw(a)).toEqual(first);
+      expect(fetch.mock.calls.map(([url]) => String(url))).toEqual([a, b]);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('shares an in-flight font download across simultaneous renderers', async () => {
+    const entered = deferred<void>();
+    const finish = deferred<void>();
+    const fetch = vi.spyOn(globalThis, 'fetch').mockImplementation(async () => {
+      entered.resolve();
+      await finish.promise;
+      return new Response(new Uint8Array(interData()));
+    });
+    try {
+      const draw = () =>
+        withImageRenderer((renderer) =>
+          render(text, {
+            ...options,
+            fonts: ['https://example.com/font-cache/concurrent.woff2'],
+            renderer,
+          }),
+        );
+      const first = draw();
+      const second = draw();
+      await entered.promise;
+      finish.resolve();
+      const [a, b] = await Promise.all([first, second]);
+      expect(a).toEqual(b);
+      expect(fetch).toHaveBeenCalledOnce();
+    } finally {
+      finish.resolve();
+      fetch.mockRestore();
+    }
+  });
+
+  it('retries a font URL after a failed download', async () => {
+    const fetch = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockImplementation(async () => new Response(new Uint8Array(interData())));
+    try {
+      const draw = () =>
+        withImageRenderer((renderer) =>
+          render(text, {
+            ...options,
+            fonts: ['https://example.com/font-cache/retry.woff2'],
+            renderer,
+          }),
+        );
+      await expect(draw()).rejects.toThrow('HTTP 404');
+      await expect(draw()).resolves.toBeInstanceOf(Uint8Array);
+      expect(fetch).toHaveBeenCalledTimes(2);
+    } finally {
+      fetch.mockRestore();
+    }
+  });
+
+  it('reuses an identical font list but removes faces omitted by a later image', async () => {
+    const regularLoad = vi.fn(interData);
+    const heavyLoad = vi.fn(interData);
+    const regular = {
+      name: 'Retained Brand',
+      key: 'retained-brand-400',
+      data: regularLoad,
+      weight: 400,
+    };
+    const heavy = {
+      name: regular.name,
+      key: 'retained-brand-900',
+      data: heavyLoad,
+      weight: 900,
+    };
+    const node: Node = {
+      ...text,
+      style: { ...text.style, fontFamily: regular.name, fontWeight: 900 },
+    };
+    const draw = (fonts: Array<FontLoader>) =>
+      withImageRenderer((renderer) => render(node, { ...options, fonts, renderer }));
+    const first = await draw([regular]);
+    expect(await draw([{ ...regular }])).toEqual(first);
+    expect(regularLoad).toHaveBeenCalledOnce();
+    const both = await draw([regular, heavy]);
+    expect(both).not.toEqual(first);
+    expect(await draw([regular])).toEqual(first);
+    const loads = regularLoad.mock.calls.length;
+    expect(await draw([{ ...regular }])).toEqual(first);
+    expect(regularLoad).toHaveBeenCalledTimes(loads);
+    expect(await draw([regular, heavy])).toEqual(both);
+  });
+
   it('keeps an oversized image correct, then releases its fonts', async () => {
     const load = vi.fn(interData);
     const fonts = Array.from({ length: 16 }, (_, index) => ({
