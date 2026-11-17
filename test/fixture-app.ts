@@ -5,6 +5,7 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
@@ -48,8 +49,12 @@ export function fixtureBuildRoot(fixture: FixtureApp): string {
 }
 
 /** Materialize inputs before Vite Task checks the build cache. No build results are cached here. */
-export function prepareFixture(fixture: FixtureApp, root = fixtureBuildRoot(fixture)): void {
+export function prepareFixture(
+  fixture: FixtureApp,
+  root: string = fixtureBuildRoot(fixture),
+): void {
   mkdirSync(root, { recursive: true });
+  root = realpathSync.native(root);
   const ownership = JSON.stringify({ framework: fixture.framework, name: fixture.name });
   const marker = join(root, ownershipFile);
   if (existsSync(marker)) {
@@ -97,8 +102,9 @@ export default defineConfig({ output: 'static', worker: { compatibility_date: '2
 `,
     // Use the fixture's installed Vite instance and its public builder API. Running another
     // task-runner CLI here would make workspace discovery part of this build's inputs.
-    'build.mjs': `process.env.NODE_ENV = 'production';
-process.chdir(import.meta.dirname);
+    'build.mjs': `import { realpathSync } from 'node:fs';
+process.env.NODE_ENV = 'production';
+process.chdir(realpathSync.native(import.meta.dirname));
 const { createBuilder } = await import('vite');
 const builder = await createBuilder({ configLoader: 'native' });
 await builder.buildApp();

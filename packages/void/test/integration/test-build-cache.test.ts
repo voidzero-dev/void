@@ -82,7 +82,7 @@ export default ({ mode }) => ({ plugins: [voidPlugin(), voidReact(), voidMarkdow
 }
 
 beforeAll(() => {
-  root = realpathSync(mkdtempSync(join(tmpdir(), 'void-build-cache-')));
+  root = realpathSync.native(mkdtempSync(join(tmpdir(), 'void-build-cache-')));
   mkdirSync(join(root, 'node_modules'));
   symlinkSync(
     realpathSync(join(repository, 'node_modules/vite-plus')),

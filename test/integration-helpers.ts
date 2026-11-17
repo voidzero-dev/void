@@ -163,9 +163,9 @@ export function linkFixtureDependencies(
   const fixtureNodeModules = join(root, 'node_modules');
   mkdirSync(fixtureNodeModules, { recursive: true });
   const linkDependency = (source: string, destination: string) => {
-    const target = realpathSync(source);
+    const target = realpathSync.native(source);
     try {
-      if (realpathSync(destination) === target) {
+      if (realpathSync.native(destination) === target) {
         return;
       }
     } catch {
