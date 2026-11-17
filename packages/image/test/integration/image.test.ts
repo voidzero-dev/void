@@ -218,7 +218,7 @@ afterAll(() => {
 it('typechecks a public image consumer without loading renderer or React declarations', () => {
   const root = createApp(
     {
-      'input.ts': `import { ImageResponse, OgImageResponse, renderImage, renderOgImage, type ImageFont, type ImageInput, type ImageJsxElement, type ImageNode, type ImageRgbaData, type ImageStyle, type OgImageResponseOptions } from '@void/image/generate';
+      'input.ts': `import { ImageResponse, OgImageResponse, renderImage, renderOgImage, type ImageFont, type ImageInput, type ImageJsxElement, type ImageNode, type ImageRgbaData, type ImageStyle, type OgImageResponseOptions, type RenderOgImageOptions } from '@void/image/generate';
 import { html } from 'void/html';
 const style: ImageStyle = { display: 'flex', fontSize: 24, '--ink': '#123', textFit: 'shrink' };
 const pixels: ImageRgbaData = { width: 1, height: 1, data: new Uint8Array([255, 0, 0, 255]) };
@@ -230,10 +230,18 @@ for (const input of inputs) {
   new ImageResponse(input, { width: 320, height: 168, fonts: [font] });
   new OgImageResponse(input);
   new Response(await renderImage(input, { width: 320, height: 168 }));
-  new Response(await renderOgImage(input, { preset: 'x' }));
+  new Response(await renderOgImage(input));
 }
-const responseOptions: OgImageResponseOptions = { preset: 'x', status: 201, headers: { 'x-image': 'card' } };
+const renderOptions: RenderOgImageOptions = { width: 1200, height: 600 };
+new Response(await renderOgImage(node, renderOptions));
+new Response(await renderOgImage(node, { width: 600 }));
+new Response(await renderOgImage(node, { height: 600 }));
+const responseOptions: OgImageResponseOptions = { ...renderOptions, status: 201, headers: { 'x-image': 'card' } };
 new OgImageResponse(node, responseOptions);
+// @ts-expect-error Set dimensions explicitly instead of using a social preset.
+renderOgImage(node, { preset: 'x' });
+// @ts-expect-error Set dimensions explicitly instead of using a social preset.
+new OgImageResponse(node, { preset: 'x' });
 // @ts-expect-error HTTP options belong to the response wrapper.
 renderOgImage(node, { headers: {} });
 // @ts-expect-error HTTP options belong to the response wrapper.

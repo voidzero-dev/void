@@ -8,7 +8,8 @@ const card = html`<div style="display:flex">Hello</div>`;
 describe('OgImageResponse', () => {
   it('preserves response options independently of rendering options', async () => {
     const response = new OgImageResponse(card, {
-      preset: 'x-summary',
+      width: 600,
+      height: 600,
       status: 201,
       statusText: 'Created',
       headers: { 'Content-Type': 'image/custom', 'Cache-Control': 'private, no-store' },
@@ -33,7 +34,7 @@ describe('OgImageResponse', () => {
 
   it.each([
     {},
-    { preset: 'x-summary' },
+    { width: 600, height: 600 },
     { width: 400, height: 300 },
     { width: 400 },
     { height: 300 },
@@ -125,17 +126,12 @@ describe('OgImageResponse', () => {
     expect([view.getUint32(16), view.getUint32(20)]).toEqual([1200, 630]);
   });
 
-  it('allows size overrides', async () => {
-    const response = new OgImageResponse(card, { width: 400, height: 300 });
-    const view = new DataView(await response.arrayBuffer());
-    expect([view.getUint32(16), view.getUint32(20)]).toEqual([400, 300]);
-  });
-
   it.each([
-    { preset: 'x-summary', size: [600, 600] },
-    { preset: 'pinterest', size: [1000, 1500] },
-  ] as const)('renders the $preset preset', async ({ preset, size }) => {
-    const response = new OgImageResponse(card, { preset });
+    { options: { width: 400, height: 300 }, size: [400, 300] },
+    { options: { width: 400 }, size: [400, 630] },
+    { options: { height: 300 }, size: [1200, 300] },
+  ] as const)('allows size overrides: $options', async ({ options, size }) => {
+    const response = new OgImageResponse(card, options);
     const view = new DataView(await response.arrayBuffer());
     expect([view.getUint32(16), view.getUint32(20)]).toEqual(size);
   });
