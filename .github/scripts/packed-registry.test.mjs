@@ -79,11 +79,11 @@ const imageFiles = {
   'licenses/Inter.txt': 'SIL Open Font License\n',
 };
 
-test('accepts the image subpath with external Takumi and its font license', (t) => {
+void test('accepts the image subpath with external Takumi and its font license', (t) => {
   inspectPackage(createPackage(t, imageManifest, true, imageFiles));
 });
 
-test('rejects image packages that expose the root or omit the void peer', (t) => {
+void test('rejects image packages that expose the root or omit the void peer', (t) => {
   for (const overrides of [
     { exports: { ...imageManifest.exports, '.': './dist/generate.mjs' } },
     { peerDependencies: {} },
@@ -94,7 +94,7 @@ test('rejects image packages that expose the root or omit the void peer', (t) =>
   }
 });
 
-test('rejects image packages that omit the font license or bundle Takumi', (t) => {
+void test('rejects image packages that omit the font license or bundle Takumi', (t) => {
   for (const files of [
     { 'dist/generate.mjs': imageFiles['dist/generate.mjs'] },
     { ...imageFiles, 'dist/generate.mjs': 'export class ImageResponse {}\n' },

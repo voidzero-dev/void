@@ -38,7 +38,7 @@ async function png(
 }
 
 for (const name of ['baseline-workers', 'baseline-void', 'image-response-bare', 'image-response']) {
-  test(`${name}: production Worker and prebuilt cf upload`, { timeout: 120_000 }, async () => {
+  void test(`${name}: production Worker and prebuilt cf upload`, { timeout: 120_000 }, async () => {
     const root = fileURLToPath(new URL(`${name}/`, benchmark));
     command(root, ['build']);
     const output = await readBuildOutput(root);

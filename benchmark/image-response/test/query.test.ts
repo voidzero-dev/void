@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { parseImageQuery } from '../src/query.ts';
 
-test('defaults to a single Inter/twemoji render', () => {
+void test('defaults to a single Inter/twemoji render', () => {
   assert.deepEqual(parseImageQuery(new URLSearchParams()), {
     text: 'TEST_TEXT',
     emoji: 'twemoji',
@@ -14,7 +14,7 @@ test('defaults to a single Inter/twemoji render', () => {
   });
 });
 
-test('accepts every emoji style and both fonts', () => {
+void test('accepts every emoji style and both fonts', () => {
   for (const emoji of ['twemoji', 'blobmoji', 'noto', 'openmoji', 'fluent', 'fluentFlat']) {
     for (const defaultFont of ['Inter', 'Geist']) {
       const result = parseImageQuery(new URLSearchParams({ emoji, defaultFont }));
@@ -24,7 +24,7 @@ test('accepts every emoji style and both fonts', () => {
   }
 });
 
-test('preserves decoded text verbatim, including empty text and markup', () => {
+void test('preserves decoded text verbatim, including empty text and markup', () => {
   for (const text of [
     '',
     'こんにちは 🌍',
@@ -35,7 +35,7 @@ test('preserves decoded text verbatim, including empty text and markup', () => {
   }
 });
 
-test('accepts bounded stress controls and disabling font downloads', () => {
+void test('accepts bounded stress controls and disabling font downloads', () => {
   const result = parseImageQuery(
     new URLSearchParams('width=4096&height=1&iterations=100&fallbackFonts=false'),
   );
@@ -45,7 +45,7 @@ test('accepts bounded stress controls and disabling font downloads', () => {
   assert.equal(result.fallbackFonts, false);
 });
 
-test('accepts zero iterations without changing the image options', () => {
+void test('accepts zero iterations without changing the image options', () => {
   const result = parseImageQuery(
     new URLSearchParams('iterations=0&width=4096&height=4096&fallbackFonts=false'),
   );
@@ -55,7 +55,7 @@ test('accepts zero iterations without changing the image options', () => {
   assert.equal(result.fallbackFonts, false);
 });
 
-test('rejects invalid enums, dimensions, render counts, and excessive text', () => {
+void test('rejects invalid enums, dimensions, render counts, and excessive text', () => {
   for (const query of [
     'emoji=unknown',
     'emoji=',

@@ -1,10 +1,60 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { html } from 'void/html';
 import { ImageResponse, OgImageResponse } from '../../src/generate/index.ts';
+import * as imageApi from '../../src/generate/index.ts';
 
 const card = html`<div style="display:flex">Hello</div>`;
 
 describe('OgImageResponse', () => {
+  it('preserves response options independently of rendering options', async () => {
+    const response = new OgImageResponse(card, {
+      preset: 'x-summary',
+      status: 201,
+      statusText: 'Created',
+      headers: { 'Content-Type': 'image/custom', 'Cache-Control': 'private, no-store' },
+    });
+    expect(response.status).toBe(201);
+    expect(response.statusText).toBe('Created');
+    expect(response.headers.get('content-type')).toBe('image/custom');
+    expect(response.headers.get('cache-control')).toBe('private, no-store');
+    const view = new DataView(await response.arrayBuffer());
+    expect([view.getUint32(16), view.getUint32(20)]).toEqual([600, 600]);
+  });
+
+  it('does not evaluate content until the body is read', async () => {
+    const component = vi.fn(() => ({ type: 'div', props: { children: 'Lazy OG' } }));
+    const response = new OgImageResponse({ type: component, props: {} });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(component).not.toHaveBeenCalled();
+    expect(response.headers.get('cache-control')).toBe('public, max-age=86400');
+    await response.arrayBuffer();
+    expect(component).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    {},
+    { preset: 'x-summary' },
+    { width: 400, height: 300 },
+    { width: 400 },
+    { height: 300 },
+  ] as const)('renderOgImage matches the response for %j', async (options) => {
+    const bytes = await imageApi.renderOgImage(card, options);
+    expect(bytes).toBeInstanceOf(Uint8Array);
+    expect(bytes).toEqual(new Uint8Array(await new OgImageResponse(card, options).arrayBuffer()));
+  });
+
+  it('renderOgImage rejects invalid content without logging', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await expect(imageApi.renderOgImage('plain string' as never)).rejects.toThrow(
+        'Use the html template tag',
+      );
+      expect(logged).not.toHaveBeenCalled();
+    } finally {
+      logged.mockRestore();
+    }
+  });
+
   it('caches public images for 24 hours by default', async () => {
     const response = new OgImageResponse(card);
     expect(response.headers.get('cache-control')).toBe('public, max-age=86400');
