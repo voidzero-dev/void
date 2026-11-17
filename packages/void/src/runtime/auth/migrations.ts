@@ -252,13 +252,14 @@ function buildModifyMySqlColumnSql(
 function buildCreateIndexSql(
   dialect: VoidAuthMigrationSchema['dialect'],
   tableName: string,
-  fieldName: string,
+  indexName: string,
+  columns: ReadonlyArray<string>,
   unique: boolean,
 ): string {
   return `CREATE ${unique ? 'UNIQUE ' : ''}INDEX${dialect === 'mysql' ? '' : ' IF NOT EXISTS'} ${quoteIdentifier(
-    createIndexName(tableName, fieldName, unique),
+    indexName,
     dialect,
-  )} ON ${quoteIdentifier(tableName, dialect)} (${quoteIdentifier(fieldName, dialect)})`;
+  )} ON ${quoteIdentifier(tableName, dialect)} (${columns.map((column) => quoteIdentifier(column, dialect)).join(', ')})`;
 }
 
 async function createMissingIndexes(
@@ -267,15 +268,23 @@ async function createMissingIndexes(
   table: VoidAuthMigrationTable,
   existingIndexes: ReadonlySet<string>,
 ): Promise<void> {
-  for (const [fieldName, field] of Object.entries(table.fields)) {
-    if (!field.index && !field.unique) {
+  const indexes = [
+    ...Object.entries(table.fields)
+      .filter(([, field]) => field.index || field.unique)
+      .map(([fieldName, field]) => ({
+        name: createIndexName(table.name, fieldName, field.unique),
+        columns: [fieldName],
+        unique: field.unique,
+      })),
+    ...(table.indexes ?? []),
+  ];
+  for (const index of indexes) {
+    if (existingIndexes.has(index.name)) {
       continue;
     }
-    const indexName = createIndexName(table.name, fieldName, field.unique);
-    if (existingIndexes.has(indexName)) {
-      continue;
-    }
-    await runner.run(buildCreateIndexSql(dialect, table.name, fieldName, field.unique));
+    await runner.run(
+      buildCreateIndexSql(dialect, table.name, index.name, index.columns, index.unique === true),
+    );
   }
 }
 

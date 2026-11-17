@@ -43,6 +43,11 @@ export type VoidAuthMigrationTable = {
   name: string;
   order: number;
   fields: Record<string, VoidAuthMigrationField>;
+  indexes?: ReadonlyArray<{
+    name: string;
+    columns: ReadonlyArray<string>;
+    unique?: boolean;
+  }>;
 };
 
 export type VoidAuthMigrationSchema = {
@@ -418,6 +423,9 @@ function collectCoreImports(
   }
 
   for (const [defaultModelName, table] of Object.entries(schema)) {
+    for (const index of table.indexes ?? []) {
+      imports.add(index.unique ? 'uniqueIndex' : 'index');
+    }
     for (const [defaultFieldName, field] of Object.entries(table.fields)) {
       const actualFieldName = resolveFieldName(defaultFieldName, field);
       if (actualFieldName === 'id' || field.references?.field === 'id') {
@@ -526,17 +534,23 @@ export function generateVoidAuthDrizzleSchema(
       }),
     ];
     const indexedFields = fieldEntries.filter(([, field]) => field.index && !field.unique);
+    const tableIndexes =
+      migrationSchema.tables.find((entry) => entry.name === table.modelName)?.indexes ?? [];
 
     lines.push(
       `export const ${variableName} = ${tableFactory}(${JSON.stringify(table.modelName)}, {`,
       ...renderedFields,
-      ...(indexedFields.length > 0
+      ...(indexedFields.length > 0 || tableIndexes.length > 0
         ? [
             `}, (table) => [`,
             ...indexedFields.map(([defaultFieldName, field]) => {
               const actualFieldName = resolveFieldName(defaultFieldName, field);
               return `  index(${JSON.stringify(`${table.modelName}_${actualFieldName}_idx`)}).on(table[${JSON.stringify(actualFieldName)}]),`;
             }),
+            ...tableIndexes.map(
+              ({ name, columns, unique }) =>
+                `  ${unique ? 'uniqueIndex' : 'index'}(${JSON.stringify(name)}).on(${columns.map((column) => `table[${JSON.stringify(column)}]`).join(', ')}),`,
+            ),
             `]);`,
           ]
         : [`});`]),
@@ -588,6 +602,7 @@ export function resolveVoidAuthMigrationSchema(
       .map(([name, table]) => ({
         name,
         order: table.order ?? DEFAULT_TABLE_ORDER,
+        ...(table.indexes?.length ? { indexes: table.indexes } : {}),
         fields: Object.fromEntries(
           Object.entries(table.fields).map(([fieldName, field]) => [
             fieldName,
