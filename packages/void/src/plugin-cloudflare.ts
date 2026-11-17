@@ -90,7 +90,7 @@ export function cloudflare(options: {
       workerConfig = mergeCloudflareConfig(options.config(base), base);
       native = toNativeCloudflareConfig(workerConfig, root);
       pluginNative = structuredClone(native);
-      if (environment.command === 'build' && native.containers.length > 0) {
+      if (environment.command === 'build' && (native.containers?.length ?? 0) > 0) {
         // Void builds images during deployment preparation. Managed builds consume
         // the Worker bundle and must not acquire a local Docker prerequisite.
         pluginNative.containers = [];
@@ -207,7 +207,7 @@ export function cloudflare(options: {
             cpSync(client, worker.assetsDir, { recursive: true });
           }
         }
-        if (native.containers.length > 0) {
+        if ((native.containers?.length ?? 0) > 0) {
           writeFileAtomic(
             join(dirname(getRootConfigPath(root)), 'void-containers.json'),
             JSON.stringify({ workerDirectory: relative(root, destination) }),

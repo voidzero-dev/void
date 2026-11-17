@@ -11,7 +11,11 @@ import {
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { getWorkerAssetsDir, readBuildOutput } from '@cloudflare/build-output-utils';
+import {
+  getRootConfigPath,
+  getWorkerAssetsDir,
+  readBuildOutput,
+} from '@cloudflare/build-output-utils';
 import {
   createBuilder,
   createServer,
@@ -174,7 +178,7 @@ describe('Cloudflare v2 compatibility', () => {
     } finally {
       await artifact?.dispose();
     }
-    const metadataPath = join(root, '.cloudflare/output/v0/void-containers.json');
+    const metadataPath = join(dirname(getRootConfigPath(root)), 'void-containers.json');
     writeFileSync(metadataPath, JSON.stringify({ workerDirectory: '../outside' }));
     await expect(prepareCfBuildOutput(root)).rejects.toThrow('Invalid Void Container');
     // Two real Vite builds take about four seconds, near the default timeout.

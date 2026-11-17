@@ -539,11 +539,9 @@ export default { fetch() {
           );
           expect(moduleName).toBeDefined();
           expect(manifest.modules[moduleName!]).toEqual({ type });
-          expect(
-            readFileSync(
-              join(prepared.directory, '.cloudflare/output/v0/workers/default/bundle', moduleName!),
-            ),
-          ).toEqual(readFileSync(join(output, moduleName!)));
+          expect(readFileSync(join(getWorkerBundleDir(prepared.directory), moduleName!))).toEqual(
+            readFileSync(join(output, moduleName!)),
+          );
         }
         expect(manifest.modules['.vite/manifest.json']).toBeUndefined();
         expect(Object.keys(manifest.modules).some((name) => name.endsWith('.css'))).toBe(false);
@@ -1072,11 +1070,7 @@ it('copies an internal symlinked Worker module into the prebuilt artifact', asyn
     async (prepared) => {
       const built = await readBuildOutput(prepared.directory);
       expect(built.workers.default.config.manifest?.modules['chunk.js']).toEqual({ type: 'esm' });
-      expect(
-        existsSync(
-          join(prepared.directory, '.cloudflare/output/v0/workers/default/bundle/chunk.js'),
-        ),
-      ).toBe(true);
+      expect(existsSync(join(getWorkerBundleDir(prepared.directory), 'chunk.js'))).toBe(true);
     },
   );
 });
