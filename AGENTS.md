@@ -103,6 +103,10 @@ The Analog playground's TypeScript version follows Angular's compiler
 compatibility range independently of the workspace compiler.
 
 Dependency compatibility pins: Analog and SvelteKit use TypeScript 6.
+The Kit 2 compatibility fixture retains Kit 2 and Cloudflare adapter 7. pnpm's
+`update.ignoreDeps` applies to package names across the workspace, so explicitly
+review newer TypeScript, Kit, and adapter catalog versions with
+`pnpm view <package> version` during dependency updates.
 
 ## Testing
 
