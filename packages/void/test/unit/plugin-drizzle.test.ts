@@ -433,13 +433,24 @@ describe('drizzlePlugin db typing generation', () => {
     expect(dts).toContain('options?: { session?: DbSessionStart }');
     expect(dts).toContain('export type { DbSessionStart } from "void/_db";');
     expect(dts).toContain('export declare function setSession(');
-    expect(dts).toContain('export declare function getBookmark(');
+    expect(dts).toContain('export declare function getBookmark<TSchema');
     expect(dts).toContain('): DrizzleD1Database<Schema>;');
     expect(dts).not.toContain('void/_db-pg');
   });
 
-  it.each([false, true])('typechecks generated D1 session inputs (schema: %s)', (schema) => {
+  it.each([false, true])('typechecks generated D1 session helpers (schema: %s)', (schema) => {
     const root = createProjectRoot({ schema });
+    const sqliteCore = JSON.stringify(
+      fileURLToPath(import.meta.resolve('drizzle-orm/sqlite-core')),
+    );
+    if (schema) {
+      writeFileSync(
+        join(root, 'db/schema.ts'),
+        `import { integer, sqliteTable } from ${sqliteCore};
+export const profile = sqliteTable('profile', { id: integer('id').primaryKey() });
+`,
+      );
+    }
     drizzlePlugin(root, false, 'sqlite', { forceVirtualDb: true });
     symlinkSync(
       fileURLToPath(new URL('../../../../node_modules', import.meta.url)),
@@ -450,7 +461,8 @@ describe('drizzlePlugin db typing generation', () => {
     writeFileSync(
       fixture,
       `
-import { createDb, setSession, getBookmark, type DbSessionStart } from 'void/db';
+import { integer, sqliteTable } from ${sqliteCore};
+import { db, createDb, setSession, getBookmark, type DbSessionStart, type DrizzleD1Database } from 'void/db';
 declare const binding: D1Database;
 declare const bookmark: string;
 const start: DbSessionStart = { bookmark };
@@ -462,6 +474,19 @@ createDb(binding, { session: 'first-primary' });
 createDb(binding, { session: 'first-unconstrained' });
 const returned: string | null = getBookmark(createDb(binding));
 void returned;
+const otherSchema = { audit: sqliteTable('audit', { sequence: integer('sequence').primaryKey() }) };
+declare const otherClient: DrizzleD1Database<typeof otherSchema>;
+declare const schemalessClient: DrizzleD1Database;
+const bookmarks: Array<D1SessionBookmark | null> = [
+  getBookmark(),
+  getBookmark(undefined),
+  getBookmark(db),
+  getBookmark(schemalessClient),
+  getBookmark(otherClient),
+];
+void bookmarks;
+// @ts-expect-error A raw D1 binding is not a Drizzle client.
+getBookmark(binding);
 // @ts-expect-error Constraint typos must not compile.
 setSession('first-primray');
 // @ts-expect-error Constraint typos must not compile.

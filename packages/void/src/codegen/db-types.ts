@@ -47,7 +47,7 @@ export function generateDbDts(
           'import type { DbSessionStart } from "void/_db";',
           'export type { DbSessionStart } from "void/_db";',
           'export declare function setSession(start: DbSessionStart): void;',
-          `export declare function getBookmark(client?: ${type}<${schemaType}>): D1SessionBookmark | null;`,
+          `export declare function getBookmark<TSchema extends Record<string, unknown>>(client?: ${type}<TSchema>): D1SessionBookmark | null;`,
         ]
       : []),
     `export { ${DRIZZLE_OPERATORS} } from "void/_db";`,

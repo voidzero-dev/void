@@ -90,7 +90,9 @@ function setSession(start: DbSessionStart): void;
 D1 only. Return the default request session's bookmark, or pass a client returned by `createDb()` to read that client's bookmark. Returns `null` when no bookmark is available. Reading the default bookmark does not open a database session.
 
 ```ts
-function getBookmark(client?: DrizzleD1Database<Schema>): D1SessionBookmark | null;
+function getBookmark<TSchema extends Record<string, unknown>>(
+  client?: DrizzleD1Database<TSchema>,
+): D1SessionBookmark | null;
 ```
 
 `setSession()` and the no-argument `getBookmark()` require Void's request scope. For a framework-owned endpoint, such as an Astro API route, use an [explicit client](../../guide/database/d1.md#using-createdb) instead.
