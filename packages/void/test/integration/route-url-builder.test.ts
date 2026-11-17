@@ -343,6 +343,17 @@ routeUrl('/wild/*', { params: { '*': 'a/b' } });
 routeUrl('/users/[id]', { params: { id: 123 } });
 routeUrl('/files/[...path]', { params: { path: 'docs/start' } });
 routeUrl('/wild/[...]', { params: { '*': 'a/b' } });
+routeUrl<'/users/[id]'>('/users/[id]', { params: { id: 123 } });
+interface UserParams { id: number; }
+const userParams: UserParams = { id: 123 };
+routeUrl('/users/[id]', { params: userParams });
+declare const either: '/about' | '/users/[id]';
+routeUrl(either, { params: { id: 123 } });
+// @ts-expect-error every possible route's params must be present
+routeUrl(either);
+declare const optional: [options?: RouteOptions<'/users/[id]'>];
+// @ts-expect-error an optional tuple cannot guarantee required params
+routeUrl('/users/[id]', ...optional);
 // @ts-expect-error bracket patterns require params
 routeUrl('/users/[id]');
 // @ts-expect-error bracket catch-all patterns require params
@@ -468,6 +479,65 @@ function typecheck(
 }
 
 describe('standalone routeUrl utility', () => {
+  it.each(['generated', 'package'] as const)(
+    'explains invalid routeUrl calls through the %s declarations',
+    async (declarations) => {
+      const cases = [
+        ["routeUrl('/missing');", 'Unknown route: /missing.'],
+        ["routeUrl('/missing', {});", 'Unknown route: /missing.'],
+        ["routeUrl('/users/42');", 'Unknown route: /users/42.'],
+        ["routeUrl('/users/[id]');", 'Missing param id for route /users/[id].'],
+        ["routeUrl('/users/[id]', {});", 'Missing param id for route /users/[id].'],
+        [
+          "routeUrl('/users/[id]', { query: { page: 1 } });",
+          'Missing param id for route /users/[id].',
+        ],
+        ["routeUrl('/users/[id]', { params: {} });", 'Missing param id for route /users/[id].'],
+        [
+          "routeUrl('/users/[id]', { params: { userId: 42 } });",
+          'Unknown param userId for route /users/[id].',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: { id: 42, extra: 'x' } });",
+          'Unknown param extra for route /users/[id].',
+        ],
+        [
+          "routeUrl('/users/[id]', { params: { id: true } });",
+          'Param id for route /users/[id] must be a string or number.',
+        ],
+        ["routeUrl('/about', { params: {} });", 'Route /about has no path params.'],
+        ["routeUrl('/about', { hash: 123 });", 'Hash for route /about must be a string.'],
+        [
+          "routeUrl('/about', { query: { nested: { value: 'x' } } });",
+          'Invalid query param nested for route /about.',
+        ],
+        ["routeUrl('/about', { search: 'x' });", 'Unknown routeUrl option: search.'],
+        ["routeUrl('/users/[id]', undefined);", 'Missing param id for route /users/[id].'],
+        ["routeUrl('' as '/about' | '/users/[id]');", 'Missing param id for route /users/[id].'],
+        [
+          "routeUrl('' as string);",
+          'Pass a route pattern literal to routeUrl(); string is too broad.',
+        ],
+      ];
+      const root = await createFixture({
+        extraFiles: {
+          'check-diagnostics.ts': [
+            "import { routeUrl } from 'void/routes';",
+            ...cases.map(([call]) => call),
+          ].join('\n'),
+        },
+      });
+      const { output, status } = typecheck(root, declarations, ['check-diagnostics.ts']);
+      expect(status).toBe(1);
+      const diagnostics = output
+        .split(/.*check-diagnostics\.ts\(\d+,\d+\): error TS\d+: /)
+        .slice(1);
+      expect(diagnostics).toHaveLength(cases.length);
+      cases.forEach(([, message], index) => expect(diagnostics[index]).toContain(message));
+      expect(output).not.toContain('TS2554');
+    },
+  );
+
   it.each(['generated', 'package'] as const)(
     'preserves HTTP, WebSocket and page action contracts for both syntaxes through %s declarations',
     async (declarations) => {

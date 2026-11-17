@@ -157,14 +157,94 @@ type UrlOptions = {
   hash?: string;
 };
 
+// Keep route/option shapes visible to editor completion while inferring the
+// caller's input separately, so invalid calls can explain the correction.
+type RouteUrlError<Message extends string> = { readonly __routeUrlError: Message };
+type RouteUrlOptionsInput<P extends RoutePath> = {
+  params?: { [K in RoutePathMap[P] & string]?: unknown } | Record<string, unknown>;
+  query?: Record<string, unknown>;
+  hash?: unknown;
+};
+type RouteUrlArgs<P extends RoutePath> = [RoutePathMap[P]] extends [never]
+  ? [options?: RouteOptions<P>]
+  : [options: RouteOptions<P>];
+type MissingRouteParam<P extends RoutePath, K extends string> = P extends RoutePath
+  ? K extends RoutePathMap[P]
+    ? `Missing param ${K} for route ${P}. Pass it in { params: { ... } }.`
+    : never
+  : never;
+type MissingRouteParamKeys<P extends RoutePath, Params> = {
+  [K in RoutePathMap[P] & string]: Params extends Record<K, unknown> ? never : K;
+}[RoutePathMap[P] & string];
+type InvalidRouteParamKeys<P extends RoutePath, Params> = {
+  [K in RoutePathMap[P] & string]: Params extends Record<K, string | number> ? never : K;
+}[RoutePathMap[P] & string];
+type InvalidRouteValueKeys<Values, Allowed> = {
+  [K in keyof Values]-?: [Values[K]] extends [Allowed] ? never : K;
+}[keyof Values] &
+  string;
+type RouteUrlParamError<P extends RoutePath, O> = [RoutePathMap[P]] extends [never]
+  ? 'params' extends keyof O
+    ? [O['params']] extends [undefined]
+      ? never
+      : `Route ${P} has no path params. Remove params.`
+    : never
+  : O extends { params: infer Params }
+    ? Params extends object
+      ? [Exclude<keyof Params, RoutePathMap[P]>] extends [never]
+        ? [MissingRouteParamKeys<P, Params>] extends [never]
+          ? [InvalidRouteParamKeys<P, Params>] extends [never]
+            ? never
+            : `Param ${InvalidRouteParamKeys<P, Params>} for route ${P} must be a string or number.`
+          : MissingRouteParam<P, MissingRouteParamKeys<P, Params>>
+        : `Unknown param ${Exclude<keyof Params, RoutePathMap[P]> & string} for route ${P}. Use the parameter names in the route pattern.`
+      : `Params for route ${P} must be an object with the route's parameter names.`
+    : MissingRouteParam<P, RoutePathMap[P] & string>;
+type RouteUrlQueryError<P extends RoutePath, Query> = [Query] extends [RouteQuery | undefined]
+  ? never
+  : `Invalid query param ${InvalidRouteValueKeys<Exclude<Query, undefined>, RouteQueryValue | ReadonlyArray<RouteQueryValue>>} for route ${P}. Use a string, number, boolean, null, undefined, or an array of these.`;
+type RouteUrlOptionsError<P extends string, O> = [P] extends [RoutePath]
+  ? O extends undefined
+    ? MissingRouteParam<P, RoutePathMap[P] & string>
+    : O extends object
+      ?
+          | RouteUrlParamError<P, O>
+          | ('query' extends keyof O ? RouteUrlQueryError<P, O['query']> : never)
+          | ('hash' extends keyof O
+              ? [O['hash']] extends [string | undefined]
+                ? never
+                : `Hash for route ${P} must be a string.`
+              : never)
+          | (Exclude<keyof O, 'params' | 'query' | 'hash'> extends infer K extends string
+              ? `Unknown routeUrl option: ${K}. Use params, query, or hash.`
+              : never)
+      : `Options for route ${P} must be an object with params, query, or hash.`
+  : never;
+type ValidateRouteUrlArgs<P extends string, A extends [options?: unknown]> = [
+  RouteUrlOptionsError<P, A[0]>,
+] extends [never]
+  ? unknown
+  : RouteUrlOptionsError<P, A[0]>;
+
 /** Build a relative URL from a known route pattern. */
-export function routeUrl<P extends RoutePath>(
-  path: P,
-  ...args: [RoutePathMap[NoInfer<P>]] extends [never]
-    ? [options?: RouteOptions<P>]
-    : [options: RouteOptions<P>]
+export function routeUrl<
+  P extends RoutePath | (string & {}),
+  A extends [options?: unknown] = RouteUrlArgs<Extract<P, RoutePath>>,
+>(
+  path: P &
+    (
+      | RoutePath
+      | RouteUrlError<
+          string extends NoInfer<P>
+            ? 'Pass a route pattern literal to routeUrl(); string is too broad.'
+            : `Unknown route: ${NoInfer<P>}. Pass a registered route pattern as the first argument.`
+        >
+    ),
+  ...args: A &
+    [options?: RouteUrlOptionsInput<Extract<NoInfer<P>, RoutePath>>] &
+    ValidateRouteUrlArgs<NoInfer<P>, NoInfer<A>>
 ): RouteUrl {
-  return buildRouteUrl(path, args[0]) as RouteUrl;
+  return buildRouteUrl(path, args[0] as UrlOptions | undefined) as RouteUrl;
 }
 
 /** @internal Convert navigation inputs to URL strings without requiring an origin. */

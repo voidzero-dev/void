@@ -22,6 +22,13 @@ describe('routeUrl types', () => {
     routeUrl('/route-types/files/*', { params: { '*': 'a/b' } });
     const options: RouteOptions<'/route-types/:id'> = { params: { id: '123' } };
     routeUrl('/route-types/:id', options);
+    routeUrl<'/route-types/:id'>('/route-types/:id', options);
+    interface Params {
+      id: number;
+    }
+    const params: Params = { id: 123 };
+    routeUrl('/route-types/:id', { params });
+    routeUrl('/route-types', undefined);
   });
 
   it('rejects unknown paths and incorrect params', () => {
@@ -31,6 +38,8 @@ describe('routeUrl types', () => {
     routeUrl('/route-types/123');
     // @ts-expect-error params are required
     routeUrl('/route-types/:id');
+    // @ts-expect-error undefined options cannot bypass required params
+    routeUrl('/route-types/:id', undefined);
     // @ts-expect-error params are required even when other options are provided
     routeUrl('/route-types/:id', { query: { page: 1 } });
     // @ts-expect-error param names must match
@@ -57,5 +66,8 @@ describe('routeUrl types', () => {
     // @ts-expect-error one of the possible routes requires params
     routeUrl(path);
     routeUrl(path, { params: { id: '123' } });
+    const optional: [options?: RouteOptions<'/route-types/:id'>] = [];
+    // @ts-expect-error an optional tuple cannot guarantee required params
+    routeUrl('/route-types/:id', ...optional);
   });
 });
