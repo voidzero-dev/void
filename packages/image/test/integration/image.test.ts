@@ -28,6 +28,18 @@ it('has Bun available in CI', () => {
   }
 });
 
+it('publishes renderer-independent image declarations without React imports', () => {
+  const declarations = readFileSync(join(repository, 'packages/image/dist/generate.d.mts'), 'utf8');
+  expect(declarations).not.toMatch(/takumi|from ["']react["']/i);
+  for (const name of ['ImageFont', 'ImageNode', 'ImageStyle', 'ImageJsxElement', 'ImageRgbaData']) {
+    expect(declarations).toMatch(new RegExp(`\\b${name}\\b`));
+  }
+  const manifest = JSON.parse(
+    readFileSync(join(repository, 'packages/image/package.json'), 'utf8'),
+  );
+  expect(manifest.dependencies.csstype).toBeDefined();
+});
+
 const IMAGE_ROUTE = `import { html } from 'void/html';
 import { ImageResponse } from '@void/image/generate';
 export const GET = (c) => new ImageResponse(html\`<div style="display:flex;width:100%;height:100%;background:#111;color:#fff">\${Promise.resolve('Hello Привет Ελληνικά Łódź <img src="https://example.com/injected.png">')}</div>\`, { width: 320, height: 168, fallbackFonts: false, defaultFont: c.req.query('font') === 'Geist' ? 'Geist' : 'Inter' });
@@ -112,6 +124,14 @@ function build(root: string) {
   expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
 }
 
+function typecheckApp(root: string) {
+  return spawn.sync(
+    join(repository, 'packages/image/node_modules/.bin/tsc'),
+    ['-p', 'tsconfig.json', '--listFiles'],
+    { cwd: root, encoding: 'utf8', timeout: 30_000 },
+  );
+}
+
 function builtRuntime(root: string) {
   const output = join(root, 'dist/ssr');
   const config = JSON.parse(readFileSync(join(output, 'wrangler.json'), 'utf8'));
@@ -176,6 +196,95 @@ afterAll(() => {
     rmSync(root, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
   }
 });
+
+it('typechecks a public image consumer without loading renderer or React declarations', () => {
+  const root = createApp(
+    {
+      'input.ts': `import { ImageResponse, OgImageResponse, type ImageFont, type ImageInput, type ImageJsxElement, type ImageNode, type ImageRgbaData, type ImageStyle } from '@void/image/generate';
+import { html } from 'void/html';
+const style: ImageStyle = { display: 'flex', fontSize: 24, '--ink': '#123', textFit: 'shrink' };
+const pixels: ImageRgbaData = { width: 1, height: 1, data: new Uint8Array([255, 0, 0, 255]) };
+const node: ImageNode = { type: 'container', style, children: [{ type: 'text', text: 'Hello' }, { type: 'image', src: pixels }] };
+const jsx: ImageJsxElement = { type: 'div', props: { children: 'Hello' } };
+const font: ImageFont = { name: 'Brand', data: new Uint8Array(), weight: 400 };
+const inputs: ImageInput[] = [node, jsx, html\`<div>Hello</div>\`];
+for (const input of inputs) {
+  new ImageResponse(input, { width: 320, height: 168, fonts: [font] });
+  new OgImageResponse(input);
+}
+`,
+      'tsconfig.json': JSON.stringify({
+        compilerOptions: {
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          lib: ['ES2022', 'DOM'],
+          types: [],
+          strict: true,
+          skipLibCheck: false,
+          noEmit: true,
+        },
+        files: ['input.ts'],
+      }),
+    },
+    {},
+  );
+  const result = typecheckApp(root);
+  expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
+  const files = result.stdout.replaceAll('\\', '/');
+  expect(files).not.toMatch(/node_modules\/(?:@types\/react|takumi-js|@takumi-rs)\//);
+});
+
+it.each(['none', 'config', 'import'] as const)(
+  'keeps React enhancements opt-in using %s',
+  (mode) => {
+    const expectError =
+      mode === 'none' ? '// @ts-expect-error Opt-in typings are not loaded.\n' : '';
+    const root = createApp(
+      {
+        'input.tsx': `${mode === 'import' ? "import type {} from '@void/image/react';" : ''}
+import { ImageResponse, type ImageInput } from '@void/image/generate';
+import { Component, type CSSProperties } from 'react';
+${expectError}const tailwind = <div tw="flex text-white">Hello</div>;
+${expectError}const custom: CSSProperties = { '--accent': 'red' };
+${expectError}const fitted: CSSProperties = { textFit: 'shrink per-line 90%' };
+const normal = <div style={{ display: 'flex', fontSize: 24 }}>Hello</div>;
+function Title({ title }: { title: string }) { return <span>{title}</span>; }
+class Card extends Component<{ title: string }> {
+  render() { return <div>{this.props.title}</div>; }
+}
+const inputs: ImageInput[] = [normal, <Title title="Function" />, <Card title="Class" />];
+for (const input of inputs) new ImageResponse(input, { width: 320, height: 168 });
+// @ts-expect-error Tailwind classes must be strings.
+const invalidClasses = <div tw={42} />;
+// @ts-expect-error Ordinary CSS properties still reject invalid values.
+const invalidColor: CSSProperties = { color: 42 };
+`,
+        'tsconfig.json': JSON.stringify({
+          compilerOptions: {
+            target: 'ES2022',
+            module: 'NodeNext',
+            moduleResolution: 'NodeNext',
+            jsx: 'react-jsx',
+            lib: ['ES2022', 'DOM'],
+            types: mode === 'config' ? ['@void/image/react'] : [],
+            strict: true,
+            skipLibCheck: false,
+            noEmit: true,
+          },
+          files: ['input.tsx'],
+        }),
+      },
+      {
+        react: 'playground/react-pages/node_modules/react',
+        '@types/react': 'packages/react/node_modules/@types/react',
+      },
+    );
+    const result = typecheckApp(root);
+    expect(result.status, `${result.stdout ?? ''}${result.stderr ?? ''}`).toBe(0);
+    expect(result.stdout).not.toMatch(/takumi-js|@takumi-rs/);
+  },
+);
 
 describe('@void/image/generate in a Cloudflare app', () => {
   let root: string;

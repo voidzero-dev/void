@@ -21,6 +21,10 @@
     "./generate": {
       "types": "./dist/generate.d.mts",
       "import": "./dist/generate.mjs"
+    },
+    "./react": {
+      "types": "./dist/react.d.mts",
+      "import": "./dist/react.mjs"
     }
   },
   "publishConfig": {
@@ -32,10 +36,12 @@
     "typecheck": "tsc --noEmit --rootDir ../.."
   },
   "dependencies": {
+    "csstype": "^3.2.3",
     "takumi-js": "~2.20.0"
   },
   "devDependencies": {
     "@types/node": "catalog:",
+    "@types/react": "^19.3.0",
     "miniflare": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
@@ -43,6 +49,12 @@
     "void": "workspace:*"
   },
   "peerDependencies": {
+    "@types/react": "^19.0.0",
     "void": "workspace:*"
+  },
+  "peerDependenciesMeta": {
+    "@types/react": {
+      "optional": true
+    }
   }
 }

@@ -61,6 +61,28 @@ JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template
 
 JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
 
+### React JSX types
+
+For TypeScript support for `tw`, CSS custom properties such as `--accent`, and `textFit` in React JSX, add `@void/image/react` to `compilerOptions.types` in your `tsconfig.json`:
+
+```json
+{
+  "compilerOptions": {
+    "types": ["vite/client", "@void/image/react"]
+  }
+}
+```
+
+Keep any existing entries in `types`. This enables the additional React typings across your project.
+
+Alternatively, add a type-only import to a source file included by your `tsconfig.json`:
+
+```ts
+import type {} from '@void/image/react';
+```
+
+Both approaches affect only TypeScript; neither adds runtime code. Ordinary JSX with standard CSS properties needs no opt-in. HTML templates and `ImageNode` trees also need no React typings.
+
 ### Without React
 
 Use the [`html` template tag from `void/html`](../reference/api/html.md) instead of JSX. It escapes dynamic text automatically (plain strings are not accepted):
@@ -85,6 +107,36 @@ export const GET = defineHandler(() => {
 ```
 
 Both `ImageResponse` and `OgImageResponse` accept nested and asynchronous `html` templates without an extra `await`. Import `ImageInput` from `@void/image/generate` to type reusable image content.
+
+### Image node trees
+
+You can also build images with typed objects, without JSX or HTML:
+
+```ts
+import { ImageResponse, type ImageNode, type ImageStyle } from '@void/image/generate';
+import { defineHandler } from 'void';
+
+const style: ImageStyle = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: '#0f172a',
+  color: 'white',
+  fontSize: 48,
+};
+
+const content: ImageNode = {
+  type: 'container',
+  style,
+  children: [{ type: 'text', text: 'Built with Void' }],
+};
+
+export const GET = defineHandler(() => new ImageResponse(content, { width: 800, height: 400 }));
+```
+
+An `ImageNode` is a `container` with optional `children`, a `text` node with a `text` string, or an `image` node with a `src`. Image sources can be URLs, data URLs, encoded image bytes (`Uint8Array` or `ArrayBuffer`), or raw pixels described by `ImageRgbaData`.
+
+Import `ImageJsxElement` to type reusable JSX elements and `ImageFont` to type custom font entries. All these types are available from `@void/image/generate`.
 
 ## Options
 
@@ -117,7 +169,7 @@ Emoji and remote images are downloaded while the image renders. An emoji that th
 
 Text uses bundled Inter by default. It supports Latin, extended Latin, Cyrillic, and Greek, including letters like Ł and ş and symbols like → and ★, without downloading fonts. Its variable weights range from 100 to 900.
 
-To use Takumi's built-in Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
+To use bundled Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
 
 ```ts
 import { ImageResponse } from '@void/image/generate';

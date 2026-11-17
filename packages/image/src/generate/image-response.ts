@@ -5,17 +5,15 @@
  * Takumi does the rendering. This module adds what a route handler needs around it:
  * the response headers, `debug`, bundled Inter, and Google Fonts fallbacks for missing glyphs.
  */
-import { render, type FontLoader, type Node, type ReactElementLike } from 'takumi-js';
+import { render, type FontLoader } from 'takumi-js';
 import type { ImageFetchCache } from 'takumi-js/helpers';
 import { extractEmojis, isEmojiImageUrl } from 'takumi-js/helpers/emoji';
-import { fromHtml } from 'takumi-js/helpers/html';
-import { fromJsx } from 'takumi-js/helpers/jsx';
-import type { HtmlEscapedString } from 'void/html';
-import { FallbackFontError, fallbackFonts, interFont, keyedFont, type Font } from './fonts.ts';
+import { FallbackFontError, fallbackFonts, interFont, keyedFont } from './fonts.ts';
+import type { ImageFont, ImageInput } from './image-input.ts';
 import { withImageRenderer } from './image-renderer.ts';
+import { toTakumiInput } from './takumi-input.ts';
 
-/** React JSX, a Takumi node tree, or HTML from the `void/html` template tag. */
-export type ImageInput = ReactElementLike | Node | HtmlEscapedString | Promise<HtmlEscapedString>;
+export type { ImageInput } from './image-input.ts';
 
 /**
  * {@link renderImage} function options.
@@ -27,10 +25,10 @@ export interface RenderImageOptions {
   height: number;
   /** Draws a border around every box. */
   debug?: boolean;
-  /** Bundled font used after custom fonts. Defaults to `Inter`; `Geist` uses Takumi's built-in font. */
+  /** Bundled font used after custom fonts. Defaults to `Inter`; `Geist` selects the alternative. */
   defaultFont?: 'Inter' | 'Geist';
   /** Fonts to draw text with, before the selected default font. */
-  fonts?: Array<Font>;
+  fonts?: Array<ImageFont>;
   /**
    * Set to false to download no fonts from Google Fonts for characters that
    * the selected default font cannot draw, leaving them to `fonts`. Defaults to true.
@@ -56,8 +54,7 @@ export interface RenderImageOptions {
   };
 }
 /**
- * Void declares these options rather than passing Takumi's render options
- * through, so a Takumi upgrade does not change this API.
+ * Image rendering options combined with the response status and headers.
  */
 export interface ImageResponseOptions extends ResponseInit, RenderImageOptions {}
 
@@ -67,7 +64,7 @@ const emojiCache = new Map<string, Promise<ArrayBuffer>>();
 
 /**
  * A `Response` whose body is the image rendered from `element`: React JSX, a
- * `void/html` template, or a Takumi node tree. It renders a PNG at the given size,
+ * `void/html` template, or an image node tree. It renders a PNG at the given size,
  * without choosing a cache policy.
  */
 export class ImageResponse extends Response {
@@ -99,7 +96,7 @@ async function renderImage(element: ImageInput, options: RenderImageOptions): Pr
   // Convert once, here: the fallback fonts depend on the final text, and
   // function components must not run twice. Emoji become images first, as in
   // the render, so their code points ask for no symbol font.
-  const { node: tree, css } = await toNode(element);
+  const { node: tree, css } = await toTakumiInput(element);
   const emoji = options.emoji ?? 'twemoji';
   const node = extractEmojis(tree, emoji);
   // Only the documented limits reach Takumi, which takes more image options.
@@ -158,27 +155,6 @@ async function renderImage(element: ImageInput, options: RenderImageOptions): Pr
       remaining = rest.length < remaining.length ? rest : [];
     }
   }
-}
-
-async function toNode(input: ImageInput) {
-  const element = await input;
-  // Hono brands HTML as a string in its types, but returns a boxed string at
-  // runtime. Check its marker before unboxing, including for async templates.
-  if ((element as { isEscaped?: unknown } | null)?.isEscaped === true) {
-    return fromHtml(element.toString());
-  }
-  if (typeof element === 'string' || element instanceof String) {
-    throw new TypeError('Use the html template tag from void/html instead of a plain string.');
-  }
-  if (isTakumiNode(element)) {
-    return { node: element, css: [] };
-  }
-  return fromJsx(element);
-}
-
-function isTakumiNode(element: unknown): element is Node {
-  const type = (element as { type?: unknown } | null)?.type;
-  return type === 'container' || type === 'text' || type === 'image';
 }
 
 /** Images fetched once per render, and emoji once per isolate. */
