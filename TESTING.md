@@ -173,6 +173,7 @@ Capture machine information, per-file phases, and individual test durations with
 ```sh
 vp run test:benchmark --outputFile=/tmp/void-test-baseline.json
 vp run test:benchmark packages/react/test/integration --outputFile=/tmp/void-react-tests.json
+vp run test --base origin/main --report /tmp/void-affected-tests.json
 VOID_TEST_FRESH_BUILDS=1 vp run test:benchmark --outputFile=/tmp/void-fresh-fixtures.json
 ```
 

@@ -9,7 +9,7 @@ import { preparePublicPackages } from './build-setup.ts';
 async function runAffected(root, values) {
   root = realpathSync(root);
   if (values.help) {
-    console.log('vp run test [--base <ref>] [--list] [--unit]');
+    console.log('vp run test [--base <ref>] [--list] [--unit] [--report <file>]');
     console.log(
       'Defaults to staged, unstaged, and untracked changes. --base includes branch changes.',
     );
@@ -49,6 +49,15 @@ async function runAffected(root, values) {
     watch: false,
     changed: initial.full ? false : changed,
     experimental: { vcsProvider },
+    ...(values.report
+      ? {
+          reporters: [
+            'default',
+            fileURLToPath(new URL('./performance-reporter.ts', import.meta.url)),
+          ],
+          outputFile: values.report,
+        }
+      : {}),
     ...(values.unit
       ? { project: ['unit', 'unit-pglite', 'cli-unit', 'platform-unit', 'platform-unit-pglite'] }
       : {}),
@@ -130,6 +139,7 @@ try {
       base: { type: 'string' },
       list: { type: 'boolean' },
       unit: { type: 'boolean' },
+      report: { type: 'string' },
       help: { type: 'boolean', short: 'h' },
     },
   });
