@@ -5,10 +5,9 @@ import { type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
-  createIsolatedPlayground,
-  restorePlaygroundBuild,
+  buildPlayground,
   killChild,
-  spawnFixtureServer,
+  spawnPlaygroundServer,
   startServer,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
@@ -31,7 +30,6 @@ declare global {
 type StampedElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const playground = createIsolatedPlayground(ROOT, 'playground/solid-pages');
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
@@ -42,11 +40,7 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  try {
-    await browser?.close();
-  } finally {
-    playground.cleanup();
-  }
+  await browser?.close();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -225,7 +219,7 @@ describe('solid-pages client (dev)', () => {
 
   beforeAll(async () => {
     const server = await startServer(
-      (port) => (child = spawnFixtureServer(playground.root, 'dev', port)),
+      (port) => (child = spawnPlaygroundServer(ROOT, 'solid-pages', 'dev', port)),
       45_000,
       { expectStatus: 200, expectBody: '__VOID_PAGE_DATA__' },
     );
@@ -239,7 +233,7 @@ describe('solid-pages client (dev)', () => {
   });
 
   it('dev: does not prebundle @void/solid in the worker environment', () => {
-    const workerDepsDir = join(playground.root, 'node_modules/.vite/deps_void_worker');
+    const workerDepsDir = join(ROOT, 'playground/solid-pages/node_modules/.vite/deps_void_worker');
     const metadataPath = join(workerDepsDir, '_metadata.json');
 
     expect(existsSync(metadataPath)).toBe(true);
@@ -266,8 +260,8 @@ describe('solid-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(playground.root, 'pages/blog/_Counter.tsx'),
-    islandFile: join(playground.root, 'pages/blog/index.island.tsx'),
+    counterFile: join(ROOT, 'playground/solid-pages/pages/blog/_Counter.tsx'),
+    islandFile: join(ROOT, 'playground/solid-pages/pages/blog/index.island.tsx'),
     hmrKeepsState: false,
   });
 });
@@ -276,10 +270,10 @@ describe('solid-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    restorePlaygroundBuild(ROOT, 'solid-pages', playground.root);
+    buildPlayground(ROOT, 'solid-pages');
 
     const server = await startServer(
-      (port) => (child = spawnFixtureServer(playground.root, 'preview', port)),
+      (port) => (child = spawnPlaygroundServer(ROOT, 'solid-pages', 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

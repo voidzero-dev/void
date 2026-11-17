@@ -4,7 +4,6 @@ import { defineConfig } from 'vite-plus';
 import { SuiteSequencer } from './test/sequencer.ts';
 
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
-const nativeThreads = String(Math.max(1, Math.floor(availableParallelism() / maxWorkers)));
 const apiTimezoneTests = [
   'platform/packages/api/test/integration/api-delete-accounting.test.ts',
   'platform/packages/api/test/integration/email-connections.test.ts',
@@ -525,10 +524,6 @@ export default defineConfig({
     // Reuse Node's compiled JS/TypeScript across real subprocesses and forks.
     // Vitest disables it for V8 coverage; also honor standalone Node coverage.
     env: {
-      // Parallel test processes each need a small native compiler pool, not all host CPUs.
-      // Keep ordinary package builds and explicit operator overrides unchanged.
-      ROLLDOWN_WORKER_THREADS: process.env.ROLLDOWN_WORKER_THREADS ?? nativeThreads,
-      RAYON_NUM_THREADS: process.env.RAYON_NUM_THREADS ?? nativeThreads,
       NODE_COMPILE_CACHE:
         process.env.NODE_COMPILE_CACHE ??
         fileURLToPath(new URL('./node_modules/.cache/node-compile', import.meta.url)),

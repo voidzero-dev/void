@@ -123,11 +123,7 @@ or hanging tests when they occur instead of routinely increasing timeouts.
 Subprocess and provisioning-lock tests start alongside the platform projects, so their real
 process deadlines overlap database work. Remaining SDK units and integrations share the next
 phase. Keep this barrier: overlapping every project can delay a child process beyond a real
-deadline before it has even started. Each test subprocess's Rolldown and Rayon pools get the
-available CPUs divided by the worker budget (at least one thread), so concurrent compilers do
-not each allocate a pool for the whole machine.
-Explicit `ROLLDOWN_WORKER_THREADS` and `RAYON_NUM_THREADS` overrides
-are respected; normal package builds keep their defaults.
+deadline before it has even started.
 `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.
 The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
 not serialize the whole runner suite. Both files use the same fixture helpers with per-file
@@ -138,7 +134,7 @@ WebAssembly JIT allocations after native Node 24 crashes in shared worker proces
 that change the process timezone also use forks, because threads cannot change Node's timezone. Select every
 API file with `vp test run --project 'platform-api-integration*'`. SDK integration files use forks.
 Keep module isolation enabled: these suites mock globals, keep database state, and exercise real
-process/lock boundaries. Native compiler limits do not change test concurrency or assertions.
+process/lock boundaries.
 Cloudflare Vite build/dev suites belong in the integration pool: their native macOS file watchers
 can crash Node while a worker thread is being torn down. Keep these suites in separate processes.
 The full verification command builds before running static checks, so it also works without

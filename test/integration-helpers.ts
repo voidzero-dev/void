@@ -142,34 +142,15 @@ export function createBuiltPlayground(
   const source = join(workspaceRoot, 'playground', playground);
   const fixture = createIsolatedPlayground(workspaceRoot, `playground/${playground}`);
   try {
-    copyPlaygroundBuild(source, fixture.root);
+    for (const directory of ['dist', '.cloudflare']) {
+      if (existsSync(join(source, directory))) {
+        cpSync(join(source, directory), join(fixture.root, directory), { recursive: true });
+      }
+    }
     return fixture;
   } catch (error) {
     fixture.cleanup();
     throw error;
-  }
-}
-
-/** Keep a runtime's private database state while replacing its immutable production artifacts. */
-export function restorePlaygroundBuild(
-  workspaceRoot: string,
-  playground: string,
-  destination: string,
-): void {
-  buildPlayground(workspaceRoot, playground);
-  copyPlaygroundBuild(join(workspaceRoot, 'playground', playground), destination);
-}
-
-function copyPlaygroundBuild(source: string, destination: string): void {
-  if (realpathSync.native(source) === realpathSync.native(destination)) {
-    throw new Error('Production artifacts need a separate runtime directory.');
-  }
-  for (const directory of ['dist', '.cloudflare']) {
-    const output = join(destination, directory);
-    rmSync(output, { recursive: true, force: true });
-    if (existsSync(join(source, directory))) {
-      cpSync(join(source, directory), output, { recursive: true });
-    }
   }
 }
 
@@ -352,23 +333,6 @@ export function spawnPlaygroundServer(
     ],
     {
       cwd: workspaceRoot,
-      stdio: ['ignore', 'pipe', 'pipe'],
-      env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
-    },
-  );
-}
-
-/** Run a private copy through Vite directly, without rediscovering workspace tasks. */
-export function spawnFixtureServer(
-  root: string,
-  command: 'dev' | 'preview',
-  port: number,
-): ReturnType<typeof spawn> {
-  return crossSpawn(
-    'vp',
-    [command, '--host', '127.0.0.1', '--port', String(port), '--strictPort'],
-    {
-      cwd: root,
       stdio: ['ignore', 'pipe', 'pipe'],
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
     },
