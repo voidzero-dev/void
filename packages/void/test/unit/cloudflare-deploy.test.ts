@@ -2987,7 +2987,6 @@ describe('computeDesiredCloudflareResources — provisioned resources are never 
         calls.push(args);
         return { stdout: '', stderr: '', status: 0 };
       }),
-      enableD1ReadReplication: async () => {},
       log: { info: () => {}, warn: () => {} },
     });
     // Read-first everywhere: no list, no create — the recorded resources are kept.
@@ -4248,6 +4247,20 @@ describe('runCloudflareDeploy — preflight', () => {
 });
 
 describe('runCloudflareDeploy — resource provisioning', () => {
+  it.each([undefined, false, true])(
+    'reconciles an existing D1 only when replication is explicitly configured: %s',
+    async (readReplication) => {
+      const root = d1Project(PROVISIONED_D1);
+      writeFileSync(join(root, 'void.json'), JSON.stringify({ database: { readReplication } }));
+      const { deps, trace } = harness();
+      await captureDeployOutput(() =>
+        runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
+      );
+      expect(trace.includes('provision')).toBe(readReplication !== undefined);
+      expect(trace).toContain('build');
+    },
+  );
+
   it('automatically provisions a missing D1 database and continues the deploy', async () => {
     const root = d1Project({ account_id: 'acc123', name: 'myapp' });
     let capturedDesired: Parameters<NonNullable<CloudflareDeployDeps['provision']>>[2] | undefined;
@@ -4293,17 +4306,17 @@ describe('runCloudflareDeploy — resource provisioning', () => {
     expect(output.match(/Successfully deployed!/g)).toHaveLength(1);
   });
 
-  it('reconciles D1 replication before build, gate, migrations and deploy when fully provisioned', async () => {
+  it('reconciles opted-in D1 replication before build, gate, migrations and deploy when fully provisioned', async () => {
     const root = makeProject({
       'package.json': JSON.stringify({ name: 'myapp' }),
-      'void.json': JSON.stringify({}),
+      'void.json': JSON.stringify({ database: { readReplication: true } }),
       'routes/index.ts': `export const GET = (c) => c.env.DB.prepare('SELECT 1').first();`,
       'db/migrations/0000_init.sql': `CREATE TABLE notes (id integer primary key);`,
       'wrangler.jsonc': JSON.stringify(PROVISIONED_D1, null, 2),
     });
     const { deps, trace, wranglerArgs } = harness();
     const output = await captureDeployOutput(() =>
-      runCloudflareDeploy(root, { platform: 'cloudflare', provision: true }, silentCliLog, deps),
+      runCloudflareDeploy(root, { platform: 'cloudflare' }, silentCliLog, deps),
     );
     expect(output).toContain('D1 migrations up to date');
     expect(output).not.toMatch(/\d+ migrations? applied/);

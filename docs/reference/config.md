@@ -152,10 +152,11 @@ Use an object to also set how Drizzle names columns declared without a name:
 }
 ```
 
-| Key       | Values                                  | Description                                                                                                                                                                         |
-| --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dialect` | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                  |
-| `casing`  | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name |
+| Key               | Values                                  | Description                                                                                                                                                                                |
+| ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dialect`         | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                         |
+| `casing`          | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name        |
+| `readReplication` | `boolean` (optional)                    | D1 only. Enable (`true`) or disable (`false`) [read replication](../guide/database/d1.md#read-replication) on deployment. Omit to preserve existing settings; new databases default to off |
 
 When using an external database:
 

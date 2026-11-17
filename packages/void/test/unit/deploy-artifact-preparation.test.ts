@@ -95,6 +95,21 @@ it('omits empty configured Worker vars', async () => {
   expect(result.artifact.manifest).not.toHaveProperty('vars');
   expect(fetch).not.toHaveBeenCalled();
 });
+it.each([undefined, false, true])(
+  'packages the configured D1 replication opt-in %s',
+  async (readReplication) => {
+    writeFileSync(
+      join(root, 'void.config.ts'),
+      `export default { database: { readReplication: ${readReplication}, casing: 'snake_case' }, inference: { bindings: { db: true } } };`,
+    );
+    const { artifact } = await prepareDeployArtifact(root);
+    expect(artifact.manifest.bindings.d1).toEqual(['DB']);
+    expect(artifact.manifest.database).toEqual(
+      readReplication !== undefined ? { readReplication } : undefined,
+    );
+    expect(fetch).not.toHaveBeenCalled();
+  },
+);
 it('fails when Worker build output is missing', async () => {
   rmSync(join(root, 'dist/server'), { recursive: true });
   await expect(prepareDeployArtifact(root)).rejects.toThrow('Worker output not found');

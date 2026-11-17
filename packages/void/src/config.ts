@@ -33,6 +33,8 @@ export type DatabaseConfig = {
   dialect?: 'sqlite' | 'pg' | 'mysql';
   /** Column naming for keys without an explicit column name, as in Drizzle's `casing` option. */
   casing?: DatabaseCasing;
+  /** Enable or disable D1 read replication during deployment. Omit to preserve existing settings. */
+  readReplication?: boolean;
 };
 
 /** Curated Worker fields accepted by the `worker` config field. */
@@ -971,9 +973,9 @@ function validateConfigObject(obj: unknown): VoidConfig {
     if (isRecord(obj.database)) {
       const databaseCfg = obj.database;
       for (const key of Object.keys(databaseCfg)) {
-        if (key !== 'dialect' && key !== 'casing') {
+        if (key !== 'dialect' && key !== 'casing' && key !== 'readReplication') {
           throw new Error(
-            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing.`,
+            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing, readReplication.`,
           );
         }
       }
@@ -994,9 +996,21 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "database.casing" in ${CONFIG_FILE} must be "snake_case" or "camelCase".`,
         );
       }
+      if (databaseCfg.readReplication !== undefined) {
+        if (typeof databaseCfg.readReplication !== 'boolean') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} must be a boolean.`,
+          );
+        }
+        if (databaseCfg.dialect !== undefined && databaseCfg.dialect !== 'sqlite') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} is only supported for D1 (sqlite).`,
+          );
+        }
+      }
     } else if (typeof obj.database !== 'string' || !VALID_DATABASE_VALUES.has(obj.database)) {
       throw new Error(
-        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect" and "casing".`,
+        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect", "casing" and "readReplication".`,
       );
     }
   }

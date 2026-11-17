@@ -160,6 +160,7 @@ export async function prepareDeployArtifact(
       bindings,
       alwaysUseHttps: config.routing?.alwaysUseHttps,
       storage: config.storage,
+      database: typeof config.database === 'object' ? config.database : undefined,
       vars: config.worker?.vars,
       hasEmailHandlers: scan.email !== undefined && hasEmailHandlers(scan.email),
       migrations,

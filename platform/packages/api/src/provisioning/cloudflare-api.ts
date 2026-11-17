@@ -93,21 +93,28 @@ export async function createD1Database(
   accountId: string,
   apiToken: string,
   name: string,
+  options: { readReplication?: boolean } = {},
 ): Promise<D1DatabaseInfo> {
   return cfFetch<D1DatabaseInfo>(`${CF_API_BASE}/${accountId}/d1/database`, apiToken, {
     method: 'POST',
-    body: JSON.stringify({ name, read_replication: { mode: 'auto' } }),
+    body: JSON.stringify({
+      name,
+      ...(options.readReplication !== undefined && {
+        read_replication: { mode: options.readReplication ? 'auto' : 'disabled' },
+      }),
+    }),
   });
 }
 
-export async function enableD1ReadReplication(
+export async function setD1ReadReplication(
   accountId: string,
   apiToken: string,
   databaseId: string,
+  readReplication: boolean,
 ): Promise<void> {
   await cfFetch<D1DatabaseInfo>(`${CF_API_BASE}/${accountId}/d1/database/${databaseId}`, apiToken, {
     method: 'PUT',
-    body: JSON.stringify({ read_replication: { mode: 'auto' } }),
+    body: JSON.stringify({ read_replication: { mode: readReplication ? 'auto' : 'disabled' } }),
   });
 }
 

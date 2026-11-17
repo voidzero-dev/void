@@ -422,6 +422,7 @@ export async function runFullDeploy(
       bindings: liveConfig ? { ...bindings, needsLive: true } : bindings,
       alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
       storage: voidConfig.storage,
+      database: typeof voidConfig.database === 'object' ? voidConfig.database : undefined,
       hasEmailHandlers:
         !isFrameworkMode && routeScan.email !== undefined && hasEmailHandlers(routeScan.email),
       migrations: validatedMigrations,
