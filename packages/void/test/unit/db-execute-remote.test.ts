@@ -165,19 +165,70 @@ describe('void db execute --remote (D1)', () => {
     },
   );
 
-  it('uses bulk import only for direct D1 file execution', async () => {
+  // D1's maximum SQL statement length decides between the query API and a D1 import.
+  const D1_STATEMENT_LIMIT = 100_000;
+  function directD1File(sql: string, tty: boolean): string {
     mockReadDeploymentPlatform.mockReturnValue('cloudflare');
     mockImportD1.mockResolvedValue(undefined);
+    mockExecuteD1.mockResolvedValue([{ answer: 42 }]);
+    Object.defineProperty(process.stdin, 'isTTY', { value: tty, configurable: true });
     const root = createProjectRoot();
-    const sql = 'INSERT INTO samples VALUES (1);';
-    writeFileSync(join(root, 'seed.sql'), sql);
-    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
-    mockConfirm.mockResolvedValue(true);
-    await runDbCommand(root, { action: 'execute', file: 'seed.sql', remote: true });
+    writeFileSync(join(root, 'input.sql'), sql);
+    return root;
+  }
+  // A read-only SELECT padded with a leading comment to exactly `bytes` UTF-8 bytes.
+  function selectOfSize(bytes: number): string {
+    const fixed = '-- \nSELECT 42 AS answer'.length;
+    const padding = 'é'.repeat(Math.floor((bytes - fixed) / 2)) + 'x'.repeat((bytes - fixed) % 2);
+    return `-- ${padding}\nSELECT 42 AS answer`;
+  }
+  const printed = () => vi.mocked(console.log).mock.calls.flat().join(' ');
+
+  it.each([31, D1_STATEMENT_LIMIT])(
+    'runs a direct D1 --file of %i bytes as a query and prints rows',
+    async (bytes) => {
+      const sql = selectOfSize(bytes);
+      expect(Buffer.byteLength(sql)).toBe(bytes);
+      const root = directD1File(sql, true);
+      await runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true });
+      expect(mockExecuteD1).toHaveBeenCalledWith(mockD1Context, sql);
+      expect(mockImportD1).not.toHaveBeenCalled();
+      expect(mockConfirm).not.toHaveBeenCalled();
+      expect(printed()).toContain('42');
+      expect(fetchMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it('imports a direct D1 --file over the statement limit after a warning and a TTY prompt', async () => {
+    const { log } = await import('@voidzero-dev/vite-plus-prompts');
+    const sql = selectOfSize(D1_STATEMENT_LIMIT + 1);
+    const root = directD1File(sql, true);
+    await runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true });
+    expect(vi.mocked(log.warn).mock.calls.flat().join(' ')).toContain('cannot serve queries');
+    expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
     expect(mockExecuteD1).not.toHaveBeenCalled();
-    expect(mockConfirm).toHaveBeenCalledTimes(1);
     expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('cancels a large direct D1 --file import when the prompt is declined', async () => {
+    const root = directD1File(selectOfSize(D1_STATEMENT_LIMIT + 1), true);
+    mockConfirm.mockResolvedValue(false);
+    await expect(
+      runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true }),
+    ).rejects.toThrow('process.exit:0');
+    expect(mockImportD1).not.toHaveBeenCalled();
+    expect(mockExecuteD1).not.toHaveBeenCalled();
+  });
+
+  it('warns and imports a large direct D1 --file without a prompt outside a TTY', async () => {
+    const { log } = await import('@voidzero-dev/vite-plus-prompts');
+    const sql = 'INSERT INTO samples VALUES (1);\n'.repeat(4000);
+    const root = directD1File(sql, false);
+    await runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true });
+    expect(vi.mocked(log.warn).mock.calls.flat().join(' ')).toContain('cannot serve queries');
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
   });
 
   it('POSTs to /d1/query with correct URL, body, and auth headers', async () => {
