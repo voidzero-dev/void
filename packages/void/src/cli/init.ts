@@ -2868,10 +2868,12 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       scaffoldToolchain,
       report,
     );
-    report.starter = describeStarter(
-      scaffoldedPagesFramework,
-      starterMode,
-      root === requestedRoot ? undefined : relative(requestedRoot, root),
+    report.setStarter(
+      describeStarter(
+        scaffoldedPagesFramework,
+        starterMode,
+        root === requestedRoot ? undefined : relative(requestedRoot, root),
+      ),
     );
 
     // A workspace member installs from the workspace root: a leaf install would

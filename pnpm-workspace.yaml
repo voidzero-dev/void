@@ -49,9 +49,9 @@ catalog:
   '@stylexjs/stylex': 0.19.2
   '@angular/build': ^22.2.7
   '@astrojs/cloudflare': ^14.4.8
-  '@cloudflare/build-output-utils': ^1.0.0-rc.0
+  '@cloudflare/build-output-utils': 1.0.0-rc.0
   '@cloudflare/codemods': ^0.8.0
-  '@cloudflare/config': ^1.0.0-rc.0
+  '@cloudflare/config': 1.0.0-rc.0
   '@cloudflare/vite-plugin': 2.0.0-rc.0
   '@cloudflare/workers-auth': ^0.18.3
   '@nkzw/fate': 2.2.3

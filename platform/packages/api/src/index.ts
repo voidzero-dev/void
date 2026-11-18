@@ -527,6 +527,7 @@ const app = new Hono<ApiEnv>()
     context.json({
       acceptsExecutionPlans: true,
       skipMigrations: true,
+      d1ReadReplication: true,
       migrationProtocolVersion: 2,
       supportedClassifierVersions: [1],
     }),

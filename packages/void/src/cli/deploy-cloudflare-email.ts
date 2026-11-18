@@ -10,6 +10,8 @@ import {
   applyEmailSetup,
   EMAIL_FROM_VAR,
   emailConfigInputs,
+  formatSendingOnlyPaidHint,
+  isAwaitingSendingOnboarding,
   preflightEmail,
   SEND_EMAIL_BINDING,
   renderEmailChecklist,
@@ -127,6 +129,7 @@ export async function runCloudflareEmailStep(
     routes: pre.derived.routes,
     addresses,
     sendingReady,
+    sendingOnly: pre.usage.handlers.length === 0,
     creating,
   });
   // Pin `configPath` so every step writes the same file. A refused write (e.g. a comment
@@ -141,11 +144,17 @@ export async function runCloudflareEmailStep(
     }
   };
 
-  // Ready: no prompt and no account call; a sending onboarding recorded as refused is never
-  // retried here. The config rows are still rewritten, because a stale `addresses` entry
-  // becomes a plan conflict and a stale `__VOID_EMAIL_FROM` ships the old sender. `null`
-  // removes the key when every derived address is routed elsewhere.
-  if (pre.ready) {
+  // A saved setup is never prompted or retried here: a ready one, and a sending-only one that
+  // still waits for Email Sending onboarding (Workers Free cannot be told apart from "not
+  // onboarded yet", so asking on every deploy would loop). `void email setup` owns that retry.
+  // The config rows are still rewritten, because a stale `addresses` entry becomes a plan
+  // conflict and a stale `__VOID_EMAIL_FROM` ships the old sender. `null` removes the key
+  // when every derived address is routed elsewhere.
+  const awaitingOnboarding = isAwaitingSendingOnboarding(pre);
+  if (pre.ready || awaitingOnboarding) {
+    if (awaitingOnboarding) {
+      log.warn(formatSendingOnlyPaidHint(pre.domain).join('\n'));
+    }
     const patch: ProvisionedWranglerPatch = {};
     const rows: Array<string> = [];
     if (pre.addressesStale) {
@@ -177,6 +186,10 @@ export async function runCloudflareEmailStep(
       }
       configWritten = true;
       log.message(`  ✔ config    ${configName} updated (${rows.join(', ')})`);
+    }
+    if (awaitingOnboarding) {
+      log.warn(`deploy: deploying with the email setup ${configName} already carries.`);
+      return { satisfied: false, configWritten, map: mapFor(pre.addresses, false) };
     }
     return {
       satisfied: true,

@@ -223,13 +223,13 @@ catalogs:
       specifier: 0.7.16
       version: 0.7.16
     '@cloudflare/build-output-utils':
-      specifier: ^1.0.0-rc.0
+      specifier: 1.0.0-rc.0
       version: 1.0.0-rc.0
     '@cloudflare/codemods':
       specifier: ^0.8.0
       version: 0.8.0
     '@cloudflare/config':
-      specifier: ^1.0.0-rc.0
+      specifier: 1.0.0-rc.0
       version: 1.0.0-rc.0
     '@cloudflare/sandbox':
       specifier: ^1.0.3

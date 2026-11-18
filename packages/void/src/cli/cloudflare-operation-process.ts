@@ -30,6 +30,7 @@ import {
   printCloudflareLoginLink,
   printCloudflareLoginPrompt,
 } from './cloudflare-login-output.ts';
+import { normalizeD1SqlLineEndings } from './d1-sql-line-endings.ts';
 import { platformWorkerUploadAttribution } from './platform-worker-user-agent.ts';
 import { sanitizeTerminalLogText } from './terminal-log-text.ts';
 
@@ -740,8 +741,10 @@ async function resources(): Promise<Result> {
     }
     case 'd1.execute': {
       const database = d1Database(operation.database);
-      const sql =
+      const source =
         operation.file !== undefined ? readFileSync(operation.file, 'utf8') : operation.sql;
+      // cf sends the body as is, and the query API fails on CRLF inside a trigger body.
+      const sql = normalizeD1SqlLineEndings(source);
       return withSecretFile(JSON.stringify({ sql }), (path) =>
         runCf(['d1', 'query', database.id, '--body', '@' + path]),
       );

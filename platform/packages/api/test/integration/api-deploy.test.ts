@@ -1551,6 +1551,11 @@ describe('POST /projects/:id/deploy', () => {
     expect(await response.json()).toMatchObject({ skipMigrations: true });
   });
 
+  it('advertises D1 read replication support', async () => {
+    const response = await app.fetch(new Request('https://api.test/capabilities'), env);
+    expect(await response.json()).toMatchObject({ d1ReadReplication: true });
+  });
+
   it('runs migrations via worker after upload (v3 flow)', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'migrate-app');

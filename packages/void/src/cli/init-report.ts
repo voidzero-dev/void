@@ -19,13 +19,23 @@ export class InitReport {
   readonly completed: Array<string> = [];
   /** What the user should do next. */
   readonly nextSteps: Array<string> = [];
-  /**
-   * A new starter in one line, such as "Created a React Pages starter with D1
-   * (SQLite)". The summary shows it alone, since listing the starter's files
-   * would add little.
-   */
-  starter: string | undefined;
+  /** The new starter in one line. See `setStarter`. */
+  private starter: string | undefined;
+  /** Files recorded by the time the starter was created. */
+  private starterFiles = new Set<string>();
   private printed = false;
+
+  /**
+   * Record a new starter in one line, such as "Created a React Pages starter
+   * with D1 (SQLite)". The summary shows it instead of the files recorded so
+   * far, since listing the starter's files would add little. It still lists
+   * files outside the new app (a workspace root's pnpm-workspace.yaml) and
+   * later changes to files that existed before init.
+   */
+  setStarter(summary: string): void {
+    this.starter = summary;
+    this.starterFiles = new Set(this.files.map((file) => file.path));
+  }
 
   /** Record a new file. Later changes to it in the same run keep it a new file. */
   created(path: string): void {
@@ -66,14 +76,31 @@ export class InitReport {
   }
 
   /** One line per file: created files first, then updated files with their details aligned. */
-  fileLines(): Array<string> {
-    const created = this.files.filter((file) => file.kind === 'created');
-    const updated = this.files.filter((file) => file.kind === 'updated');
+  fileLines(files: ReadonlyArray<InitFileChange> = this.files): Array<string> {
+    const created = files.filter((file) => file.kind === 'created');
+    const updated = files.filter((file) => file.kind === 'updated');
     const width = Math.max(0, ...updated.map((file) => file.path.length));
     return [
       ...created.map((file) => `+ ${file.path}`),
       ...updated.map((file) => `~ ${file.path.padEnd(width)}  ${file.details.join(', ')}`),
     ];
+  }
+
+  /**
+   * The files the summary lists. Under a starter, these are the files outside
+   * the new app and the later changes to files that existed before init.
+   * Report paths are relative to the app and use `/`.
+   */
+  private shownFiles(): Array<InitFileChange> {
+    if (!this.starter) {
+      return this.files;
+    }
+    return this.files.filter(
+      (file) =>
+        file.path === '..' ||
+        file.path.startsWith('../') ||
+        (file.kind === 'updated' && !this.starterFiles.has(file.path)),
+    );
   }
 
   /**
@@ -83,15 +110,13 @@ export class InitReport {
    */
   print(targeted = false): void {
     this.printed = true;
+    const lines = this.fileLines(this.shownFiles());
     if (this.starter) {
-      printDone(this.starter);
+      printDone(lines.length > 0 ? [this.starter, ...lines] : this.starter);
+    } else if (lines.length > 0) {
+      printDone(['Configured Void', ...lines]);
     } else {
-      const lines = this.fileLines();
-      if (lines.length > 0) {
-        printDone(['Configured Void', ...lines]);
-      } else {
-        printDone(targeted ? 'No files changed.' : 'Void is already set up. No files changed.');
-      }
+      printDone(targeted ? 'No files changed.' : 'Void is already set up. No files changed.');
     }
     this.printOtherWork();
   }
@@ -121,16 +146,16 @@ export class InitReport {
       return;
     }
     this.printed = true;
-    const lines = this.starter ? [] : this.fileLines();
-    if (lines.length > 0) {
+    const lines = this.fileLines(this.shownFiles());
+    if (this.starter) {
+      log.warn('Setup did not finish. Done so far:');
+      printDone(lines.length > 0 ? [this.starter, ...lines] : this.starter);
+    } else if (lines.length > 0) {
       log.warn(['Setup did not finish. Files changed so far:', ...lines].join('\n'));
-    } else if (this.starter || this.completed.length > 0 || this.nextSteps.length > 0) {
+    } else if (this.completed.length > 0 || this.nextSteps.length > 0) {
       log.warn('Setup did not finish. Done so far:');
     } else {
       return;
-    }
-    if (this.starter) {
-      printDone(this.starter);
     }
     this.printOtherWork();
   }
