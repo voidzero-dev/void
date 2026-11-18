@@ -8,6 +8,7 @@ import {
   securityPolicyView,
   securityStatus,
 } from '../security/policy.ts';
+import { probeAndRecord, runSecurityProbe } from '../security/probe.ts';
 import { dryRun, OperatorError, readBody } from './common.ts';
 
 export const securityOperatorRoutes = new Hono<ApiEnv>();
@@ -46,10 +47,24 @@ securityOperatorRoutes.post(
         await changeSecurityPolicy(context.get('db'), body, {
           userId: context.get('user').id,
           preview: dryRun(body),
+          // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
+          probe: async () =>
+            runSecurityProbe(
+              context.env,
+              (await readStoredSecurityPolicy(context.get('db'))).policy,
+            ),
         }),
       );
     } catch (error) {
       throw securityOperatorError(error);
     }
   },
+);
+
+/**
+ * The entitlement probe (spec §5.2). With the capability off it reports check 1 and
+ * makes no Cloudflare or model call and stores nothing.
+ */
+securityOperatorRoutes.post('/security/probe', async (context) =>
+  context.json(await probeAndRecord(context.env, context.get('db'))),
 );

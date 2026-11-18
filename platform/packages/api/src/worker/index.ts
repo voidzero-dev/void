@@ -8,6 +8,7 @@ export {
   ErrorAlertMonitor,
   SandboxConcurrencyCounter,
   SandboxControl,
+  SecurityScanControl,
   SecurityScanScheduler,
   UsageCounter,
   default,

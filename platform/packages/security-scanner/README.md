@@ -16,6 +16,8 @@ controller ──stdin tar──► node runner.mjs --stdin-tar [--root /scan]
                           /scan/out/findings.json   then   /scan/out/status.json (renamed in whole)
 ```
 
+- Probe: `node runner.mjs --self-test` prints one JSON line (uid, model route
+  answer, egress targets, credential-like env names) for probe checks 2 and 3.
 - Start: a short argv, input on stdin. Exit 0 means `status.json` was written,
   whatever the scan status. SIGTERM ends the session (or the tar read) and writes `timed_out`.
 - `task.json` (version 1): `scan_id`, `attempt`, `engine`

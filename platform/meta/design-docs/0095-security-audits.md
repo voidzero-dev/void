@@ -372,6 +372,71 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `operator-security-probe.test.ts` (each failing check copy; Off → on runs the probe
   and a failing check refuses the change).
 - Exit: probe reports all six checks against fakes.
+- As built: the plan did not say how the API calls the controller. A service binding
+  from the API Worker cannot point at a Worker that does not exist yet (the deploy
+  fails), and the controller is created only at turn-on. So `provisionSecurityScanner`
+  also uploads a gate script into the platform dispatch namespace
+  (`void-security-scanner-gate-<hash>`, one service binding `SCANNER` → the
+  controller, no logic, no secret). The API calls `env.DISPATCH.get(gate).fetch(…)`:
+  `POST /v1/scans/start | /v1/scans/cancel | /v1/self-test`. The controller keeps
+  workers.dev off; nothing is on a public hostname and the installer config is
+  unchanged. Names are `void-security-scanner[-gate]-<12 hex of sha256(installation
+  id)>` (Worker and container app share one name). Unlike Sandbox controllers, this one
+  is shared and is re-uploaded (no `If-None-Match`, no repeated migration) when a
+  platform release ships a new bundle (`__VOID_SECURITY_SCANNER_SOURCE` digest).
+  The control binding's props are `{protocol: 1, installation}`; `SecurityScanControl`
+  refuses any other caller and everything while the capability is off.
+  `heartbeat` is the fence (current attempt, `running`, lease not past, project not
+  `deleting` → `ok`, else `stale` or `canceled`); `input`, `model` and `result` are
+  present but refuse until M10, M7 and M12. One Durable Object per attempt
+  (`scan:<id>:<attempt>`) or probe (`probe:<id>`), so an instance is never reused,
+  and a start is accepted once. The start runs in the alarm: fence check first (a
+  stale attempt never starts a container), then the S1 egress lock (model host
+  intercept → all HTTP deny → all HTTPS deny), `start({image:
+  'cloudflare/debian-trixie', enableInternet: false, env: {}})`, a root setup step
+  (`useradd scanner`, `/scan` 0700, runner from stdin to
+  `/opt/void-scanner/runner.mjs` 0555), then the runner as `user: 'scanner'` with
+  the input tar piped to stdin. Alarms every 10 s: fence, read
+  `/scan/out/status.json` (then `findings.json`, at most 5 MiB + 1 byte) as
+  `scanner` with a 30 s limit (a short `node -e` reader: `/scan/out` must be a real
+  directory, the file is opened `O_NOFOLLOW|O_NONBLOCK` and must be a regular file; a
+  refused `status.json` reports `failed (bad_output)` with no findings), hand both to
+  `result`, destroy. Every exec gets `env: {PATH, HOME=/scan}` and nothing else. At the wall clock: `kill -TERM`, 60 s
+  grace, then `timed_out (wall_clock)`; at the hard cap: `timed_out (hard_cap)`. The
+  container stays until `result` accepts, so nothing large is kept in DO storage.
+  Engines A/C answer `engine_unavailable` until M13. The runner gained
+  `--self-test` (`src/runner/self-test.ts`, not `src/self-test.ts`, so it ships in the
+  one bundle): uid, model route answers with the probe id from the outbound props, the
+  four egress targets fail or end in `DenyAll`, no credential-like env name; no file
+  system walk (S1). The runner bundle is built by
+  `build-security-scanner-controller.mjs` with Vite (SSR, Node built-ins external) and
+  embedded through `void:security-scanner-runner-source`; `build-runtime.mjs` and
+  `build-worker.mjs` build it. Probe: checks run in parallel (2+3 share one
+  self-test); a skipped required check counts as missing (`container` failing gives
+  `missing: ['container', 'egress']`). Check 4 calls `env.AI.run` with
+  `skipCache` and `cf-aig-collect-log-payload: false`; "no cached entry after" is not
+  read back (no gateway log read yet, S10). Check 5 calls REST `/ai/v1/messages` and
+  `/ai/v1/responses` (with `access_programs`) on the first priced model of each host;
+  401/403 names the token permission instead of credits. Probe calls carry
+  `cf-aig-metadata {"securityScan":"probe"}`. `POST /operator/v1/security/probe` has no
+  501 guard: with the capability off it returns check 1's copy and makes no other call
+  and stores nothing. A stored row that cannot be read is not overwritten by a probe.
+  Turning the policy on (`changeSecurityPolicy` with `probe`) runs the probe outside
+  the transaction when the revision still matches, stores a failing result and
+  answers 409, or writes the passing result with the mode in one write; a preview
+  does not check the stored probe and says the probe runs on apply. Without `probe`
+  (direct callers) the stored < 24 h check stays. `deleteSecurityScanner` (gate →
+  container app → Worker) exists for uninstall; wiring it into `void platform
+  uninstall` is left to the CLI milestone.
+  Review fixes: turn-on first runs the full proposal (`probeOnApply`) so a change
+  refused anyway (public gate, blocked or unpriced default, no provider notice) never
+  provisions or calls a model; a third-party default is checked against the fresh
+  probe, not the stored hosts. A failed turn-on probe answers 409 with `probeId` and
+  each refusing check (`name`, `message`, `link`) in `details`. A gate with no marker
+  or another installation's marker is refused. Timing: probe ready wait 90 s + setup
+  30 s + self-test 90 s < the API's 240 s wait. Check 2 keeps the Workers Paid /
+  permissions copy for plan and token errors and shows the provisioning error's own
+  copy for `ownership`, `outdated`, `missing` and `gate`.
 
 **M7 Model proxy and budget.**
 

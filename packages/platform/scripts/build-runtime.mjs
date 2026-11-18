@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, dirname, join } from 'pathslash';
 import { buildSandboxController } from '../../../platform/packages/api/scripts/build-sandbox-controller.mjs';
+import { buildSecurityScannerController } from '../../../platform/packages/api/scripts/build-security-scanner-controller.mjs';
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = join(packageRoot, '..', '..');
@@ -78,6 +79,7 @@ try {
   const adminStyleContents = readFileSync(adminStyleAsset);
   const artifacts = {};
   const controller = buildSandboxController(temporaryRoot);
+  const scannerController = await buildSecurityScannerController(temporaryRoot);
 
   for (const [name, entrypoint] of workers) {
     const configPath = join(temporaryRoot, `${name}.json`);
@@ -89,7 +91,12 @@ try {
         main: entrypoint,
         alias: {
           ...sourceAliases,
-          ...(name === 'api' ? { 'void:sandbox-controller-source': controller.modulePath } : {}),
+          ...(name === 'api'
+            ? {
+                'void:sandbox-controller-source': controller.modulePath,
+                'void:security-scanner-controller-source': scannerController.modulePath,
+              }
+            : {}),
         },
         compatibility_date: '2026-02-24',
         compatibility_flags:

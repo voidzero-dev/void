@@ -11,6 +11,39 @@ import {
   test,
   vi,
 } from 'vite-plus/test';
+
+// Turning the policy on re-runs the probe (M6). Its own route and checks are covered in
+// operator-security-probe.test.ts; here it is a stand-in that passes unless a test
+// says otherwise.
+const probe = vi.hoisted(() => ({
+  result: null as Record<string, unknown> | null,
+  checks: [] as Array<Record<string, unknown>>,
+  runs: 0,
+}));
+vi.mock('../../src/security/probe.ts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/security/probe.ts')>();
+  return {
+    ...actual,
+    runSecurityProbe: async () => {
+      probe.runs++;
+      const entitlement = probe.result ?? {
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        missing: [],
+        hosts: { openai: false, anthropic: true },
+      };
+      return {
+        probeId: 'pr_test',
+        checkedAt: entitlement.checkedAt,
+        ok: entitlement.ok,
+        checks: probe.checks,
+        entitlement,
+        coldStartMs: null,
+      };
+    },
+  };
+});
+
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
 import {
@@ -64,6 +97,9 @@ beforeEach(async () => {
 });
 afterEach(() => {
   vi.restoreAllMocks();
+  probe.result = null;
+  probe.checks = [];
+  probe.runs = 0;
 });
 
 function request(path: string, body?: Record<string, unknown>, bindings: TestEnv = onEnv) {
@@ -250,34 +286,124 @@ describe('operator security policy', () => {
     expect((await storedPolicy())?.revision).toBe(4);
   });
 
-  test('nothing turns on without a fresh probe pass', async () => {
+  test('turning on re-runs the probe: a pass replaces the stored result, a failure refuses', async () => {
+    // No stored probe: the fresh one is what counts.
     await seedPolicy({ entitlement: null });
-    const none = await request('/policy', { expectedRevision: 3, mode: 'public' });
-    expect(none.status).toBe(409);
-    expect(await none.json()).toMatchObject({
-      error: 'security entitlement missing',
-      details: { missing: ['probe'] },
+    const on = await request('/policy', { expectedRevision: 3, mode: 'public' });
+    expect(on.status).toBe(200);
+    expect(probe.runs).toBe(1);
+    expect(await storedPolicy()).toMatchObject({
+      mode: 'public',
+      revision: 4,
+      entitlement: { ok: true, hosts: { anthropic: true } },
     });
 
     await env.db.delete(platformSettings);
-    await seedPolicy({ entitlement: entitlement(25) });
-    const stale = await request('/policy', { expectedRevision: 3, mode: 'all' });
-    expect(stale.status).toBe(409);
-    expect(await stale.json()).toMatchObject({ error: 'security entitlement missing' });
-
-    await env.db.delete(platformSettings);
-    await seedPolicy({ entitlement: entitlement(1, { ok: false, missing: ['egress'] }) });
-    const failed = await request('/policy', { expectedRevision: 3, dryRun: true, mode: 'all' });
+    await seedPolicy({ entitlement: entitlement(1) });
+    probe.result = entitlement(0, { ok: false, missing: ['egress'] });
+    const egressCopy =
+      'Scanner network lock failed (probe pr_test). The scanner could reach the internet, so scans stay off to keep code private.';
+    probe.checks = [
+      { check: 1, name: 'capability', label: 'Capability securityAudits', status: 'ok' },
+      { check: 3, name: 'egress', label: 'Egress lock', status: 'fail', message: egressCopy },
+      {
+        check: 5,
+        name: 'credits',
+        label: 'Credits     openai/*',
+        status: 'fail',
+        message: 'No AI Gateway credits for openai/*.',
+        link: 'https://dash.cloudflare.com/?to=/:account/ai/ai-gateway',
+      },
+    ];
+    const failed = await request('/policy', { expectedRevision: 3, mode: 'all' });
     expect(failed.status).toBe(409);
-    expect(await failed.json()).toMatchObject({
+    const failedBody = (await failed.json()) as { message: string; details: unknown };
+    expect(failedBody).toMatchObject({
       error: 'security entitlement missing',
-      details: { missing: ['egress'] },
+      // Each refusing check's copy and the probe id reach the operator; a host
+      // without credits does not refuse the change, so it is not listed.
+      details: {
+        missing: ['egress'],
+        probeId: 'pr_test',
+        checks: [{ name: 'egress', message: egressCopy }],
+      },
     });
-    expect((await storedPolicy())?.mode).toBe('disabled');
-    // Other settings still change while Off.
+    expect(failedBody.message).toContain('probe pr_test');
+    expect(failedBody.message).toContain(`Egress lock: ${egressCopy}`);
+    // The failing result is stored (revision + 1); the mode is not.
+    expect(await storedPolicy()).toMatchObject({
+      mode: 'disabled',
+      revision: 4,
+      entitlement: { ok: false, missing: ['egress'] },
+    });
+
+    // A stale revision is refused without running the probe.
+    probe.runs = 0;
+    expect((await request('/policy', { expectedRevision: 3, mode: 'all' })).status).toBe(409);
+    expect(probe.runs).toBe(0);
+    // Moving between on modes, and other settings while Off, never run it.
     expect(
-      (await request('/policy', { expectedRevision: 3, limits: { timeoutMinutes: 30 } })).status,
+      (await request('/policy', { expectedRevision: 4, limits: { timeoutMinutes: 30 } })).status,
     ).toBe(200);
+    expect(probe.runs).toBe(0);
+  });
+
+  test('a turn-on that is refused anyway never runs the probe', async () => {
+    await seedPolicy({ entitlement: null });
+    // Blocked default, unpriced default, missing provider notice, public gate.
+    for (const body of [
+      { block: ['@cf/zai-org/glm-5.3'] },
+      { defaultModel: 'anthropic/claude-sonnet-5.5' },
+      { defaultModel: 'anthropic/claude-opus-5.5' },
+      { publicGate: true },
+    ]) {
+      const response = await request('/policy', { expectedRevision: 3, mode: 'public', ...body });
+      expect(response.status).not.toBe(200);
+    }
+    expect(probe.runs).toBe(0);
+    expect(await storedPolicy()).toMatchObject({ mode: 'disabled', revision: 3 });
+  });
+
+  test('turning on with a third-party default checks its host against the fresh probe', async () => {
+    // The stored probe says anthropic has no credits; the fresh one says it has.
+    await seedPolicy({
+      entitlement: entitlement(30, { hosts: { openai: false, anthropic: false } }),
+    });
+    const change = {
+      expectedRevision: 3,
+      mode: 'public',
+      defaultModel: 'anthropic/claude-opus-5.5',
+      acceptProviderNoticeVersion: SECURITY_PROVIDER_NOTICE_VERSION,
+    };
+    const preview = await request('/policy', { ...change, dryRun: true });
+    expect(preview.status).toBe(200);
+    expect(probe.runs).toBe(0);
+    const applied = await request('/policy', change);
+    expect(applied.status).toBe(200);
+    expect(probe.runs).toBe(1);
+    expect(await storedPolicy()).toMatchObject({
+      mode: 'public',
+      defaultModel: 'anthropic/claude-opus-5.5',
+    });
+
+    // A fresh probe without anthropic credits refuses it.
+    await env.db.delete(platformSettings);
+    await seedPolicy({ entitlement: null });
+    probe.result = entitlement(0, { hosts: { openai: false, anthropic: false } });
+    const refused = await request('/policy', change);
+    expect(refused.status).toBe(422);
+    expect(await refused.json()).toMatchObject({ error: 'security model not allowed' });
+  });
+
+  test('a preview of turning on reads no stored probe and says the probe runs on apply', async () => {
+    await seedPolicy({ entitlement: entitlement(30, { ok: false, missing: ['egress'] }) });
+    const preview = await request('/policy', { expectedRevision: 3, dryRun: true, mode: 'all' });
+    expect(preview.status).toBe(200);
+    const body = (await preview.json()) as { preview: Array<string> };
+    expect(body.preview).toContain(
+      '  The entitlement probe runs again when you apply. A failing check refuses the change.',
+    );
+    expect(probe.runs).toBe(0);
   });
 
   test('checks the default model: blocked, unpriced, host and provider notice', async () => {
@@ -385,6 +511,7 @@ describe('operator security policy', () => {
       '  1 of them has no earlier scan: their first scan reviews the whole app.',
       "  1 project still has open urgent findings from before. They show in those projects' deploy output again.",
       '  Monthly scan budgets are off (no money limit). Set them with: void platform security budget',
+      '  The entitlement probe runs again when you apply. A failing check refuses the change.',
     ]);
 
     const allPreview = (await (await request('/policy', { dryRun: true, mode: 'all' })).json()) as {

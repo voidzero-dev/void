@@ -1,0 +1,422 @@
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+vi.mock('cloudflare:workers', () => ({
+  DurableObject: class {
+    ctx: unknown;
+    env: unknown;
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
+  WorkerEntrypoint: class {
+    ctx: unknown;
+    env: unknown;
+    constructor(ctx: unknown, env: unknown) {
+      this.ctx = ctx;
+      this.env = env;
+    }
+  },
+}));
+import ScannerService, {
+  DenyAll,
+  EXEC_ENV,
+  FINDINGS_PATH,
+  MANAGED_IMAGE,
+  MODEL_HOST,
+  PROBE_READY_TIMEOUT_MS,
+  RUNNER_PATH,
+  SELF_TEST_RUN_TIMEOUT_MS,
+  SETUP_TIMEOUT_MS,
+  ScanModelOutbound,
+  ScannerController,
+  STATUS_PATH,
+  scanInstanceName,
+  probeInstanceName,
+} from '../../src/security-scanner-controller-runtime.ts';
+import { SECURITY_SELF_TEST_TIMEOUT_MS } from '../../src/security/probe.ts';
+import { createFakeContainer, type FakeContainer } from '../__mocks__/container.ts';
+
+const RUNNER = '// fake scanner runner\n';
+
+function fixture(options: Parameters<typeof createFakeContainer>[0] = {}) {
+  const fake: FakeContainer = createFakeContainer(options);
+  const data = new Map<string, unknown>();
+  const alarms: Array<number> = [];
+  const control = {
+    heartbeat: vi.fn(async () => ({ ok: true as const, leaseUntil: '2099-01-01T00:00:00.000Z' })),
+    input: vi.fn(async () => new Blob(['TAR-BYTES']).stream()),
+    model: vi.fn(async () => new Response('model answer')),
+    result: vi.fn(async () => ({ ok: true })),
+  };
+  const ctx = {
+    container: fake.container,
+    exports: {
+      ScanModelOutbound: (init: { props: unknown }) => ({ outbound: 'model', props: init.props }),
+      DenyAll: () => ({ outbound: 'deny' }),
+    },
+    storage: {
+      get: async (key: string) => structuredClone(data.get(key)),
+      put: async (key: string, value: unknown) => {
+        data.set(key, structuredClone(value));
+      },
+      setAlarm: vi.fn(async (at: number) => {
+        alarms.push(at);
+      }),
+      deleteAlarm: vi.fn(async () => {}),
+    },
+  };
+  const env = { SCANNER: { getByName: vi.fn() }, __VOID_SECURITY_SCAN_CONTROL: control };
+  const controller = new ScannerController(ctx as never, env as never);
+  return { fake, data, alarms, control, ctx, env, controller };
+}
+
+const START = {
+  scanId: 'ss_abc',
+  attempt: 2,
+  engine: 'void_loop',
+  wallClockMs: 20 * 60_000,
+  hardCapMs: 45 * 60_000,
+};
+
+type State = { phase: string; wallDeadline: number; hardDeadline: number; stopDeadline?: number };
+
+async function startedScan(options: Parameters<typeof createFakeContainer>[0] = {}) {
+  const setup = fixture(options);
+  expect(await setup.controller.start(START)).toEqual({ ok: true });
+  await setup.controller.alarm();
+  return setup;
+}
+
+function patchState(data: Map<string, unknown>, patch: Partial<State>) {
+  data.set('state', { ...(data.get('state') as State), ...patch });
+}
+
+beforeEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe('ScannerController scan attempt', () => {
+  it('locks egress before the container starts: model host, then all HTTP, then all HTTPS', async () => {
+    const { fake } = await startedScan();
+    expect(fake.calls.slice(0, 4)).toEqual([
+      `interceptOutboundHttp:${MODEL_HOST}`,
+      'interceptAllOutboundHttp',
+      'interceptOutboundHttps:*',
+      'start',
+    ]);
+    expect(fake.intercepts[0]).toMatchObject({
+      binding: { outbound: 'model', props: { scanId: 'ss_abc', attempt: 2 } },
+    });
+    expect(fake.intercepts[1]?.binding).toEqual({ outbound: 'deny' });
+    expect(fake.intercepts[2]?.binding).toEqual({ outbound: 'deny' });
+  });
+
+  it('starts with no internet and no secret env, and runs the runner as the scanner user', async () => {
+    const { fake, control } = await startedScan();
+    expect(fake.started()).toMatchObject({
+      image: MANAGED_IMAGE,
+      enableInternet: false,
+      env: {},
+      entrypoint: ['sleep', 'infinity'],
+    });
+    // No token reaches the container: every exec but the readiness check gets exactly
+    // PATH and HOME, so `node` is found without inheriting anything.
+    expect(EXEC_ENV).toEqual({ PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/scan' });
+    for (const call of fake.execs) {
+      if (call.argv[0] === 'true') {
+        continue;
+      }
+      expect(call.options?.env).toEqual(EXEC_ENV);
+    }
+    const setup = fake.execs.find((call) => call.argv[0] === 'node' && call.argv[1] === '-e');
+    expect(setup?.options?.user).toBeUndefined();
+    expect(setup?.options?.signal).toBeInstanceOf(AbortSignal);
+    expect(await setup!.stdin()).toBe(RUNNER);
+    const runner = fake.execs.find((call) => call.argv[1] === RUNNER_PATH);
+    expect(runner?.argv).toEqual(['node', RUNNER_PATH, '--stdin-tar']);
+    expect(runner?.options).toMatchObject({ user: 'scanner', cwd: '/scan' });
+    expect(await runner!.stdin()).toBe('TAR-BYTES');
+    expect(control.heartbeat).toHaveBeenCalledWith('ss_abc', 2);
+    expect(control.input).toHaveBeenCalledWith('ss_abc', 2);
+  });
+
+  it('refuses a stale attempt before any container starts', async () => {
+    const { fake, control, controller, data } = fixture();
+    control.heartbeat.mockResolvedValueOnce({ ok: false, reason: 'stale' } as never);
+    await controller.start(START);
+    await controller.alarm();
+    expect(fake.calls).not.toContain('start');
+    expect(fake.calls).not.toContain('interceptOutboundHttp:model.void.internal');
+    expect((data.get('state') as State).phase).toBe('done');
+    expect(control.input).not.toHaveBeenCalled();
+  });
+
+  it('starts at most once and only for Engine B', async () => {
+    const { controller } = fixture();
+    expect(await controller.start(START)).toEqual({ ok: true });
+    expect(await controller.start(START)).toEqual({ ok: false, reason: 'already_started' });
+    expect(await fixture().controller.start({ ...START, engine: 'codex_sdk' })).toEqual({
+      ok: false,
+      reason: 'engine_unavailable',
+    });
+  });
+
+  it('reports a missing input as an infrastructure failure and destroys the container', async () => {
+    const setup = fixture();
+    setup.control.input.mockResolvedValueOnce(null as never);
+    await setup.controller.start(START);
+    await setup.controller.alarm();
+    expect(setup.control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'failed', reason: 'infrastructure', error_class: 'input_unavailable' },
+      findings: null,
+    });
+    expect(setup.fake.container.running).toBe(false);
+  });
+
+  it('polls the result files, reports them once, then destroys the container', async () => {
+    const { fake, control, controller, data } = await startedScan();
+    await controller.alarm();
+    expect(control.result).not.toHaveBeenCalled();
+    fake.files.set(STATUS_PATH, JSON.stringify({ status: 'succeeded', reason: null }));
+    fake.files.set(FINDINGS_PATH, '{"schema_version":1}');
+    await controller.alarm();
+    expect(control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'succeeded', reason: null },
+      findings: '{"schema_version":1}',
+    });
+    expect(fake.container.running).toBe(false);
+    expect((data.get('state') as State).phase).toBe('done');
+    // The read runs as scanner (never root) and has a time limit.
+    const read = fake.execs.find((call) => call.argv[1] === '-e' && call.argv[3] === STATUS_PATH);
+    expect(read?.options).toMatchObject({ user: 'scanner', env: EXEC_ENV });
+    expect(read?.options?.signal).toBeInstanceOf(AbortSignal);
+  });
+
+  it('refuses a status.json that is a symlink and sends no file content', async () => {
+    const { fake, control, controller } = await startedScan();
+    // Scanned code owns /scan: it links status.json to a file only root should read.
+    fake.unsafe.add(STATUS_PATH);
+    fake.files.set(STATUS_PATH, 'SECRET FROM /proc/1/environ');
+    fake.files.set(FINDINGS_PATH, '{"schema_version":1}');
+    await controller.alarm();
+    expect(control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'failed', reason: 'bad_output', error_class: 'status_unreadable' },
+      findings: null,
+    });
+    expect(fake.execs.some((call) => call.argv[3] === FINDINGS_PATH)).toBe(false);
+    expect(fake.container.running).toBe(false);
+  });
+
+  it('sends no findings when findings.json is not a regular file', async () => {
+    const { fake, control, controller } = await startedScan();
+    fake.files.set(STATUS_PATH, JSON.stringify({ status: 'succeeded' }));
+    fake.unsafe.add(FINDINGS_PATH);
+    await controller.alarm();
+    expect(control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'succeeded' },
+      findings: null,
+    });
+  });
+
+  it('keeps the container while the API refuses the result, until the hard cap', async () => {
+    const { fake, control, controller, data, alarms } = await startedScan();
+    control.result.mockResolvedValue({ ok: false });
+    fake.files.set(STATUS_PATH, JSON.stringify({ status: 'succeeded' }));
+    const armed = alarms.length;
+    await controller.alarm();
+    expect(fake.container.running).toBe(true);
+    expect(alarms.length).toBe(armed + 1);
+    patchState(data, { hardDeadline: Date.now() - 1 });
+    await controller.alarm();
+    expect(control.result).toHaveBeenLastCalledWith('ss_abc', 2, {
+      status: { status: 'timed_out', reason: 'hard_cap' },
+      findings: null,
+    });
+    expect(fake.container.running).toBe(false);
+  });
+
+  it('sends SIGTERM at the wall clock, then kills the container after the grace period', async () => {
+    const { fake, control, controller, data } = await startedScan();
+    patchState(data, { wallDeadline: Date.now() - 1 });
+    await controller.alarm();
+    const kill = fake.execs.find((call) => call.argv[0] === 'kill');
+    expect(kill?.argv.slice(0, 2)).toEqual(['kill', '-TERM']);
+    expect(kill?.options).toMatchObject({ user: 'scanner', env: EXEC_ENV });
+    expect(kill?.options?.signal).toBeInstanceOf(AbortSignal);
+    expect((data.get('state') as State).phase).toBe('stopping');
+    expect(fake.container.running).toBe(true);
+
+    patchState(data, { stopDeadline: Date.now() - 1 });
+    await controller.alarm();
+    expect(control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'timed_out', reason: 'wall_clock' },
+      findings: null,
+    });
+    expect(fake.container.running).toBe(false);
+  });
+
+  it('collects the timed_out status the runner writes after SIGTERM', async () => {
+    const { fake, control, controller, data } = await startedScan();
+    patchState(data, { wallDeadline: Date.now() - 1 });
+    await controller.alarm();
+    fake.files.set(STATUS_PATH, JSON.stringify({ status: 'timed_out', reason: 'wall_clock' }));
+    await controller.alarm();
+    expect(control.result).toHaveBeenCalledWith('ss_abc', 2, {
+      status: { status: 'timed_out', reason: 'wall_clock' },
+      findings: null,
+    });
+  });
+
+  it('stops when a later heartbeat says the scan was canceled', async () => {
+    const { fake, control, controller } = await startedScan();
+    control.heartbeat.mockResolvedValueOnce({ ok: false, reason: 'canceled' } as never);
+    fake.files.set(STATUS_PATH, JSON.stringify({ status: 'succeeded' }));
+    await controller.alarm();
+    expect(control.result).not.toHaveBeenCalled();
+    expect(fake.container.running).toBe(false);
+  });
+
+  it('cancel destroys the container and reports nothing', async () => {
+    const { fake, control, controller } = await startedScan();
+    await controller.cancel();
+    expect(fake.container.running).toBe(false);
+    expect(control.result).not.toHaveBeenCalled();
+  });
+});
+
+describe('ScannerController self-test', () => {
+  it('runs the runner self-test as scanner behind the same egress lock and destroys the container', async () => {
+    const report = { selfTest: 1, uid: 999, model: { ok: true, probe: 'pr_x' } };
+    const { fake, controller } = fixture({
+      exec: (call) =>
+        call.argv[2] === '--self-test'
+          ? { exitCode: 0, stdout: `${JSON.stringify(report)}\n` }
+          : undefined,
+    });
+    const result = await controller.selfTest('pr_x');
+    expect(result).toMatchObject({ started: true, report });
+    expect(fake.calls.slice(0, 4)).toEqual([
+      `interceptOutboundHttp:${MODEL_HOST}`,
+      'interceptAllOutboundHttp',
+      'interceptOutboundHttps:*',
+      'start',
+    ]);
+    expect(fake.intercepts[0]?.binding).toEqual({ outbound: 'model', props: { probeId: 'pr_x' } });
+    expect(fake.started()).toMatchObject({ enableInternet: false, env: {} });
+    const run = fake.execs.find((call) => call.argv[2] === '--self-test');
+    expect(run?.options).toMatchObject({ user: 'scanner', env: EXEC_ENV });
+    expect(fake.container.running).toBe(false);
+    expect(await controller.selfTest('pr_x')).toMatchObject({ started: false });
+  });
+
+  it('ends before the API stops waiting, so a slow start reports its own error', () => {
+    const controllerMs = PROBE_READY_TIMEOUT_MS + SETUP_TIMEOUT_MS + SELF_TEST_RUN_TIMEOUT_MS;
+    expect(controllerMs).toBeLessThanOrEqual(SECURITY_SELF_TEST_TIMEOUT_MS - 30_000);
+  });
+
+  it('reports a container that never becomes ready', async () => {
+    const { controller, fake } = fixture({
+      exec: (call) => (call.argv[0] === 'true' ? { exitCode: 1 } : undefined),
+    });
+    // Each clock read moves a minute on, so the 90-second probe ready wait ends after one try.
+    let clock = 0;
+    vi.spyOn(Date, 'now').mockImplementation(() => (clock += 60_000));
+    const result = await controller.selfTest('pr_y');
+    expect(result.started).toBe(false);
+    expect(result.error).toContain('did not start');
+    expect(fake.container.running).toBe(false);
+  });
+});
+
+describe('outbound handlers', () => {
+  it('answers the self-test route with the probe id from props', async () => {
+    const outbound = new ScanModelOutbound(
+      { props: { probeId: 'pr_z' } } as never,
+      { __VOID_SECURITY_SCAN_CONTROL: {} } as never,
+    );
+    const response = await outbound.fetch(new Request('http://model.void.internal/v1/self-test'));
+    expect(await response.json()).toEqual({ probe: 'pr_z' });
+  });
+
+  it('sends scan model calls to the API with the identity from props, not the request', async () => {
+    const model = vi.fn(async () => new Response('ok'));
+    const outbound = new ScanModelOutbound(
+      { props: { scanId: 'ss_1', attempt: 3 } } as never,
+      { __VOID_SECURITY_SCAN_CONTROL: { model } } as never,
+    );
+    const request = new Request('http://model.void.internal/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'x-void-scan-id': 'ss_other' },
+      body: '{}',
+    });
+    await outbound.fetch(request);
+    expect(model).toHaveBeenCalledWith('ss_1', 3, request);
+  });
+
+  it('denies every other host', async () => {
+    const deny = new DenyAll({} as never, {} as never);
+    const response = deny.fetch(new Request('https://example.com/'));
+    expect(response.status).toBe(403);
+    expect(await response.text()).toBe('egress denied: example.com');
+  });
+});
+
+describe('ScannerService', () => {
+  function service() {
+    const stubs = new Map<
+      string,
+      { start: ReturnType<typeof vi.fn>; selfTest: ReturnType<typeof vi.fn> }
+    >();
+    const env = {
+      SCANNER: {
+        getByName: vi.fn((name: string) => {
+          const stub = {
+            start: vi.fn(async () => ({ ok: true })),
+            cancel: vi.fn(async () => {}),
+            selfTest: vi.fn(async () => ({ started: true })),
+          };
+          stubs.set(name, stub);
+          return stub;
+        }),
+      },
+    };
+    return { service: new ScannerService({} as never, env as never), env, stubs };
+  }
+
+  const post = (path: string, body: unknown) =>
+    new Request(`https://security-scanner.internal${path}`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+
+  it('gives every scan attempt and every probe its own instance (edge #42)', async () => {
+    const { service: scanner, env } = service();
+    await scanner.fetch(post('/v1/scans/start', { ...START, scanId: 'ss_a' }));
+    await scanner.fetch(post('/v1/scans/start', { ...START, scanId: 'ss_b' }));
+    await scanner.fetch(post('/v1/scans/start', { ...START, scanId: 'ss_a', attempt: 3 }));
+    await scanner.fetch(post('/v1/self-test', { probeId: 'pr_1' }));
+    const names = env.SCANNER.getByName.mock.calls.map(([name]) => name);
+    expect(names).toEqual([
+      scanInstanceName('ss_a', 2),
+      scanInstanceName('ss_b', 2),
+      scanInstanceName('ss_a', 3),
+      probeInstanceName('pr_1'),
+    ]);
+    expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('refuses malformed requests before touching a Durable Object', async () => {
+    const { service: scanner, env } = service();
+    for (const body of [
+      { ...START, scanId: '../x' },
+      { ...START, attempt: 0 },
+      { ...START, hardCapMs: 1_000 },
+      { probeId: 'pr 1' },
+    ]) {
+      const path = 'probeId' in body ? '/v1/self-test' : '/v1/scans/start';
+      expect((await scanner.fetch(post(path, body))).status).toBe(400);
+    }
+    expect((await scanner.fetch(new Request('https://x/v1/scans/start'))).status).toBe(404);
+    expect(env.SCANNER.getByName).not.toHaveBeenCalled();
+  });
+});

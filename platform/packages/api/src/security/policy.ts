@@ -30,6 +30,7 @@ import {
   type SecurityLimitKey,
   type SecurityMode,
   type SecurityPolicy,
+  type SecurityEntitlement,
   type SecurityPolicyLimits,
   type SecurityThirdPartyNotice,
 } from '@void/platform/security-policy';
@@ -39,6 +40,7 @@ import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts'
 import { projects, projectZeroTrust } from '../schema.ts';
 import { readZeroTrustConfigurationStrict } from '../zero-trust/configuration.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
+import type { SecurityProbeReport } from './probe.ts';
 import {
   projectSecuritySettings,
   securityPlatformSpend,
@@ -289,7 +291,17 @@ export type SecurityPolicyProposal = Readonly<{
   changes: SecurityPolicyChanges;
 }>;
 
-export type SecurityPolicyChangeContext = Readonly<{ userId: string; now: number }>;
+export type SecurityPolicyChangeContext = Readonly<{
+  userId: string;
+  now: number;
+  /**
+   * A probe that just ran (the policy change re-runs it when it leaves `disabled`).
+   * It replaces the stored result and is what the turn-on check reads.
+   */
+  entitlement?: SecurityEntitlement;
+  /** A preview of a change whose apply runs the probe: the stored result is not checked. */
+  probeOnApply?: boolean;
+}>;
 
 function noticeIsCurrent(notice: SecurityThirdPartyNotice | null): boolean {
   return notice !== null && notice.version === SECURITY_PROVIDER_NOTICE_VERSION;
@@ -308,9 +320,9 @@ function nextBlockedModels(
 }
 
 function assertDefaultModel(
-  current: SecurityPolicy,
   next: SecurityPolicy,
   request: SecurityPolicyChangeRequest,
+  probeRunsOnApply: boolean,
 ): void {
   const id = next.defaultModel;
   if (next.blockedModels.includes(id)) {
@@ -333,7 +345,8 @@ function assertDefaultModel(
   if (!host || request.defaultModel === undefined) {
     return;
   }
-  if (!current.entitlement?.hosts[host]) {
+  // The apply re-runs the probe and checks the host against that fresh result.
+  if (!probeRunsOnApply && !next.entitlement?.hosts[host]) {
     throw SecurityApiError.of(
       'modelNotAllowed',
       `${host}/* models cannot be picked: the last probe found no AI Gateway credits for ${host}/*. Load Unified Billing credits, then run: void platform security probe`,
@@ -420,12 +433,15 @@ export function proposeSecurityPolicyChange(
     blockedModels: nextBlockedModels(current.blockedModels, request),
     thirdPartyNotice,
     limits,
+    entitlement: context.entitlement ?? current.entitlement,
     // `publicGate: true` was refused above, so a request can only turn the gate off.
     publicGate: mode === 'disabled' ? false : (request.publicGate ?? current.publicGate),
   };
-  assertDefaultModel(current, next, request);
-  if (current.mode === 'disabled' && mode !== 'disabled') {
-    assertEntitlement(current, context.now);
+  const probeRunsOnApply =
+    context.probeOnApply === true && current.mode === 'disabled' && mode !== 'disabled';
+  assertDefaultModel(next, request, probeRunsOnApply);
+  if (current.mode === 'disabled' && mode !== 'disabled' && !probeRunsOnApply) {
+    assertEntitlement(next, context.now);
   }
   const changes: SecurityPolicyChanges = {
     mode: mode === current.mode ? null : { from: current.mode, to: mode },
@@ -882,7 +898,17 @@ export class SecurityPolicyRevisionError extends SecurityApiError {
 export async function changeSecurityPolicy(
   db: Db,
   body: Record<string, unknown>,
-  options: Readonly<{ userId: string; preview: boolean; now?: number }>,
+  options: Readonly<{
+    userId: string;
+    preview: boolean;
+    now?: number;
+    /**
+     * Runs the entitlement probe (spec §5.2). When given, a change that leaves
+     * `disabled` runs it before the write and checks its result instead of the stored
+     * one; a failing probe is stored and refuses the change.
+     */
+    probe?: () => Promise<SecurityProbeReport>;
+  }>,
 ): Promise<SecurityPolicyChangeResult> {
   const request = parseSecurityPolicyChangeRequest(body);
   if (!options.preview && request.expectedRevision === undefined) {
@@ -890,6 +916,30 @@ export async function changeSecurityPolicy(
       'expectedRevision must be the policy revision from a fresh preview.',
     );
   }
+  const leavesDisabled = (policy: SecurityPolicy) =>
+    policy.mode === 'disabled' && request.mode !== undefined && request.mode !== 'disabled';
+  let entitlement: SecurityEntitlement | undefined;
+  if (options.probe && !options.preview) {
+    const before = await readStoredSecurityPolicy(db);
+    if (leavesDisabled(before.policy) && request.expectedRevision === before.policy.revision) {
+      // Refuse a change that fails anyway before the probe provisions the scanner,
+      // starts a container and pays for model calls. Only the probe result is unknown.
+      proposeSecurityPolicyChange(before, request, {
+        userId: options.userId,
+        now: options.now ?? Date.now(),
+        probeOnApply: true,
+      });
+      // The probe takes up to a few minutes, so it runs outside the transaction. The
+      // revision check below still refuses the write if the policy changed meanwhile.
+      const report = await options.probe();
+      entitlement = report.entitlement;
+      if (!entitlement.ok) {
+        await recordSecurityEntitlement(db, entitlement);
+        throw probeFailedError(report);
+      }
+    }
+  }
+  // Read the clock after the probe: its result must not look like it is from the future.
   const now = options.now ?? Date.now();
   return db.transaction(async (tx) => {
     await lockSecurityPolicy(tx);
@@ -901,6 +951,8 @@ export async function changeSecurityPolicy(
     const { next, changes } = proposeSecurityPolicyChange(stored, request, {
       userId: options.userId,
       now,
+      entitlement,
+      probeOnApply: options.preview && options.probe !== undefined,
     });
     if (options.preview) {
       const counts = await securityPolicyPreviewCounts(tx, current, next, changes);
@@ -912,7 +964,10 @@ export async function changeSecurityPolicy(
         policy: { ...next, revision: current.revision + 1 },
         changes,
         counts,
-        preview: securityPolicyPreviewLines(current, next, changes, counts),
+        preview:
+          options.probe && leavesDisabled(current)
+            ? withProbeLine(securityPolicyPreviewLines(current, next, changes, counts))
+            : securityPolicyPreviewLines(current, next, changes, counts),
       };
     }
     const written = await replaceSecurityPolicy(tx, current, next);
@@ -927,6 +982,74 @@ export async function changeSecurityPolicy(
       canceledScans = canceled.length;
     }
     return { ok: true as const, policy: written, changes, canceledScans };
+  });
+}
+
+/**
+ * The refusal for a failed turn-on probe: each failing check's own copy (spec §5.2),
+ * and the probe id that finds its log line.
+ */
+function probeFailedError(report: SecurityProbeReport): SecurityApiError {
+  // Only the checks that refuse the change (1–4); a host without credits does not.
+  const failing = report.checks.filter((check) => report.entitlement.missing.includes(check.name));
+  const lines = failing.flatMap((check) =>
+    check.message ? [`  ${check.label}: ${check.message}`] : [],
+  );
+  return SecurityApiError.of(
+    'entitlementMissing',
+    [
+      `The entitlement probe failed (${report.entitlement.missing.join(', ')}; probe ${report.probeId}). Fix it and run: void platform security probe`,
+      ...lines,
+    ].join('\n'),
+    {
+      missing: report.entitlement.missing,
+      checkedAt: report.entitlement.checkedAt,
+      probeId: report.probeId,
+      checks: failing.map((check) => ({
+        name: check.name,
+        ...(check.message ? { message: check.message } : {}),
+        ...(check.link ? { link: check.link } : {}),
+      })),
+    },
+  );
+}
+
+/** Adds the probe line at the end of the "Change policy: Off → …" block. */
+function withProbeLine(lines: ReadonlyArray<string>): Array<string> {
+  const start = lines.findIndex((line) => line.startsWith('Change policy:'));
+  if (start === -1) {
+    return [...lines];
+  }
+  let end = start + 1;
+  while (end < lines.length && lines[end]!.startsWith('  ')) {
+    end++;
+  }
+  return [
+    ...lines.slice(0, end),
+    '  The entitlement probe runs again when you apply. A failing check refuses the change.',
+    ...lines.slice(end),
+  ];
+}
+
+/**
+ * Stores a probe result (`entitlement`, revision + 1) under the policy lock. A stored
+ * row that cannot be read is left alone: the operator saves the policy first.
+ */
+export async function recordSecurityEntitlement(
+  db: Db,
+  entitlement: SecurityEntitlement,
+): Promise<Readonly<{ saved: boolean; revision: number | null }>> {
+  return db.transaction(async (tx) => {
+    await lockSecurityPolicy(tx);
+    const stored = await readStoredSecurityPolicy(tx);
+    if (stored.unreadable !== null) {
+      return { saved: false, revision: null };
+    }
+    const written = await replaceSecurityPolicy(tx, stored.policy, {
+      ...stored.policy,
+      entitlement,
+    });
+    return { saved: true, revision: written.revision };
   });
 }
 

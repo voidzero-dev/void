@@ -144,6 +144,7 @@ import {
   platformLoginTests,
   platformHumanSessions,
 } from './schema.ts';
+import { SecurityScanControl } from './security/control.ts';
 import { SecurityScanScheduler } from './security/scheduler.ts';
 import { isAdminSuspended, REASON_REQUESTS_EXCEEDED } from './suspension.ts';
 import { getCurrentBillingPeriodStart } from './tiers.ts';
@@ -1303,6 +1304,7 @@ export {
   ErrorAlertMonitor,
   SandboxConcurrencyCounter,
   SandboxControl,
+  SecurityScanControl,
   SecurityScanScheduler,
   BuildScheduler,
   BuildManager,

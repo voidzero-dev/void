@@ -11,6 +11,7 @@
   "build": { "command": "node scripts/build-worker.mjs" },
   "alias": {
     "void:sandbox-controller-source": "./dist/sandbox-controller-source.ts",
+    "void:security-scanner-controller-source": "./dist/security-scanner-controller-source.ts",
     "@void/react/pages-server": "../../../packages/react/src/runtime/pages-server.ts",
     "@void/react": "../../../packages/react/src/runtime/index.ts",
     "void/pages-client": "../../../packages/void/src/pages/client.ts",
