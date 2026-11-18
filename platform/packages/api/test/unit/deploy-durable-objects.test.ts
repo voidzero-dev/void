@@ -1,4 +1,5 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { verifyManagedDurableObjectApplicationBindings } from '../../src/provisioning/durable-objects.ts';
 import {
   buildDurableObjectUploadMigrations,
   buildLiveUploadBindings,
@@ -632,5 +633,84 @@ describe('validateManifestShape sandbox + static/spa rejection', () => {
         sandbox,
       }),
     ).toBeNull();
+  });
+});
+
+describe('verifyManagedDurableObjectApplicationBindings', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  const env = {
+    CF_ACCOUNT_ID: 'acc-123',
+    CF_API_TOKEN: 'tok-123',
+    DISPATCH_NAMESPACE: 'void-prod',
+  };
+  const manifest: DeployManifest = {
+    version: 3,
+    bindings: {},
+    durableObjects: {
+      bindings: [{ bindingName: 'TRACKER', className: 'TrackerDo', storage: 'sqlite' }],
+      runtime: { protocol: 1, namespaces: { TrackerDo: 'ns-expected' } },
+    },
+  };
+
+  it('resolves on first read when bindings match immediately', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: [
+          { name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-expected' },
+        ],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+    ).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('retries stale/empty binding reads after Worker upload until bindings converge', async () => {
+    let bindingCalls = 0;
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/settings')) {
+        return Response.json({ success: true, errors: [], result: {} });
+      }
+      bindingCalls += 1;
+      return Response.json({
+        success: true,
+        errors: [],
+        result:
+          bindingCalls === 1
+            ? []
+            : [{ name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-expected' }],
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+    ).resolves.toBeUndefined();
+    expect(bindingCalls).toBe(2);
+  });
+
+  it('rejects when bindings never match across all retry attempts', async () => {
+    const fetchMock = vi.fn(async () =>
+      Response.json({
+        success: true,
+        errors: [],
+        result: [{ name: 'TRACKER', type: 'durable_object_namespace', namespace_id: 'ns-stale' }],
+      }),
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+    ).rejects.toThrow('Application custom Durable Object binding could not be verified.');
+    expect(fetchMock).toHaveBeenCalledTimes(4);
   });
 });

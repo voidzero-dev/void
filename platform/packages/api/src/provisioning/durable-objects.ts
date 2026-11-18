@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   createAssetUploadSession,
@@ -350,19 +351,31 @@ export function managedDurableObjectBindings(manifest: DeployManifest): Array<Bi
 }
 
 export async function verifyManagedDurableObjectApplicationBindings(
-  env: Env,
+  env: Pick<Env, 'CF_ACCOUNT_ID' | 'CF_API_TOKEN' | 'DISPATCH_NAMESPACE'>,
   worker: string,
   manifest: DeployManifest,
+  delaysMs: ReadonlyArray<number> = [250, 500, 1_000],
 ): Promise<void> {
-  if (!manifest.durableObjects?.bindings.length) {
+  const expectedBindings = managedDurableObjectBindings(manifest);
+  if (!expectedBindings.length) {
     return;
   }
-  const actual = await readBindings(env, worker);
-  for (const expected of managedDurableObjectBindings(manifest)) {
-    const binding = actual?.find((value) => value.name === expected.name);
-    if (binding?.type !== expected.type || binding.namespace_id !== expected.namespace_id) {
-      throw new Error('Application custom Durable Object binding could not be verified.');
+  const matchesExpected = (actual: Array<Binding> | undefined): boolean =>
+    expectedBindings.every((expected) => {
+      const binding = actual?.find((value) => value.name === expected.name);
+      return binding?.type === expected.type && binding.namespace_id === expected.namespace_id;
+    });
+
+  let actual = await readBindings(env as Env, worker);
+  for (const wait of delaysMs) {
+    if (matchesExpected(actual)) {
+      return;
     }
+    await delay(wait);
+    actual = await readBindings(env as Env, worker);
+  }
+  if (!matchesExpected(actual)) {
+    throw new Error('Application custom Durable Object binding could not be verified.');
   }
 }
 
