@@ -217,6 +217,24 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   price; reserves match spec §16.1 table; ids use catalog spelling),
   `packages/platform/test/unit/security-policy.test.ts`.
 - Exit: API and CLI import one list.
+- As built: Sonnet has `price: null`. "Every model has a price" holds for the five
+  priced models; the policy parser refuses an unpriced default, and the M4/M14 pickers
+  treat `isSecurityModelPriced() === false` as blocked (R6). Costs are kept in whole
+  nano-dollars per token so metered sums do not drift. The spec gives ranges only for
+  concurrency (1–10) and timeout (5–60); ours for the rest: `maxInputTokens`
+  50k–2M, `maxOutputTokens` 5k–200k, `modelCallsPerScan` 10–200, caps $0–$1,000,000 in
+  whole cents. The strict parser needs every known field, checks cross-field rules
+  (default not blocked, priced, third-party default needs the notice, gate needs mode
+  `public`/`all`) and ignores unknown fields; probe check names in
+  `entitlement.missing` stay open text so a later probe still reads. The strict
+  `parseSecurityPolicy` guards writes; the stored row is read with `readSecurityPolicy`,
+  which survives an upgrade or rollback: unknown blocked ids are dropped, an unknown,
+  unpriced or blocked default becomes the first non-blocked priced `@cf` model (spec
+  edge case 23), limits are clamped into range. Otherwise one model change would make
+  the whole policy unreadable (Off, or 503 with the public gate on). Runtime
+  conditions (fresh probe, Zero Trust state) stay with the API writes (M4, M16). The
+  provider notice text lives next to `SECURITY_PROVIDER_NOTICE_VERSION`. Exports
+  also go in the `vp pack` entry list (`packages/platform/vite.config.ts`).
 
 **M3 Schema and migration 0065.**
 

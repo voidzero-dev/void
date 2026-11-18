@@ -40,6 +40,14 @@
     "./browser-page": {
       "types": "./dist/browser-page.d.mts",
       "import": "./dist/browser-page.mjs"
+    },
+    "./security-models": {
+      "types": "./dist/security-models.d.mts",
+      "import": "./dist/security-models.mjs"
+    },
+    "./security-policy": {
+      "types": "./dist/security-policy.d.mts",
+      "import": "./dist/security-policy.mjs"
     }
   },
   "publishConfig": {

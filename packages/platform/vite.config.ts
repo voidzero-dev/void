@@ -20,6 +20,8 @@ export default defineConfig({
       'src/plans.ts',
       'src/ai-logging.ts',
       'src/browser-page.ts',
+      'src/security-models.ts',
+      'src/security-policy.ts',
     ],
     format: 'esm',
     dts: true,
