@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
-import { importD1SqlFile } from '../../src/cli/cf-d1-import.ts';
+import { d1ImportUploadTimeoutMs, importD1SqlFile } from '../../src/cli/cf-d1-import.ts';
 import { temporaryDirectory } from '../helpers/cloudflare-operation-process.ts';
 
 const sql = "INSERT INTO messages VALUES ('synthetic');\n";
@@ -154,7 +154,7 @@ const uploaded = () => [
 ];
 const unknownOutcome = 'The import may still be running on Cloudflare';
 
-it('bounds each D1 request instead of the whole import', async () => {
+it('bounds each D1 request and the upload instead of the whole import', async () => {
   const fetch = vi.fn<typeof globalThis.fetch>();
   for (const value of [
     ...uploaded(),
@@ -164,13 +164,124 @@ it('bounds each D1 request instead of the whole import', async () => {
     fetch.mockResolvedValueOnce(value);
   }
   vi.stubGlobal('fetch', fetch);
+  const timeout = vi.spyOn(AbortSignal, 'timeout');
   await importD1SqlFile(fixture());
   const signals = fetch.mock.calls.map(([, init]) => init?.signal);
-  expect(signals[1]).toBeUndefined();
-  for (const index of [0, 2, 3]) {
-    expect(signals[index]).toBeInstanceOf(AbortSignal);
+  for (const signal of signals) {
+    expect(signal).toBeInstanceOf(AbortSignal);
   }
   expect(new Set(signals).size).toBe(4);
+  expect(timeout.mock.calls.map(([ms]) => ms)).toEqual([
+    120_000,
+    d1ImportUploadTimeoutMs(Buffer.byteLength(sql)),
+    120_000,
+    120_000,
+  ]);
+});
+
+it('gives the upload time for a 25 MB file on a slow link', () => {
+  // 25 MB at 1 Mbit/s takes 200 seconds, on top of the 2-minute request bound.
+  expect(d1ImportUploadTimeoutMs(25 * 1024 * 1024)).toBe(320_000);
+  expect(d1ImportUploadTimeoutMs(0)).toBe(120_000);
+});
+
+it('keeps a stalled upload a plain failure that names its deadline', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockRejectedValueOnce(
+        new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      ),
+  );
+  const error = await importError();
+  expect(error.message).toBe(
+    `D1 import upload did not finish within ${d1ImportUploadTimeoutMs(Buffer.byteLength(sql)) / 1000} seconds.`,
+  );
+  expect(error.cause).toBeInstanceOf(DOMException);
+});
+
+it.each([
+  {
+    name: 'times out',
+    reply: () => Promise.reject(new DOMException('The operation was aborted', 'TimeoutError')),
+    cause: 'The operation was aborted.',
+  },
+  {
+    name: 'loses the connection',
+    reply: () => Promise.reject(new TypeError('fetch failed')),
+    cause: 'fetch failed.',
+  },
+  {
+    name: 'answers with a server error',
+    reply: () =>
+      Promise.resolve(
+        Response.json({ success: false, errors: [{ message: 'Internal' }] }, { status: 502 }),
+      ),
+    cause: 'D1 import failed (HTTP 502): Internal.',
+  },
+  {
+    name: 'answers with something other than JSON',
+    reply: () => Promise.resolve(new Response('<html>Bad gateway</html>', { status: 502 })),
+    cause: 'is not valid JSON',
+  },
+])(
+  'reports an unknown outcome when init $name, since init starts a cached upload',
+  async ({ reply, cause }) => {
+    const fetch = vi.fn<typeof globalThis.fetch>().mockImplementationOnce(reply);
+    vi.stubGlobal('fetch', fetch);
+    const { message } = await importError();
+    expect(message).toContain(cause);
+    expect(message).toContain(unknownOutcome + '.');
+    expect(fetch).toHaveBeenCalledTimes(1);
+  },
+);
+
+it('reports an unknown outcome with the bookmark when a cached import fails after init', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response({ at_bookmark: 'cached', status: 'active' }))
+      .mockRejectedValueOnce(new TypeError('fetch failed')),
+  );
+  expect((await importError()).message).toContain(`${unknownOutcome} (bookmark cached).`);
+});
+
+it('keeps an init that D1 refused a plain failure', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(
+        Response.json(
+          { success: false, errors: [{ message: 'Permission denied' }] },
+          { status: 403 },
+        ),
+      ),
+  );
+  expect((await importError()).message).toBe('D1 import failed (HTTP 403): Permission denied');
+});
+
+it('reports an unknown outcome when init asks for no upload but gives no bookmark', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(response({ status: 'active' })),
+  );
+  const { message } = await importError();
+  expect(message).toContain('invalid D1 import upload.');
+  expect(message).toContain(unknownOutcome + '.');
+});
+
+it('keeps an upload request without a filename a plain failure', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response({ upload_url: 'https://uploads.example.com/sql' })),
+  );
+  expect((await importError()).message).toBe('Cloudflare returned an invalid D1 import upload.');
 });
 
 it('reports an unknown outcome with the bookmark when a poll times out', async () => {

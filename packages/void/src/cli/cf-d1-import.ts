@@ -9,8 +9,21 @@ type Json = Record<string, unknown>;
 // deadline: a large file may take a long time to upload and ingest.
 const D1_IMPORT_REQUEST_TIMEOUT_MS = 2 * 60_000;
 
+// The presigned upload gets the request timeout plus the time to send the file at 1 Mbit/s,
+// so a stalled PUT fails, while a normal CI link sends a 25 MB file well within its 5 minutes.
+const D1_IMPORT_UPLOAD_MIN_BYTES_PER_SECOND = 128 * 1024;
+
+export function d1ImportUploadTimeoutMs(bytes: number): number {
+  return (
+    D1_IMPORT_REQUEST_TIMEOUT_MS + Math.ceil(bytes / D1_IMPORT_UPLOAD_MIN_BYTES_PER_SECOND) * 1000
+  );
+}
+
 /** D1 reported that the import failed, so the database is back where it started. */
 class D1ImportStatusError extends Error {}
+
+/** The D1 API answered a request with a client error, so it did not act on that request. */
+class D1ImportRefusedError extends Error {}
 
 function object(value: unknown): Json {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : {};
@@ -78,9 +91,9 @@ export async function importD1SqlFile({
         .map((error) => String(object(error).message ?? ''))
         .filter(Boolean)
         .join('; ');
-      throw new Error(
-        `D1 import failed (HTTP ${response.status})${detail ? ': ' + sanitizeTerminalLogText(detail) : '.'}`,
-      );
+      const message = `D1 import failed (HTTP ${response.status})${detail ? ': ' + sanitizeTerminalLogText(detail) : '.'}`;
+      // A server error does not prove that the request was not acted on.
+      throw response.status < 500 ? new D1ImportRefusedError(message) : new Error(message);
     }
     const state = object(data.result);
     if (state.status === 'error' || state.success === false) {
@@ -89,14 +102,41 @@ export async function importD1SqlFile({
     return state;
   }
 
-  const initialized = await request({ action: 'init', etag });
+  function unknownOutcome(error: unknown, bookmark: string | undefined): Error {
+    const message = error instanceof Error ? error.message : String(error);
+    const cause = message.endsWith('.') ? message : `${message}.`;
+    return new Error(
+      sanitizeTerminalLogText(
+        `D1 did not report whether the import finished: ${cause} ` +
+          `The import may still be running on Cloudflare${bookmark ? ` (bookmark ${bookmark})` : ''}. ` +
+          'Check the database before running the file again.',
+      ),
+      { cause: error },
+    );
+  }
+
+  // When D1 already has a file with this etag, init itself starts the import, so only an
+  // answer from D1 proves that nothing started.
+  let initialized: Json;
+  try {
+    initialized = await request({ action: 'init', etag });
+  } catch (error) {
+    if (error instanceof D1ImportStatusError || error instanceof D1ImportRefusedError) {
+      throw error;
+    }
+    throw unknownOutcome(error, undefined);
+  }
   let state = initialized;
   if (!initialized.at_bookmark) {
-    if (
-      typeof initialized.filename !== 'string' ||
-      !initialized.filename ||
-      typeof initialized.upload_url !== 'string'
-    ) {
+    // Like wrangler, a reply without an upload URL means D1 already has the file.
+    if (typeof initialized.upload_url !== 'string') {
+      throw unknownOutcome(
+        new Error('Cloudflare returned an invalid D1 import upload.'),
+        undefined,
+      );
+    }
+    // D1 asked for the file, so it has not started; failures until ingest are plain.
+    if (typeof initialized.filename !== 'string' || !initialized.filename) {
       throw new Error('Cloudflare returned an invalid D1 import upload.');
     }
     let uploadUrl: URL;
@@ -117,13 +157,26 @@ export async function importD1SqlFile({
     ) {
       throw new Error('Cloudflare returned an insecure D1 import upload URL.');
     }
-    // The presigned URL authorizes this request; never forward the account's credentials.
-    const upload = await fetch(uploadUrl, {
-      method: 'PUT',
-      body: blob,
-      redirect: 'error',
-    });
-    await upload.body?.cancel();
+    const uploadTimeoutMs = d1ImportUploadTimeoutMs(blob.size);
+    let upload: Response;
+    try {
+      // The presigned URL authorizes this request; never forward the account's credentials.
+      upload = await fetch(uploadUrl, {
+        method: 'PUT',
+        body: blob,
+        redirect: 'error',
+        signal: AbortSignal.timeout(uploadTimeoutMs),
+      });
+      await upload.body?.cancel();
+    } catch (error) {
+      if (error instanceof DOMException && error.name === 'TimeoutError') {
+        throw new Error(
+          `D1 import upload did not finish within ${Math.round(uploadTimeoutMs / 1000)} seconds.`,
+          { cause: error },
+        );
+      }
+      throw error;
+    }
     if (!upload.ok || upload.headers.get('etag')?.replaceAll('"', '') !== etag) {
       throw new Error(`D1 import upload failed verification (HTTP ${upload.status}).`);
     }
@@ -151,15 +204,6 @@ export async function importD1SqlFile({
     if (error instanceof D1ImportStatusError) {
       throw error;
     }
-    const message = error instanceof Error ? error.message : String(error);
-    const cause = message.endsWith('.') ? message : `${message}.`;
-    throw new Error(
-      sanitizeTerminalLogText(
-        `D1 did not report whether the import finished: ${cause} ` +
-          `The import may still be running on Cloudflare${bookmark ? ` (bookmark ${bookmark})` : ''}. ` +
-          'Check the database before running the file again.',
-      ),
-      { cause: error },
-    );
+    throw unknownOutcome(error, bookmark);
   }
 }
