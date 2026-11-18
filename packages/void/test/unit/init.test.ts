@@ -4332,6 +4332,11 @@ export default config;
       expect(body).toMatch(/Scaffolded the Pages starter/);
       expect(body).toMatch(/void db generate/);
       expect(body).toContain(toSlash(wsroot));
+      // The starter's own files stay hidden, but not the edit to the workspace root.
+      expect(summaryMessages('✓')[0]).toEqual([
+        'Created a Vue Pages starter with D1 (SQLite)',
+        '~ ../../pnpm-workspace.yaml  approved builds',
+      ]);
     } finally {
       rmSync(wsroot, { recursive: true, force: true });
     }
