@@ -1746,6 +1746,13 @@ function getNodeVersionLine(root: string): string {
   return `${version}\n          check-latest: true`;
 }
 
+const projectVoidRunner: Record<ProjectState['packageManager'], string> = {
+  npm: 'npx void',
+  pnpm: 'pnpm exec void',
+  yarn: 'yarn void',
+  bun: 'bunx void',
+};
+
 // Per-package-manager install + setup steps. `void deploy` always runs through
 // the package-manager-appropriate runner in the deploy step below.
 function getWorkflowSetupSteps(
@@ -1762,7 +1769,7 @@ function getWorkflowSetupSteps(
           ${nodeVersion}
           cache: pnpm`,
         install: '      - run: pnpm install --frozen-lockfile',
-        runner: 'pnpm exec void',
+        runner: projectVoidRunner[pm],
       };
     case 'yarn':
       return {
@@ -1771,7 +1778,7 @@ function getWorkflowSetupSteps(
           ${nodeVersion}
           cache: yarn`,
         install: '      - run: yarn install --immutable',
-        runner: 'yarn void',
+        runner: projectVoidRunner[pm],
       };
     case 'bun':
       return {
@@ -1781,7 +1788,7 @@ function getWorkflowSetupSteps(
         with:
           ${nodeVersion}`,
         install: '      - run: bun install --frozen-lockfile',
-        runner: 'bunx void',
+        runner: projectVoidRunner[pm],
       };
     default:
       return {
@@ -1790,7 +1797,7 @@ function getWorkflowSetupSteps(
           ${nodeVersion}
           cache: npm`,
         install: '      - run: npm ci',
-        runner: 'npx void',
+        runner: projectVoidRunner[pm],
       };
   }
 }
@@ -2154,12 +2161,12 @@ export function resolveProjectInstall(
     installer === 'vp' || packageManager === 'pnpm'
       ? ['install', '--no-frozen-lockfile']
       : ['install'];
-  // The manual command leaves out the flag, which only a CI host needs.
+  const manualArgs = args.join(' ');
   const install: ProjectInstall = {
     installer,
     command: installer,
     args,
-    manualCommand: `${installer} install`,
+    manualCommand: `${installer} ${manualArgs}`,
   };
   if (installer !== 'vp') {
     return install;
@@ -2173,7 +2180,13 @@ export function resolveProjectInstall(
     // The starter's Vite+ dependency has not been installed yet.
   }
   if (localBin) {
-    return { ...install, command: process.execPath, args: [localBin, ...args] };
+    const runtime = process.versions.bun ? 'bun' : 'node';
+    return {
+      ...install,
+      command: process.execPath,
+      args: [localBin, ...args],
+      manualCommand: `${runtime} ${quoteShellArgument(relative(root, localBin))} ${manualArgs}`,
+    };
   }
   const probe = spawnSync('vp', ['--version'], {
     cwd: root,
@@ -2199,7 +2212,7 @@ export function resolveProjectInstall(
       ...args,
     ],
     // This user has no `vp` to run.
-    manualCommand: `npx -p ${quoteShellArgument(vitePlus)} vp install`,
+    manualCommand: `npx -p ${quoteShellArgument(vitePlus)} vp ${manualArgs}`,
   };
 }
 
@@ -2220,16 +2233,7 @@ export async function installProjectDependencies(
     },
   );
 
-  if (result.error) {
-    throw result.error;
-  }
-
   if (result.status !== 0) {
-    // Print the output here rather than in the error. The CLI rewords
-    // "wrangler" in error messages, which would change package names in it.
-    if (result.output) {
-      process.stdout.write(result.output.endsWith('\n') ? result.output : `${result.output}\n`);
-    }
     throw new Error(`${installer} install failed with exit code ${result.status ?? 'unknown'}`);
   }
 
@@ -2260,17 +2264,8 @@ export async function generateStarterMigration(
     },
   );
 
-  if (result.error) {
-    throw result.error;
-  }
-
   if (result.status !== 0) {
-    const detail = result.output.trim();
-    throw new Error(
-      ['Failed to generate the initial database migration.', ...(detail ? [detail] : [])].join(
-        '\n\n',
-      ),
-    );
+    throw new Error('Failed to generate the initial database migration.');
   }
 }
 
@@ -3151,11 +3146,20 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   // that finish them by hand. Running init again would not: it would find an
   // existing project and skip the migration.
   const migrationMode = workspaceSubpackageSkip ? undefined : scaffoldedStarterMode;
+  // Vite+ can install a pnpm project even when pnpm isn't on PATH.
+  const voidRunner =
+    state.packageManager === 'pnpm' &&
+    projectInstaller(readPackageJson(root), state.packageManager) === 'vp'
+      ? process.platform === 'win32'
+        ? '.\\node_modules\\.bin\\void.cmd'
+        : './node_modules/.bin/void'
+      : projectVoidRunner[state.packageManager];
+  const manualMigration = `${voidRunner} db generate`;
   if (scaffoldAddedDependencies) {
     const install = resolveProjectInstall(root, state.packageManager);
     const manualInstall = commandInProject(root, install.manualCommand);
     report.unfinished = migrationMode
-      ? `Run \`${manualInstall}\`, then \`void db generate\` to finish setup`
+      ? `Run \`${manualInstall}\`, then \`${manualMigration}\` to finish setup`
       : `Run \`${manualInstall}\` to finish setup`;
     const duration = await installProjectDependencies(root, install);
     report.done(`Installed dependencies in ${formatDuration(duration)}`);
@@ -3166,7 +3170,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     report.next(`Run \`${manualInstall}\` to update your lockfile`);
   }
   if (migrationMode) {
-    report.unfinished = `Run \`${commandInProject(root, 'void db generate')}\` to finish setup`;
+    report.unfinished = `Run \`${commandInProject(root, manualMigration)}\` to finish setup`;
     await generateStarterMigration(root, migrationMode);
     report.done('Generated the initial database migration');
   }

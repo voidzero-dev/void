@@ -1,24 +1,30 @@
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
-import { readdirSync, readFileSync } from 'node:fs';
-import { constants } from 'node:os';
+import { once } from 'node:events';
+import {
+  closeSync,
+  createReadStream,
+  mkdtempSync,
+  openSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { constants, tmpdir } from 'node:os';
+import { join } from 'pathslash';
 import { createSpinner } from './output.ts';
 
-export type SubprocessResult = {
+type SubprocessResult = {
   /** The exit code, or null when a signal ended the command. */
   status: number | null;
-  /** What the command wrote to stdout and stderr, in the order it arrived. */
-  output: string;
   /** How long the command ran, in milliseconds. */
   durationMs: number;
-  /** Why the command did not start. */
-  error?: Error;
 };
 
-/**
- * The signals that end init: Ctrl+C where no spinner reads the keyboard, and
- * `kill`. SIGHUP is left alone, since listening for it would undo `nohup`.
- */
-const STOP_SIGNALS = ['SIGINT', 'SIGTERM'] as const;
+// A terminal hangup does not reach the detached group. Windows has no SIGHUP
+// handler we can use for terminal shutdown.
+const STOP_SIGNALS: Array<NodeJS.Signals> =
+  process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
 /** How long a command that init stops has to end by itself before init kills it. */
 const STOP_GRACE_MS = 5_000;
@@ -148,12 +154,27 @@ export function stopCommand(
   waitForGroupToEnd(pid, KILL_WAIT_MS);
 }
 
-/**
- * Run a command behind a spinner, with its output kept for the caller instead
- * of printed. `spawnSync` would block the event loop and freeze the spinner.
- * The spinner goes away when the command ends.
- */
-export function runBehindSpinner(
+async function replayOutput(path: string): Promise<void> {
+  const { size } = statSync(path);
+  if (size === 0) {
+    return;
+  }
+  // Stop at the size on exit even if a background child is still writing.
+  const output = createReadStream(path, { encoding: 'utf8', end: size - 1 });
+  let endsWithNewline = true;
+  for await (const chunk of output) {
+    endsWithNewline = chunk.endsWith('\n');
+    if (!process.stdout.write(chunk)) {
+      await once(process.stdout, 'drain');
+    }
+  }
+  if (!endsWithNewline) {
+    process.stdout.write('\n');
+  }
+}
+
+/** Run a command behind a spinner and print its output if it fails. */
+export async function runBehindSpinner(
   message: string,
   command: string,
   args: Array<string>,
@@ -163,86 +184,84 @@ export function runBehindSpinner(
     shell?: boolean;
     /** The line to leave in place of the spinner when the command fails. */
     failed?: string;
-    /**
-     * Removes what the command wrote. Runs when the command fails, and when
-     * init exits before the command ends, after the command has stopped.
-     */
+    /** Removes partial changes after a failure or interruption. */
     undo?: () => void;
   },
 ): Promise<SubprocessResult> {
   const { failed, undo, ...spawnOptions } = options;
-  return new Promise((resolve) => {
-    let child: ChildProcess | undefined;
-    const progress = createSpinner({ indicator: 'timer', cancelMessage: message });
-    // A spinner reads Ctrl+C as a key press and exits the process, so the
-    // terminal interrupts nothing. Go before the exit listener that reports
-    // init's work: mark this step as stopped, then stop the command.
-    const onExit = (code: number): void => {
+  const directory = mkdtempSync(join(tmpdir(), 'void-init-'));
+  const path = join(directory, 'output.log');
+  const cleanup = (): void => rmSync(directory, { recursive: true, force: true });
+  let child: ChildProcess | undefined;
+  const progress = createSpinner({ indicator: 'timer', cancelMessage: message });
+  // A spinner reads Ctrl+C as a key press and exits the process. Mark the step
+  // as stopped and finish rollback before the exit listener that reports init's work.
+  const onExit = (code: number): void => {
+    if (child) {
       progress.cancel(message);
       stopCommand(child);
       undo?.();
-      // The prompt library exits with 0 there. Keep the exit code of an
-      // interrupt, so that a caller such as create-void does not carry on.
+      // The prompt library exits with 0. A caller such as create-void should
+      // see a cancellation and stop, too.
       if (code === 0) {
         process.exitCode = 130;
       }
-    };
-    // The command is not one of the terminal's foreground processes, so a
-    // signal that ends init would leave it running. Exit instead, which runs
-    // the listener above.
-    const onSignal = (signal: NodeJS.Signals): void => {
-      process.exit(128 + constants.signals[signal]);
-    };
-    const chunks: Array<Buffer> = [];
-    const startedAt = performance.now();
-    let settled = false;
-    const settle = (status: number | null, error?: Error): void => {
-      if (settled) {
-        return;
-      }
-      settled = true;
-      process.removeListener('exit', onExit);
-      for (const signal of STOP_SIGNALS) {
-        process.removeListener(signal, onSignal);
-      }
-      const succeeded = !error && status === 0;
-      if (!succeeded) {
-        undo?.();
-      }
-      if (failed && !succeeded) {
-        progress.error(failed);
-      } else {
-        progress.clear();
-      }
-      resolve({
-        status,
-        output: Buffer.concat(chunks).toString('utf8'),
-        durationMs: performance.now() - startedAt,
-        error,
-      });
-    };
+    }
+    cleanup();
+  };
+  const onSignal = (signal: NodeJS.Signals): void => {
+    process.exit(128 + constants.signals[signal]);
+  };
 
+  try {
     progress.start(message);
     process.prependListener('exit', onExit);
     for (const signal of STOP_SIGNALS) {
       process.on(signal, onSignal);
     }
+
+    const startedAt = performance.now();
+    let status: number | null = null;
     try {
-      const spawned = spawn(command, args, {
-        ...spawnOptions,
-        // Without stdin or a terminal, a command that asks a question fails
-        // instead of waiting for an answer behind the spinner.
-        stdio: ['ignore', 'pipe', 'pipe'],
-        // Its own process group, so that init can stop what the command starts.
-        detached: process.platform !== 'win32',
+      status = await new Promise<number | null>((resolve, reject) => {
+        // Both writers share the same file offset. Inheriting a file instead
+        // of a pipe lets init finish even if a background child keeps it open.
+        const fd = openSync(path, 'wx');
+        try {
+          child = spawn(command, args, {
+            ...spawnOptions,
+            stdio: ['ignore', fd, fd],
+            detached: process.platform !== 'win32',
+          });
+          child.once('error', reject);
+          child.once('exit', resolve);
+        } finally {
+          closeSync(fd);
+        }
       });
-      child = spawned;
-      spawned.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-      spawned.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
-      spawned.once('error', (error) => settle(null, error));
-      spawned.once('close', (status) => settle(status));
-    } catch (error) {
-      settle(null, error instanceof Error ? error : new Error(String(error)));
+    } finally {
+      if (status !== 0 && !progress.isCancelled && undo) {
+        // A failed generator can still have children writing its outputs.
+        stopCommand(child);
+        undo();
+      }
+      child = undefined;
+      if (status === 0 || !failed) {
+        progress.clear();
+      } else if (!progress.isCancelled) {
+        progress.error(failed);
+      }
     }
-  });
+    const durationMs = performance.now() - startedAt;
+    if (status !== 0 && !progress.isCancelled) {
+      await replayOutput(path);
+    }
+    return { status, durationMs };
+  } finally {
+    process.removeListener('exit', onExit);
+    for (const signal of STOP_SIGNALS) {
+      process.removeListener(signal, onSignal);
+    }
+    cleanup();
+  }
 }

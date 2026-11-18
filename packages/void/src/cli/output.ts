@@ -43,8 +43,16 @@ export function printDone(message: string | Array<string>): void {
 }
 
 /** Something the user should do next, listed in a command's closing summary. */
-export function printNextStep(message: string): void {
-  log.message(message, { symbol: pc.blue('→') });
+export function printNextStep(message: string, { wrap = true }: { wrap?: boolean } = {}): void {
+  // Let the terminal wrap the display without inserting newlines into a
+  // command the user needs to paste into their shell.
+  const output = wrap
+    ? undefined
+    : ({
+        columns: Buffer.byteLength(message) + 2,
+        write: (chunk: string) => process.stdout.write(chunk),
+      } as unknown as Writable);
+  log.message(message, { symbol: pc.blue('→'), output });
 }
 
 export function formatCount(count: number, singular: string, plural = `${singular}s`): string {

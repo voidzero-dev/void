@@ -8,6 +8,7 @@ import {
   realpathSync,
   rmSync,
   writeFileSync,
+  writeSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -394,7 +395,7 @@ describe('init summary', () => {
     [
       'sqlite',
       'Created a React Pages starter with D1 (SQLite)',
-      'Run `npm install`, then `void db generate` to finish setup',
+      'Run `npm install`, then `npx void db generate` to finish setup',
     ],
     ['static', 'Created a static React Pages starter', 'Run `npm install` to finish setup'],
   ])(
@@ -428,7 +429,9 @@ describe('init summary', () => {
         ).rejects.toThrow('npm install failed with exit code 1');
 
         expect(mockLogError.mock.calls).toEqual([['Failed to install dependencies with npm']]);
-        expect(write.mock.calls).toEqual([['resolving packages\nERR registry unreachable\n']]);
+        expect(write.mock.calls.map(([chunk]) => String(chunk)).join('')).toBe(
+          'resolving packages\nERR registry unreachable\n',
+        );
         expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
         // The failed step, its output, then what init had done.
         expect(mockLogError.mock.invocationCallOrder[0]).toBeLessThan(
@@ -452,6 +455,7 @@ describe('init summary', () => {
   it('names the command that creates the migration when drizzle-kit fails', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-summary-migration-fails-'));
     const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
     try {
       mockSpawnSync.mockImplementation((command, args, options) =>
         drizzleGenerateCwd(command, args, options)
@@ -460,18 +464,19 @@ describe('init summary', () => {
       );
 
       await expect(runInitCommand(root, parseInitArgs(STARTER_FLAGS))).rejects.toThrow(
-        'Failed to generate the initial database migration.\n\ndrizzle-kit: simulated crash',
+        'Failed to generate the initial database migration.',
       );
 
-      // The error carries drizzle-kit's output, so no line takes the spinner's place.
+      expect(write.mock.calls).toEqual([['drizzle-kit: simulated crash\n']]);
       expect(mockLogError).not.toHaveBeenCalled();
       expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
       expect(summaryMessages('✓')).toEqual([
         'Created a React Pages starter with D1 (SQLite)',
         INSTALLED,
       ]);
-      expect(summaryMessages('→')).toEqual(['Run `void db generate` to finish setup']);
+      expect(summaryMessages('→')).toEqual(['Run `npx void db generate` to finish setup']);
     } finally {
+      write.mockRestore();
       cwd.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
@@ -532,7 +537,7 @@ describe('init summary', () => {
       expect(process.listeners('SIGINT')).toHaveLength(interruptListeners.length + 1);
       expect(summaryMessages('✓')).toEqual(['Created a React Pages starter with D1 (SQLite)']);
       expect(summaryMessages('→')).toEqual([
-        'Run `npm install`, then `void db generate` to finish setup',
+        'Run `npm install`, then `npx void db generate` to finish setup',
       ]);
 
       // The run removes its listeners when the command ends.
@@ -595,7 +600,7 @@ describe('init summary', () => {
         'Created a React Pages starter with D1 (SQLite)',
         INSTALLED,
       ]);
-      expect(summaryMessages('→')).toEqual(['Run `void db generate` to finish setup']);
+      expect(summaryMessages('→')).toEqual(['Run `npx void db generate` to finish setup']);
 
       // The stopped drizzle-kit ends without an exit code.
       hangingCommands.pop()!();
@@ -613,9 +618,13 @@ describe('init summary', () => {
   });
 
   it.each([
-    ['a vp on PATH', 0, 'vp install'],
+    ['a vp on PATH', 0, 'vp install --no-frozen-lockfile'],
     // `vp install` would not run for this user. The starter pins a Vite+ version.
-    ['no vp', 1, expect.stringMatching(/^npx -p vite-plus@\d+\.\d+\.\d+ vp install$/)],
+    [
+      'no vp',
+      1,
+      expect.stringMatching(/^npx -p vite-plus@\d+\.\d+\.\d+ vp install --no-frozen-lockfile$/),
+    ],
   ])(
     'names an install that the user can run with %s when a Vite+ install fails',
     async (_vp, probeStatus, manualCommand) => {
@@ -650,7 +659,7 @@ describe('init summary', () => {
 
         const [nextStep, ...others] = summaryMessages('→');
         expect(others).toEqual([]);
-        const command = /^Run `(.+)`, then `void db generate` to finish setup$/.exec(
+        const command = /^Run `(.+)`, then `.+ db generate` to finish setup$/.exec(
           String(nextStep),
         )?.[1];
         expect(command).toEqual(manualCommand);
@@ -1174,23 +1183,22 @@ vi.mock('node:child_process', async () => {
           }
         | undefined;
       const child = Object.assign(new EventEmitter(), {
-        stdout: new EventEmitter(),
-        stderr: new EventEmitter(),
         // No process has this id, so a signal to it reaches nothing.
         pid: result?.hang ? HANGING_COMMAND_PID : undefined,
       });
+      const { stdio } = args[2] as { stdio: ['ignore', number, number] };
+      if (result?.stdout) {
+        writeSync(stdio[1], result.stdout);
+      }
+      if (result?.stderr) {
+        writeSync(stdio[2], result.stderr);
+      }
       const finish = (): void => {
         if (result?.error) {
           child.emit('error', result.error);
-          return;
+        } else {
+          child.emit('exit', result?.status ?? null);
         }
-        if (result?.stdout) {
-          child.stdout.emit('data', Buffer.from(result.stdout));
-        }
-        if (result?.stderr) {
-          child.stderr.emit('data', Buffer.from(result.stderr));
-        }
-        child.emit('close', result?.status ?? null);
       };
       if (result?.hang) {
         // The command keeps running until the test ends it.
@@ -2731,7 +2739,7 @@ describe('isScaffoldableEmptyProject', () => {
         ['install', '--no-frozen-lockfile'],
         expect.objectContaining({
           cwd: toSlash(appRoot),
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['ignore', expect.any(Number), expect.any(Number)],
           shell: process.platform === 'win32',
         }),
       );
@@ -2796,7 +2804,7 @@ describe('isScaffoldableEmptyProject', () => {
         ['install'],
         expect.objectContaining({
           cwd: root,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['ignore', expect.any(Number), expect.any(Number)],
           shell: process.platform === 'win32',
         }),
       );
@@ -3143,7 +3151,7 @@ export default defineConfig({
         ['install'],
         expect.objectContaining({
           cwd: root,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['ignore', expect.any(Number), expect.any(Number)],
           shell: process.platform === 'win32',
         }),
       );
@@ -3847,7 +3855,7 @@ export default config;
         ['install', '--no-frozen-lockfile'],
         expect.objectContaining({
           cwd: root,
-          stdio: ['ignore', 'pipe', 'pipe'],
+          stdio: ['ignore', expect.any(Number), expect.any(Number)],
           shell: process.platform === 'win32',
         }),
       );

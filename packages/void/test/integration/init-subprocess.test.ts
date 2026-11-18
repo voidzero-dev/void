@@ -1,9 +1,14 @@
 import { spawn, type ChildProcess } from 'node:child_process';
+import { once } from 'node:events';
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { isProcessGroupRunning, stopCommand } from '../../src/cli/init-subprocess.ts';
+import {
+  isProcessGroupRunning,
+  runBehindSpinner,
+  stopCommand,
+} from '../../src/cli/init-subprocess.ts';
 
 let root: string;
 let beats: string;
@@ -76,6 +81,93 @@ afterEach(() => {
     }
   }
   rmSync(root, { recursive: true, force: true });
+});
+
+it('finishes the spinner while a background process still has the output open', async () => {
+  const release = join(root, 'release');
+  const ready = join(root, 'ready');
+  const done = join(root, 'done');
+  const command = `
+    const { spawn } = require('node:child_process');
+    const script = ${JSON.stringify(`
+      const fs = require('node:fs');
+      const timer = setInterval(() => {
+        if (fs.existsSync(${JSON.stringify(release)})) {
+          fs.writeFileSync(${JSON.stringify(done)}, '');
+          clearInterval(timer);
+        }
+      }, 20);
+      setTimeout(() => clearInterval(timer), 10_000).unref();
+      fs.writeFileSync(${JSON.stringify(ready)}, '');
+    `)};
+    spawn(process.execPath, ['-e', script], { stdio: ['ignore', 1, 2] }).unref();
+  `;
+  let finished = false;
+  const result = runBehindSpinner('Installing', process.execPath, ['-e', command], {
+    cwd: root,
+  }).then((result) => {
+    finished = true;
+    return result;
+  });
+  try {
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 3_000 });
+    await vi.waitFor(() => expect(finished).toBe(true), { timeout: 1_000 });
+    expect((await result).status).toBe(0);
+  } finally {
+    writeFileSync(release, '');
+    await result;
+    await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 3_000 });
+  }
+});
+
+it.skipIf(process.platform === 'win32')('stops the command and rolls back on SIGHUP', async () => {
+  const partial = join(root, 'partial');
+  const ready = join(root, 'ready');
+  const childCode = `
+    const fs = require('node:fs');
+    fs.writeFileSync(${JSON.stringify(partial)}, 'journal');
+    fs.writeFileSync(${JSON.stringify(ready)}, String(process.pid));
+    setInterval(() => {}, 1000);
+  `;
+  const runner = new URL('../../src/cli/init-subprocess.ts', import.meta.url).href;
+  const init = spawn(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      `
+    import { rmSync } from 'node:fs';
+    import { runBehindSpinner } from ${JSON.stringify(runner)};
+    await runBehindSpinner('Generating', process.execPath, ['-e', ${JSON.stringify(childCode)}], {
+      cwd: process.cwd(),
+      undo: () => rmSync(${JSON.stringify(partial)}, { force: true }),
+    });
+  `,
+    ],
+    { cwd: root, stdio: 'ignore' },
+  );
+  const ended = once(init, 'exit');
+  let pgid: number | undefined;
+  try {
+    await vi.waitFor(
+      () => {
+        pgid = Number(readFileSync(ready, 'utf8'));
+        expect(pgid).toBeGreaterThan(0);
+      },
+      { timeout: 4_000 },
+    );
+    init.kill('SIGHUP');
+    await ended;
+
+    expect(isProcessGroupRunning(pgid!)).toBe(false);
+    expect(existsSync(partial)).toBe(false);
+  } finally {
+    init.kill('SIGTERM');
+    if (pgid && isProcessGroupRunning(pgid)) {
+      process.kill(-pgid, 'SIGKILL');
+    }
+    await ended;
+  }
 });
 
 // Windows has no process groups: init stops a command there with `taskkill`.

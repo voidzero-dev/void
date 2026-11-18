@@ -224,7 +224,7 @@ describe('an init run that stops early', () => {
     expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
     expect(vi.mocked(printNextStep).mock.calls).toEqual([
       ['Add DATABASE_URL to .env'],
-      ['Run `vp install` to finish setup'],
+      ['Run `vp install` to finish setup', { wrap: false }],
     ]);
   });
 
@@ -240,7 +240,9 @@ describe('an init run that stops early', () => {
 
     // No heading: there is no finished work to list under it.
     expect(log.warn).not.toHaveBeenCalled();
-    expect(vi.mocked(printNextStep).mock.calls).toEqual([['Run `npm install` to finish setup']]);
+    expect(vi.mocked(printNextStep).mock.calls).toEqual([
+      ['Run `npm install` to finish setup', { wrap: false }],
+    ]);
   });
 
   it('prints nothing when it stops before it changes anything', async () => {

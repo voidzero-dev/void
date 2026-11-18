@@ -167,7 +167,7 @@ export class InitReport {
     }
     this.printOtherWork();
     if (this.unfinished) {
-      printNextStep(this.unfinished);
+      printNextStep(this.unfinished, { wrap: false });
     }
   }
 

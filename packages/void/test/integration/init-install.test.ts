@@ -1,6 +1,7 @@
+import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { installProjectDependencies, resolveProjectInstall } from '../../src/cli/init.ts';
@@ -268,18 +269,33 @@ describe('init dependency installation (real subprocesses)', () => {
   });
 
   describe('the command to install by hand', () => {
-    it('is `vp install` with a vp on PATH', () => {
+    it('allows refreshing pnpm’s lockfile on a manual retry with vp', () => {
       executable('vp');
 
-      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('vp install');
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe(
+        'vp install --no-frozen-lockfile',
+      );
     });
 
-    it('is `vp install` with a project-local vp', () => {
+    it('runs the project-local vp from a shell without vp on PATH', () => {
       const vitePlus = join(root, 'node_modules', 'vite-plus');
       mkdirSync(join(vitePlus, 'bin'), { recursive: true });
       writeFileSync(join(vitePlus, 'package.json'), JSON.stringify({ name: 'vite-plus' }));
+      executable('local-vp');
+      writeFileSync(join(vitePlus, 'bin', 'vp'), readFileSync(join(bin, 'local-vp.cjs'), 'utf8'));
 
-      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('vp install');
+      const { manualCommand } = resolveProjectInstall(root, 'pnpm');
+      const retry = spawnSync(manualCommand, {
+        cwd: root,
+        shell: true,
+        env: { ...process.env, PATH: [bin, dirname(process.execPath)].join(delimiter) },
+        encoding: 'utf8',
+      });
+
+      expect(retry.status, retry.stderr).toBe(0);
+      expect(calls()).toEqual([
+        { command: 'local-vp', args: ['install', '--no-frozen-lockfile'], cwd: root },
+      ]);
     });
 
     it.each([
@@ -292,13 +308,17 @@ describe('init dependency installation (real subprocesses)', () => {
       writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
       executable('npx');
 
-      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe(`npx -p ${quoted} vp install`);
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe(
+        `npx -p ${quoted} vp install --no-frozen-lockfile`,
+      );
     });
 
     it('is the package manager for a plain Vite project', () => {
       writeFileSync(join(root, 'package.json'), JSON.stringify({ private: true }));
 
-      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('pnpm install');
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe(
+        'pnpm install --no-frozen-lockfile',
+      );
     });
   });
 
