@@ -7,7 +7,7 @@ Full-stack framework for Cloudflare Workers, powered by Vite.
 - Documentation source lives in `docs/`.
   - Docs is a Vitepress project using our custom theme. When asked to "link the theme", temporarily edit `docs/package.json` so that `@voidzero-dev/vitepress-theme` point to `link:../../../theme`. Rerun `vp install` to link it. Revert these when asked to "unlink the theme".
 - Packages publish to npm as `void` and `@void/*`. Consumer-facing code, docs examples, playground source, and package manifests should use only those public package names.
-- Published external runtime dependencies use compatible semver ranges. Pin `cf`, `@cloudflare/vite-plugin`, and `miniflare` as an exception: update them together so fresh installs share one Miniflare and workerd. Preserve `workspace:*` for dependencies and peers between Void packages. The lockfile fixes the versions tested in this repository. Keep the Sandbox SDK version aligned with its packaged Docker helper and verified platform helper layer.
+- Published external runtime dependencies use compatible semver ranges. Pin `cf`, `@cloudflare/vite-plugin`, `miniflare`, `@cloudflare/config`, and `@cloudflare/build-output-utils` as an exception: update them together so fresh installs share one Miniflare and workerd. Pin `@cloudflare/config` and `@cloudflare/build-output-utils` to the exact versions `cf` and the Vite plugin depend on, so fresh installs share one copy of each. Preserve `workspace:*` for dependencies and peers between Void packages. The lockfile fixes the versions tested in this repository. Keep the Sandbox SDK version aligned with its packaged Docker helper and verified platform helper layer.
 
 ## Important Note for Release Workflows
 
