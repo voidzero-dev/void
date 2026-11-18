@@ -5,12 +5,13 @@ import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { afterEach, expect, vi } from 'vite-plus/test';
+import { afterAll, afterEach, expect, vi } from 'vite-plus/test';
 import { prepareCfBuildOutput } from '../../src/cli/cf-build-output.ts';
 import { createCfCommand } from '../../src/cli/cf-version-runner.ts';
 
 // Vitest's per-file module isolation gives each suite its own roots and hooks.
 const roots: Array<string> = [];
+const outputRoots = new WeakMap<object, string>();
 const cleanups: Array<() => unknown> = [];
 const pinnedCfVersion = JSON.parse(
   readFileSync(fileURLToPath(import.meta.resolve('cf/package.json')), 'utf8'),
@@ -23,9 +24,17 @@ const cfUserAgent: string = `cf-cli/${pinnedCfVersion} void/${voidVersion}`;
 const REAL_CF_TIMEOUT_MS: number = process.platform === 'win32' ? 20_000 : 15_000;
 const REAL_CF_ACTIVATION_TIMEOUT_MS: number = process.platform === 'win32' ? 60_000 : 30_000;
 
-afterEach(async () => {
-  vi.restoreAllMocks();
-  syncBuiltinESMExports();
+afterEach(({ task }) => {
+  // Only serial tests patch globals. Restoring after a concurrent test would also reset the
+  // local mocks of the tests still running beside it.
+  if (!task.concurrent) {
+    vi.restoreAllMocks();
+    syncBuiltinESMExports();
+  }
+});
+// Concurrent tests share these lists, so one test's end must not release another test's
+// servers and directories. Everything is released when the file ends.
+afterAll(async () => {
   for (const cleanup of cleanups.splice(0).reverse()) {
     await cleanup();
   }
@@ -114,7 +123,17 @@ async function output(
   );
   const prepared = await prepareCfBuildOutput(worker, 'account-id');
   expect(prepared).not.toBeNull();
+  outputRoots.set(prepared!, root);
   return prepared!;
+}
+
+/** The project root that `output()` created for this prepared output. */
+function outputRoot(prepared: object): string {
+  const root = outputRoots.get(prepared);
+  if (!root) {
+    throw new Error('This output was not created by output().');
+  }
+  return root;
 }
 
 export {
@@ -123,6 +142,7 @@ export {
   expectSameJson,
   listen,
   output,
+  outputRoot,
   pinnedCf,
   pinnedCfVersion,
   REAL_CF_ACTIVATION_TIMEOUT_MS,
