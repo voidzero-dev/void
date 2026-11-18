@@ -39,10 +39,10 @@ import { connectCloudflare } from './cloudflare-connect.ts';
 import { maybeSetupDeployProject } from './deploy-setup.ts';
 import { maybeScaffoldEnvTs } from './env-scaffold.ts';
 import { migrateFrameworkAdapterPaths } from './framework-config-migrate.ts';
-import { runBehindSpinner } from './init-command.ts';
 import { initialCommitCommand, setupGit } from './init-git.ts';
 import { InitReport } from './init-report.ts';
 import { commandInProject, quoteShellArgument } from './init-shell.ts';
+import { runBehindSpinner } from './init-subprocess.ts';
 import { configureVitePlusScaffold, resolveVitePlusBootstrapSpec } from './init-vite-plus.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
 import { formatDuration, formatUrl, note, printSuccess } from './output.ts';
@@ -2132,13 +2132,13 @@ function projectInstaller(
   return pkg !== null && hasPackageDependency(pkg, 'vite-plus') ? 'vp' : packageManager;
 }
 
-type ProjectInstall = {
+export type ProjectInstall = {
   installer: ReturnType<typeof projectInstaller>;
   /** What init runs. */
   command: string;
   args: Array<string>;
-  /** The same install as a command for the user to type. */
-  typed: string;
+  /** The same install as a command for the user to run by hand. */
+  manualCommand: string;
 };
 
 /** Decide how to install the project's dependencies. */
@@ -2154,12 +2154,12 @@ export function resolveProjectInstall(
     installer === 'vp' || packageManager === 'pnpm'
       ? ['install', '--no-frozen-lockfile']
       : ['install'];
-  // The typed command leaves out the flag, which only a CI host needs.
+  // The manual command leaves out the flag, which only a CI host needs.
   const install: ProjectInstall = {
     installer,
     command: installer,
     args,
-    typed: `${installer} install`,
+    manualCommand: `${installer} install`,
   };
   if (installer !== 'vp') {
     return install;
@@ -2198,19 +2198,17 @@ export function resolveProjectInstall(
       'vp',
       ...args,
     ],
-    // This user has no `vp` to type.
-    typed: `npx -p ${quoteShellArgument(vitePlus)} vp install`,
+    // This user has no `vp` to run.
+    manualCommand: `npx -p ${quoteShellArgument(vitePlus)} vp install`,
   };
 }
 
 /** Install the project's dependencies. Returns how long the installer ran, in milliseconds. */
 export async function installProjectDependencies(
   root: string,
-  packageManager: ProjectState['packageManager'],
-  install: ProjectInstall = resolveProjectInstall(root, packageManager),
+  install: ProjectInstall,
 ): Promise<number> {
   const { installer, command, args } = install;
-  const started = performance.now();
   const result = await runBehindSpinner(
     `Installing dependencies with ${installer}`,
     command,
@@ -2235,7 +2233,7 @@ export async function installProjectDependencies(
     throw new Error(`${installer} install failed with exit code ${result.status ?? 'unknown'}`);
   }
 
-  return performance.now() - started;
+  return result.durationMs;
 }
 
 /** Generate the first migration for the schema that a starter or the demo created. */
@@ -3155,17 +3153,17 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   const migrationMode = workspaceSubpackageSkip ? undefined : scaffoldedStarterMode;
   if (scaffoldAddedDependencies) {
     const install = resolveProjectInstall(root, state.packageManager);
-    const typed = commandInProject(root, install.typed);
+    const manualInstall = commandInProject(root, install.manualCommand);
     report.unfinished = migrationMode
-      ? `Run \`${typed}\`, then \`void db generate\` to finish setup`
-      : `Run \`${typed}\` to finish setup`;
-    const duration = await installProjectDependencies(root, state.packageManager, install);
+      ? `Run \`${manualInstall}\`, then \`void db generate\` to finish setup`
+      : `Run \`${manualInstall}\` to finish setup`;
+    const duration = await installProjectDependencies(root, install);
     report.done(`Installed dependencies in ${formatDuration(duration)}`);
   } else if (packageDependencyRemoved && !workspaceSubpackageSkip) {
     // The project is installed, so its user has a way to run the installer.
     const installer = projectInstaller(readPackageJson(root), state.packageManager);
-    const install = commandInProject(root, `${installer} install`);
-    report.next(`Run \`${install}\` to update your lockfile`);
+    const manualInstall = commandInProject(root, `${installer} install`);
+    report.next(`Run \`${manualInstall}\` to update your lockfile`);
   }
   if (migrationMode) {
     report.unfinished = `Run \`${commandInProject(root, 'void db generate')}\` to finish setup`;

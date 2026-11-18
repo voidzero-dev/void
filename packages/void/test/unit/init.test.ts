@@ -618,7 +618,7 @@ describe('init summary', () => {
     ['no vp', 1, expect.stringMatching(/^npx -p vite-plus@\d+\.\d+\.\d+ vp install$/)],
   ])(
     'names an install that the user can run with %s when a Vite+ install fails',
-    async (_vp, probeStatus, typed) => {
+    async (_vp, probeStatus, manualCommand) => {
       const root = mkdtempSync(join(tmpdir(), 'void-init-summary-vite-plus-install-fails-'));
       const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
       const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -653,7 +653,7 @@ describe('init summary', () => {
         const command = /^Run `(.+)`, then `void db generate` to finish setup$/.exec(
           String(nextStep),
         )?.[1];
-        expect(command).toEqual(typed);
+        expect(command).toEqual(manualCommand);
       } finally {
         write.mockRestore();
         cwd.mockRestore();

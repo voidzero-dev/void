@@ -49,6 +49,14 @@ function output(): string {
   );
 }
 
+/** Install as init does: decide how to, then run that. */
+function install(
+  directory: string,
+  packageManager: Parameters<typeof resolveProjectInstall>[1] = 'pnpm',
+): Promise<number> {
+  return installProjectDependencies(directory, resolveProjectInstall(directory, packageManager));
+}
+
 beforeEach(() => {
   // The fake installers print, and init prints their output when they fail.
   vi.spyOn(process.stdout, 'write').mockReturnValue(true);
@@ -79,7 +87,7 @@ describe('init dependency installation (real subprocesses)', () => {
     executable('vp');
     executable('pnpm', 1);
 
-    await installProjectDependencies(root, 'pnpm');
+    await install(root);
 
     expect(calls()).toEqual([
       { command: 'vp', args: ['--version'], cwd: root },
@@ -99,7 +107,7 @@ describe('init dependency installation (real subprocesses)', () => {
       executable('npx');
       executable('pnpm', 1);
 
-      await installProjectDependencies(root, 'pnpm');
+      await install(root);
 
       // Assert the received argv: Windows cmd.exe must preserve the semver caret.
       expect(calls()).toEqual([
@@ -159,7 +167,7 @@ describe('init dependency installation (real subprocesses)', () => {
         writeFileSync(join(root, '.yarnrc.yml'), JSON.stringify(catalogs));
       }
       executable('npx');
-      await installProjectDependencies(member, manager);
+      await install(member, manager);
       expect(calls()).toEqual([
         {
           command: 'npx',
@@ -182,7 +190,7 @@ describe('init dependency installation (real subprocesses)', () => {
       'packages: [packages/*]\ncatalog: { vite-plus: "1.6.0" }\n',
     );
     executable('npx');
-    await installProjectDependencies(member, 'pnpm');
+    await install(member);
     expect(calls()).toEqual([
       {
         command: 'npx',
@@ -203,9 +211,7 @@ describe('init dependency installation (real subprocesses)', () => {
     executable('npx');
     executable('pnpm', 1);
 
-    await expect(installProjectDependencies(root, 'pnpm')).rejects.toThrow(
-      'vp install failed with exit code 7',
-    );
+    await expect(install(root)).rejects.toThrow('vp install failed with exit code 7');
     expect(calls()).toEqual([
       { command: 'vp', args: ['--version'], cwd: root },
       { command: 'vp', args: ['install', '--no-frozen-lockfile'], cwd: root },
@@ -215,7 +221,7 @@ describe('init dependency installation (real subprocesses)', () => {
   it('keeps the installer output off the terminal and returns how long it ran', async () => {
     executable('vp');
 
-    expect(await installProjectDependencies(root, 'pnpm')).toBeGreaterThan(0);
+    expect(await install(root)).toBeGreaterThan(0);
 
     expect(output()).toContain('Installing dependencies with vp');
     expect(output()).not.toContain('vp: ');
@@ -224,9 +230,7 @@ describe('init dependency installation (real subprocesses)', () => {
   it('prints what the installer wrote to stdout and stderr when it fails', async () => {
     executable('vp', 7);
 
-    await expect(installProjectDependencies(root, 'pnpm')).rejects.toThrow(
-      'vp install failed with exit code 7',
-    );
+    await expect(install(root)).rejects.toThrow('vp install failed with exit code 7');
 
     expect(output()).toContain('vp: resolving packages\n');
     expect(output()).toContain('vp: registry unreachable\n');
@@ -244,7 +248,7 @@ describe('init dependency installation (real subprocesses)', () => {
     executable('local-vp');
     writeFileSync(join(vitePlus, 'bin', 'vp'), readFileSync(join(bin, 'local-vp.cjs'), 'utf8'));
 
-    await installProjectDependencies(root, 'pnpm');
+    await install(root);
 
     expect(calls()).toEqual([
       { command: 'local-vp', args: ['install', '--no-frozen-lockfile'], cwd: root },
@@ -256,18 +260,18 @@ describe('init dependency installation (real subprocesses)', () => {
     executable('vp', 1);
     executable('pnpm');
 
-    await installProjectDependencies(root, 'pnpm');
+    await install(root);
 
     expect(calls()).toEqual([
       { command: 'pnpm', args: ['install', '--no-frozen-lockfile'], cwd: root },
     ]);
   });
 
-  describe('the install as the user types it', () => {
+  describe('the command to install by hand', () => {
     it('is `vp install` with a vp on PATH', () => {
       executable('vp');
 
-      expect(resolveProjectInstall(root, 'pnpm').typed).toBe('vp install');
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('vp install');
     });
 
     it('is `vp install` with a project-local vp', () => {
@@ -275,7 +279,7 @@ describe('init dependency installation (real subprocesses)', () => {
       mkdirSync(join(vitePlus, 'bin'), { recursive: true });
       writeFileSync(join(vitePlus, 'package.json'), JSON.stringify({ name: 'vite-plus' }));
 
-      expect(resolveProjectInstall(root, 'pnpm').typed).toBe('vp install');
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('vp install');
     });
 
     it.each([
@@ -288,13 +292,13 @@ describe('init dependency installation (real subprocesses)', () => {
       writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
       executable('npx');
 
-      expect(resolveProjectInstall(root, 'pnpm').typed).toBe(`npx -p ${quoted} vp install`);
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe(`npx -p ${quoted} vp install`);
     });
 
     it('is the package manager for a plain Vite project', () => {
       writeFileSync(join(root, 'package.json'), JSON.stringify({ private: true }));
 
-      expect(resolveProjectInstall(root, 'pnpm').typed).toBe('pnpm install');
+      expect(resolveProjectInstall(root, 'pnpm').manualCommand).toBe('pnpm install');
     });
   });
 
@@ -335,7 +339,7 @@ setInterval(beat, 10);
         }
       };
       // The stopped installer fails the install, which the end of the test checks.
-      const outcome = installProjectDependencies(root, 'pnpm').then(
+      const outcome = install(root).then(
         () => 'installed',
         (error: Error) => error.message,
       );

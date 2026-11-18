@@ -3,7 +3,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { isProcessGroupRunning, stopCommand } from '../../src/cli/init-command.ts';
+import { isProcessGroupRunning, stopCommand } from '../../src/cli/init-subprocess.ts';
 
 let root: string;
 let beats: string;
@@ -63,7 +63,7 @@ async function beatsGoOn(): Promise<boolean> {
 }
 
 beforeEach(() => {
-  root = mkdtempSync(join(tmpdir(), 'void-init-command-'));
+  root = mkdtempSync(join(tmpdir(), 'void-init-subprocess-'));
   beats = join(root, 'beats');
 });
 

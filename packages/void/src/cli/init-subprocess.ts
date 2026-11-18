@@ -3,11 +3,13 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { createSpinner } from './output.ts';
 
-export type QuietRun = {
+export type SubprocessResult = {
   /** The exit code, or null when a signal ended the command. */
   status: number | null;
   /** What the command wrote to stdout and stderr, in the order it arrived. */
   output: string;
+  /** How long the command ran, in milliseconds. */
+  durationMs: number;
   /** Why the command did not start. */
   error?: Error;
 };
@@ -167,7 +169,7 @@ export function runBehindSpinner(
      */
     undo?: () => void;
   },
-): Promise<QuietRun> {
+): Promise<SubprocessResult> {
   const { failed, undo, ...spawnOptions } = options;
   return new Promise((resolve) => {
     let child: ChildProcess | undefined;
@@ -192,6 +194,7 @@ export function runBehindSpinner(
       process.exit(128 + constants.signals[signal]);
     };
     const chunks: Array<Buffer> = [];
+    const startedAt = performance.now();
     let settled = false;
     const settle = (status: number | null, error?: Error): void => {
       if (settled) {
@@ -211,7 +214,12 @@ export function runBehindSpinner(
       } else {
         progress.clear();
       }
-      resolve({ status, output: Buffer.concat(chunks).toString('utf8'), error });
+      resolve({
+        status,
+        output: Buffer.concat(chunks).toString('utf8'),
+        durationMs: performance.now() - startedAt,
+        error,
+      });
     };
 
     progress.start(message);
@@ -220,7 +228,7 @@ export function runBehindSpinner(
       process.on(signal, onSignal);
     }
     try {
-      const started = spawn(command, args, {
+      const spawned = spawn(command, args, {
         ...spawnOptions,
         // Without stdin or a terminal, a command that asks a question fails
         // instead of waiting for an answer behind the spinner.
@@ -228,11 +236,11 @@ export function runBehindSpinner(
         // Its own process group, so that init can stop what the command starts.
         detached: process.platform !== 'win32',
       });
-      child = started;
-      started.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
-      started.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
-      started.once('error', (error) => settle(null, error));
-      started.once('close', (status) => settle(status));
+      child = spawned;
+      spawned.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+      spawned.stderr.on('data', (chunk: Buffer) => chunks.push(chunk));
+      spawned.once('error', (error) => settle(null, error));
+      spawned.once('close', (status) => settle(status));
     } catch (error) {
       settle(null, error instanceof Error ? error : new Error(String(error)));
     }
