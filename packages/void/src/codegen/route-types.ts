@@ -141,7 +141,9 @@ export function generateRouteTypes(
   lines.push('');
   // A bare types-only entry follows the installed SDK through upgrades.
   // void/routes would be circular because this file augments that entry.
-  const sdkRoutesModule = JSON.stringify('void/_route-url-types');
+  // Resolve the SDK's ESM declarations from CommonJS projects as well.
+  const sdkRouteTypes =
+    'import("void/_route-url-types", { with: { "resolution-mode": "import" } })';
   for (const name of [
     'RoutePath',
     'RouteQueryValue',
@@ -150,15 +152,13 @@ export function generateRouteTypes(
     'Href',
     'RouteUrlInput',
   ]) {
-    lines.push(`  export type ${name} = import(${sdkRoutesModule}).${name};`);
+    lines.push(`  export type ${name} = ${sdkRouteTypes}.${name};`);
   }
+  lines.push(`  export type RouteOptions<P extends RoutePath> = ${sdkRouteTypes}.RouteOptions<P>;`);
   lines.push(
-    `  export type RouteOptions<P extends RoutePath> = import(${sdkRoutesModule}).RouteOptions<P>;`,
+    `  export type RouteDestination<P extends RoutePath = RoutePath> = ${sdkRouteTypes}.RouteDestination<P>;`,
   );
-  lines.push(
-    `  export type RouteDestination<P extends RoutePath = RoutePath> = import(${sdkRoutesModule}).RouteDestination<P>;`,
-  );
-  lines.push(`  export const routeUrl: typeof import(${sdkRoutesModule}).routeUrl;`);
+  lines.push(`  export const routeUrl: typeof ${sdkRouteTypes}.routeUrl;`);
   lines.push('');
   lines.push('  export interface RouteTypesConfig {');
   if (options.typedRoutes) {

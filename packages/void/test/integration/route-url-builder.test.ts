@@ -311,8 +311,9 @@ ${['react', 'vue', 'svelte', 'solid']
 
 async function createFixture({
   typedRoutes = false,
+  includeHandlers = true,
   extraFiles = {},
-}: { typedRoutes?: boolean; extraFiles?: Record<string, string> } = {}) {
+}: { typedRoutes?: boolean; includeHandlers?: boolean; extraFiles?: Record<string, string> } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'void-route-util-'));
   roots.push(root);
   const files: Record<string, string> = {
@@ -321,10 +322,12 @@ async function createFixture({
     'check-solid-link.ts': solidLinkHrefCheck,
     'check-use-params.ts': useParamsCheck,
     'package.json': '{"type":"module"}',
-    'routes/api/users/[id].ts':
-      "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
-    'routes/api/legacy.ts':
-      "import { defineHandler } from 'void/handler'; export default defineHandler(() => ({ ok: true }));",
+    ...(includeHandlers && {
+      'routes/api/users/[id].ts':
+        "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
+      'routes/api/legacy.ts':
+        "import { defineHandler } from 'void/handler'; export default defineHandler(() => ({ ok: true }));",
+    }),
     'pages/index.tsx': 'export default function Page() { return null; }',
     'pages/about.tsx': 'export default function Page() { return null; }',
     'pages/café menu.tsx': 'export default function Page() { return null; }',
@@ -545,6 +548,11 @@ void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forward
 function forward(...args: Parameters<typeof routeUrl>) {
   return routeUrl(...args);
 }
+const buildAbout: (path: '/about') => string = routeUrl;
+const buildAboutWithOptions: (path: '/about', options?: RouteOptions<'/about'>) => string = routeUrl;
+// @ts-expect-error a dynamic route cannot be used as a one-argument callback
+const buildUser: (path: '/users/[id]') => string = routeUrl;
+void [buildAbout, buildAboutWithOptions, buildUser];
 declare const options: RouteOptions<RoutePath>;
 const userUrl = routeUrl.bind(undefined, '/users/[id]');
 userUrl(options);
@@ -588,6 +596,38 @@ routeUrl<string, [path: string, options?: unknown]>('/about', options);
         output: '',
         status: 0,
       });
+    },
+  );
+
+  it.each(compilers)(
+    'checks generated routes in Node16 CommonJS with TS $version',
+    async ({ tsc }) => {
+      const root = await createFixture({
+        typedRoutes: true,
+        includeHandlers: false,
+        extraFiles: {
+          'package.json': '{"type":"commonjs"}',
+          'check-commonjs.ts': `import { routeUrl, type Href } from 'void/routes';
+const url: Href = routeUrl('/users/[id]', { params: { id: 42 } });
+// @ts-expect-error known dynamic routes require params
+routeUrl('/users/[id]');
+// @ts-expect-error unknown route patterns remain checked
+routeUrl('/missing');
+// @ts-expect-error raw URLs remain checked
+const missing: Href = '/missing';
+void [url, missing];
+`,
+        },
+      });
+      expect(
+        typecheck(
+          root,
+          'generated',
+          ['check-commonjs.ts'],
+          { module: 'Node16', moduleResolution: 'Node16', skipLibCheck: false },
+          tsc,
+        ),
+      ).toEqual({ output: '', status: 0 });
     },
   );
 
@@ -797,6 +837,14 @@ routeUrl<string>('/users/[id]');
 declare const uncheckedOptions: Record<string, any>;
 // @ts-expect-error index signatures cannot satisfy the diagnostic rejection guard
 routeUrl('/users/[id]', uncheckedOptions);
+const uncheckedPath = JSON.parse('"/users/[id]"');
+routeUrl(uncheckedPath, { params: { id: 42 } });
+// @ts-expect-error a path typed as any may require options
+routeUrl(uncheckedPath);
+// @ts-expect-error undefined cannot supply the options for a path typed as any
+routeUrl(uncheckedPath, undefined);
+// @ts-expect-error explicit type arguments cannot select the erased callback signature
+routeUrl<RoutePath, any, any, any>(uncheckedPath);
 const boxed = Object.assign('Param id for /users/[id] must be a string or number.' as const, { params: { id: true } });
 // @ts-expect-error a boxed diagnostic message is still invalid options
 routeUrl('/users/[id]', boxed);

@@ -324,8 +324,9 @@ describe('generateRouteTypes', () => {
     expect(typesConfig(off).trim()).toBe('');
     expect(typesConfig(on).trim()).toBe('typedRoutes: true;');
     expect(on.replace('    typedRoutes: true;\n', '')).toBe(off);
-    expect(off).toMatch(/export type RouteUrlInput = import\("[^"]+"\)\.RouteUrlInput;/);
-    expect(off).toMatch(/export const routeUrl: typeof import\("[^"]+"\)\.routeUrl;/);
+    const sdkTypes = 'import("void/_route-url-types", { with: { "resolution-mode": "import" } })';
+    expect(off).toContain(`export type RouteUrlInput = ${sdkTypes}.RouteUrlInput;`);
+    expect(off).toContain(`export const routeUrl: typeof ${sdkTypes}.routeUrl;`);
   });
 
   it('generates PageActionMap for pages with actions', () => {

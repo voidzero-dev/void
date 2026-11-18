@@ -169,38 +169,52 @@ type RoutePathWithParams<P extends RoutePath> = P extends RoutePath
     ? never
     : P
   : never;
+type StaticRoutePath = Exclude<RoutePath, RoutePathWithParams<RoutePath>>;
+type IsAny<T> = 0 extends 1 & T ? true : false;
 
 /** Build a relative URL from a known route pattern. */
 export function routeUrl<P extends RoutePath>(path: P, ...args: RouteUrlArgs<NoInfer<P>>): RouteUrl;
+// TypeScript erases Erased to any when comparing overloads to a callback. Give
+// that comparison a static route signature. Calls can only instantiate it as never.
 // Function helpers instantiate O as unknown and keep the original checked tuple.
 // Explicit <P> calls use the valid overload because this one requires two type arguments.
-// Known routes with options repeat the native types so their errors show the
-// required properties and values, rather than a sentence used as a string type.
-export function routeUrl<P extends RoutePath, S extends RoutePath | (string & {}), O = never>(
-  path: unknown extends O
-    ? string extends S
-      ? S & P
-      : [S] extends [RoutePath]
+export function routeUrl<
+  P extends RoutePath,
+  S extends RoutePath | (string & {}),
+  O = never,
+  Erased extends never = never,
+>(
+  path: IsAny<Erased> extends true
+    ? StaticRoutePath
+    : unknown extends O
+      ? string extends S
         ? S & P
-        : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken
-    : [S] extends [RoutePath]
-      ? [O] extends [undefined]
-        ? UrlTypeError<`Missing options for ${RoutePathWithParams<NoInfer<S> & RoutePath>}. Pass { params: { ... } } as the second argument.`> &
-            UrlErrorToken
-        : S
-      : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken,
-  ...args: unknown extends O
-    ? RouteUrlArgs<NoInfer<P>>
-    : [O] extends [undefined]
-      ? [options?: undefined]
-      : // Infer O before selecting the known route's native options type.
-        [
-          options: O extends never
-            ? O
-            : [S] extends [RoutePath]
-              ? RouteOptions<NoInfer<S> & RoutePath>
-              : unknown,
-        ]
+        : [S] extends [RoutePath]
+          ? S & P
+          : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken
+      : [S] extends [RoutePath]
+        ? [O] extends [undefined]
+          ? UrlTypeError<`Missing options for ${RoutePathWithParams<NoInfer<S> & RoutePath>}. Pass { params: { ... } } as the second argument.`> &
+              UrlErrorToken
+          : S
+        : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken,
+  ...args: IsAny<Erased> extends true
+    ? RouteUrlArgs<StaticRoutePath>
+    : unknown extends O
+      ? RouteUrlArgs<NoInfer<P>>
+      : [O] extends [undefined]
+        ? // Paths typed as any may require options. Keep the native arity check.
+          IsAny<S> extends true
+          ? RouteUrlArgs<S & RoutePath>
+          : [options?: undefined]
+        : // Infer O before selecting the known route's native options type.
+          [
+            options: O extends never
+              ? O
+              : [S] extends [RoutePath]
+                ? RouteOptions<NoInfer<S> & RoutePath>
+                : unknown,
+          ]
 ): RouteUrl;
 export function routeUrl(path: string, ...args: [options?: unknown]): RouteUrl {
   return buildRouteUrl(path, args[0] as UrlOptions | undefined) as RouteUrl;
