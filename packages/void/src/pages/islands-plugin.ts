@@ -396,7 +396,13 @@ export type IslandClientEntryOptions = {
 
 export function generateIslandClientEntry(options: IslandClientEntryOptions): string {
   const uniqueIslands = new Map<string, string>();
-  for (const entry of options.manifest.entries.values()) {
+  for (const [key, entry] of options.manifest.entries) {
+    // A dev edit can delete an island the manifest recorded. Importing its
+    // path would fail the whole entry and stop every other island hydrating.
+    if (!existsSync(entry.componentPath)) {
+      options.manifest.entries.delete(key);
+      continue;
+    }
     uniqueIslands.set(entry.islandId, entry.componentPath);
   }
 
@@ -423,8 +429,7 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
 
   // Without islands, no built page gets this script (see
   // computePagesNeedingClientJS), so the entry only gives the styles a chunk to
-  // link. Dev keeps the runtime: it does not reload this module when a page
-  // gains an island.
+  // link. Dev keeps the runtime so a page that gains its first island hydrates.
   if (!options.needsRuntime && !options.isDev) {
     return lines.join('\n');
   }
