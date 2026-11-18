@@ -51,6 +51,16 @@ export function formatCount(count: number, singular: string, plural = `${singula
   return `${count} ${count === 1 ? singular : plural}`;
 }
 
+/** How long a step took, in the form `vp create` prints: "215ms", "2.4s" or "12s". */
+export function formatDuration(durationMs: number): string {
+  const ms = Math.round(durationMs);
+  if (ms < 1000) {
+    return `${Math.max(1, ms)}ms`;
+  }
+  const tenths = Math.round(ms / 100);
+  return tenths < 100 ? `${(tenths / 10).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
+}
+
 /** Keep recovery commands on the same CLI when using the local checkout launcher. */
 export function cliCommandName(): 'void' | 'void-dev' {
   const entryName = process.argv[1]?.split(/[\\/]/).at(-1);
@@ -59,7 +69,7 @@ export function cliCommandName(): 'void' | 'void-dev' {
 
 /** Keep phase updates visible in static progress output, including redirected terminals. */
 export function createSpinner(
-  options?: Pick<SpinnerOptions, 'onCancel'>,
+  options?: Pick<SpinnerOptions, 'onCancel' | 'indicator' | 'cancelMessage'>,
   isTerminal: boolean = process.stdout.isTTY === true,
 ): SpinnerResult {
   const accessible =

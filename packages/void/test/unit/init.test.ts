@@ -35,12 +35,16 @@ import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';
 
 const mockSpawnSync = vi.fn();
+/** Ends each mocked `spawn` whose result sets `hang`. */
+const hangingCommands: Array<() => void> = [];
+const HANGING_COMMAND_PID = 0x7fffffff;
 const mockSelect = vi.fn();
 const mockConfirm = vi.fn();
 const mockText = vi.fn();
 const mockNote = vi.fn();
 const mockOutro = vi.fn();
 const mockLogWarn = vi.fn();
+const mockLogError = vi.fn();
 const mockLogInfo = vi.fn();
 const mockLogStep = vi.fn();
 const mockLogMessage = vi.fn();
@@ -336,6 +340,8 @@ describe('init summary', () => {
       expect(summaryMessages('✓')).toEqual([
         'Created a React Pages starter with D1 (SQLite)',
         'Linked Void skills for Claude Code',
+        INSTALLED,
+        'Generated the initial database migration',
       ]);
       expect(summaryMessages('→')).toEqual([
         'Git (optional): git add -A && git commit -m "chore: initial commit"',
@@ -345,6 +351,333 @@ describe('init summary', () => {
       expect(lastSummary).toBeLessThan(mockOutro.mock.invocationCallOrder[0]!);
       expect(mockLogStep.mock.invocationCallOrder.every((order) => order < lastSummary!)).toBe(
         true,
+      );
+    } finally {
+      cwd.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('keeps the output of the install and of drizzle-kit off the terminal', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-quiet-'));
+    const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+    try {
+      mockSpawnSync.mockImplementation((command, args, options) => {
+        const generateCwd = drizzleGenerateCwd(command, args, options);
+        if (generateCwd) {
+          writeMockGeneratedMigration(generateCwd);
+        }
+        return { status: 0, stdout: 'added 181 packages\n', stderr: 'npm warn deprecated\n' };
+      });
+
+      await runInitCommand(root, parseInitArgs(STARTER_FLAGS));
+
+      // Without a terminal there is no spinner. Each step logs one line when it starts.
+      expect(mockLogStep.mock.calls).toEqual([
+        ['Installing dependencies with npm'],
+        ['Generating the initial database migration'],
+      ]);
+      expect(write).not.toHaveBeenCalled();
+      expect(mockLogError).not.toHaveBeenCalled();
+      expect(summaryMessages('✓')).toEqual([
+        'Created a React Pages starter with D1 (SQLite)',
+        INSTALLED,
+        'Generated the initial database migration',
+      ]);
+    } finally {
+      write.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    [
+      'sqlite',
+      'Created a React Pages starter with D1 (SQLite)',
+      'Run `npm install`, then `void db generate` to finish setup',
+    ],
+    ['static', 'Created a static React Pages starter', 'Run `npm install` to finish setup'],
+  ])(
+    'prints the output of a failed install and what is left to run for the %s starter',
+    async (starter, created, nextStep) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-summary-install-fails-'));
+      // The user's shell is in the project, so the commands need no `cd`.
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+      const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      try {
+        mockSpawnSync.mockImplementation((_command, args) =>
+          Array.isArray(args) && args[0] === 'install'
+            ? { status: 1, stdout: 'resolving packages\n', stderr: 'ERR registry unreachable' }
+            : { status: 0, stdout: '', stderr: '' },
+        );
+
+        await expect(
+          runInitCommand(
+            root,
+            parseInitArgs([
+              '--toolchain',
+              'vite',
+              '--framework',
+              'react',
+              '--starter',
+              starter,
+              '--deploy',
+              'none',
+            ]),
+          ),
+        ).rejects.toThrow('npm install failed with exit code 1');
+
+        expect(mockLogError.mock.calls).toEqual([['Failed to install dependencies with npm']]);
+        expect(write.mock.calls).toEqual([['resolving packages\nERR registry unreachable\n']]);
+        expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+        // The failed step, its output, then what init had done.
+        expect(mockLogError.mock.invocationCallOrder[0]).toBeLessThan(
+          write.mock.invocationCallOrder[0]!,
+        );
+        expect(write.mock.invocationCallOrder[0]).toBeLessThan(
+          mockLogWarn.mock.invocationCallOrder[0]!,
+        );
+        expect(summaryMessages('✓')).toEqual([created]);
+        expect(summaryMessages('→')).toEqual([nextStep]);
+        expect(drizzleGenerateCalls()).toEqual([]);
+        expect(mockOutro).not.toHaveBeenCalled();
+      } finally {
+        write.mockRestore();
+        cwd.mockRestore();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('names the command that creates the migration when drizzle-kit fails', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-migration-fails-'));
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    try {
+      mockSpawnSync.mockImplementation((command, args, options) =>
+        drizzleGenerateCwd(command, args, options)
+          ? { status: 1, stdout: '', stderr: 'drizzle-kit: simulated crash\n' }
+          : { status: 0, stdout: '', stderr: '' },
+      );
+
+      await expect(runInitCommand(root, parseInitArgs(STARTER_FLAGS))).rejects.toThrow(
+        'Failed to generate the initial database migration.\n\ndrizzle-kit: simulated crash',
+      );
+
+      // The error carries drizzle-kit's output, so no line takes the spinner's place.
+      expect(mockLogError).not.toHaveBeenCalled();
+      expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+      expect(summaryMessages('✓')).toEqual([
+        'Created a React Pages starter with D1 (SQLite)',
+        INSTALLED,
+      ]);
+      expect(summaryMessages('→')).toEqual(['Run `void db generate` to finish setup']);
+    } finally {
+      cwd.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('stops the install and says how to finish it when init exits during it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-install-exit-'));
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    const exitListeners = process.listeners('exit');
+    const interruptListeners = process.listeners('SIGINT');
+    const exitCode = process.exitCode;
+    let run: Promise<void> | undefined;
+    try {
+      mockSpawnSync.mockImplementation((_command, args) =>
+        Array.isArray(args) && args[0] === 'install'
+          ? { status: 0, hang: true }
+          : { status: 0, stdout: '', stderr: '' },
+      );
+      run = runInitCommand(root, parseInitArgs(STARTER_FLAGS));
+      await vi.waitFor(() => expect(hangingCommands).toHaveLength(1));
+
+      // Ctrl+C at a spinner exits the process with 0, which runs the exit
+      // listeners in order. Call the ones this run added.
+      for (const listener of process.listeners('exit')) {
+        if (!exitListeners.includes(listener)) {
+          listener(0);
+        }
+      }
+
+      // An interrupted install is not a success for the caller.
+      expect(process.exitCode).toBe(130);
+
+      // The stopped step comes first. Without a terminal it is a warning.
+      expect(mockLogWarn.mock.calls).toEqual([
+        ['Installing dependencies with npm'],
+        ['Setup did not finish. Done so far:'],
+      ]);
+      // The installer runs in its own process group, which init stops as a whole.
+      if (process.platform === 'win32') {
+        expect(mockSpawnSync).toHaveBeenCalledWith(
+          'taskkill',
+          ['/PID', String(HANGING_COMMAND_PID), '/T', '/F'],
+          expect.anything(),
+        );
+      } else {
+        expect(mockSpawnSync).toHaveBeenCalledWith(
+          'npm',
+          ['install'],
+          expect.objectContaining({ detached: true }),
+        );
+        expect(kill.mock.calls).toEqual([[-HANGING_COMMAND_PID, 'SIGTERM']]);
+      }
+      // A signal to init does not reach that group, so init listens for it
+      // while the installer runs.
+      expect(process.listeners('SIGINT')).toHaveLength(interruptListeners.length + 1);
+      expect(summaryMessages('✓')).toEqual(['Created a React Pages starter with D1 (SQLite)']);
+      expect(summaryMessages('→')).toEqual([
+        'Run `npm install`, then `void db generate` to finish setup',
+      ]);
+
+      // The run removes its listeners when the command ends.
+      hangingCommands.pop()!();
+      await run;
+      expect(process.listeners('exit')).toEqual(exitListeners);
+      expect(process.listeners('SIGINT')).toEqual(interruptListeners);
+    } finally {
+      // After a failed assertion too, so that no listener of this run remains.
+      for (const finish of hangingCommands.splice(0)) {
+        finish();
+      }
+      await run?.catch(() => {});
+      process.exitCode = exitCode;
+      kill.mockRestore();
+      cwd.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('removes what drizzle-kit wrote when init exits during it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-migration-exit-'));
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const kill = vi.spyOn(process, 'kill').mockReturnValue(true);
+    const exitListeners = process.listeners('exit');
+    const exitCode = process.exitCode;
+    const migrations = join(root, 'db', 'migrations');
+    let run: Promise<void> | undefined;
+    try {
+      mockSpawnSync.mockImplementation((command, args, options) => {
+        const generateCwd = drizzleGenerateCwd(command, args, options);
+        if (!generateCwd) {
+          return { status: 0, stdout: '', stderr: '' };
+        }
+        // drizzle-kit has written the journal entry, and not the SQL file yet.
+        writeMockGeneratedMigration(generateCwd);
+        rmSync(join(migrations, '0000_generated.sql'));
+        return { status: null, hang: true };
+      });
+      run = runInitCommand(root, parseInitArgs(STARTER_FLAGS));
+      await vi.waitFor(() => expect(hangingCommands).toHaveLength(1));
+      expect(existsSync(join(migrations, 'meta', '_journal.json'))).toBe(true);
+
+      for (const listener of process.listeners('exit')) {
+        if (!exitListeners.includes(listener)) {
+          listener(0);
+        }
+      }
+
+      // With the journal entry left behind, `void db generate` would find no
+      // schema changes and never write the SQL file.
+      expect(existsSync(join(migrations, 'meta'))).toBe(false);
+      expect(listMigrationSqlFiles(root)).toEqual([]);
+      if (process.platform !== 'win32') {
+        expect(kill.mock.calls).toEqual([[-HANGING_COMMAND_PID, 'SIGTERM']]);
+      }
+      expect(mockLogWarn.mock.calls).toEqual([
+        ['Generating the initial database migration'],
+        ['Setup did not finish. Done so far:'],
+      ]);
+      expect(summaryMessages('✓')).toEqual([
+        'Created a React Pages starter with D1 (SQLite)',
+        INSTALLED,
+      ]);
+      expect(summaryMessages('→')).toEqual(['Run `void db generate` to finish setup']);
+
+      // The stopped drizzle-kit ends without an exit code.
+      hangingCommands.pop()!();
+      await expect(run).rejects.toThrow('Failed to generate the initial database migration.');
+    } finally {
+      for (const finish of hangingCommands.splice(0)) {
+        finish();
+      }
+      await run?.catch(() => {});
+      process.exitCode = exitCode;
+      kill.mockRestore();
+      cwd.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['a vp on PATH', 0, 'vp install'],
+    // `vp install` would not run for this user. The starter pins a Vite+ version.
+    ['no vp', 1, expect.stringMatching(/^npx -p vite-plus@\d+\.\d+\.\d+ vp install$/)],
+  ])(
+    'names an install that the user can run with %s when a Vite+ install fails',
+    async (_vp, probeStatus, typed) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-summary-vite-plus-install-fails-'));
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+      const write = vi.spyOn(process.stdout, 'write').mockReturnValue(true);
+      try {
+        mockSpawnSync.mockImplementation((command, args) => {
+          if (command === 'vp' && Array.isArray(args) && args[0] === '--version') {
+            return { status: probeStatus };
+          }
+          return Array.isArray(args) && args.includes('install')
+            ? { status: 1, stdout: '', stderr: '' }
+            : { status: 0, stdout: '', stderr: '' };
+        });
+
+        await expect(
+          runInitCommand(
+            root,
+            parseInitArgs([
+              '--toolchain',
+              'vite-plus',
+              '--framework',
+              'react',
+              '--starter',
+              'sqlite',
+              '--deploy',
+              'none',
+            ]),
+          ),
+        ).rejects.toThrow('vp install failed with exit code 1');
+
+        const [nextStep, ...others] = summaryMessages('→');
+        expect(others).toEqual([]);
+        const command = /^Run `(.+)`, then `void db generate` to finish setup$/.exec(
+          String(nextStep),
+        )?.[1];
+        expect(command).toEqual(typed);
+      } finally {
+        write.mockRestore();
+        cwd.mockRestore();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('points the Git command at a new subfolder by its path from the shell', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-subfolder-'));
+    // The user's shell stays in the parent directory.
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    try {
+      mkdirSync(join(root, 'existing-project'));
+      mockSelect.mockResolvedValueOnce('subfolder');
+      mockText.mockResolvedValueOnce('my-new-app');
+
+      await runInitCommand(root, parseInitArgs(['--git', ...STARTER_FLAGS]));
+
+      expect(summaryMessages('→')).toEqual([
+        'Git (optional): git -C my-new-app add -A && git -C my-new-app commit -m "chore: initial commit"',
+      ]);
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).toContain(
+        'Run `cd my-new-app && vite dev` to start developing.',
       );
     } finally {
       cwd.mockRestore();
@@ -377,9 +710,12 @@ describe('init summary', () => {
           '~ tsconfig.json   extends .void/tsconfig.json, added void/env to types',
         ],
         'Linked Void skills for Claude Code',
+        INSTALLED,
       ]);
       expect(summaryMessages('→')).toEqual([]);
 
+      // The mocked install left nothing in node_modules.
+      writeInstalledVoid(root);
       mockLogMessage.mockClear();
       await runInitCommand(root);
 
@@ -391,11 +727,13 @@ describe('init summary', () => {
   });
 
   it.each([
-    ['installed', true],
-    ['not installed', false],
+    ['installed', true, 'npm'],
+    ['not installed', false, 'npm'],
+    // Init installs a Vite+ project with vp, so it asks for the same command.
+    ['installed in a Vite+ project', true, 'vp'],
   ])(
     'asks for an install after removing a dependency when void is %s',
-    async (_name, voidInstalled) => {
+    async (_name, voidInstalled, installer) => {
       const root = mkdtempSync(join(tmpdir(), 'void-init-summary-lockfile-'));
       const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
       try {
@@ -405,7 +743,12 @@ describe('init summary', () => {
             name: 'app',
             type: 'module',
             scripts: { dev: 'vite', build: 'vite build' },
-            devDependencies: { '@cloudflare/workers-types': '^4.0.0', vite: '^8.0.0', void: '*' },
+            devDependencies: {
+              '@cloudflare/workers-types': '^4.0.0',
+              vite: '^8.0.0',
+              void: '*',
+              ...(installer === 'vp' ? { 'vite-plus': '*' } : {}),
+            },
           }) + '\n',
         );
         writeFileSync(
@@ -430,7 +773,7 @@ describe('init summary', () => {
         // Init's own install updates the lockfile when void still has to be installed.
         expect(installCalls()).toHaveLength(voidInstalled ? 0 : 1);
         expect(summaryMessages('→')).toEqual(
-          voidInstalled ? ['Run `npm install` to update your lockfile'] : [],
+          voidInstalled ? [`Run \`${installer} install\` to update your lockfile`] : [],
         );
       } finally {
         cwd.mockRestore();
@@ -484,7 +827,30 @@ describe('init summary', () => {
           '~ vite.config.ts  added voidPlugin()',
           '~ tsconfig.json   extends .void/tsconfig.json, added void/env to types',
         ],
+        // The list of files does not show that the migration deleted wrangler.jsonc.
+        'Migrated project configuration to void.config.ts',
+        INSTALLED,
       ]);
+      expect(summaryMessages('→')).toEqual(['Commit void.config.ts and void.lock.json']);
+      expect(mockLogStep).not.toHaveBeenCalledWith(expect.stringContaining('Migrated'));
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('asks to commit only void.config.ts when the migration wrote no lock file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-migration-json-'));
+    try {
+      writeExistingViteApp(root);
+      // Only a Cloudflare config gives the migration something to lock.
+      writeFileSync(join(root, 'void.json'), '{ "routing": { "prerender": ["/"] } }\n');
+
+      await runInitCommand(root, { tsconfig: true, github: false });
+
+      expect(existsSync(join(root, 'void.json'))).toBe(false);
+      expect(existsSync(join(root, 'void.lock.json'))).toBe(false);
+      expect(summaryMessages('✓')).toContain('Migrated project configuration to void.config.ts');
+      expect(summaryMessages('→')).toContain('Commit void.config.ts');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -738,7 +1104,7 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
   log: {
     success: vi.fn(),
     warn: (...args: Array<unknown>) => mockLogWarn(...args),
-    error: vi.fn(),
+    error: (...args: Array<unknown>) => mockLogError(...args),
     info: (...args: Array<unknown>) => mockLogInfo(...args),
     step: (...args: Array<unknown>) => mockLogStep(...args),
     message: (...args: Array<unknown>) => mockLogMessage(...args),
@@ -791,14 +1157,65 @@ vi.mock('../../src/cli/client', () => ({
   },
 }));
 
-vi.mock('node:child_process', () => ({
-  spawnSync: (...args: Array<unknown>) => mockSpawnSync(...args),
-}));
+vi.mock('node:child_process', async () => {
+  const { EventEmitter } = await import('node:events');
+  return {
+    spawnSync: (...args: Array<unknown>) => mockSpawnSync(...args),
+    // Init runs installs and drizzle-kit with `spawn`, behind a spinner. Answer
+    // them from the same mock, so a test sets one result for both kinds of call.
+    spawn: (...args: Array<unknown>) => {
+      const result = mockSpawnSync(...args) as
+        | {
+            status?: number | null;
+            stdout?: string;
+            stderr?: string;
+            error?: Error;
+            hang?: boolean;
+          }
+        | undefined;
+      const child = Object.assign(new EventEmitter(), {
+        stdout: new EventEmitter(),
+        stderr: new EventEmitter(),
+        // No process has this id, so a signal to it reaches nothing.
+        pid: result?.hang ? HANGING_COMMAND_PID : undefined,
+      });
+      const finish = (): void => {
+        if (result?.error) {
+          child.emit('error', result.error);
+          return;
+        }
+        if (result?.stdout) {
+          child.stdout.emit('data', Buffer.from(result.stdout));
+        }
+        if (result?.stderr) {
+          child.stderr.emit('data', Buffer.from(result.stderr));
+        }
+        child.emit('close', result?.status ?? null);
+      };
+      if (result?.hang) {
+        // The command keeps running until the test ends it.
+        hangingCommands.push(finish);
+      } else {
+        queueMicrotask(finish);
+      }
+      return child;
+    },
+  };
+});
 
 function withTempDir(run: (root: string) => void): void {
   const root = mkdtempSync(join(tmpdir(), 'void-init-'));
   try {
     run(root);
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+}
+
+async function withTempDirAsync(run: (root: string) => Promise<void>): Promise<void> {
+  const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+  try {
+    await run(root);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -907,6 +1324,9 @@ function summaryMessages(symbol: '✓' | '→'): Array<string | Array<string>> {
     .filter(([, options]) => stripVTControlCharacters(String(options?.symbol)) === symbol)
     .map(([message]) => message);
 }
+
+/** The summary line for an install. The mocked installer finishes at once. */
+const INSTALLED = expect.stringMatching(/^Installed dependencies in (\d+ms|\d\.\ds|\d+s)$/);
 
 function writeInstalledVoid(dir: string): void {
   mkdirSync(join(dir, 'node_modules', 'void'), { recursive: true });
@@ -1035,6 +1455,7 @@ afterEach(() => {
   mockNote.mockReset();
   mockOutro.mockReset();
   mockLogWarn.mockReset();
+  mockLogError.mockReset();
   mockLogInfo.mockReset();
   mockLogStep.mockReset();
   mockLogMessage.mockReset();
@@ -1916,7 +2337,11 @@ describe('isScaffoldableEmptyProject', () => {
       expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8')).toContain(
         'CREATE TABLE "messages"',
       );
-      expect(summaryMessages('✓')).toEqual(['Created a Vue Pages starter with PostgreSQL']);
+      expect(summaryMessages('✓')).toEqual([
+        'Created a Vue Pages starter with PostgreSQL',
+        INSTALLED,
+        'Generated the initial database migration',
+      ]);
       expect(summaryMessages('→')).toEqual([
         'Add DATABASE_URL to .env before running `vp dev` (Void uses it for local PostgreSQL development)',
       ]);
@@ -2264,8 +2689,12 @@ describe('isScaffoldableEmptyProject', () => {
 
       expect(existsSync(join(root, 'package.json'))).toBe(false);
       expect(existsSync(join(root, 'vite.config.ts'))).toBe(false);
+      // Init created the folder, so it does not report detecting an empty project.
+      expect(mockLogInfo).toHaveBeenCalledWith('Creating a Pages starter in ./my-new-app.');
+      expect(mockLogInfo).not.toHaveBeenCalledWith(expect.stringContaining('detected'));
       expect(summaryMessages('✓')).toEqual([
         'Created a static React Pages starter in ./my-new-app',
+        INSTALLED,
       ]);
 
       const appRoot = join(root, 'my-new-app');
@@ -2302,7 +2731,7 @@ describe('isScaffoldableEmptyProject', () => {
         ['install', '--no-frozen-lockfile'],
         expect.objectContaining({
           cwd: toSlash(appRoot),
-          stdio: 'inherit',
+          stdio: ['ignore', 'pipe', 'pipe'],
           shell: process.platform === 'win32',
         }),
       );
@@ -2367,7 +2796,7 @@ describe('isScaffoldableEmptyProject', () => {
         ['install'],
         expect.objectContaining({
           cwd: root,
-          stdio: 'inherit',
+          stdio: ['ignore', 'pipe', 'pipe'],
           shell: process.platform === 'win32',
         }),
       );
@@ -2714,7 +3143,7 @@ export default defineConfig({
         ['install'],
         expect.objectContaining({
           cwd: root,
-          stdio: 'inherit',
+          stdio: ['ignore', 'pipe', 'pipe'],
           shell: process.platform === 'win32',
         }),
       );
@@ -3418,7 +3847,7 @@ export default config;
         ['install', '--no-frozen-lockfile'],
         expect.objectContaining({
           cwd: root,
-          stdio: 'inherit',
+          stdio: ['ignore', 'pipe', 'pipe'],
           shell: process.platform === 'win32',
         }),
       );
@@ -4734,8 +5163,8 @@ describe('generateStarterMigration', () => {
     );
   }
 
-  it('rolls back partial artifacts when drizzle-kit fails and migrations/ did not exist before', () => {
-    withTempDir((root) => {
+  it('rolls back partial artifacts when drizzle-kit fails and migrations/ did not exist before', async () => {
+    await withTempDirAsync(async (root) => {
       seedStarterSchema(root);
       mockSpawnSync.mockImplementationOnce((command, args, options) => {
         const cwd = drizzleGenerateCwd(command, args, options);
@@ -4757,8 +5186,8 @@ describe('generateStarterMigration', () => {
         };
       });
 
-      expect(() => generateStarterMigration(root, 'sqlite')).toThrow(
-        /Failed to generate the starter database migration/,
+      await expect(generateStarterMigration(root, 'sqlite')).rejects.toThrow(
+        /Failed to generate the initial database migration/,
       );
 
       expect(existsSync(join(root, 'db', 'migrations', 'meta', '_journal.json'))).toBe(false);
@@ -4773,8 +5202,8 @@ describe('generateStarterMigration', () => {
     });
   });
 
-  it('restores the journal and keeps prior entries when drizzle-kit fails and a journal existed before', () => {
-    withTempDir((root) => {
+  it('restores the journal and keeps prior entries when drizzle-kit fails and a journal existed before', async () => {
+    await withTempDirAsync(async (root) => {
       seedStarterSchema(root);
       const migrationsDir = join(root, 'db', 'migrations');
       const metaDir = join(migrationsDir, 'meta');
@@ -4816,8 +5245,8 @@ describe('generateStarterMigration', () => {
         };
       });
 
-      expect(() => generateStarterMigration(root, 'sqlite')).toThrow(
-        /Failed to generate the starter database migration/,
+      await expect(generateStarterMigration(root, 'sqlite')).rejects.toThrow(
+        /Failed to generate the initial database migration/,
       );
 
       expect(readFileSync(join(metaDir, '_journal.json'), 'utf-8')).toBe(originalJournal);
@@ -4829,18 +5258,18 @@ describe('generateStarterMigration', () => {
   });
 
   // cmd.exe would split `C:\Program Files\nodejs\node.exe` and paths with spaces.
-  it('runs drizzle-kit and the Yarn PnP probe without a shell on Windows', () => {
+  it('runs drizzle-kit and the Yarn PnP probe without a shell on Windows', async () => {
     const platform = Object.getOwnPropertyDescriptor(process, 'platform')!;
     Object.defineProperty(process, 'platform', { configurable: true, value: 'win32' });
     try {
-      withTempDir((root) => {
+      await withTempDirAsync(async (root) => {
         seedStarterSchema(root);
         writeFileSync(join(root, '.pnp.cjs'), '// pnp stub\n');
         mkdirSync(join(root, '.yarn'), { recursive: true });
         writeFileSync(join(root, '.yarn', 'install-state.gz'), '');
         mockSpawnSync.mockReturnValue({ status: 0, stdout: '', stderr: '' });
 
-        generateStarterMigration(root, 'sqlite');
+        await generateStarterMigration(root, 'sqlite');
         expect(isVoidResolvableFrom(root)).toBe(true);
 
         const nodeSpawns = mockSpawnSync.mock.calls.filter(

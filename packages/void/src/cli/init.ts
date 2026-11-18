@@ -39,12 +39,13 @@ import { connectCloudflare } from './cloudflare-connect.ts';
 import { maybeSetupDeployProject } from './deploy-setup.ts';
 import { maybeScaffoldEnvTs } from './env-scaffold.ts';
 import { migrateFrameworkAdapterPaths } from './framework-config-migrate.ts';
+import { runBehindSpinner } from './init-command.ts';
 import { initialCommitCommand, setupGit } from './init-git.ts';
 import { InitReport } from './init-report.ts';
-import { commandInProject } from './init-shell.ts';
+import { commandInProject, quoteShellArgument } from './init-shell.ts';
 import { configureVitePlusScaffold, resolveVitePlusBootstrapSpec } from './init-vite-plus.ts';
 import { migrateLegacyVoidConfig } from './migrate.ts';
-import { formatUrl, note, printSuccess } from './output.ts';
+import { formatDuration, formatUrl, note, printSuccess } from './output.ts';
 import { discoverPlatform, saveDiscoveredPlatform } from './platform-cmd.ts';
 import { formatProjectCommand } from './preset.ts';
 import {
@@ -2123,106 +2124,156 @@ function ensurePnpmAllowBuilds(root: string, pkg: JsonObject, report: InitReport
   }
 }
 
-export function installProjectDependencies(
+/** The tool that installs a project: `vp` when it uses Vite+, else its package manager. */
+function projectInstaller(
+  pkg: ReturnType<typeof readPackageJson>,
+  packageManager: ProjectState['packageManager'],
+): 'vp' | ProjectState['packageManager'] {
+  return pkg !== null && hasPackageDependency(pkg, 'vite-plus') ? 'vp' : packageManager;
+}
+
+type ProjectInstall = {
+  installer: ReturnType<typeof projectInstaller>;
+  /** What init runs. */
+  command: string;
+  args: Array<string>;
+  /** The same install as a command for the user to type. */
+  typed: string;
+};
+
+/** Decide how to install the project's dependencies. */
+export function resolveProjectInstall(
   root: string,
   packageManager: ProjectState['packageManager'],
-): void {
+): ProjectInstall {
   const pkg = readPackageJson(root);
-  const useVitePlus = pkg !== null && hasPackageDependency(pkg, 'vite-plus');
-  const installer = useVitePlus ? 'vp' : packageManager;
-  log.step(`Installing dependencies with ${installer}`);
-
+  const installer = projectInstaller(pkg, packageManager);
   // Init has just changed the manifest. Refresh the lockfile even when pnpm
   // detects a CI host; subsequent CI builds can use frozen installs normally.
-  let command: string = installer;
-  let args =
-    useVitePlus || packageManager === 'pnpm' ? ['install', '--no-frozen-lockfile'] : ['install'];
-  if (useVitePlus) {
-    let localBin: string | undefined;
-    try {
-      const require = createRequire(join(root, 'package.json'));
-      localBin = join(dirname(require.resolve('vite-plus/package.json')), 'bin/vp');
-    } catch {
-      // The starter's Vite+ dependency has not been installed yet.
-    }
-    if (localBin) {
-      command = process.execPath;
-      args = [localBin, ...args];
-    } else {
-      const probe = spawnSync('vp', ['--version'], {
-        cwd: root,
-        stdio: 'ignore',
-        shell: process.platform === 'win32',
-        timeout: 5_000,
-      });
-      if (probe.status !== 0) {
-        // npx void init must also work without a globally installed vp. Avoid
-        // asking an older pnpm to switch itself to a pinned native pnpm 12.
-        command = 'npx';
-        const packageArg = `--package=vite-plus@${resolveVitePlusBootstrapSpec(root, pkg!)}`;
-        args = [
-          '--yes',
-          // cmd.exe treats the semver caret as an escape outside quotes.
-          process.platform === 'win32' ? `"${packageArg}"` : packageArg,
-          'vp',
-          ...args,
-        ];
-      }
-    }
+  const args =
+    installer === 'vp' || packageManager === 'pnpm'
+      ? ['install', '--no-frozen-lockfile']
+      : ['install'];
+  // The typed command leaves out the flag, which only a CI host needs.
+  const install: ProjectInstall = {
+    installer,
+    command: installer,
+    args,
+    typed: `${installer} install`,
+  };
+  if (installer !== 'vp') {
+    return install;
   }
-  const result = spawnSync(command, args, {
+
+  let localBin: string | undefined;
+  try {
+    const require = createRequire(join(root, 'package.json'));
+    localBin = join(dirname(require.resolve('vite-plus/package.json')), 'bin/vp');
+  } catch {
+    // The starter's Vite+ dependency has not been installed yet.
+  }
+  if (localBin) {
+    return { ...install, command: process.execPath, args: [localBin, ...args] };
+  }
+  const probe = spawnSync('vp', ['--version'], {
     cwd: root,
-    stdio: 'inherit',
-    shell: command !== process.execPath && process.platform === 'win32',
+    stdio: 'ignore',
+    shell: process.platform === 'win32',
+    timeout: 5_000,
   });
+  if (probe.status === 0) {
+    return install;
+  }
+  // npx void init must also work without a globally installed vp. Avoid
+  // asking an older pnpm to switch itself to a pinned native pnpm 12.
+  const vitePlus = `vite-plus@${resolveVitePlusBootstrapSpec(root, pkg!)}`;
+  const packageArg = `--package=${vitePlus}`;
+  return {
+    installer,
+    command: 'npx',
+    args: [
+      '--yes',
+      // cmd.exe treats the semver caret as an escape outside quotes.
+      process.platform === 'win32' ? `"${packageArg}"` : packageArg,
+      'vp',
+      ...args,
+    ],
+    // This user has no `vp` to type.
+    typed: `npx -p ${quoteShellArgument(vitePlus)} vp install`,
+  };
+}
+
+/** Install the project's dependencies. Returns how long the installer ran, in milliseconds. */
+export async function installProjectDependencies(
+  root: string,
+  packageManager: ProjectState['packageManager'],
+  install: ProjectInstall = resolveProjectInstall(root, packageManager),
+): Promise<number> {
+  const { installer, command, args } = install;
+  const started = performance.now();
+  const result = await runBehindSpinner(
+    `Installing dependencies with ${installer}`,
+    command,
+    args,
+    {
+      cwd: root,
+      shell: command !== process.execPath && process.platform === 'win32',
+      failed: `Failed to install dependencies with ${installer}`,
+    },
+  );
 
   if (result.error) {
     throw result.error;
   }
 
   if (result.status !== 0) {
+    // Print the output here rather than in the error. The CLI rewords
+    // "wrangler" in error messages, which would change package names in it.
+    if (result.output) {
+      process.stdout.write(result.output.endsWith('\n') ? result.output : `${result.output}\n`);
+    }
     throw new Error(`${installer} install failed with exit code ${result.status ?? 'unknown'}`);
   }
 
-  log.step(`Installed dependencies with ${installer}`);
+  return performance.now() - started;
 }
 
-export function generateStarterMigration(
+/** Generate the first migration for the schema that a starter or the demo created. */
+export async function generateStarterMigration(
   root: string,
   starterMode: Exclude<ScaffoldStarterMode, 'static'>,
-): void {
+): Promise<void> {
   const dialect = starterMode;
   const configPath = writeDrizzleConfig(root, PLACEHOLDER_DB_URL[dialect], dialect);
 
   const rollBack = snapshotDrizzleOutputs(readProjectPaths(root).migrationsDir);
 
-  log.step('Generating initial Drizzle migration');
-  // Adds the Yarn PnP loaders drizzle-kit needs to resolve `void/schema-d1`.
-  const result = spawnSync(process.execPath, [drizzleKitBin, 'generate', '--config', configPath], {
-    cwd: root,
-    stdio: 'pipe',
-    encoding: 'utf-8',
-    env: buildDrizzleKitSpawnEnv(root),
-  });
-
-  if (result.error || result.status !== 0) {
-    rollBack();
-  }
+  const result = await runBehindSpinner(
+    'Generating the initial database migration',
+    process.execPath,
+    [drizzleKitBin, 'generate', '--config', configPath],
+    {
+      cwd: root,
+      // Adds the Yarn PnP loaders drizzle-kit needs to resolve `void/schema-d1`.
+      env: buildDrizzleKitSpawnEnv(root),
+      // A journal entry without its SQL file would make `void db generate`
+      // report no schema changes.
+      undo: rollBack,
+    },
+  );
 
   if (result.error) {
     throw result.error;
   }
 
   if (result.status !== 0) {
-    const detail = [result.stderr, result.stdout].filter(Boolean).join('\n').trim();
+    const detail = result.output.trim();
     throw new Error(
-      ['Failed to generate the starter database migration.', ...(detail ? [detail] : [])].join(
+      ['Failed to generate the initial database migration.', ...(detail ? [detail] : [])].join(
         '\n\n',
       ),
     );
   }
-
-  log.step('Generated initial Drizzle migration');
 }
 
 function scaffoldPagesApp(
@@ -2789,6 +2840,8 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   if (!targeted) {
     root = await resolveInitRoot(root);
   }
+  /** The new folder for the project, when the user asked init to create one. */
+  const subfolder = root === requestedRoot ? undefined : relative(requestedRoot, root);
   const newProject = isScaffoldableEmptyProject(root) && !existsSync(join(root, 'AGENTS.md'));
   const hadTypedConfig = existsSync(join(root, TYPED_CONFIG_FILE));
   // The migration can create these files. Record them as new so that later
@@ -2797,14 +2850,17 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     (file) => !existsSync(join(root, file)),
   );
   if (migrateLegacyVoidConfig(root)) {
-    log.step(
-      'Migrated project configuration to void.config.ts. Commit void.config.ts and void.lock.json.',
-    );
     for (const file of missingBeforeMigration) {
       if (existsSync(join(root, file))) {
         report.created(file);
       }
     }
+    // The migration deletes the old files, which the list of files does not show.
+    report.done(`Migrated project configuration to ${TYPED_CONFIG_FILE}`);
+    const migrated = [TYPED_CONFIG_FILE, VOID_LOCK_FILE].filter((file) =>
+      existsSync(join(root, file)),
+    );
+    report.next(`Commit ${new Intl.ListFormat('en').format(migrated)}`);
   }
   const workspaceSubpackage = isInsideWorkspaceSubpackage(root);
   if (workspaceSubpackage && initArgs?.git !== undefined) {
@@ -2819,7 +2875,12 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
   if (framework) {
     log.info(`Detected ${framework.name} framework`);
   } else if (scaffoldStarter) {
-    log.info('Empty project detected. Creating a Pages starter.');
+    // Init found nothing to detect in a folder it has just created.
+    log.info(
+      subfolder
+        ? `Creating a Pages starter in ./${subfolder}.`
+        : 'Empty project detected. Creating a Pages starter.',
+    );
   } else if (!targeted) {
     log.info('Existing project detected. Configuring Void.');
   }
@@ -2868,13 +2929,7 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       scaffoldToolchain,
       report,
     );
-    report.setStarter(
-      describeStarter(
-        scaffoldedPagesFramework,
-        starterMode,
-        root === requestedRoot ? undefined : relative(requestedRoot, root),
-      ),
-    );
+    report.setStarter(describeStarter(scaffoldedPagesFramework, starterMode, subfolder));
 
     // A workspace member installs from the workspace root: a leaf install would
     // leave a stray lockfile or reject `workspace:` specs, and drizzle-kit needs
@@ -2887,11 +2942,11 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
       // The static starter has no database schema to generate from.
       const dbFollowUp =
         starterMode === 'static'
-          ? ''
-          : `\nthen run \`void db generate\` from ./${relRoot} to create the initial migration.`;
+          ? '.'
+          : `,\nthen run \`void db generate\` from ./${relRoot} to create the initial migration.`;
       note(
         `Scaffolded the Pages starter in ./${relRoot}.\n\n` +
-          `Run your workspace install from ${deferral.workspaceRoot} to pick up the new dependencies.${dbFollowUp}`,
+          `Run your workspace install from ${deferral.workspaceRoot} to pick up the new dependencies${dbFollowUp}`,
         'Workspace subpackage',
       );
     } else if (scaffoldWroteDeps || !voidResolvable) {
@@ -3094,15 +3149,30 @@ async function runInitSteps(root: string, report: InitReport, initArgs?: InitArg
     }
   }
 
+  // The steps below can fail or be cancelled. `unfinished` names the commands
+  // that finish them by hand. Running init again would not: it would find an
+  // existing project and skip the migration.
+  const migrationMode = workspaceSubpackageSkip ? undefined : scaffoldedStarterMode;
   if (scaffoldAddedDependencies) {
-    installProjectDependencies(root, state.packageManager);
+    const install = resolveProjectInstall(root, state.packageManager);
+    const typed = commandInProject(root, install.typed);
+    report.unfinished = migrationMode
+      ? `Run \`${typed}\`, then \`void db generate\` to finish setup`
+      : `Run \`${typed}\` to finish setup`;
+    const duration = await installProjectDependencies(root, state.packageManager, install);
+    report.done(`Installed dependencies in ${formatDuration(duration)}`);
   } else if (packageDependencyRemoved && !workspaceSubpackageSkip) {
-    const install = commandInProject(root, `${state.packageManager} install`);
+    // The project is installed, so its user has a way to run the installer.
+    const installer = projectInstaller(readPackageJson(root), state.packageManager);
+    const install = commandInProject(root, `${installer} install`);
     report.next(`Run \`${install}\` to update your lockfile`);
   }
-  if (scaffoldedStarterMode && !workspaceSubpackageSkip) {
-    generateStarterMigration(root, scaffoldedStarterMode);
+  if (migrationMode) {
+    report.unfinished = `Run \`${commandInProject(root, 'void db generate')}\` to finish setup`;
+    await generateStarterMigration(root, migrationMode);
+    report.done('Generated the initial database migration');
   }
+  report.unfinished = undefined;
 
   if (!targeted && deploymentPlatform === 'void') {
     const linked = await maybeSetupDeployProject(root);
