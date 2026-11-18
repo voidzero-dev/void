@@ -18,6 +18,7 @@ const pgliteUnitTests = [
 ];
 const cliUnitTests = [
   'packages/void/test/unit/cf-*.test.ts',
+  'packages/void/test/unit/cloudflare-operation-process*.test.ts',
   'packages/void/test/unit/provision-*.test.ts',
   'packages/void/test/unit/deploy-drift.test.ts',
 ];
@@ -461,7 +462,10 @@ export default defineConfig({
           include: cliUnitTests,
           pool: 'threads',
           maxWorkers,
-          ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
+          // These files run their real subprocess tests concurrently. A test then also waits
+          // while its neighbours block the thread in a synchronous spawn, so Vitest's 5-second
+          // default is too short on a busy machine.
+          testTimeout: 20_000,
         },
       },
       {
