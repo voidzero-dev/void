@@ -330,6 +330,7 @@ async function createFixture({
     'pages/café menu.tsx': 'export default function Page() { return null; }',
     'pages/café/[id].tsx': 'export default function Page() { return null; }',
     'pages/users/[id].tsx': 'export default function Page() { return null; }',
+    'pages/blog/[category]/[slug].tsx': 'export default function Page() { return null; }',
     'pages/files/[...path].tsx': 'export default function Page() { return null; }',
     'pages/wild/[...].tsx': 'export default function Page() { return null; }',
     'check.ts': `import type { Context, MiddlewareHandler } from 'hono';
@@ -760,17 +761,20 @@ void [href, unknown, query];
   );
 
   it.each(declarationChecks)(
-    'rejects invalid unions and numeric keys through $declarations declarations with TS $version',
+    'keeps invalid inputs rejected through $declarations declarations with TS $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
-          'check-invalid-unions.ts': `import { routeUrl } from 'void/routes';
+          'check-invalid-unions.ts': `import { routeUrl, type RoutePath } from 'void/routes';
 declare const query: { q: string } | { filter: { id: number } };
 // @ts-expect-error every query union member must contain supported values
 routeUrl('/about', { query });
 declare const optionalQuery: { q?: string } | { filter?: { id: number } };
 // @ts-expect-error optional query keys cannot hide invalid union members
 routeUrl('/about', { query: optionalQuery });
+declare const overlappingQuery: { q: string } | { q: string; filter: { id: number } };
+// @ts-expect-error a valid union member cannot hide invalid values on another member
+routeUrl('/about', { query: overlappingQuery });
 // @ts-expect-error numeric params do not supply the required id
 routeUrl('/users/[id]', { params: { 0: 'missing-id' } });
 // @ts-expect-error fresh numeric extra params are still rejected
@@ -793,19 +797,54 @@ routeUrl<string>('/users/[id]');
 declare const uncheckedOptions: Record<string, any>;
 // @ts-expect-error index signatures cannot satisfy the diagnostic rejection guard
 routeUrl('/users/[id]', uncheckedOptions);
-const boxed = Object.assign('Param id for route /users/[id] must be a string or number.' as const, { params: { id: true } });
+const boxed = Object.assign('Param id for /users/[id] must be a string or number.' as const, { params: { id: true } });
 // @ts-expect-error a boxed diagnostic message is still invalid options
 routeUrl('/users/[id]', boxed);
 // @ts-expect-error diagnostic message strings cannot act as options
-routeUrl('/about', 'Invalid options for route /about. Pass an object with params, query, or hash.');
+routeUrl('/about', 'Options for /about must be an object.');
 // @ts-expect-error diagnostic message values cannot turn unknown options into valid ones
-routeUrl('/about', { search: 'Unknown routeUrl option: search. Use params, query, or hash.' });
+routeUrl('/about', { search: 'Unknown routeUrl option: search.' });
 const fakePath = {
-  get 'This route may require params. Pass its options as the second argument.'(): never { throw new Error(); },
-  get 'Pass a route pattern literal to routeUrl(); string is too broad.'(): never { throw new Error(); },
+  get 'Missing options for /users/[id]. Pass { params: { ... } } as the second argument.'(): never { throw new Error(); },
+  get 'Expected a route pattern literal; string is too broad.'(): never { throw new Error(); },
 };
 // @ts-expect-error diagnostic objects cannot act as route patterns
 routeUrl(fakePath);
+const fakeUnknownPath = Object.assign('/missing' as const, {
+  get 'Unknown route: /missing. Use a registered route pattern.'(): never { throw new Error(); },
+});
+// @ts-expect-error a boxed error message cannot make an unknown path valid
+routeUrl<RoutePath, '/missing'>(fakeUnknownPath);
+const fakeMissingOptions = {
+  get 'Missing options for /users/[id]. Pass { params: { ... } } as the second argument.'(): never { throw new Error(); },
+};
+// @ts-expect-error a diagnostic object cannot replace a path and its required options
+routeUrl<RoutePath, '/users/[id]'>(fakeMissingOptions);
+// @ts-expect-error a diagnostic message cannot become a params object
+routeUrl('/users/[id]', { params: "Params for /users/[id] must be an object." });
+// @ts-expect-error a diagnostic message cannot become a query object
+routeUrl('/about', { query: 'Query for /about must be an object with supported query values.' });
+// @ts-expect-error an any-valued unknown option remains invalid
+routeUrl('/about', { search: undefined as any });
+// @ts-expect-error an array of diagnostic messages cannot become options
+routeUrl('/about', ['Unknown routeUrl option: 0.'] as const);
+// @ts-expect-error explicit diagnostic type arguments retain native params checking
+routeUrl<RoutePath, '/users/[id]', { params: { id: boolean } }>('/users/[id]', { params: 'Param id for /users/[id] must be a string or number.' });
+// @ts-expect-error diagnostic type arguments cannot widen the original checked tuple
+routeUrl<RoutePath, '/users/[id]', unknown>('/users/[id]', { params: 'Param id for /users/[id] must be a string or number.' });
+`,
+          'check-exact-optional.ts': `import { routeUrl } from 'void/routes';
+routeUrl('/about');
+routeUrl('/users/[id]', { params: { id: 42 } });
+declare const value: any;
+// @ts-expect-error exact optional properties do not allow params on static routes
+routeUrl('/about', { params: value });
+// @ts-expect-error query cannot be explicitly undefined in exact mode
+routeUrl('/about', { query: undefined });
+// @ts-expect-error hash cannot be explicitly undefined in exact mode
+routeUrl('/about', { hash: undefined });
+// @ts-expect-error fresh extra params stay rejected when their value is any
+routeUrl('/users/[id]', { params: { id: 42, extra: value } });
 `,
         },
       });
@@ -813,84 +852,121 @@ routeUrl(fakePath);
         output: '',
         status: 0,
       });
+      expect(
+        typecheck(
+          root,
+          declarations,
+          ['check-exact-optional.ts'],
+          { exactOptionalPropertyTypes: true },
+          tsc,
+        ),
+      ).toEqual({ output: '', status: 0 });
     },
   );
 
   it.each(declarationChecks)(
-    'explains invalid routeUrl calls through $declarations declarations with TS $version',
-    async ({ declarations, tsc }) => {
-      const cases = [
-        ["routeUrl('/missing');", 'Unknown route: /missing.'],
-        ["routeUrl('/missing', {});", 'Unknown route: /missing.'],
-        ["routeUrl('/users/42');", 'Unknown route: /users/42.'],
-        ["routeUrl('/users/[id]');", 'Missing param id for route /users/[id].'],
-        ["routeUrl('/users/[id]', {});", 'Missing param id for route /users/[id].'],
+    'uses native option errors and custom path errors through $declarations declarations with TS $version',
+    async ({ declarations, tsc, version }) => {
+      const cases: Array<[call: string, message: string | RegExp, kind: 'native' | 'custom']> = [
+        ["routeUrl('/missing');", 'Unknown route: /missing.', 'custom'],
+        ["routeUrl('/missing', {});", 'Unknown route: /missing.', 'custom'],
+        ["routeUrl('/users/42');", 'Unknown route: /users/42.', 'custom'],
+        ["routeUrl('/users/[id]');", 'Missing options for /users/[id].', 'custom'],
+        ["routeUrl('/users/[id]', {});", "Property 'params' is missing", 'native'],
         [
           "routeUrl('/users/[id]', { query: { page: 1 } });",
-          'Missing param id for route /users/[id].',
+          "Property 'params' is missing",
+          'native',
         ],
-        ["routeUrl('/users/[id]', { params: {} });", 'Missing param id for route /users/[id].'],
+        ["routeUrl('/users/[id]', { params: {} });", "Property 'id' is missing", 'native'],
         [
           "routeUrl('/users/[id]', { params: { userId: 42 } });",
-          'Unknown param userId for route /users/[id].',
+          "'userId' does not exist",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: { id: 42, extra: 'x' } });",
-          'Unknown param extra for route /users/[id].',
+          "'extra' does not exist",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: { id: true } });",
-          'Param id for route /users/[id] must be a string or number.',
+          "Type 'boolean' is not assignable to type 'string | number'.",
+          'native',
         ],
-        ["routeUrl('/about', { params: {} });", 'Route /about has no path params.'],
-        ["routeUrl('/about', { hash: 123 });", 'Hash for route /about must be a string.'],
+        [
+          "routeUrl('/about', { params: {} });",
+          "Type '{}' is not assignable to type 'undefined'.",
+          'native',
+        ],
+        [
+          "routeUrl('/about', { hash: 123 });",
+          "Type 'number' is not assignable to type 'string'.",
+          'native',
+        ],
         [
           "routeUrl('/users/[id]', { params: {} as Record<string, string> });",
-          'Missing param id for route /users/[id].',
+          "Property 'id' is missing",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: {} as { id?: string } });",
-          'Missing param id for route /users/[id].',
+          "Type 'undefined' is not assignable to type 'string | number'.",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: {} as Record<string, unknown> & { id: boolean } });",
-          'Param id for route /users/[id] must be a string or number.',
+          "Type 'boolean' is not assignable to type 'string | number'.",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: {} as Record<string, string> & { id: string }, query: { nested: {} } });",
-          'Invalid query param nested for route /users/[id].',
+          /Type '\{\}' is not assignable to type '.*RouteQueryValue/,
+          'native',
         ],
         [
           "routeUrl('/about', { query: () => 'x' });",
-          'Query for route /about must be an object with supported query values.',
+          "Index signature for type 'string' is missing",
+          'native',
         ],
         [
           "routeUrl('/about', { query: null });",
-          'Query for route /about must be an object with supported query values.',
+          "Type 'null' is not assignable to type 'RouteQuery | undefined'.",
+          'native',
         ],
-        [
-          "routeUrl('/about', () => 'x');",
-          'Invalid options for route /about. Pass an object with params, query, or hash.',
-        ],
+        ["routeUrl('/about', () => 'x');", 'has no properties in common', 'native'],
         [
           "routeUrl('/about', { query: { nested: { value: 'x' } } });",
-          'Invalid query param nested for route /about.',
+          "'value' does not exist",
+          'native',
         ],
         [
           "routeUrl('/about', { query: null as unknown as { q: string } | { filter: { id: number } } });",
-          'Invalid query param filter for route /about.',
+          "Property 'filter' is incompatible with index signature.",
+          'native',
         ],
         [
           "routeUrl('/users/[id]', { params: { 0: 'missing-id' } });",
-          'Unknown param 0 for route /users/[id].',
+          "'0' does not exist",
+          'native',
         ],
-        ["routeUrl('/about', { 0: 'unknown' });", 'Unknown routeUrl option: 0.'],
-        ["routeUrl('/about', { search: 'x' });", 'Unknown routeUrl option: search.'],
-        ["routeUrl('/users/[id]', undefined);", 'Missing param id for route /users/[id].'],
-        ["routeUrl('' as '/about' | '/users/[id]');", 'Missing param id for route /users/[id].'],
+        ["routeUrl('/about', { 0: 'unknown' });", "'0' does not exist", 'native'],
+        ["routeUrl('/about', { search: 'x' });", "'search' does not exist", 'native'],
+        ["routeUrl('/users/[id]', undefined);", 'Missing options for /users/[id].', 'custom'],
+        ["routeUrl('' as '/about' | '/users/[id]');", 'Missing options for /users/[id].', 'custom'],
         [
           "routeUrl('' as string);",
-          'Pass a route pattern literal to routeUrl(); string is too broad.',
+          'Expected a route pattern literal; string is too broad.',
+          'custom',
+        ],
+        ["routeUrl('' as '/about' | '/missing', {});", 'Unknown route: /missing.', 'custom'],
+        ["routeUrl('/missing', undefined);", 'Unknown route: /missing.', 'custom'],
+        ["routeUrl('/missing', {} as unknown);", 'Unknown route: /missing.', 'custom'],
+        ["routeUrl('/missing', {} as any);", 'Unknown route: /missing.', 'custom'],
+        [
+          "routeUrl('/blog/[category]/[slug]', { params: { category: 'typescript' } });",
+          "Property 'slug' is missing",
+          'native',
         ],
       ];
       const root = await createFixture({
@@ -907,16 +983,34 @@ routeUrl(fakePath);
         .split(/.*check-diagnostics\.ts\(\d+,\d+\): error TS\d+: /)
         .slice(1);
       expect(diagnostics).toHaveLength(cases.length);
-      cases.forEach(([, message], index) => expect(diagnostics[index]).toContain(message));
+      cases.forEach(([, message, kind], index) => {
+        expect(diagnostics[index]).toMatch(message);
+        if (kind === 'native') {
+          expect(diagnostics[index]).not.toContain('UrlTypeError');
+          expect(diagnostics[index]).not.toContain('UrlErrorToken');
+          expect(diagnostics[index]).not.toContain('[invalid]');
+          expect(diagnostics[index]).not.toContain('Missing options for');
+          expect(diagnostics[index]).not.toMatch(
+            /not assignable to type '"(?:Missing|Unknown|Invalid|Param|Query|Hash|Options)/,
+          );
+        }
+      });
       expect(output).not.toContain('TS2554');
       expect(output).not.toContain('UrlTypeError<never>');
-      expect(output).not.toContain('Unknown param ${string}');
       expect(output).not.toContain('RouteUrlOptionsInput');
       expect(output).not.toContain('__voidUrlError');
-      expect(diagnostics[7]).toContain(
-        `parameter of type '"Unknown param userId for route /users/[id].`,
-      );
-      expect(diagnostics[7]).not.toContain('Argument of type \'["/users/[id]"');
+      expect(diagnostics[25]).not.toContain('Missing options for /about.');
+      expect(diagnostics[27]).not.toContain('Unknown route: /about.');
+      const missingSlug = diagnostics.at(-1)!.trim();
+      const detail =
+        "Property 'slug' is missing in type '{ category: string; }' but required in type '{ category: string | number; slug: string | number; }'.";
+      expect(missingSlug).toContain(detail);
+      if (version.startsWith('7.')) {
+        expect(missingSlug).toBe(
+          `No overload matches this call.\n  The last overload gave the following error.\n    ${detail}`,
+        );
+        expect(missingSlug.length).toBeLessThan(250);
+      }
     },
   );
 
@@ -941,9 +1035,8 @@ void bare;
         tsc,
       );
       expect(status).not.toBe(0);
-      expect(output).toContain(
-        'This route may require params. Pass its options as the second argument.',
-      );
+      expect(output).toContain('Missing options for');
+      expect(output).toContain('Pass { params: { ... } } as the second argument.');
     },
   );
 
