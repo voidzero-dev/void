@@ -55,7 +55,7 @@ void db execute --file <path>
 void db execute --remote <sql>
 ```
 
-Run ad-hoc SQL against the database. Provide SQL inline or from a file. SELECT queries display results as a formatted table; other statements execute silently.
+Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results.
 
 By default, targets the local database. Pass `--remote` to run against the deployed database selected in `.void/project.json`:
 

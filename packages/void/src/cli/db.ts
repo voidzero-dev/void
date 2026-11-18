@@ -30,6 +30,7 @@ import {
   writeJournal,
 } from '../migrations/collect.ts';
 import type { MySqlClient } from '../migrations/runner-mysql.ts';
+import type { SqliteDatabase, SqliteStatement } from '../migrations/runner.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
@@ -847,6 +848,27 @@ function isSafeStatement(sql: string): boolean {
 }
 
 /**
+ * Prepare one statement. better-sqlite3 refuses SQL that holds no statement or more than one
+ * with a `RangeError`, before it runs anything (`src/objects/statement.cpp`). Those are the
+ * only errors this call can raise that way, so the caller runs the same text through
+ * `exec()`, which handles a script and reports no rows. Execution errors never come back
+ * here, so nothing is replayed.
+ */
+function prepareSingleStatement(
+  db: SqliteDatabase,
+  sql: string,
+): SqliteStatement<Record<string, unknown>> | undefined {
+  try {
+    return db.prepare<Record<string, unknown>>(sql);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return undefined;
+    }
+    throw error;
+  }
+}
+
+/**
  * Fetch a project's remote PostgreSQL connection string from the platform.
  * Exits with a friendly message when the URL has never been stored (404);
  * other errors propagate so the caller's top-level handler can report them.
@@ -1096,12 +1118,13 @@ async function runExecute(
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    const trimmed = sql.trimStart();
-    if (/^SELECT\b/i.test(trimmed)) {
-      const rows = db.prepare(sql).all() as Array<Record<string, unknown>>;
-      if (rows.length === 0) {
-        log.info('No rows returned.');
-      } else {
+    const statement = prepareSingleStatement(db, sql);
+    if (statement?.reader) {
+      // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
+      // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
+      // target.
+      const rows = statement.all();
+      if (rows.length > 0) {
         printTable(rows);
       }
     } else {
