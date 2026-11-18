@@ -528,6 +528,47 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   the input copy leaves the row `canceled`), `deployment-execution.test.ts`
   (hold + release), `unread-deploy-cleanup.test.ts` unchanged pass.
 - Exit: no live deploy path (except R8) can go live without a row while policy is on.
+- As built: `security/enqueue.ts`. `enqueueSecurityScanInTx(tx, env, …)` runs in a
+  savepoint, so a failed statement is logged and the deploy commits with no row (D45).
+  Capability off → no row and no read. It takes the policy advisory lock in shared mode
+  (lock order: project row, then policy), so an Off write waits for the deploy commit
+  and cancels the new row instead of missing it. Owner suspended = any
+  `users.suspended_reason`. Protection is spec §4 read in the transaction (the
+  installation check is `installationZeroTrustProtects`, now exported from
+  `policy.ts`). One row per live deployment: a second call (compensation after a
+  committed cutover, R8) gets the same row back while it is still `pending_input`
+  (or `skipped:protected` with no module copy yet).
+  An open public request sets `trigger=gate` and `public_request_id` only; the
+  request state (`needs_deploy` → `waiting_scan`, `gate_scan_id`) is M16. Coalescing
+  supersedes `pending_input` and `queued` rows (not only `queued`), so an earlier
+  deploy's after-commit step cannot queue a replaced row; a `skipped:protected` row
+  supersedes them too (the old deployment is no longer live and the project is out of
+  scope), without taking a `first_queued_at`. The hold is `input_prefix` = the
+  deployment operation's prefix (operation id = deployment id) while `inputs_deleted`
+  is false. Copy: when the row
+  holds no staged input (inline `workerFiles`, no Queue) the modules go to
+  `security-scans/{project}/{deployment}/modules/{i}`, then `modules.json` last (a
+  copy without it is incomplete), and `input_r2_key` is that prefix. A
+  `skipped:protected` row holds nothing, so its modules are copied too (staged or
+  inline) for the exposure catch-up (spec §7.2). Over 50 MB, not done in 30 s, or a
+  read error → `failed`, `status_reason`/`error_class` `input_missing`, `failure_cause
+  project`. A copy whose compare-and-set misses (row canceled or superseded
+  meanwhile) is deleted unless a row points at it; a timed-out copy is deleted again
+  once its last `put` settles. `finishSecurityScanEnqueue` runs after `done` in both
+  publish paths (so the copy never delays the result), right after the admission
+  commit for `trigger=recovery`, and in compensation whenever a failed deploy is
+  still live: an unclear cutover that did commit, or a step after the cutover commit
+  that threw. There the pipeline hands over its `workerFiles`, and the short
+  transaction gets the row the cutover wrote back (still `pending_input`) or, when
+  live was written outside any transaction, writes one (R8). A `trigger=recovery`
+  row of an inline deploy is queued with no input (the modules left with the request
+  that died): M10 has to read it from the stored Worker bundle (`bundle_stored`), else
+  it ends `input_missing`. A row left in `pending_input` by a lost after-commit step is
+  for the M9 re-poke.
+  `dispatchPendingDeployments` leaves held operations out of its page so they cannot
+  starve the others. Unchanged static redeploy: the API has no such path (the CLI
+  skips unchanged assets, but a deploy still makes a deployment); the test covers an
+  idempotent replay, which makes no new deployment and no row.
 
 **M9 Scheduler and hourly jobs.**
 

@@ -39,6 +39,7 @@ import {
   projectMembers,
   users,
   platformAuthSettings,
+  securityScans,
 } from '../../src/schema.ts';
 import type { DeployEvent } from '../../src/types.ts';
 import { WORKER_UPLOAD_OUT_OF_TIME } from '../../src/worker-upload.ts';
@@ -469,6 +470,103 @@ describe('durable deployment admission and observation', () => {
     expect(await getDeploymentOperation(env.db, id)).toMatchObject({ status: 'queued' });
     expect((await run(id)).ack).toHaveBeenCalledOnce();
     expect(await getDeploymentOperation(env.db, id)).toMatchObject({ status: 'terminal' });
+  });
+
+  it('keeps staged input a waiting security scan holds, and deletes it once released', async () => {
+    const id = await admit();
+    const operation = (await getDeploymentOperation(env.db, id))!;
+    await env.db
+      .update(deploymentOperations)
+      .set({ status: 'terminal' })
+      .where(eq(deploymentOperations.id, id));
+    await env.db.insert(securityScans).values({
+      id: 'scan_hold',
+      project_id: project.id,
+      deployment_id: id,
+      status: 'queued',
+      trigger: 'deploy',
+      input_prefix: operation.input_prefix,
+    });
+    // An unclaimed prefix older than a day that a scan still holds survives the sweep.
+    const orphanPrefix = `deployment-inputs/${project.id}/held-upload/`;
+    await env.STATIC_ASSETS_R2.put(`${orphanPrefix}0`, 'module');
+    await env.db.insert(securityScans).values({
+      id: 'scan_hold_upload',
+      project_id: project.id,
+      deployment_id: id,
+      status: 'pending_input',
+      trigger: 'deploy',
+      input_prefix: orphanPrefix,
+    });
+    const realList = env.STATIC_ASSETS_R2.list.bind(env.STATIC_ASSETS_R2);
+    const aged = vi.spyOn(env.STATIC_ASSETS_R2, 'list').mockImplementation(async (options) => {
+      const page = await realList(options);
+      return {
+        ...page,
+        objects: page.objects.map((object) => ({
+          ...object,
+          uploaded: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
+        })),
+      } as typeof page;
+    });
+    const staged = async (prefix: string) =>
+      (await env.STATIC_ASSETS_R2.list({ prefix })).objects.length;
+
+    await dispatchPendingDeployments(queuedEnv, env.db);
+    expect(await getDeploymentOperation(env.db, id)).toMatchObject({ inputs_deleted: false });
+    expect(await staged(operation.input_prefix)).toBeGreaterThan(0);
+    expect(await staged(orphanPrefix)).toBe(1);
+
+    await env.db
+      .update(securityScans)
+      .set({ status: 'superseded' })
+      .where(eq(securityScans.project_id, project.id));
+    await dispatchPendingDeployments(queuedEnv, env.db);
+    aged.mockRestore();
+    expect(await getDeploymentOperation(env.db, id)).toMatchObject({ inputs_deleted: true });
+    expect(await staged(operation.input_prefix)).toBe(0);
+    expect(await staged(orphanPrefix)).toBe(0);
+  });
+
+  it('held inputs do not fill the cleanup page and starve an unheld one', async () => {
+    const id = await admit();
+    const [operation] = await env.db
+      .select()
+      .from(deploymentOperations)
+      .where(eq(deploymentOperations.id, id));
+    // More held operations than one cleanup page (20), written before the unheld one ends.
+    const held = Array.from({ length: 21 }, (_, index) => `dpl_held_${index}`);
+    const heldPrefix = (heldId: string) => `deployment-inputs/${project.id}/${heldId}/`;
+    await env.db.insert(deploymentOperations).values(
+      held.map((heldId) => ({
+        ...operation!,
+        id: heldId,
+        idempotency_key: heldId,
+        input_prefix: heldPrefix(heldId),
+        status: 'terminal' as const,
+        // Older, so an unfiltered page would list them first.
+        next_dispatch_at: '2026-01-01T00:00:00.000Z',
+        created_at: '2026-01-01T00:00:00.000Z',
+      })),
+    );
+    await env.db.insert(securityScans).values(
+      held.map((heldId) => ({
+        id: `scan_${heldId}`,
+        project_id: project.id,
+        deployment_id: heldId,
+        status: 'queued' as const,
+        trigger: 'deploy' as const,
+        input_prefix: heldPrefix(heldId),
+      })),
+    );
+    await env.db
+      .update(deploymentOperations)
+      .set({ status: 'terminal' })
+      .where(eq(deploymentOperations.id, id));
+
+    await dispatchPendingDeployments(queuedEnv, env.db);
+    expect(await getDeploymentOperation(env.db, id)).toMatchObject({ inputs_deleted: true });
+    expect(await getDeploymentOperation(env.db, held[0]!)).toMatchObject({ inputs_deleted: false });
   });
 
   it('redispatches the durable outbox on a disabled installation fast tick while skipping application maintenance', async () => {

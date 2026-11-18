@@ -765,6 +765,8 @@ export async function deleteProjectAssets(r2: R2Bucket, projectId: string): Prom
   await paginatedR2Delete(r2, `assets/${projectId}/`);
   await paginatedR2Delete(r2, `deployment-inputs/${projectId}/`);
   await paginatedR2Delete(r2, isrObjectPrefix(projectId));
+  // Security scan inputs, backlog and raw results (spec §6.2).
+  await paginatedR2Delete(r2, `security-scans/${projectId}/`);
 }
 
 /**

@@ -1,4 +1,4 @@
-import { and, eq, getTableColumns, lte, ne, or, sql } from 'drizzle-orm';
+import { and, eq, getTableColumns, inArray, lte, ne, notExists, or, sql } from 'drizzle-orm';
 import { paginatedR2Delete } from './assets.ts';
 import { activeOAuthApproval } from './auth/oauth.ts';
 import { R2_CONCURRENCY } from './concurrency.ts';
@@ -6,7 +6,14 @@ import { createDb, type Db, type DbOrTx } from './db.ts';
 import { WORKER_UPLOAD_MAX_AGE_MS, type WorkerUploadModule } from './deploy/shared.ts';
 import type { DeploymentInput, DeploymentOperation } from './deployment-operation-types.ts';
 import type { ApiEnv } from './env.ts';
-import { deploymentOperations, projectDeployCredentials, projects, users } from './schema.ts';
+import {
+  deploymentOperations,
+  projectDeployCredentials,
+  projects,
+  securityScans,
+  users,
+} from './schema.ts';
+import { SECURITY_SCAN_INPUT_HOLD_STATUSES, securityScanHoldsInput } from './security/enqueue.ts';
 import { isAdminSuspended } from './suspension.ts';
 import type { DeployEvent, DeployManifest } from './types.ts';
 import { listR2Objects, r2WorkerModule, type WorkerModule } from './worker-upload.ts';
@@ -469,11 +476,19 @@ function claimableOperation() {
   );
 }
 
+/**
+ * Deletes an ended operation's staged input, unless a waiting security scan still
+ * holds it (spec §7.2). A held input stays `inputs_deleted = false`, so the hourly
+ * pass deletes it once the scan has copied it or left the queue.
+ */
 async function deleteDeploymentInputs(
   env: ApiEnv['Bindings'],
   db: Db,
   operation: Readonly<{ id: string; input_prefix: string }>,
 ): Promise<void> {
+  if (await securityScanHoldsInput(db, operation.input_prefix)) {
+    return;
+  }
   await paginatedR2Delete(env.STATIC_ASSETS_R2, operation.input_prefix);
   await db
     .update(deploymentOperations)
@@ -500,6 +515,18 @@ export async function dispatchPendingDeployments(env: ApiEnv['Bindings'], db: Db
       and(
         eq(deploymentOperations.status, 'terminal'),
         eq(deploymentOperations.inputs_deleted, false),
+        // Held inputs must not fill the page and starve the others.
+        notExists(
+          db
+            .select({ id: securityScans.id })
+            .from(securityScans)
+            .where(
+              and(
+                eq(securityScans.input_prefix, deploymentOperations.input_prefix),
+                inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES]),
+              ),
+            ),
+        ),
       ),
     )
     .limit(20);
@@ -537,7 +564,7 @@ export async function sweepStaleDeploymentInputs(env: ApiEnv['Bindings'], db: Db
         .from(deploymentOperations)
         .where(eq(deploymentOperations.input_prefix, prefix))
         .limit(1);
-      protectedInput = operation !== undefined;
+      protectedInput = operation !== undefined || (await securityScanHoldsInput(db, prefix));
       checked.set(prefix, protectedInput);
     }
     if (!protectedInput) {

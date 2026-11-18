@@ -23,12 +23,17 @@ import { reconcileManagedDurableObjects } from '../provisioning/durable-objects.
 import { deleteSandboxController } from '../provisioning/sandbox-controller.ts';
 import { projectRouteKey } from '../routing.ts';
 import {
+  enqueueSecurityScanForLiveDeployment,
+  finishSecurityScanEnqueue,
+} from '../security/enqueue.ts';
+import {
   type DeployManifest,
   type DeployEvent,
   type Deployment,
   type Project,
   type DeploymentStatus,
 } from '../types.ts';
+import type { WorkerModule } from '../worker-upload.ts';
 import {
   resolveProjectZeroTrustRoutingForPublication,
   withProjectZeroTrustRouting,
@@ -73,6 +78,11 @@ export async function recoverFailedDeployment(input: {
   readonly sandboxControllerAttempted: boolean;
   readonly project: Project;
   readonly owner: ApiEnv['Variables']['user'];
+  /**
+   * The deployment's Worker modules, for the security scan copy when a go-live
+   * committed but a later step threw (an inline deploy has no other copy).
+   */
+  readonly securityScanModules: ReadonlyArray<WorkerModule>;
 }): Promise<void> {
   const {
     err,
@@ -98,6 +108,7 @@ export async function recoverFailedDeployment(input: {
     sandboxControllerAttempted,
     project,
     owner,
+    securityScanModules,
   } = input;
 
   const raw =
@@ -153,6 +164,30 @@ export async function recoverFailedDeployment(input: {
       );
     }
   };
+  // The deployment is live although the publish step threw: write or fetch its
+  // scan row, then finish it with the modules (copy, `queued`, poke). Runs after
+  // `done`, like the publish paths, so the copy never delays the result. When the
+  // go-live transaction committed, it already wrote the row and this gets it back
+  // still `pending_input`; otherwise this short transaction is risk R8.
+  const finishLiveSecurityScan = async (): Promise<void> => {
+    const securityScan = await enqueueSecurityScanForLiveDeployment(
+      context.get('db'),
+      context.env,
+      { projectId, deploymentId: failedDeployment.id },
+    ).catch((error: unknown) => {
+      logger.warn('catch', 'security_scan_enqueue_failed', {
+        err: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    });
+    await finishSecurityScanEnqueue(
+      context.env,
+      context.get('db'),
+      securityScan,
+      securityScanModules,
+    );
+  };
+
   const emitSlugDone = (): void => {
     const slugUrl = `https://${platformProjectHostname(project, readPlatformApplication(context.env))}`;
     emit({
@@ -437,6 +472,7 @@ export async function recoverFailedDeployment(input: {
         // Stale markers are harmless once PostgreSQL is live.
       });
       emitSlugDone();
+      await finishLiveSecurityScan();
     } else {
       emit({ event: 'error', message: msg, step: currentStep });
     }
@@ -463,6 +499,7 @@ export async function recoverFailedDeployment(input: {
     await setActiveDeployment(context.get('db'), projectId, failedDeployment.id).catch(() => {});
     await markDeploymentRetained(context.get('db'), failedDeployment.id, true).catch(() => {});
     emitSlugDone();
+    await finishLiveSecurityScan();
   } else {
     const latest = await getDeployment(context.get('db'), failedDeployment.id);
     const wasCanceled =

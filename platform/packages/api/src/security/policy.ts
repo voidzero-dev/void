@@ -699,7 +699,7 @@ type ProjectScope = 'all' | 'public' | 'protected';
  * installation Zero Trust is on and not public-only, and the project row is settled
  * protected. Bad Zero Trust data reads as "everything public".
  */
-async function zeroTrustProtects(db: DbOrTx): Promise<boolean> {
+export async function installationZeroTrustProtects(db: DbOrTx): Promise<boolean> {
   try {
     const configuration = await readZeroTrustConfigurationStrict(db);
     return !!configuration?.enabled && !configuration.publicAccess;
@@ -764,7 +764,7 @@ export async function securityPolicyPreviewCounts(
   next: SecurityPolicy,
   changes: SecurityPolicyChanges,
 ): Promise<SecurityPolicyPreviewCounts> {
-  const protects = await zeroTrustProtects(db);
+  const protects = await installationZeroTrustProtects(db);
   const turningOn = changes.mode?.from === 'disabled';
   const scope: ProjectScope = next.mode === 'public' ? 'public' : 'all';
   const [scannedProjects, firstFullScan, urgentProjects] = turningOn
