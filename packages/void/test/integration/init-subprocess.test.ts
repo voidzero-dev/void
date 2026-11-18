@@ -87,36 +87,49 @@ it('finishes the spinner while a background process still has the output open', 
   const release = join(root, 'release');
   const ready = join(root, 'ready');
   const done = join(root, 'done');
-  const command = `
+  writeFileSync(
+    join(root, 'background.cjs'),
+    `
+    const fs = require('node:fs');
+    const timer = setInterval(() => {
+      if (fs.existsSync('release')) {
+        fs.writeFileSync('done', '');
+        clearInterval(timer);
+      }
+    }, 20);
+    setTimeout(() => clearInterval(timer), 15_000).unref();
+    fs.writeFileSync('ready', '');
+  `,
+  );
+  writeFileSync(
+    join(root, 'installer.cjs'),
+    `
     const { spawn } = require('node:child_process');
-    const script = ${JSON.stringify(`
-      const fs = require('node:fs');
-      const timer = setInterval(() => {
-        if (fs.existsSync(${JSON.stringify(release)})) {
-          fs.writeFileSync(${JSON.stringify(done)}, '');
-          clearInterval(timer);
-        }
-      }, 20);
-      setTimeout(() => clearInterval(timer), 10_000).unref();
-      fs.writeFileSync(${JSON.stringify(ready)}, '');
-    `)};
-    spawn(process.execPath, ['-e', script], { stdio: ['ignore', 1, 2] }).unref();
-  `;
+    // On Windows the child must leave the installer's job object to survive its exit.
+    spawn(process.execPath, ['background.cjs'], {
+      stdio: ['ignore', 1, 2],
+      detached: process.platform === 'win32',
+      windowsHide: true,
+    }).unref();
+  `,
+  );
   let finished = false;
-  const result = runBehindSpinner('Installing', process.execPath, ['-e', command], {
+  const result = runBehindSpinner('Installing', process.execPath, ['installer.cjs'], {
     cwd: root,
   }).then((result) => {
     finished = true;
     return result;
   });
   try {
-    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 3_000 });
+    await vi.waitFor(() => expect(existsSync(ready)).toBe(true), { timeout: 5_000 });
     await vi.waitFor(() => expect(finished).toBe(true), { timeout: 1_000 });
     expect((await result).status).toBe(0);
   } finally {
     writeFileSync(release, '');
     await result;
-    await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 3_000 });
+    if (existsSync(ready)) {
+      await vi.waitFor(() => expect(existsSync(done)).toBe(true), { timeout: 3_000 });
+    }
   }
 });
 

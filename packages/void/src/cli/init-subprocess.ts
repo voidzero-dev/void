@@ -21,8 +21,7 @@ type SubprocessResult = {
   durationMs: number;
 };
 
-// A terminal hangup does not reach the detached group. Windows has no SIGHUP
-// handler we can use for terminal shutdown.
+// On POSIX, a terminal hangup does not reach the detached command group.
 const STOP_SIGNALS: Array<NodeJS.Signals> =
   process.platform === 'win32' ? ['SIGINT', 'SIGTERM'] : ['SIGINT', 'SIGTERM', 'SIGHUP'];
 
