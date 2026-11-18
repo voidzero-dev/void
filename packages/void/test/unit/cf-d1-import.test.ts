@@ -13,7 +13,7 @@ const endpoint = 'https://api.example.com/import';
 function fixture() {
   const file = join(temporaryDirectory('void-d1-import-'), 'input.sql');
   writeFileSync(file, sql);
-  return { file, headers, endpoint };
+  return { file, headers, endpoint, pollIntervalMs: 0 };
 }
 function response(result: unknown) {
   return Response.json({ success: true, result });
@@ -146,4 +146,82 @@ it('removes terminal escape sequences from D1 import errors', async () => {
     ),
   );
   expect((await importError()).message).toBe('D1 import failed: bad table');
+});
+
+const uploaded = () => [
+  response({ filename: 'input.sql', upload_url: 'https://uploads.example.com/sql' }),
+  new Response('', { headers: { etag } }),
+];
+const unknownOutcome = 'The import may still be running on Cloudflare';
+
+it('bounds each D1 request instead of the whole import', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>();
+  for (const value of [
+    ...uploaded(),
+    response({ at_bookmark: 'current', status: 'active' }),
+    response({ status: 'complete', success: true }),
+  ]) {
+    fetch.mockResolvedValueOnce(value);
+  }
+  vi.stubGlobal('fetch', fetch);
+  await importD1SqlFile(fixture());
+  const signals = fetch.mock.calls.map(([, init]) => init?.signal);
+  expect(signals[1]).toBeUndefined();
+  for (const index of [0, 2, 3]) {
+    expect(signals[index]).toBeInstanceOf(AbortSignal);
+  }
+  expect(new Set(signals).size).toBe(4);
+});
+
+it('reports an unknown outcome with the bookmark when a poll times out', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response({ at_bookmark: 'current', status: 'active' }))
+      .mockRejectedValueOnce(
+        new DOMException('The operation was aborted due to timeout', 'TimeoutError'),
+      ),
+  );
+  const error = await importError();
+  expect(error.message).toBe(
+    'D1 did not report whether the import finished: The operation was aborted due to timeout. ' +
+      `${unknownOutcome} (bookmark current). Check the database before running the file again.`,
+  );
+  expect(error.cause).toBeInstanceOf(DOMException);
+});
+
+it('reports an unknown outcome when the ingest request fails', async () => {
+  const fetch = vi.fn<typeof globalThis.fetch>();
+  for (const value of uploaded()) {
+    fetch.mockResolvedValueOnce(value);
+  }
+  fetch.mockRejectedValueOnce(new TypeError('fetch failed'));
+  vi.stubGlobal('fetch', fetch);
+  const { message } = await importError();
+  expect(message).toContain('fetch failed.');
+  expect(message).toContain(unknownOutcome + '.');
+  expect(message).not.toContain('bookmark');
+});
+
+it('keeps a D1-reported poll failure a plain failure', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response({ at_bookmark: 'current', status: 'active' }))
+      .mockResolvedValueOnce(response({ status: 'error', errors: ['UNIQUE constraint failed'] })),
+  );
+  expect((await importError()).message).toBe('D1 import failed: UNIQUE constraint failed');
+});
+
+it('keeps an upload failure a plain failure', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(uploaded()[0]!)
+      .mockRejectedValueOnce(new TypeError('fetch failed')),
+  );
+  expect((await importError()).message).toBe('fetch failed');
 });
