@@ -84,7 +84,16 @@ export async function importD1SqlFile({
       redirect: 'error',
       signal: AbortSignal.timeout(D1_IMPORT_REQUEST_TIMEOUT_MS),
     });
-    const data = object(await response.json());
+    let data: Json;
+    try {
+      data = object(await response.json());
+    } catch (error) {
+      // A 4xx refusal is still a refusal when a proxy answers it with HTML.
+      if (response.ok || response.status >= 500) {
+        throw error;
+      }
+      data = {};
+    }
     if (!response.ok || data.success !== true) {
       const errors = Array.isArray(data.errors) ? data.errors : [];
       const detail = errors

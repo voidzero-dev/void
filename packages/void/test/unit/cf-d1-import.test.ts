@@ -264,6 +264,16 @@ it('keeps an init that D1 refused a plain failure', async () => {
   expect((await importError()).message).toBe('D1 import failed (HTTP 403): Permission denied');
 });
 
+it('keeps an init refused with a non-JSON 4xx a plain failure', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(new Response('<html>Forbidden</html>', { status: 403 })),
+  );
+  expect((await importError()).message).toBe('D1 import failed (HTTP 403).');
+});
+
 it('reports an unknown outcome when init asks for no upload but gives no bookmark', async () => {
   vi.stubGlobal(
     'fetch',

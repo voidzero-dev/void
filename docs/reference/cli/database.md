@@ -52,7 +52,7 @@ Programmatic seed modules must export either a default function or a named `seed
 ```
 void db execute <sql>
 void db execute --file <path>
-void db execute --remote <sql>
+void db execute --remote <sql> [--yes]
 void db execute --remote --file <path> [--yes]
 ```
 
