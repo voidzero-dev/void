@@ -139,10 +139,21 @@ async function expectRedirect(
   await page.waitForURL(`${server.base}${destination}`);
 }
 
-describe.each([
-  { state: 'signed out', signedIn: false },
-  { state: 'signed in', signedIn: true },
-])('server auth: $state', ({ signedIn }) => {
+export type ServerAuthErrorsPart = 'signed out' | 'signed in' | 'session';
+
+/**
+ * Each part runs from its own test file with its own dev server and database, so the three
+ * serial browser matrices run in parallel workers.
+ */
+export function describeServerAuthErrors(part: ServerAuthErrorsPart): void {
+  if (part === 'session') {
+    describe('demo session and navigation', sessionSuite);
+  } else {
+    describe(`server auth: ${part}`, () => authStateSuite(part === 'signed in'));
+  }
+}
+
+function authStateSuite(signedIn: boolean): void {
   beforeEach(() => newPage(signedIn));
 
   describe.each(visits)('%s', (visit) => {
@@ -268,9 +279,9 @@ describe.each([
     expect(page.url()).toBe(`${server.base}/`);
     await expectLayout(timeOrigin, true);
   });
-});
+}
 
-describe('demo session and navigation', () => {
+function sessionSuite(): void {
   beforeEach(() => newPage());
 
   it.each(['throw-redirect', 'auth-redirect'])(
@@ -419,4 +430,4 @@ describe('demo session and navigation', () => {
       })
       .toBe(false);
   });
-});
+}
