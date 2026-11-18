@@ -8,24 +8,25 @@
  * Every call is fenced by `attempt`: a write or a call from an older attempt, or after
  * the lease ran out, is refused (spec §6.2, T10). `heartbeat` is the fence check the
  * controller makes before it starts a container and on every poll. `model` is the
- * model proxy (`model-proxy.ts`), `input` builds the scan input (`input/prepare.ts`);
- * `result` (M12) refuses until its milestone lands.
+ * model proxy (`model-proxy.ts`), `input` builds the scan input (`input/prepare.ts`),
+ * `result` stores the outcome and findings (`ingest.ts`).
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
-import { eq } from 'drizzle-orm';
 import { getPlatformCapabilities } from '../capabilities.ts';
-import { createDb, type DbOrTx } from '../db.ts';
+import { createDb } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
   securityScannerIdentity,
   securityScannerTarget,
   type SecurityScannerIdentity,
 } from '../provisioning/security-scanner.ts';
-import { projects } from '../schema.ts';
 import type { ScanFence, ScanResultReport } from '../security-scanner-controller-runtime.ts';
+import { checkScanFence } from './fence.ts';
+import { ingestSecurityScanResult } from './ingest.ts';
 import { prepareSecurityScanInput } from './input/prepare.ts';
 import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
-import { securityScans } from './schema.ts';
+
+export { checkScanFence, judgeScanFence } from './fence.ts';
 
 const UNAVAILABLE: ScanFence = { ok: false, reason: 'unavailable' };
 
@@ -35,51 +36,6 @@ function isScanId(value: unknown): value is string {
 
 function isAttempt(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
-}
-
-type FenceRow = {
-  status: string;
-  attempt: number;
-  leaseUntil: string | null;
-  projectStatus: string;
-};
-
-/** The fence rule, apart from the database read. */
-export function judgeScanFence(row: FenceRow | undefined, attempt: number, now: number): ScanFence {
-  if (!row || row.projectStatus === 'deleting') {
-    return { ok: false, reason: 'canceled' };
-  }
-  if (row.attempt !== attempt) {
-    return { ok: false, reason: 'stale' };
-  }
-  if (row.status !== 'running') {
-    return { ok: false, reason: 'canceled' };
-  }
-  if (!row.leaseUntil || Date.parse(row.leaseUntil) <= now) {
-    // The reaper times the scan out; this attempt must stop writing.
-    return { ok: false, reason: 'stale' };
-  }
-  return { ok: true, leaseUntil: row.leaseUntil };
-}
-
-export async function checkScanFence(
-  db: DbOrTx,
-  scanId: string,
-  attempt: number,
-  now = Date.now(),
-): Promise<ScanFence> {
-  const [row] = await db
-    .select({
-      status: securityScans.status,
-      attempt: securityScans.attempt,
-      leaseUntil: securityScans.lease_until,
-      projectStatus: projects.status,
-    })
-    .from(securityScans)
-    .innerJoin(projects, eq(projects.id, securityScans.project_id))
-    .where(eq(securityScans.id, scanId))
-    .limit(1);
-  return judgeScanFence(row, attempt, now);
 }
 
 export class SecurityScanControl extends WorkerEntrypoint<
@@ -141,15 +97,39 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return handleSecurityModelRequest(securityModelProxyDeps(this.env), scanId, attempt, request);
   }
 
-  /** Result ingest (M12). Until then a result is refused and the reaper ends the scan. */
+  /**
+   * Result ingest (`ingest.ts`). `ok: true` once the result is taken (stored, or the
+   * attempt requeued for its retry), so the controller destroys the container; `false`
+   * for a fenced-off attempt or a store that failed (the controller keeps polling until
+   * the hard cap, and the reaper ends a scan nobody stored).
+   */
   async result(
     scanId: string,
     attempt: number,
-    _report: ScanResultReport,
+    report: ScanResultReport,
   ): Promise<{ ok: boolean }> {
     if (!this.trusted(scanId, attempt)) {
       return { ok: false };
     }
-    return { ok: false };
+    try {
+      const ingested = await ingestSecurityScanResult(
+        this.env,
+        createDb(this.env.HYPERDRIVE.connectionString),
+        scanId,
+        attempt,
+        {
+          status: report?.status,
+          findings: typeof report?.findings === 'string' ? report.findings : null,
+        },
+      );
+      return { ok: ingested.ok };
+    } catch (error) {
+      console.error('[security-scan] scan result could not be stored', {
+        scanId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return { ok: false };
+    }
   }
 }

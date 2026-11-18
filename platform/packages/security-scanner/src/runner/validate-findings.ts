@@ -1,6 +1,6 @@
 // Container-side check of a findings report. Hand-written (no regex, no schema
-// library) so the runner bundle stays dependency-free. The API repeats the check
-// with Zod before ingest (M12); this one gives the model its one repair turn.
+// library) so the runner bundle stays dependency-free. The API reuses
+// `validateFindingsValue` at ingest (M12); here it gives the model its one repair turn.
 
 import {
   CONFIDENCES,

@@ -22,7 +22,11 @@
  *   sources.json (source path → sha256) and assets.json (asset path → hash), written
  *   by the first scan that reads the snapshot, so it can be the next scan's base.
  * Per scan, next to its raw output (`security-scans/{project}/scans/{scan}/`):
- *   backlog.json (the backlog it leaves) and server-leads.json, for ingest (M12).
+ *   backlog.json (the backlog it leaves), server-leads.json and scope.json (what it
+ *   looked at, with each input file's hash), for ingest (`../ingest.ts`).
+ *
+ * An empty diff (edge #14) never reaches the container: the scan is stored as
+ * `succeeded` with no model call and `input()` answers `null`.
  */
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
 import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
@@ -40,6 +44,7 @@ import {
   securityScanInputPrefix,
   securityScanProjectPrefix,
 } from '../enqueue.ts';
+import { ingestSecurityScanResult, serializeSecurityScanScope } from '../ingest.ts';
 import { securityRawOutputPrefix } from '../maintenance.ts';
 import { endSecurityScanAttempt } from '../queue.ts';
 import {
@@ -820,6 +825,7 @@ export async function prepareSecurityScanInputFiles(
     `${scanPrefix}server-leads.json`,
     JSON.stringify({ version: 1, leads: built.serverLeads }),
   );
+  await r2.put(`${scanPrefix}scope.json`, scanScope(built));
 
   const recorded = await db
     .update(securityScans)
@@ -853,7 +859,36 @@ export async function prepareSecurityScanInputFiles(
   };
 }
 
-/** `SecurityScanControl.input()`: the tar stream, or `null` (see above). */
+const INPUT_ENTRY_PREFIX = 'input/';
+
+/**
+ * What ingest needs to know about the files: the paths the scan looked at (a diff
+ * scan's focus, or every input file of a full scan) and each input file's content
+ * hash (a source's unredacted hash, else the hash of the text sent), for the sink.
+ */
+function scanScope(built: SecurityBuiltInput): string {
+  const hashes = new Map<string, string>();
+  for (const entry of built.entries) {
+    if (!entry.path.startsWith(INPUT_ENTRY_PREFIX)) {
+      continue;
+    }
+    const path = entry.path.slice(INPUT_ENTRY_PREFIX.length);
+    hashes.set(path, built.sourceIndex.get(path) ?? sha256Hex(entry.data));
+  }
+  const full = built.tier === 'full';
+  return serializeSecurityScanScope({
+    full,
+    paths: full ? [...hashes.keys()] : [...built.focus],
+    hashes,
+  });
+}
+
+/**
+ * `SecurityScanControl.input()`: the tar stream, or `null` (see above). A diff scan with
+ * no file to send is stored here as `succeeded` with no model call, the base moves, and
+ * `null` stops the container: `no changes` for an empty diff (edge #14), else a partial
+ * scan whose changed files all wait in the backlog.
+ */
 export async function prepareSecurityScanInput(
   env: SecurityInputEnv,
   db: Db,
@@ -861,5 +896,19 @@ export async function prepareSecurityScanInput(
   attempt: number,
 ): Promise<ReadableStream<Uint8Array> | null> {
   const prepared = await prepareSecurityScanInputFiles(env, db, scanId, attempt);
-  return prepared === null ? null : tarStream(prepared.built.entries);
+  if (prepared === null) {
+    return null;
+  }
+  if (prepared.built.emptyFocus) {
+    await ingestSecurityScanResult(
+      env,
+      db,
+      scanId,
+      attempt,
+      { status: null, findings: null },
+      { noModelRun: { noChanges: prepared.built.noChanges } },
+    );
+    return null;
+  }
+  return tarStream(prepared.built.entries);
 }

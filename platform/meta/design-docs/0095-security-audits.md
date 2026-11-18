@@ -801,6 +801,59 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `security-ingest.test.ts` (one tx; concurrent same key — #20; stale scan — #35;
   incomplete keeps confirmed only; refused stores none; #3, #4, #14, #18, #19).
 - Exit: full fake path deploy → findings rows with the fake controller.
+- As built: `security/ingest.ts` (status and report parsing, the outcome table, the one
+  transaction), `security/findings.ts` (pure rules) and `security/fence.ts` (the fence,
+  moved out of `control.ts`, which re-exports it). `result()` answers `ok: true` once the
+  result is taken (stored, or requeued), `false` when fenced off or when the store threw
+  (the controller keeps polling until the hard cap; the reaper ends a scan nobody
+  stored). Deviation: no Zod in the API Worker; `findings.json` goes through the runner's
+  own hand-written validator (`validate-findings.ts`, one copy of the rules on both
+  sides) and must carry `schema_version: 1`. `status.json` is read by a small parser:
+  unknown status, a reason that does not go with it, or another scan id / attempt →
+  `failed (bad_output)` (`status_unreadable` / `status_mismatch`). Outcome: `succeeded`
+  stores all; a report with `run_status: incomplete` makes the scan `incomplete
+  (run_incomplete)`; `incomplete` stores validated confirmed only; the rest store none.
+  Cause: `infrastructure`/`credits` installation, every other failure project. The
+  first `failed (infrastructure)` attempt is requeued (`requeueSecurityScan`), the second
+  ends. The transaction locks the project row (serializes ingests and F-numbers), then
+  the scan row, re-checks the fence (attempt, `running`, lease, project not `deleting`),
+  writes findings, events, scan status and gives the reserve back. After commit: the
+  scan's `backlog.json` becomes the project's (only on `succeeded`, and only when the
+  scan file exists), `status.json` + `findings.json` go to `…/scans/{scan}/`, the call
+  ledger forgets the attempt, poke. Key = sha256(source, project, skill fingerprint, sink
+  path or file): the source (`scanner` / `server`) comes first, so a model fingerprint
+  such as `server:reviewer_text` never takes over a server lead's row (§10.3). The
+  per-scan cap counts new keys only (a key the project has adds no row, so a capped scan
+  still re-sees, reopens and promotes all it reported); of those it keeps the most
+  severe confirmed and puts server leads first in the 50 leads; note `findings-capped`.
+  Finding rows are locked in id order (`SELECT … ORDER BY id FOR UPDATE`); bulk resolve
+  (later milestone) must take them in the same order. Severity only rises and a confirmed finding
+  is never demoted (a scan cannot downgrade, §10.3). `revision` moves only on
+  `reopened`, `promoted`, `severity_changed` (a re-see never makes a resolve in flight
+  answer 409). Stale-scan rule: unknown admission time = stale; `rescan` uses
+  `started_at`. A sink hash unknown on either side is not a change. One `seen_again` /
+  `seen_again_stale` per resolve. `possible_duplicate_of` = id of the newest resolved
+  finding with the same file + category. Server leads and `rejected` records are stored
+  on `succeeded` only (otherwise the base does not move and the next scan finds them
+  again). `prepare.ts` now also writes `…/scans/{scan}/scope.json` (diff focus, or every
+  input file of a full scan, plus each input file's hash: a source's unredacted hash,
+  else the hash of the text sent), used for `sink_content_hash` and the not-seen hint:
+  set on `succeeded` scans for open findings not reported whose file the scan looked at
+  (diff: focus; full: the files in its input, so a file the filters dropped, a backlog
+  file or a file gone from the deployment never gets it), one `not_seen` event.
+  `fix_checked_scan_id` is set by a `succeeded`, uncapped scan with no backlog, model
+  calls on the row (proxy count, not the container's) and a model run, of a deployment
+  admitted after the `fixed` resolve (compared in SQL). `ledger_summary` (succeeded
+  only) is server-built from paths + `finding|scanned|backlog`, ≤ 6 KB of JSON; a diff
+  scan (and a scan with no model run) merges the base scan's ledger (this scan wins a
+  path; base `backlog` entries drop, this scan's backlog is the whole one), a full scan
+  replaces it. Deviation: the server-side path (#14) is in `prepareSecurityScanInput`:
+  a diff scan with an empty focus is stored as `succeeded` with no model call and
+  `input()` answers `null`, so the runner never starts. `status_reason` is `no_changes`
+  (and the `no-changes` note) only when nothing was cut; when changed files were all cut
+  to the backlog the scan is a plain partial `succeeded`; the controller's `input_unavailable` report
+  that follows is fenced off. Not yet: ingest returns `news` / `reopened` / `capped` for
+  M15 (notification rows) and M16 (gate re-check); neither is written here.
 
 **M13 Engines A and C, images, drift test.** (Code lands; turning models on depends on S2/S3.)
 

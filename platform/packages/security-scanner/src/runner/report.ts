@@ -1,6 +1,6 @@
 // The findings report every engine hands back (`submit_findings` arguments, and
-// `/scan/out/findings.json` with `schema_version`). The API keeps a Zod copy of
-// this shape (M12); `validate-findings.ts` is the container-side check.
+// `/scan/out/findings.json` with `schema_version`). `validate-findings.ts` checks it
+// in the container, and the API reuses its `validateFindingsValue` at ingest (M12).
 
 export const SEVERITIES = ['critical', 'high', 'medium', 'low', 'informational'] as const;
 export type Severity = (typeof SEVERITIES)[number];

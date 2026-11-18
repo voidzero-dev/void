@@ -467,6 +467,7 @@ describe('T1 source diff with GitHub', () => {
     });
     expect(kept.objects.map((object) => object.key.split('/').at(-1)).sort()).toEqual([
       'backlog.json',
+      'scope.json',
       'server-leads.json',
     ]);
   });

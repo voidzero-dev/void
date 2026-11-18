@@ -4,6 +4,7 @@ const mocks = vi.hoisted(() => ({
   row: vi.fn(),
   capability: vi.fn(),
   prepare: vi.fn(),
+  ingest: vi.fn(),
 }));
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class {
@@ -28,6 +29,7 @@ vi.mock('../../src/db.ts', () => ({
 }));
 vi.mock('../../src/capabilities.ts', () => ({ getPlatformCapabilities: mocks.capability }));
 vi.mock('../../src/security/input/prepare.ts', () => ({ prepareSecurityScanInput: mocks.prepare }));
+vi.mock('../../src/security/ingest.ts', () => ({ ingestSecurityScanResult: mocks.ingest }));
 
 import { judgeScanFence, SecurityScanControl } from '../../src/security/control.ts';
 
@@ -154,14 +156,34 @@ describe('SecurityScanControl', () => {
     expect(await control().input('ss_1', 2)).toBeNull();
   });
 
-  it('hands model calls to the model proxy; no ingest before its milestone', async () => {
+  it('hands model calls to the model proxy', async () => {
     // An unknown model route is refused by the proxy before any read.
     const model = await control().model('ss_1', 2, new Request('http://model/'));
     expect(model.status).toBe(404);
     expect(model.headers.get('x-void-scan-stop')).toBeNull();
     expect(mocks.row).not.toHaveBeenCalled();
+  });
+
+  it('hands a result to ingest and answers whether it was taken', async () => {
+    mocks.ingest.mockResolvedValue({ ok: true, kind: 'retried' });
+    const report = { status: { status: 'succeeded' }, findings: '{}' };
+    expect(await control().result('ss_1', 2, report)).toEqual({ ok: true });
+    expect(mocks.ingest).toHaveBeenCalledWith(env, expect.anything(), 'ss_1', 2, report);
+
+    mocks.ingest.mockResolvedValue({ ok: false });
+    expect(await control().result('ss_1', 2, report)).toEqual({ ok: false });
+  });
+
+  it('answers not taken when ingest throws or the caller is not trusted', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.ingest.mockRejectedValue(new Error('database down'));
     expect(await control().result('ss_1', 2, { status: {}, findings: null })).toEqual({
       ok: false,
     });
+    mocks.ingest.mockClear();
+    expect(await control({}).result('ss_1', 2, { status: {}, findings: null })).toEqual({
+      ok: false,
+    });
+    expect(mocks.ingest).not.toHaveBeenCalled();
   });
 });

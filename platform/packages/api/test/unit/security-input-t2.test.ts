@@ -452,6 +452,7 @@ describe('buildSecurityScanInput', () => {
       plan({ tier: { tier: 'built_diff', fullReason: null }, base }),
     );
     expect(unchanged.noChanges).toBe(true);
+    expect(unchanged.emptyFocus).toBe(true);
     expect(unchanged.notes).toContain('no-changes');
     expect(unchanged.task.no_changes).toBe(true);
 
@@ -625,6 +626,11 @@ describe('buildSecurityScanInput limits', () => {
     );
     expect(again.backlog).toEqual(['src/f32.ts']);
     expect(again.coverage).toBe('partial');
+    // Nothing to send, but a file still waits: no model run, and not "no changes".
+    expect(again.emptyFocus).toBe(true);
+    expect(again.noChanges).toBe(false);
+    expect(again.notes).not.toContain('no-changes');
+    expect(again.task.no_changes).toBeUndefined();
 
     const full = buildSecurityScanInput(plan({ head: { modules, main: 'index.js' } }));
     expect(full.tier).toBe('full');

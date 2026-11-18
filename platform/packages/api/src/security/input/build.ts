@@ -121,7 +121,12 @@ export type SecurityBuiltInput = Readonly<{
   sourceIndex: ReadonlyMap<string, string>;
   /** Asset paths (as in `plan.assets` / `unreadAssets`) this scan did not read. */
   unscannedAssets: ReadonlySet<string>;
-  /** A diff scan with nothing changed (edge #14): ingest takes the `no changes` path. */
+  /**
+   * A diff scan with no file to send (empty focus): no model runs and ingest stores the
+   * scan server-side. `noChanges` when the diff was empty too (edge #14).
+   */
+  emptyFocus: boolean;
+  /** A diff scan with nothing changed (edge #14): `status_reason` `no_changes`. */
   noChanges: boolean;
 }>;
 
@@ -350,7 +355,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   let focus: ReadonlyArray<string> = [];
   let backlog: Array<string> = [];
   const unscanned: Array<string> = [];
-  let noChanges = false;
+  let emptyFocus = false;
   if (tier !== 'full' && plan.base) {
     const headModules = new Map(plan.head.modules.map((module) => [module.name, module.sha256]));
     const servers = ordered.filter((file) => file.asset === null);
@@ -390,7 +395,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
         fullReason = 'gate_recheck';
       }
     }
-    noChanges = tier !== 'full' && focus.length === 0;
+    emptyFocus = tier !== 'full' && focus.length === 0;
   }
   for (const file of unreadUnchanged) {
     droppedFiles++;
@@ -434,7 +439,9 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (tier === 'full' && fullReason !== null) {
     notes.push(SECURITY_FULL_REASON_NOTES[fullReason]);
   }
-  if (noChanges && unscanned.length === 0) {
+  // Changed files cut to the backlog are changes: such a scan is partial, not "no changes".
+  const noChanges = emptyFocus && unscanned.length === 0;
+  if (noChanges) {
     notes.push('no-changes');
   }
   if (noSourceMaps > 0) {
@@ -544,6 +551,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     serverLeads: reviewerTextLeads(leadSources),
     sourceIndex,
     unscannedAssets,
+    emptyFocus,
     noChanges,
   };
 }
