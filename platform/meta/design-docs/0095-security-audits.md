@@ -1054,6 +1054,51 @@ on FAIL.
 | S12 legal         | none (document review)                                                              | –                                                                                 | Agent SDK terms for operators and image redistribution, OpenAI terms, naming                                                                                                                                                               | written OK                                                                                      | raise to the user                                                        |
 | S13 copy          | `security-spike-copy.ts`                                                            | **live** (Workers for Platforms)                                                  | copy serves a seeded app, outbound fails, not reachable from the internet, < 60 s, no leftovers, cost                                                                                                                                      | all hold                                                                                        | Phase 2 stays static-only (M30 not built)                                |
 
+Spike results, 2026-11-18 (S2/S3 local runs through the gateway, S10). Scratch
+account (not VoidZero), gateway `void-spike-sa-gw`, deleted afterwards (gateway list
+empty). The engines ran in local Docker: the scan network has no route out, and
+`model.scan.internal` is a model-proxy stand-in (`security-spike-images/model-proxy.mjs`)
+that adds the token and calls REST `/ai/v1/messages` or `/ai/v1/responses` with
+`cf-aig-gateway-id`, payload logging off, cache skipped. Scripts:
+`security-spike-s2.ts --local-gateway`, `security-spike-s3.ts --local-gateway`,
+`security-spike-s10.ts` (token and account from env or `~/.config/void-spike/`).
+
+- Gateway sent `collect_logs: false`, `cache_ttl: 0`, `cache_invalidate_on_update: false`,
+  rate limit 0; read back the same plus `authentication: true`, `logpush: false`,
+  `log_classification: false`, `zdr: false`, `workers_ai_billing_mode: postpaid`.
+- The account has no Unified Billing credits. Both third-party models answer 402
+  (no charge): Messages `{"type":"error","error":{"type":"invalid_request_error","message":"Insufficient unified billing credits. Please add additional credits on the AI Gateway Cloudflare dashboard to continue using provider models."}}`,
+  Responses the same message with `"code":"invalid_prompt"`. So model quality, findings,
+  tokens, cost and scan time for `anthropic/claude-sonnet-5.5` and `openai/gpt-6.1-terra`
+  stay BLOCKED. `@cf` models do not work on `/ai/v1/messages` or `/ai/v1/responses`
+  (400 "Anthropic Messages API is not supported", schema error), so no free stand-in.
+- Held for both engines: the names route (`claude-sonnet-5.5` → `anthropic/…`,
+  `gpt-6.1-terra` → `openai/…`; an unknown name answers 404 "Model not found", these
+  answer 402); the container sends only a placeholder key or none; without the proxy
+  token the gateway answers 401 (code 10000); the engine cannot reach
+  `gateway.ai.cloudflare.com` or `api.cloudflare.com` (DNS `EAI_AGAIN`) or `1.1.1.1`
+  (`ENETUNREACH`); the token is in no process env and nowhere in the exported file
+  system (600–670 MB searched); the lockdown checks of `--local` still pass.
+- Engine A (Claude Code 2.1.324) on 402: one call, stops in 1.5 s, result `subtype:
+  "success"` with `is_error: true` and text `API Error: 402 Insufficient unified
+  billing credits…`. M13 maps by `is_error` + the 402, not by `subtype`. On 401 it
+  retries: 9 calls in 120 s until the wall clock stopped it, so the proxy must never pass
+  a 401 through (answer a stop instead).
+- Engine C (Codex 0.169.0) on 402: 6 calls (1 + "Reconnecting... 1/5" to 5/5) in 8.4 s,
+  then `turn.failed` "unexpected status 402 Payment Required: …". Same on 401. Mitigation,
+  both confirmed: `request_max_retries = 0` and `stream_max_retries = 0` on the
+  `void-proxy` provider (1 call, 0.6 s); and the proxy answering every repeat after a
+  credits stop itself (1 upstream call, 5 answered locally). M13 sets both.
+- S10 (`@cf/zai-org/glm-5.3-flash`, ~50 tokens a call): no call was cached
+  (`cf-aig-cache-status: MISS` on every repeat, also with a caller `cf-aig-cache-ttl: 60`
+  and on the provider-native `compat` endpoint). With logs off, `@cf` calls leave no log
+  entry. Third-party calls are always logged (Unified Billing): metadata only, stored
+  request and response read 404, `metadata: null` although `cf-aig-metadata` was sent,
+  cost 0. A control call with payload logging forced on stored both bodies, so the
+  reads work. Result: no bodies, no cache (PASS). Cost by `securityScan` tag is not
+  readable from the logs, so the spend meter stays the only cost source (the fail
+  branch). Not covered: the binding path and meter vs gateway (needs credits).
+
 Live spikes need one scratch account with Workers Paid, Containers, Workers AI or
 AI Gateway credits, Unified Billing for third-party hosts, and a runtime token with
 Containers Edit, Cloudchamber Edit and AI Gateway / Workers AI permissions. Scripts read

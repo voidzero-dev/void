@@ -76,6 +76,8 @@ const config = {
       wire_api: 'responses',
       requires_openai_auth: false,
       supports_websockets: false,
+      // Optional retry caps (S3 --local-gateway: Codex retries a 402 by default).
+      ...(task.providerRetries ?? {}),
     },
   },
   model_catalog_json: '/opt/scanner/codex-models.json',

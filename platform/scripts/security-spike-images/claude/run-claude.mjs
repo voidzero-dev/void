@@ -57,6 +57,9 @@ async function preToolUse(input) {
 
 const READ_TOOLS = ['Read', 'Glob', 'Grep', 'Skill'];
 const started = Date.now();
+// Optional wall-clock limit (task.timeoutMs): the SDK stops the CLI when it fires.
+const abortController = new AbortController();
+const timer = task.timeoutMs ? setTimeout(() => abortController.abort(), task.timeoutMs) : null;
 const out = { init: null, toolCalls: [], toolResults: [], result: null, stderrTail: '' };
 const stderr = [];
 try {
@@ -90,6 +93,7 @@ try {
       // Built-in plugins off (task.managedSettings), so only our plugin adds skills or hooks.
       ...(task.managedSettings ? { managedSettings: task.managedSettings } : {}),
       maxTurns: task.maxTurns ?? 40,
+      abortController,
       hooks: { PreToolUse: [{ hooks: [preToolUse] }] },
       stderr: (data) => stderr.push(data),
       // Replaces the environment: no token of any kind, only the proxy route.
@@ -105,6 +109,10 @@ try {
         DISABLE_AUTOUPDATER: '1',
         DISABLE_TELEMETRY: '1',
         DISABLE_ERROR_REPORTING: '1',
+        // Optional retry cap for the CLI's model calls (S2 --local-gateway 402 run).
+        ...(task.maxRetries !== undefined
+          ? { CLAUDE_CODE_MAX_RETRIES: String(task.maxRetries) }
+          : {}),
         // Lets HTTPS to any other host finish TLS against the controller's intercept, so
         // its deny handler records the attempt (it is denied either way).
         NODE_EXTRA_CA_CERTS: '/etc/cloudflare/certs/cloudflare-containers-ca.crt',
@@ -161,6 +169,10 @@ try {
 } catch (error) {
   out.error = String(error?.stack ?? error).slice(0, 2000);
 }
+if (timer) {
+  clearTimeout(timer);
+}
+out.aborted = abortController.signal.aborted;
 out.hookLog = hookLog;
 out.wallMs = Date.now() - started;
 out.schemaProblems = out.result?.structuredOutput

@@ -19,6 +19,15 @@
  *                is the model-proxy stand-in: with a working AI Gateway it forwards to
  *                `/ai/v1/messages` on gateway `void-spike-sa-gw` (payload logging off,
  *                cache off), else it answers with the same scripted fake model.
+ *       --local-gateway: the --local network, but `model.scan.internal` is a local
+ *                model-proxy stand-in (security-spike-images/model-proxy.mjs) on a second
+ *                network with a way out. It adds the token (mounted only into the proxy
+ *                container) and forwards to `/ai/v1/messages` with `cf-aig-gateway-id:
+ *                void-spike-sa-gw`, payload logging off and cache skipped. Runs: with the
+ *                token, without it (the gateway must refuse), and with retries capped plus
+ *                the proxy answering any repeat of a 402 itself. Also checks the engine
+ *                cannot reach the gateway hosts directly and holds the token nowhere
+ *                (every process env and the exported file system are searched host-side).
  *   - The fake model drives escape attempts (Bash, Write, WebFetch, Read of /etc/passwd
  *     and of `..` paths, the planted skill), then reads the seeded file and submits a
  *     finding through StructuredOutput. Every model request is summarized (tools list,
@@ -28,6 +37,9 @@
  *
  * Run (from the repo root; Docker must build linux/amd64):
  *   node platform/scripts/security-spike-s2.ts --local
+ *   NODE_USE_SYSTEM_CA=1 node platform/scripts/security-spike-s2.ts --local-gateway [--keep]
+ *     (token/account from CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID, else the files
+ *     cf-ai-token / cf-ai-account in ~/.config/void-spike; never printed)
  *   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... NODE_USE_SYSTEM_CA=1 \
  *     node platform/scripts/security-spike-s2.ts --live [--model claude-sonnet-5.5] [--keep]
  *   Live needs Workers Scripts Edit + Containers Edit, and AI Gateway Edit + Run for the
@@ -41,8 +53,17 @@
  * lockdown is judged. Prints one JSON report and a PASS/FAIL/BLOCKED line; exits 1 on FAIL.
  */
 import { spawnSync } from 'node:child_process';
-import { readFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import {
+  chmodSync,
+  closeSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
@@ -170,6 +191,14 @@ export type RequestSummary = {
   toolOutputs?: Array<{ callId: string; output: string }>;
   toolCalls?: Array<{ callId: string; name: string }>;
   bodyBytes: number;
+  // --local-gateway proxy only:
+  routedModel?: string;
+  route?: string;
+  upstreamError?: string;
+  answeredLocally?: boolean;
+  cfAig?: Record<string, string>;
+  usage?: Record<string, number>;
+  ms?: number;
 };
 
 export type Probe = {
@@ -183,11 +212,12 @@ export type Probe = {
   cloudflareCaPresent: boolean;
   httpsExample: { ok: boolean; status?: number; body?: string; error?: string; ms: number };
   httpExample: { ok: boolean; status?: number; body?: string; error?: string; ms: number };
+  extraEgress?: Record<string, { ok: boolean; status?: number; error?: string; ms: number }>;
   processes: Array<string>;
 };
 
 export type RunOutcome = {
-  mode: 'local' | 'live-fake' | 'live-gateway';
+  mode: 'local' | 'local-gateway' | 'live-fake' | 'live-gateway';
   coldStartMs?: number | null;
   writeInput?: unknown;
   engineResult?: Record<string, unknown>;
@@ -197,6 +227,8 @@ export type RunOutcome = {
   probe?: Probe;
   requests: Array<RequestSummary>;
   denied: Array<{ host: string; path: string; method: string; scheme?: string }>;
+  /** --local-gateway: the engine container holds the token (env of any process or any file)? */
+  tokenInEngine?: { procHit: boolean; fsHit: boolean; exportBytes: number } | string;
   error?: string;
 };
 
@@ -263,48 +295,175 @@ export function localPlatform(): string {
   return arch === 'aarch64' || arch === 'arm64' ? 'linux/arm64' : 'linux/amd64';
 }
 
-export function runLocal(spec: EngineSpec, tag: string, dumpDir?: string): RunOutcome {
+/**
+ * Token and account for the AI Gateway runs (`--local-gateway`, S10). From
+ * CLOUDFLARE_ACCOUNT_ID / CLOUDFLARE_API_TOKEN, else from the files `cf-ai-account` and
+ * `cf-ai-token` in VOID_SPIKE_CREDENTIALS_DIR (default ~/.config/void-spike). Never printed.
+ */
+export function readAiGatewayEnv(): SpikeEnv {
+  const dir = process.env.VOID_SPIKE_CREDENTIALS_DIR ?? join(homedir(), '.config', 'void-spike');
+  const fromFile = (name: string) => {
+    try {
+      return readFileSync(join(dir, name), 'utf8').trim();
+    } catch {
+      return '';
+    }
+  };
+  const accountId = process.env.CLOUDFLARE_ACCOUNT_ID || fromFile('cf-ai-account');
+  const token = process.env.CLOUDFLARE_API_TOKEN || fromFile('cf-ai-token');
+  if (!accountId || !token) {
+    throw new Error(
+      `Set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_API_TOKEN, or put cf-ai-account and cf-ai-token in ${dir}.`,
+    );
+  }
+  return { accountId, token };
+}
+
+/** Hosts the engine must not reach in `--local-gateway` mode (only the proxy may). */
+export const MODEL_HOST_URLS = [
+  'https://gateway.ai.cloudflare.com/v1/',
+  'https://api.cloudflare.com/client/v4/',
+  'https://1.1.1.1/',
+];
+
+export type ProxyOptions = {
+  /** gateway: forward with the token; no-token: forward bare; stub-402: answer the credits refusal. */
+  mode: 'gateway' | 'no-token' | 'stub-402';
+  env: SpikeEnv;
+  /** After one 402 the proxy answers later calls itself (the retry mitigation). */
+  retryGuard?: boolean;
+};
+
+export type LocalRunOptions = { dumpDir?: string; proxy?: ProxyOptions };
+
+/** Does the stopped-or-running container hold `secret` in any process env/argv or any file? */
+function containerHolds(container: string, secret: string) {
+  const proc = sh('docker', [
+    'exec',
+    '-u',
+    'root',
+    container,
+    'sh',
+    '-c',
+    'cat /proc/[0-9]*/environ /proc/[0-9]*/cmdline 2>/dev/null',
+  ]);
+  const dir = mkdtempSync(join(tmpdir(), 'void-spike-export-'));
+  const file = join(dir, 'fs.tar');
+  try {
+    const exported = sh('docker', ['export', '-o', file, container]);
+    if (exported.status !== 0) {
+      return `docker export failed: ${exported.stderr.slice(-300)}`;
+    }
+    // Stream the file system tar in chunks; keep an overlap so a split match is still seen.
+    const needle = Buffer.from(secret);
+    const chunk = Buffer.alloc(8 * 1024 * 1024);
+    const fd = openSync(file, 'r');
+    let carry = Buffer.alloc(0);
+    let fsHit = false;
+    let exportBytes = 0;
+    try {
+      for (;;) {
+        const read = readSync(fd, chunk, 0, chunk.length, null);
+        if (read === 0) {
+          break;
+        }
+        exportBytes += read;
+        const window = Buffer.concat([carry, chunk.subarray(0, read)]);
+        if (window.includes(needle)) {
+          fsHit = true;
+          break;
+        }
+        carry = window.subarray(Math.max(0, window.length - needle.length));
+      }
+    } finally {
+      closeSync(fd);
+    }
+    return { procHit: proc.stdout.includes(secret), fsHit, exportBytes };
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+export function runLocal(spec: EngineSpec, tag: string, options: LocalRunOptions = {}): RunOutcome {
+  const { dumpDir, proxy } = options;
   const id = crypto.randomUUID().slice(0, 8);
   const network = `${SPIKE_PREFIX}net-${id}`;
-  const fake = `${SPIKE_PREFIX}fake-${id}`;
+  const egress = `${SPIKE_PREFIX}egress-${id}`;
+  const fake = `${SPIKE_PREFIX}${proxy ? 'proxy' : 'fake'}-${id}`;
   const engine = `${SPIKE_PREFIX}eng-${id}`;
-  const outcome: RunOutcome = { mode: 'local', requests: [], denied: [] };
+  const outcome: RunOutcome = { mode: proxy ? 'local-gateway' : 'local', requests: [], denied: [] };
+  // The proxy reads the token from a mounted file (0600, under $HOME so colima can share
+  // it); only the proxy container mounts it, the engine container never does.
+  const credentials = proxy ? mkdtempSync(join(homedir(), '.void-spike-proxy-')) : undefined;
   try {
-    const steps = [
-      sh('docker', ['network', 'create', '--internal', network]),
-      sh('docker', [
-        'run',
-        '-d',
-        '--name',
-        fake,
-        '--network',
-        network,
-        '--network-alias',
-        MODEL_HOST,
+    const model: Array<string> = ['-v', `${IMAGES_DIR}:/app:ro`];
+    if (proxy && credentials) {
+      chmodSync(credentials, 0o700);
+      writeFileSync(join(credentials, 'account'), proxy.env.accountId, { mode: 0o600 });
+      if (proxy.mode === 'gateway') {
+        writeFileSync(join(credentials, 'token'), proxy.env.token, { mode: 0o600 });
+      }
+      model.push(
         '-v',
-        `${IMAGES_DIR}:/app:ro`,
+        `${credentials}:/run/void-spike:ro`,
+        '-e',
+        `PROXY_MODE=${proxy.mode}`,
+        '-e',
+        `ENGINE=${spec.engine}`,
+        '-e',
+        `GATEWAY_ID=${GATEWAY_ID}`,
+        '-e',
+        `SCAN_ID=spike-${spec.engine}-${id}`,
+        '-e',
+        `PROVIDER_RETRY_GUARD=${proxy.retryGuard ? '1' : '0'}`,
+        NODE_IMAGE,
+        'node',
+        '/app/model-proxy.mjs',
+      );
+    } else {
+      model.push(
         ...(dumpDir ? ['-v', `${dumpDir}:/dump`, '-e', 'FAKE_MODEL_DUMP_DIR=/dump'] : []),
         NODE_IMAGE,
         'node',
         '/app/fake-model-server.mjs',
-      ]),
-      sh('docker', [
-        'run',
-        '-d',
-        '--name',
-        engine,
-        '--network',
-        network,
-        '--cpus',
-        '1',
-        '--memory',
-        '4g',
-        `${spec.image}:${tag}`,
-      ]),
+      );
+    }
+    const steps = [
+      () => sh('docker', ['network', 'create', '--internal', network]),
+      ...(proxy ? [() => sh('docker', ['network', 'create', egress])] : []),
+      () =>
+        sh('docker', [
+          'run',
+          '-d',
+          '--name',
+          fake,
+          '--network',
+          network,
+          '--network-alias',
+          MODEL_HOST,
+          ...model,
+        ]),
+      // Second network for the proxy only: its way out to the gateway.
+      ...(proxy ? [() => sh('docker', ['network', 'connect', egress, fake])] : []),
+      () =>
+        sh('docker', [
+          'run',
+          '-d',
+          '--name',
+          engine,
+          '--network',
+          network,
+          '--cpus',
+          '1',
+          '--memory',
+          '4g',
+          `${spec.image}:${tag}`,
+        ]),
     ];
     for (const step of steps) {
-      if (step.status !== 0) {
-        throw new Error(`docker setup failed: ${step.stderr.slice(-2000)}`);
+      const result = step();
+      if (result.status !== 0) {
+        throw new Error(`docker setup failed: ${result.stderr.slice(-2000)}`);
       }
     }
     const write = sh(
@@ -330,11 +489,18 @@ export function runLocal(spec: EngineSpec, tag: string, dumpDir?: string): RunOu
       'node',
       '/opt/scanner/probe.mjs',
       'vssk_',
+      ...(proxy ? [MODEL_HOST_URLS.join(',')] : []),
     ]);
     outcome.probe = lastJsonLine<Probe>(probe.stdout, 'probe');
+    if (proxy) {
+      outcome.tokenInEngine = containerHolds(engine, proxy.env.token);
+    }
     const logs = sh('docker', ['logs', fake]);
     for (const line of logs.stdout.split('\n')) {
-      const request = lastJsonLine<RequestSummary>(line, 'fakeModelRequest');
+      const request = lastJsonLine<RequestSummary>(
+        line,
+        proxy ? 'proxyRequest' : 'fakeModelRequest',
+      );
       if (request) {
         outcome.requests.push(request);
       }
@@ -344,6 +510,12 @@ export function runLocal(spec: EngineSpec, tag: string, dumpDir?: string): RunOu
   } finally {
     sh('docker', ['rm', '-f', fake, engine]);
     sh('docker', ['network', 'rm', network]);
+    if (proxy) {
+      sh('docker', ['network', 'rm', egress]);
+    }
+    if (credentials) {
+      rmSync(credentials, { recursive: true, force: true });
+    }
   }
   return outcome;
 }
@@ -892,6 +1064,86 @@ export function judgeContainer(outcome: RunOutcome, failures: Array<string>) {
   }
 }
 
+/**
+ * Judge one `--local-gateway` run (engine -> local model proxy -> AI Gateway). Checks the
+ * same container lock as the other modes, plus: the model hosts are unreachable from the
+ * engine, the token is nowhere in the engine container, and (no-token mode) the gateway
+ * refuses what the container sends on its own. `credits` is true when every model call
+ * the gateway answered was the Unified Billing credits refusal.
+ */
+export function judgeGatewayRun(outcome: RunOutcome, mode: ProxyOptions['mode']) {
+  const failures: Array<string> = [];
+  const modelCalls = outcome.requests.filter((r) => r.route || r.answeredLocally);
+  const upstream = modelCalls.filter((r) => !r.answeredLocally);
+  const statuses: Record<string, number> = {};
+  for (const call of modelCalls) {
+    const key = `${call.status}${call.answeredLocally ? ' (proxy)' : ''}`;
+    statuses[key] = (statuses[key] ?? 0) + 1;
+  }
+  const usage: Record<string, number> = {};
+  for (const call of upstream) {
+    for (const [name, count] of Object.entries(call.usage ?? {})) {
+      usage[name] = (usage[name] ?? 0) + count;
+    }
+  }
+  const msOf = (calls: Array<RequestSummary>) => calls.map((c) => c.ms ?? 0);
+  const facts: Record<string, unknown> = {
+    engineMs: outcome.engineMs,
+    requests: outcome.requests.length,
+    modelCalls: modelCalls.length,
+    upstreamCalls: upstream.length,
+    statuses,
+    modelsSent: [...new Set(modelCalls.map((r) => r.model))],
+    modelsRouted: [...new Set(upstream.map((r) => r.routedModel))],
+    routes: [...new Set(upstream.map((r) => r.route))],
+    otherPaths: [
+      ...new Set(
+        outcome.requests
+          .filter((r) => !r.route && !r.answeredLocally)
+          .map((r) => `${r.method} ${r.path} -> ${r.status}`),
+      ),
+    ],
+    upstreamErrors: [...new Set(upstream.map((r) => r.upstreamError).filter(Boolean))],
+    upstreamMs: msOf(upstream),
+    cfAigHeaderNames: [...new Set(upstream.flatMap((r) => Object.keys(r.cfAig ?? {})))],
+    logIds: upstream.map((r) => r.cfAig?.['cf-aig-log-id']).filter(Boolean),
+    usage,
+    containerAuth: [
+      ...new Set(
+        outcome.requests.map((r) => `authorization=${r.authorization} x-api-key=${r.xApiKey}`),
+      ),
+    ],
+    extraEgress: outcome.probe?.extraEgress,
+    tokenInEngine: outcome.tokenInEngine,
+    error: outcome.error,
+  };
+  judgeContainer(outcome, failures);
+  for (const [url, result] of Object.entries(outcome.probe?.extraEgress ?? {})) {
+    if (result.ok) {
+      failures.push(`engine reached ${url} directly: ${JSON.stringify(result)}`);
+    }
+  }
+  if (!outcome.probe?.extraEgress || Object.keys(outcome.probe.extraEgress).length === 0) {
+    failures.push('no direct model-host egress check ran');
+  }
+  if (typeof outcome.tokenInEngine === 'string') {
+    failures.push(`token search failed: ${outcome.tokenInEngine}`);
+  } else if (outcome.tokenInEngine?.procHit || outcome.tokenInEngine?.fsHit) {
+    failures.push(`token found in the engine container: ${JSON.stringify(outcome.tokenInEngine)}`);
+  }
+  if (modelCalls.length === 0) {
+    failures.push(
+      `no model call reached the proxy: ${outcome.error ?? outcome.engineStderr ?? ''}`,
+    );
+  }
+  if (mode === 'no-token' && upstream.some((r) => ![401, 403].includes(r.status ?? 0))) {
+    failures.push(`gateway answered a call without the proxy token: ${JSON.stringify(statuses)}`);
+  }
+  const credits = upstream.length > 0 && upstream.every((r) => r.status === 402);
+  const answered = upstream.some((r) => r.status === 200);
+  return { failures, facts, credits, answered };
+}
+
 // StructuredOutput is how outputFormat returns the report. DeferredToolPlaceholder is a
 // name the CLI always lists; calling it fails with "No such tool available" (checked below).
 const CLAUDE_ALLOWED_TOOLS = [
@@ -1019,6 +1271,72 @@ function judgeClaude(outcome: RunOutcome, live: boolean) {
 
 // ---------- main ----------
 
+export type GatewayRun = {
+  name: string;
+  proxy: ProxyOptions;
+  task: Record<string, unknown>;
+};
+
+/**
+ * `--local-gateway` (shared with S3): make sure the spike gateway exists with logs and cache
+ * off, run the engine locally once per entry in `runs` (engine -> proxy -> gateway), and
+ * judge each. A run whose calls the gateway answered 200 gets the full engine judge; one
+ * that met only the credits refusal makes the model part BLOCKED with the exact error.
+ * Deletes `void-spike-sa-gw` at the end unless `keep`.
+ */
+export async function localGatewayRuns(
+  env: SpikeEnv,
+  spec: EngineSpec,
+  tag: string,
+  route: 'messages' | 'responses',
+  runs: Array<GatewayRun>,
+  judgeAnswered: (outcome: RunOutcome) => {
+    failures: Array<string>;
+    facts: Record<string, unknown>;
+  },
+  keep: boolean,
+) {
+  const report: Record<string, unknown> = {};
+  const failures: Array<string> = [];
+  let blocked: string | undefined;
+  const model = String(spec.task.model);
+  const prefix = spec.engine === 'codex' ? 'openai/' : 'anthropic/';
+  try {
+    const preflight = await gatewayPreflight(env, prefix + model, route);
+    report.gatewayPreflight = preflight.facts;
+    report.gatewaySettings = (await cfApi(env, `/ai-gateway/gateways/${GATEWAY_ID}`)).result;
+    for (const run of runs) {
+      const runSpec = { ...spec, task: { ...spec.task, ...run.task } };
+      const outcome = runLocal(runSpec, tag, { proxy: run.proxy });
+      const judged = judgeGatewayRun(outcome, run.proxy.mode);
+      const entry: Record<string, unknown> = {
+        proxyMode: run.proxy.mode,
+        task: run.task,
+        ...judged.facts,
+      };
+      failures.push(...judged.failures.map((f) => `local-gateway ${run.name}: ${f}`));
+      if (run.proxy.mode === 'gateway' && judged.answered) {
+        const engineJudged = judgeAnswered(outcome);
+        entry.engine = engineJudged.facts;
+        failures.push(...engineJudged.failures.map((f) => `local-gateway ${run.name}: ${f}`));
+      } else {
+        entry.engineResult = outcome.engineResult;
+      }
+      if (run.name === 'gateway' && judged.credits) {
+        blocked = `model calls blocked (Unified Billing credits): ${JSON.stringify(judged.facts.upstreamErrors)}`;
+      }
+      report[run.name] = entry;
+    }
+  } catch (error) {
+    failures.push(String(error instanceof Error ? (error.stack ?? error.message) : error));
+  } finally {
+    if (!keep) {
+      report.gatewayCleanup = await deleteGateway(env);
+    }
+  }
+  return { report, failures, blocked };
+}
+
 export const CLAUDE_SPEC = (model: string): EngineSpec => ({
   engine: 'claude',
   image: `${SPIKE_PREFIX}claude`,
@@ -1032,6 +1350,7 @@ async function main() {
     options: {
       local: { type: 'boolean', default: false },
       live: { type: 'boolean', default: false },
+      'local-gateway': { type: 'boolean', default: false },
       model: { type: 'string', default: 'claude-sonnet-5.5' },
       runs: { type: 'string', default: '3' },
       'copy-test': { type: 'boolean', default: false },
@@ -1049,11 +1368,14 @@ async function main() {
   let blocked: string | undefined;
   const images: Record<string, unknown> = {};
   report.image = images;
-  if (values.local || !values.live) {
+  const localOnly = !values.live && !values['local-gateway'];
+  if (values.local || values['local-gateway'] || localOnly) {
     images.local = {
       platform: localPlatform(),
       ...buildImage(spec, `${tag}-local`, localPlatform()),
     };
+  }
+  if (values.local || localOnly) {
     const outcome = runLocal(spec, `${tag}-local`);
     const judged = judgeClaude(outcome, false);
     report.local = {
@@ -1064,6 +1386,30 @@ async function main() {
       error: outcome.error,
     };
     failures.push(...judged.failures.map((f) => `local: ${f}`));
+  }
+  if (values['local-gateway']) {
+    const env = readAiGatewayEnv();
+    const gateway = await localGatewayRuns(
+      env,
+      spec,
+      `${tag}-local`,
+      'messages',
+      [
+        { name: 'gateway', proxy: { mode: 'gateway', env }, task: { timeoutMs: 300_000 } },
+        { name: 'noToken', proxy: { mode: 'no-token', env }, task: { timeoutMs: 120_000 } },
+        // The retry mitigation: no CLI retries, and the proxy answers any repeat itself.
+        {
+          name: 'retryGuard',
+          proxy: { mode: 'gateway', env, retryGuard: true },
+          task: { timeoutMs: 120_000, maxRetries: 0 },
+        },
+      ],
+      (outcome) => judgeClaude(outcome, true),
+      values.keep,
+    );
+    report.localGateway = gateway.report;
+    failures.push(...gateway.failures);
+    blocked = gateway.blocked;
   }
   if (values.live) {
     const env = readSpikeEnv();

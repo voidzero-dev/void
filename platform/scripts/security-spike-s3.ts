@@ -28,9 +28,14 @@ import { spawnSync } from 'node:child_process';
  *     the S1 egress lock; the proxy stand-in adds `access_programs: {cyber: "standard"}`
  *     and forwards to `/ai/v1/responses` on gateway `void-spike-sa-gw` when it works,
  *     else answers with the fake model.
+ *   - --local-gateway: the S2 local model-proxy stand-in forwarding to `/ai/v1/responses`
+ *     on `void-spike-sa-gw` (token only in the proxy). Runs: with the token, without it,
+ *     with `request_max_retries`/`stream_max_retries` 0, and with the proxy answering
+ *     repeats of a 402 itself (Codex retries a 402 by default).
  *
  * Run (from the repo root):
  *   node platform/scripts/security-spike-s3.ts --local
+ *   NODE_USE_SYSTEM_CA=1 node platform/scripts/security-spike-s3.ts --local-gateway [--keep]
  *   CLOUDFLARE_ACCOUNT_ID=... CLOUDFLARE_API_TOKEN=... NODE_USE_SYSTEM_CA=1 \
  *     node platform/scripts/security-spike-s3.ts --live [--model gpt-6.1-terra] [--keep]
  *   Same token needs and cleanup as S2 (only `void-spike-sa-*` resources).
@@ -62,7 +67,9 @@ import {
   gatewayPreflight,
   judgeContainer,
   listSpikeImages,
+  localGatewayRuns,
   localPlatform,
+  readAiGatewayEnv,
   prepareImage,
   pushImage,
   registryImageSize,
@@ -280,6 +287,7 @@ async function main() {
     options: {
       local: { type: 'boolean', default: false },
       live: { type: 'boolean', default: false },
+      'local-gateway': { type: 'boolean', default: false },
       model: { type: 'string', default: 'gpt-6.1-terra' },
       runs: { type: 'string', default: '3' },
       keep: { type: 'boolean', default: false },
@@ -307,11 +315,45 @@ async function main() {
   let blocked: string | undefined;
   const images: Record<string, unknown> = {};
   report.image = images;
-  if (values.local || !values.live) {
+  const localOnly = !values.live && !values['local-gateway'];
+  if (values.local || values['local-gateway'] || localOnly) {
     images.local = {
       platform: localPlatform(),
       ...buildImage(main, `${tag}-local`, localPlatform()),
     };
+  }
+  if (values['local-gateway']) {
+    const env = readAiGatewayEnv();
+    const noRetries = { request_max_retries: 0, stream_max_retries: 0 };
+    const gateway = await localGatewayRuns(
+      env,
+      main,
+      `${tag}-local`,
+      'responses',
+      [
+        { name: 'gateway', proxy: { mode: 'gateway', env }, task: { timeoutMs: 300_000 } },
+        { name: 'noToken', proxy: { mode: 'no-token', env }, task: { timeoutMs: 120_000 } },
+        // Mitigations for Codex retrying a 402: provider retry caps, or the proxy
+        // answering every repeat itself after the first credits refusal.
+        {
+          name: 'providerRetries0',
+          proxy: { mode: 'gateway', env },
+          task: { timeoutMs: 120_000, providerRetries: noRetries },
+        },
+        {
+          name: 'retryGuard',
+          proxy: { mode: 'gateway', env, retryGuard: true },
+          task: { timeoutMs: 120_000 },
+        },
+      ],
+      (outcome) => judgeCodexMain(outcome, true),
+      values.keep,
+    );
+    report.localGateway = gateway.report;
+    failures.push(...gateway.failures);
+    blocked = gateway.blocked;
+  }
+  if (values.local || localOnly) {
     const local: Record<string, unknown> = {};
     report.local = local;
     const outcome = runLocal(main, `${tag}-local`);

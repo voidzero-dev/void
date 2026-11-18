@@ -9,6 +9,9 @@ import { join } from 'node:path';
 const SKIP = new Set(['/proc', '/sys', '/dev', '/run/cloudchamber']);
 // Built by concatenation so this file does not hold the marker itself.
 const marker = process.argv[2] ?? ['vss', 'k_'].join('');
+// Optional comma-separated URLs that must be unreachable too (the model hosts, S2/S3
+// --local-gateway: the engine may reach only the model proxy).
+const extraUrls = (process.argv[3] ?? '').split(',').filter(Boolean);
 const suspicious = (name) =>
   ['TOKEN', 'SECRET', 'KEY', 'PASSWORD', 'AUTH', 'CREDENTIAL', 'VOID'].some((w) =>
     name.toUpperCase().includes(w),
@@ -124,6 +127,9 @@ console.log(
       cloudflareCaPresent: existsSync('/etc/cloudflare/certs/cloudflare-containers-ca.crt'),
       httpsExample: await get('https://example.com/'),
       httpExample: await get('http://example.com/'),
+      extraEgress: Object.fromEntries(
+        await Promise.all(extraUrls.map(async (url) => [url, await get(url)])),
+      ),
     },
   }),
 );
