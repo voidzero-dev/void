@@ -48,6 +48,8 @@ export {
   normalizeInstallationSlug,
   platformDashboardUrl,
   parsePlatformDeploymentManifest,
+  readPlatformCapability,
+  serializePlatformCapabilities,
   type PlatformApplicationRoute,
   type PlatformAppAccess,
   type PlatformCapabilities,

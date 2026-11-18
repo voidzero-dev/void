@@ -33,6 +33,7 @@ import {
   githubInstallationRevocations,
   githubWebhookRedeliveries,
 } from '../../src/schema.ts';
+import type { SecurityScanScheduler } from '../../src/security/scheduler.ts';
 import type { PlanId } from '../../src/tiers.ts';
 import type { Build, GitHubInstallationMember } from '../../src/types.ts';
 import { loadPGliteTemplateBundle } from './db-template.ts';
@@ -100,6 +101,7 @@ export type TestEnv = {
   CRON_SCHEDULER: DurableObjectNamespace;
   ERROR_ALERT_MONITOR: DurableObjectNamespace;
   SANDBOX_CONCURRENCY_COUNTER: DurableObjectNamespace<SandboxConcurrencyCounter>;
+  SECURITY_SCAN_SCHEDULER: DurableObjectNamespace<SecurityScanScheduler>;
   BUILD_SCHEDULER: DurableObjectNamespace;
   BUILD_MANAGER: DurableObjectNamespace;
   BUILD_MANAGER_LARGE: DurableObjectNamespace;
@@ -566,6 +568,8 @@ export async function setupEnv(options: SetupEnvOptions = {}): Promise<TestEnv> 
     ERROR_ALERT_MONITOR: createMockDoNamespace(),
     SANDBOX_CONCURRENCY_COUNTER:
       createMockDoNamespace() as unknown as DurableObjectNamespace<SandboxConcurrencyCounter>,
+    SECURITY_SCAN_SCHEDULER:
+      createMockDoNamespace() as unknown as DurableObjectNamespace<SecurityScanScheduler>,
     BUILD_SCHEDULER: createMockDoNamespace(),
     BUILD_MANAGER: createMockDoNamespace(),
     BUILD_MANAGER_LARGE: createMockDoNamespace(),

@@ -609,6 +609,7 @@ export async function installPlatform(
       deployment: state.plan.deployment,
       deploymentExecution: runtime.deploymentExecution,
       healthProbeToken: createPlatformHealthProbeToken(state.manifest.ownershipNonce),
+      securityScanScheduler: runtime.securityAudits === 1,
       installationId: state.manifest.id,
       ownershipNonce: state.manifest.ownershipNonce,
       platformVersion: version,

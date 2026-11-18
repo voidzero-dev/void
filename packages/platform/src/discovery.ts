@@ -8,6 +8,7 @@ import { parseUsageProtocolVersion } from './installation.ts';
 import {
   normalizeApplicationDomain,
   normalizePlatformDashboardUrl,
+  readPlatformCapability,
   type PlatformCapabilities,
 } from './manifest.ts';
 import { assertRecord, record } from './validate.ts';
@@ -176,10 +177,11 @@ export function parsePlatformDiscoveryDocument(value: unknown): PlatformDiscover
     'googleOAuth',
     'managedBuilds',
     'sandbox',
+    'securityAudits',
   ];
   const parsedCapabilities = {} as Record<keyof PlatformCapabilities, boolean>;
   for (const name of capabilityNames) {
-    const enabled = capabilities[name];
+    const enabled = readPlatformCapability(capabilities, name);
     if (typeof enabled !== 'boolean') {
       throw new Error(`capabilities.${name} must be a boolean.`);
     }

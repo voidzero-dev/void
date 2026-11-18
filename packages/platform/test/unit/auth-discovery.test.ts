@@ -21,6 +21,7 @@ const base = {
     googleOAuth: false,
     managedBuilds: false,
     sandbox: false,
+    securityAudits: false,
   },
 };
 const modern = {
@@ -129,5 +130,37 @@ describe('direct Worker upload discovery', () => {
     expect(() => parsePlatformDiscoveryDocument({ ...older, directWorkerUpload: 'yes' })).toThrow(
       'directWorkerUpload must be a boolean.',
     );
+  });
+});
+
+describe('security audits discovery', () => {
+  it('reads a platform released before security audits as off', () => {
+    const discovery = createPlatformDiscoveryDocument(base);
+    const { securityAudits: _, ...olderCapabilities } = discovery.capabilities;
+    const parsed = parsePlatformDiscoveryDocument({
+      ...discovery,
+      capabilities: olderCapabilities,
+    });
+    expect(parsed.capabilities.securityAudits).toBe(false);
+    expect(parsed).toEqual(discovery);
+  });
+
+  it('round-trips an installation that allows security audits', () => {
+    const discovery = createPlatformDiscoveryDocument({
+      ...base,
+      capabilities: { ...base.capabilities, securityAudits: true },
+    });
+    expect(discovery.schemaVersion).toBe(1);
+    expect(parsePlatformDiscoveryDocument(discovery).capabilities.securityAudits).toBe(true);
+  });
+
+  it.each(['true', 1, null])('rejects securityAudits %j', (securityAudits) => {
+    const discovery = createPlatformDiscoveryDocument(base);
+    expect(() =>
+      parsePlatformDiscoveryDocument({
+        ...discovery,
+        capabilities: { ...discovery.capabilities, securityAudits },
+      }),
+    ).toThrow('capabilities.securityAudits must be a boolean.');
   });
 });

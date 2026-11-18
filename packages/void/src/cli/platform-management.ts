@@ -1006,6 +1006,17 @@ export function assertPlatformRollbackCompatibility(
       'platform: The rollback target predates the installed sandbox-drain safety protocol.',
     );
   }
+  // The API Worker keeps the SecurityScanScheduler Durable Object once its
+  // migration ran. Cloudflare refuses an upload that no longer exports the
+  // class, so a rollback across that release would stop half way.
+  if (
+    target.manifest.securityAudits !== 1 &&
+    (source.manifest.securityAudits === 1 || installation.deployment.capabilities.securityAudits)
+  ) {
+    throw new Error(
+      'platform: The rollback target predates security audits and cannot replace this installation. Roll forward to a runtime with security audits instead.',
+    );
+  }
 }
 
 export function resolvePlatformRuntimeTokenToPreflight(

@@ -200,6 +200,48 @@ describe('platform post-success rollback', () => {
       ),
     ).not.toThrow();
   });
+  it('blocks rollback across the release that adds the security scan scheduler', () => {
+    const target = runtime({
+      digest: 'a'.repeat(64),
+      migrations: [firstMigration],
+      platformVersion: '1.0.0',
+      schemaDigest: 'c'.repeat(64),
+    });
+    const source = runtime({
+      digest: 'b'.repeat(64),
+      migrations: [firstMigration, secondMigration],
+      platformVersion: '1.1.0',
+      rollbackSafeFrom: [{ platformVersion: '1.0.0', schemaDigest: 'c'.repeat(64) }],
+      schemaDigest: 'd'.repeat(64),
+    });
+    const auditSource = { ...source, manifest: { ...source.manifest, securityAudits: 1 as const } };
+    const auditTarget = { ...target, manifest: { ...target.manifest, securityAudits: 1 as const } };
+
+    expect(() =>
+      assertPlatformRollbackCompatibility(installed(auditSource), target, auditSource),
+    ).toThrow('Roll forward');
+    const enabled = installed(source);
+    expect(() =>
+      assertPlatformRollbackCompatibility(
+        {
+          ...enabled,
+          deployment: {
+            ...enabled.deployment,
+            capabilities: { ...enabled.deployment.capabilities, securityAudits: true },
+            schemaVersion: 7,
+          },
+        },
+        target,
+        source,
+      ),
+    ).toThrow('predates security audits');
+    expect(() =>
+      assertPlatformRollbackCompatibility(installed(auditSource), auditTarget, auditSource),
+    ).not.toThrow();
+    expect(() =>
+      assertPlatformRollbackCompatibility(installed(source), target, source),
+    ).not.toThrow();
+  });
   it('blocks rollback below the installed ownership-aware usage protocol', () => {
     const target = runtime({
       digest: 'a'.repeat(64),

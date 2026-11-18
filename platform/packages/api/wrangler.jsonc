@@ -96,6 +96,10 @@
         "name": "BUILD_MANAGER_LARGE",
         "class_name": "BuildManagerLarge",
       },
+      {
+        "name": "SECURITY_SCAN_SCHEDULER",
+        "class_name": "SecurityScanScheduler",
+      },
     ],
   },
   "migrations": [
@@ -122,6 +126,11 @@
     {
       "tag": "v6",
       "new_sqlite_classes": ["BuildManagerLarge"],
+    },
+    {
+      // Named tag shared with self-hosted installs, where it follows v4.
+      "tag": "security-audits-v1",
+      "new_sqlite_classes": ["SecurityScanScheduler"],
     },
   ],
   "containers": [
@@ -291,6 +300,10 @@
             "name": "BUILD_MANAGER_LARGE",
             "class_name": "BuildManagerLarge",
           },
+          {
+            "name": "SECURITY_SCAN_SCHEDULER",
+            "class_name": "SecurityScanScheduler",
+          },
         ],
       },
       "containers": [
@@ -445,6 +458,10 @@
           {
             "name": "BUILD_MANAGER_LARGE",
             "class_name": "BuildManagerLarge",
+          },
+          {
+            "name": "SECURITY_SCAN_SCHEDULER",
+            "class_name": "SecurityScanScheduler",
           },
         ],
       },

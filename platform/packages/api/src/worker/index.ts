@@ -8,6 +8,7 @@ export {
   ErrorAlertMonitor,
   SandboxConcurrencyCounter,
   SandboxControl,
+  SecurityScanScheduler,
   UsageCounter,
   default,
 } from '../index.ts';

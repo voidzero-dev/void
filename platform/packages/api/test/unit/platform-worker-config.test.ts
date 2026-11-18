@@ -1,5 +1,40 @@
-import { createPlatformDeploymentManifest, createPlatformWorkerConfigs } from '@void/platform';
+import {
+  createPlatformDeploymentManifest,
+  createPlatformWorkerConfigs,
+  serializePlatformCapabilities,
+  type PlatformDeploymentManifest,
+} from '@void/platform';
 import { describe, expect, it } from 'vite-plus/test';
+import { getPlatformCapabilities } from '../../src/capabilities.ts';
+
+function coreConfigs(deployment: PlatformDeploymentManifest) {
+  return createPlatformWorkerConfigs({
+    accountId: 'account',
+    apiUrl: 'https://void-example-api.example.workers.dev',
+    deployment,
+    healthProbeToken: 'probe-token',
+    installationId: 'example-a1b2c3d4',
+    ownershipNonce: '0123456789abcdef0123456789abcdef',
+    platformVersion: '1.0.0',
+    proxyUrl: 'https://void-example-proxy.example.workers.dev',
+    emailGatewayUrl: 'https://void-example-email-gateway.example.workers.dev',
+    resources: {
+      hyperdrive: 'hyperdrive',
+      isrCacheKv: 'isr',
+      legacyAssetsKv: 'assets',
+      routingKv: 'routing',
+      zone: 'zone',
+    },
+    runtimeEntrypoints: {
+      api: '/runtime/api.js',
+      dispatch: '/runtime/dispatch.js',
+      proxy: '/runtime/proxy.js',
+      emailGateway: '/runtime/email-gateway.js',
+      tail: '/runtime/tail.js',
+    },
+    securityScanScheduler: true,
+  });
+}
 
 describe('platform Worker configuration', () => {
   it('keeps the core installation free of containers and managed-build bindings', () => {
@@ -42,7 +77,7 @@ describe('platform Worker configuration', () => {
     expect(JSON.stringify(configs)).not.toContain('BUILD_SCHEDULER');
     expect(configs.proxy.vars).toMatchObject({
       AI_GATEWAY_ID: deployment.resources.aiGateway,
-      PLATFORM_CAPABILITIES: JSON.stringify(deployment.capabilities),
+      PLATFORM_CAPABILITIES: serializePlatformCapabilities(deployment.capabilities),
       PLATFORM_INSTALLATION_ID: 'example-a1b2c3d4',
     });
     expect(configs.tail.vars).toMatchObject({
@@ -119,4 +154,38 @@ describe('platform Worker configuration', () => {
     expect(configs.proxy).not.toHaveProperty('routes');
     expect(configs.dispatch).not.toHaveProperty('routes');
   });
+
+  it.each([false, true])(
+    'hands the security audits capability (%s) to the API Worker',
+    (securityAudits) => {
+      const deployment = createPlatformDeploymentManifest({
+        application: { baseDomain: 'apps.example.com', zoneName: 'example.com' },
+        capabilities: { securityAudits },
+        displayName: 'Example',
+        installationSlug: 'example',
+      });
+      const configs = coreConfigs(deployment);
+      const vars = configs.api.vars as Record<string, string>;
+      expect(getPlatformCapabilities(vars)).toEqual(deployment.capabilities);
+      expect(getPlatformCapabilities(vars).securityAudits).toBe(securityAudits);
+      expect(configs.api.ai).toEqual(securityAudits ? { binding: 'AI' } : undefined);
+      expect(configs.api.durable_objects).toMatchObject({
+        bindings: expect.arrayContaining([
+          { name: 'SECURITY_SCAN_SCHEDULER', class_name: 'SecurityScanScheduler' },
+        ]),
+      });
+      expect(configs.api.migrations).toContainEqual({
+        tag: 'security-audits-v1',
+        new_sqlite_classes: ['SecurityScanScheduler'],
+      });
+      expect(Object.keys(configs).sort()).toEqual([
+        'api',
+        'dispatch',
+        'emailGateway',
+        'proxy',
+        'tail',
+      ]);
+      expect(JSON.stringify(configs)).not.toContain('containers');
+    },
+  );
 });
