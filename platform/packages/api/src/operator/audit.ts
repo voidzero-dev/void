@@ -1,4 +1,6 @@
 import { PLAN_EDITABLE_LIMIT_KEYS } from '@void/platform/plans';
+import { isSecurityModelId } from '@void/platform/security-models';
+import { isSecurityMode, SECURITY_LIMIT_KEYS } from '@void/platform/security-policy';
 import { count, desc, eq } from 'drizzle-orm';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
 import { isAiLoggingMode } from '../ai-logging-policy.ts';
@@ -36,6 +38,14 @@ function boundedList(value: unknown, maxItems: number, maxLength: number, lowerC
   return values.every((entry): entry is string => entry !== undefined)
     ? [...new Set(values)]
     : undefined;
+}
+
+/** Known security model ids from a list, each once; anything else is dropped. */
+function securityModelList(value: unknown) {
+  if (!Array.isArray(value)) {
+    return undefined;
+  }
+  return [...new Set(value.filter((entry) => isSecurityModelId(entry)))];
 }
 
 function rollbackVersions(value: unknown) {
@@ -288,6 +298,34 @@ function auditTarget(
           : { protected: body.protected === true }),
       });
     }
+  }
+  if (segments[0] === 'security' && segments[1] === 'policy' && segments.length === 2) {
+    // Known ids and the new state only; never free text.
+    const limits =
+      body.limits && typeof body.limits === 'object' && !Array.isArray(body.limits)
+        ? Object.fromEntries(
+            Object.entries(body.limits).filter(
+              ([key, value]) =>
+                (SECURITY_LIMIT_KEYS as ReadonlyArray<string>).includes(key) &&
+                Number.isSafeInteger(value),
+            ),
+          )
+        : undefined;
+    return JSON.stringify({
+      expectedRevision: Number.isSafeInteger(body.expectedRevision)
+        ? body.expectedRevision
+        : undefined,
+      mode: isSecurityMode(body.mode) ? body.mode : undefined,
+      defaultModel: isSecurityModelId(body.defaultModel) ? body.defaultModel : undefined,
+      blockedModels: securityModelList(body.blockedModels),
+      block: securityModelList(body.block),
+      unblock: securityModelList(body.unblock),
+      acceptProviderNoticeVersion: Number.isSafeInteger(body.acceptProviderNoticeVersion)
+        ? body.acceptProviderNoticeVersion
+        : undefined,
+      limits,
+      publicGate: typeof body.publicGate === 'boolean' ? body.publicGate : undefined,
+    });
   }
   if (segments[0] === 'system' && segments[1] === 'backfill-queue-tokens') {
     return JSON.stringify({ entries: 'queue:*' });

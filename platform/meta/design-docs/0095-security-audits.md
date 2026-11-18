@@ -284,6 +284,26 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   (CAS 409, preview counts, 501 when capability off, entitlement missing 409),
   `operator-audit.test.ts` (new targets).
 - Exit: policy round-trips; nothing turns on without a fresh probe.
+- As built: `security/policy.ts` + `security/errors.ts` (`SecurityApiError`, mapped to
+  `OperatorError` by `operator/security-routes.ts`). The routes are
+  `/operator/v1/security/{policy,status}`. Every policy writer takes the advisory lock
+  `void:platform:security-policy`, then checks `expectedRevision` (409
+  `revision_conflict`, like plans) and writes `revision + 1`. A preview takes the
+  revision optionally and returns the one to send. Extra fields such as `missing[]` sit in
+  `details`, the way every operator error does. Bad stored data reads as Off and keeps its
+  revision, so an operator write can replace it (the preview says so). Body:
+  `mode`, `defaultModel`, `blockedModels` (full list, admin panel) or `block`/`unblock`
+  (CLI), `acceptProviderNoticeVersion` (must equal the current notice version), `limits`
+  (patch). Unknown fields get a 400. A third-party default needs its host to pass probe check 5
+  and the current notice; blocking the default and unpriced models get 422 `security model
+  not allowed`. `publicGate: true` gets a 400 until M16. Off cancels `pending_input` and
+  `queued` scans in the same transaction (`status_reason 'policy_off'`); the tables exist
+  since M3, so this did not wait for M9. All → Public does not cancel queued protected
+  scans: the scheduler (M9 scope) checks protection when it claims a scan. The "re-run the probe in
+  set mode" step (spec §5.2) comes with the probe (M6 scope); until then a stored pass less than
+  24 h old is required. GET policy and status work with the capability off; only POST
+  answers 501. Status failure rate = `failed|refused|timed_out|incomplete` out of those plus
+  `succeeded`, finished in the last 24 h.
 
 **M5 Scanner runner package (Engine B first).**
 
@@ -311,13 +331,16 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   with props, `containers[]`, workers.dev off, container app create/find/verify, delete
   app then Worker). Name derived per installation. `SecurityScanControl` entrypoint
   with `heartbeat` (fenced). `security/probe.ts` checks 1–6 + operator `POST /security/probe`.
+  Re-run the probe inside the policy change that leaves `disabled` (spec §5.2); this
+  replaces the 24 h stored-pass check in `assertEntitlement` (`security/policy.ts`).
   Daily probe hook comes in M9.
 - Tests: unit `security-scanner-controller-runtime.test.ts` (mocked `ctx.container`
   with `interceptOutbound*`: order, `enableInternet:false`, env has no token, alarm kill,
   stale attempt refused, two scans never share an instance id — edge #42),
   `security-scan-control.test.ts`; integration `api-security-provisioning.test.ts`
   (`mockCfApi` containers state: create, reuse, ownership mismatch, delete order),
-  `operator-security-probe.test.ts` (each failing check copy).
+  `operator-security-probe.test.ts` (each failing check copy; Off → on runs the probe
+  and a failing check refuses the change).
 - Exit: probe reports all six checks against fakes.
 
 **M7 Model proxy and budget.**
@@ -347,12 +370,16 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   any error = public); `preview-*`, owner suspended, deleting → no row; protected under
   `public` → `skipped:protected`; open request → `trigger=gate`; coalesce (old queued →
   `superseded`, keep `first_queued_at`). After commit: copy inline modules
-  (`publish-worker.ts`, ≤50 MB / 30 s), row → `queued`, poke. Hold in
+  (`publish-worker.ts`, ≤50 MB / 30 s), then move the row with a compare-and-set
+  (`UPDATE … SET status = 'queued' WHERE id = :id AND status = 'pending_input'`), so a
+  scan canceled meanwhile (policy Off, `policy_off`) stays canceled; poke only when the
+  row moved. Hold in
   `deleteDeploymentInputs` and `sweepStaleDeploymentInputs` (check `security_scans.input_prefix`).
   `deleteProjectAssets` adds `security-scans/{project}/`.
 - Tests: integration `security-enqueue.test.ts` (row in same tx; rollback of the tx
   leaves none; skip table spec §6.1; coalesce keeps `first_queued_at` — edges #2, #37;
-  recovery row — #41; unchanged static redeploy no row), `deployment-execution.test.ts`
+  recovery row — #41; unchanged static redeploy no row; policy Off between commit and
+  the input copy leaves the row `canceled`), `deployment-execution.test.ts`
   (hold + release), `unread-deploy-cleanup.test.ts` unchanged pass.
 - Exit: no live deploy path (except R8) can go live without a row while policy is on.
 
@@ -362,14 +389,17 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   first; installation concurrency (policy) and 1 per project; `@cf` token bucket in DO
   storage (10/min/model, back off on 429); reserve at start (`skipped:budget`); set
   `attempt`, `lease_until`; call the controller; retry once on infra error; re-arm while
-  work remains. Cancel API for teardown and operator cancel. `security/maintenance.ts`
+  work remains. At claim, a non-gate queued scan of a project that is now protected
+  under `public` becomes `skipped:protected` (spec §5.4 All → Public). Cancel API for
+  teardown and operator cancel. `security/maintenance.ts`
   in the hourly branch only (after `index.ts:768`, gated by capability and policy):
   re-poke, reaper (`timed_out`), 24 h → `skipped:backlog`, raw output sweep (cursor in
   ROUTING, capped deletes), scan row and closed request retention, daily probe
   (`entitlement.checkedAt` > 24 h, mode ≠ disabled). `teardownProject` cancels scans.
 - Tests: unit `security-scheduler.test.ts` (round-robin, bucket, re-arm, back-off);
   integration `security-scheduler-claim.test.ts` (running unique index, lease fencing —
-  edge #33), `scheduled.test.ts` (hourly jobs run only when on; fast tier untouched),
+  edge #33; under `public` a queued non-gate scan of a now-protected project becomes
+  `skipped:protected` at claim, a gate scan still runs), `scheduled.test.ts` (hourly jobs run only when on; fast tier untouched),
   `api-delete.test.ts` (mid-scan delete cancels — #26).
 - Exit: fake controller drives queued → running → result.
 

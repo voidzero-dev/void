@@ -1,5 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { afterAll, afterEach, beforeAll, beforeEach, expect, test, vi } from 'vite-plus/test';
+import { getPlatformCapabilities } from '../../src/capabilities.ts';
 import { app } from '../../src/index.ts';
 import { operatorEvents, projects } from '../../src/schema.ts';
 import {
@@ -433,4 +434,55 @@ test('records the project scope of a proxy token rotation and nothing for its pr
     ]),
   );
   expect(events).toHaveLength(2);
+});
+
+test('records security policy changes as known ids and new state, nothing for previews', async () => {
+  const bindings = {
+    ...env,
+    PLATFORM_CAPABILITIES: JSON.stringify({
+      ...getPlatformCapabilities(env),
+      securityAudits: true,
+    }),
+  };
+  expect(
+    (await request('/security/policy', { dryRun: true, limits: { concurrency: 3 } }, bindings))
+      .status,
+  ).toBe(200);
+  expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
+
+  const response = await request(
+    '/security/policy',
+    {
+      expectedRevision: 0,
+      block: ['openai/gpt-6.1-sol', 'not-a-model'],
+      limits: { concurrency: 3, retries: 9 },
+      note: 'must-not-be-audited',
+    },
+    bindings,
+  );
+  // The unknown field is refused, and the attempt is still recorded.
+  expect(response.status).toBe(400);
+  const accepted = await request(
+    '/security/policy',
+    { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+    bindings,
+  );
+  expect(accepted.status).toBe(200);
+
+  const events = await env.db.select().from(operatorEvents);
+  expect(events.map((event) => [event.action, JSON.parse(event.target), event.status])).toEqual(
+    expect.arrayContaining([
+      [
+        'security/policy',
+        { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+        'failed',
+      ],
+      [
+        'security/policy',
+        { expectedRevision: 0, block: ['openai/gpt-6.1-sol'], limits: { concurrency: 3 } },
+        'success',
+      ],
+    ]),
+  );
+  expect(JSON.stringify(events)).not.toContain('must-not-be-audited');
 });

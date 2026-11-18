@@ -1,0 +1,1006 @@
+/**
+ * The installation security audit policy store (spec §5.3, §5.4): lenient and strict
+ * readers of the `platform_settings` row, the locked revision CAS write, and the
+ * operator change operation with its `dryRun` preview text. The admin panel (M18) and
+ * the operator CLI share `changeSecurityPolicy`.
+ */
+import {
+  getSecurityModel,
+  isSecurityModelId,
+  isSecurityModelPriced,
+  isThirdPartySecurityModel,
+  SECURITY_MODEL_IDS,
+  SECURITY_PROVIDER_NAMES,
+  SECURITY_PROVIDER_NOTICE_VERSION,
+  securityModelBadges,
+  securityModelThirdPartyHost,
+  securityProviderNotice,
+  type SecurityModelId,
+} from '@void/platform/security-models';
+import {
+  defaultSecurityPolicy,
+  isSecurityEntitlementFresh,
+  isSecurityMode,
+  parseSecurityLimitsPatch,
+  parseSecurityPolicy,
+  readSecurityPolicy,
+  SECURITY_LIMIT_KEYS,
+  SECURITY_MODE_LABELS,
+  SECURITY_POLICY_SETTINGS_KEY,
+  type SecurityLimitKey,
+  type SecurityMode,
+  type SecurityPolicy,
+  type SecurityPolicyLimits,
+  type SecurityThirdPartyNotice,
+} from '@void/platform/security-policy';
+import { and, count, eq, gte, inArray, notLike, sql, type SQL } from 'drizzle-orm';
+import type { Db, DbOrTx } from '../db.ts';
+import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
+import { projects, projectZeroTrust } from '../schema.ts';
+import { readZeroTrustConfigurationStrict } from '../zero-trust/configuration.ts';
+import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
+import {
+  projectSecuritySettings,
+  securityPlatformSpend,
+  securityScans,
+  type SecurityScanStatus,
+} from './schema.ts';
+
+// ---------------------------------------------------------------------------
+// Readers
+// ---------------------------------------------------------------------------
+
+/** The stored row as read. `unreadable` holds the reason when the row is bad data. */
+export type StoredSecurityPolicy = Readonly<{
+  policy: SecurityPolicy;
+  /** A row exists (readable or not). */
+  saved: boolean;
+  unreadable: string | null;
+}>;
+
+function storedRevision(value: unknown): number {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    const revision = (value as Record<string, unknown>).revision;
+    if (typeof revision === 'number' && Number.isSafeInteger(revision) && revision >= 0) {
+      return revision;
+    }
+  }
+  return 0;
+}
+
+/**
+ * Reads a stored value. Bad data reads as the default policy (mode `disabled`) with
+ * the stored revision when it has one, so a later write can still replace it.
+ */
+export function interpretStoredSecurityPolicy(value: unknown): StoredSecurityPolicy {
+  if (value === null || value === undefined) {
+    return { policy: defaultSecurityPolicy(), saved: false, unreadable: null };
+  }
+  try {
+    return { policy: readSecurityPolicy(value), saved: true, unreadable: null };
+  } catch (error) {
+    return {
+      policy: { ...defaultSecurityPolicy(), revision: storedRevision(value) },
+      saved: true,
+      unreadable: error instanceof Error ? error.message : 'unknown error',
+    };
+  }
+}
+
+export async function readStoredSecurityPolicy(db: DbOrTx): Promise<StoredSecurityPolicy> {
+  const stored = interpretStoredSecurityPolicy(
+    await getPlatformSetting(db, SECURITY_POLICY_SETTINGS_KEY),
+  );
+  if (stored.unreadable !== null) {
+    console.error(
+      `[security-policy] ${SECURITY_POLICY_SETTINGS_KEY} is malformed; reading it as disabled: ${stored.unreadable}`,
+    );
+  }
+  return stored;
+}
+
+/** Lenient reader for scan paths: bad data reads as `disabled` and is logged. */
+export async function readSecurityPolicyLenient(db: DbOrTx): Promise<SecurityPolicy> {
+  return (await readStoredSecurityPolicy(db)).policy;
+}
+
+/**
+ * Strict reader for paths that must fail closed (the public gate and its Zero Trust
+ * refusals). Bad data throws `SecurityPolicyUnreadableError` (503). A missing row is
+ * the default policy.
+ */
+export async function readSecurityPolicyStrict(db: DbOrTx): Promise<SecurityPolicy> {
+  const stored = interpretStoredSecurityPolicy(
+    await getPlatformSetting(db, SECURITY_POLICY_SETTINGS_KEY),
+  );
+  if (stored.unreadable !== null) {
+    throw new SecurityPolicyUnreadableError(stored.unreadable);
+  }
+  return stored.policy;
+}
+
+/** Every policy writer takes this lock first, then checks the revision it read. */
+export async function lockSecurityPolicy(tx: DbOrTx): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock(hashtextextended('void:platform:security-policy', 0))`,
+  );
+}
+
+/**
+ * Writes `next` with the revision after `current`'s. Call under `lockSecurityPolicy`
+ * in the transaction that read `current`. Throws when `next` breaks a policy rule.
+ */
+export async function replaceSecurityPolicy(
+  tx: DbOrTx,
+  current: SecurityPolicy,
+  next: SecurityPolicy,
+): Promise<SecurityPolicy> {
+  const written = parseSecurityPolicy({ ...next, revision: current.revision + 1 });
+  await setPlatformSetting(tx, SECURITY_POLICY_SETTINGS_KEY, written);
+  return written;
+}
+
+// ---------------------------------------------------------------------------
+// Change request
+// ---------------------------------------------------------------------------
+
+export type SecurityPolicyChangeRequest = Readonly<{
+  expectedRevision?: number;
+  mode?: SecurityMode;
+  defaultModel?: SecurityModelId;
+  /** Replaces the whole blocked list (admin panel checkboxes). */
+  blockedModels?: ReadonlyArray<SecurityModelId>;
+  /** Adds to and removes from the blocked list (CLI `--block` / `--unblock`). */
+  block?: ReadonlyArray<SecurityModelId>;
+  unblock?: ReadonlyArray<SecurityModelId>;
+  /** The provider notice version the admin read and accepted. */
+  acceptProviderNoticeVersion?: number;
+  limits?: Partial<SecurityPolicyLimits>;
+  publicGate?: boolean;
+}>;
+
+const REQUEST_KEYS = new Set([
+  'dryRun',
+  'expectedRevision',
+  'mode',
+  'defaultModel',
+  'blockedModels',
+  'block',
+  'unblock',
+  'acceptProviderNoticeVersion',
+  'limits',
+  'publicGate',
+]);
+
+function requestModel(value: unknown, label: string): SecurityModelId {
+  if (!isSecurityModelId(value)) {
+    throw SecurityApiError.of(
+      'modelNotAllowed',
+      `${label} must be one of: ${SECURITY_MODEL_IDS.join(', ')}.`,
+    );
+  }
+  return value;
+}
+
+function requestModels(value: unknown, label: string): ReadonlyArray<SecurityModelId> {
+  if (!Array.isArray(value) || value.length > SECURITY_MODEL_IDS.length * 2) {
+    throw SecurityApiError.invalid(`${label} must be a list of model IDs.`);
+  }
+  const ids: Array<SecurityModelId> = [];
+  for (const entry of value) {
+    const id = requestModel(entry, `Each model in ${label}`);
+    if (!ids.includes(id)) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function wholeNumber(value: unknown, label: string): number {
+  if (typeof value !== 'number' || !Number.isSafeInteger(value) || value < 0) {
+    throw SecurityApiError.invalid(`${label} must be a nonnegative whole number.`);
+  }
+  return value;
+}
+
+/** Parses an operator change body. Unknown fields are refused so a typo is not ignored. */
+export function parseSecurityPolicyChangeRequest(
+  body: Record<string, unknown>,
+): SecurityPolicyChangeRequest {
+  for (const key of Object.keys(body)) {
+    if (!REQUEST_KEYS.has(key)) {
+      throw SecurityApiError.invalid(`Unknown security policy field: ${key}.`);
+    }
+  }
+  if (
+    body.blockedModels !== undefined &&
+    (body.block !== undefined || body.unblock !== undefined)
+  ) {
+    throw SecurityApiError.invalid('Send blockedModels, or block and unblock, not both.');
+  }
+  const request: {
+    -readonly [Key in keyof SecurityPolicyChangeRequest]: SecurityPolicyChangeRequest[Key];
+  } = {};
+  if (body.expectedRevision !== undefined) {
+    request.expectedRevision = wholeNumber(body.expectedRevision, 'expectedRevision');
+  }
+  if (body.mode !== undefined) {
+    if (!isSecurityMode(body.mode)) {
+      throw SecurityApiError.invalid('mode must be disabled, public or all.');
+    }
+    request.mode = body.mode;
+  }
+  if (body.defaultModel !== undefined) {
+    request.defaultModel = requestModel(body.defaultModel, 'defaultModel');
+  }
+  if (body.blockedModels !== undefined) {
+    request.blockedModels = requestModels(body.blockedModels, 'blockedModels');
+  }
+  if (body.block !== undefined) {
+    request.block = requestModels(body.block, 'block');
+  }
+  if (body.unblock !== undefined) {
+    request.unblock = requestModels(body.unblock, 'unblock');
+  }
+  const both = (request.block ?? []).filter((id) => request.unblock?.includes(id));
+  if (both.length > 0) {
+    throw SecurityApiError.invalid(`A model cannot be blocked and unblocked at once: ${both[0]}.`);
+  }
+  if (body.acceptProviderNoticeVersion !== undefined) {
+    request.acceptProviderNoticeVersion = wholeNumber(
+      body.acceptProviderNoticeVersion,
+      'acceptProviderNoticeVersion',
+    );
+  }
+  if (body.limits !== undefined) {
+    try {
+      request.limits = parseSecurityLimitsPatch(body.limits);
+    } catch (error) {
+      throw SecurityApiError.invalid(error instanceof Error ? error.message : 'Invalid limits.');
+    }
+  }
+  if (body.publicGate !== undefined) {
+    if (typeof body.publicGate !== 'boolean') {
+      throw SecurityApiError.invalid('publicGate must be true or false.');
+    }
+    request.publicGate = body.publicGate;
+  }
+  return request;
+}
+
+// ---------------------------------------------------------------------------
+// Proposal (pure)
+// ---------------------------------------------------------------------------
+
+export type SecurityPolicyChanges = Readonly<{
+  mode: Readonly<{ from: SecurityMode; to: SecurityMode }> | null;
+  defaultModel: Readonly<{ from: SecurityModelId; to: SecurityModelId }> | null;
+  blocked: ReadonlyArray<SecurityModelId>;
+  unblocked: ReadonlyArray<SecurityModelId>;
+  noticeAccepted: number | null;
+  limits: ReadonlyArray<Readonly<{ key: SecurityLimitKey; from: number; to: number }>>;
+  publicGateOff: boolean;
+  /** The stored row was bad data; this write replaces it. */
+  repaired: boolean;
+}>;
+
+export type SecurityPolicyProposal = Readonly<{
+  next: SecurityPolicy;
+  changes: SecurityPolicyChanges;
+}>;
+
+export type SecurityPolicyChangeContext = Readonly<{ userId: string; now: number }>;
+
+function noticeIsCurrent(notice: SecurityThirdPartyNotice | null): boolean {
+  return notice !== null && notice.version === SECURITY_PROVIDER_NOTICE_VERSION;
+}
+
+function nextBlockedModels(
+  current: ReadonlyArray<SecurityModelId>,
+  request: SecurityPolicyChangeRequest,
+): ReadonlyArray<SecurityModelId> {
+  if (request.blockedModels) {
+    return SECURITY_MODEL_IDS.filter((id) => request.blockedModels?.includes(id));
+  }
+  return SECURITY_MODEL_IDS.filter(
+    (id) => (current.includes(id) || request.block?.includes(id)) && !request.unblock?.includes(id),
+  );
+}
+
+function assertDefaultModel(
+  current: SecurityPolicy,
+  next: SecurityPolicy,
+  request: SecurityPolicyChangeRequest,
+): void {
+  const id = next.defaultModel;
+  if (next.blockedModels.includes(id)) {
+    throw SecurityApiError.of(
+      'modelNotAllowed',
+      request.defaultModel
+        ? `${id} is blocked. Unblock it to make it the default model.`
+        : `${id} is the default model. Pick another default model before blocking it.`,
+      { model: id },
+    );
+  }
+  if (!isSecurityModelPriced(id)) {
+    throw SecurityApiError.of(
+      'modelNotAllowed',
+      `${id} has no list price yet, so its scans cannot be metered. It can be picked after a platform release adds the price.`,
+      { model: id },
+    );
+  }
+  const host = securityModelThirdPartyHost(id);
+  if (!host || request.defaultModel === undefined) {
+    return;
+  }
+  if (!current.entitlement?.hosts[host]) {
+    throw SecurityApiError.of(
+      'modelNotAllowed',
+      `${host}/* models cannot be picked: the last probe found no AI Gateway credits for ${host}/*. Load Unified Billing credits, then run: void platform security probe`,
+      { model: id, host },
+    );
+  }
+  if (!noticeIsCurrent(next.thirdPartyNotice)) {
+    throw SecurityApiError.of(
+      'providerNoticeNotAccepted',
+      `${id} is run by ${SECURITY_PROVIDER_NAMES[host]}. Read the provider notice, then accept it to make ${id} the default: void platform security models --default ${id} --accept-provider-notice`,
+      {
+        model: id,
+        version: SECURITY_PROVIDER_NOTICE_VERSION,
+        notice: securityProviderNotice(host),
+      },
+    );
+  }
+}
+
+function assertEntitlement(policy: SecurityPolicy, now: number): void {
+  const entitlement = policy.entitlement;
+  if (isSecurityEntitlementFresh(entitlement, now)) {
+    return;
+  }
+  if (!entitlement) {
+    throw SecurityApiError.of(
+      'entitlementMissing',
+      'Run the entitlement probe before turning security audits on: void platform security probe',
+      { missing: ['probe'], checkedAt: null },
+    );
+  }
+  if (entitlement.ok) {
+    throw SecurityApiError.of(
+      'entitlementMissing',
+      'The last entitlement probe is more than 24 hours old. Run it again: void platform security probe',
+      { missing: ['probe'], checkedAt: entitlement.checkedAt },
+    );
+  }
+  throw SecurityApiError.of(
+    'entitlementMissing',
+    `The last entitlement probe failed (${entitlement.missing.join(', ')}). Fix it and run: void platform security probe`,
+    { missing: entitlement.missing, checkedAt: entitlement.checkedAt },
+  );
+}
+
+/**
+ * The policy after `request`, with every rule checked. Throws `SecurityApiError` for
+ * a refused change. Leaving `disabled` needs a probe pass less than 24 hours old;
+ * turning the policy Off also turns "Scan before a project goes public" off.
+ */
+export function proposeSecurityPolicyChange(
+  stored: StoredSecurityPolicy,
+  request: SecurityPolicyChangeRequest,
+  context: SecurityPolicyChangeContext,
+): SecurityPolicyProposal {
+  const current = stored.policy;
+  if (request.publicGate === true) {
+    // The public gate ships with its Zero Trust checks (design doc 0095, M16).
+    throw SecurityApiError.invalid(
+      '"Scan before a project goes public" is not available on this platform version yet.',
+    );
+  }
+  let thirdPartyNotice = current.thirdPartyNotice;
+  if (request.acceptProviderNoticeVersion !== undefined) {
+    if (request.acceptProviderNoticeVersion !== SECURITY_PROVIDER_NOTICE_VERSION) {
+      throw SecurityApiError.of(
+        'providerNoticeNotAccepted',
+        `The provider notice changed (now version ${SECURITY_PROVIDER_NOTICE_VERSION}). Read it again and accept the new version.`,
+        { version: SECURITY_PROVIDER_NOTICE_VERSION },
+      );
+    }
+    thirdPartyNotice = {
+      acceptedByUserId: context.userId,
+      acceptedAt: new Date(context.now).toISOString(),
+      version: SECURITY_PROVIDER_NOTICE_VERSION,
+    };
+  }
+  const mode = request.mode ?? current.mode;
+  const limits = { ...current.limits, ...request.limits };
+  const next: SecurityPolicy = {
+    ...current,
+    mode,
+    defaultModel: request.defaultModel ?? current.defaultModel,
+    blockedModels: nextBlockedModels(current.blockedModels, request),
+    thirdPartyNotice,
+    limits,
+    // `publicGate: true` was refused above, so a request can only turn the gate off.
+    publicGate: mode === 'disabled' ? false : (request.publicGate ?? current.publicGate),
+  };
+  assertDefaultModel(current, next, request);
+  if (current.mode === 'disabled' && mode !== 'disabled') {
+    assertEntitlement(current, context.now);
+  }
+  const changes: SecurityPolicyChanges = {
+    mode: mode === current.mode ? null : { from: current.mode, to: mode },
+    defaultModel:
+      next.defaultModel === current.defaultModel
+        ? null
+        : { from: current.defaultModel, to: next.defaultModel },
+    blocked: next.blockedModels.filter((id) => !current.blockedModels.includes(id)),
+    unblocked: current.blockedModels.filter((id) => !next.blockedModels.includes(id)),
+    noticeAccepted: request.acceptProviderNoticeVersion ?? null,
+    limits: SECURITY_LIMIT_KEYS.flatMap((key) =>
+      limits[key] === current.limits[key]
+        ? []
+        : [{ key, from: current.limits[key], to: limits[key] }],
+    ),
+    publicGateOff: current.publicGate && !next.publicGate,
+    repaired: stored.unreadable !== null,
+  };
+  const changed =
+    changes.mode ||
+    changes.defaultModel ||
+    changes.blocked.length > 0 ||
+    changes.unblocked.length > 0 ||
+    changes.noticeAccepted !== null ||
+    changes.limits.length > 0 ||
+    changes.publicGateOff ||
+    changes.repaired;
+  if (!changed) {
+    throw SecurityApiError.invalid('Nothing to change: the policy already has these values.');
+  }
+  try {
+    parseSecurityPolicy(next);
+  } catch (error) {
+    throw SecurityApiError.invalid(
+      error instanceof Error ? error.message : 'Invalid security policy.',
+    );
+  }
+  return { next, changes };
+}
+
+// ---------------------------------------------------------------------------
+// Preview (spec §5.4)
+// ---------------------------------------------------------------------------
+
+export type SecurityPolicyPreviewCounts = Readonly<{
+  /** Projects in scope for the new mode (Off → on). */
+  scannedProjects: number;
+  /** Of those, projects with no succeeded scan: their first scan is a full scan. */
+  firstFullScan: number;
+  /** Of those, projects with an open urgent finding. */
+  urgentProjects: number;
+  /** Projects protected by Zero Trust right now. */
+  protectedProjects: number;
+  /** Scans `pending_input` or `queued`. */
+  queuedScans: number;
+  runningScans: number;
+  /** Projects with no model of their own. */
+  noOwnModel: number;
+  /** Of those, projects that accepted the current provider notice. */
+  noOwnModelAccepted: number;
+  /** Projects whose own pick is a newly blocked model, per model. */
+  pickedBlocked: Readonly<Partial<Record<SecurityModelId, number>>>;
+  /**
+   * Of those, projects that accepted the current provider notice. Read only when the
+   * new default is third-party: the others stay on `securityFallbackModel` (spec §8.3).
+   */
+  pickedBlockedAccepted: Readonly<Partial<Record<SecurityModelId, number>>>;
+}>;
+
+function projectsText(count: number, adjective = ''): string {
+  const noun = count === 1 ? 'project' : 'projects';
+  return `${count} ${adjective ? `${adjective} ` : ''}${noun}`;
+}
+
+function scansText(count: number, adjective: string): string {
+  return `${count} ${adjective} ${count === 1 ? 'scan' : 'scans'}`;
+}
+
+/** The first non-blocked, priced `@cf` model: where a project without the notice stays. */
+export function securityFallbackModel(
+  blocked: ReadonlyArray<SecurityModelId>,
+): SecurityModelId | null {
+  return (
+    SECURITY_MODEL_IDS.find(
+      (id) => !isThirdPartySecurityModel(id) && isSecurityModelPriced(id) && !blocked.includes(id),
+    ) ?? null
+  );
+}
+
+function modeLines(
+  current: SecurityPolicy,
+  next: SecurityPolicy,
+  counts: SecurityPolicyPreviewCounts,
+): Array<string> {
+  const from = current.mode;
+  const to = next.mode;
+  const lines = [`Change policy: ${SECURITY_MODE_LABELS[from]} → ${SECURITY_MODE_LABELS[to]}`];
+  if (from === 'disabled') {
+    lines.push(`  ${projectsText(counts.scannedProjects)} will be scanned at their next deploy.`);
+    if (counts.scannedProjects > 0 && counts.firstFullScan === counts.scannedProjects) {
+      lines.push(
+        '  The first scan of each project reviews the whole app (no earlier scan to compare to).',
+      );
+    } else if (counts.firstFullScan > 0) {
+      lines.push(
+        `  ${counts.firstFullScan} of them ${counts.firstFullScan === 1 ? 'has' : 'have'} no earlier scan: their first scan reviews the whole app.`,
+      );
+    }
+    if (counts.urgentProjects > 0) {
+      lines.push(
+        `  ${projectsText(counts.urgentProjects)} still ${counts.urgentProjects === 1 ? 'has' : 'have'} open urgent findings from before. They show in those projects' deploy output again.`,
+      );
+    }
+    if (!next.budgets.platformCapOn && !next.budgets.projectCapsOn) {
+      lines.push(
+        '  Monthly scan budgets are off (no money limit). Set them with: void platform security budget',
+      );
+    }
+    return lines;
+  }
+  if (to === 'disabled') {
+    lines.push('  New deploys are not scanned.');
+    if (counts.queuedScans > 0) {
+      lines.push(
+        `  ${scansText(counts.queuedScans, 'queued')} ${counts.queuedScans === 1 ? 'is' : 'are'} canceled.`,
+      );
+    }
+    if (counts.runningScans > 0) {
+      lines.push(
+        `  ${scansText(counts.runningScans, 'running')} ${counts.runningScans === 1 ? 'finishes and is' : 'finish and are'} stored, with no email.`,
+      );
+    }
+    lines.push(
+      '  Open findings stay listed and can still be read, commented on and resolved. Only the deploy-time notice stops.',
+    );
+    if (current.publicGate) {
+      lines.push('  "Scan before a project goes public" turns off too.');
+    }
+    return lines;
+  }
+  if (to === 'public') {
+    lines.push(
+      `  ${projectsText(counts.protectedProjects, 'protected')} ${counts.protectedProjects === 1 ? 'is' : 'are'} no longer scanned at deploy. ${current.publicGate ? 'Gate scans still run; running scans finish.' : 'Running scans finish.'}`,
+    );
+  } else {
+    lines.push(
+      `  ${projectsText(counts.protectedProjects, 'protected')} will also be scanned at their next deploy.`,
+    );
+  }
+  return lines;
+}
+
+/**
+ * Which model `total` projects move to when the installation default applies to them.
+ * A third-party default reaches only the `accepted` ones (current provider notice); the
+ * others stay on the first non-blocked `@cf` model (spec §8.3).
+ */
+function defaultModelOutcome(
+  next: SecurityPolicy,
+  modelText: string,
+  total: number,
+  accepted: number,
+): string {
+  const host = securityModelThirdPartyHost(next.defaultModel);
+  if (!host || (accepted === total && total > 0)) {
+    return total === 1
+      ? `It uses ${modelText} from its next scan.`
+      : `They use ${modelText} from their next scan.`;
+  }
+  const fallback = securityFallbackModel(next.blockedModels) ?? 'no model';
+  const notice = `until a project owner or admin accepts the ${SECURITY_PROVIDER_NAMES[host]} notice.`;
+  if (accepted === 0) {
+    return `${total === 1 ? 'It stays' : 'They stay'} on ${fallback} ${notice}`;
+  }
+  const waiting = total - accepted;
+  return `${accepted} of them accepted the provider notice and use ${modelText} from their next scan; the other ${waiting} ${waiting === 1 ? 'stays' : 'stay'} on ${fallback} ${notice}`;
+}
+
+function defaultModelLines(
+  next: SecurityPolicy,
+  change: Readonly<{ from: SecurityModelId; to: SecurityModelId }>,
+  counts: SecurityPolicyPreviewCounts,
+): Array<string> {
+  const subject = `  ${projectsText(counts.noOwnModel)} ${counts.noOwnModel === 1 ? 'has' : 'have'} no model of ${counts.noOwnModel === 1 ? 'its' : 'their'} own.`;
+  return [
+    `Change default model: ${change.from} → ${change.to}`,
+    `${subject} ${defaultModelOutcome(next, change.to, counts.noOwnModel, counts.noOwnModelAccepted)}`,
+  ];
+}
+
+/** The plan preview shown before saving (`dryRun`), one string per line. */
+export function securityPolicyPreviewLines(
+  current: SecurityPolicy,
+  next: SecurityPolicy,
+  changes: SecurityPolicyChanges,
+  counts: SecurityPolicyPreviewCounts,
+): ReadonlyArray<string> {
+  const lines: Array<string> = [];
+  if (changes.repaired) {
+    lines.push('The saved policy could not be read. Saving replaces it, starting from Off.');
+  }
+  if (changes.mode) {
+    lines.push(...modeLines(current, next, counts));
+  }
+  if (changes.noticeAccepted !== null) {
+    lines.push(`Provider notice accepted (version ${changes.noticeAccepted}).`);
+  }
+  if (changes.defaultModel) {
+    lines.push(...defaultModelLines(next, changes.defaultModel, counts));
+  }
+  for (const id of changes.blocked) {
+    const picked = counts.pickedBlocked[id] ?? 0;
+    const accepted = counts.pickedBlockedAccepted[id] ?? 0;
+    lines.push(
+      picked > 0
+        ? `Block ${id}: ${projectsText(picked)} picked it. ${defaultModelOutcome(next, `the default model (${next.defaultModel})`, picked, accepted)}`
+        : `Block ${id}: no project picked it.`,
+    );
+  }
+  for (const id of changes.unblocked) {
+    lines.push(`Unblock ${id}: project owners and admins can pick it again.`);
+  }
+  if (changes.limits.length > 0) {
+    lines.push(
+      `Limits: ${changes.limits.map((limit) => `${limit.key} ${limit.from} → ${limit.to}`).join(', ')}`,
+    );
+  }
+  if (changes.publicGateOff && !changes.mode) {
+    lines.push('Turn off: Scan before a project goes public');
+  }
+  return lines;
+}
+
+// ---------------------------------------------------------------------------
+// Counts
+// ---------------------------------------------------------------------------
+
+const QUEUED_STATUSES = [
+  'pending_input',
+  'queued',
+] as const satisfies ReadonlyArray<SecurityScanStatus>;
+
+/** Scans that count toward the 24-hour failure rate. */
+const FAILED_STATUSES = [
+  'failed',
+  'refused',
+  'timed_out',
+  'incomplete',
+] as const satisfies ReadonlyArray<SecurityScanStatus>;
+
+type ProjectScope = 'all' | 'public' | 'protected';
+
+/**
+ * Project protection as spec §4 defines it (fail-safe): protected only while
+ * installation Zero Trust is on and not public-only, and the project row is settled
+ * protected. Bad Zero Trust data reads as "everything public".
+ */
+async function zeroTrustProtects(db: DbOrTx): Promise<boolean> {
+  try {
+    const configuration = await readZeroTrustConfigurationStrict(db);
+    return !!configuration?.enabled && !configuration.publicAccess;
+  } catch {
+    return false;
+  }
+}
+
+const protectedRow = sql`(${projectZeroTrust.status} = 'ready' AND ${projectZeroTrust.desired_protected} AND ${projectZeroTrust.effective_protected})`;
+
+async function countProjects(
+  db: DbOrTx,
+  scope: ProjectScope,
+  protects: boolean,
+  extra?: SQL,
+): Promise<number> {
+  const scopeCondition =
+    scope === 'all'
+      ? undefined
+      : scope === 'protected'
+        ? protects
+          ? protectedRow
+          : sql`false`
+        : protects
+          ? sql`NOT COALESCE(${protectedRow}, false)`
+          : undefined;
+  const [row] = await db
+    .select({ total: count() })
+    .from(projects)
+    .leftJoin(projectZeroTrust, eq(projectZeroTrust.project_id, projects.id))
+    .leftJoin(projectSecuritySettings, eq(projectSecuritySettings.project_id, projects.id))
+    .where(
+      and(
+        eq(projects.status, 'active'),
+        // Preview projects are never scanned.
+        notLike(projects.slug, 'preview-%'),
+        scopeCondition,
+        extra,
+      ),
+    );
+  return row?.total ?? 0;
+}
+
+async function countScans(
+  db: DbOrTx,
+  statuses: ReadonlyArray<SecurityScanStatus>,
+): Promise<number> {
+  const [row] = await db
+    .select({ total: count() })
+    .from(securityScans)
+    .where(inArray(securityScans.status, [...statuses]));
+  return row?.total ?? 0;
+}
+
+const noSucceededScan = sql`NOT EXISTS (SELECT 1 FROM security_scans s WHERE s.project_id = ${projects.id} AND s.status = 'succeeded')`;
+const openUrgentFinding = sql`EXISTS (SELECT 1 FROM security_findings f WHERE f.project_id = ${projects.id} AND f.verdict = 'confirmed' AND COALESCE(f.severity_override, f.severity) IN ('critical', 'high') AND f.state = 'open')`;
+
+/** Counts behind the preview lines. Only the counts a change needs are read. */
+export async function securityPolicyPreviewCounts(
+  db: DbOrTx,
+  current: SecurityPolicy,
+  next: SecurityPolicy,
+  changes: SecurityPolicyChanges,
+): Promise<SecurityPolicyPreviewCounts> {
+  const protects = await zeroTrustProtects(db);
+  const turningOn = changes.mode?.from === 'disabled';
+  const scope: ProjectScope = next.mode === 'public' ? 'public' : 'all';
+  const [scannedProjects, firstFullScan, urgentProjects] = turningOn
+    ? await Promise.all([
+        countProjects(db, scope, protects),
+        countProjects(db, scope, protects, noSucceededScan),
+        countProjects(db, scope, protects, openUrgentFinding),
+      ])
+    : [0, 0, 0];
+  const betweenOnModes = !!changes.mode && !turningOn && next.mode !== 'disabled';
+  const protectedProjects = betweenOnModes ? await countProjects(db, 'protected', protects) : 0;
+  const turningOff = changes.mode?.to === 'disabled' && current.mode !== 'disabled';
+  const [queuedScans, runningScans] = turningOff
+    ? await Promise.all([countScans(db, QUEUED_STATUSES), countScans(db, ['running'])])
+    : [0, 0];
+  const [noOwnModel, noOwnModelAccepted] = changes.defaultModel
+    ? await Promise.all([
+        countProjects(db, 'all', protects, sql`${projectSecuritySettings.model} IS NULL`),
+        countProjects(
+          db,
+          'all',
+          protects,
+          sql`${projectSecuritySettings.model} IS NULL AND ${projectSecuritySettings.provider_notice_version} = ${SECURITY_PROVIDER_NOTICE_VERSION}`,
+        ),
+      ])
+    : [0, 0];
+  const pickedBlocked: Partial<Record<SecurityModelId, number>> = {};
+  const pickedBlockedAccepted: Partial<Record<SecurityModelId, number>> = {};
+  const thirdPartyDefault = isThirdPartySecurityModel(next.defaultModel);
+  for (const id of changes.blocked) {
+    pickedBlocked[id] = await countProjects(
+      db,
+      'all',
+      protects,
+      eq(projectSecuritySettings.model, id),
+    );
+    if (thirdPartyDefault && (pickedBlocked[id] ?? 0) > 0) {
+      pickedBlockedAccepted[id] = await countProjects(
+        db,
+        'all',
+        protects,
+        sql`${projectSecuritySettings.model} = ${id} AND ${projectSecuritySettings.provider_notice_version} = ${SECURITY_PROVIDER_NOTICE_VERSION}`,
+      );
+    }
+  }
+  return {
+    scannedProjects,
+    firstFullScan,
+    urgentProjects,
+    protectedProjects,
+    queuedScans,
+    runningScans,
+    noOwnModel,
+    noOwnModelAccepted,
+    pickedBlocked,
+    pickedBlockedAccepted,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Operation
+// ---------------------------------------------------------------------------
+
+/** The policy plus what the panel and CLI show next to it. */
+export function securityPolicyView(stored: StoredSecurityPolicy, capability: boolean, now: number) {
+  const { policy } = stored;
+  return {
+    capability,
+    policy,
+    unreadable: stored.unreadable,
+    entitlementFresh: isSecurityEntitlementFresh(policy.entitlement, now),
+    providerNotice: {
+      version: SECURITY_PROVIDER_NOTICE_VERSION,
+      accepted: noticeIsCurrent(policy.thirdPartyNotice),
+    },
+    models: SECURITY_MODEL_IDS.map((id) => {
+      const model = getSecurityModel(id);
+      const host = securityModelThirdPartyHost(id);
+      const hostOk = host === null || policy.entitlement?.hosts[host] === true;
+      const priced = isSecurityModelPriced(id);
+      const blocked = policy.blockedModels.includes(id);
+      return {
+        id,
+        host: model.host,
+        engine: model.engine,
+        badges: securityModelBadges(id),
+        price: model.price,
+        priced,
+        blocked,
+        hostOk,
+        pickable: priced && !blocked && hostOk,
+        default: policy.defaultModel === id,
+      };
+    }),
+  };
+}
+
+export type SecurityPolicyChangeResult =
+  | Readonly<{
+      dryRun: true;
+      action: 'security.policy';
+      target: 'platform';
+      expectedRevision: number;
+      policy: SecurityPolicy;
+      changes: SecurityPolicyChanges;
+      counts: SecurityPolicyPreviewCounts;
+      preview: ReadonlyArray<string>;
+    }>
+  | Readonly<{
+      ok: true;
+      policy: SecurityPolicy;
+      changes: SecurityPolicyChanges;
+      canceledScans: number;
+    }>;
+
+export class SecurityPolicyRevisionError extends SecurityApiError {
+  constructor(expected: number, current: number) {
+    super(409, 'revision_conflict', 'The security policy changed. Preview your change again.', {
+      expectedRevision: expected,
+      currentRevision: current,
+    });
+  }
+}
+
+/**
+ * Changes the policy (operator CLI and admin panel). A real change needs
+ * `expectedRevision`; a preview takes it optionally and returns the revision to send.
+ * Turning the policy Off cancels queued scans in the same transaction; running scans
+ * finish.
+ */
+export async function changeSecurityPolicy(
+  db: Db,
+  body: Record<string, unknown>,
+  options: Readonly<{ userId: string; preview: boolean; now?: number }>,
+): Promise<SecurityPolicyChangeResult> {
+  const request = parseSecurityPolicyChangeRequest(body);
+  if (!options.preview && request.expectedRevision === undefined) {
+    throw SecurityApiError.invalid(
+      'expectedRevision must be the policy revision from a fresh preview.',
+    );
+  }
+  const now = options.now ?? Date.now();
+  return db.transaction(async (tx) => {
+    await lockSecurityPolicy(tx);
+    const stored = await readStoredSecurityPolicy(tx);
+    const current = stored.policy;
+    if (request.expectedRevision !== undefined && request.expectedRevision !== current.revision) {
+      throw new SecurityPolicyRevisionError(request.expectedRevision, current.revision);
+    }
+    const { next, changes } = proposeSecurityPolicyChange(stored, request, {
+      userId: options.userId,
+      now,
+    });
+    if (options.preview) {
+      const counts = await securityPolicyPreviewCounts(tx, current, next, changes);
+      return {
+        dryRun: true as const,
+        action: 'security.policy' as const,
+        target: 'platform' as const,
+        expectedRevision: current.revision,
+        policy: { ...next, revision: current.revision + 1 },
+        changes,
+        counts,
+        preview: securityPolicyPreviewLines(current, next, changes, counts),
+      };
+    }
+    const written = await replaceSecurityPolicy(tx, current, next);
+    let canceledScans = 0;
+    if (changes.mode?.to === 'disabled') {
+      // Any → Off: queued scans are canceled; running ones finish and are stored.
+      const canceled = await tx
+        .update(securityScans)
+        .set({ status: 'canceled', status_reason: 'policy_off', finished_at: sql`now()` })
+        .where(inArray(securityScans.status, [...QUEUED_STATUSES]))
+        .returning({ id: securityScans.id });
+      canceledScans = canceled.length;
+    }
+    return { ok: true as const, policy: written, changes, canceledScans };
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Status (`void platform security status`)
+// ---------------------------------------------------------------------------
+
+/** First day of the UTC month of `now`, as stored in the spend tables. */
+export function securitySpendMonth(now: number): string {
+  return `${new Date(now).toISOString().slice(0, 7)}-01`;
+}
+
+const NANO_PER_USD = 1_000_000_000;
+
+export async function securityStatus(db: DbOrTx, capability: boolean, now = Date.now()) {
+  const stored = await readStoredSecurityPolicy(db);
+  const { policy } = stored;
+  const month = securitySpendMonth(now);
+  const since = new Date(now - 24 * 60 * 60 * 1000).toISOString();
+  const [waiting, finished, spend] = await Promise.all([
+    db
+      .select({ status: securityScans.status, total: count() })
+      .from(securityScans)
+      .where(inArray(securityScans.status, [...QUEUED_STATUSES, 'running']))
+      .groupBy(securityScans.status),
+    db
+      .select({ status: securityScans.status, total: count() })
+      .from(securityScans)
+      .where(
+        and(
+          inArray(securityScans.status, ['succeeded', ...FAILED_STATUSES]),
+          gte(securityScans.finished_at, since),
+        ),
+      )
+      .groupBy(securityScans.status),
+    db
+      .select({
+        spent: securityPlatformSpend.spent_nano_usd,
+        reserved: securityPlatformSpend.reserved_nano_usd,
+      })
+      .from(securityPlatformSpend)
+      .where(eq(securityPlatformSpend.month, month))
+      .limit(1),
+  ]);
+  const total = (rows: ReadonlyArray<{ status: string; total: number }>, status: string) =>
+    rows.find((row) => row.status === status)?.total ?? 0;
+  const finishedCount = finished.reduce((sum, row) => sum + row.total, 0);
+  const failedCount = FAILED_STATUSES.reduce((sum, status) => sum + total(finished, status), 0);
+  return {
+    capability,
+    unreadable: stored.unreadable,
+    mode: policy.mode,
+    publicGate: policy.publicGate,
+    defaultModel: policy.defaultModel,
+    revision: policy.revision,
+    probe: policy.entitlement
+      ? { ...policy.entitlement, fresh: isSecurityEntitlementFresh(policy.entitlement, now) }
+      : null,
+    queue: {
+      pendingInput: total(waiting, 'pending_input'),
+      queued: total(waiting, 'queued'),
+      running: total(waiting, 'running'),
+    },
+    month: {
+      month,
+      spentUsd: (spend[0]?.spent ?? 0) / NANO_PER_USD,
+      reservedUsd: (spend[0]?.reserved ?? 0) / NANO_PER_USD,
+      platformCapOn: policy.budgets.platformCapOn,
+      platformCapUsd: policy.budgets.platformMonthlyUsd,
+    },
+    last24h: {
+      finished: finishedCount,
+      failed: failedCount,
+      failureRate: finishedCount === 0 ? 0 : failedCount / finishedCount,
+    },
+  };
+}
