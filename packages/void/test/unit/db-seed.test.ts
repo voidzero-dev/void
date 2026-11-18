@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as output from '../../src/cli/output.ts';
+import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
 import { getMiniflareDatabasePath } from '../../src/migrations/runner.ts';
 
 const mockIntro = vi.fn();
@@ -291,12 +292,16 @@ export const userTable = sqliteTable('users', { id: text().primaryKey() });
 `,
       );
       writeFileSync(join(root, 'fixtures', 'message.ts'), "export const value = 'from alias';\n");
+      writeFileSync(
+        join(root, 'fixtures', 'message.d.ts'),
+        'export declare const value: string;\n',
+      );
       const compilerOptions = {
         ...(layout === 'directory' ? { baseUrl: '..' } : {}),
         paths: {
           '@auth-schema': ['./.void/better-auth-schema.ts'],
           '@schema': ['./db/schema'],
-          '@seed-data/*': ['./missing/*', './fixtures/*'],
+          '@seed-data/*': ['./fixtures/*.d.ts', './missing/*', './fixtures/*'],
         },
       };
       writeFileSync(
@@ -346,6 +351,75 @@ export const messages = sqliteTable('messages', {
     },
     30_000,
   );
+
+  it('keeps runtime helpers when extending generated declaration aliases', async () => {
+    const root = createProjectRoot({
+      schema: `import { integer, sqliteTable, text } from 'void/schema-d1';
+export const messages = sqliteTable('messages', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  text: text().notNull(),
+});
+`,
+      seedFile: {
+        name: 'seed.ts',
+        content: `import { defineSeed } from 'void/seed';
+import { routeUrl } from 'void/routes';
+import { messages } from '@schema';
+export default defineSeed(async ({ db }) => {
+  await db.insert(messages).values({ text: routeUrl('/messages/[id]', { params: { id: 'hello world' } }) });
+});
+`,
+      },
+    });
+    mkdirSync(join(root, '.void'));
+    const config = createProjectTsconfig(root, true, true, true);
+    config.compilerOptions!.paths!['void/seed'] = ['./seed.d.mts'];
+    config.compilerOptions!.paths!['void/schema-d1'] = ['./schema.d.cts'];
+    writeFileSync(join(root, '.void', 'tsconfig.json'), JSON.stringify(config));
+    writeFileSync(
+      join(root, '.void', 'routes.d.ts'),
+      'export declare function routeUrl(): string;\n',
+    );
+    writeFileSync(join(root, '.void', 'db.d.ts'), 'export {};\n');
+    writeFileSync(
+      join(root, '.void', 'seed.d.mts'),
+      'export declare function defineSeed(): void;\n',
+    );
+    writeFileSync(join(root, '.void', 'schema.d.cts'), 'export {};\n');
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ extends: './.void/tsconfig.json' }),
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        '--input-type=module',
+        '-e',
+        'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
+        new URL('../../src/cli/db.ts', import.meta.url).href,
+        root,
+      ],
+      { encoding: 'utf8', timeout: 20_000 },
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: '/messages/hello%20world' }]);
+  }, 30_000);
+
+  it('loads CommonJS JavaScript seeds', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.js',
+        content: `module.exports = async function seed({ db }) {
+  const { sql } = require('drizzle-orm');
+  await db.run(sql\`INSERT INTO messages (text) VALUES ('from CommonJS')\`);
+};
+`,
+      },
+    });
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'commonjs' }));
+    await runDbCommand(root, { action: 'seed' });
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'from CommonJS' }]);
+  });
 
   it('checks the seed file before it resets the database', async () => {
     const root = createProjectRoot({
