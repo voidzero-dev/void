@@ -551,6 +551,30 @@ describe('void db execute --remote (D1)', () => {
     expect(mockConfirm).not.toHaveBeenCalled();
   });
 
+  it('skips the destructive prompt in a TTY with --yes', async () => {
+    const root = createProjectRoot();
+    Object.defineProperty(process.stdin, 'isTTY', { value: true, configurable: true });
+    fetchMock.mockResolvedValueOnce(jsonResponse({ results: [], success: true }));
+
+    await runDbCommand(root, {
+      action: 'execute',
+      command: 'DELETE FROM users',
+      remote: true,
+      yes: true,
+    });
+
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('imports a large direct D1 --file in a TTY without a prompt with --yes', async () => {
+    const sql = selectOfSize(D1_STATEMENT_LIMIT + 1);
+    const root = directD1File(sql, true);
+    await runDbCommand(root, { action: 'execute', file: 'input.sql', remote: true, yes: true });
+    expect(mockConfirm).not.toHaveBeenCalled();
+    expect(mockImportD1).toHaveBeenCalledWith(mockD1Context, sql);
+  });
+
   it('runs execute without --remote against the local database, not the proxy', async () => {
     const root = createProjectRoot();
     // No local database exists, so the local path exits.

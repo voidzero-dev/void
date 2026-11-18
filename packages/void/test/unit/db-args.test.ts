@@ -53,6 +53,16 @@ describe('parseDbArgs', () => {
     });
   });
 
+  it('parses execute with --yes', () => {
+    expect(parseDbArgs(['execute', '--remote', '--file', 'catalog.sql', '--yes'])).toEqual({
+      action: 'execute',
+      command: undefined,
+      file: 'catalog.sql',
+      remote: true,
+      yes: true,
+    });
+  });
+
   it('errors on execute with no SQL and no --file', () => {
     expect(() => parseDbArgs(['execute'])).toThrow(
       'db: Usage: void db execute <sql> or void db execute --file <path>.',

@@ -206,7 +206,7 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
   } else if (args.action === 'seed') {
     await runSeed(root, args.file, dialect, args.yes);
   } else if (args.action === 'execute') {
-    await runExecute(root, args.command, args.file, dialect, args.remote);
+    await runExecute(root, args.command, args.file, dialect, args.remote, args.yes);
   } else if (args.action === 'migrate') {
     await runMigrate(root, dialect, args.remote);
   } else if (args.action === 'studio') {
@@ -922,11 +922,14 @@ async function executeExternalRemoteSql(
 
 /**
  * Prompt the user to confirm a destructive remote query when running in a TTY.
- * `always` asks even for read-only SQL. Returns true if execution should proceed,
- * false if it was cancelled.
+ * `always` asks even for read-only SQL, and `yes` (`--yes`) never asks. Returns true if
+ * execution should proceed, false if it was cancelled.
  */
-async function confirmDestructiveRemote(sql: string, always = false): Promise<boolean> {
-  if (!always && isSafeStatement(sql)) {
+async function confirmDestructiveRemote(
+  sql: string,
+  { always = false, yes = false }: { always?: boolean; yes?: boolean } = {},
+): Promise<boolean> {
+  if (yes || (!always && isSafeStatement(sql))) {
     return true;
   }
   if (!process.stdin.isTTY) {
@@ -951,6 +954,7 @@ async function runExecute(
   file: string | undefined,
   dialect: DatabaseDialect,
   remote?: boolean,
+  yes?: boolean,
 ): Promise<void> {
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
@@ -966,7 +970,7 @@ async function runExecute(
           `${file} is larger than 100 KB, so Void runs it as a D1 import. The database cannot serve queries until the import finishes, and query rows are not printed.`,
         );
       }
-      const shouldProceed = await confirmDestructiveRemote(sql, bulkImport);
+      const shouldProceed = await confirmDestructiveRemote(sql, { always: bulkImport, yes });
       if (!shouldProceed) {
         log.info('Cancelled.');
         process.exit(0);
@@ -1009,7 +1013,7 @@ async function runExecute(
       process.exit(1);
     }
 
-    const shouldProceed = await confirmDestructiveRemote(sql);
+    const shouldProceed = await confirmDestructiveRemote(sql, { yes });
     if (!shouldProceed) {
       log.info('Cancelled.');
       process.exit(0);

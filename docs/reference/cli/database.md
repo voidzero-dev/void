@@ -53,6 +53,7 @@ Programmatic seed modules must export either a default function or a named `seed
 void db execute <sql>
 void db execute --file <path>
 void db execute --remote <sql>
+void db execute --remote --file <path> [--yes]
 ```
 
 Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results.
@@ -66,7 +67,7 @@ By default, targets the local database. Pass `--remote` to run against the deplo
 
 On direct Cloudflare D1 deployments, a `--file` larger than 100 KB runs as a D1 import: Void waits for it to finish, the database cannot serve queries until then, and query rows are not printed. Smaller files print rows like inline SQL.
 
-For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. A TTY also asks before a D1 import, whatever the file contains. Non-TTY environments (CI) skip the prompt.
+For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. A TTY also asks before a D1 import, whatever the file contains. Pass `--yes` to skip the prompt. Non-TTY environments (CI) never prompt, so `--yes` is optional there.
 
 ## `void db migrate` {#void-db-migrate}
 
