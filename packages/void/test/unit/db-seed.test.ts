@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -352,58 +352,185 @@ export const messages = sqliteTable('messages', {
     30_000,
   );
 
-  it('keeps runtime helpers when extending generated declaration aliases', async () => {
-    const root = createProjectRoot({
-      schema: `import { integer, sqliteTable, text } from 'void/schema-d1';
+  it.each(['ts', 'mjs', 'js'])(
+    'keeps runtime helpers in %s seeds when extending generated declaration aliases',
+    async (extension) => {
+      const root = createProjectRoot({
+        schema: `import { integer, sqliteTable, text } from 'void/schema-d1';
 export const messages = sqliteTable('messages', {
   id: integer().primaryKey({ autoIncrement: true }),
   text: text().notNull(),
 });
 `,
-      seedFile: {
-        name: 'seed.ts',
-        content: `import { defineSeed } from 'void/seed';
+        seedFile: {
+          name: `seed.${extension}`,
+          content: `import { defineSeed } from 'void/seed';
 import { routeUrl } from 'void/routes';
 import { messages } from '@schema';
 export default defineSeed(async ({ db }) => {
   await db.insert(messages).values({ text: routeUrl('/messages/[id]', { params: { id: 'hello world' } }) });
 });
 `,
-      },
+        },
+      });
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+      mkdirSync(join(root, 'node_modules'));
+      symlinkSync(
+        join(import.meta.dirname, '../..'),
+        join(root, 'node_modules', 'void'),
+        process.platform === 'win32' ? 'junction' : 'dir',
+      );
+      mkdirSync(join(root, '.void'));
+      const config = createProjectTsconfig(root, true, true, true);
+      config.compilerOptions!.paths!['void/seed'] = ['./seed.d.mts'];
+      config.compilerOptions!.paths!['void/schema-d1'] = ['./schema.d.cts'];
+      writeFileSync(join(root, '.void', 'tsconfig.json'), JSON.stringify(config));
+      writeFileSync(
+        join(root, '.void', 'routes.d.ts'),
+        'export declare function routeUrl(): string;\n',
+      );
+      writeFileSync(join(root, '.void', 'db.d.ts'), 'export {};\n');
+      writeFileSync(
+        join(root, '.void', 'seed.d.mts'),
+        'export declare function defineSeed(): void;\n',
+      );
+      writeFileSync(join(root, '.void', 'schema.d.cts'), 'export {};\n');
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        JSON.stringify({ extends: './.void/tsconfig.json' }),
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
+          new URL('../../src/cli/db.ts', import.meta.url).href,
+          root,
+        ],
+        { encoding: 'utf8', timeout: 20_000 },
+      );
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readMessages(root)).toEqual([{ id: 1, text: '/messages/hello%20world' }]);
+    },
+    30_000,
+  );
+
+  it.each(
+    ['ts', 'mjs', 'js'].flatMap((extension) =>
+      ['static', 'dynamic'].map((importMode) => ({ extension, importMode })),
+    ),
+  )(
+    'resolves $importMode aliases in $extension seeds before matching packages',
+    async ({ extension, importMode }) => {
+      const root = createProjectRoot({
+        seedFile: {
+          name: `seed.${extension}`,
+          content: `import { sql } from 'drizzle-orm';
+${importMode === 'static' ? "import { value } from 'seed-fixture';" : ''}
+export default async function seed({ db }) {
+  ${importMode === 'dynamic' ? "const { value } = await import('seed-fixture');" : ''}
+  await db.run(sql\`INSERT INTO messages (text) VALUES (\${value})\`);
+}
+`,
+        },
+      });
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'module' }));
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: {
+            baseUrl: '.',
+            paths: {
+              'seed-fixture': ['./missing', './fixtures/message.mjs'],
+              'seed-*': ['./fixtures/*.d.ts', './fixtures/*.js'],
+              'better-sqlite3': ['./fixtures/not-a-driver.js'],
+            },
+          },
+        }),
+      );
+      mkdirSync(join(root, 'fixtures'));
+      writeFileSync(
+        join(root, 'fixtures', 'message.mjs'),
+        `import { basename } from 'node:path';
+import { value as prefix } from 'seed-value';
+export const value = prefix + (await import('seed-value')).value;
+if (basename(import.meta.url) !== 'message.mjs') throw new Error('Wrong module URL');
+`,
+      );
+      writeFileSync(join(root, 'fixtures', 'value.js'), "export const value = 'local';\n");
+      writeFileSync(join(root, 'fixtures', 'value.d.ts'), 'export declare const value: string;\n');
+      writeFileSync(
+        join(root, 'fixtures', 'not-a-driver.js'),
+        "throw new Error('CLI database imports used seed aliases');\n",
+      );
+      for (const name of ['seed-fixture', 'seed-value']) {
+        const directory = join(root, 'node_modules', name);
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(
+          join(directory, 'package.json'),
+          JSON.stringify({ name, type: 'module', exports: './index.js' }),
+        );
+        writeFileSync(join(directory, 'index.js'), "export const value = 'package';\n");
+      }
+      writeFileSync(
+        join(root, 'db', 'broken.mjs'),
+        "import 'seed-fixture';\nexport const value = 1;\n",
+      );
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          `import { createRequire } from 'node:module';
+const { runDbCommand } = await import(process.argv[1]);
+await runDbCommand(process.argv[2], { action: 'seed' });
+const require = createRequire(process.argv[2] + '/package.json');
+if (!require.resolve('seed-fixture').includes('node_modules')) throw new Error('Seed alias hook leaked');
+let error;
+try { await runDbCommand(process.argv[2], { action: 'seed', file: 'db/broken.mjs' }); }
+catch (cause) { error = cause; }
+if (!error?.message.includes('must export')) throw new Error('Invalid seed was accepted');
+if (!require.resolve('seed-fixture').includes('node_modules')) throw new Error('Failed seed leaked its alias hook');`,
+          new URL('../../src/cli/db.ts', import.meta.url).href,
+          root,
+        ],
+        { encoding: 'utf8', timeout: 20_000 },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readMessages(root)).toEqual([{ id: 1, text: 'locallocal' }]);
+    },
+    30_000,
+  );
+
+  it('suggests void prepare for a missing generated tsconfig before resetting data', async () => {
+    const root = createProjectRoot({
+      seedFile: { name: 'seed.sql', content: "INSERT INTO messages (text) VALUES ('keep me');" },
     });
-    mkdirSync(join(root, '.void'));
-    const config = createProjectTsconfig(root, true, true, true);
-    config.compilerOptions!.paths!['void/seed'] = ['./seed.d.mts'];
-    config.compilerOptions!.paths!['void/schema-d1'] = ['./schema.d.cts'];
-    writeFileSync(join(root, '.void', 'tsconfig.json'), JSON.stringify(config));
-    writeFileSync(
-      join(root, '.void', 'routes.d.ts'),
-      'export declare function routeUrl(): string;\n',
-    );
-    writeFileSync(join(root, '.void', 'db.d.ts'), 'export {};\n');
-    writeFileSync(
-      join(root, '.void', 'seed.d.mts'),
-      'export declare function defineSeed(): void;\n',
-    );
-    writeFileSync(join(root, '.void', 'schema.d.cts'), 'export {};\n');
+    await runDbCommand(root, { action: 'seed' });
     writeFileSync(
       join(root, 'tsconfig.json'),
       JSON.stringify({ extends: './.void/tsconfig.json' }),
     );
-    const result = spawnSync(
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
-        new URL('../../src/cli/db.ts', import.meta.url).href,
-        root,
-      ],
-      { encoding: 'utf8', timeout: 20_000 },
+    writeFileSync(join(root, 'db', 'seed.ts'), 'export default async function seed() {}\n');
+
+    await expect(runDbCommand(root, { action: 'seed', file: 'db/seed.ts' })).rejects.toThrow(
+      /void prepare/,
     );
-    expect(result.status, result.stderr).toBe(0);
-    expect(await readMessages(root)).toEqual([{ id: 1, text: '/messages/hello%20world' }]);
-  }, 30_000);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'keep me' }]);
+  });
+
+  it('preserves errors for unrelated missing tsconfig bases', async () => {
+    const root = createProjectRoot({
+      seedFile: { name: 'seed.ts', content: 'export default async function seed() {}\n' },
+    });
+    writeFileSync(join(root, 'tsconfig.json'), JSON.stringify({ extends: './missing.json' }));
+
+    await expect(runDbCommand(root, { action: 'seed' })).rejects.toThrow(
+      "File './missing.json' not found.",
+    );
+  });
 
   it('loads CommonJS JavaScript seeds', async () => {
     const root = createProjectRoot({

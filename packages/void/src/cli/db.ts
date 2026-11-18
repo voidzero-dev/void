@@ -9,13 +9,13 @@ import {
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createRequire } from 'node:module';
+import { createRequire, isBuiltin, registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
 import { createPathsMatcher, getTsconfig } from 'get-tsconfig';
 import { createJiti } from 'jiti';
-import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
+import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
 import {
   readConfig,
   getDatabaseCasing,
@@ -2553,7 +2553,9 @@ function createSeedModuleLoader(root: string): {
 } {
   const tsconfigPath = join(root, 'tsconfig.json');
   let directory: string | undefined;
+  let hooks: ReturnType<typeof registerHooks> | undefined;
   const close = () => {
+    hooks?.deregister();
     if (directory) {
       rmSync(directory, { recursive: true, force: true });
     }
@@ -2562,6 +2564,7 @@ function createSeedModuleLoader(root: string): {
     const project = existsSync(tsconfigPath) ? getTsconfig(tsconfigPath) : null;
     const options = project?.config.compilerOptions;
     let runtimeTsconfig: string | false = false;
+    let matchPaths: ReturnType<typeof createPathsMatcher> = null;
     if (project && options) {
       const paths: Record<string, Array<string>> = {};
       for (const [alias, targets] of Object.entries(options.paths ?? {})) {
@@ -2581,17 +2584,16 @@ function createSeedModuleLoader(root: string): {
       // runtime config through execution: dynamic imports create child loaders.
       directory = mkdtempSync(join(tmpdir(), 'void-seed-'));
       runtimeTsconfig = join(directory, 'tsconfig.json');
-      writeFileSync(
-        runtimeTsconfig,
-        JSON.stringify({
-          compilerOptions: {
-            ...(options.baseUrl !== undefined
-              ? { baseUrl: resolve(dirname(project.path), options.baseUrl) }
-              : {}),
-            paths,
-          },
-        }),
-      );
+      const config = {
+        compilerOptions: {
+          ...(options.baseUrl !== undefined
+            ? { baseUrl: resolve(dirname(project.path), options.baseUrl) }
+            : {}),
+          paths,
+        },
+      };
+      writeFileSync(runtimeTsconfig, JSON.stringify(config));
+      matchPaths = createPathsMatcher({ path: runtimeTsconfig, config });
     }
     const jiti = createJiti(import.meta.url, {
       fsCache: false,
@@ -2599,9 +2601,51 @@ function createSeedModuleLoader(root: string): {
       interopDefault: false,
       tsconfigPaths: runtimeTsconfig,
     });
+    // Jiti delegates .mjs and ESM .js to Node. Apply the same paths there,
+    // including imports made by ESM helpers and dynamic imports during the seed.
+    if (matchPaths) {
+      const jitiUrl = import.meta.resolve('jiti');
+      const modules = new Set<string>();
+      hooks = registerHooks({
+        resolve(specifier, context, nextResolve) {
+          // Only follow Jiti's native imports and their descendants. CLI imports
+          // made while resetting the database must keep their own resolution.
+          if (context.parentURL !== jitiUrl && !modules.has(context.parentURL ?? '')) {
+            return nextResolve(specifier, context);
+          }
+          if (
+            !isBuiltin(specifier) &&
+            !isAbsolute(specifier) &&
+            !specifier.startsWith('.') &&
+            !/^[\w+.-]+:/.test(specifier)
+          ) {
+            for (const target of matchPaths(specifier)) {
+              const resolved = jiti.esmResolve(target, { try: true });
+              if (resolved) {
+                const result = nextResolve(resolved, context);
+                modules.add(result.url);
+                return result;
+              }
+            }
+          }
+          const result = nextResolve(specifier, context);
+          modules.add(result.url);
+          return result;
+        },
+      });
+    }
     return { importModule: (path) => jiti.import<Record<string, unknown>>(path), close };
   } catch (error) {
     close();
+    if (
+      !existsSync(join(root, '.void', 'tsconfig.json')) &&
+      error instanceof Error &&
+      /File ['"].*[/\\]\.void[/\\]tsconfig\.json['"] not found/.test(error.message)
+    ) {
+      throw new Error('db: Missing .void/tsconfig.json. Run `void prepare` before seeding.', {
+        cause: error,
+      });
+    }
     throw error;
   }
 }
