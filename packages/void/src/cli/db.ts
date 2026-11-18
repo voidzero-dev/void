@@ -2,21 +2,16 @@ import { execFileSync } from 'node:child_process';
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readFileSync,
   readdirSync,
-  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
-import { createRequire, isBuiltin, registerHooks } from 'node:module';
-import { tmpdir } from 'node:os';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { createRequire } from 'node:module';
+import { pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
-import { createPathsMatcher, getTsconfig } from 'get-tsconfig';
-import { createJiti } from 'jiti';
-import { basename, dirname, extname, isAbsolute, join, relative, resolve } from 'pathslash';
+import { basename, dirname, extname, join, relative, resolve } from 'pathslash';
 import {
   readConfig,
   getDatabaseCasing,
@@ -56,6 +51,7 @@ import {
   quoteSqlIdentifier,
   quoteSqlString,
 } from './db-export-sequences.ts';
+import type { SeedModuleImporter } from './db-seed-loader.ts';
 import { formatTimestamp } from './gen.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
@@ -780,7 +776,10 @@ async function runSeed(
   const seed = resolveSeedTarget(root, file);
   const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
   await confirmReset(root, dialect, yes);
-  const loader = sql === undefined ? createSeedModuleLoader(root) : undefined;
+  const loader =
+    sql === undefined
+      ? (await import('./db-seed-loader.ts')).createSeedModuleLoader(root, seed.path)
+      : undefined;
   try {
     const seedFn = loader ? await loadSeedFunction(seed.path, loader.importModule) : undefined;
 
@@ -2544,126 +2543,6 @@ function collectSchemaModuleFiles(dir: string): Array<string> {
     }
   }
   return files.sort();
-}
-
-type SeedModuleImporter = (path: string) => Promise<Record<string, unknown>>;
-
-function createSeedModuleLoader(root: string): {
-  importModule: SeedModuleImporter;
-  close: () => void;
-} {
-  const tsconfigPath = join(root, 'tsconfig.json');
-  let directory: string | undefined;
-  let hooks: ReturnType<typeof registerHooks> | undefined;
-  const close = () => {
-    hooks?.deregister();
-    if (directory) {
-      rmSync(directory, { recursive: true, force: true });
-    }
-  };
-  try {
-    const project = existsSync(tsconfigPath) ? getTsconfig(tsconfigPath) : null;
-    const options = project?.config.compilerOptions;
-    let runtimeTsconfig: string | false = false;
-    let matchPaths: ReturnType<typeof createPathsMatcher> = null;
-    if (project && options) {
-      const paths: Record<string, Array<string>> = {};
-      for (const [alias, targets] of Object.entries(options.paths ?? {})) {
-        const runtimeTargets = targets.filter((target) => !/\.d\.[cm]?ts$/.test(target));
-        if (runtimeTargets.length === 0) {
-          continue;
-        }
-        // Resolve each mapping independently, retaining the declaring config's
-        // path base and the wildcard itself when converting targets to absolute paths.
-        const matcher = createPathsMatcher({
-          ...project,
-          config: { compilerOptions: { ...options, paths: { [alias]: runtimeTargets } } },
-        });
-        paths[alias] = matcher!(alias);
-      }
-      // Jiti accepts a config filename, not parsed options. Keep this disposable
-      // runtime config through execution: dynamic imports create child loaders.
-      directory = mkdtempSync(join(tmpdir(), 'void-seed-'));
-      runtimeTsconfig = join(directory, 'tsconfig.json');
-      const config = {
-        compilerOptions: {
-          ...(options.baseUrl !== undefined
-            ? { baseUrl: resolve(dirname(project.path), options.baseUrl) }
-            : {}),
-          paths,
-        },
-      };
-      writeFileSync(runtimeTsconfig, JSON.stringify(config));
-      matchPaths = createPathsMatcher({ path: runtimeTsconfig, config });
-    }
-    const jiti = createJiti(import.meta.url, {
-      fsCache: false,
-      moduleCache: false,
-      interopDefault: false,
-      tsconfigPaths: runtimeTsconfig,
-    });
-    // Jiti delegates .mjs and ESM .js to Node. Apply the same paths there,
-    // including imports made by ESM helpers and dynamic imports during the seed.
-    if (matchPaths) {
-      const appUrl = pathToFileURL(realpathSync(root) + '/').href;
-      hooks = registerHooks({
-        resolve(specifier, context, nextResolve) {
-          // Use the importer's location for both ESM and CommonJS. Installed
-          // dependencies resolve their imports in their own package scope.
-          const parent = context.parentURL;
-          if (
-            !parent?.startsWith(appUrl) ||
-            parent.slice(appUrl.length - 1).includes('/node_modules/')
-          ) {
-            return nextResolve(specifier, context);
-          }
-          // Generated schema barrels re-export extensionless TypeScript paths.
-          if (specifier.startsWith('./') || specifier.startsWith('../')) {
-            try {
-              return nextResolve(specifier, context);
-            } catch (error) {
-              const code = (error as NodeJS.ErrnoException).code;
-              if (code === 'ERR_MODULE_NOT_FOUND' || code === 'ERR_UNSUPPORTED_DIR_IMPORT') {
-                const target = new URL(specifier, parent);
-                const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
-                if (resolved) {
-                  return nextResolve(resolved + target.search + target.hash, context);
-                }
-              }
-              throw error;
-            }
-          }
-          if (
-            !isBuiltin(specifier) &&
-            !isAbsolute(specifier) &&
-            !specifier.startsWith('.') &&
-            !/^[\w+.-]+:/.test(specifier)
-          ) {
-            for (const target of matchPaths(specifier)) {
-              const resolved = jiti.esmResolve(target, { try: true });
-              if (resolved) {
-                return nextResolve(resolved, context);
-              }
-            }
-          }
-          return nextResolve(specifier, context);
-        },
-      });
-    }
-    return { importModule: (path) => jiti.import<Record<string, unknown>>(path), close };
-  } catch (error) {
-    close();
-    if (
-      !existsSync(join(root, '.void', 'tsconfig.json')) &&
-      error instanceof Error &&
-      /File ['"].*[/\\]\.void[/\\]tsconfig\.json['"] not found/.test(error.message)
-    ) {
-      throw new Error('db: Missing .void/tsconfig.json. Run `void prepare` before seeding.', {
-        cause: error,
-      });
-    }
-    throw error;
-  }
 }
 
 /** The schema and casing that `void/db` gives drizzle, or undefined when neither is set. */

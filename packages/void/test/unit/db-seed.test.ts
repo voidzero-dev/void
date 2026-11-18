@@ -109,15 +109,16 @@ async function readMessages(root: string): Promise<Array<{ id: number; text: str
 }
 
 // Exercise Node’s module loaders without Vitest resolving the fixture imports.
-function runSeedInNode(root: string) {
+function runSeedInNode(root: string, file?: string) {
   const result = spawnSync(
     process.execPath,
     [
       '--input-type=module',
       '-e',
-      'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
+      'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed", file: process.argv[3] });',
       new URL('../../src/cli/db.ts', import.meta.url).href,
       root,
+      ...(file ? [file] : []),
     ],
     { encoding: 'utf8', timeout: 20_000 },
   );
@@ -506,10 +507,15 @@ export const messages = sqliteTable('messages', { text: text().notNull() });`,
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'from barrel' }]);
   }, 30_000);
 
-  it.each(['installed package', 'local CommonJS helper'])(
+  it.each([
+    'installed package',
+    'linked workspace package',
+    'linked TypeScript package',
+    'local CommonJS helper',
+  ])(
     'resolves a dynamic #internal import from %s',
     async (importer) => {
-      const installed = importer === 'installed package';
+      const installed = importer !== 'local CommonJS helper';
       const root = createProjectRoot({
         seedFile: {
           name: installed ? 'seed.mjs' : 'seed.ts',
@@ -528,17 +534,31 @@ export default async function ({ db }) {
       writeFileSync(join(root, 'app.mjs'), "export default 'app';");
       const helper = "async () => (await import('#internal')).default";
       if (installed) {
-        const directory = join(root, 'node_modules/seed-package');
+        const linked = importer.startsWith('linked');
+        const entry = importer === 'linked TypeScript package' ? 'index.ts' : 'index.js';
+        const directory = join(
+          root,
+          linked ? 'packages/seed-package' : 'node_modules/seed-package',
+        );
         mkdirSync(directory, { recursive: true });
+        if (linked) {
+          mkdirSync(join(root, 'node_modules'));
+          symlinkSync(directory, join(root, 'node_modules/seed-package'), 'junction');
+        }
         writeFileSync(
           join(directory, 'package.json'),
           JSON.stringify({
             type: 'module',
-            exports: './index.js',
+            exports: './' + entry,
             imports: { '#internal': './internal.js' },
           }),
         );
-        writeFileSync(join(directory, 'index.js'), 'export const readValue = ' + helper);
+        if (entry === 'index.ts') {
+          writeFileSync(join(directory, entry), "export { readValue } from './helper';");
+          writeFileSync(join(directory, 'helper.ts'), 'export const readValue = ' + helper);
+        } else {
+          writeFileSync(join(directory, entry), 'export const readValue = ' + helper);
+        }
         writeFileSync(join(directory, 'internal.js'), "export default 'package';");
       } else {
         writeFileSync(join(root, 'db/helper.cjs'), 'exports.readValue = ' + helper);
@@ -547,6 +567,45 @@ export default async function ({ db }) {
       expect(await readMessages(root)).toEqual([{ id: 1, text: installed ? 'package' : 'app' }]);
     },
     30_000,
+  );
+
+  it.each([
+    { name: 'seed.mjs', external: false },
+    { name: 'seed.js', external: false },
+    { name: 'seed.mjs', external: true },
+  ])(
+    'loads a TypeScript enum via a dynamic alias from $name (external: $external)',
+    async ({ name, external }) => {
+      const root = createProjectRoot({
+        seedFile: { name: 'seed.sql', content: '' },
+        schema:
+          "import { sqliteTable, text } from 'drizzle-orm/sqlite-core'; export const messages = sqliteTable('messages', {text: text().notNull()});",
+      });
+      writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        JSON.stringify({
+          compilerOptions: { paths: { '@fixture': ['./fixture.ts'] } },
+        }),
+      );
+      writeFileSync(join(root, 'fixture.ts'), "export enum Label { Local = 'local' }");
+      const seedDir = external
+        ? mkdtempSync(join(root, '../.tmp-external-seed-'))
+        : join(root, 'db');
+      if (external) {
+        roots.push(seedDir);
+      }
+      const seedPath = join(seedDir, name);
+      writeFileSync(
+        seedPath,
+        `export default async ({ db, schema }) => {
+  const { Label } = await import('@fixture');
+  await db.insert(schema.messages).values({text: Label.Local});
+};`,
+      );
+      runSeedInNode(root, seedPath);
+      expect(await readMessages(root)).toEqual([{ id: 1, text: 'local' }]);
+    },
   );
 
   it('suggests void prepare for a missing generated tsconfig before resetting data', async () => {
@@ -591,6 +650,29 @@ export default async function ({ db }) {
     writeFileSync(join(root, 'package.json'), JSON.stringify({ type: 'commonjs' }));
     await runDbCommand(root, { action: 'seed' });
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'from CommonJS' }]);
+  });
+
+  it('keeps ESM syntax in a JavaScript seed and its helpers in a CommonJS app', async () => {
+    const root = createProjectRoot({
+      seedFile: {
+        name: 'seed.js',
+        content: `import {value} from './helper.js';
+import { sql } from 'drizzle-orm';
+export default async ({db})=>{ await db.run(sql\`INSERT INTO messages (text) VALUES (\${value})\`); };`,
+      },
+    });
+    writeFileSync(join(root, 'package.json'), '{"type":"commonjs"}');
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@data': ['./data.json'] } } }),
+    );
+    writeFileSync(join(root, 'data.json'), '{"text":"from json"}');
+    writeFileSync(
+      join(root, 'db/helper.js'),
+      "export const value = (await import('@data')).default.text;",
+    );
+    runSeedInNode(root);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'from json' }]);
   });
 
   it('checks the seed file before it resets the database', async () => {
