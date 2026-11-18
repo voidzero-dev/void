@@ -7,6 +7,7 @@ import {
   deriveAiUsageTag,
   deriveProxyInternalAuth,
   deriveProxyToken,
+  deriveSecurityScanTag,
   isAcceptedGeneration,
   LEGACY_PROXY_TOKEN_STATE,
   parseProxyTokenState,
@@ -63,6 +64,12 @@ function nodeAiUsageTag(projectId: string, secret = SECRET): string {
   const key = Buffer.from(hkdfSync('sha256', secret, 'void-ai-usage', 'ai-usage', 32));
   const mac = base64url(createHmac('sha256', key).update(`void-ai-usage\n${projectId}`).digest());
   return `${projectId}.${mac.slice(0, 22)}`;
+}
+
+function nodeSecurityScanTag(scanId: string, secret = SECRET): string {
+  const key = Buffer.from(hkdfSync('sha256', secret, 'void-security-scan', 'security-scan', 32));
+  const mac = base64url(createHmac('sha256', key).update(`void-security-scan\n${scanId}`).digest());
+  return `${scanId}.${mac.slice(0, 22)}`;
 }
 
 function kvStub(values: Record<string, string> = {}) {
@@ -451,5 +458,30 @@ describe('deriveAiUsageTag', () => {
 
   it('accepts ids that are not project ids', async () => {
     await expect(deriveAiUsageTag(SECRET, 'project-1')).resolves.toBe(nodeAiUsageTag('project-1'));
+  });
+});
+
+describe('deriveSecurityScanTag', () => {
+  const SCAN = 'scan_000000000001';
+
+  it('is the scan id and a 22-character MAC under its own HKDF key', async () => {
+    const tag = await deriveSecurityScanTag(SECRET, SCAN);
+    expect(tag).toMatch(/^scan_000000000001\.[A-Za-z0-9_-]{22}$/);
+    expect(tag).toBe(nodeSecurityScanTag(SCAN));
+    expect(await deriveSecurityScanTag(SECRET, SCAN)).toBe(tag);
+  });
+
+  it('differs from the AI usage tag for the same id', async () => {
+    const mac = (await deriveSecurityScanTag(SECRET, SCAN)).slice(`${SCAN}.`.length);
+    const usage = (await deriveAiUsageTag(SECRET, SCAN)).slice(`${SCAN}.`.length);
+    expect(mac).not.toBe(usage);
+  });
+
+  it('differs per scan and per secret', async () => {
+    const tag = await deriveSecurityScanTag(SECRET, SCAN);
+    expect(await deriveSecurityScanTag(SECRET, 'scan_000000000002')).not.toBe(tag);
+    const otherSecret = await deriveSecurityScanTag('other-secret', SCAN);
+    expect(otherSecret).not.toBe(tag);
+    expect(otherSecret).toBe(nodeSecurityScanTag(SCAN, 'other-secret'));
   });
 });

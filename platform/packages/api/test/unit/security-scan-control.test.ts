@@ -135,11 +135,13 @@ describe('SecurityScanControl', () => {
     expect(mocks.row).not.toHaveBeenCalled();
   });
 
-  it('has no input, model proxy or ingest before their milestones', async () => {
+  it('hands model calls to the model proxy; no input or ingest before their milestones', async () => {
     expect(await control().input('ss_1', 2)).toBeNull();
+    // An unknown model route is refused by the proxy before any read.
     const model = await control().model('ss_1', 2, new Request('http://model/'));
-    expect(model.status).toBe(503);
+    expect(model.status).toBe(404);
     expect(model.headers.get('x-void-scan-stop')).toBeNull();
+    expect(mocks.row).not.toHaveBeenCalled();
     expect(await control().result('ss_1', 2, { status: {}, findings: null })).toEqual({
       ok: false,
     });

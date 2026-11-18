@@ -455,6 +455,57 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `security-budget.test.ts` (ceiling table, edges #49–#52); integration
   `security-spend.test.ts` (two reserves near the cap: one wins — edge #51, real SQL).
 - Exit: metered spend equals tokens × list price in tests.
+- As built: `SecurityScanControl.model()` calls `handleSecurityModelRequest`
+  (`security/model-proxy.ts`). One route per host: `POST /v1/chat/completions`
+  (`@cf`, `env.AI.run`), `/v1/messages` (`anthropic/*`), `/v1/responses` (`openai/*`)
+  (REST `/ai/v1/*`); a route that does not match the model's host is a 422. Policy Off
+  refuses every call (409). Check 5 uses the stored `entitlement.hosts` (no 24 h
+  freshness: the daily probe in M9 keeps it current). A third-party call needs the
+  project's own notice at the current version. REST headers are built from nothing
+  (only `anthropic-version`/`anthropic-beta` pass on Messages), so no caller credential
+  or `cf-aig-*` header passes. The binding answer is turned into chat-completions shape
+  when it is the legacy `{response, tool_calls}` form (Engine B reads `choices`).
+  Money: a call's worst case (request bytes as input tokens, since a token is at least
+  one byte, plus its output limit) is held on `spent_nano_usd` of both month rows in
+  the `UPDATE … WHERE spent + worst ≤ cap RETURNING` that checks the cap, after the
+  scan row `UPDATE` that checks attempt, `running`, lease, call cap and token caps. One
+  transaction, always scan → project → platform row (also for reserve, settle,
+  release, so no lock cycle). After the answer the hold is replaced by tokens × list
+  price; a failed upstream call costs 0; a paid answer with no usage, a dropped stream
+  or a failed settle keeps the worst case (the meter errs high). The proxy clamps the
+  output limit to what the scan has left (`max_tokens` / `max_output_tokens`; 16,384
+  when the caller sets none) so the worst case is bounded. Stops answer 429 (402 for
+  credits) with `x-void-scan-stop`; other failures carry no header (runner retries once).
+  `budget.ts` also has `reserveSecurityScanBudget` (scan start, for M9: sets
+  `started_at`, refuses a scan that already holds a reserve) and
+  `releaseSecurityScanReserve` (month of `started_at`, edge #52), the §16.2 ceiling
+  rules, the edge #49 refusal copy, 80/100 % thresholds (alerts stay M15) and the
+  `Dec 1` reset label. Deviation: per-session counts (40), the `@cf` token bucket
+  (10/min/model) and the last refused call live in the `SecurityScanScheduler` DO
+  storage (`security/call-ledger.ts`, RPC `admitModelCall`, `recordModelCallFailure`,
+  `modelCallFailure`, `forgetModelCalls`): Postgres has no column for them and M3 is
+  done. The session comes from an optional `x-void-scan-session: 0–63` header (Engine C
+  config in M13; Engine B sends none and counts its own turns); the per-scan cap in
+  Postgres stays the hard bound. M9 adds 429 back-off to the bucket and calls
+  `forgetModelCalls` when an attempt ends. `GET /v1/void/last-failure` answers the last
+  refused or failed call of the attempt (Engine C). Waiting for a rate token (≤ 120 s)
+  does not use a model call. `deriveSecurityScanTag` sits in `proxy-token.ts`
+  (`<scanId>.<22-char MAC>`, HKDF label `void-security-scan`). Extra test cases: the
+  call ledger in `security-budget.test.ts`; the proxy on real SQL in
+  `security-spend.test.ts`.
+  Review fixes: the proxy refuses (422 `tool_not_allowed`, failure `not_allowed`)
+  any tool the provider runs (Messages: any typed tool except `custom`; Responses:
+  anything but `function`/`custom`, also inside a `namespace` or an `additional_tools`
+  input item) and `mcp_servers`, `container`, `background`; the container's tool
+  lockdown is untrusted (spec T2). `anthropic-beta` keeps only an allowlist
+  (`SECURITY_ALLOWED_ANTHROPIC_BETAS`, no `context-1m-*`); S2 recorded header names,
+  not values, so M13 confirms the list and the Codex namespace type. When the output
+  left is below the route minimum (16 on Responses) or a `budget_tokens` thinking
+  budget cannot drop to ≥ 1,024 under it, the call answers the `tokens` stop before
+  the hold; otherwise the budget is lowered to `max_tokens − 1`. A 2xx answer that is
+  not JSON keeps the worst case (502 to the runner). Cache writes are priced 1.25×
+  (5 min) / 2× (1 h) input and a Messages hold counts input at 2×; cache reads stay
+  at 1× (over). On the binding only a 402 is a credits stop.
 
 **M8 Outbox enqueue and input hold.**
 

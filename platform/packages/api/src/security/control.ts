@@ -7,8 +7,9 @@
  *
  * Every call is fenced by `attempt`: a write or a call from an older attempt, or after
  * the lease ran out, is refused (spec §6.2, T10). `heartbeat` is the fence check the
- * controller makes before it starts a container and on every poll; `input` (M10),
- * `model` (M7) and `result` (M12) refuse until their milestones land.
+ * controller makes before it starts a container and on every poll. `model` is the
+ * model proxy (`model-proxy.ts`); `input` (M10) and `result` (M12) refuse until
+ * their milestones land.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
@@ -22,6 +23,7 @@ import {
 } from '../provisioning/security-scanner.ts';
 import { projects } from '../schema.ts';
 import type { ScanFence, ScanResultReport } from '../security-scanner-controller-runtime.ts';
+import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
 import { securityScans } from './schema.ts';
 
 const UNAVAILABLE: ScanFence = { ok: false, reason: 'unavailable' };
@@ -113,14 +115,12 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return null;
   }
 
-  /** The model proxy (M7). Until then every call fails as infrastructure. */
-  async model(scanId: string, attempt: number, _request: Request): Promise<Response> {
+  /** The model proxy: every model call of this scan attempt (spec §15.1). */
+  async model(scanId: string, attempt: number, request: Request): Promise<Response> {
     if (!this.trusted(scanId, attempt)) {
       return new Response('forbidden', { status: 403 });
     }
-    return new Response('the model proxy is not available on this platform version', {
-      status: 503,
-    });
+    return handleSecurityModelRequest(securityModelProxyDeps(this.env), scanId, attempt, request);
   }
 
   /** Result ingest (M12). Until then a result is refused and the reaper ends the scan. */
