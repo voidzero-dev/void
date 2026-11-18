@@ -9,6 +9,34 @@ function object(value: unknown): Json {
   return value && typeof value === 'object' && !Array.isArray(value) ? (value as Json) : {};
 }
 
+function strings(value: unknown): Array<string> {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const out: Array<string> = [];
+  for (const item of value) {
+    const text = typeof item === 'string' ? item : object(item).message;
+    if (typeof text === 'string' && text) {
+      out.push(text);
+    }
+  }
+  return out;
+}
+
+/**
+ * A failed ingest reports the SQL error in `errors` (and progress in
+ * `messages`) with `status: 'error'`; `error` is set only when the import
+ * itself was refused. Show all of them, as wrangler does.
+ */
+function importFailureDetail(state: Json): string {
+  const errors = strings(state.errors);
+  if (typeof state.error === 'string' && state.error) {
+    errors.unshift(state.error);
+  }
+  const lines = [...errors, ...strings(state.messages)];
+  return lines.length > 0 ? sanitizeTerminalLogText(lines.join('\n')) : 'Unknown import error.';
+}
+
 /** Upload SQL separately from process arguments and wait for D1 to finish ingesting it. */
 export async function importD1SqlFile({
   endpoint,
@@ -48,9 +76,7 @@ export async function importD1SqlFile({
     }
     const state = object(data.result);
     if (state.status === 'error' || state.success === false) {
-      throw new Error(
-        `D1 import failed: ${sanitizeTerminalLogText(String(state.error ?? 'Unknown import error.'))}`,
-      );
+      throw new Error(`D1 import failed: ${importFailureDetail(state)}`);
     }
     return state;
   }

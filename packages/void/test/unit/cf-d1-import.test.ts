@@ -104,3 +104,46 @@ it('rejects non-HTTPS upload URLs without sending SQL or credentials', async () 
   await expect(importD1SqlFile(fixture())).rejects.toThrow('insecure');
   expect(fetch).toHaveBeenCalledTimes(1);
 });
+
+async function importError(): Promise<Error> {
+  const error = await importD1SqlFile(fixture()).then(
+    () => undefined,
+    (reason: unknown) => reason,
+  );
+  expect(error).toBeInstanceOf(Error);
+  return error as Error;
+}
+
+it('shows the SQL errors and messages D1 reports for a failed ingest', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(response({ at_bookmark: 'current', status: 'active' }))
+      .mockResolvedValueOnce(
+        response({
+          success: true,
+          status: 'error',
+          at_bookmark: 'current',
+          errors: ['no such table: nope: SQLITE_ERROR', { message: 'second error' }],
+          messages: ['Processed 1 queries.'],
+        }),
+      ),
+  );
+  expect((await importError()).message).toBe(
+    'D1 import failed: no such table: nope: SQLITE_ERROR\nsecond error\nProcessed 1 queries.',
+  );
+});
+
+it('removes terminal escape sequences from D1 import errors', async () => {
+  vi.stubGlobal(
+    'fetch',
+    vi.fn<typeof globalThis.fetch>().mockResolvedValueOnce(
+      response({
+        status: 'error',
+        errors: ['\u001b]8;;https://x.example\u0007bad\u001b]8;;\u0007 table\u001b[2K'],
+      }),
+    ),
+  );
+  expect((await importError()).message).toBe('D1 import failed: bad table');
+});
