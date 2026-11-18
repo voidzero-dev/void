@@ -142,6 +142,8 @@ export type SecurityModelProxyDeps = Readonly<{
   admit(input: AdmitModelCall): Promise<AdmitModelCallResult>;
   recordFailure(scanId: string, attempt: number, failure: ModelCallFailure): Promise<void>;
   lastFailure(scanId: string, attempt: number): Promise<ModelCallFailure | null>;
+  /** Workers AI answered 429 for this `@cf` model: back the shared bucket off. */
+  rateLimited(model: string, now: number): Promise<void>;
   hold(
     input: Parameters<typeof holdSecurityModelCall>[1],
   ): Promise<SecurityCallHold | SecurityCallRefusal>;
@@ -167,6 +169,9 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
     recordFailure: (scanId, attempt, failure) =>
       scheduler().recordModelCallFailure(scanId, attempt, failure),
     lastFailure: (scanId, attempt) => scheduler().modelCallFailure(scanId, attempt),
+    rateLimited: async (model, now) => {
+      await scheduler().backOffModelRate(model, now);
+    },
     hold: (input) => holdSecurityModelCall(db, input),
     settle: (input) => settleSecurityModelCall(db, input),
     scanTag: (scanId) => deriveSecurityScanTag(env.JWT_SECRET, scanId),
@@ -663,6 +668,38 @@ function statusOf(error: unknown): number | null {
   return null;
 }
 
+/**
+ * Workers AI internal codes the binding throws with no HTTP status, only as the
+ * message prefix (`3040: Capacity temporarily exceeded, please try again.`), mapped to
+ * the status the REST API gives them. Both 429s are the account-wide limit.
+ */
+const WORKERS_AI_CODE_STATUS: Readonly<Record<string, number>> = {
+  '3036': 429, // Account limited (daily free allocation)
+  '3040': 429, // Out of capacity
+};
+
+/**
+ * Reads the leading `<code>:` of a Workers AI binding error, also after a class name
+ * (`InferenceUpstreamError: 3040: …`, `AiError: 3040: …`). Returns its HTTP status.
+ */
+export function workersAiErrorStatus(error: unknown): number | null {
+  const message = error instanceof Error ? error.message : typeof error === 'string' ? error : '';
+  let rest = message.trimStart();
+  for (let part = 0; part < 2; part++) {
+    const colon = rest.indexOf(':');
+    if (colon <= 0) {
+      return null;
+    }
+    const head = rest.slice(0, colon).trim();
+    if (head.length > 0 && [...head].every((char) => char >= '0' && char <= '9')) {
+      return WORKERS_AI_CODE_STATUS[head] ?? null;
+    }
+    // Not a code: skip one leading class name, then look once more.
+    rest = rest.slice(colon + 1).trimStart();
+  }
+  return null;
+}
+
 /** The binding answer in chat-completions shape, which Engine B reads. */
 export function asChatCompletion(model: string, value: unknown): unknown {
   const result = asObject(value);
@@ -741,7 +778,7 @@ async function callWorkersAi(
     }
     return { kind: 'json', value: asChatCompletion(plan.model, result) };
   } catch (error) {
-    const status = statusOf(error) ?? 502;
+    const status = statusOf(error) ?? workersAiErrorStatus(error) ?? 502;
     const detail = error instanceof Error ? error.message : String(error);
     // Only a 402 is a credits stop: an error text is not read for it.
     return { kind: 'failed', status, credits: status === 402, detail };
@@ -996,6 +1033,12 @@ export async function handleSecurityModelRequest(
 
   if (upstream.kind === 'failed') {
     await settle(null, false);
+    if (route === 'chat' && upstream.status === 429) {
+      // Tenant apps share the account's Workers AI limit: slow every scan on this model.
+      await deps
+        .rateLimited(model, deps.now())
+        .catch((error: unknown) => console.error('[security-model-proxy] rate back-off', error));
+    }
     if (upstream.credits) {
       return failed('credits', stop('credits', STOP_MESSAGES.credits));
     }

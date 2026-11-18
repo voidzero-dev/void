@@ -6,7 +6,9 @@
  *     calls per session (spec §6.3). The session comes from the runner's
  *     `x-void-scan-session` header. It is a limit the runner keeps, not a wall: the
  *     per-scan call cap in Postgres is the hard bound.
- *   - the `@cf` rate guard: 10 calls per minute per model, a token bucket.
+ *   - the `@cf` rate guard: 10 calls per minute per model, a token bucket. A Workers AI
+ *     429 puts the bucket into debt (`backOffModelRate`), so calls wait and the scheduler
+ *     starts no new scan on that model until it recovers.
  *   - the last refused or failed call, which the runner asks for (Engine C sees a
  *     proxy stop only as a failed call, spec §8.4).
  *
@@ -105,8 +107,7 @@ export async function admitModelCall(
   if (input.rateModel !== null) {
     const bucket = refillRateBucket(await storage.get<Bucket>(rateKey(input.rateModel)), input.now);
     if (bucket.tokens < 1) {
-      const waitMs = Math.ceil(((1 - bucket.tokens) * MINUTE_MS) / SECURITY_CF_CALLS_PER_MINUTE);
-      return { ok: false, reason: 'rate', waitMs };
+      return { ok: false, reason: 'rate', waitMs: rateWaitMs(bucket.tokens) };
     }
     await storage.put(rateKey(input.rateModel), { tokens: bucket.tokens - 1, at: input.now });
   }
@@ -114,6 +115,41 @@ export async function admitModelCall(
     await storage.put(sessionKey(input.scanId, input.attempt, input.session), sessionCalls);
   }
   return { ok: true, sessionCalls };
+}
+
+/** A Workers AI 429 takes this many tokens from the bucket (30 s of calls) … */
+export const SECURITY_CF_BACKOFF_TOKENS = SECURITY_CF_CALLS_PER_MINUTE / 2;
+/** … and the debt never grows past one minute, however many 429s come in. */
+const MAX_RATE_DEBT = SECURITY_CF_CALLS_PER_MINUTE;
+
+/**
+ * Workers AI answered 429 for `model`: the account's own limit is shared with tenant
+ * apps, so every scan on that model waits. The bucket goes into debt (empty, then
+ * minus 30 s of calls per 429, at most one minute), so the next call waits for the
+ * refill and the scheduler starts no new scan on the model until the debt is paid.
+ */
+export async function backOffModelRate(
+  storage: CallLedgerStorage,
+  model: string,
+  now: number,
+): Promise<number> {
+  const bucket = refillRateBucket(await storage.get<Bucket>(rateKey(model)), now);
+  const tokens = Math.max(-MAX_RATE_DEBT, Math.min(0, bucket.tokens) - SECURITY_CF_BACKOFF_TOKENS);
+  await storage.put(rateKey(model), { tokens, at: now });
+  return rateWaitMs(tokens);
+}
+
+function rateWaitMs(tokens: number): number {
+  return tokens >= 1 ? 0 : Math.ceil(((1 - tokens) * MINUTE_MS) / SECURITY_CF_CALLS_PER_MINUTE);
+}
+
+/** How long until `model` has a whole rate token again; 0 when it has one now. */
+export async function modelRateWaitMs(
+  storage: CallLedgerStorage,
+  model: string,
+  now: number,
+): Promise<number> {
+  return rateWaitMs(refillRateBucket(await storage.get<Bucket>(rateKey(model)), now).tokens);
 }
 
 export async function recordModelCallFailure(

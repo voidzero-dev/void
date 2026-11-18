@@ -1,8 +1,13 @@
+import {
+  defaultSecurityPolicy,
+  SECURITY_POLICY_SETTINGS_KEY,
+} from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vite-plus/test';
 import { aiLoggingKey } from '../../src/ai-logging-policy.ts';
 import { FAST_CRON, scheduled } from '../../src/index.ts';
 import { transferOperatorProjectOwner } from '../../src/operator/tenant-service.ts';
+import { setPlatformSetting } from '../../src/platform-settings.ts';
 import {
   proxyTokenRotationTarget,
   requestProxyTokenRotation,
@@ -13,7 +18,18 @@ import {
   projectAiLogging,
   projectCleanupJobs,
   projects,
+  securityPublicRequests,
+  securityScanBypasses,
+  securityScans,
 } from '../../src/schema.ts';
+import {
+  deleteOldSecurityPublicRequests,
+  deleteOldSecurityScanRows,
+  SECURITY_CLOSED_REQUESTS_KEPT,
+  SECURITY_RAW_SWEEP_CURSOR_KEY,
+  securityRawOutputPrefix,
+  sweepSecurityRawOutputs,
+} from '../../src/security/maintenance.ts';
 import {
   setupEnv,
   teardownEnv,
@@ -801,5 +817,236 @@ describe('scheduled() AI logging sweep', () => {
       value: 'off',
       metadata: { mode: 'off' },
     });
+  });
+});
+
+describe('scheduled() security audit maintenance', () => {
+  const fastController = { cron: FAST_CRON, scheduledTime: Date.now() } as ScheduledController;
+  const HOUR = 3_600_000;
+  const DAY = 24 * HOUR;
+  let pokes: number;
+  let forgotten: Array<[string, number]>;
+
+  function securityBindings(on: boolean) {
+    const scheduler = {
+      fetch: async (input: string | Request) => {
+        if (new URL(typeof input === 'string' ? input : input.url).pathname === '/poke') {
+          pokes++;
+        }
+        return Response.json({ ok: true });
+      },
+      forgetModelCalls: async (scanId: string, attempt: number) => {
+        forgotten.push([scanId, attempt]);
+        return 0;
+      },
+    };
+    return {
+      ...makeBindings(env),
+      PLATFORM_CAPABILITIES: JSON.stringify({
+        ai: true,
+        customDomains: false,
+        email: false,
+        githubActions: false,
+        githubOAuth: true,
+        googleOAuth: false,
+        managedBuilds: false,
+        sandbox: false,
+        securityAudits: on,
+      }),
+      SECURITY_SCAN_SCHEDULER: {
+        idFromName: (name: string) => ({ toString: () => name }),
+        get: () => scheduler,
+      },
+    } as unknown as Parameters<typeof scheduled>[1];
+  }
+
+  async function savePolicy(mode: 'disabled' | 'all') {
+    await setPlatformSetting(env.db, SECURITY_POLICY_SETTINGS_KEY, {
+      ...defaultSecurityPolicy(),
+      mode,
+      revision: 1,
+      // Fresh: the daily probe is not due.
+      entitlement: {
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        missing: [],
+        hosts: { openai: false, anthropic: false },
+      },
+    });
+  }
+
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+
+  async function seed() {
+    const { id } = await createTestUser(env.db, `security-cron-${crypto.randomUUID()}`);
+    const [p1, p2, p3, p4] = [
+      await createTestProject(env.db, id),
+      await createTestProject(env.db, id),
+      await createTestProject(env.db, id),
+      await createTestProject(env.db, id),
+    ];
+    await env.db.insert(securityScans).values([
+      {
+        id: 'ss_lease',
+        project_id: p1!.id,
+        deployment_id: 'dpl_1',
+        status: 'running',
+        trigger: 'deploy',
+        attempt: 1,
+        lease_until: ago(60_000),
+      },
+      {
+        id: 'ss_backlog',
+        project_id: p2!.id,
+        deployment_id: 'dpl_2',
+        status: 'queued',
+        trigger: 'deploy',
+        first_queued_at: ago(25 * HOUR),
+      },
+      {
+        id: 'ss_pending',
+        project_id: p3!.id,
+        deployment_id: 'dpl_3',
+        status: 'pending_input',
+        trigger: 'deploy',
+        first_queued_at: ago(HOUR),
+        created_at: ago(HOUR),
+      },
+      {
+        id: 'ss_old',
+        project_id: p4!.id,
+        deployment_id: 'dpl_4',
+        status: 'failed',
+        trigger: 'deploy',
+        finished_at: ago(31 * DAY),
+      },
+    ]);
+    const raw = securityRawOutputPrefix(p4!.id, 'ss_old');
+    await env.STATIC_ASSETS_R2.put(`${raw}findings.json`, '[]');
+    return { raw };
+  }
+
+  async function statuses() {
+    const rows = await env.db
+      .select({ id: securityScans.id, status: securityScans.status })
+      .from(securityScans)
+      .orderBy(securityScans.id);
+    return Object.fromEntries(rows.map((row) => [row.id, row.status]));
+  }
+
+  const untouched = {
+    ss_backlog: 'queued',
+    ss_lease: 'running',
+    ss_old: 'failed',
+    ss_pending: 'pending_input',
+  };
+
+  beforeEach(async () => {
+    pokes = 0;
+    forgotten = [];
+    await env.ROUTING.delete(SECURITY_RAW_SWEEP_CURSOR_KEY);
+  });
+
+  it('runs the hourly jobs only with the capability on', async () => {
+    await savePolicy('all');
+    const { raw } = await seed();
+
+    await scheduled(mockController, securityBindings(false), mockCtx);
+    expect(await statuses()).toEqual(untouched);
+    expect(await env.STATIC_ASSETS_R2.get(`${raw}findings.json`)).not.toBeNull();
+
+    await scheduled(mockController, securityBindings(true), mockCtx);
+    expect(await statuses()).toEqual({
+      ss_backlog: 'skipped',
+      ss_lease: 'timed_out',
+      ss_old: 'failed',
+      ss_pending: 'queued',
+    });
+    expect(forgotten).toEqual([['ss_lease', 1]]);
+    expect(pokes).toBe(1);
+    expect(await env.STATIC_ASSETS_R2.get(`${raw}findings.json`)).toBeNull();
+    expect(await env.ROUTING.get(SECURITY_RAW_SWEEP_CURSOR_KEY)).toContain('ss_old');
+  });
+
+  it('leaves security rows alone on the fast tier', async () => {
+    await savePolicy('all');
+    const { raw } = await seed();
+    await scheduled(fastController, securityBindings(true), mockCtx);
+    expect(await statuses()).toEqual(untouched);
+    expect(pokes).toBe(0);
+    expect(await env.STATIC_ASSETS_R2.get(`${raw}findings.json`)).not.toBeNull();
+  });
+
+  it('with the policy Off still reaps and sweeps, but re-pokes nothing', async () => {
+    await savePolicy('disabled');
+    const { raw } = await seed();
+    await scheduled(mockController, securityBindings(true), mockCtx);
+    expect(await statuses()).toEqual({ ...untouched, ss_lease: 'timed_out' });
+    expect(pokes).toBe(0);
+    expect(await env.STATIC_ASSETS_R2.get(`${raw}findings.json`)).toBeNull();
+  });
+
+  it('keeps the newest scan rows, the current base and open gate scans; trims closed requests', async () => {
+    const { id } = await createTestUser(env.db, `security-retention-${crypto.randomUUID()}`);
+    const project = await createTestProject(env.db, id);
+    const old = ago(200 * DAY);
+    await env.db.insert(securityScans).values(
+      [
+        // The current base: the latest succeeded scan, kept however old.
+        { id: 'ss_base', status: 'succeeded' as const, finished_at: old, created_at: old },
+        { id: 'ss_gate_old', status: 'failed' as const, finished_at: old, created_at: old },
+        { id: 'ss_aged', status: 'failed' as const, finished_at: old, created_at: old },
+        { id: 'ss_young', status: 'failed' as const, finished_at: ago(DAY), created_at: ago(DAY) },
+      ].map((row) => ({
+        ...row,
+        project_id: project.id,
+        deployment_id: 'dpl',
+        trigger: 'deploy' as const,
+      })),
+    );
+    await env.db.insert(securityPublicRequests).values({
+      id: 'spr_open',
+      project_id: project.id,
+      state: 'held_no_result',
+      requested_via: 'project',
+      target_deployment_id: 'dpl',
+      gate_scan_id: 'ss_gate_old',
+    });
+    // Nothing is deleted before the raw output sweep has passed the rows.
+    expect(await deleteOldSecurityScanRows(env.db, env.ROUTING, Date.now())).toBe(0);
+    await sweepSecurityRawOutputs(env.db, env.STATIC_ASSETS_R2, env.ROUTING, Date.now());
+    expect(await deleteOldSecurityScanRows(env.db, env.ROUTING, Date.now())).toBe(1);
+    expect(Object.keys(await statuses()).sort()).toEqual(['ss_base', 'ss_gate_old', 'ss_young']);
+
+    const closed = Array.from({ length: SECURITY_CLOSED_REQUESTS_KEPT + 2 }, (_, index) => ({
+      id: `spr_closed_${String(index).padStart(3, '0')}`,
+      project_id: project.id,
+      state: 'canceled' as const,
+      cancel_cause: 'protect' as const,
+      requested_via: 'project' as const,
+      target_deployment_id: 'dpl',
+      closed_at: ago(DAY),
+      created_at: new Date(Date.now() - (index + 1) * HOUR).toISOString(),
+    }));
+    await env.db.insert(securityPublicRequests).values(closed);
+    // The oldest closed request is named by a bypass row and stays.
+    await env.db.insert(securityScanBypasses).values({
+      id: 'sb_kept',
+      project_id: project.id,
+      request_id: closed.at(-1)!.id,
+      deployment_id: 'dpl',
+      actor_kind: 'user',
+      actor_user_id: id,
+      reason: 'launch',
+      request_state: 'held_no_result',
+    });
+    expect(await deleteOldSecurityPublicRequests(env.db)).toBe(1);
+    const left = await env.db
+      .select({ id: securityPublicRequests.id })
+      .from(securityPublicRequests)
+      .where(eq(securityPublicRequests.project_id, project.id));
+    expect(left.map((row) => row.id)).not.toContain(closed.at(-2)!.id);
+    expect(left.map((row) => row.id)).toContain(closed.at(-1)!.id);
+    expect(left).toHaveLength(SECURITY_CLOSED_REQUESTS_KEPT + 2);
   });
 });

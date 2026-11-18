@@ -11,9 +11,10 @@ vi.mock('cloudflare:workers', () => ({
   },
 }));
 
+const { getPlatformCapabilities } = await import('../../src/capabilities.ts');
 const { SecurityScanScheduler } = await import('../../src/security/scheduler.ts');
 
-function createScheduler() {
+function createScheduler(vars: Record<string, string | undefined> = {}) {
   const storage = {
     alarm: null as number | null,
     getAlarm: vi.fn(async () => storage.alarm),
@@ -21,15 +22,18 @@ function createScheduler() {
       storage.alarm = time;
     }),
   };
-  // An empty env: the stub must not reach the database or any other binding.
-  const env = new Proxy(
-    {},
-    {
-      get(_target, key) {
-        throw new Error(`unexpected binding ${String(key)}`);
-      },
+  // Only plain vars: the scheduler must not reach the database or any other binding.
+  const env = new Proxy(vars, {
+    get(target, key) {
+      if (typeof key === 'string' && key in target) {
+        return target[key];
+      }
+      if (key === 'PLATFORM_CAPABILITIES') {
+        return undefined;
+      }
+      throw new Error(`unexpected binding ${String(key)}`);
     },
-  );
+  });
   const scheduler = new SecurityScanScheduler(
     { storage } as unknown as DurableObjectState,
     env as never,
@@ -37,7 +41,7 @@ function createScheduler() {
   return { scheduler, storage };
 }
 
-describe('SecurityScanScheduler stub', () => {
+describe('SecurityScanScheduler with the capability off', () => {
   it('answers a poke by arming a near-immediate alarm', async () => {
     const { scheduler, storage } = createScheduler();
     const before = Date.now();
@@ -64,9 +68,19 @@ describe('SecurityScanScheduler stub', () => {
     expect(storage.setAlarm).not.toHaveBeenCalled();
   });
 
-  it('does no work when the alarm fires', async () => {
-    const { scheduler, storage } = createScheduler();
-    await expect(scheduler.alarm()).resolves.toBeUndefined();
-    expect(storage.setAlarm).not.toHaveBeenCalled();
+  it('does no work when the alarm fires with the capability off', async () => {
+    for (const vars of [
+      {},
+      {
+        PLATFORM_CAPABILITIES: JSON.stringify({
+          ...getPlatformCapabilities({}),
+          securityAudits: false,
+        }),
+      },
+    ]) {
+      const { scheduler, storage } = createScheduler(vars);
+      await expect(scheduler.alarm()).resolves.toBeUndefined();
+      expect(storage.setAlarm).not.toHaveBeenCalled();
+    }
   });
 });

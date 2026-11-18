@@ -589,6 +589,66 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `skipped:protected` at claim, a gate scan still runs), `scheduled.test.ts` (hourly jobs run only when on; fast tier untouched),
   `api-delete.test.ts` (mid-scan delete cancels — #26).
 - Exit: fake controller drives queued → running → result.
+- As built: the queue's Postgres side is a new `security/queue.ts` (read, claim, end,
+  requeue, cancel, reaper, backlog skip, re-poke); `scheduler.ts` keeps the DO and
+  `runSecurityScanQueue(deps)`, which tests drive with a fake store and controller.
+  The "which model runs" resolver (`security/models.ts`, from the layout) landed here
+  because the claim stores `model_requested`, `model_used` and `engine`: project model,
+  else the default; unknown/blocked/unpriced → default (#23); third-party without a
+  passing check 5 host, the current installation notice or the project's own notice →
+  first non-blocked priced `@cf` model (#44, #84); none → `failed (infrastructure,
+  no_model)`. A pass, per candidate in round-robin order (owners never served first,
+  then least recently served, kept in DO storage, ≤ 1,000 owners): claim under the
+  project lock + shared policy lock (attempt + 1, lease = 2× wall clock + 5 min); the
+  claim re-checks what may have changed while the row waited: project `deleting` /
+  owner suspended → `canceled` (`project_deleted` / `owner_suspended`), 24 h →
+  `skipped:backlog`, `public` + protected + not `gate` → `skipped:protected`; a unique
+  index hit is `busy` (row stays queued). Then reserve (refusal → `skipped`, reason
+  `budget`, `error_class` `project_cap|platform_cap`), then `POST /v1/scans/start`
+  through the gate. A failed start (throw, non-2xx, `ok:false`) cancels that attempt at
+  the controller, forgets its ledger, gives the reserve back and requeues it with a
+  60 s back-off; the second failure is `failed (infrastructure, start_failed)`. A
+  container that started and then failed is M12's to retry (`requeueSecurityScan`,
+  `endSecurityScanAttempt` are there). At most `floor(10 / 10) = 1` running scan per
+  `@cf` model. A Workers AI 429 now reaches the scheduler (`rateLimited` proxy dep →
+  RPC `backOffModelRate`): the bucket goes 5 tokens (30 s) into debt per 429, at most
+  one minute; calls wait for the refill and no new scan starts on that model until it
+  is paid. Re-arm 30 s while queued rows remain, sooner for a retry or back-off end, no
+  alarm when empty; ingest (M12) should poke on completion. With the capability off
+  the alarm does nothing. Cancel: `cancelSecurityScans` writes the rows first (that is
+  the fence), then controller cancel + ledger forget, best effort; `teardownProject`
+  calls it right after `lockAndMarkDeleting` (direct, not through the DO: the rows
+  are the fence, and the running scan's reserve must go back to the platform month
+  before the cascade); DO RPC `cancelScans(scanIds, reason)` is for M17. Hourly
+  (`maintenance.ts`, after the "Hourly tier" line): the capability gates everything;
+  policy Off skips re-poke, backlog and probe, but the reaper, the raw output sweep and
+  retention still run (Off does not end running scans, and stored data still ages).
+  Reaper: `timed_out` / `lease_expired` / `installation`, reserve back, controller
+  cancel, ledger forget. Re-poke: `pending_input` older than 10 min → `queued`, then a
+  poke if anything is queued. Raw output: `securityRawOutputPrefix` =
+  `security-scans/{project}/scans/{scan}/` (M12 writes there), cursor `(finished_at,
+  id)` in ROUTING `security-audits:raw-output-sweep`, 50 scans a run. Scan rows: deleted
+  outside the newest 200 or past 180 days, never active, a current base (latest
+  `succeeded`), an open request's gate scan, or a row the raw sweep has not passed;
+  500 a run. Closed requests: newest 50 per project, never one a bypass names. Daily
+  probe: `probeAndRecord` when the mode is on and the stored result is missing or
+  ≥ 24 h old. The exit test ends with the reaper (`timed_out`), since `result()`
+  refuses until M12. The M1 stub test now checks that the alarm does nothing with the
+  capability off. Extra tests: the 429 back-off case in `security-model-proxy.test.ts`.
+  Review fixes: the reserve is fenced on `running` + `attempt` (a cancel after the
+  claim gives `gone`: no start, no end), and a start that worked re-reads the row and
+  cancels at the controller if it moved; every end, requeue and cancel releases the
+  reserve in the same transaction, and an hourly step releases any ended row that still
+  holds one. The first failed start ends the pass and the alarm waits for the retry
+  back-off (an outage costs one scan its retry, not the queue); an error on one
+  candidate ends only it (`failed (infrastructure, scheduler_error)` once claimed).
+  Cancel locks its rows in one `SELECT … FOR UPDATE` over every active status, so a
+  claim in flight is waited for and still canceled. A pass keeps an earlier alarm (a
+  poke). Teardown lets a failed cancel throw (retried before the cascade). The binding
+  often throws only `3040: …` with no status: the proxy reads that leading code (3036
+  and 3040 → 429). The month's `scans` count only goes up on the first attempt. The
+  hourly security step stays first in the hourly tier, as planned; a due daily probe
+  can add about 3 minutes before the jobs after it.
 
 **M10 Input builder (T2, T3, filters, memory).**
 

@@ -145,6 +145,7 @@ import {
   platformHumanSessions,
 } from './schema.ts';
 import { SecurityScanControl } from './security/control.ts';
+import { runSecurityMaintenance } from './security/maintenance.ts';
 import { SecurityScanScheduler } from './security/scheduler.ts';
 import { isAdminSuspended, REASON_REQUESTS_EXCEEDED } from './suspension.ts';
 import { getCurrentBillingPeriodStart } from './tiers.ts';
@@ -768,6 +769,13 @@ async function scheduled(
   }
 
   // Hourly tier (every :00): full maintenance.
+
+  // Security audits: reaper, re-poke, backlog skip, sweeps, retention, daily probe.
+  if (capabilities.securityAudits) {
+    await runSecurityMaintenance(env, db, Date.now()).catch((error) =>
+      console.error('[scheduled] security audit maintenance failed:', error),
+    );
+  }
 
   if (capabilities.sandbox) {
     await retrySandboxControllerCleanup(db, env).catch((error) =>

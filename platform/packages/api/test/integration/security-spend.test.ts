@@ -120,6 +120,7 @@ describe('scan start reserve', () => {
     const results = await Promise.all([
       reserveSecurityScanBudget(env.db, {
         scanId: 'ss_a',
+        attempt: 1,
         projectId: a.id,
         reserveNano: 1.5 * USD,
         caps,
@@ -127,6 +128,7 @@ describe('scan start reserve', () => {
       }),
       reserveSecurityScanBudget(env.db, {
         scanId: 'ss_b',
+        attempt: 1,
         projectId: b.id,
         reserveNano: 1.5 * USD,
         caps,
@@ -165,6 +167,7 @@ describe('scan start reserve', () => {
     await expect(
       reserveSecurityScanBudget(env.db, {
         scanId: 'ss_1',
+        attempt: 1,
         projectId: p.id,
         reserveNano: 1.5 * USD,
         caps,
@@ -173,7 +176,8 @@ describe('scan start reserve', () => {
     ).resolves.toEqual({ ok: false, cap: 'project', capNano: 4 * USD, spentNano: 2 * USD });
     await expect(
       reserveSecurityScanBudget(env.db, {
-        scanId: 'ss_2',
+        scanId: 'ss_1',
+        attempt: 1,
         projectId: p.id,
         reserveNano: 1 * USD,
         caps,
@@ -181,11 +185,30 @@ describe('scan start reserve', () => {
       }),
     ).resolves.toEqual({ ok: true, month: NOV, reserveNano: 1 * USD });
     expect(await projectSpend(p.id)).toMatchObject({ reserved_nano_usd: 2 * USD, scans: 1 });
-    expect((await scanRow('ss_2')).started_at).not.toBeNull();
+    expect((await scanRow('ss_1')).started_at).not.toBeNull();
+    // Only the row running at that attempt takes a reserve: a queued (canceled,
+    // reaped) row or an older attempt writes nothing.
+    for (const [scanId, attempt] of [
+      ['ss_2', 0],
+      ['ss_1', 2],
+    ] as const) {
+      await expect(
+        reserveSecurityScanBudget(env.db, {
+          scanId,
+          attempt,
+          projectId: p.id,
+          reserveNano: 1,
+          caps: noCaps,
+          now: NOW,
+        }),
+      ).resolves.toEqual({ ok: false, gone: true });
+    }
+    expect((await scanRow('ss_2')).reserved_nano_usd).toBe(0);
     // A second reserve for the same scan is refused, so a retry cannot hold two.
     await expect(
       reserveSecurityScanBudget(env.db, {
-        scanId: 'ss_2',
+        scanId: 'ss_1',
+        attempt: 1,
         projectId: p.id,
         reserveNano: 1,
         caps: noCaps,
@@ -201,6 +224,7 @@ describe('scan start reserve', () => {
     const start = Date.parse('2026-11-30T23:50:00.000Z');
     await reserveSecurityScanBudget(env.db, {
       scanId: 'ss_1',
+      attempt: 1,
       projectId: p.id,
       reserveNano: 1 * USD,
       caps: noCaps,
@@ -325,6 +349,7 @@ describe('model proxy on real SQL', () => {
       admit: async () => ({ ok: true, sessionCalls: null }),
       recordFailure: async () => {},
       lastFailure: async () => null,
+      rateLimited: async () => {},
       hold: (input) => holdSecurityModelCall(env.db, input),
       settle: (input) => settleSecurityModelCall(env.db, input),
       scanTag: async (scanId) => `${scanId}.tag`,

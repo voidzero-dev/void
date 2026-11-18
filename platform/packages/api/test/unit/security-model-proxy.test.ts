@@ -18,6 +18,7 @@ import {
   SseUsageReader,
   type SecurityModelProxyDeps,
   type SecurityModelScan,
+  workersAiErrorStatus,
 } from '../../src/security/model-proxy.ts';
 
 // The runner's own mapping, so a proxy stop is checked end to end (spec §8.4). A
@@ -38,6 +39,7 @@ type Harness = {
   settles: Array<Parameters<SecurityModelProxyDeps['settle']>[0]>;
   settleError: { value: Error | null };
   admit: ReturnType<typeof vi.fn>;
+  rateLimited: ReturnType<typeof vi.fn>;
   hold: ReturnType<typeof vi.fn>;
   fetch: ReturnType<typeof vi.fn>;
   aiRun: ReturnType<typeof vi.fn>;
@@ -99,6 +101,7 @@ function harness(): Harness {
     },
   );
   const fetch = vi.fn(async () => Response.json({}));
+  const rateLimited = vi.fn(async () => {});
   const aiRun = vi.fn(async () => ({}) as unknown);
   const sleep = vi.fn(async (ms: number) => {
     clock.now += ms;
@@ -113,6 +116,7 @@ function harness(): Harness {
       failures.push(failure);
     },
     lastFailure: async () => failures.at(-1) ?? null,
+    rateLimited,
     hold,
     settle: async (input) => {
       settles.push(input);
@@ -137,6 +141,7 @@ function harness(): Harness {
     settles,
     settleError,
     admit,
+    rateLimited,
     hold,
     fetch,
     aiRun,
@@ -301,6 +306,37 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(response.status).toBe(500);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
     expect(h.failures.at(-1)?.reason).toBe('upstream');
+  });
+
+  it('backs the @cf rate bucket off on a Workers AI 429, and only there', async () => {
+    h.aiRun.mockRejectedValue(Object.assign(new Error('Too many requests'), { status: 429 }));
+    const response = await call(h, '/v1/chat/completions', chatBody());
+    expect(response.status).toBe(429);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
+    expect(h.rateLimited).toHaveBeenCalledWith(CF, NOW);
+
+    h.rateLimited.mockClear();
+    h.scan.value = scanRow({ modelUsed: OPUS });
+    h.fetch.mockResolvedValue(new Response('slow down', { status: 429 }));
+    await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    expect(h.rateLimited).not.toHaveBeenCalled();
+  });
+
+  it('reads a 429 from a Workers AI error that carries only its code (3040)', async () => {
+    h.aiRun.mockRejectedValue(new Error('3040: Capacity temporarily exceeded, please try again.'));
+    const response = await call(h, '/v1/chat/completions', chatBody());
+    expect(response.status).toBe(429);
+    expect(h.rateLimited).toHaveBeenCalledWith(CF, NOW);
+  });
+
+  it('maps Workers AI error codes, also after a class name, and nothing else', () => {
+    expect(workersAiErrorStatus(new Error('3040: Capacity temporarily exceeded'))).toBe(429);
+    expect(workersAiErrorStatus(new Error('InferenceUpstreamError: 3040: busy'))).toBe(429);
+    expect(workersAiErrorStatus('3036: You have used up your daily free allocation')).toBe(429);
+    expect(workersAiErrorStatus(new Error('5007: No such model'))).toBeNull();
+    expect(workersAiErrorStatus(new Error('Too many requests'))).toBeNull();
+    expect(workersAiErrorStatus(new Error('at 12:30: 3040: late'))).toBeNull();
+    expect(workersAiErrorStatus({ status: 429 })).toBeNull();
   });
 
   it('keeps the worst case, tokens included, when a JSON answer has no usage', async () => {

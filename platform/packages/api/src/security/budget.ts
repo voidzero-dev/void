@@ -243,19 +243,28 @@ async function refusal(
 
 export type SecurityReserveResult =
   | Readonly<{ ok: true; month: string; reserveNano: number }>
-  | SecurityBudgetRefusal;
+  | SecurityBudgetRefusal
+  /** The scan is no longer running at this attempt (canceled, reaped): nothing was written. */
+  | Readonly<{ ok: false; gone: true }>;
+
+class ScanGone extends Error {}
 
 /**
  * Scan start: reserve the scan's worst case on both spend rows of this month, each
  * only if `spent + reserved + reserve ≤ cap`. A refusal writes nothing
  * (`skipped:budget`). Stores the reserve on the scan and sets `started_at` to now: the
- * reserve is released from the month of `started_at`. A scan that already holds a
- * reserve is refused (release it first), so a retry never reserves twice.
+ * reserve is released from the month of `started_at`. Fenced like every attempt write:
+ * only the row running at `attempt` takes it, so a cancel that landed after the claim
+ * leaves nothing reserved (`gone`). A scan that already holds a reserve is refused
+ * (release it first), so a retry never reserves twice. The month's `scans` count only
+ * goes up on the first attempt.
  */
 export async function reserveSecurityScanBudget(
   db: Db,
   input: Readonly<{
     scanId: string;
+    /** The attempt the claim set. */
+    attempt: number;
     projectId: string;
     reserveNano: number;
     caps: SecuritySpendCaps;
@@ -271,17 +280,32 @@ export async function reserveSecurityScanBudget(
       const [scan] = await tx
         .update(securityScans)
         .set({ reserved_nano_usd: reserve, started_at: new Date(now).toISOString() })
-        .where(and(eq(securityScans.id, input.scanId), eq(securityScans.reserved_nano_usd, 0)))
+        .where(
+          and(
+            eq(securityScans.id, input.scanId),
+            eq(securityScans.status, 'running'),
+            eq(securityScans.attempt, input.attempt),
+            eq(securityScans.reserved_nano_usd, 0),
+          ),
+        )
         .returning({ id: securityScans.id });
       if (!scan) {
-        throw new Error(`Security scan ${input.scanId} is missing or already holds a reserve.`);
+        const [row] = await tx
+          .select({ status: securityScans.status, attempt: securityScans.attempt })
+          .from(securityScans)
+          .where(eq(securityScans.id, input.scanId))
+          .limit(1);
+        if (row?.status === 'running' && row.attempt === input.attempt) {
+          throw new Error(`Security scan ${input.scanId} already holds a reserve.`);
+        }
+        throw new ScanGone();
       }
       await ensureSpendRows(tx, input.projectId, month);
       const project = await tx
         .update(securityProjectSpend)
         .set({
           reserved_nano_usd: sql`${securityProjectSpend.reserved_nano_usd} + ${reserve}`,
-          scans: sql`${securityProjectSpend.scans} + 1`,
+          scans: sql`${securityProjectSpend.scans} + ${input.attempt <= 1 ? 1 : 0}`,
           updated_at: sql`now()`,
         })
         .where(
@@ -322,6 +346,9 @@ export async function reserveSecurityScanBudget(
     if (error instanceof CapRefused) {
       return refusal(db, error.cap, input.projectId, month, input.caps);
     }
+    if (error instanceof ScanGone) {
+      return { ok: false, gone: true };
+    }
     throw error;
   }
   return { ok: true, month, reserveNano: reserve };
@@ -333,47 +360,51 @@ export async function reserveSecurityScanBudget(
  * twice: the second call finds no reserve.
  */
 export async function releaseSecurityScanReserve(db: Db, scanId: string): Promise<number> {
-  return db.transaction(async (tx) => {
-    const [scan] = await tx
-      .select({
-        projectId: securityScans.project_id,
-        reserved: securityScans.reserved_nano_usd,
-        startedAt: securityScans.started_at,
-      })
-      .from(securityScans)
-      .where(eq(securityScans.id, scanId))
-      .for('update')
-      .limit(1);
-    if (!scan || scan.reserved <= 0) {
-      return 0;
-    }
-    const month = securitySpendMonth(scan.startedAt ? Date.parse(scan.startedAt) : Date.now());
-    const reserved = scan.reserved;
-    await tx
-      .update(securityProjectSpend)
-      .set({
-        reserved_nano_usd: sql`GREATEST(0, ${securityProjectSpend.reserved_nano_usd} - ${reserved})`,
-        updated_at: sql`now()`,
-      })
-      .where(
-        and(
-          eq(securityProjectSpend.project_id, scan.projectId),
-          eq(securityProjectSpend.month, month),
-        ),
-      );
-    await tx
-      .update(securityPlatformSpend)
-      .set({
-        reserved_nano_usd: sql`GREATEST(0, ${securityPlatformSpend.reserved_nano_usd} - ${reserved})`,
-        updated_at: sql`now()`,
-      })
-      .where(eq(securityPlatformSpend.month, month));
-    await tx
-      .update(securityScans)
-      .set({ reserved_nano_usd: 0 })
-      .where(eq(securityScans.id, scanId));
-    return reserved;
-  });
+  return db.transaction((tx) => releaseSecurityScanReserveIn(tx, scanId));
+}
+
+/**
+ * `releaseSecurityScanReserve` inside the caller's transaction, so the write that ends
+ * or requeues an attempt and the release commit together: a row never ends with its
+ * reserve still held. Lock order: scan row, then project, then platform.
+ */
+export async function releaseSecurityScanReserveIn(tx: DbOrTx, scanId: string): Promise<number> {
+  const [scan] = await tx
+    .select({
+      projectId: securityScans.project_id,
+      reserved: securityScans.reserved_nano_usd,
+      startedAt: securityScans.started_at,
+    })
+    .from(securityScans)
+    .where(eq(securityScans.id, scanId))
+    .for('update')
+    .limit(1);
+  if (!scan || scan.reserved <= 0) {
+    return 0;
+  }
+  const month = securitySpendMonth(scan.startedAt ? Date.parse(scan.startedAt) : Date.now());
+  const reserved = scan.reserved;
+  await tx
+    .update(securityProjectSpend)
+    .set({
+      reserved_nano_usd: sql`GREATEST(0, ${securityProjectSpend.reserved_nano_usd} - ${reserved})`,
+      updated_at: sql`now()`,
+    })
+    .where(
+      and(
+        eq(securityProjectSpend.project_id, scan.projectId),
+        eq(securityProjectSpend.month, month),
+      ),
+    );
+  await tx
+    .update(securityPlatformSpend)
+    .set({
+      reserved_nano_usd: sql`GREATEST(0, ${securityPlatformSpend.reserved_nano_usd} - ${reserved})`,
+      updated_at: sql`now()`,
+    })
+    .where(eq(securityPlatformSpend.month, month));
+  await tx.update(securityScans).set({ reserved_nano_usd: 0 }).where(eq(securityScans.id, scanId));
+  return reserved;
 }
 
 /** Why a model call was refused before it was sent. */

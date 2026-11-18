@@ -513,6 +513,67 @@ describe('DELETE /projects/:id', () => {
     ).toEqual([{ id: 'sn_platform' }]);
   });
 
+  it('cancels a running security scan and gives its reserve back before the cascade (#26)', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'mid-scan-app');
+    mockCfApi();
+    const startedAt = new Date().toISOString();
+    const month = `${startedAt.slice(0, 7)}-01`;
+    await env.db.insert(securityScans).values({
+      id: 'ss_mid',
+      project_id: project.id,
+      deployment_id: 'dpl_mid',
+      status: 'running',
+      trigger: 'deploy',
+      attempt: 2,
+      lease_until: new Date(Date.now() + 3_600_000).toISOString(),
+      started_at: startedAt,
+      reserved_nano_usd: 700,
+    });
+    await env.db
+      .insert(securityProjectSpend)
+      .values({ project_id: project.id, month, reserved_nano_usd: 700 });
+    await env.db
+      .insert(securityPlatformSpend)
+      .values({ month, reserved_nano_usd: 900, spent_nano_usd: 5 });
+    const controllerCalls: Array<{ path: string; body: unknown }> = [];
+    const dispatch = {
+      get: () => ({
+        fetch: async (input: string, init?: RequestInit) => {
+          controllerCalls.push({
+            path: new URL(input).pathname,
+            body: JSON.parse(String(init?.body)),
+          });
+          return Response.json({ ok: true });
+        },
+      }),
+    } as unknown as DispatchNamespace;
+
+    const res = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${user.jwt}` },
+      }),
+      { ...env, DISPATCH: dispatch },
+    );
+    expect(res.status).toBe(200);
+    expect(controllerCalls).toEqual([
+      { path: '/v1/scans/cancel', body: { scanId: 'ss_mid', attempt: 2 } },
+    ]);
+    expect(
+      await env.db.select().from(securityScans).where(eq(securityScans.project_id, project.id)),
+    ).toHaveLength(0);
+    // The platform month outlives the project: only this scan's reserve left it.
+    expect(
+      await env.db
+        .select({
+          reserved: securityPlatformSpend.reserved_nano_usd,
+          spent: securityPlatformSpend.spent_nano_usd,
+        })
+        .from(securityPlatformSpend),
+    ).toEqual([{ reserved: 200, spent: 5 }]);
+  });
+
   it('terminalizes in-flight builds and tears down their container DOs', async () => {
     const user = await createTestUser(env.db);
     const project = await createTestProject(env.db, user.id, 'building-app');
