@@ -1537,7 +1537,11 @@ export async function applyEmailSetup(
   // 3. Sending. 2040 = already onboarded. Anything else: hint, continue without it.
   //    Sending-only apps onboard through the bearer on the zone preflight resolved, since
   //    the provider command first reads Email Routing settings (Zone Settings Read).
-  const enableSending = async (): Promise<{ ok: boolean; code: number | null }> => {
+  const enableSending = async (): Promise<{
+    ok: boolean;
+    code: number | null;
+    noBearer?: boolean;
+  }> => {
     if (receivesEmail) {
       const enable = await run({ type: 'email.sending.enable', domain: pre.domain });
       const code = isHardFailure(enable) ? null : providerErrorCode(enable);
@@ -1545,7 +1549,7 @@ export async function applyEmailSetup(
     }
     const token = await borrow();
     if (!token) {
-      return { ok: false, code: null };
+      return { ok: false, code: null, noBearer: true };
     }
     const response = await fetchWithSessionBearer(
       inputs.fetchImpl,
@@ -1564,10 +1568,15 @@ export async function applyEmailSetup(
       lines.push(`  ! sending   ${b.message}`);
     }
   } else if (!result.sendingReady) {
-    const { ok, code } = await enableSending();
+    const { ok, code, noBearer } = await enableSending();
     if (ok) {
       result.sendingReady = true;
       lines.push(`  ✔ sending   ${pre.domain} onboarded`);
+    } else if (noBearer) {
+      // Nothing reached Cloudflare, so the plan is not the reason.
+      lines.push(
+        `  ! sending   ${pre.domain} not onboarded (session bearer unavailable); rerun void email setup --platform cloudflare`,
+      );
     } else {
       const known = code ? CF_EMAIL_ERROR_CODES[code] : undefined;
       lines.push(

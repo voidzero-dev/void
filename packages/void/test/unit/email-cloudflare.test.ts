@@ -1422,6 +1422,22 @@ describe('sending-only Cloudflare email', () => {
     expect(fetchCalls[0]!.headers.Authorization).toBe(`Bearer ${BEARER}`);
   });
 
+  it('names a missing session bearer instead of the Workers Paid plan when onboarding cannot start', async () => {
+    const { inputs, fetchCalls } = sendingOnly('mail.acme.com', { list: notListed });
+    const pre = await preflightEmail(inputs);
+    fetchCalls.length = 0;
+    inputs.getSessionBearer = async () => {
+      throw new Error('session expired');
+    };
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(false);
+    expect(out.lines).toContain(
+      '  ! sending   mail.acme.com not onboarded (session bearer unavailable); rerun void email setup --platform cloudflare',
+    );
+    expect(out.lines.some((line) => line.includes('Workers Paid'))).toBe(false);
+    expect(fetchCalls).toEqual([]);
+  });
+
   it('treats code 2040 (already onboarded) as onboarded', async () => {
     const { inputs } = sendingOnly('mail.acme.com', { list: notListed, enable: refused(2040) });
     const out = await applyEmailSetup(await preflightEmail(inputs), inputs);
