@@ -253,6 +253,100 @@ await runDbCommand(${JSON.stringify(root)}, { action: 'seed' });`,
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'from barrel' }]);
   }, 30_000);
 
+  it.each([
+    { layout: 'file', importSchema: true },
+    { layout: 'directory', importSchema: true },
+    { layout: 'file', importSchema: false },
+    { layout: 'directory', importSchema: false },
+  ])(
+    'resolves tsconfig paths in a schema $layout with seed imports: $importSchema',
+    async ({ layout, importSchema }) => {
+      const root = createProjectRoot({
+        migration: `CREATE TABLE users (id TEXT PRIMARY KEY);
+CREATE TABLE messages (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  text TEXT NOT NULL REFERENCES users(id)
+);
+`,
+        seedFile: {
+          name: 'seed.ts',
+          content: `import { defineSeed } from 'void/seed';
+${importSchema ? "import { messages } from '@schema';\nimport { value } from '@seed-data/message';" : ''}
+
+export default defineSeed(async ({ db, schema }) => {
+  ${importSchema ? '' : "const { value } = await import('@seed-data/message');"}
+  await db.insert(schema.userTable).values({ id: value });
+  await db.insert(${importSchema ? 'messages' : 'schema.messages'}).values({ text: value });
+});
+`,
+        },
+      });
+      mkdirSync(join(root, '.void'));
+      mkdirSync(join(root, 'config'));
+      mkdirSync(join(root, 'fixtures'));
+      writeFileSync(
+        join(root, '.void', 'better-auth-schema.ts'),
+        `import { sqliteTable, text } from 'void/schema-d1';
+export const userTable = sqliteTable('users', { id: text().primaryKey() });
+`,
+      );
+      writeFileSync(join(root, 'fixtures', 'message.ts'), "export const value = 'from alias';\n");
+      const compilerOptions = {
+        ...(layout === 'directory' ? { baseUrl: '..' } : {}),
+        paths: {
+          '@auth-schema': ['./.void/better-auth-schema.ts'],
+          '@schema': ['./db/schema'],
+          '@seed-data/*': ['./missing/*', './fixtures/*'],
+        },
+      };
+      writeFileSync(
+        join(root, 'config', 'tsconfig.base.json'),
+        JSON.stringify({ compilerOptions }),
+      );
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        `{
+  // Support both root paths and paths inherited from another directory.
+  ${layout === 'directory' ? '"extends": "./config/tsconfig.base.json"' : `"compilerOptions": ${JSON.stringify(compilerOptions)}`},
+}
+`,
+      );
+      const schemaDir = layout === 'directory' ? join(root, 'db', 'schema') : join(root, 'db');
+      mkdirSync(schemaDir, { recursive: true });
+      writeFileSync(
+        join(schemaDir, layout === 'directory' ? 'index.ts' : 'schema.ts'),
+        `import { integer, sqliteTable, text } from 'void/schema-d1';
+import { userTable } from '@auth-schema';
+export { userTable };
+
+export const messages = sqliteTable('messages', {
+  id: integer().primaryKey({ autoIncrement: true }),
+  text: text().notNull().references(() => userTable.id),
+});
+`,
+      );
+      // Loading CLI modules must not evaluate the app's Vite config.
+      writeFileSync(join(root, 'vite.config.ts'), "throw new Error('Vite config was loaded');\n");
+
+      // Use plain Node so Vitest cannot resolve the imports for the seed loader.
+      const result = spawnSync(
+        process.execPath,
+        [
+          '--input-type=module',
+          '-e',
+          'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
+          new URL('../../src/cli/db.ts', import.meta.url).href,
+          root,
+        ],
+        { encoding: 'utf8', timeout: 20_000 },
+      );
+
+      expect(result.status, result.stderr).toBe(0);
+      expect(await readMessages(root)).toEqual([{ id: 1, text: 'from alias' }]);
+    },
+    30_000,
+  );
+
   it('checks the seed file before it resets the database', async () => {
     const root = createProjectRoot({
       seedFile: {

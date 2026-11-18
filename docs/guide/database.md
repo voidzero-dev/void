@@ -264,6 +264,8 @@ Use `db/seed.ts` for a programmatic seed or `db/seed.sql` for SQL. JavaScript an
 
 Use `db/seed.ts` when you want to generate seed data in code. Export a default function or a named `seed` function.
 
+Seed files and schema modules resolve imports using the aliases configured in your project's `tsconfig.json`, such as `@schema` and `@auth-schema`.
+
 ```ts
 // db/seed.ts
 import { defineSeed } from 'void/seed';

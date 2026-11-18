@@ -776,7 +776,7 @@ async function runSeed(
   const seed = resolveSeedTarget(root, file);
   const sql = seed.kind === 'sql' ? readFileSync(seed.path, 'utf-8') : undefined;
   await confirmReset(root, dialect, yes);
-  const seedFn = sql === undefined ? await loadSeedFunction(seed.path) : undefined;
+  const seedFn = sql === undefined ? await loadSeedFunction(root, seed.path) : undefined;
 
   // Reset first (drop + re-run migrations). The drop is confirmed above, so do not ask again.
   const migrationCount = await resetDatabase(root, dialect, true);
@@ -2470,8 +2470,11 @@ async function runSeedModule(
   }
 }
 
-async function loadSeedFunction(seedPath: string): Promise<SeedFn<Record<string, unknown>>> {
-  const mod = await importLocalModule(seedPath);
+async function loadSeedFunction(
+  root: string,
+  seedPath: string,
+): Promise<SeedFn<Record<string, unknown>>> {
+  const mod = await importLocalModule(root, seedPath);
   const seed =
     typeof mod.default === 'function'
       ? mod.default
@@ -2495,14 +2498,14 @@ async function loadSeedSchema(root: string): Promise<Record<string, unknown>> {
   }
 
   if (location.type === 'file') {
-    const mod = await importLocalModule(location.path);
+    const mod = await importLocalModule(root, location.path);
     return Object.fromEntries(
       Object.entries(mod).filter(([name]) => name !== 'default' && name !== '__esModule'),
     );
   }
 
   const files = collectSchemaModuleFiles(location.path);
-  const parts = await Promise.all(files.map((file) => importLocalModule(file)));
+  const parts = await Promise.all(files.map((file) => importLocalModule(root, file)));
   return Object.assign(
     {},
     ...parts.map((mod) =>
@@ -2530,12 +2533,18 @@ function collectSchemaModuleFiles(dir: string): Array<string> {
   return files.sort();
 }
 
-async function importLocalModule(modulePath: string): Promise<Record<string, unknown>> {
+async function importLocalModule(
+  root: string,
+  modulePath: string,
+): Promise<Record<string, unknown>> {
   // Native import() cannot resolve the extensionless re-exports that `void gen model` writes.
+  const tsconfigPath = join(root, 'tsconfig.json');
   const jiti = createJiti(import.meta.url, {
     fsCache: false,
     moduleCache: false,
     interopDefault: false,
+    // Anchor aliases to the app rather than the installed CLI or the current directory.
+    tsconfigPaths: existsSync(tsconfigPath) ? tsconfigPath : false,
   });
   return jiti.import<Record<string, unknown>>(modulePath);
 }
