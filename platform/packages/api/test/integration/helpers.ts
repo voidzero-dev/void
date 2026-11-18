@@ -169,6 +169,9 @@ type StoredValue = {
   metadata?: unknown;
 };
 
+/** R2 refuses multipart parts below this size, apart from the last. */
+const MEMORY_R2_MIN_PART_BYTES = 5 * 1024 * 1024;
+
 function toArrayBuffer(value: ArrayBuffer | ArrayBufferView): ArrayBuffer {
   if (value instanceof ArrayBuffer) {
     return value.slice(0);
@@ -430,6 +433,65 @@ class MemoryR2Bucket {
     for (const key of list) {
       this.store.delete(key);
     }
+  }
+
+  /**
+   * Multipart upload: parts are kept until `complete` joins them in part order.
+   * Like R2, `complete` refuses a non-last part under 5 MiB or one whose size
+   * differs from the others (error 10048).
+   */
+  async createMultipartUpload(key: string): Promise<{
+    uploadPart(
+      partNumber: number,
+      value: ArrayBuffer | ArrayBufferView | string,
+    ): Promise<{
+      partNumber: number;
+      etag: string;
+    }>;
+    complete(parts: Array<{ partNumber: number; etag: string }>): Promise<unknown>;
+    abort(): Promise<void>;
+  }> {
+    const parts = new Map<number, { etag: string; body: Uint8Array }>();
+    return {
+      uploadPart: async (partNumber, value) => {
+        const body =
+          typeof value === 'string'
+            ? new TextEncoder().encode(value)
+            : new Uint8Array(toArrayBuffer(value));
+        const etag = memoryR2Etag();
+        parts.set(partNumber, { etag, body });
+        return { partNumber, etag };
+      },
+      complete: async (uploaded) => {
+        const chunks = uploaded
+          .slice()
+          .sort((left, right) => left.partNumber - right.partNumber)
+          .map((part) => {
+            const stored = parts.get(part.partNumber);
+            if (!stored || stored.etag !== part.etag) {
+              throw new Error(`unknown part ${part.partNumber}`);
+            }
+            return stored.body;
+          });
+        const leading = chunks.slice(0, -1);
+        for (const chunk of leading) {
+          if (chunk.length < MEMORY_R2_MIN_PART_BYTES) {
+            throw new Error(
+              'Your proposed upload is smaller than the minimum allowed object size.',
+            );
+          }
+          if (chunk.length !== leading[0]!.length) {
+            throw new Error(
+              'completeMultipartUpload: All non-trailing parts must have the same size. (10048)',
+            );
+          }
+        }
+        return this.put(key, new Blob(chunks as Array<BlobPart>));
+      },
+      abort: async () => {
+        parts.clear();
+      },
+    };
   }
 }
 

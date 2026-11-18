@@ -1,5 +1,5 @@
 import type { ApiEnv } from '../env.ts';
-import { createAppJwt } from './app-jwt.ts';
+import { createAppJwt, type GithubAppEnv } from './app-jwt.ts';
 
 export const GITHUB_API_BASE = 'https://api.github.com';
 export const GITHUB_API_VERSION = '2026-03-10';
@@ -52,7 +52,7 @@ type InstallationTokenScope = Readonly<{
  * option than a composite cache key.
  */
 export async function getInstallationToken(
-  env: ApiEnv['Bindings'],
+  env: GithubAppEnv,
   installationId: string,
   opts?: InstallationTokenScope,
 ): Promise<string> {
@@ -114,6 +114,119 @@ export async function getInstallationToken(
  */
 export function generateSourceTarballUrl(repoFullName: string, sha: string): string {
   return `${GITHUB_API_BASE}/repos/${repoFullName}/tarball/${sha}`;
+}
+
+/**
+ * GitHub lists at most this many changed files for a whole comparison (the first
+ * page only). A list this long may be cut, so callers treat it as truncated.
+ */
+export const GITHUB_COMPARE_MAX_FILES = 300;
+
+export type CommitComparisonFile = Readonly<{
+  filename: string;
+  /** `added`, `modified`, `removed`, `renamed`, `copied`, `changed` or `unchanged`. */
+  status: string;
+  previousFilename: string | null;
+  /** The unified diff, when GitHub includes one (not for binary or very large files). */
+  patch: string | null;
+}>;
+
+export type CommitComparison = Readonly<{
+  /** `ahead`, `behind`, `identical` or `diverged`: `head` relative to `base`. */
+  status: string;
+  aheadBy: number;
+  behindBy: number;
+  files: ReadonlyArray<CommitComparisonFile>;
+  /** The file list may be incomplete: GitHub left it out, or it hit the 300-file cap. */
+  truncated: boolean;
+}>;
+
+type CommitComparisonResponse = Readonly<{
+  status?: unknown;
+  ahead_by?: unknown;
+  behind_by?: unknown;
+  files?: unknown;
+}>;
+
+function readComparisonFiles(value: unknown): Array<CommitComparisonFile> | null {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+  const files: Array<CommitComparisonFile> = [];
+  for (const entry of value as Array<Record<string, unknown> | null>) {
+    if (typeof entry?.filename !== 'string' || typeof entry.status !== 'string') {
+      return null;
+    }
+    files.push({
+      filename: entry.filename,
+      status: entry.status,
+      previousFilename:
+        typeof entry.previous_filename === 'string' ? entry.previous_filename : null,
+      patch: typeof entry.patch === 'string' ? entry.patch : null,
+    });
+  }
+  return files;
+}
+
+/**
+ * `GET /repos/{repo}/compare/{base}...{head}` with a token the caller minted. The
+ * changed files come on the first page only, so one page of one commit is asked for.
+ * Returns `null` when the comparison cannot be read: a 404 (a commit GitHub no
+ * longer has), another 4xx, or a 5xx / network error twice in a row.
+ */
+export async function compareCommits(
+  token: string,
+  repoFullName: string,
+  base: string,
+  head: string,
+  signal?: AbortSignal,
+): Promise<CommitComparison | null> {
+  const url = `${GITHUB_API_BASE}/repos/${repoFullName}/compare/${encodeURIComponent(base)}...${encodeURIComponent(head)}?per_page=1&page=1`;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        headers: {
+          Accept: 'application/vnd.github+json',
+          Authorization: `Bearer ${token}`,
+          'User-Agent': 'void-api',
+          'X-GitHub-Api-Version': GITHUB_API_VERSION,
+        },
+        ...(signal ? { signal } : {}),
+      });
+    } catch {
+      if (signal?.aborted) {
+        return null;
+      }
+      continue;
+    }
+    if (res.status >= 500) {
+      await res.body?.cancel();
+      continue;
+    }
+    if (!res.ok) {
+      await res.body?.cancel();
+      return null;
+    }
+    let data: CommitComparisonResponse;
+    try {
+      data = (await res.json()) as CommitComparisonResponse;
+    } catch {
+      return null;
+    }
+    if (typeof data.status !== 'string') {
+      return null;
+    }
+    const files = readComparisonFiles(data.files);
+    return {
+      status: data.status,
+      aheadBy: typeof data.ahead_by === 'number' ? data.ahead_by : 0,
+      behindBy: typeof data.behind_by === 'number' ? data.behind_by : 0,
+      files: files ?? [],
+      truncated: files === null || files.length >= GITHUB_COMPARE_MAX_FILES,
+    };
+  }
+  return null;
 }
 
 type CompareResponse = Readonly<{ status?: string }>;

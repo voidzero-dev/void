@@ -740,6 +740,52 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   monorepo — #32, mismatch → `commit-mismatch` — #38); integration
   `security-t1-github.test.ts` with mocked GitHub.
 - Exit: self-hosted never takes T1.
+- As built: `security/input/{t1,t1-github,source-tar}.ts`; `prepare.ts` tries T1 when the
+  tier would be T2 (a base snapshot exists, not a rescan), after assets are read, and
+  passes the files to `build.ts` as `sourceDiff` (or a fallback note as `notes`).
+  `compareCommits(token, repo, base, head)` asks for one page of one commit (the file list
+  is on page 1 only); ≥ 300 files or no list = truncated. Start: `managedBuilds`, a
+  `github_connections` row, hex base and head commits; the bundle is parsed only past this
+  point and handed to `build.ts`, so T2 parses it once. Before the token, the connection must
+  pass `installationCoversRepo` (active installation, repo still selected, owner/admin
+  authorizer), as a managed build does; else `source-diff-unavailable`. The head's build comes from
+  `deployment_operations.build_id` (or `builds.deployment_id`): `container` = managed (no
+  content check), `github_actions` = its `commit_sha` (the OIDC `sha` claim) must equal
+  the claimed commit; a build whose commit differs → `commit-mismatch`. One scoped token
+  (this repository, `contents: read`) for the compare and the tarball. Compare: only
+  `ahead` / `identical` (`behind` / `diverged` = force push → `base-not-ancestor`; a 404 or
+  error → `source-diff-unavailable`; truncated → `compare-truncated`), each T2 with that
+  note. The tarball goes to R2 by multipart (100 MB compressed, 512 MB / 100,000 files
+  unpacked, else `source-too-large`) at `…/scans/{scan}/source-{attempt}-{uuid}.tar.gz` (one key per call, so
+  overlapping runs never delete each other's) in parts of exactly 8 MiB (R2 wants equal
+  non-last parts) and is deleted as
+  soon as the input is built (a retry fetches it again), so the whole repository is never
+  kept. Pass 1 hashes every file, pass 2 reads the planned ones. Own streaming ustar/pax
+  reader: regular files only, top folder cut, unsafe names and links skipped (but every
+  entry counts toward the limits).
+  Root: a source-map path is the map's path with `..` above the output folder dropped, so
+  it ends a repo path; each source whose text is at exactly one such path votes for the
+  folder in front. The folders must form one line (deepest = project root, the rest hold
+  shared packages), else `monorepo-shared-code`; no vote → `commit-mismatch`. A managed
+  build's root is `''` (it ran at the repo root). Content check (not managed): no source
+  maps, or a mapped source whose text differs from the commit while it changed (in the
+  compare or in the built output) → `commit-mismatch`. A file that differs but did not
+  change is read from the bundle (its live text). Scope: the root (no `node_modules/`) plus
+  repo files the maps list; secret-like files noted, filters as M10. Changed = compare
+  files in scope ∪ T2's changed sources. Deviation (safer than the spec): the T2 changes
+  are part of T1, so code that went live is scanned even when the base's claimed commit
+  did not match what it shipped. Bundle sources with no repo file (packages, generated
+  code) stay in the input under their own path. Input paths match T2 (a mapped file keeps
+  its source-map path, others are relative to the root), so findings keep their file when
+  a project moves between T1 and T2. Order: changed first; server code (bundle order),
+  config, other code, tests and docs. Changed repo files may use the whole read budget,
+  unchanged ones what bundle-only sources leave; the rest is unread. An unread file that changed
+  (or waits in the backlog) is cut: capped, lost, back to the backlog. An unchanged one is
+  read access only (§7.4): dropped, not capped, so a big repo is not `partial` on every
+  scan (a gate scan that turns full caps it, as in T2). Deviation: no hunks for files over 256 KB: the runner takes only
+  `changed_files` and reads whole files, so a big file counts as 256 KB in the focus, as in
+  T2. `MemoryR2Bucket` gained `createMultipartUpload`. New note names beyond the spec:
+  `compare-truncated`, `base-not-ancestor`, `source-diff-unavailable`, `source-too-large`.
 
 **M12 Ingest and findings.**
 

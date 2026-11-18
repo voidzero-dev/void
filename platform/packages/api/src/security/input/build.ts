@@ -31,6 +31,7 @@ import {
   assetInputPath,
   bundleSources,
   changedSources,
+  type SecurityBundleSources,
   type SecurityModuleFile,
   type SecuritySourceFile,
 } from './t2.ts';
@@ -47,6 +48,19 @@ const MAX_LISTED_SECRET_FILES = 20;
 
 export type SecurityInputAsset = Readonly<{ path: string; text: string }>;
 
+/** A T1 source diff's files (`t1-github.ts`), in place of the bundle's sources. */
+export type SecuritySourceDiffInput = Readonly<{
+  /** Readable files in priority order: repo files in scope, then bundle-only sources. */
+  files: ReadonlyArray<SecuritySourceFile>;
+  /** Input paths changed since the base: the comparison's and the built output's. */
+  changed: ReadonlySet<string>;
+  /** Files in scope left unread (the read limits); changed ones go to the backlog. */
+  unread: ReadonlyArray<Readonly<{ path: string; bytes: number; sha256: string }>>;
+  /** Secret-like files in scope, never read; listed in the coverage notes. */
+  secret: ReadonlyArray<Readonly<{ path: string; bytes: number }>>;
+  notes: ReadonlyArray<string>;
+}>;
+
 export type SecurityInputPlan = Readonly<{
   scan: Readonly<{
     id: string;
@@ -58,7 +72,13 @@ export type SecurityInputPlan = Readonly<{
     commit: string | null;
   }>;
   tier: SecurityTierChoice;
+  /** The T1 files; required when `tier` is `source_diff`, ignored otherwise. */
+  sourceDiff?: SecuritySourceDiffInput | null;
+  /** Coverage notes from before the build (why T1 fell back to T2). */
+  notes?: ReadonlyArray<string>;
   head: Readonly<{ modules: ReadonlyArray<SecurityModuleFile>; main: string | null }>;
+  /** `bundleSources(head.modules, head.main)` when the caller already has it. */
+  bundle?: SecurityBundleSources | null;
   /** The base snapshot's hashes; `null` for a full scan. */
   base: Readonly<{
     modules: ReadonlyMap<string, string>;
@@ -152,8 +172,14 @@ type Candidate = SecuritySourceFile & {
 type ReadFile = Candidate & { sent: string; sentBytes: number };
 
 export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltInput {
-  const notes: Array<string> = [];
-  const { files: sources, noSourceMaps } = bundleSources(plan.head.modules, plan.head.main);
+  const notes: Array<string> = [...(plan.notes ?? [])];
+  const sourceDiff = plan.tier.tier === 'source_diff' ? (plan.sourceDiff ?? null) : null;
+  if (plan.tier.tier === 'source_diff' && sourceDiff === null) {
+    throw new Error('a source diff scan needs its source files');
+  }
+  const bundle = plan.bundle ?? bundleSources(plan.head.modules, plan.head.main);
+  const noSourceMaps = bundle.noSourceMaps;
+  const sources = sourceDiff?.files ?? bundle.files;
   const sourceIndex = new Map<string, string>();
   let totalSourceBytes = 0;
   let droppedFiles = 0;
@@ -203,6 +229,38 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     }
     const file = { ...source, bytes, unverified: party === 'unverified', asset: null };
     (file.unverified ? unverified : firstParty).push(file);
+  }
+  // T1: secret-like repo files were never read. Unread ones that changed (or wait in
+  // the backlog) count as cut below; unchanged ones are read access only (§7.4), so
+  // they are dropped without making a diff scan partial.
+  const unreadSources: Array<Candidate> = [];
+  const unreadUnchanged: Array<Candidate> = [];
+  if (sourceDiff !== null) {
+    const waiting = new Set(plan.backlog);
+    notes.push(...sourceDiff.notes);
+    for (const file of sourceDiff.secret) {
+      totalSourceBytes += file.bytes;
+      secretFiles.push(file.path);
+      droppedFiles++;
+      droppedBytes += file.bytes;
+    }
+    for (const file of sourceDiff.unread) {
+      const due = sourceDiff.changed.has(file.path) || waiting.has(file.path);
+      if (due) {
+        totalSourceBytes += file.bytes;
+      }
+      (due ? unreadSources : unreadUnchanged).push({
+        path: file.path,
+        text: '',
+        sha256: file.sha256,
+        module: '',
+        map: null,
+        built: false,
+        bytes: file.bytes,
+        unverified: false,
+        asset: null,
+      });
+    }
   }
 
   // Text assets: client code, after server code.
@@ -277,12 +335,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     readBytes += sentBytes;
     readSet.push({ ...file, sent, sentBytes });
   }
+  cut.push(...unreadSources);
   for (const file of cut) {
     droppedFiles++;
     droppedBytes += file.bytes;
     lostBytes += file.bytes;
   }
-  const capped = cut.length;
   const available = new Map(readSet.map((file) => [file.path, file.sentBytes]));
 
   // Focus (diff tiers only). Whatever changed (or waited in the backlog) and is still
@@ -296,11 +354,13 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (tier !== 'full' && plan.base) {
     const headModules = new Map(plan.head.modules.map((module) => [module.name, module.sha256]));
     const servers = ordered.filter((file) => file.asset === null);
-    const changed = new Set(
-      changedSources(servers, headModules, plan.base.modules, plan.base.sources).map(
-        (file) => file.path,
-      ),
-    );
+    const changed =
+      sourceDiff?.changed ??
+      new Set(
+        changedSources(servers, headModules, plan.base.modules, plan.base.sources).map(
+          (file) => file.path,
+        ),
+      );
     const diff: Array<SecurityFocusCandidate> = [];
     for (const file of readSet) {
       if (file.asset !== null || changed.has(file.path)) {
@@ -332,6 +392,20 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     }
     noChanges = tier !== 'full' && focus.length === 0;
   }
+  for (const file of unreadUnchanged) {
+    droppedFiles++;
+    droppedBytes += file.bytes;
+  }
+  if (tier === 'full') {
+    // A full scan reads everything it can, unchanged files too: as in T2, the rest is
+    // capped and waits for the next scan.
+    for (const file of unreadUnchanged) {
+      totalSourceBytes += file.bytes;
+      lostBytes += file.bytes;
+    }
+    cut.push(...unreadUnchanged);
+  }
+  const capped = cut.length;
   if (tier === 'full') {
     // A full scan reads everything it can; the rest waits for the next scan.
     unscanned.push(...cut.map((file) => file.path), ...unreadAssetPaths.values());
@@ -347,7 +421,7 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     backlog = backlog.slice(0, SECURITY_BACKLOG_MAX_PATHS);
   }
   const unscannedSet = new Set(unscanned);
-  for (const file of [...readSet, ...cut]) {
+  for (const file of [...readSet, ...cut, ...unreadUnchanged]) {
     if (file.asset !== null) {
       if (unscannedSet.has(file.path)) {
         unscannedAssets.add(file.asset);

@@ -8,7 +8,9 @@
  *                ├ stored Worker bundle (`bundle_stored`, recovered inline deploys) ─► copy
  *                └ none ─► failed (input_missing), edge #12
  *   base = last succeeded scan ─► its snapshot hashes ─► tier
- *   assets, backlog, secrets, findings ─► build ─► row update ─► tar stream
+ *   assets, backlog, secrets, findings
+ *   a diff tier on a hosted install with GitHub ─► T1 source diff (`t1-github.ts`), else T2
+ *   build ─► row update ─► tar stream
  *
  * Memory: modules are read one at a time (hashed, copied, turned into text, a map
  * into its sources) and their bytes counted as read, so more than 50 MB ends
@@ -23,6 +25,7 @@
  *   backlog.json (the backlog it leaves) and server-leads.json, for ingest (M12).
  */
 import { and, desc, eq, isNotNull } from 'drizzle-orm';
+import { SCAN_INPUT_LIMITS } from '../../../../security-scanner/src/runner/limits.ts';
 import type { Db } from '../../db.ts';
 import { getProjectSecrets } from '../../db/secrets.ts';
 import { parseManifest } from '../../deploy/serving-assets.ts';
@@ -48,15 +51,24 @@ import {
 import { parseSecurityBacklog, serializeSecurityBacklog } from './backlog.ts';
 import {
   buildSecurityScanInput,
+  SECURITY_INPUT_MAX_BYTES,
   utf8Length,
   type SecurityBuiltInput,
   type SecurityInputAsset,
+  type SecuritySourceDiffInput,
 } from './build.ts';
-import type { SecurityMemoryEvent, SecurityMemoryFinding } from './memory.ts';
+import {
+  SECURITY_MEMORY_HISTORY_MAX_FILES,
+  type SecurityMemoryEvent,
+  type SecurityMemoryFinding,
+} from './memory.ts';
 import type { SecuritySecret } from './redact.ts';
+import { loadSecuritySourceDiff, type SecuritySourceDiffEnv } from './t1-github.ts';
 import {
   assetInputPath,
+  bundleSources,
   changedTextAssets,
+  type SecurityBundleSources,
   securityModuleFile,
   sha256Hex,
   type SecurityAssetEntry,
@@ -72,7 +84,8 @@ export type SecurityInputEnv = Pick<
   | 'SECURITY_SCAN_SCHEDULER'
   | 'PROJECT_SECRET_KEYS_JSON'
   | 'PROJECT_SECRET_ACTIVE_KEY_VERSION'
->;
+> &
+  SecuritySourceDiffEnv;
 
 /** Text assets read per scan, at most (the focus holds 400 files) … */
 const MAX_ASSETS_READ = 400;
@@ -681,7 +694,7 @@ export async function prepareSecurityScanInputFiles(
     base === null
       ? null
       : await loadBaseSnapshot(r2, securityScanInputPrefix(scan.projectId, base.deploymentId));
-  const tier = chooseSecurityTier({
+  let tier = chooseSecurityTier({
     trigger: scan.trigger,
     baseDeploymentId: base?.deploymentId ?? null,
     baseSnapshot: baseSnapshot !== null,
@@ -712,6 +725,47 @@ export async function prepareSecurityScanInputFiles(
     )
     .map((finding) => finding.file!);
 
+  // T1 when GitHub can show the change (hosted only); otherwise T2 stays, with a note.
+  const main = parseManifest(scan.manifest)?.workerMain ?? null;
+  let sourceDiff: SecuritySourceDiffInput | null = null;
+  const notes: Array<string> = [];
+  // The bundle's sources, read once: by T1 only when it can start, else by the build.
+  const bundle: { value?: SecurityBundleSources } = {};
+  if (tier.tier === 'built_diff' && base !== null && diffBase !== null) {
+    let assetBytes = 0;
+    for (const asset of assets) {
+      assetBytes += utf8Length(asset.text);
+    }
+    const memoryFiles = 2 + Math.min(memory.findings.length, SECURITY_MEMORY_HISTORY_MAX_FILES);
+    const result = await loadSecuritySourceDiff(env, db, {
+      scanId: scan.id,
+      attempt: scan.attempt,
+      projectId: scan.projectId,
+      deploymentId: scan.deploymentId,
+      baseDeploymentId: base.deploymentId,
+      headCommit: scan.commit,
+      bundle: () => (bundle.value ??= bundleSources(head.files, main)),
+      headModules: new Map(head.modules.map((module) => [module.name, module.sha256])),
+      baseModules: diffBase.modules,
+      baseSources: diffBase.sources,
+      budget: {
+        bytes: Math.max(0, SECURITY_INPUT_MAX_BYTES - assetBytes),
+        files: Math.max(0, SCAN_INPUT_LIMITS.maxFiles - memoryFiles - assets.length),
+      },
+    });
+    if (result.ok) {
+      sourceDiff = result.diff;
+      tier = chooseSecurityTier({
+        trigger: scan.trigger,
+        baseDeploymentId: base.deploymentId,
+        baseSnapshot: true,
+        sourceDiff: true,
+      });
+    } else if (result.note !== null) {
+      notes.push(result.note);
+    }
+  }
+
   const built = buildSecurityScanInput({
     scan: {
       id: scan.id,
@@ -722,7 +776,10 @@ export async function prepareSecurityScanInputFiles(
       commit: scan.commit,
     },
     tier,
-    head: { modules: head.files, main: parseManifest(scan.manifest)?.workerMain ?? null },
+    sourceDiff,
+    notes,
+    head: { modules: head.files, main },
+    bundle: bundle.value ?? null,
     base: diffBase,
     assets,
     unreadAssets,
