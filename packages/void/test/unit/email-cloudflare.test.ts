@@ -6,6 +6,8 @@ import {
   emailFromDomain,
   fetchWithSessionBearer,
   findEmailConfigConflicts,
+  formatSendingOnlyPaidHint,
+  isAwaitingSendingOnboarding,
   readRoutingRules,
   readRoutingSettings,
   readSendingSettings,
@@ -1426,6 +1428,56 @@ describe('sending-only Cloudflare email', () => {
     },
   );
 
+  it('names Workers Paid, its link and the token permissions when onboarding is refused', async () => {
+    const { inputs } = sendingOnly();
+    const original = inputs.runWrangler;
+    inputs.runWrangler = (operation, options) => {
+      if (operation.type === 'email.sending.settings') {
+        return sendingNotFound('mail.acme.com');
+      }
+      if (operation.type === 'email.sending.enable') {
+        return apiFailure(10105, 'sending');
+      }
+      return original(operation, options);
+    };
+    const pre = await preflightEmail(inputs);
+    expect(isAwaitingSendingOnboarding(pre)).toBe(true);
+    const checklist = renderEmailChecklist(pre);
+    expect(checklist).toContain(
+      'sending   mail.acme.com  not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare',
+    );
+    expect(checklist).not.toContain('verified destinations only');
+    const out = await applyEmailSetup(pre, inputs);
+    expect(out.ready).toBe(false);
+    expect(out.patch).toEqual({ addresses: null });
+    const printed = out.lines.join('\n');
+    expect(printed).toContain('[code: 10105]');
+    for (const line of formatSendingOnlyPaidHint('mail.acme.com')) {
+      expect(out.lines).toContain(`    ${line}`);
+    }
+    expect(printed).toContain('https://dash.cloudflare.com/?to=/:account/workers/plans');
+    expect(printed).toContain('Zone Read + Email Sending Edit');
+    expect(printed).not.toContain('verified destinations only');
+  });
+
+  it('does not treat an unreadable sending row as waiting for onboarding', async () => {
+    const { inputs } = sendingOnly();
+    const original = inputs.runWrangler;
+    inputs.runWrangler = (operation, options) =>
+      operation.type === 'email.sending.settings'
+        ? apiFailure(10000, 'sending settings')
+        : original(operation, options);
+    const pre = await preflightEmail(inputs);
+    expect(isAwaitingSendingOnboarding(pre)).toBe(false);
+    inputs.existingSendEmail = undefined;
+    inputs.runWrangler = (operation, options) =>
+      operation.type === 'email.sending.settings'
+        ? sendingNotFound('mail.acme.com')
+        : original(operation, options);
+    // Without a saved binding the app was never set up: deploy offers setup as usual.
+    expect(isAwaitingSendingOnboarding(await preflightEmail(inputs))).toBe(false);
+  });
+
   it('reports an unreadable zone as unknown without proposing routing setup', async () => {
     const { inputs } = sendingOnly();
     inputs.fetchImpl = (async () => jsonResponse(403, { success: false })) as typeof fetch;
@@ -2102,6 +2154,18 @@ describe('renderAddressMap', () => {
         '    outbound  sendEmail() from noreply@acme.com   (verified destinations only)',
       ].join('\n'),
     );
+  });
+
+  it('does not promise verified destinations to a sending-only app that is not onboarded', () => {
+    expect(
+      renderAddressMap({
+        from: 'noreply@acme.com',
+        routes: [],
+        addresses: [],
+        sendingReady: false,
+        sendingOnly: true,
+      }),
+    ).toBe('    outbound  sendEmail() from noreply@acme.com   (Email Sending not onboarded)');
   });
 
   it('marks a written address whose rule this deploy creates', () => {

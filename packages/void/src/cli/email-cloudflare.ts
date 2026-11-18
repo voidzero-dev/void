@@ -38,6 +38,36 @@ export function subdomainDashboardFallback(apex: string, domain: string): string
 export const SENDING_FREE_PLAN_HINT =
   'Workers Paid needed for arbitrary recipients. Inbound works; sendEmail() to verified destinations only.';
 
+const CLOUDFLARE_WORKERS_PAID_URL = 'https://dash.cloudflare.com/?to=/:account/workers/plans';
+
+/**
+ * Why a sending-only app (no `email/` handlers) has no working sender: it sends only through
+ * Email Sending, which Workers Free does not offer. Names the plan, its link and the token
+ * permissions a sending-only setup needs.
+ */
+export function formatSendingOnlyPaidHint(domain: string): Array<string> {
+  return [
+    `Email Sending is not onboarded on ${domain}. Apps without email/ handlers send through Cloudflare Email Sending, which requires the Workers Paid plan.`,
+    `Enable Workers Paid: ${CLOUDFLARE_WORKERS_PAID_URL}`,
+    'After upgrading, run `void email setup --platform cloudflare`. An API token needs Zone Read + Email Sending Edit.',
+  ];
+}
+
+/**
+ * A sending-only app whose saved setup (the committed binding) still waits for Email Sending
+ * onboarding, with nothing else in the way. Preflight cannot tell Workers Free from a domain
+ * never onboarded, so deploys leave the retry to `void email setup` instead of asking again.
+ */
+export function isAwaitingSendingOnboarding(pre: EmailPreflight): boolean {
+  return (
+    !pre.ready &&
+    pre.usage.handlers.length === 0 &&
+    pre.binding.state === 'present' &&
+    pre.sendingRetryable &&
+    !pre.blockers.some((b) => b.scope === 'all')
+  );
+}
+
 // ── Injected seams ─────────────────────────────────────────────────────────────
 
 /** Provider results are structured at the subprocess boundary. */
@@ -1103,7 +1133,9 @@ export function renderEmailChecklist(pre: EmailPreflight): string {
       : pre.sending.state === 'unknown'
         ? 'unknown — could not verify; retry void email status --platform cloudflare'
         : pre.sendingRetryable && pre.binding.state === 'present'
-          ? 'not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare'
+          ? receivesEmail
+            ? 'not onboarded — verified destinations only; after upgrading to Workers Paid run void email setup --platform cloudflare'
+            : 'not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare'
           : 'not onboarded';
   row('sending', `${pre.domain}  ${sendingWord}`);
   if (receivesEmail && pre.derived.addresses.length === 0) {
@@ -1477,9 +1509,11 @@ export async function applyEmailSetup(
       lines.push(
         `  ! sending   ${pre.domain} not onboarded${code ? ` [code: ${code}]` : ''}${known ? ` — ${known}` : ''}`,
       );
-      lines.push(
-        `    ${receivesEmail ? SENDING_FREE_PLAN_HINT : 'Workers Paid needed for arbitrary recipients. Email Sending is not configured; verified destinations only with an existing send binding.'}`,
-      );
+      for (const hint of receivesEmail
+        ? [SENDING_FREE_PLAN_HINT]
+        : formatSendingOnlyPaidHint(pre.domain)) {
+        lines.push(`    ${hint}`);
+      }
     }
   }
 
@@ -1526,6 +1560,11 @@ export function renderAddressMap(map: {
   sendingReady: boolean;
   /** The pending marker; `void email status` passes one that does not name a deploy. */
   pendingLabel?: string;
+  /**
+   * An app without `email/` handlers. Void never enables Email Routing for it, so before
+   * onboarding the map cannot promise the verified-destination fallback.
+   */
+  sendingOnly?: boolean;
   /** Written addresses whose rule does not exist yet — `wrangler deploy` creates it. */
   creating?: Array<string>;
 }): string {
@@ -1542,7 +1581,7 @@ export function renderAddressMap(map: {
     lines.push(`    inbound   ${pad(route.address, width + 2)}→  ${route.handler}${marker}`);
   }
   lines.push(
-    `    outbound  sendEmail() from ${map.from}${map.sendingReady ? '' : '   (verified destinations only)'}`,
+    `    outbound  sendEmail() from ${map.from}${map.sendingReady ? '' : map.sendingOnly ? '   (Email Sending not onboarded)' : '   (verified destinations only)'}`,
   );
   return lines.join('\n');
 }

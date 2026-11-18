@@ -11263,6 +11263,83 @@ describe('runCloudflareDeploy — native Cloudflare email step', () => {
       expect(output.lines.join('\n')).toContain('inbound   not required');
       expect(output.lines.join('\n')).not.toContain('Inbound works');
       expect(readRootConfig(root).addresses).toBeUndefined();
+      if (!enabled) {
+        expect(output.lines.join('\n')).toContain(
+          'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+        );
+        expect(output.lines.join('\n')).toContain('Zone Read + Email Sending Edit');
+      }
+    },
+  );
+
+  // A sending-only app set up before (binding committed) on an account that cannot onboard
+  // Email Sending: each deploy says why once, never asks again, and never retries onboarding.
+  it.each([
+    [false, false],
+    [false, true],
+    [true, false],
+    [true, true],
+  ])(
+    'sending-only app with a saved binding is not re-prompted on Workers Free (CI: %s, --require-email: %s)',
+    async (isCI, requireEmail) => {
+      const root = emailProject(
+        {
+          ...PROVISIONED_D1,
+          send_email: [{ name: 'SEND_EMAIL' }],
+          vars: { __VOID_EMAIL_FROM: 'old@mail.acme.com' },
+        },
+        {
+          'routes/send.ts': `import { sendEmail } from 'void/email'; export const POST = () => sendEmail({to: 'a@example.com', subject: 'Hello', text: 'Hello'});`,
+        },
+      );
+      rmSync(join(root, 'email'), { recursive: true });
+      const { deps, spawns, fetchCalls, confirms, exitCalls, trace } = emailHarness({
+        isCI,
+        runner: { 'email sending enable mail.acme.com': sendingRefused },
+        // Record a prompt instead of answering it, so the assertion names the failure.
+        confirm: undefined,
+      });
+      const output = captureOutput();
+      try {
+        for (let run = 0; run < 2; run += 1) {
+          const deploy = runCloudflareDeploy(
+            root,
+            { platform: 'cloudflare', requireEmail },
+            silentCliLog,
+            deps,
+          );
+          if (requireEmail) {
+            await expect(deploy).rejects.toBeInstanceOf(ExitError);
+          } else {
+            await deploy;
+          }
+        }
+      } finally {
+        output.restore();
+      }
+      const printed = output.lines.join('\n');
+      expect(confirms).toEqual([]);
+      expect(spawns.some((s) => s.args[0] === 'email' && s.args[2] === 'enable')).toBe(false);
+      expect(spawns.some((s) => s.args[0] === 'email' && s.args[1] === 'routing')).toBe(false);
+      expect(fetchCalls.every(({ method }) => method === 'GET')).toBe(true);
+      expect(printed).toContain(
+        'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+      );
+      expect(printed).toContain('Zone Read + Email Sending Edit');
+      expect(printed).not.toContain('cannot ask');
+      expect(printed).not.toContain('This changes YOUR Cloudflare account');
+      expect(exitCalls).toEqual(requireEmail ? [1, 1] : []);
+      expect(trace.filter((t) => t === 'build')).toHaveLength(requireEmail ? 0 : 2);
+      if (!requireEmail) {
+        expect(printed).toContain(
+          'outbound  sendEmail() from noreply@mail.acme.com   (Email Sending not onboarded)',
+        );
+      }
+      // The saved setup ships as-is, with the sender brought up to date.
+      const written = readRootConfig(root);
+      expect(written.send_email).toEqual([{ name: 'SEND_EMAIL' }]);
+      expect(written.vars).toEqual({ __VOID_EMAIL_FROM: 'noreply@mail.acme.com' });
+      expect(written.addresses).toBeUndefined();
     },
   );
 

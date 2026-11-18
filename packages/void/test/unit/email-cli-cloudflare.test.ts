@@ -384,6 +384,91 @@ describe('sending-only email setup and status', () => {
       expect(config.send_email).toEqual([{ name: 'SEND_EMAIL' }]);
     },
   );
+
+  /** A sending-only app set up earlier (binding saved) whose domain is not onboarded. */
+  function savedSendingOnly(extra: { runnerTable?: Record<string, EmailWranglerRunResult> } = {}) {
+    const root = makeProject({
+      wrangler: JSON.stringify({
+        account_id: ACCOUNT,
+        name: 'acme-support',
+        send_email: [{ name: 'SEND_EMAIL' }],
+        vars: { __VOID_EMAIL_FROM: 'noreply@mail.acme.com' },
+      }),
+    });
+    roots.push(root);
+    rmSync(join(root, 'email'), { recursive: true });
+    const fakes = transcriptDeps({
+      runnerTable: extra.runnerTable,
+      fetchTable: {
+        'GET /zones?name=mail.acme.com': () => jsonResponse(200, { success: true, result: [] }),
+      },
+    });
+    return { root, configPath: join(root, 'wrangler.jsonc'), ...fakes };
+  }
+
+  it('status names Workers Paid, its link and the token permissions, and exits 1', async () => {
+    const { root, deps, calls, printed } = savedSendingOnly();
+    const logged = captureLog();
+    let code: number;
+    try {
+      code = await run(root, 'status', { ...deps, isInteractive: false });
+    } finally {
+      logged.restore();
+    }
+    expect(code).toBe(1);
+    expect(printed[0]).toContain(
+      'sending   mail.acme.com  not onboarded — needs Workers Paid; after upgrading run void email setup --platform cloudflare',
+    );
+    expect(printed.at(-1)).toBe(
+      '    outbound  sendEmail() from noreply@mail.acme.com   (Email Sending not onboarded)',
+    );
+    const warned = logged.lines.join('\n');
+    expect(warned).toContain(
+      'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+    );
+    expect(warned).toContain('Zone Read + Email Sending Edit');
+    expect(warned).not.toContain('Email is not set up');
+    expect(calls.some(({ operation }) => operation.type === 'email.sending.enable')).toBe(false);
+  });
+
+  it('setup asks to onboard Email Sending; a refusal prints the Workers Paid steps and exits 1', async () => {
+    const { root, configPath, deps, calls, printed } = savedSendingOnly({
+      runnerTable: { 'email sending enable mail.acme.com': sendingRefused },
+    });
+    const before = readFileSync(configPath, 'utf-8');
+    const confirms: Array<string> = [];
+    const logged = captureLog();
+    let code: number;
+    try {
+      code = await run(root, 'setup', {
+        ...deps,
+        isInteractive: true,
+        confirm: async (message) => {
+          confirms.push(message);
+          return true;
+        },
+      });
+    } finally {
+      logged.restore();
+    }
+    expect(code).toBe(1);
+    expect(confirms).toEqual([
+      'Onboard mail.acme.com for Email Sending? Sending-only apps need Workers Paid.',
+    ]);
+    expect(calls.filter((c) => c.args.includes('enable')).map((c) => c.args.slice(0, 4))).toEqual([
+      ['email', 'sending', 'enable', 'mail.acme.com'],
+    ]);
+    const output = printed.join('\n');
+    expect(output).toContain('[code: 10105]');
+    expect(output).toContain(
+      'Enable Workers Paid: https://dash.cloudflare.com/?to=/:account/workers/plans',
+    );
+    expect(output).toContain('Zone Read + Email Sending Edit');
+    expect(output).not.toContain('verified destinations only');
+    expect(logged.lines.join('\n')).toContain('Follow the Workers Paid steps above.');
+    // The saved binding and sender stay as they were.
+    expect(readFileSync(configPath, 'utf-8')).toBe(before);
+  });
 });
 
 describe('void email setup --platform cloudflare', () => {
