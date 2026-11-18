@@ -108,6 +108,15 @@ share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and
 The cf runner's transport checks live in `cf-version-transport.test.ts` so real subprocesses do
 not serialize the whole runner suite. Both files use the same fixture helpers with per-file
 isolated roots and cleanup; keep their real HTTP, process, and deadline assertions.
+The cf runner, transport, build-output, and operation-process files run their real-subprocess cases
+concurrently within each file (`const it = serialIt.concurrent`). A case that uses `vi` mocks or
+spies must use `serialIt`: Vitest clears mock history whenever a test starts, so a concurrent
+neighbor would erase the calls being asserted. Resolve fixture output through `outputRoot(prepared)`
+instead of a shared "latest root" variable.
+Browser suites with independent variants (`page-errors-*`, `server-auth-errors-*`,
+`http-errors-playground-*`) keep their cases in a `*-suite.ts` module and expose one thin test file
+per variant, so the variants spread across workers. Add a new variant as another thin file and give
+it an estimate in `test/integration-timings.ts`.
 Unit files and most API integration files use isolated worker threads to reduce startup time. On Linux and macOS,
 API integration files and the PGlite unit files (`unit-pglite`, `platform-unit-pglite`) use forks to isolate PGlite's
 WebAssembly JIT allocations after native Node 24 crashes in shared worker processes. API tests
