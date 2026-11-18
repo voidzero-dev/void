@@ -15,6 +15,7 @@ const pgliteUnitTests = [
   'platform/packages/api/test/unit/email-shared-recipient-migration.test.ts',
   'platform/packages/api/test/unit/github-authority-constraints-migration.test.ts',
   'platform/packages/api/test/unit/github-authority-migration.test.ts',
+  'platform/packages/api/test/unit/security-migration.test.ts',
 ];
 const cliUnitTests = [
   'packages/void/test/unit/cf-*.test.ts',

@@ -253,6 +253,24 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   case: project with scans, findings, requests, spend deletes cleanly; `clearTables`
   adds `security_platform_spend`, `security_notifications`.
 - Exit: template DB rebuilds; project delete cascade test passes.
+- As built: 11 tables, re-exported from `src/schema.ts`. Money is in whole units, not
+  `numeric` USD, to match M2: spend, reserves and costs in nano-dollars (`*_nano_usd`,
+  `bigint`), caps in cents (`*_cents`, `integer`, 0–100,000,000). `month` is a `date`
+  with a first-of-month check (`EXTRACT(DAY …) = 1`, which does not depend on the session
+  time zone). Status, trigger, state and kind lists are `CHECK`s built from exported TS
+  lists in the same file; the migration test checks that the mode list, the engine list
+  and the max cap match M2's `SECURITY_MODES`, `SecurityEngine` and
+  `SECURITY_MAX_MONTHLY_USD`. A bypass row's `request_state` is limited to
+  `waiting_scan`, `held_no_result` and `needs_deploy` (D50). The urgent index uses
+  `COALESCE(severity_override, severity)` so M35 needs no new index. Extra, not in
+  spec §14: `next_finding_number`, `policy_override` (default `inherit`), `created_at`
+  on scans, a waiting-scan index and an input-hold index (M8/M9), `severity_edited` in
+  the event actions (M35), `project_id` FK on finding events, PK
+  `(project_id, fingerprint_key)` on `security_memory_rejected`. The bypass → request
+  FK is `NO ACTION`: retention cannot delete a request a bypass points to, while a
+  project delete still removes both. `security_notifications.project_id` cascades and
+  is `NULL` only for `cap_platform`. `compatibility.json` is unchanged (old-runtime
+  check first).
 
 **M4 Policy store and operator policy routes.**
 

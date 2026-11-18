@@ -30,6 +30,17 @@ import {
   users,
   projectMembers,
   projectOwnershipPeriods,
+  projectSecuritySettings,
+  securityFindingEvents,
+  securityFindings,
+  securityMemoryRejected,
+  securityNotifications,
+  securityPlatformSpend,
+  securityProjectEvents,
+  securityProjectSpend,
+  securityPublicRequests,
+  securityScanBypasses,
+  securityScans,
 } from '../../src/schema.ts';
 import * as zeroTrustService from '../../src/zero-trust/project.ts';
 import {
@@ -367,6 +378,139 @@ describe('DELETE /projects/:id', () => {
     expect(routing).toBeNull();
     expect(await env.STATIC_ASSETS_R2.get(isrKey)).toBeNull();
     expect(await env.STATIC_ASSETS_R2.get(otherIsrKey)).not.toBeNull();
+  });
+
+  it('deletes security scans, findings, requests and spend with the project', async () => {
+    const user = await createTestUser(env.db);
+    const project = await createTestProject(env.db, user.id, 'scanned-app');
+    const other = await createTestProject(env.db, user.id, 'other-scanned-app');
+    mockCfApi();
+    await env.db
+      .insert(deployments)
+      .values({ id: 'dpl_sec', project_id: project.id, status: 'live' });
+    await env.db.insert(projectSecuritySettings).values({
+      project_id: project.id,
+      monthly_cap_cents: 10_000,
+      next_finding_number: 2,
+    });
+    await env.db.insert(securityScans).values([
+      {
+        id: 'ss_done',
+        project_id: project.id,
+        deployment_id: 'dpl_sec',
+        status: 'succeeded',
+        trigger: 'deploy',
+      },
+      {
+        id: 'ss_other',
+        project_id: other.id,
+        deployment_id: 'dpl_other',
+        status: 'queued',
+        trigger: 'deploy',
+      },
+    ]);
+    await env.db.insert(securityFindings).values({
+      id: 'sf_sec',
+      project_id: project.id,
+      number: 1,
+      fingerprint_key: 'key',
+      verdict: 'confirmed',
+      severity: 'critical',
+      title: 'Missing auth check',
+      category: 'auth',
+      first_scan_id: 'ss_done',
+      last_seen_scan_id: 'ss_done',
+    });
+    await env.db.insert(securityFindingEvents).values({
+      id: 'sfe_sec',
+      finding_id: 'sf_sec',
+      project_id: project.id,
+      scan_id: 'ss_done',
+      actor_kind: 'scanner',
+      action: 'created',
+    });
+    await env.db.insert(securityMemoryRejected).values({
+      project_id: project.id,
+      fingerprint_key: 'rejected',
+      reason: 'not reachable',
+      scan_id: 'ss_done',
+    });
+    await env.db.insert(securityPublicRequests).values({
+      id: 'spr_sec',
+      project_id: project.id,
+      state: 'bypassed',
+      requested_via: 'project',
+      target_deployment_id: 'dpl_sec',
+      closed_at: new Date().toISOString(),
+    });
+    await env.db.insert(securityScanBypasses).values({
+      id: 'sb_sec',
+      project_id: project.id,
+      request_id: 'spr_sec',
+      deployment_id: 'dpl_sec',
+      actor_kind: 'user',
+      actor_user_id: user.id,
+      reason: 'launch today',
+      request_state: 'held_no_result',
+    });
+    await env.db.insert(securityProjectEvents).values({
+      id: 'spe_sec',
+      project_id: project.id,
+      actor_kind: 'user',
+      actor_user_id: user.id,
+      action: 'scan_bypassed',
+      request_id: 'spr_sec',
+    });
+    await env.db
+      .insert(securityProjectSpend)
+      .values({ project_id: project.id, month: '2026-11-01', spent_nano_usd: 5 });
+    await env.db.insert(securityPlatformSpend).values({ month: '2026-11-01', spent_nano_usd: 9 });
+    await env.db.insert(securityNotifications).values([
+      {
+        id: 'sn_sec',
+        kind: 'scan_bypass',
+        project_id: project.id,
+        dedupe_key: 'scan_bypass:sb_sec',
+      },
+      { id: 'sn_platform', kind: 'cap_platform', dedupe_key: 'cap_platform:2026-11:80' },
+    ]);
+
+    const res = await app.fetch(
+      new Request(`http://localhost/projects/${project.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${user.jwt}` },
+      }),
+      env,
+    );
+    expect(res.status).toBe(200);
+
+    for (const table of [
+      projectSecuritySettings,
+      securityScans,
+      securityFindings,
+      securityFindingEvents,
+      securityMemoryRejected,
+      securityPublicRequests,
+      securityScanBypasses,
+      securityProjectEvents,
+      securityProjectSpend,
+      securityNotifications,
+    ]) {
+      expect(
+        await env.db.select().from(table).where(eq(table.project_id, project.id)),
+      ).toHaveLength(0);
+    }
+    expect(await env.db.select({ id: securityScans.id }).from(securityScans)).toEqual([
+      { id: 'ss_other' },
+    ]);
+    expect(
+      await env.db
+        .select({ spent: securityPlatformSpend.spent_nano_usd })
+        .from(securityPlatformSpend),
+    ).toEqual([{ spent: 9 }]);
+    expect(
+      await env.db.select({ id: securityNotifications.id }).from(securityNotifications),
+    ).toEqual([{ id: 'sn_platform' }]);
   });
 
   it('terminalizes in-flight builds and tears down their container DOs', async () => {

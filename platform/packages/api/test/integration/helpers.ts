@@ -607,6 +607,9 @@ export async function clearTables(db: Db): Promise<void> {
     schema.emailReceipts,
     schema.emailProjectControls,
     schema.emailMonthlyUsage,
+    // Not removed by the project cascade: platform cap emails and the month total.
+    schema.securityNotifications,
+    schema.securityPlatformSpend,
     sandboxDrainCheckpoints,
     domains,
     resources,
