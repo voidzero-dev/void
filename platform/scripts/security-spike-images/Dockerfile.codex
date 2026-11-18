@@ -1,0 +1,26 @@
+# Spike S3 image: Engine C (Codex SDK + Codex CLI, one exact version). Build from here:
+#   docker build --platform linux/amd64 -f Dockerfile.codex -t void-spike-sa-codex .
+# Exact pins in codex/package.json; install scripts off; non-root `scanner` user.
+# The codex-code-mode-host binary is removed: our model file sets tool_mode "direct".
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+ARG TARGETARCH
+RUN useradd --create-home --uid 10001 scanner \
+  && mkdir -p /scan/input /work /opt/scanner \
+  && chmod 755 /scan /scan/input /work
+WORKDIR /opt/scanner
+COPY codex/package.json ./package.json
+COPY codex/make-catalog.mjs ./make-catalog.mjs
+RUN CPU=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
+  && npm install --omit=dev --ignore-scripts --no-audit --no-fund --os=linux --cpu=$CPU \
+  && npm cache clean --force \
+  && BIN=$(find node_modules/@openai -type f -name codex -path '*vendor*' | head -1) \
+  && mv "$BIN" /opt/scanner/codex-bin \
+  && find node_modules/@openai -type f -name codex-code-mode-host -delete \
+  && cp node_modules/@openai/codex-sdk/LICENSE* node_modules/@openai/codex/LICENSE* /opt/scanner/ 2>/dev/null || true
+RUN mkdir -p /var/codex-build && CODEX_HOME=/var/codex-build /opt/scanner/codex-bin debug models --bundled > /var/codex-build/bundled.json \
+  && node make-catalog.mjs /var/codex-build/bundled.json /opt/scanner/codex-models.json \
+  && rm -rf /var/codex-build
+COPY common/ ./
+COPY codex/codex-wrapper.sh codex/void-scan-mcp.mjs codex/run-codex.mjs ./
+USER scanner
+CMD ["sleep", "infinity"]
