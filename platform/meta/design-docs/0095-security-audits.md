@@ -317,6 +317,36 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   (fake model server), `fs-tools.test.ts` (temp dirs: symlink, `..`, big file),
   `extract.test.ts`, `validate-findings.test.ts`, `status.test.ts`, `phases.test.ts`.
 - Exit: `dist/runner.mjs` built by `vp pack`; Engine B passes on the fake model.
+- As built: the runner has no runtime dependency (63 kB, Node built-ins only). The
+  controller (M6) starts `node runner.mjs --stdin-tar [--root /scan]` and streams the
+  input tar on stdin (S1: short argv). The tar may hold only `task.json`, `input/**`
+  and `memory/**`; any symlink, link, device, `..`, absolute path or duplicate refuses
+  the whole input (`failed`, `error_class: input_invalid`). Of pax records only
+  `path` and `size` are decoded; others (binary `SCHILY.xattr.*`) are skipped. Paths
+  with a control character are refused in the tar, `changed_files` and the report,
+  and the hunt prompt lists changed files as JSON strings. Files are written with
+  `O_EXCL|O_NOFOLLOW`, mode 0444. `findings.json` is written first, then
+  `status.json` is renamed into place whole, so the controller polls one file. Exit
+  0 means `status.json` exists; SIGTERM writes `timed_out (wall_clock)`, also while
+  the tar is still coming in (stdin is closed then, and after the tar). Model calls
+  go to `POST http://model.void.internal/v1/chat/completions` with no credentials;
+  M7 must answer a stop with a non-2xx status and `x-void-scan-stop:
+  session_calls|scan_calls|tokens|budget|credits` (a bare 402 = credits); any other
+  failure (other non-2xx, network error, unreadable body) is retried once, then
+  `failed (infrastructure)`. The last allowed turn tells the model to submit now. Tools read only
+  `/scan/input` and `/scan/memory`; relative paths mean `/scan/input`; `grep` is
+  plain text (no regex). The verify phase keeps the hunt fingerprint, an empty
+  verify answer rejects the candidate, and candidates past `max_verify` stay leads
+  (confirmed needs the second session). The one repair turn is shared by a bad
+  report and a plain-text answer. `status.ts` also maps Engine A/C signals (§8.4)
+  so M13 only feeds them; S2/S3 confirm the wording. Deviations: the upstream
+  skill at `c1c8a8c` is not in the repo, so the prompts are Void's own
+  (`prompts.ts`: trust rule, verdicts, severity scale, Workers checks) and the
+  report schema is ours (`report.ts`); vendoring the skill and its
+  `report-schema.json` contract test move to M13 with `skill/`. `task.json` is
+  defined here (M10 builds it): `version`, `scan_id`, `attempt`, `engine`, `model`,
+  `tier`, `changed_files`, optional `limits`. Extra test file: none; `task.json`
+  cases live in `phases.test.ts`, the CLI tar path in `void-loop.test.ts`.
 
 **M6 Controller Worker, provisioning, probe.**
 
