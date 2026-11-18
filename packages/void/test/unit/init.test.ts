@@ -505,11 +505,13 @@ describe('init summary', () => {
       // An interrupted install is not a success for the caller.
       expect(process.exitCode).toBe(130);
 
-      // The stopped step comes first. Without a terminal it is a warning.
-      expect(mockLogWarn.mock.calls).toEqual([
-        ['Installing dependencies with npm'],
-        ['Setup did not finish. Done so far:'],
-      ]);
+      // The stopped step comes first. Without a terminal it is a red ■ line,
+      // as a cancelled spinner is in a terminal.
+      expect(mockLogError.mock.calls).toEqual([['Installing dependencies with npm']]);
+      expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+      expect(mockLogError.mock.invocationCallOrder[0]).toBeLessThan(
+        mockLogWarn.mock.invocationCallOrder[0]!,
+      );
       // The installer runs in its own process group, which init stops as a whole.
       if (process.platform === 'win32') {
         expect(mockSpawnSync).toHaveBeenCalledWith(
@@ -587,10 +589,8 @@ describe('init summary', () => {
       if (process.platform !== 'win32') {
         expect(kill.mock.calls).toEqual([[-HANGING_COMMAND_PID, 'SIGTERM']]);
       }
-      expect(mockLogWarn.mock.calls).toEqual([
-        ['Generating the initial database migration'],
-        ['Setup did not finish. Done so far:'],
-      ]);
+      expect(mockLogError.mock.calls).toEqual([['Generating the initial database migration']]);
+      expect(mockLogWarn.mock.calls).toEqual([['Setup did not finish. Done so far:']]);
       expect(summaryMessages('✓')).toEqual([
         'Created a React Pages starter with D1 (SQLite)',
         INSTALLED,

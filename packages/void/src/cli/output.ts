@@ -102,7 +102,8 @@ export function createSpinner(
     cancel(msg = '') {
       cancelled = true;
       if (msg) {
-        log.warn(msg);
+        // The red ■ that a cancelled spinner leaves in a terminal.
+        log.error(msg);
       }
     },
     error(msg = '') {
