@@ -24,7 +24,7 @@ const clean = { status: 0, stdout: '', stderr: '' } as const;
 
 type FetchCall = { method: string; path: string; auth: string };
 
-function cpojerAccount(overrides: { sendingEnabled?: boolean } = {}) {
+function cpojerAccount() {
   const operations: Array<CloudflareOperation['type']> = [];
   const fetchCalls: Array<FetchCall> = [];
   const runWrangler = (operation: CloudflareOperation): DeployWranglerRunResult => {
@@ -41,15 +41,14 @@ function cpojerAccount(overrides: { sendingEnabled?: boolean } = {}) {
         };
       case 'auth.token':
         return { ...clean, data: { type: 'api_token', token: BEARER } };
-      case 'email.sending.settings':
-        return {
-          ...clean,
-          data: {
-            name: DOMAIN,
-            enabled: overrides.sendingEnabled ?? true,
-            tag: '19af4fdbee924a92916afea0de5a8fdd',
-          },
-        };
+      case 'email.routing.settings':
+      case 'email.sending.settings': {
+        // The documented token (Zone Read + Email Sending Edit) has no Zone Settings Read,
+        // so the provider's Email Routing settings read, which also locates the zone for its
+        // sending read, is refused.
+        const message = 'Cloudflare could not resolve the Email zone.';
+        return { status: 1, stdout: '', stderr: message, errors: [{ message }] };
+      }
       default:
         throw new Error(`unexpected Cloudflare operation: ${operation.type}`);
     }
@@ -73,6 +72,27 @@ function cpojerAccount(overrides: { sendingEnabled?: boolean } = {}) {
       if (name in zones) {
         return new Response(JSON.stringify({ success: true, result: zones[name] }));
       }
+    }
+    if (method === 'GET' && path === `/zones/${ZONE_ID}/email/sending/subdomains`) {
+      return new Response(
+        JSON.stringify({
+          success: true,
+          errors: [],
+          messages: [],
+          result: [
+            {
+              tag: '19af4fdbee924a92916afea0de5a8fdd',
+              name: DOMAIN,
+              enabled: true,
+              created: '2026-11-01T00:00:00Z',
+              modified: '2026-11-01T00:00:00Z',
+              dkim_selector: 'cf-bounce',
+              return_path_domain: `cf-bounce.${DOMAIN}`,
+            },
+          ],
+          result_info: { count: 1, page: 1, per_page: 20, total_count: 1, total_pages: 1 },
+        }),
+      );
     }
     throw new Error(`unexpected fetch: ${method} ${path}`);
   }) as typeof fetch;
@@ -185,12 +205,15 @@ describe('runCloudflareEmailStep — sending-only app in CI', () => {
     });
     // The post-deploy block is the only email output of the whole deploy.
     expect(renderAddressMap(result.map!)).toBe(`    outbound  sendEmail() from ${FROM}`);
-    // Nothing touches Email Routing, and the bearer stays in the Authorization header.
-    expect(account.operations).toEqual(['auth.whoami', 'auth.token', 'email.sending.settings']);
+    // Nothing touches Email Routing: with a token scoped Zone Read + Email Sending Edit,
+    // sending is read on the zone the bearer resolved, so --require-email passes. The
+    // bearer stays in the Authorization header.
+    expect(account.operations).toEqual(['auth.whoami', 'auth.token']);
     expect(account.fetchCalls.map(({ method, path }) => `${method} ${path}`)).toEqual([
       `GET /zones?name=${DOMAIN}`,
       'GET /zones?name=pkmn.nakazawa.tech',
       'GET /zones?name=nakazawa.tech',
+      `GET /zones/${ZONE_ID}/email/sending/subdomains`,
     ]);
     expect(account.fetchCalls.every(({ auth }) => auth === `Bearer ${BEARER}`)).toBe(true);
   });

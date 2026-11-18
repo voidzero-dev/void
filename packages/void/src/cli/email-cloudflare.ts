@@ -433,6 +433,30 @@ export function readSendingSettings(data: unknown): SendingSettings | null {
     : null;
 }
 
+/**
+ * The `email.sending.settings` result for `domain`, built from a bearer read of
+ * `GET /zones/{z}/email/sending/subdomains`: the matching row, `data: null` when the domain
+ * is not listed (not onboarded), or a failure when the list could not be read.
+ */
+function sendingSettingsFromList(
+  response: SessionBearerResponse | null,
+  domain: string,
+): EmailWranglerRunResult {
+  if (!response?.ok || !Array.isArray(response.result)) {
+    const first = response?.errors[0];
+    return {
+      status: 1,
+      stdout: '',
+      stderr: first?.message ?? '',
+      ...(first?.code ? { errorCode: first.code } : {}),
+    };
+  }
+  const row = (response.result as Array<unknown>).find(
+    (item) => isRecord(item) && typeof item.name === 'string' && item.name.toLowerCase() === domain,
+  );
+  return { status: 0, stdout: '', stderr: '', data: row ?? null };
+}
+
 function providerErrorCode(result: EmailWranglerRunResult): number | null {
   return result.errorCode ?? result.errors?.find((error) => error.code !== undefined)?.code ?? null;
 }
@@ -738,10 +762,14 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
     pre.sending.dnsConflicts.push(`(DNS lookup failed for _dmarc.${domain} / cf-bounce.${domain})`);
   }
 
-  // 4. The bearer, borrowed once for two reads with no command: `GET /zones?name=` (without
-  //    `account.id`, so a zone in another account is told apart from a missing one, and
-  //    `type` refuses partial/secondary zones) and `GET /zones/{z}/email/routing`
-  //    (`support_subaddress`). A `null` bearer leaves both rows `unknown`.
+  // 4. The bearer, borrowed once for the reads keyed on the resolved zone: `GET /zones?name=`
+  //    (without `account.id`, so a zone in another account is told apart from a missing one,
+  //    and `type` refuses partial/secondary zones), then `GET /zones/{z}/email/routing`
+  //    (`support_subaddress`) for inbound apps, or `GET /zones/{z}/email/sending/subdomains`
+  //    for sending-only apps. The provider's sending read first resolves the zone through
+  //    Email Routing settings (Zone Settings Read), which a sending-only token lacks.
+  //    A `null` bearer leaves these rows `unknown`.
+  let sendingRead: SessionBearerResponse | null = null;
   let bearer: string | null = null;
   if (pre.session.state === 'ok') {
     bearer = await inputs.getSessionBearer().catch(() => null);
@@ -812,6 +840,16 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
       if (routing.ok && typeof flag === 'boolean') {
         pre.subaddressing.state = flag ? 'on' : 'off';
       }
+    }
+    if (!receivesEmail && pre.zone.state === 'found' && pre.zone.zoneId) {
+      sendingRead = await fetchWithSessionBearer(
+        inputs.fetchImpl,
+        bearer,
+        'GET',
+        `/zones/${pre.zone.zoneId}/email/sending/subdomains`,
+        undefined,
+        apiBaseUrl,
+      );
     }
   }
   bearer = null;
@@ -967,7 +1005,10 @@ export async function preflightEmail(inputs: EmailCloudflareInputs): Promise<Ema
   pre.addresses = pre.derived.addresses.filter((a) => !foreign.has(a));
 
   // 7. Sending. Not-found is a clean "not onboarded"; anything else unparsable is unknown.
-  const sendingResult = await run({ type: 'email.sending.settings', domain });
+  //    Sending-only apps reach this point only after the bearer resolved the zone above.
+  const sendingResult: EmailWranglerRunResult = receivesEmail
+    ? await run({ type: 'email.sending.settings', domain })
+    : sendingSettingsFromList(sendingRead, domain);
   if (isHardFailure(sendingResult)) {
     pre.sending.state = 'unknown';
   } else if (sendingResult.status === 0 && sendingResult.data === null) {
@@ -1338,8 +1379,10 @@ export interface EmailApplyResult {
  *   routing   apex → `email routing enable <apex>`
  *             subdomain → bearer POST /zones/{z}/email/routing/dns { name }
  *   subaddr   bearer PATCH /zones/{z}/email/routing { support_subaddress: true }
- *   sending   `email sending enable <domain>`; code 2040 (already onboarded) is ok;
- *             any other failure prints a hint and continues without sending
+ *   sending   inbound → `email sending enable <domain>`
+ *             sending-only → bearer POST /zones/{z}/email/sending/subdomains { name }
+ *             code 2040 (already onboarded) is ok; any other failure prints a hint and
+ *             continues without sending
  *
  * A failed bearer call prints the dashboard fallback and withholds `addresses` this run;
  * it never fails the deploy. An `all` blocker applies nothing and returns an empty patch.
@@ -1490,18 +1533,39 @@ export async function applyEmailSetup(
       })`,
     );
   }
-  bearer = null;
 
   // 3. Sending. 2040 = already onboarded. Anything else: hint, continue without it.
+  //    Sending-only apps onboard through the bearer on the zone preflight resolved, since
+  //    the provider command first reads Email Routing settings (Zone Settings Read).
+  const enableSending = async (): Promise<{ ok: boolean; code: number | null }> => {
+    if (receivesEmail) {
+      const enable = await run({ type: 'email.sending.enable', domain: pre.domain });
+      const code = isHardFailure(enable) ? null : providerErrorCode(enable);
+      return { ok: !isHardFailure(enable) && (enable.status === 0 || code === 2040), code };
+    }
+    const token = await borrow();
+    if (!token) {
+      return { ok: false, code: null };
+    }
+    const response = await fetchWithSessionBearer(
+      inputs.fetchImpl,
+      token,
+      'POST',
+      `/zones/${pre.zone.zoneId}/email/sending/subdomains`,
+      { name: pre.domain },
+      apiBaseUrl,
+    );
+    const code = response.errors.find((error) => error.code !== 0)?.code ?? null;
+    return { ok: response.ok || code === 2040, code };
+  };
   const sendingBlocked = pre.blockers.filter((b) => b.scope === 'sending');
   if (!result.sendingReady && sendingBlocked.length > 0) {
     for (const b of sendingBlocked) {
       lines.push(`  ! sending   ${b.message}`);
     }
   } else if (!result.sendingReady) {
-    const enable = await run({ type: 'email.sending.enable', domain: pre.domain });
-    const code = isHardFailure(enable) ? null : providerErrorCode(enable);
-    if (!isHardFailure(enable) && (enable.status === 0 || code === 2040)) {
+    const { ok, code } = await enableSending();
+    if (ok) {
       result.sendingReady = true;
       lines.push(`  ✔ sending   ${pre.domain} onboarded`);
     } else {
@@ -1516,6 +1580,7 @@ export async function applyEmailSetup(
       }
     }
   }
+  bearer = null;
 
   // 4. The patch. The binding is written only when routing is ready or sending is
   //    onboarded (a bare account never carries it). `addresses` is written only when
