@@ -758,6 +758,30 @@ describe('void db execute', () => {
     }
   });
 
+  it('SQLite: incremental vacuum reclaims the requested number of pages', async () => {
+    const root = await createLocalSqliteProject();
+    const { openSqliteDatabase } = await import('../../src/migrations/runner.ts');
+    const db = await openSqliteDatabase(join(root, '.void', 'local.sqlite'));
+    try {
+      db.exec(`
+        PRAGMA page_size = 4096;
+        PRAGMA auto_vacuum = INCREMENTAL;
+        VACUUM;
+        INSERT INTO items (name) VALUES (zeroblob(262144));
+        DELETE FROM items;
+      `);
+      const freelist = db.prepare<{ freelist_count: number }>('PRAGMA freelist_count');
+      const before = freelist.get()!.freelist_count;
+      expect(before).toBeGreaterThanOrEqual(20);
+
+      await runDbCommand(root, { action: 'execute', command: 'PRAGMA incremental_vacuum(20)' });
+
+      expect(freelist.get()!.freelist_count).toBe(before - 20);
+    } finally {
+      db.close();
+    }
+  });
+
   it('SQLite: SQL without a statement is a no-op', async () => {
     const root = await createLocalSqliteProject();
 

@@ -1115,9 +1115,7 @@ async function runExecute(
   const db = await openSqliteDatabase(dbPath);
   try {
     const statement = prepareSingleStatement(db, sql);
-    if (!statement) {
-      db.exec(sql);
-    } else if (statement.reader) {
+    if (statement?.reader) {
       // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
       // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
       // target.
@@ -1126,7 +1124,7 @@ async function runExecute(
         printTable(rows);
       }
     } else {
-      statement.run();
+      db.exec(sql);
     }
   } finally {
     db.close();
