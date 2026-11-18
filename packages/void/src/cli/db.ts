@@ -5,13 +5,14 @@ import {
   mkdtempSync,
   readFileSync,
   readdirSync,
+  realpathSync,
   renameSync,
   rmSync,
   writeFileSync,
 } from 'node:fs';
 import { createRequire, isBuiltin, registerHooks } from 'node:module';
 import { tmpdir } from 'node:os';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { confirm, isCancel, outro, log, text } from '@voidzero-dev/vite-plus-prompts';
 import { createPathsMatcher, getTsconfig } from 'get-tsconfig';
 import { createJiti } from 'jiti';
@@ -2604,14 +2605,33 @@ function createSeedModuleLoader(root: string): {
     // Jiti delegates .mjs and ESM .js to Node. Apply the same paths there,
     // including imports made by ESM helpers and dynamic imports during the seed.
     if (matchPaths) {
-      const jitiUrl = import.meta.resolve('jiti');
-      const modules = new Set<string>();
+      const appUrl = pathToFileURL(realpathSync(root) + '/').href;
       hooks = registerHooks({
         resolve(specifier, context, nextResolve) {
-          // Only follow Jiti's native imports and their descendants. CLI imports
-          // made while resetting the database must keep their own resolution.
-          if (context.parentURL !== jitiUrl && !modules.has(context.parentURL ?? '')) {
+          // Use the importer's location for both ESM and CommonJS. Installed
+          // dependencies resolve their imports in their own package scope.
+          const parent = context.parentURL;
+          if (
+            !parent?.startsWith(appUrl) ||
+            parent.slice(appUrl.length - 1).includes('/node_modules/')
+          ) {
             return nextResolve(specifier, context);
+          }
+          // Generated schema barrels re-export extensionless TypeScript paths.
+          if (specifier.startsWith('./') || specifier.startsWith('../')) {
+            try {
+              return nextResolve(specifier, context);
+            } catch (error) {
+              const code = (error as NodeJS.ErrnoException).code;
+              if (code === 'ERR_MODULE_NOT_FOUND' || code === 'ERR_UNSUPPORTED_DIR_IMPORT') {
+                const target = new URL(specifier, parent);
+                const resolved = jiti.esmResolve(fileURLToPath(target), { try: true });
+                if (resolved) {
+                  return nextResolve(resolved + target.search + target.hash, context);
+                }
+              }
+              throw error;
+            }
           }
           if (
             !isBuiltin(specifier) &&
@@ -2622,15 +2642,11 @@ function createSeedModuleLoader(root: string): {
             for (const target of matchPaths(specifier)) {
               const resolved = jiti.esmResolve(target, { try: true });
               if (resolved) {
-                const result = nextResolve(resolved, context);
-                modules.add(result.url);
-                return result;
+                return nextResolve(resolved, context);
               }
             }
           }
-          const result = nextResolve(specifier, context);
-          modules.add(result.url);
-          return result;
+          return nextResolve(specifier, context);
         },
       });
     }

@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { pathToFileURL } from 'node:url';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as output from '../../src/cli/output.ts';
 import { createProjectTsconfig } from '../../src/codegen/project-tsconfig.ts';
@@ -107,6 +106,22 @@ async function readMessages(root: string): Promise<Array<{ id: number; text: str
   } finally {
     db.close();
   }
+}
+
+// Exercise Node’s module loaders without Vitest resolving the fixture imports.
+function runSeedInNode(root: string) {
+  const result = spawnSync(
+    process.execPath,
+    [
+      '--input-type=module',
+      '-e',
+      'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
+      new URL('../../src/cli/db.ts', import.meta.url).href,
+      root,
+    ],
+    { encoding: 'utf8', timeout: 20_000 },
+  );
+  expect(result.status, result.stderr).toBe(0);
 }
 
 describe('void db seed', () => {
@@ -236,21 +251,7 @@ export const messages = sqliteTable("messages", {
 });
 `,
     );
-    const dbModule = pathToFileURL(join(import.meta.dirname, '../../src/cli/db.ts')).href;
-
-    // Plain Node, because Vitest's module runner resolves extensionless imports.
-    const result = spawnSync(
-      process.execPath,
-      [
-        '--input-type=module',
-        '-e',
-        `const { runDbCommand } = await import(${JSON.stringify(dbModule)});
-await runDbCommand(${JSON.stringify(root)}, { action: 'seed' });`,
-      ],
-      { encoding: 'utf8', timeout: 20_000 },
-    );
-
-    expect(result.status, result.stderr).toBe(0);
+    runSeedInNode(root);
     expect(await readMessages(root)).toEqual([{ id: 1, text: 'from barrel' }]);
   }, 30_000);
 
@@ -333,20 +334,7 @@ export const messages = sqliteTable('messages', {
       // Loading CLI modules must not evaluate the app's Vite config.
       writeFileSync(join(root, 'vite.config.ts'), "throw new Error('Vite config was loaded');\n");
 
-      // Use plain Node so Vitest cannot resolve the imports for the seed loader.
-      const result = spawnSync(
-        process.execPath,
-        [
-          '--input-type=module',
-          '-e',
-          'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
-          new URL('../../src/cli/db.ts', import.meta.url).href,
-          root,
-        ],
-        { encoding: 'utf8', timeout: 20_000 },
-      );
-
-      expect(result.status, result.stderr).toBe(0);
+      runSeedInNode(root);
       expect(await readMessages(root)).toEqual([{ id: 1, text: 'from alias' }]);
     },
     30_000,
@@ -399,18 +387,7 @@ export default defineSeed(async ({ db }) => {
         join(root, 'tsconfig.json'),
         JSON.stringify({ extends: './.void/tsconfig.json' }),
       );
-      const result = spawnSync(
-        process.execPath,
-        [
-          '--input-type=module',
-          '-e',
-          'const { runDbCommand } = await import(process.argv[1]); await runDbCommand(process.argv[2], { action: "seed" });',
-          new URL('../../src/cli/db.ts', import.meta.url).href,
-          root,
-        ],
-        { encoding: 'utf8', timeout: 20_000 },
-      );
-      expect(result.status, result.stderr).toBe(0);
+      runSeedInNode(root);
       expect(await readMessages(root)).toEqual([{ id: 1, text: '/messages/hello%20world' }]);
     },
     30_000,
@@ -500,6 +477,74 @@ if (!require.resolve('seed-fixture').includes('node_modules')) throw new Error('
 
       expect(result.status, result.stderr).toBe(0);
       expect(await readMessages(root)).toEqual([{ id: 1, text: 'locallocal' }]);
+    },
+    30_000,
+  );
+
+  it('dynamically imports a generated schema barrel from an mjs seed', async () => {
+    const root = createProjectRoot({
+      schema: 'export * from "./schema/messages";',
+      seedFile: {
+        name: 'seed.mjs',
+        content: `export default async function ({ db }) {
+  const { messages } = await import('@schema');
+  await db.insert(messages).values({ text: 'from barrel' });
+}`,
+      },
+    });
+    mkdirSync(join(root, 'db/schema'));
+    writeFileSync(
+      join(root, 'db/schema/messages.ts'),
+      `import { sqliteTable, text } from 'drizzle-orm/sqlite-core';
+export const messages = sqliteTable('messages', { text: text().notNull() });`,
+    );
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({ compilerOptions: { paths: { '@schema': ['./db/schema.ts'] } } }),
+    );
+    runSeedInNode(root);
+    expect(await readMessages(root)).toEqual([{ id: 1, text: 'from barrel' }]);
+  }, 30_000);
+
+  it.each(['installed package', 'local CommonJS helper'])(
+    'resolves a dynamic #internal import from %s',
+    async (importer) => {
+      const installed = importer === 'installed package';
+      const root = createProjectRoot({
+        seedFile: {
+          name: installed ? 'seed.mjs' : 'seed.ts',
+          content: `import { sql } from 'drizzle-orm';
+${installed ? "import { readValue } from 'seed-package';" : "const { readValue } = require('./helper.cjs');"}
+export default async function ({ db }) {
+  const value = await readValue();
+  await db.run(sql\`INSERT INTO messages (text) VALUES (\${value})\`);
+}`,
+        },
+      });
+      writeFileSync(
+        join(root, 'tsconfig.json'),
+        JSON.stringify({ compilerOptions: { paths: { '#internal': ['./app.mjs'] } } }),
+      );
+      writeFileSync(join(root, 'app.mjs'), "export default 'app';");
+      const helper = "async () => (await import('#internal')).default";
+      if (installed) {
+        const directory = join(root, 'node_modules/seed-package');
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(
+          join(directory, 'package.json'),
+          JSON.stringify({
+            type: 'module',
+            exports: './index.js',
+            imports: { '#internal': './internal.js' },
+          }),
+        );
+        writeFileSync(join(directory, 'index.js'), 'export const readValue = ' + helper);
+        writeFileSync(join(directory, 'internal.js'), "export default 'package';");
+      } else {
+        writeFileSync(join(root, 'db/helper.cjs'), 'exports.readValue = ' + helper);
+      }
+      runSeedInNode(root);
+      expect(await readMessages(root)).toEqual([{ id: 1, text: installed ? 'package' : 'app' }]);
     },
     30_000,
   );
