@@ -24,8 +24,16 @@ import {
   type SecurityScanTrigger,
 } from './schema.ts';
 
-/** A scan in these states holds the staged deploy input its `input_prefix` names. */
-export const SECURITY_SCAN_INPUT_HOLD_STATUSES = ['pending_input', 'queued'] as const;
+/** A scan waiting to start; a newer live deploy supersedes it (coalescing, spec §6.2). */
+export const SECURITY_SCAN_WAITING_STATUSES = ['pending_input', 'queued'] as const;
+
+/**
+ * A scan in these states holds the staged deploy input its `input_prefix` names. A
+ * running scan holds it until its input is copied to `security-scans/…` at start
+ * (`input/prepare.ts` clears `input_prefix`), so a cleanup pass between the claim
+ * and the copy cannot delete it.
+ */
+export const SECURITY_SCAN_INPUT_HOLD_STATUSES = ['pending_input', 'queued', 'running'] as const;
 
 /** Inline modules copied after the commit: at most this many bytes … */
 export const SECURITY_SCAN_COPY_MAX_BYTES = 50 * 1024 * 1024;
@@ -243,7 +251,7 @@ async function enqueueInSavepoint(
     .where(
       and(
         eq(securityScans.project_id, projectId),
-        inArray(securityScans.status, [...SECURITY_SCAN_INPUT_HOLD_STATUSES]),
+        inArray(securityScans.status, [...SECURITY_SCAN_WAITING_STATUSES]),
       ),
     )
     .returning({ firstQueuedAt: securityScans.first_queued_at });

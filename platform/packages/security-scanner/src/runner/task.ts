@@ -3,6 +3,7 @@
 // an older Engine A/C image still reads a newer task.
 
 import type { EngineId } from './engines/types.ts';
+import { SCAN_INPUT_LIMITS } from './limits.ts';
 import { relativePathProblem } from './validate-findings.ts';
 
 export const TASK_TIERS = ['source_diff', 'built_diff', 'full'] as const;
@@ -114,7 +115,7 @@ function readChangedFiles(value: unknown): Array<string> {
     throw new TaskError(`changed_files must hold at most ${TASK_LIMITS.maxChangedFiles} paths`);
   }
   return value.map((path, index) => {
-    if (typeof path !== 'string' || path.length > 1024) {
+    if (typeof path !== 'string' || path.length > SCAN_INPUT_LIMITS.maxTaskPathChars) {
       throw new TaskError(`changed_files[${index}] must be a path`);
     }
     const problem = relativePathProblem(path);

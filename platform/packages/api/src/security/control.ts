@@ -8,8 +8,8 @@
  * Every call is fenced by `attempt`: a write or a call from an older attempt, or after
  * the lease ran out, is refused (spec §6.2, T10). `heartbeat` is the fence check the
  * controller makes before it starts a container and on every poll. `model` is the
- * model proxy (`model-proxy.ts`); `input` (M10) and `result` (M12) refuse until
- * their milestones land.
+ * model proxy (`model-proxy.ts`), `input` builds the scan input (`input/prepare.ts`);
+ * `result` (M12) refuses until its milestone lands.
  */
 import { WorkerEntrypoint } from 'cloudflare:workers';
 import { eq } from 'drizzle-orm';
@@ -23,6 +23,7 @@ import {
 } from '../provisioning/security-scanner.ts';
 import { projects } from '../schema.ts';
 import type { ScanFence, ScanResultReport } from '../security-scanner-controller-runtime.ts';
+import { prepareSecurityScanInput } from './input/prepare.ts';
 import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
 import { securityScans } from './schema.ts';
 
@@ -107,12 +108,29 @@ export class SecurityScanControl extends WorkerEntrypoint<
     return checkScanFence(createDb(this.env.HYPERDRIVE.connectionString), scanId, attempt);
   }
 
-  /** The scan input tar (M10). Until then no scan has an input. */
+  /**
+   * The scan input tar (`input/prepare.ts`): `task.json`, `input/…` and `memory/…`.
+   * `null` when the attempt is fenced off or its input is missing; the controller then
+   * reports `input_unavailable` and stops.
+   */
   async input(scanId: string, attempt: number): Promise<ReadableStream<Uint8Array> | null> {
     if (!this.trusted(scanId, attempt)) {
       return null;
     }
-    return null;
+    const db = createDb(this.env.HYPERDRIVE.connectionString);
+    if (!(await checkScanFence(db, scanId, attempt)).ok) {
+      return null;
+    }
+    try {
+      return await prepareSecurityScanInput(this.env, db, scanId, attempt);
+    } catch (error) {
+      console.error('[security-scan] scan input could not be built', {
+        scanId,
+        attempt,
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return null;
+    }
   }
 
   /** The model proxy: every model call of this scan attempt (spec §15.1). */

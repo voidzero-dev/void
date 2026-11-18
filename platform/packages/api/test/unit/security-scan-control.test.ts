@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 const mocks = vi.hoisted(() => ({
   row: vi.fn(),
   capability: vi.fn(),
+  prepare: vi.fn(),
 }));
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class {
@@ -26,6 +27,7 @@ vi.mock('../../src/db.ts', () => ({
   },
 }));
 vi.mock('../../src/capabilities.ts', () => ({ getPlatformCapabilities: mocks.capability }));
+vi.mock('../../src/security/input/prepare.ts', () => ({ prepareSecurityScanInput: mocks.prepare }));
 
 import { judgeScanFence, SecurityScanControl } from '../../src/security/control.ts';
 
@@ -135,8 +137,24 @@ describe('SecurityScanControl', () => {
     expect(mocks.row).not.toHaveBeenCalled();
   });
 
-  it('hands model calls to the model proxy; no input or ingest before their milestones', async () => {
+  it('builds the input only for the fenced, running attempt', async () => {
+    const stream = new Blob(['tar']).stream();
+    mocks.prepare.mockResolvedValue(stream);
+    expect(await control().input('ss_1', 2)).toBe(stream);
+    expect(mocks.prepare).toHaveBeenCalledWith(env, expect.anything(), 'ss_1', 2);
+
+    mocks.prepare.mockClear();
+    expect(await control().input('ss_1', 1)).toBeNull();
+    expect(mocks.prepare).not.toHaveBeenCalled();
+  });
+
+  it('answers null when the input cannot be built, so the controller stops', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    mocks.prepare.mockRejectedValue(new Error('R2 down'));
     expect(await control().input('ss_1', 2)).toBeNull();
+  });
+
+  it('hands model calls to the model proxy; no ingest before its milestone', async () => {
     // An unknown model route is refused by the proxy before any read.
     const model = await control().model('ss_1', 2, new Request('http://model/'));
     expect(model.status).toBe(404);

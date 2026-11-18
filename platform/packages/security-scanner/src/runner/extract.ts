@@ -7,6 +7,7 @@
 import { constants } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { join } from 'node:path';
+import { SCAN_INPUT_LIMITS } from './limits.ts';
 
 export type ExtractLimits = {
   maxFiles: number;
@@ -15,9 +16,9 @@ export type ExtractLimits = {
 };
 
 export const DEFAULT_EXTRACT_LIMITS: ExtractLimits = {
-  maxFiles: 20_000,
-  maxFileBytes: 16 * 1024 * 1024,
-  maxTotalBytes: 256 * 1024 * 1024,
+  maxFiles: SCAN_INPUT_LIMITS.maxFiles,
+  maxFileBytes: SCAN_INPUT_LIMITS.maxFileBytes,
+  maxTotalBytes: SCAN_INPUT_LIMITS.maxTotalBytes,
 };
 
 export type ExtractOptions = {
@@ -281,7 +282,7 @@ export function safeSegments(rawName: string, isDir: boolean): Array<string> {
   if (isDir && name.endsWith('/')) {
     name = name.slice(0, -1);
   }
-  if (name.length === 0 || name.length > 4096) {
+  if (name.length === 0 || name.length > SCAN_INPUT_LIMITS.maxTarPathChars) {
     throw new ExtractError(`tar entry ${quote(rawName)} has no usable name`);
   }
   if (name.startsWith('/')) {

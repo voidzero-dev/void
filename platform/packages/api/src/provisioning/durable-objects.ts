@@ -433,8 +433,26 @@ export async function storeDurableObjectSnapshot(
     .where(and(eq(deployments.id, deploymentId), eq(deployments.project_id, projectId)));
 }
 
+/**
+ * The application modules a stored release snapshot holds (`bundle_stored`).
+ * Security scans read a recovered inline deploy from here (design doc 0095, M10).
+ */
+export async function loadStoredWorkerModules(
+  env: Pick<
+    Env,
+    'STATIC_ASSETS_R2' | 'PROJECT_SECRET_KEYS_JSON' | 'PROJECT_SECRET_ACTIVE_KEY_VERSION'
+  >,
+  projectId: string,
+  deploymentId: string,
+): Promise<Array<WorkerModule>> {
+  return (await loadSnapshot(env, projectId, deploymentId)).modules;
+}
+
 async function loadSnapshot(
-  env: Env,
+  env: Pick<
+    Env,
+    'STATIC_ASSETS_R2' | 'PROJECT_SECRET_KEYS_JSON' | 'PROJECT_SECRET_ACTIVE_KEY_VERSION'
+  >,
   projectId: string,
   deploymentId: string,
 ): Promise<{ snapshot: Snapshot; modules: Array<WorkerModule> }> {

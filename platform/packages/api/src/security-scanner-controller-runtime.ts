@@ -57,6 +57,8 @@ export const PROBE_CLEANUP_MS = 10 * 60_000;
 const SCAN_INSTANCE = 'standard-1';
 const PROBE_INSTANCE = 'lite';
 const CONTROL_TIMEOUT_MS = 30_000;
+/** The API reads the deployment, past findings and secrets to build the input tar. */
+export const INPUT_TIMEOUT_MS = 120_000;
 const STATE_KEY = 'state';
 
 export type ScanFence =
@@ -515,7 +517,7 @@ export class ScannerController extends DurableObject<ControllerEnv> {
     this.startContainer(SCAN_INSTANCE);
     await this.waitReady(READY_TIMEOUT_MS);
     await this.installRunner();
-    const input = await bounded(this.control.input(state.scanId, state.attempt));
+    const input = await bounded(this.control.input(state.scanId, state.attempt), INPUT_TIMEOUT_MS);
     if (!input) {
       await this.report(state, {
         status: { status: 'failed', reason: 'infrastructure', error_class: 'input_unavailable' },

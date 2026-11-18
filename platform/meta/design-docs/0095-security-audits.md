@@ -668,6 +668,69 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   rejections — #40), `security-backlog.test.ts` (#13, #36); integration
   `security-input-capture.test.ts` (R2 copy, hold release, input_missing — #12).
 - Exit: a fixture deploy produces the expected tar and coverage label.
+- As built: `security/input/{tier,t2,filters,third-party,redact,phrase-check,memory,backlog,tar,build,prepare}.ts`.
+  The pure parts take data already read; `build.ts` puts them together and
+  `prepare.ts` does the I/O. `SecurityScanControl.input()` checks the fence, then
+  `prepareSecurityScanInput` builds and checks every entry before it answers (the
+  controller now waits 120 s for it, `INPUT_TIMEOUT_MS`), so a failure gives `null`, never
+  half a tar; the tar is then encoded entry by entry as the controller reads it.
+  Tar: own ustar writer, regular files only, pax `path` for long or non-ASCII names, same
+  name rules as the runner's reader. Head modules, first match: the scan snapshot
+  (`input_r2_key`), the staged deploy input (`input_prefix`), the stored Worker bundle
+  (`bundle_stored`, new `loadStoredWorkerModules` in `durable-objects.ts`, for M8's
+  recovered inline deploys); staged and stored modules are copied to
+  `security-scans/{project}/{deployment}/` and the hold is released with a fenced write
+  (`input_r2_key = prefix, input_prefix = NULL`). Modules are read one at a time (hashed,
+  copied, decoded, a map cut to its `sourcesContent`), so the API isolate never holds the
+  bundle's bytes. None, an incomplete snapshot, a missing object or > 50 MB counted as
+  read (not as recorded) → `failed (input_missing)`, project cause, reserve back, poke (#12).
+  Deviation: the claim moves the row to `running`, which used to drop the hold before the
+  copy, so `SECURITY_SCAN_INPUT_HOLD_STATUSES` now includes `running` (a running row holds
+  its prefix until the copy clears it); coalescing uses the new
+  `SECURITY_SCAN_WAITING_STATUSES`. The `idx_security_scans_input_hold` partial index
+  still names only the two waiting states (no migration change); the hold check is a
+  small lookup either way. The snapshot gains `sha256` in `modules.json` (an inline copy
+  from M8 has none: the first scan fills it in), `sources.json` (path → sha256 of the
+  unredacted text) and `assets.json` (path → hash), so it can be the next scan's base
+  without the deployment row. Base = last `succeeded` scan; tier: rescan → full (#43), no
+  base → `first-scan`, snapshot gone → `no-usable-base`, else T2 (T1 is M11). T2: a source
+  changed when its module or that module's map changed and its text hash differs from the
+  base index (no index: every source of a changed module); modules with no map are read as
+  built code under `input/_worker/` (`no-source-maps`); changed text assets (≤ 256 KB)
+  under `input/_assets/`, read from R2 then KV. Priority: breadth-first over relative
+  imports from `workerMain` (plain text scan), then assets, then `third-party-unverified`.
+  Source paths: scheme and query cut, resolved against the map folder and `sourceRoot`,
+  `..` above the root dropped, duplicates with other text get `~2`. Focus: backlog first,
+  400 files / 2 MB, a file over 256 KB counts as 256 KB (T2 has no hunks); T3 sends no
+  focus list; its backlog is only what it could not read. The backlog a scan leaves is written to
+  `security-scans/{project}/scans/{scan}/backlog.json`, not the project's `backlog.json`:
+  M12 must promote it only on `succeeded`, so a failed scan loses no file. Server leads
+  (phrase check) go to `…/scans/{scan}/server-leads.json` for M12 to store. Empty diff:
+  note `no-changes` and `no_changes: true` in `task.json` (the runner ignores the field
+  today); M12 must take the "no changes" path (no model call, #14). A gate scan with no
+  diff re-checks the files of `fixed` findings resolved since the base; with none it runs
+  in full (`gate-recheck`, #85). Filters: `id_*` matches only key files (no extension or
+  `.pub`) so `id_utils.ts` stays; binary = NUL or U+FFFD in the first 8 KiB. Third-party:
+  `package-lock.json` and `pnpm-lock.yaml` readers exist, but no lockfile reaches the
+  platform yet (S7), so `lockfile` is `null` and `node_modules/…` sources stay as
+  unverified. Read set: 32 MB, and the runner's 16 MB a file (after redaction) and 20,000
+  entries with memory (`security-scanner/src/runner/limits.ts`, shared by both sides);
+  assets: 400 files / 16 MB. A changed or backlogged file left out (`input-capped`), and
+  an asset not read (`assets-unread`, over the limits or gone from storage), goes to the
+  backlog and stays out of `sources.json` / `assets.json`, so no later scan counts it as
+  seen. A path over 960 characters becomes `_long/<hash>/<name>`; a path the runner still
+  refuses is dropped (`dropped-bad-path`, partial), not the whole tar. Inline source maps
+  are found at any length. `partial` = backlog left, a cut or bad-path file, or > 5 % of
+  source bytes lost to registry drops or the cap; secret-like files are dropped and
+  counted in `dropped_files` but do not make a scan partial; a partial from registry
+  drops alone adds `partial-third-party-only` (#92). Redaction covers every file in the
+  tar, memory included; a secret that cannot be decrypted fails the build (the
+  controller reports `input_unavailable`). Phrase check: whole-word, case-insensitive,
+  `LLM` upper case only (lower `llm` is common in identifiers); a full scan checks the
+  project's own files. Memory: no `security_memory_rejected` read; history files capped
+  at 8 MB and 2,000 files (oldest resolved first). The row gets tier, coverage, notes, counts and
+  `base_scan_id`/`base_deployment_id` (fenced on `running` + attempt).
+  `securityCoverageLabel` (tier.ts) builds the label from the row for M14+.
 
 **M11 T1 source diff (hosted, `managedBuilds`).**
 
