@@ -8,12 +8,14 @@ import {
   readCloudflareTriggerConfig,
 } from '@void/deploy-cloudflare';
 import { expect, it, vi } from 'vite-plus/test';
+import { PlatformWorkerRecoveryIncompleteError } from '../../src/cli/platform-installer-types.ts';
 import {
   deployPlatformWorker,
   platformWorkerUploadFingerprint,
 } from '../../src/cli/platform-installer-workers.ts';
 
 const VERSION = '11111111-1111-4111-8111-111111111111';
+const NEXT_VERSION = '22222222-2222-4222-8222-222222222222';
 
 async function attemptReuse(input: {
   acquireUploadSlot?: () => Promise<(failure?: unknown) => void>;
@@ -30,6 +32,7 @@ async function attemptReuse(input: {
   directProofDeploymentDrift?: boolean;
   directReadFailure?: boolean;
   liveTriggers?: boolean;
+  postActivationHeads?: ReadonlyArray<'previous' | 'activated' | 'competing' | Error>;
   reuseMatchingVersion?: boolean;
   secrets?: Record<string, string> | null;
   triggerFailure?: boolean;
@@ -125,6 +128,9 @@ async function attemptReuse(input: {
       throw new Error(`Unexpected Cloudflare API read: ${path}`);
     });
     let statusReads = 0;
+    let activated = false;
+    let visibleVersionId = VERSION;
+    let postActivationReads = 0;
     const runner = async (args: CloudflareOperation) => {
       calls.push(args.type);
       input.onCommand?.(calls.at(-1)!);
@@ -141,8 +147,8 @@ async function attemptReuse(input: {
                 version_id:
                   (input.versionDrift && statusReads > 1) ||
                   (input.lateVersionDrift && statusReads > 4)
-                    ? '22222222-2222-4222-8222-222222222222'
-                    : VERSION,
+                    ? NEXT_VERSION
+                    : visibleVersionId,
               },
             ],
           },
@@ -157,17 +163,41 @@ async function attemptReuse(input: {
         };
       }
       if (args.type === 'deployments.list') {
+        const data = [deployment];
+        if (activated && input.postActivationHeads) {
+          const head =
+            input.postActivationHeads[postActivationReads++] ?? input.postActivationHeads.at(-1);
+          if (head instanceof Error) {
+            throw head;
+          }
+          if (head && head !== 'previous') {
+            visibleVersionId = head === 'activated' ? NEXT_VERSION : 'version-competing';
+            data.unshift({
+              created_on: '2026-09-30T00:01:00.000Z',
+              id: `deployment-${head}`,
+              versions: [
+                {
+                  percentage: 100,
+                  version_id: visibleVersionId,
+                },
+              ],
+            });
+          }
+        }
         return {
           status: 0,
           stderr: '',
           stdout: '',
-          data: [deployment],
+          data,
         };
       }
       if (args.type === 'triggers.deploy') {
         return { status: input.triggerFailure ? 1 : 0, stderr: '', stdout: '', data: '' };
       }
       if (args.type === 'versions.upload') {
+        if (input.postActivationHeads) {
+          return { status: 0, stderr: '', stdout: '', data: { versionId: NEXT_VERSION } };
+        }
         if (input.mutateScriptAtUpload) {
           writeFileSync(main, 'export default { fetch() { return new Response("changed"); } };');
           const uploadConfig = JSON.parse(readFileSync(args.configPath!, 'utf8')) as {
@@ -178,6 +208,10 @@ async function attemptReuse(input: {
           uploadedHash = metadata?.schema === 2 ? (metadata.contentHash ?? null) : null;
         }
         return { status: 1, stderr: 'upload reached', stdout: '', data: '' };
+      }
+      if (args.type === 'versions.deploy' && input.postActivationHeads) {
+        activated = true;
+        return { status: 0, stderr: '', stdout: '' };
       }
       throw new Error(`Unexpected command: ${args.type}`);
     };
@@ -212,6 +246,7 @@ async function attemptReuse(input: {
       calls,
       onTrafficPublished,
       onUnsafeTraffic,
+      postActivationReads,
       readCloudflare,
       retainNewWorker,
       uploadedScript,
@@ -223,6 +258,54 @@ async function attemptReuse(input: {
     rmSync(directory, { recursive: true, force: true });
   }
 }
+
+it('waits for stale deployment history after activation without deploying again', async () => {
+  const run = await attemptReuse({
+    changeConfig: true,
+    postActivationHeads: ['previous', 'activated'],
+  });
+
+  expect(run.error).toBeNull();
+  expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
+  expect(run.postActivationReads).toBe(2);
+  expect(run.onTrafficPublished).toHaveBeenCalledOnce();
+});
+
+it('stops checking activation as soon as a competing deployment appears', async () => {
+  const run = await attemptReuse({
+    changeConfig: true,
+    postActivationHeads: ['previous', 'competing', 'activated'],
+  });
+
+  expect(String(run.error)).toContain('changed concurrently after activation');
+  expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
+  expect(run.postActivationReads).toBe(2);
+  expect(run.onTrafficPublished).not.toHaveBeenCalled();
+});
+
+it('keeps the cutover unresolved when activation does not become visible', async () => {
+  const run = await attemptReuse({ changeConfig: true, postActivationHeads: ['previous'] });
+
+  expect(run.error).toBeInstanceOf(PlatformWorkerRecoveryIncompleteError);
+  expect(String(run.error)).toContain('could not confirm activation');
+  expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
+  expect(run.postActivationReads).toBe(4);
+  expect(run.onTrafficPublished).not.toHaveBeenCalled();
+});
+
+it('keeps the cutover unresolved when a stale deployment history cannot be reread', async () => {
+  const readError = new Error('Deployment history unavailable');
+  const run = await attemptReuse({
+    changeConfig: true,
+    postActivationHeads: ['previous', readError],
+  });
+
+  expect(run.calls.filter((call) => call === 'versions.deploy')).toHaveLength(1);
+  expect(run.calls).not.toContain('triggers.deploy');
+  expect(run.onTrafficPublished).not.toHaveBeenCalled();
+  expect(run.error).toBeInstanceOf(PlatformWorkerRecoveryIncompleteError);
+  expect(run.error).toHaveProperty('cause', readError);
+});
 
 it('reconciles traffic without uploading an identical active Worker version', async () => {
   const run = await attemptReuse({});

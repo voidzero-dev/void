@@ -11,6 +11,7 @@ import {
   writeFileSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
+import { setTimeout as delay } from 'node:timers/promises';
 import { fileURLToPath } from 'node:url';
 import {
   encodeCloudflareVersionMessage,
@@ -827,12 +828,34 @@ export async function deployPlatformWorker(
       );
       assertCleanPlatformWrangler(activated, `activate ${workerName}`, accountId);
     }
-    const deploymentsAfterActivation = await readPlatformWorkerDeployments(
-      configPath,
-      accountId,
-      workerName,
-      readRunner,
-    );
+    const readDeploymentHistory = () =>
+      readPlatformWorkerDeployments(configPath, accountId, workerName, readRunner);
+    let deploymentsAfterActivation = await readDeploymentHistory();
+    // A successful activation may not be visible in history yet. Only wait
+    // while the same deployment we replaced is still at the head.
+    for (const wait of [250, 500, 1_000]) {
+      if (deploymentsAfterActivation[0]?.id !== previousDeploymentId) {
+        break;
+      }
+      await delay(wait);
+      try {
+        deploymentsAfterActivation = await readDeploymentHistory();
+      } catch (cause) {
+        activatedVersionId = null;
+        throw new PlatformWorkerRecoveryIncompleteError(
+          `platform: Void could not confirm activation of ${workerName} because rereading its deployment history failed: ${getErrorMessage(cause)}`,
+          { cause },
+        );
+      }
+    }
+    if (deploymentsAfterActivation[0]?.id === previousDeploymentId) {
+      // Neither the new deployment nor a competitor has been confirmed.
+      // Leave the staged cutover for recovery rather than trying to roll it back.
+      activatedVersionId = null;
+      throw new PlatformWorkerRecoveryIncompleteError(
+        `platform: Void could not confirm activation of ${workerName} because Cloudflare still reports the previous deployment.`,
+      );
+    }
     const lineage = classifyPlatformWorkerDeploymentLineage(
       deploymentsAfterActivation,
       uploadedVersionId,
