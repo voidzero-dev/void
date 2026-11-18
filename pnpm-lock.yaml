@@ -235,7 +235,7 @@ catalogs:
       specifier: ^1.0.3
       version: 1.0.3
     '@cloudflare/vite-plugin':
-      specifier: ^2.0.0-rc.0
+      specifier: 2.0.0-rc.0
       version: 2.0.0-rc.0
     '@cloudflare/workers-auth':
       specifier: ^0.18.3
@@ -316,7 +316,7 @@ catalogs:
       specifier: ^1.1.1
       version: 1.1.1
     cf:
-      specifier: ^1.0.0-rc.0
+      specifier: 1.0.0-rc.0
       version: 1.0.0-rc.0
     ci-info:
       specifier: ^4.5.0
@@ -352,7 +352,7 @@ catalogs:
       specifier: ^4.1.2
       version: 4.1.2
     miniflare:
-      specifier: ^5.20261116.0-beta
+      specifier: 5.20261116.0-beta
       version: 5.20261116.0-beta
     minimatch:
       specifier: ^11.0.8
@@ -794,7 +794,7 @@ importers:
         version: 1.0.3
       '@cloudflare/vite-plugin':
         specifier: 'catalog:'
-        version: 2.0.0-rc.0(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261110.1)
+        version: 2.0.0-rc.0(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261116.1)
       '@cloudflare/workers-auth':
         specifier: 'catalog:'
         version: 0.18.3(@vitest/browser-preview@5.1.0)(@vitest/ui@5.1.0)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(vitest@5.1.0)
@@ -11651,12 +11651,12 @@ snapshots:
       - utf-8-validate
       - workerd
 
-  '@cloudflare/vite-plugin@2.0.0-rc.0(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261110.1)':
+  '@cloudflare/vite-plugin@2.0.0-rc.0(@types/node@26.6.6)(@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1))(workerd@1.20261116.1)':
     dependencies:
       '@cloudflare/build-output-utils': 1.0.0-rc.0
       '@cloudflare/config': 1.0.0-rc.0
       '@cloudflare/runtime-types': 0.1.29(@types/node@26.6.6)
-      '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261110.1)
+      '@cloudflare/unenv-preset': 2.16.2(unenv@2.0.0-rc.24)(workerd@1.20261116.1)
       miniflare: 5.20261116.0-beta(@types/node@26.6.6)
       unenv: 2.0.0-rc.24
       vite: '@voidzero-dev/vite-plus-core@8.3.8000(@types/node@26.6.6)(esbuild@0.28.2)(jiti@2.7.0)(sass-embedded@1.104.1)(sass@1.104.1)(terser@5.51.2)(tsx@4.23.15)(typescript@7.0.2)(yaml@2.9.1)'

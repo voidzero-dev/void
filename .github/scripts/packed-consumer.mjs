@@ -375,10 +375,22 @@ try {
           [
             '--input-type=module',
             '-e',
-            `import { findPackageJSON } from 'node:module';
-import { readFileSync } from 'node:fs';
+            `import assert from 'node:assert/strict';
+import { findPackageJSON } from 'node:module';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-const manifestPath = findPackageJSON('@void/platform', import.meta.resolve('void'));
+const voidEntry = import.meta.resolve('void');
+const manifest = (name, from) => pathToFileURL(realpathSync(findPackageJSON(name, from))).href;
+const miniflare = manifest('miniflare', voidEntry);
+const workerd = manifest('workerd', miniflare);
+for (const name of ['cf', '@cloudflare/vite-plugin']) {
+  const tool = manifest(name, voidEntry);
+  const types = manifest('@cloudflare/runtime-types', tool);
+  assert.equal(manifest('miniflare', tool), miniflare, name + ' installs a second Miniflare');
+  assert.equal(manifest('miniflare', types), miniflare, name + ' runtime types install a second Miniflare');
+  assert.equal(manifest('workerd', types), workerd, name + ' runtime types install a second workerd');
+}
+const manifestPath = findPackageJSON('@void/platform', voidEntry);
 const entry = JSON.parse(readFileSync(manifestPath, 'utf8')).exports['./installer'].import;
 const { resolvePlatformRuntime } = await import(new URL(entry, pathToFileURL(manifestPath)));
 const runtime = resolvePlatformRuntime();
