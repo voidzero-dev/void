@@ -18,6 +18,7 @@ import {
   type WorkerConfig,
 } from './plugin-cloudflare-config.ts';
 import { withLocalPreviewBindings } from './plugin-cloudflare-preview.ts';
+import { isVitestServer } from './plugin-dev-config.ts';
 import { writeFileAtomic } from './shared/atomic-write.ts';
 import { CLOUDFLARE_DEPLOY_BUILD_ENV } from './shared/env.ts';
 
@@ -26,6 +27,24 @@ export type { WorkerConfig, AuxiliaryWorkerConfig } from './plugin-cloudflare-co
 function isInside(directory: string, path: string): boolean {
   const child = relative(directory, path);
   return child !== '..' && !child.startsWith('../') && !isAbsolute(child);
+}
+
+/**
+ * Vitest runs tests in Node.js, in a Vite server of its own that turns off dependency
+ * prebundling. The Cloudflare plugin needs prebundling to start the Worker, so the Worker would
+ * fail before any test runs. Leave these plugins out of that server; Void's other plugins still
+ * resolve `void/*`, `@schema` and the generated modules for tests.
+ */
+function skipOnVitestServer(plugins: Array<Plugin>): Array<Plugin> {
+  for (const plugin of plugins) {
+    const apply = plugin.apply;
+    plugin.apply = (config, environment) =>
+      !isVitestServer(config) &&
+      (typeof apply === 'function'
+        ? apply(config, environment)
+        : apply === undefined || apply === environment.command);
+  }
+  return plugins;
 }
 
 /** Keep Void's public configuration and artifact layout while running the v2 plugin. */
@@ -71,7 +90,7 @@ export function cloudflare(options: {
       workerConfig = mergeCloudflareConfig(options.config(base), base);
       native = toNativeCloudflareConfig(workerConfig, root);
       pluginNative = structuredClone(native);
-      if (environment.command === 'build' && native.containers.length > 0) {
+      if (environment.command === 'build' && (native.containers?.length ?? 0) > 0) {
         // Void builds images during deployment preparation. Managed builds consume
         // the Worker bundle and must not acquire a local Docker prerequisite.
         pluginNative.containers = [];
@@ -188,7 +207,7 @@ export function cloudflare(options: {
             cpSync(client, worker.assetsDir, { recursive: true });
           }
         }
-        if (native.containers.length > 0) {
+        if ((native.containers?.length ?? 0) > 0) {
           writeFileAtomic(
             join(dirname(getRootConfigPath(root)), 'void-containers.json'),
             JSON.stringify({ workerDirectory: relative(root, destination) }),
@@ -218,7 +237,7 @@ export function cloudflare(options: {
       },
     },
   };
-  return [
+  return skipOnVitestServer([
     bridge,
     directories,
     ...withLocalPreviewBindings(
@@ -237,5 +256,5 @@ export function cloudflare(options: {
       root,
     ),
     output,
-  ];
+  ]);
 }

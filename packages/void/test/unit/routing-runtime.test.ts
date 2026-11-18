@@ -4,11 +4,27 @@ import { HTTPException } from 'hono/http-exception';
 import { matchedRoutes } from 'hono/route';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { routeUrl } from 'void/routes';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
 import { defer } from '../../src/pages/defer.ts';
 import { ValidationError } from '../../src/pages/protocol.ts';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
-import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing-assets.ts';
-import { createErrorRenderer } from '../../src/runtime/routing-errors.ts';
+import { decodePageData, serializePageData } from '../../src/pages/serialize.ts';
+import { _validateEnvOnce, defineEnv, env } from '../../src/runtime/env/public.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
+import {
+  defineHandler,
+  defineMiddleware,
+  type CloudContext,
+} from '../../src/runtime/handler/index.ts';
+import { createClientAssetTags, createManifestLoader } from '../../src/runtime/routing/assets.ts';
+import { createErrorRenderer } from '../../src/runtime/routing/errors.ts';
+import {
+  createHttpRouteHandler,
+  createModuleLoader,
+  createRoutingRuntime,
+  type RoutingContext,
+  type RoutingHeaderRule,
+  type RoutingRuntime,
+} from '../../src/runtime/routing/index.ts';
 import {
   createAssetNotFound,
   createPageGetHandler,
@@ -17,7 +33,7 @@ import {
   createNamedActionMarker,
   createSsrFallback,
   markRouteHandler,
-} from '../../src/runtime/routing-pages.ts';
+} from '../../src/runtime/routing/pages.ts';
 import {
   applyAssetCachePolicy,
   createAssetCachePolicy,
@@ -25,15 +41,7 @@ import {
   createWorkerFetch,
   filterInternalBindings,
   type RuntimeEnvironment,
-} from '../../src/runtime/routing-worker.ts';
-import {
-  createHttpRouteHandler,
-  createModuleLoader,
-  createRoutingRuntime,
-  type RoutingContext,
-  type RoutingHeaderRule,
-  type RoutingRuntime,
-} from '../../src/runtime/routing.ts';
+} from '../../src/runtime/routing/worker.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 const context = { waitUntil() {}, passThroughOnException() {}, props: {} };
@@ -203,7 +211,7 @@ describe('typed HTTP execution', () => {
             assets: async () => ({ css: '', body: '', preloads: '' }),
             headConfig: undefined,
             renderOptions: { renderMode: 'server' },
-            load: async () => ({ loader: (c: Context) => c.redirect('/notes') }),
+            load: async () => ({ loader: (c: CloudContext) => c.redirect('/notes') }),
           }),
         );
       });
@@ -222,7 +230,7 @@ describe('typed HTTP execution', () => {
             assets: async () => ({ css: '', body: '', preloads: '' }),
             headConfig: undefined,
             renderOptions: { renderMode: 'server' },
-            load: async () => ({ action: (c: Context) => c.redirect('/done') }),
+            load: async () => ({ action: (c: CloudContext) => c.redirect('/done') }),
           }),
         );
       });
@@ -535,6 +543,107 @@ describe('typed Worker fetch execution', () => {
     expect(await runner.json()).toEqual({ paths: ['/page'] });
     expect(validateEnv).toHaveBeenCalledTimes(4);
   });
+  it('renders a build-only 404 only for the trusted prerender environment', async () => {
+    const staticNotFound = vi.fn(
+      async () =>
+        new Response('<h1>Missing</h1>', { status: 404, headers: { 'Content-Type': 'text/html' } }),
+    );
+    const validateEnv = vi.fn(async () => {});
+    const fetch = worker({ staticNotFound, validateEnv });
+    const request = new Request('http://localhost/__void/static-not-found', {
+      headers: { 'x-void-internal': '1' },
+    });
+    await fetch(request, {}, context);
+    expect(staticNotFound).not.toHaveBeenCalled();
+    expect(validateEnv).toHaveBeenCalledTimes(1);
+    const response = await fetch(request, { __VOID_PRERENDER: '1' }, context);
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('<h1>Missing</h1>');
+    expect(staticNotFound).toHaveBeenCalledTimes(1);
+    expect(validateEnv).toHaveBeenCalledTimes(1);
+  });
+  // An async Standard Schema validator, like zod's async refine.
+  const upper = {
+    '~standard': {
+      version: 1 as const,
+      vendor: 'test',
+      validate: async (value: unknown) => ({ value: String(value).toUpperCase() }),
+    },
+  };
+  // The entry validates before it opens the request scope that the app's reads run in.
+  it('serves an env.ts value with an async validator to app requests', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      const app = new Hono();
+      app.get('/token', (c) => c.json({ token: env.TOKEN }));
+      const fetch = worker({ app, validateEnv: _validateEnvOnce, withRuntimeEnv });
+      for (const rawEnv of [{ TOKEN: 'sk_test' }, { TOKEN: 'sk_test' }]) {
+        const response = await fetch(new Request('https://app.test/token'), rawEnv, context);
+        expect(await response.json()).toEqual({ token: 'SK_TEST' });
+      }
+    } finally {
+      defineEnv({});
+    }
+  });
+  // Remote dev mode replaces the env with a copy before it opens the request scope.
+  it('serves an env.ts value with an async validator to remote dev requests', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      const app = new Hono();
+      app.get('/token', (c) => c.json({ token: env.TOKEN }));
+      const fetch = worker({
+        app,
+        validateEnv: _validateEnvOnce,
+        withRuntimeEnv,
+        remoteEnv: (original) => ({ ...original }),
+      });
+      const response = await fetch(
+        new Request('https://app.test/token'),
+        { TOKEN: 'sk_test', __VOID_REMOTE: '1' },
+        context,
+      );
+      expect(await response.json()).toEqual({ token: 'SK_TEST' });
+    } finally {
+      defineEnv({});
+    }
+  });
+  // Cloudflare can keep an isolate running when only its bindings change, so a request that
+  // holds the old values can overlap one that holds the new values.
+  it('serves each of two overlapping requests the async value of its own env', async () => {
+    defineEnv({ TOKEN: upper });
+    try {
+      // Both requests validate before either reads.
+      let waiting = 0;
+      let release = () => {};
+      const bothValidated = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const app = new Hono();
+      app.get('/token', async (c) => {
+        if (++waiting === 2) {
+          release();
+        }
+        await bothValidated;
+        return c.json({ token: env.TOKEN });
+      });
+      const fetch = worker({ app, validateEnv: _validateEnvOnce, withRuntimeEnv });
+      const responses = await Promise.all(
+        ['a', 'b'].map((value) =>
+          fetch(new Request('https://app.test/token'), { TOKEN: value }, context),
+        ),
+      );
+      expect(
+        await Promise.all(
+          responses.map(async (response) => [response.status, await response.text()]),
+        ),
+      ).toEqual([
+        [200, '{"token":"A"}'],
+        [200, '{"token":"B"}'],
+      ]);
+    } finally {
+      defineEnv({});
+    }
+  });
   it('returns a getPrerenderPaths() error to the prerender runner', async () => {
     const fetch = worker({
       collectPrerenderPaths: async () => {
@@ -809,7 +918,7 @@ describe('typed Pages and SSR execution', () => {
     const app = new Hono();
     const runtime = createRoutingRuntime(app, { nodeTarget: true });
     app.use(runtime.contextMiddleware);
-    const redirectTo = (location: string) => (c: Context) => c.redirect(location);
+    const redirectTo = (location: string) => (c: CloudContext) => c.redirect(location);
     app.post(
       '/named',
       createPageMutationHandler({
@@ -830,7 +939,10 @@ describe('typed Pages and SSR execution', () => {
       app.use(async (c, next) => (c.req.header('x-anon') ? c.redirect('/login') : next()));
       app.post(
         '/api/x',
-        createHttpRouteHandler(async () => ({ POST: (c: Context) => c.redirect('/done') }), 'POST'),
+        createHttpRouteHandler(
+          async () => ({ POST: (c: CloudContext) => c.redirect('/done') }),
+          'POST',
+        ),
       );
       app.on(
         ['POST', 'PUT'],
@@ -839,19 +951,19 @@ describe('typed Pages and SSR execution', () => {
           ...pageOptions,
           load: async () => ({
             actions: {
-              delete: (c: Context) => c.redirect('/named'),
-              update: (c: Context) => c.redirect('/named', 303),
-              move: (c: Context) => c.redirect('/named-v2', 307),
-              moveTab: (c: Context) => c.redirect('/named-v2?tab=details', 307),
-              moveHash: (c: Context) => c.redirect('/named-v2?tab=details#top', 307),
-              moveReset: (c: Context) => c.redirect('/named-v2?', 307),
-              replace: (c: Context) => c.redirect('/named-v2?tab=details', 302),
-              moveKey: (c: Context) => c.redirect('/named-v2?tab=1&moveKey=x', 307),
-              moveSame: (c: Context) => c.redirect('/named-v2?moveSame', 307),
-              toArchive: (c: Context) => c.redirect('/named?archive', 307),
-              toArchiveHere: (c: Context) => c.redirect('/named?', 307),
-              go: (c: Context) => c.rewrite('/api/x'),
-              goWithQuery: (c: Context) => c.rewrite('/api/x?q=1'),
+              delete: (c: CloudContext) => c.redirect('/named'),
+              update: (c: CloudContext) => c.redirect('/named', 303),
+              move: (c: CloudContext) => c.redirect('/named-v2', 307),
+              moveTab: (c: CloudContext) => c.redirect('/named-v2?tab=details', 307),
+              moveHash: (c: CloudContext) => c.redirect('/named-v2?tab=details#top', 307),
+              moveReset: (c: CloudContext) => c.redirect('/named-v2?', 307),
+              replace: (c: CloudContext) => c.redirect('/named-v2?tab=details', 302),
+              moveKey: (c: CloudContext) => c.redirect('/named-v2?tab=1&moveKey=x', 307),
+              moveSame: (c: CloudContext) => c.redirect('/named-v2?moveSame', 307),
+              toArchive: (c: CloudContext) => c.redirect('/named?archive', 307),
+              toArchiveHere: (c: CloudContext) => c.redirect('/named?', 307),
+              go: (c: CloudContext) => c.rewrite('/api/x'),
+              goWithQuery: (c: CloudContext) => c.rewrite('/api/x?q=1'),
               save: () => undefined,
             },
           }),
@@ -904,6 +1016,44 @@ describe('typed Pages and SSR execution', () => {
       expect(response.headers.get('location')).toBe(location);
     });
 
+    it.each([
+      ['/named?delete&page=2', 'page=2', 'a redirect', '/named'],
+      ['/named?update&tab=a&page=2&q=x', 'page=2&q=x', 'a 303 redirect', '/named?tab=a'],
+      ['/named?move&page=2', 'page=2', 'a 307 redirect', '/named-v2?move'],
+      ['/named?moveTab&page=2', 'page=2', 'a 307 redirect', '/named-v2?moveTab&tab=details'],
+      ['/named?delete&page=2', 'page=2', 'middleware', '/login'],
+      ['/named?go&page=2', 'page=2', 'a rewrite', '/done'],
+      ['/named?delete&page=2', 'page=3', 'a redirect', '/named?page=2'],
+    ])(
+      'POST %s that preserves %s through %s redirects to %s',
+      async (path, preserved, through, location) => {
+        const response = await createNamedActionApp().fetch(
+          new Request('https://app.test' + path, {
+            method: path.includes('update') ? 'PUT' : 'POST',
+            headers: {
+              'X-VoidPages-Preserved-Query': preserved,
+              ...(through === 'middleware' ? { 'x-anon': '1' } : {}),
+            },
+          }),
+        );
+        expect(response.headers.get('location')).toBe(location);
+      },
+    );
+
+    it('keeps the preserved query in the page URL when the action renders the page again', async () => {
+      const response = await createNamedActionApp().fetch(
+        new Request('https://app.test/named?save&page=2', {
+          method: 'POST',
+          headers: {
+            'x-voidpages': 'true',
+            'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+            'X-VoidPages-Preserved-Query': 'page=2',
+          },
+        }),
+      );
+      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
+    });
+
     it('marks the request for a one-argument middleware that answers first', async () => {
       const app = new Hono();
       const runtime = createRoutingRuntime(app, { nodeTarget: true });
@@ -916,6 +1066,72 @@ describe('typed Pages and SSR execution', () => {
       );
       expect(response.headers.get('location')).toBe('/maintenance?page=2');
     });
+
+    it('does not mark preserved page parameters as an action before a middleware redirect', async () => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      app.use('/named', async (c) => c.redirect('/login?tab=profile', 307));
+      app.post('/named', createPageMutationHandler({ ...pageOptions, namedActions: true }));
+
+      const response = await app.fetch(
+        new Request('https://app.test/named?delete=confirm&page=2', {
+          method: 'POST',
+          headers: { 'X-VoidPages-Preserved-Query': 'delete=confirm&page=2' },
+        }),
+      );
+
+      expect(response.status).toBe(307);
+      expect(response.headers.get('location')).toBe('/login?tab=profile');
+    });
+
+    it.each([
+      ['middleware', '/named', 'default'],
+      ['middleware', '/named?delete=confirm', 'delete'],
+      ['rule', '/named', 'default'],
+      ['rule', '/named?delete=confirm', 'delete'],
+    ])(
+      'a %s rewrite to %s selects %s with a preserved page query',
+      async (kind, destination, action) => {
+        const app = new Hono();
+        const runtime = createRoutingRuntime(app, { nodeTarget: true });
+        app.use(runtime.contextMiddleware);
+        app.use(createNamedActionMarker(matchedRoutes));
+        if (kind === 'middleware') {
+          app.use('/source', (c) => (c as RoutingContext).rewrite(destination));
+        } else {
+          app.use(
+            runtime.routingMiddleware([
+              { source: '/source', destination, status: 200, force: true },
+            ]),
+          );
+        }
+        app.post(
+          '/named',
+          createPageMutationHandler({
+            ...pageOptions,
+            namedActions: true,
+            load: async () => ({
+              actions: {
+                default: () => new Response('default'),
+                delete: () => new Response('delete'),
+              },
+            }),
+          }),
+        );
+
+        const response = await app.fetch(
+          new Request('https://app.test/source?delete=confirm', {
+            method: 'POST',
+            headers: { 'X-VoidPages-Preserved-Query': 'delete=confirm' },
+          }),
+        );
+
+        expect(response.status).toBe(200);
+        expect(await response.text()).toBe(action);
+      },
+    );
 
     it('sends the given location when another route answers a catch-all page pattern', async () => {
       const response = await createNamedActionApp('/*').fetch(
@@ -948,12 +1164,63 @@ describe('typed Pages and SSR execution', () => {
       const response = await createNamedActionApp().fetch(
         new Request('https://app.test/named?save&page=2', {
           method: 'POST',
-          headers: { 'x-voidpages': 'true' },
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
         }),
       );
-      expect(((await response.json()) as { url: string }).url).toBe('/named?page=2');
+      expect((decodePageData(await response.json()) as { url: string }).url).toBe('/named?page=2');
     });
   });
+  it.each([
+    ['middleware', 'GET', '/app/account?tab=1', '/maintenance', '/app/account?tab=1'],
+    ['rule', 'GET', '/app/account?tab=1', '/maintenance', '/app/account?tab=1'],
+    ['middleware', 'GET', '/app/caf%C3%A9', '/maintenance', '/app/café'],
+    ['middleware', 'GET', '/app/account?tab=1', '/maintenance?mode=read', '/app/account?tab=1'],
+    ['middleware', 'POST', '/app/account?save&tab=1', '/maintenance', '/app/account?tab=1'],
+    ['rule', 'POST', '/app/account?save&tab=1', '/maintenance', '/app/account?tab=1'],
+    // The destination's query selects the action; the original query has no key.
+    ['middleware', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
+    ['rule', 'POST', '/app/account?tab=1', '/maintenance?save&tab=1', '/app/account?tab=1'],
+  ])(
+    'preserves public page and head URLs after a %s rewrite of %s %s to %s',
+    async (kind, method, path, destination, url) => {
+      const app = new Hono();
+      const runtime = createRoutingRuntime(app, { nodeTarget: true });
+      app.use(runtime.contextMiddleware);
+      app.use(createNamedActionMarker(matchedRoutes));
+      if (kind === 'middleware') {
+        app.use('/app/*', (c) => (c as RoutingContext).rewrite(destination));
+      } else {
+        app.use(
+          runtime.routingMiddleware([{ source: '/app/*', destination, status: 200, force: true }]),
+        );
+      }
+      const options = {
+        ...pageOptions,
+        headConfig: { meta: [{ property: 'og:image', content: 'preview.png' }] },
+      };
+      app.get('/maintenance', createPageGetHandler(options));
+      app.post(
+        '/maintenance',
+        createPageMutationHandler({
+          ...options,
+          load: async () => ({ actions: { save: () => undefined } }),
+          namedActions: true,
+        }),
+      );
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          method,
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      expect(decodePageData(await response.json())).toMatchObject({
+        url,
+        head: {
+          meta: [{ property: 'og:image', content: 'https://app.test/app/preview.png' }],
+        },
+      });
+    },
+  );
   it('executes the real page loader and protocol', async () => {
     const app = new Hono();
     app.get(
@@ -964,10 +1231,131 @@ describe('typed Pages and SSR execution', () => {
       }),
     );
     const response = await app.fetch(
-      new Request('https://app.test/page', { headers: { 'x-voidpages': 'true' } }),
+      new Request('https://app.test/page', {
+        headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+      }),
     );
-    expect(((await response.json()) as { props: unknown }).props).toEqual({ title: 'loaded' });
+    expect((decodePageData(await response.json()) as { props: unknown }).props).toEqual({
+      title: 'loaded',
+    });
   });
+  it('wraps the page title with a titleTemplate from middleware headDefaults', async () => {
+    const app = new Hono();
+    app.use(
+      '/admin/*',
+      defineMiddleware(async (c, next) => {
+        c.set('headDefaults', { ...c.get('headDefaults'), titleTemplate: '%s | Admin' });
+        await next();
+      }),
+    );
+    const options = {
+      ...pageOptions,
+      headConfig: { titleTemplate: '%s | My Site' },
+      load: async () => ({ loader: () => ({}), head: () => ({ title: 'Users' }) }),
+    };
+    app.get('/admin/users', createPageGetHandler(options));
+    app.get('/users', createPageGetHandler(options));
+    const title = async (path: string) => {
+      const response = await app.fetch(
+        new Request('https://app.test' + path, {
+          headers: { 'x-voidpages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
+        }),
+      );
+      return (decodePageData(await response.json()) as { head?: { title?: string } }).head?.title;
+    };
+    expect(await title('/admin/users')).toBe('Users | Admin');
+    expect(await title('/users')).toBe('Users | My Site');
+  });
+  it('redirects extensionless Pages requests to trailing slashes without changing APIs or files', async () => {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    app.notFound(
+      createPagesFallback({
+        routing,
+        errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+        trailingSlash: true,
+      }),
+    );
+    app.get('/posts/', (c) => c.text('posts'));
+    const response = await app.request('https://app.test/posts?sort=new');
+    expect(response.status).toBe(301);
+    expect(response.headers.get('location')).toBe('https://app.test/posts/?sort=new');
+    expect((await app.request('https://app.test/posts/')).status).toBe(200);
+    for (const path of ['/api/missing', '/file.css', '/unknown/']) {
+      const missing = await app.request('https://app.test' + path);
+      expect(missing.status).toBe(404);
+      expect(missing.headers.has('location')).toBe(false);
+    }
+  });
+  it.each([
+    [{ Accept: 'text/html' }, true],
+    [{}, true],
+    [{ Accept: 'application/json' }, false],
+    [{ Accept: '*/*', 'Sec-Fetch-Dest': 'image' }, false],
+    [{ Accept: 'application/json', 'X-VoidPages': 'true' }, true],
+  ] as const)(
+    'uses the app not-found component only for page requests: %j',
+    async (headers, page) => {
+      const app = new Hono();
+      const routing = createRoutingRuntime(app, { nodeTarget: true });
+      app.notFound(
+        createPagesFallback({
+          routing,
+          errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+          pageNotFound: async (c) => c.html('<h1>App not found</h1>', 404),
+        }),
+      );
+      const response = await app.request('https://app.test/missing', { headers });
+      expect(response.status).toBe(404);
+      expect((await response.text()).includes('App not found')).toBe(page);
+    },
+  );
+  it('serves static files before canonicalizing dynamic trailing-slash Pages URLs', async () => {
+    const app = new Hono();
+    const routing = createRoutingRuntime(app, { nodeTarget: true });
+    app.notFound(
+      createPagesFallback({
+        routing,
+        errors: createErrorRenderer({ projectRoot: '/project', homeDir: '/home' }),
+        trailingSlash: true,
+        pagePatterns: [/^\/(.+)\/$/],
+      }),
+    );
+    const files = new Map([
+      ['/assets/app.js', 'text/javascript'],
+      ['/favicon.ico', 'image/x-icon'],
+      ['/terms.html', 'text/html'],
+      ['/terms', 'text/html'],
+      ['/LICENSE', 'text/plain'],
+      ['/about', 'text/html'],
+      ['/about/', 'text/html'],
+    ]);
+    const env = {
+      ASSETS: {
+        fetch: async (request: Request) => {
+          const path = new URL(request.url).pathname;
+          if (path === '/terms/') {
+            return Response.redirect('https://app.test/terms', 307);
+          }
+          const type = files.get(path);
+          return type
+            ? new Response('file', { headers: { 'Content-Type': type } })
+            : new Response('missing', { status: 404 });
+        },
+      },
+    };
+    for (const path of ['/assets/app.js', '/favicon.ico', '/terms.html', '/terms', '/LICENSE']) {
+      const response = await app.fetch(new Request('https://app.test' + path), env);
+      expect(response.status, path).toBe(200);
+      expect(await response.text(), path).toBe('file');
+    }
+    for (const path of ['/about', '/users/alice.smith']) {
+      const response = await app.fetch(new Request('https://app.test' + path + '?q=1'), env);
+      expect(response.status, path).toBe(301);
+      expect(response.headers.get('location')).toBe('https://app.test' + path + '/?q=1');
+    }
+  });
+
   it('tries Pages assets before fallbacks and distinguishes files, API requests and unknown documents', async () => {
     const app = new Hono();
     const routing = createRoutingRuntime(app, { nodeTarget: true });
@@ -1450,14 +1838,19 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     app.post('/db', createPageMutationHandler({ ...pageOptions, load, namedActions: true }));
     return app;
   }
-  const get = (app: Hono, headers: Record<string, string> = { 'X-VoidPages': 'true' }) =>
-    app.fetch(new Request('https://app.test/db', { headers }));
+  const get = (
+    app: Hono,
+    headers: Record<string, string> = {
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+    },
+  ) => app.fetch(new Request('https://app.test/db', { headers }));
   const post = (app: Hono, body: unknown, pages = true) =>
     app.fetch(
       new Request('https://app.test/db?create', {
         method: 'POST',
         headers: {
-          ...(pages && { 'X-VoidPages': 'true' }),
+          ...(pages && { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION }),
           Origin: 'https://app.test',
           'Content-Type': 'application/json',
         },
@@ -1469,10 +1862,116 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const app = createPageApp({ loader: defineHandler(passThrough, () => ({ notes: ['a'] })) });
     const json = await get(app);
     expect(json.status).toBe(200);
-    expect(((await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
+    expect((decodePageData(await json.json()) as PageJson).props).toEqual({ notes: ['a'] });
     const html = await get(app, {});
     expect(html.status).toBe(200);
     expect(await html.text()).toContain('{"notes":["a"]}');
+  });
+
+  describe.each(['HTML', 'Pages JSON'] as const)(
+    'Application-defined page status codes (%s)',
+    (format) => {
+      it.each(
+        ([403, 503] as const).flatMap((status) =>
+          (['loader', 'validated loader', 'app middleware', 'handler middleware'] as const).map(
+            (source) => ({
+              status,
+              source,
+            }),
+          ),
+        ),
+      )('renders the page with HTTP $status set by $source', async ({ status, source }) => {
+        const message = status === 403 ? 'Your account is banned' : 'Down for maintenance';
+        const setStatus = defineMiddleware(async (c, next) => {
+          c.status(status);
+          c.header('Retry-After', '120');
+          await next();
+        });
+        const loader = vi.fn((c: CloudContext) => {
+          if (source === 'loader' || source === 'validated loader') {
+            c.status(status);
+            c.header('Retry-After', '120');
+          }
+          return { message };
+        });
+        const app = createPageApp(
+          {
+            loader:
+              source === 'handler middleware'
+                ? defineHandler(setStatus, loader)
+                : source === 'validated loader'
+                  ? defineHandler.withValidator({})(loader)
+                  : defineHandler(loader),
+          },
+          async (c, next) => {
+            c.header('Set-Cookie', 'session=renewed; HttpOnly', { append: true });
+            c.header('Set-Cookie', 'locale=en', { append: true });
+            if (source === 'app middleware') {
+              return setStatus(c, next);
+            }
+            await next();
+          },
+        );
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+
+        expect(loader).toHaveBeenCalledTimes(1);
+        expect(response.headers.get('Retry-After')).toBe('120');
+        expect(response.headers.getSetCookie()).toEqual(['session=renewed; HttpOnly', 'locale=en']);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(decodePageData(JSON.parse(body))).toMatchObject({
+            component: 'page',
+            props: { message },
+          });
+        } else {
+          expect(response.headers.get('Content-Type')).toContain('text/html');
+          expect(body).toContain(message);
+        }
+        expect(response.status).toBe(status);
+      });
+
+      it('preserves the loader status while streaming deferred props', async () => {
+        const app = createPageApp({
+          loader: defineHandler((c) => {
+            c.status(429);
+            return { slow: defer(async () => 'Try again later') };
+          }),
+        });
+        const response = await get(app, format === 'HTML' ? {} : undefined);
+        const body = await response.text();
+        expect(response.status).toBe(429);
+        if (format === 'Pages JSON') {
+          expect(response.headers.get('Content-Type')).toBe('application/x-ndjson');
+          expect(response.headers.get('X-VoidPages')).toBe('true');
+          expect(body).toContain(
+            serializePageData({ __deferred: 'slow', data: 'Try again later' }),
+          );
+        } else {
+          expect(body).toContain('__resolveDeferred');
+          expect(body).toContain('Try again later');
+        }
+      });
+    },
+  );
+
+  it('preserves the loader status when prefetching deferred page data', async () => {
+    const app = createPageApp({
+      loader: defineHandler((c) => {
+        c.status(503);
+        return { slow: defer(async () => 'Try again later') };
+      }),
+    });
+    const response = await get(app, {
+      'X-VoidPages': 'true',
+      'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+      Purpose: 'prefetch',
+    });
+    expect(response.status).toBe(503);
+    expect(response.headers.get('Content-Type')).toBe('application/json');
+    expect(decodePageData(await response.json())).toMatchObject({
+      props: { slow: 'Try again later' },
+    });
   });
 
   it('re-renders the page after an action with middleware, or shows its field errors', async () => {
@@ -1486,12 +1985,15 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       title: 'a',
     });
     expect(valid.status).toBe(200);
-    expect(await valid.json()).toMatchObject({ props: { notes: ['fresh'] }, errors: null });
+    expect(decodePageData(await valid.json())).toMatchObject({
+      props: { notes: ['fresh'] },
+      errors: null,
+    });
     const invalid = await post(createPageApp({ loader, actions: { create: action('Required') } }), {
       title: '',
     });
     expect(invalid.status).toBe(200);
-    expect(await invalid.json()).toMatchObject({
+    expect(decodePageData(await invalid.json())).toMatchObject({
       props: { notes: ['fresh'] },
       errors: { title: 'Required' },
     });
@@ -1515,7 +2017,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     });
     const json = await get(app);
     expect(json.headers.get('X-After')).toBe('1');
-    expect(await json.text()).toContain('{"__deferred":"slow","data":2}');
+    expect(await json.text()).toContain(serializePageData({ __deferred: 'slow', data: 2 }));
     const html = await get(app, {});
     expect(html.headers.get('X-After')).toBe('1');
     expect(await html.text()).toContain('__resolveDeferred');
@@ -1526,7 +2028,15 @@ describe('page loaders and actions composed with defineHandler middleware', () =
     const json = (await get(app)).headers.get('ETag')!;
     const html = (await get(app, {})).headers.get('ETag')!;
     expect(json).not.toBe(html);
-    expect((await get(app, { 'X-VoidPages': 'true', 'If-None-Match': json })).status).toBe(304);
+    expect(
+      (
+        await get(app, {
+          'X-VoidPages': 'true',
+          'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+          'If-None-Match': json,
+        })
+      ).status,
+    ).toBe(304);
     expect((await get(app, { 'If-None-Match': html })).status).toBe(304);
   });
 
@@ -1545,7 +2055,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       expect(response.status).toBe(200);
       expect(response.headers.get('X-Before')).toBe('1');
       expect(response.headers.get('X-After')).toBe('1');
-      expect(((await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
+      expect((decodePageData(await response.json()) as PageJson).shared).toEqual({ user: 'u1' });
     }
   });
 
@@ -1556,11 +2066,12 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       c.set('shared', count(2));
       await next();
     };
-    const sharedOf = async (response: Response) => ((await response.json()) as PageJson).shared;
-    const setCount = (n: number) => (c: Context) => {
+    const sharedOf = async (response: Response) =>
+      (decodePageData(await response.json()) as PageJson).shared;
+    const setCount = (n: number) => (c: CloudContext) => {
       c.set('shared', { ...(c.get('shared') as object), ...count(n) });
     };
-    const assignCount = (n: number) => (c: Context) => {
+    const assignCount = (n: number) => (c: CloudContext) => {
       Object.assign(c.get('shared') as object, count(n));
     };
     const loader = () => ({});
@@ -1583,7 +2094,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       let loaderSaw: unknown;
       const app = createPageApp(
         {
-          loader: (c: Context) => ((loaderSaw = c.get('shared')), {}),
+          loader: (c: CloudContext) => ((loaderSaw = c.get('shared')), {}),
           actions: { create: defineHandler(passThrough, async (c) => update(c)) },
         },
         appShared,
@@ -1626,7 +2137,7 @@ describe('page loaders and actions composed with defineHandler middleware', () =
       {},
     );
     expect(errors.status).toBe(200);
-    expect(await errors.json()).toMatchObject({ errors: { title: 'Taken' } });
+    expect(decodePageData(await errors.json())).toMatchObject({ errors: { title: 'Taken' } });
 
     // A ValidationError from the loader while re-rendering is not the action's.
     const failing = vi.fn(() => {

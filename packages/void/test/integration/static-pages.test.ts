@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { Miniflare, convertV4MiniflareOptions } from 'miniflare';
 import { beforeAll, describe, expect, it } from 'vite-plus/test';
 import { GENERATED_ASSET_HEADERS_MARKER } from '../../src/asset-worker-bypass.ts';
+import { deserializePageData } from '../../src/pages/serialize.ts';
 import { collectPrerenderPaths } from '../../src/prerender.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
@@ -94,10 +95,10 @@ describe('playground/static-pages build (output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = JSON.parse(
+    const indexData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = JSON.parse(
+    const aboutData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
 
@@ -121,7 +122,7 @@ describe('playground/static-pages build (output: static)', () => {
     expect(html).not.toContain('data-testid="client-only-title"');
     expect(html).not.toContain('client-only static page component rendered on the server');
 
-    const pageData = JSON.parse(
+    const pageData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/client-only.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
     expect(pageData.component).toBe('client-only');

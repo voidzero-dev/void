@@ -27,6 +27,7 @@ import {
   restoreCloudflarePreviewPointer,
   stashCloudflareDeployPointer,
 } from './cloudflare-config.ts';
+import { syncBindingTypes } from './codegen/binding-types.ts';
 import { getDatabaseCasing, readConfig, isNodeTarget } from './config.ts';
 import { inferBindingsFromSource } from './inference/walk.ts';
 import { resolveLocalD1Target, writeLocalD1PersistState } from './local-d1.ts';
@@ -42,6 +43,7 @@ import {
   isViteBuildOrPreview,
   getOrCreateDevTriggerToken,
   devTriggerSecretGuardPlugin,
+  isVitestServer,
   selectVoidCloudflareLogin,
 } from './plugin-dev-config.ts';
 import { devTriggersHintPlugin } from './plugin-dev-triggers-hint.ts';
@@ -53,6 +55,7 @@ import { envSchemaPlugin, type EnvSchemaFacts } from './plugin-env-schema.ts';
 import {
   getFrameworkEntry,
   generateClassATriggerWrapper,
+  hasVinextMiddleware,
   getOriginalFrameworkEntry,
 } from './plugin-framework-entry.ts';
 import { frameworkTriggersPlugin } from './plugin-framework-triggers.ts';
@@ -108,6 +111,7 @@ export function voidPlugin(options?: {
     ? crypto.randomUUID()
     : getOrCreateDevTriggerToken(root);
   const config = readConfig(root);
+  syncBindingTypes(root, config);
   const projectCloudflareConfigPath = !isNodeTarget(config.target)
     ? materializeCloudflareConfig(root)
     : undefined;
@@ -539,11 +543,13 @@ export function voidPlugin(options?: {
             );
           });
         } else if (credentials.status === 'no-project') {
-          if (process.stdin.isTTY) {
+          // A test run must not stop for questions, and Vitest's watch mode reads keys from
+          // the terminal, so Vitest's server gets the hint below.
+          if (process.stdin.isTTY && !isVitestServer(server.config)) {
             // Fire-and-forget interactive setup
             afterServerReady(server, () => {
               console.log();
-              runAiSetupPrompt(root, credentials.token, credentials.apiUrl, server);
+              void runAiSetupPrompt(root, credentials.token, credentials.apiUrl, server);
             });
           } else {
             afterServerReady(server, () => {
@@ -632,6 +638,13 @@ export function voidPlugin(options?: {
   };
 
   if (framework) {
+    if ((framework === 'vinext-app' || framework === 'vinext-pages') && hasVinextMiddleware(root)) {
+      workerConfig.assets = {
+        binding: 'ASSETS',
+        not_found_handling: 'none',
+        run_worker_first: ['/*'],
+      };
+    }
     workerConfig.main = getFrameworkEntry(
       framework,
       root,
@@ -858,7 +871,9 @@ export function voidPlugin(options?: {
         hasSandbox: false,
       }),
       prerenderPlugin(root, config),
-      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno'),
+      ...nodeTargetPlugin(config.target as 'node' | 'bun' | 'deno', {
+        trailingSlash: config.routing?.trailingSlash,
+      }),
     ];
   }
 
@@ -1046,11 +1061,12 @@ export {
   defineHead,
   defineQueue,
   VoidAssetRewriteError,
-} from './runtime/handler.ts';
+} from './runtime/handler/index.ts';
 
 export type {
   CloudContext,
   CloudContextVariables,
+  CloudBindings,
   CloudEnv,
   BasicAuthOptions,
   RenderAssetTags,
@@ -1059,19 +1075,19 @@ export type {
   QueueBatch,
   QueueMessage,
   QueueRetryOptions,
-} from './runtime/handler.ts';
+} from './runtime/handler/index.ts';
 
-export type { ValidatorSlots, HandlerInput } from './runtime/validator.ts';
+export type { ValidatorSlots, HandlerInput } from './runtime/handler/validator.ts';
 
-export type { AuthUser } from './runtime/auth.ts';
+export type { AuthUser } from './runtime/auth/index.ts';
 
-export type { QueueMap } from './runtime/queues.ts';
+export type { QueueMap } from './runtime/queues/index.ts';
 
 export { defer } from './pages/defer.ts';
 
 export type { Deferred, DeferredState, InferProps } from './pages/defer.ts';
 
-export type { HeadDescriptor } from './pages/head.ts';
+export type { HeadConfig, HeadDescriptor } from './pages/head.ts';
 
 export { shouldInjectEmailDevInboxVar } from './plugin-binding-utils.ts';
 

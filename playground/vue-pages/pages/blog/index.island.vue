@@ -12,7 +12,7 @@ defineProps<Props>();
 <template>
   <div>
     <h1>Blog</h1>
-    <Counter :initial="0" />
+    <Counter :initial="0" :created-at="new Date('2026-11-08T00:00:00Z')" />
     <h2>Posts</h2>
     <ul>
       <li v-for="post in posts" :key="post.slug">

@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { basename, dirname, join } from 'pathslash';
 import { buildSandboxController } from '../../../platform/packages/api/scripts/build-sandbox-controller.mjs';
-import { resolvePlatformSourceRevision } from './source-revision.mjs';
 
 const packageRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = join(packageRoot, '..', '..');
@@ -139,7 +138,6 @@ try {
   });
   const packageJson = JSON.parse(readFileSync(join(packageRoot, 'package.json'), 'utf8'));
   const database = buildDatabaseManifest();
-  const sourceRevision = resolvePlatformSourceRevision({ repositoryRoot });
   const manifest = parsePlatformRuntimeManifest({
     artifacts,
     assets: {
@@ -160,12 +158,14 @@ try {
     deploymentExecution: 1,
     appAccessSetup: 1,
     runtimeLogs: 1,
+    storageLocationHint: 1,
     emailProtocolVersion: 1,
     database,
     platformVersion: packageJson.version,
     safetyProtocols: { sandboxDrain: 3 },
     schemaVersion: 2,
-    sourceRevision,
+    // scripts/stamp-source-revision.mjs records the revision after this cached build.
+    sourceRevision: null,
     usageProtocolVersion: PLATFORM_USAGE_PROTOCOL_VERSION,
   });
   writeFileSync(join(runtimeRoot, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

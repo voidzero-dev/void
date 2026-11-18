@@ -8,7 +8,9 @@ import {
   type UserConfig,
   type ViteDevServer,
 } from 'vite';
+import { createBoundaryManifest } from './boundary-plans.ts';
 import { findIslandImports, findStaticCssImports } from './island-imports.ts';
+import { toLayoutId } from './layout-resolution.ts';
 import { resolveEffectiveLayoutChain, scanPages } from './scan.ts';
 import type { PageScanResult } from './types.ts';
 
@@ -174,6 +176,11 @@ export function islandCssFiles(
       files.add(normalizePath(resolve(pagesDir, layout.filePath)));
     }
   }
+  for (const boundary of pageScan.boundaries ?? []) {
+    if (componentPattern.test(boundary.filePath)) {
+      files.add(normalizePath(resolve(pagesDir, boundary.filePath)));
+    }
+  }
   return files;
 }
 
@@ -239,7 +246,13 @@ export function islandStyleRoots(pageScan: PageScanResult, pagesDir: string): Ar
     }
     pages.push(normalizePath(resolve(pagesDir, page.componentPath)));
   }
-  return [...layouts, ...pages];
+  return [
+    ...layouts,
+    ...pages,
+    ...(pageScan.boundaries ?? []).map((boundary) =>
+      normalizePath(resolve(pagesDir, boundary.filePath)),
+    ),
+  ];
 }
 
 /** A stylesheet that a page links, not one imported as a string or a URL. */
@@ -446,7 +459,11 @@ export function generateIslandClientEntry(options: IslandClientEntryOptions): st
   return lines.join('\n');
 }
 
-/** Extract CSS import statements from a file and return them as @import rules. */
+/**
+ * Extract CSS import statements from a file and return them as @import rules.
+ * @deprecated Void generates island entry imports with generateIslandClientEntry.
+ * Use findStaticCssImports to inspect authored imports. Removed in the next major version.
+ */
 export function extractCssImports(filePath: string): string {
   const code = readFileSync(filePath, 'utf-8');
   return findStaticCssImports(code, filePath)
@@ -501,6 +518,27 @@ export function computePagesNeedingClientJS(
     }
   }
 
+  const pageIds = new Set(pageScan.pages.map((page) => page.componentId));
+  const interactiveLayouts = new Set(
+    [...pageScan.layouts, ...pageScan.namedLayouts]
+      .filter(
+        (layout) =>
+          layout.island &&
+          hasIslandImports(
+            readFileSync(resolve(pagesDir, layout.filePath), 'utf8'),
+            layout.filePath,
+          ),
+      )
+      .map((layout) => {
+        const id = toLayoutId(layout);
+        return pageIds.has(id) ? id.replace(/(^|\/)([^/]+)$/, '$1_$2') : id;
+      }),
+  );
+  for (const plan of Object.values(createBoundaryManifest(pageScan).plans)) {
+    if (plan.layouts.some((id) => interactiveLayouts.has(id))) {
+      result.add(plan.id);
+    }
+  }
   return result;
 }
 

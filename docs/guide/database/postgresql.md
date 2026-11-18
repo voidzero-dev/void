@@ -1,4 +1,5 @@
 ---
+description: 'Connect PostgreSQL through Cloudflare Hyperdrive and query it with the same Drizzle workflow as D1.'
 outline: deep
 ---
 

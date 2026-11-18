@@ -20,3 +20,6 @@ export { resolveStaticPageDataBuildOptions } from './static-data.ts';
 export type { StaticPageDataBuildOptions } from './static-data.ts';
 export { serializePageData } from './serialize.ts';
 export { resolvePagesDir } from '../project-paths.ts';
+
+export type { PageError, ErrorPageProps } from './types.ts';
+export type { BoundaryManifest } from './boundary-plans.ts';

@@ -47,6 +47,7 @@ export async function buildCloudflareWorker(input: {
   readonly deps: CloudflareDeployDeps;
   readonly exit: (code: number) => never;
   readonly atomic: boolean;
+  readonly skipMigrations?: boolean;
   readonly frameworkPreset: FrameworkPreset | undefined;
   readonly detectedFramework: ReturnType<typeof detectFramework>;
   readonly source: CloudflareDeploySource;
@@ -149,7 +150,12 @@ export async function buildCloudflareWorker(input: {
 
   // A build plugin can add migrations after the pre-build source scan. Require the production URL
   // again against the post-build ground truth so no injected migration can be silently skipped.
-  if (dialect !== 'sqlite' && migrations.length > 0 && !process.env.DATABASE_URL) {
+  if (
+    !input.skipMigrations &&
+    dialect !== 'sqlite' &&
+    migrations.length > 0 &&
+    !process.env.DATABASE_URL
+  ) {
     log.error(
       `deploy: the build added ${dialect === 'mysql' ? 'MySQL' : 'PostgreSQL'} migrations, but DATABASE_URL is not set. ` +
         'Refusing to upload a Worker against an unmigrated database.',

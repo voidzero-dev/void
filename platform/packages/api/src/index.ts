@@ -23,6 +23,7 @@ import adminSignupControl from './admin/routes/signup-control.tsx';
 import { dashboardHandler, adminSystem } from './admin/routes/system.tsx';
 import adminUsers from './admin/routes/users.tsx';
 import adminZeroTrust from './admin/routes/zero-trust.tsx';
+import { sweepAiLogging } from './ai-logging-sweep.ts';
 import { pendingAuthenticationSetup } from './auth/bootstrap.ts';
 import { readAuthSettings, readEnabledLoginConnections } from './auth/configuration.ts';
 import { purgeExpiredOAuthRequests } from './auth/oauth.ts';
@@ -86,6 +87,7 @@ import {
 } from './onboarding-pages.ts';
 import { operatorApi } from './operator/index.ts';
 import { sandboxDrainStatus } from './operator/sandbox-operations.ts';
+import { initialPlanDefaultFor } from './plans.ts';
 import { platformAppAccess, platformAppAccessTurnOff } from './platform-app-access.ts';
 import { platformDomainActivation } from './platform-domain-activation.ts';
 import { platformDomainPreflight } from './platform-domain-preflight.ts';
@@ -109,6 +111,7 @@ import domains from './routes/domains.ts';
 import emailConfirm from './routes/email-confirm.ts';
 import emailRoutes from './routes/email.ts';
 import { githubProjectRoutes, githubRoutes } from './routes/github.ts';
+import internalAiLogging from './routes/internal-ai-logging.ts';
 import internalEmailActions from './routes/internal-email-actions.ts';
 import internalEmailDomainCredential from './routes/internal-email.ts';
 import internalGitHubWebhook from './routes/internal-github-webhook.ts';
@@ -523,6 +526,8 @@ const app = new Hono<ApiEnv>()
   .get('/capabilities', (context) =>
     context.json({
       acceptsExecutionPlans: true,
+      skipMigrations: true,
+      d1ReadReplication: true,
       migrationProtocolVersion: 2,
       supportedClassifierVersions: [1],
     }),
@@ -566,6 +571,7 @@ const app = new Hono<ApiEnv>()
   .use('/internal/github-webhook', capabilityMiddleware('managedBuilds'))
   .route('/internal/github-webhook', internalGitHubWebhook)
   .route('/internal/resolve-resource', internalResolveResource)
+  .route('/internal/ai-logging', internalAiLogging)
   .route('/internal/resolve-worker', internalResolveWorker)
   .route('/internal/verify-owner', internalVerifyOwner)
   .route('/internal/verify-prerender-build', internalVerifyPrerenderBuild)
@@ -770,6 +776,12 @@ async function scheduled(
 
   await reconcilePendingProjectZeroTrust(env, db).catch((error) =>
     console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  );
+
+  // Repair published AI logging settings that drifted from Postgres, and advance
+  // an unfinished plan default publish by one page.
+  await sweepAiLogging(db, env.ROUTING, initialPlanDefaultFor(env)).catch((error) =>
+    console.error('[scheduled] AI logging sweep failed:', error),
   );
 
   // Auto-fail deployments stuck in active states for more than 30 minutes

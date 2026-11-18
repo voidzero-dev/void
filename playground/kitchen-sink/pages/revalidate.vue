@@ -12,9 +12,7 @@ const form = useForm('/revalidate', {});
     <p>ISR revalidation via <code>void/isr</code>.</p>
 
     <h2>Page State</h2>
-    <p>
-      Rendered at: <code>{{ renderedAt }}</code>
-    </p>
+    <p>Rendered at: <code>{{ renderedAt }}</code></p>
     <p>
       Last revalidation:
       <code v-if="lastRevalidation">{{ lastRevalidation }}</code>

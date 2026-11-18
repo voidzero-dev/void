@@ -1,4 +1,5 @@
 ---
+description: 'Set up platform email, choose allowed recipients, and manage project sending domains.'
 outline: deep
 ---
 

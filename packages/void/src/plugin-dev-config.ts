@@ -9,8 +9,35 @@ import {
   writeSync,
 } from 'node:fs';
 import { join } from 'pathslash';
-import type { Plugin, ViteDevServer } from 'vite';
+import type { Plugin, PluginOption, ViteDevServer } from 'vite';
 import { voidWarn } from './log.ts';
+
+/**
+ * Whether Vite is resolving the server that Vitest creates to run tests, whatever its `--mode`.
+ * Vitest adds its own plugins (`vitest`, `vitest:*`) to that server's config; a server that a
+ * test starts through Vite's API has none. Vitest runs test files in Node.js, so Void starts no
+ * Worker there, applies no local migrations and asks no questions. Check these names again when
+ * updating Vitest: `test/integration/vitest-app.test.ts` runs the tests of Void apps.
+ */
+export function isVitestServer(config: {
+  readonly plugins?: ReadonlyArray<PluginOption>;
+}): boolean {
+  const pending = [...(config.plugins ?? [])];
+  while (pending.length > 0) {
+    const plugin = pending.pop();
+    if (Array.isArray(plugin)) {
+      pending.push(...plugin);
+    } else if (
+      plugin &&
+      'name' in plugin &&
+      typeof plugin.name === 'string' &&
+      (plugin.name === 'vitest' || plugin.name.startsWith('vitest:'))
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /** Run `fn` shortly after Vite prints "ready" so dev messages stay visible. */
 export function afterServerReady(server: ViteDevServer, fn: () => void): void {

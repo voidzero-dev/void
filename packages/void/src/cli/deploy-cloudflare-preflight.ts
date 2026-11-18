@@ -115,7 +115,12 @@ export async function prepareCloudflareDeploySource(
   const facts = await computeDesiredCloudflareResources(root, voidConfig, configPath, application);
   const { desired, dialect, migrations: preBuildMigrations, migrationsDir } = facts;
 
-  if (dialect !== 'sqlite' && preBuildMigrations.length > 0 && !process.env.DATABASE_URL) {
+  if (
+    !options.skipMigrations &&
+    dialect !== 'sqlite' &&
+    preBuildMigrations.length > 0 &&
+    !process.env.DATABASE_URL
+  ) {
     log.error(
       [
         `deploy: ${dialect === 'mysql' ? 'MySQL' : 'PostgreSQL'} migrations require DATABASE_URL for --platform cloudflare.`,
@@ -619,6 +624,7 @@ export async function preflightCloudflareWorker(input: {
     options.provision ||
     initiallyMissing.length > 0 ||
     d1NeedsConfigReconciliation ||
+    (!existingWorker && desired.d1?.readReplication !== undefined) ||
     absentQueues.length > 0
   ) {
     await provisionAndVerify();
@@ -647,6 +653,7 @@ export async function preflightCloudflareWorker(input: {
                   max_batch_timeout: queue.maxBatchTimeout,
                 }),
                 ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
+                ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
                 ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
               })),
               reconcileVoidOwned: true,

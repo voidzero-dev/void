@@ -11,7 +11,7 @@
   "dependencies": {
     "hono": "catalog:",
     "valibot": "^1.5.0",
-    "vue": "^3.5.44"
+    "vue": "catalog:"
   },
   "devDependencies": {
     "@void/vue": "workspace:*",

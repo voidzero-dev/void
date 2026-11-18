@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
+import { voidWarn } from '../log.ts';
+import type { AstNode } from '../shared/ast.ts';
 import { listConventionFiles } from '../shared/convention-files.ts';
-import { staticExportInitializers, staticLiteral } from '../shared/static-exports.ts';
+import { mayExportAll, readStaticExports, staticLiteral } from '../shared/static-exports.ts';
 
 export type QueueDefinition = {
   /** Relative file path from queues/ */
@@ -14,6 +16,8 @@ export type QueueDefinition = {
   maxBatchSize?: number;
   /** Optional max batch timeout (seconds) for consumer */
   maxBatchTimeout?: number;
+  /** Optional maximum concurrent consumer invocations (1–250) */
+  maxConcurrency?: number;
   /** Optional max retries before dead-lettering */
   maxRetries?: number;
   /** Optional delay (seconds) between retries */
@@ -28,7 +32,50 @@ function deriveQueueBindingName(name: string): string {
   return 'QUEUE_' + name.toUpperCase().replace(/[^A-Z0-9]/g, '_');
 }
 
-const OPTION_NAMES = ['maxBatchSize', 'maxBatchTimeout', 'maxRetries', 'retryDelay'] as const;
+const OPTION_NAMES = [
+  'maxBatchSize',
+  'maxBatchTimeout',
+  'maxConcurrency',
+  'maxRetries',
+  'retryDelay',
+] as const;
+const OPTION_NAME_SET: ReadonlySet<string> = new Set(OPTION_NAMES);
+
+/** Queue files already warned about `export *`; a dev server rescans queues on every change. */
+const warnedExportAll = new Set<string>();
+
+/**
+ * Consumer options configure Cloudflare before any queue code runs, so they are
+ * read from the source. Reject exports whose value the source does not show,
+ * instead of deploying Cloudflare's defaults.
+ */
+function readOptionInitializers(
+  absPath: string,
+  filePath: string,
+  source: string,
+): Map<string, AstNode> {
+  if (!OPTION_NAMES.some((option) => source.includes(option)) && !mayExportAll(source)) {
+    return new Map();
+  }
+  const exports = readStaticExports(absPath, source, OPTION_NAME_SET);
+  const unreadable = OPTION_NAMES.find((option) => exports.unreadable.has(option));
+  if (unreadable) {
+    throw new Error(
+      `queue: ${unreadable} in '${filePath}' must be declared in the queue file as \`export const ${unreadable} = <integer>\`. Re-exported options and other export forms are not read.`,
+    );
+  }
+  if (
+    exports.exportsAll &&
+    OPTION_NAMES.some((option) => !exports.initializers.has(option)) &&
+    !warnedExportAll.has(absPath)
+  ) {
+    warnedExportAll.add(absPath);
+    voidWarn(
+      `queue: '${filePath}' uses \`export * from\`. Void does not read consumer options through it, so declare them in the queue file with \`export const\`. Re-export other names individually to remove this warning.`,
+    );
+  }
+  return exports.initializers;
+}
 
 export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
   const definitions = listConventionFiles(queuesDir)
@@ -37,18 +84,21 @@ export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
       const absPath = join(queuesDir, filePath);
       const source = readFileSync(absPath, 'utf-8');
       const name = extractName(filePath);
-      const options = OPTION_NAMES.some((option) => source.includes(option))
-        ? staticExportInitializers(absPath, source, new Set(OPTION_NAMES))
-        : new Map();
+      const options = readOptionInitializers(absPath, filePath, source);
       const optionValue = (option: (typeof OPTION_NAMES)[number]): number | undefined => {
         const initializer = options.get(option);
         if (!initializer) {
           return undefined;
         }
         const value = staticLiteral(initializer);
-        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+        if (
+          typeof value !== 'number' ||
+          !Number.isInteger(value) ||
+          value < 0 ||
+          (option === 'maxConcurrency' && (value < 1 || value > 250))
+        ) {
           throw new Error(
-            `queue: ${option} in '${filePath}' must be a nonnegative integer literal.`,
+            `queue: ${option} in '${filePath}' must be ${option === 'maxConcurrency' ? 'an integer literal between 1 and 250' : 'a nonnegative integer literal'}.`,
           );
         }
         return value;
@@ -59,6 +109,7 @@ export function scanQueuesSync(queuesDir: string): Array<QueueDefinition> {
         bindingName: deriveQueueBindingName(name),
         maxBatchSize: optionValue('maxBatchSize'),
         maxBatchTimeout: optionValue('maxBatchTimeout'),
+        maxConcurrency: optionValue('maxConcurrency'),
         maxRetries: optionValue('maxRetries'),
         retryDelay: optionValue('retryDelay'),
       };

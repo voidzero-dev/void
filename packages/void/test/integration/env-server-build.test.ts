@@ -9,8 +9,8 @@ import { envSchemaPlugin } from '../../src/plugin-env-schema.ts';
 
 const roots: Array<string> = [];
 const runtime = join(import.meta.dirname, '../../src/runtime');
-const publicEnvUrl = pathToFileURL(join(runtime, 'env-public.ts')).href;
-const runtimeEnvUrl = pathToFileURL(join(runtime, 'env.ts')).href;
+const publicEnvUrl = pathToFileURL(join(runtime, 'env/public.ts')).href;
+const runtimeEnvUrl = pathToFileURL(join(runtime, 'env/runtime.ts')).href;
 
 afterEach(() => {
   vi.unstubAllEnvs();

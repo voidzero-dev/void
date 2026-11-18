@@ -50,13 +50,10 @@ jobs:
         with:
           cache: true
           node-version-file: .node-version
-      - run: vp fmt --check
-      - run: vp lint
       - run: vp run build
       - run: vp run --filter './platform/packages/**' build
-      # After the builds: the type-aware platform lint reads the dashboard's generated
-      # `.void/tsconfig.json`, which only exists once the dashboard has been built.
-      - run: vp run lint:platform
+      # These projects need SDK declarations and the dashboard's generated tsconfig.
+      - run: vp check packages platform
       # Platform packages only. The framework and the playgrounds are typechecked by ci.yml, and
       # the playground typechecks need the playground builds, which this job does not run.
       - run: vp run check:platform

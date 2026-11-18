@@ -2,7 +2,7 @@ import type { BaseSequencer, TestSpecification, Vitest } from 'vite-plus/test/no
 import { integrationTimings } from './integration-timings.ts';
 import { balanceTests, compareKeys, shuffleTests, testFileKey } from './test-sharding.ts';
 
-/** Balance integration work by cost, rather than by a hash of the filename. */
+/** Balance shards and schedule each phase by cost across project boundaries. */
 export class SuiteSequencer {
   private readonly ctx: Vitest;
   private baseSequencer: BaseSequencer | undefined;
@@ -47,17 +47,21 @@ export class SuiteSequencer {
       return shuffleTests(stable, sequence.seed);
     }
     const sorted = await (await this.base()).sort(tests);
-    if (!this.ctx.config.shard) {
-      return sorted;
-    }
-    // Keep Vitest's cached ordering for other projects. The cold CI integration
-    // pool needs measured estimates: a short source file can boot Angular.
-    const integrations = sorted
-      .filter((test) => test.project.name === 'parallel-integration')
-      .sort((a, b) => this.duration(b) - this.duration(a) || compareKeys(this.key(a), this.key(b)));
-    let index = 0;
-    return sorted.map((test) =>
-      test.project.name === 'parallel-integration' ? integrations[index++] : test,
+    const results = new Map(
+      sorted.map((test) => [test, this.ctx.cache.getTestSpecificationResult(test)]),
+    );
+    const cost = (test: TestSpecification) =>
+      results.get(test)?.duration ??
+      (test.project.name === 'parallel-integration' ? this.duration(test) : 5000);
+    // BaseSequencer puts project names ahead of duration. That leaves expensive
+    // unit files queued behind integration builds even when they share a phase.
+    // Preserve phase barriers and failure priority, then fill the shared workers
+    // longest-first. Base ordering breaks ties (including cold file-size order).
+    return sorted.sort(
+      (a, b) =>
+        a.project.config.sequence.groupOrder - b.project.config.sequence.groupOrder ||
+        Number(results.get(b)?.failed ?? false) - Number(results.get(a)?.failed ?? false) ||
+        cost(b) - cost(a),
     );
   }
 }

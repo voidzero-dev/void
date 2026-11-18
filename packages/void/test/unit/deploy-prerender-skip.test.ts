@@ -75,10 +75,10 @@ describe('__voidCollectPrerenderPaths — sources that can push a path', () => {
     honoPath: '/resolved/hono/index.mjs',
     honoRoutePath: '/resolved/hono/route.mjs',
 
-    runtimeEnvPath: '/resolved/void/runtime/env.mjs',
+    runtimeEnvPath: '/resolved/void/runtime/env/runtime.mjs',
     projectRoot: '/project',
     homeDir: '/Users/test',
-    webSocketRuntimePath: '/resolved/void/runtime/ws-server.mjs',
+    webSocketRuntimePath: '/resolved/void/runtime/ws/server.mjs',
     reactRefresh: false,
     auth: null,
   };

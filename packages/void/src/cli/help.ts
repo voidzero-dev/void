@@ -168,6 +168,10 @@ const HELP_TREE: HelpTree = {
         description: 'Skip the build step and use existing output (static deploys on Cloudflare)',
       },
       {
+        command: '--skip-migrations',
+        description: 'Deploy without applying application or authentication database migrations',
+      },
+      {
         command: '--platform <cloudflare|void>',
         description: 'Override the platform saved by void init',
       },
@@ -179,7 +183,7 @@ const HELP_TREE: HelpTree = {
       {
         command: '--provision',
         description:
-          'Run resource provisioning again, for example to enable D1 read replication (with --platform cloudflare)',
+          'Run resource provisioning again even when every resource exists (with --platform cloudflare)',
       },
       {
         command: '--atomic',
@@ -333,7 +337,7 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: 'set <id>',
-                description: 'Edit a plan name, limits, or build instance size',
+                description: 'Edit a plan name, limits, build size, or AI Gateway logging default',
               },
               {
                 command: 'reset <id>',
@@ -352,7 +356,10 @@ const HELP_TREE: HelpTree = {
                 description: 'Remove an unused plan or move its accounts to a replacement',
               },
               { command: 'default <id>', description: 'Choose the plan new accounts receive' },
-              { command: 'sync', description: 'Continue pending account limit updates' },
+              {
+                command: 'sync',
+                description: 'Continue pending account limit and AI logging updates',
+              },
             ],
             options: [
               {
@@ -361,7 +368,7 @@ const HELP_TREE: HelpTree = {
               },
               {
                 command: '--file <path>',
-                description: 'Read plan settings and partial limits from JSON',
+                description: 'Read plan settings, partial limits, and aiLogging from JSON',
               },
               {
                 command: '--name <name>',
@@ -563,6 +570,11 @@ const HELP_TREE: HelpTree = {
               'minimal keeps request URLs, console and exception messages out of runtime logs',
           },
           { command: '--yes', description: 'Acknowledge changes without an interactive prompt' },
+          {
+            command: '--storage-location <hint|automatic>',
+            description:
+              'Default R2 location hint for new project buckets (apac, eeur, enam, weur, wnam, oc)',
+          },
         ],
       },
       upgrade: lifecycleHelp(
@@ -1012,7 +1024,7 @@ const HELP_TREE: HelpTree = {
       },
       setup: {
         summary:
-          'Set email up on your own Cloudflare account: enable Email Routing, onboard Email Sending, and record send_email + addresses in the Cloudflare config managed by Void. Asks once before changing the account.',
+          'Set up Email Sending on your own Cloudflare account, plus Email Routing when the app has email/ handlers. Save the binding, sender, and handler addresses in the Cloudflare config managed by Void. Asks once before changing the account.',
         usage: ['void email setup --platform cloudflare'],
         options: [
           {
@@ -1272,6 +1284,7 @@ const HELP_TREE: HelpTree = {
             description:
               'Run against the deployed database (D1 via proxy; PostgreSQL via direct connection)',
           },
+          { command: '--yes', description: 'Skip the confirmation prompt for --remote' },
         ],
         examples: [
           { command: 'void db execute "select * from users"', description: 'Run inline SQL' },
@@ -1492,7 +1505,7 @@ function lifecycleHelp(
   return {
     summary,
     usage: [
-      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
+      `void platform ${command} [id] [--plan]${command === 'disable' ? '' : ' [--runtime <path>]'}${command === 'upgrade' || command === 'repair' ? ' [--dashboard-url <origin>] [--custom-domains]' : ''}${command === 'upgrade' ? ' [--runtime-logs <full|minimal>] [--storage-location <hint|automatic>]' : ''}${command === 'repair' ? ' [--auth-config <path>]' : ''} [--yes]`,
     ],
     options: [
       { command: '--plan', description: 'Print the exact plan without making changes' },
@@ -1523,6 +1536,11 @@ function lifecycleHelp(
               command: '--runtime-logs <full|minimal>',
               description:
                 'minimal keeps request URLs, console and exception messages out of runtime logs; omission keeps the saved setting',
+            },
+            {
+              command: '--storage-location <hint|automatic>',
+              description:
+                'Default R2 location hint for new project buckets; automatic clears it, omission keeps it',
             },
           ]
         : []),

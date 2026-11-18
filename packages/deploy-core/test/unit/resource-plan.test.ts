@@ -2,6 +2,23 @@ import { describe, expect, it } from 'vite-plus/test';
 import { createDeployResourcePlan, type DeployManifest } from '../../src/index.ts';
 
 describe('createDeployResourcePlan', () => {
+  it.each([undefined, false, true])(
+    'carries explicit D1 replication setting %s',
+    (readReplication) => {
+      const plan = createDeployResourcePlan({
+        version: 3,
+        bindings: { d1: ['APP_DB'] },
+        database: { readReplication },
+      });
+      expect(plan.resources).toEqual([
+        {
+          type: 'd1',
+          bindingName: 'APP_DB',
+          ...(readReplication !== undefined && { readReplication }),
+        },
+      ]);
+    },
+  );
   it('normalizes provisionable manifest resources without provider details', () => {
     const manifest: DeployManifest = {
       version: 3,

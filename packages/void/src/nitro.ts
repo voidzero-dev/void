@@ -21,7 +21,10 @@ type NitroInstance = {
     plugins: Array<string>;
     virtual: Record<string, string | (() => string | Promise<string>)>;
     rollupConfig?: { plugins?: unknown };
+    buildPlugins?: Array<unknown>;
+    noExternals?: boolean | Array<string | RegExp>;
     cloudflare?: { nodeCompat?: boolean };
+    devServer?: { runner?: string };
   };
 };
 
@@ -43,14 +46,21 @@ function nitroModuleId(path: string): string {
  * does, so void/db keeps one PostgreSQL or MySQL client per request instead of one per query.
  */
 function requestScopePluginSource(): string {
-  return `import { withRuntimeEnv } from ${JSON.stringify(envModuleFile)};
+  return `import { getRuntimeEnv, withRuntimeEnv } from ${JSON.stringify(envModuleFile)};
 
 export default function voidRequestScope(nitroApp) {
-  const handler = nitroApp.h3App.handler;
   // Nitro's Cloudflare entry and dev plugins keep the env here; a dev plugin may first set a
   // promise of it.
-  nitroApp.h3App.handler = async (event) =>
-    withRuntimeEnv(await globalThis.__env__, () => handler(event));
+  if (nitroApp.h3App) {
+    const handler = nitroApp.h3App.handler;
+    nitroApp.h3App.handler = async (event) =>
+      withRuntimeEnv(await globalThis.__env__, () => handler.call(nitroApp.h3App, event));
+  } else {
+    // Nitro 3 exposes fetch directly instead of the H3 v1 handler.
+    const fetch = nitroApp.fetch;
+    nitroApp.fetch = async (...args) =>
+      withRuntimeEnv((await globalThis.__env__) ?? getRuntimeEnv(), () => fetch.apply(nitroApp, args));
+  }
 }
 `;
 }
@@ -86,8 +96,10 @@ const voidNitroModule = {
     const { options } = nitro;
     const config = readConfig(options.rootDir);
     const dialect = getDatabaseDialect(config);
-    // Development runs Nitro in Node, which loads the drivers itself.
-    const workerd = !options.dev && options.exportConditions?.includes('workerd') === true;
+    // Nitro 2 develops in Node; Nitro 3's Cloudflare dev runner uses workerd too.
+    const workerd =
+      options.devServer?.runner === 'miniflare' ||
+      (!options.dev && options.exportConditions?.includes('workerd') === true);
     const plugins: Array<Plugin> = [
       voidDbBundlerPlugin(options.rootDir, {
         config,
@@ -124,6 +136,20 @@ const voidNitroModule = {
       if (workerd) {
         plugins.push(nativeAsyncHooksPlugin);
       }
+    }
+    if (options.buildPlugins) {
+      if (workerd && options.noExternals !== true) {
+        // Nitro's development preset externalizes dependencies for Node by default.
+        // These modules must be bundled so the SQL driver hooks run for workerd.
+        options.noExternals = [
+          ...(Array.isArray(options.noExternals) ? options.noExternals : []),
+          'drizzle-orm',
+          packageDistDir,
+        ];
+      }
+      // Nitro 3 uses these hooks for both bundled and unbundled development.
+      options.buildPlugins.unshift(...plugins.map((plugin) => ({ ...plugin, enforce: 'pre' })));
+      return;
     }
     const rollupConfig = (options.rollupConfig ??= {});
     const existing = rollupConfig.plugins;

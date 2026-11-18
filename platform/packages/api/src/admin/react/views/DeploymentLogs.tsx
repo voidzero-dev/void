@@ -1,9 +1,15 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import { Selector } from '@astryxdesign/core/Selector';
+import { isRecord } from '@void/deploy-core';
 import { useCallback, useEffect, useState } from 'react';
-import { useFateClient } from 'react-fate';
-import { DeploymentLogsView, deploymentLogsRequest } from '../../fate/views.ts';
+import { useFateClient, useView, type ViewRef } from 'react-fate';
+import {
+  DeploymentLogSettingsView,
+  DeploymentLogsView,
+  deploymentLogsRequest,
+} from '../../fate/views.ts';
 import { CopyButton } from './CopyButton.tsx';
 import { SearchTypeahead } from './SearchTypeahead.tsx';
 import { SectionStack } from './SectionStack.tsx';
@@ -14,8 +20,8 @@ type LogEntry = {
   method?: string;
   url?: string;
   status?: string;
-  logs?: Array<{ level?: string; message: unknown }>;
-  exceptions?: Array<{ name: string; message: string }>;
+  logs?: ReadonlyArray<unknown>;
+  exceptions?: ReadonlyArray<unknown>;
 };
 
 const LEVEL_COLORS: Record<string, string> = {
@@ -69,42 +75,72 @@ export function takeFreshTailEntries<T extends LogEntry>(
 export const MINIMAL_RUNTIME_LOGS_NOTICE =
   'Log messages, exception messages and URLs are not recorded on this platform.';
 
-function exceptionText(exception: { name: string; message: string }): string {
-  return exception.message ? `${exception.name}: ${exception.message}` : exception.name;
+function logMessages(entry: LogEntry) {
+  return [
+    ...(entry.logs ?? []).flatMap((log) =>
+      isRecord(log)
+        ? [
+            {
+              level: typeof log.level === 'string' ? log.level : 'log',
+              text: formatMessage(log.message),
+            },
+          ]
+        : [],
+    ),
+    ...(entry.exceptions ?? []).flatMap((exception) => {
+      if (!isRecord(exception) || typeof exception.name !== 'string') {
+        return [];
+      }
+      return [
+        {
+          level: 'error',
+          text:
+            typeof exception.message === 'string' && exception.message
+              ? `${exception.name}: ${exception.message}`
+              : exception.name,
+        },
+      ];
+    }),
+  ];
 }
 
 export function LogRow({ entry }: { entry: LogEntry }) {
-  const messages = [
-    ...(entry.logs ?? []).map((log) => ({
-      level: log.level ?? 'log',
-      text: formatMessage(log.message),
-    })),
-    ...(entry.exceptions ?? []).map((exception) => ({
-      level: 'error',
-      text: exceptionText(exception),
-    })),
-  ];
+  const messages = logMessages(entry);
   const statusCode = Number.parseInt(entry.status ?? '', 10);
   const statusColor = statusCode >= 500 ? '#dc2626' : statusCode >= 400 ? '#d97706' : '#16a34a';
   return (
-    <div style="padding: 4px 0; border-bottom: 1px solid #eee; font-size: 0.8rem">
-      <span style="color: #999; margin-right: 8px">
+    <div style={{ padding: '4px 0', borderBottom: '1px solid #eee', fontSize: '0.8rem' }}>
+      <span style={{ color: '#999', marginRight: '8px' }}>
         {new Date(entry.timestamp).toLocaleTimeString()}
       </span>
-      {entry.method && <span style="margin-right: 8px; font-weight: 600">{entry.method}</span>}
-      {entry.method && entry.url && <span style="margin-right: 8px">{entry.url}</span>}
+      {entry.method && (
+        <span style={{ marginRight: '8px', fontWeight: '600' }}>{entry.method}</span>
+      )}
+      {entry.method && entry.url && <span style={{ marginRight: '8px' }}>{entry.url}</span>}
       {entry.status && (
         <span style={{ color: statusColor, fontWeight: 600, marginRight: 8 }}>{entry.status}</span>
       )}
       <span style={{ color: entry.outcome === 'ok' ? '#16a34a' : '#dc2626' }}>{entry.outcome}</span>
       {messages.length > 0 && (
-        <div style="position: relative; margin-top: 4px; margin-left: 24px">
-          <div style="position: absolute; top: 4px; right: 4px">
+        <div style={{ position: 'relative', marginTop: '4px', marginLeft: '24px' }}>
+          <div style={{ position: 'absolute', top: '4px', right: '4px' }}>
             <CopyButton
               text={messages.map((message) => message.text || message.level).join('\n')}
             />
           </div>
-          <pre style="margin: 0; padding: 8px; background: #f9fafb; border: 1px solid #e5e7eb; border-radius: var(--radius-inner); font-size: 0.78rem; overflow-x: auto; white-space: pre-wrap; word-break: break-all">
+          <pre
+            style={{
+              margin: '0',
+              padding: '8px',
+              background: '#f9fafb',
+              border: '1px solid #e5e7eb',
+              borderRadius: 'var(--radius-inner)',
+              fontSize: '0.78rem',
+              overflowX: 'auto',
+              whiteSpace: 'pre-wrap',
+              wordBreak: 'break-all',
+            }}
+          >
             {messages.map((message, index) => (
               <div key={index}>
                 <span
@@ -128,11 +164,19 @@ export function LogRow({ entry }: { entry: LogEntry }) {
   );
 }
 
-export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
+export function DeploymentLogs({
+  deploymentId,
+  deploymentRef,
+}: {
+  deploymentId: string;
+  deploymentRef: ViewRef<'AdminDeploymentDetail'>;
+}) {
   const fate = useFateClient();
-  const [since, setSince] = useState('1h');
-  const [count, setCount] = useState(100);
-  const [filter, setFilter] = useState('');
+  const settings = useView(DeploymentLogSettingsView, deploymentRef);
+  const { logRange: since, logLimit: count, logFilter: filter } = settings;
+  const configure = (
+    patch: Partial<Pick<typeof settings, 'logRange' | 'logLimit' | 'logFilter'>>,
+  ) => fate.mutations.deploymentLogs.configure({ input: { id: String(settings.id), ...patch } });
   const [entries, setEntries] = useState<Array<LogEntry> | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [tailing, setTailing] = useState(false);
@@ -147,9 +191,7 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
       if (!ref) {
         return null;
       }
-      const { data } = (await fate.readView(DeploymentLogsView, ref)) as unknown as {
-        data: { data: Array<LogEntry>; runtimeLogs?: string };
-      };
+      const { data } = await fate.readView(DeploymentLogsView, ref);
       setMinimal(data.runtimeLogs === 'minimal');
       return data.data;
     },
@@ -211,8 +253,7 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
         entry.method,
         entry.url,
         entry.status,
-        ...(entry.logs ?? []).map((log) => formatMessage(log.message)),
-        ...(entry.exceptions ?? []).flatMap((exception) => [exception.name, exception.message]),
+        ...logMessages(entry).map((message) => message.text),
       ]
         .join(' ')
         .toLowerCase()
@@ -227,7 +268,9 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
           id="log-since"
           label="Time"
           value={since}
-          onChange={setSince}
+          onChange={(value: string) => {
+            void configure({ logRange: value });
+          }}
           options={['1h', '6h', '24h', '7d']}
           width={100}
         />
@@ -236,13 +279,18 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
           id="log-count"
           label="Count"
           value={String(count)}
-          onChange={(value: string) => setCount(Number(value))}
+          onChange={(value: string) => {
+            void configure({ logLimit: Number(value) });
+          }}
           options={[100, 200, 300, 400, 500].map(String)}
           width={110}
         />
         <SearchTypeahead
           label="Filter logs"
-          onChange={setFilter}
+          onChange={(value: string) => {
+            void configure({ logFilter: value });
+          }}
+          initialValue={filter}
           suggestions={(entries ?? []).flatMap((entry) => [
             entry.outcome,
             entry.method,
@@ -266,21 +314,21 @@ export function DeploymentLogs({ deploymentId }: { deploymentId: string }) {
         />
       </div>
       {minimal && (
-        <p id="runtime-logs-notice" style="color: #6b7280; font-size: 0.8rem">
+        <p id="runtime-logs-notice" style={{ color: '#6b7280', fontSize: '0.8rem' }}>
           {MINIMAL_RUNTIME_LOGS_NOTICE}
         </p>
       )}
       <div id="log-entries">
         {error ? (
-          <p style="color: red; font-size: 0.8rem">Failed to load logs: {error}</p>
+          <p style={{ color: 'red', fontSize: '0.8rem' }}>Failed to load logs: {error}</p>
         ) : tailing && visible.length === 0 ? (
-          <p style="color: #999; font-size: 0.8rem">
+          <p style={{ color: '#999', fontSize: '0.8rem' }}>
             Polling for new events... New logs may take up to 2 minutes to appear.
           </p>
         ) : entries === null ? (
-          <p style="color: #999; font-size: 0.8rem">Loading logs...</p>
+          <p style={{ color: '#999', fontSize: '0.8rem' }}>Loading logs...</p>
         ) : visible.length === 0 ? (
-          <p style="color: #999; font-size: 0.8rem">
+          <p style={{ color: '#999', fontSize: '0.8rem' }}>
             No logs found{query ? ' matching filter' : ' for this time range'}. New logs may take up
             to 2 minutes to appear.
           </p>

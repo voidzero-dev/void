@@ -339,7 +339,6 @@ describe('POST /projects/:id/domains', () => {
         }),
     });
 
-    // Insert existing domain
     await env.db.insert(domains).values({
       id: 'dom_existing',
       project_id: project.id,
@@ -1042,14 +1041,12 @@ describe('GET /projects/:id/domains/:domainId', () => {
     const body = (await res.json()) as { status: string };
     expect(body.status).toBe('active');
 
-    // Verify DB was updated
     const [row] = await env.db
       .select({ status: domains.status })
       .from(domains)
       .where(eq(domains.id, 'dom_activate'));
     expect(row?.status).toBe('active');
 
-    // Verify KV routing entry was written
     const domainRouting = await env.ROUTING.get('domain:active.example.com', 'json');
     expect(domainRouting).toEqual({
       workerName: 'user-activate-domain',
@@ -1657,15 +1654,12 @@ describe('DELETE /projects/:id/domains/:domainId', () => {
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ ok: true });
 
-    // Verify DB record deleted
     const [row] = await env.db.select().from(domains).where(eq(domains.id, 'dom_remove'));
     expect(row).toBeUndefined();
 
-    // Verify KV routing entry deleted
     const domainRouting = await env.ROUTING.get('domain:remove.example.com');
     expect(domainRouting).toBeNull();
 
-    // Verify CF API was called
     const deleteCall = fetchMock.mock.calls.find((call: Array<unknown>) => {
       const url = typeof call[0] === 'string' ? call[0] : String(call[0]);
       return (
@@ -1708,11 +1702,9 @@ describe('DELETE /projects/:id/domains/:domainId', () => {
     expect(body.warnings).toHaveLength(1);
     expect(body.warnings[0]).toContain('CF API down');
 
-    // DB record should still be deleted
     const [row] = await env.db.select().from(domains).where(eq(domains.id, 'dom_cf_fail'));
     expect(row).toBeUndefined();
 
-    // KV routing entry should still be deleted
     const routing = await env.ROUTING.get('domain:cf-fail.example.com');
     expect(routing).toBeNull();
   });

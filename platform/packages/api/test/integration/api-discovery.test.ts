@@ -1,5 +1,5 @@
 import { PLATFORM_DISABLED_KEY } from '@void/platform';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import app from '../../src/index.ts';
 import { setupEnv, teardownEnv, type TestEnv } from './helpers.ts';
 

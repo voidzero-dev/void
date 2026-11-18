@@ -8,7 +8,7 @@ import { encodeCloudflareOperation } from '../../src/cli/cloudflare-process.ts';
 import {
   assertNoTransportRedirectInProjectDotenv,
   checkCloudflareProvisionDrift,
-  enableD1ReadReplicationViaApi,
+  setD1ReadReplicationViaApi,
   normalizeRunWranglerResult,
   provisionCloudflareResources as provisionCloudflareResourcesImpl,
   provisionEnv,
@@ -39,46 +39,58 @@ const { tmpDir, wranglerPath, setup, readConfig, simulateUpdateConfig } =
   useProvisionTestDir('resources');
 
 describe('D1 read-replication API', () => {
-  it('uses the pinned account and endpoint with an authenticated update', async () => {
-    const requests: Array<{ url: string; init: RequestInit }> = [];
-    await enableD1ReadReplicationViaApi(
-      {
-        accountId: 'account-one',
-        apiBaseUrl: 'https://api.example.test/client/v4',
-        databaseId: uuid('db1'),
-      },
-      'token-one',
-      async (url, init) => {
-        requests.push({ url: String(url), init: init! });
-        return Response.json({ success: true });
-      },
-    );
+  it.each([true, false])(
+    'uses the pinned account and endpoint to set replication to %s',
+    async (readReplication) => {
+      const requests: Array<{ url: string; init: RequestInit }> = [];
+      await setD1ReadReplicationViaApi(
+        {
+          accountId: 'account-one',
+          apiBaseUrl: 'https://api.example.test/client/v4',
+          databaseId: uuid('db1'),
+          readReplication,
+        },
+        'token-one',
+        async (url, init) => {
+          requests.push({ url: String(url), init: init! });
+          return Response.json({ success: true });
+        },
+      );
 
-    expect(requests).toHaveLength(1);
-    expect(requests[0].url).toBe(
-      `https://api.example.test/client/v4/accounts/account-one/d1/database/${uuid('db1')}`,
-    );
-    expect(requests[0].init.method).toBe('PUT');
-    expect(requests[0].init.headers).toEqual({
-      Authorization: 'Bearer token-one',
-      'Content-Type': 'application/json',
-    });
-    expect(requests[0].init.body).toBe(JSON.stringify({ read_replication: { mode: 'auto' } }));
-  });
+      expect(requests).toHaveLength(1);
+      expect(requests[0].url).toBe(
+        `https://api.example.test/client/v4/accounts/account-one/d1/database/${uuid('db1')}`,
+      );
+      expect(requests[0].init.method).toBe('PUT');
+      expect(requests[0].init.headers).toEqual({
+        Authorization: 'Bearer token-one',
+        'Content-Type': 'application/json',
+      });
+      expect(requests[0].init.body).toBe(
+        JSON.stringify({
+          read_replication: { mode: readReplication ? 'auto' : 'disabled' },
+        }),
+      );
+    },
+  );
 
-  it('fails closed when Cloudflare rejects the replication update', async () => {
-    const update = enableD1ReadReplicationViaApi(
-      {
-        accountId: 'account-one',
-        apiBaseUrl: 'https://api.example.test/client/v4',
-        databaseId: uuid('db1'),
-      },
-      'secret-token',
-      async () => Response.json({ success: false }, { status: 403 }),
-    );
+  it.each([true, false])(
+    'fails closed when Cloudflare rejects replication %s',
+    async (readReplication) => {
+      const update = setD1ReadReplicationViaApi(
+        {
+          accountId: 'account-one',
+          apiBaseUrl: 'https://api.example.test/client/v4',
+          databaseId: uuid('db1'),
+          readReplication,
+        },
+        'secret-token',
+        async () => Response.json({ success: false }, { status: 403 }),
+      );
 
-    await expect(update).rejects.toThrow(/D1 Edit permission/);
-  });
+      await expect(update).rejects.toThrow(/D1 Edit permission/);
+    },
+  );
 });
 
 describe('provisionCloudflareResources — typed operations', () => {
@@ -189,6 +201,70 @@ describe('provisionCloudflareResources — typed operations', () => {
 });
 
 describe('provisionCloudflareResources — read-first', () => {
+  for (const state of ['created', 'reused', 'adopted', 'collision'] as const) {
+    it.each([undefined, false, true])(
+      `${state} D1 applies only explicitly configured replication: %s`,
+      async (readReplication) => {
+        const databaseId = uuid('db1');
+        setup(
+          JSON.stringify({
+            d1_databases:
+              state === 'reused'
+                ? [{ binding: 'DB', database_name: 'myapp-db', database_id: databaseId }]
+                : [],
+          }),
+        );
+        vi.stubEnv('CLOUDFLARE_API_TOKEN', undefined);
+        const fetchMock = vi.fn();
+        vi.stubGlobal('fetch', fetchMock);
+        const setD1ReadReplication = vi.fn(async () => {});
+        const operations: Array<CloudflareOperation> = [];
+        const run: RunWrangler = (operation) => {
+          operations.push(operation);
+          switch (operation.type) {
+            case 'd1.list':
+              return {
+                ...ok(),
+                data: state === 'adopted' ? [{ name: 'myapp-db', uuid: databaseId }] : [],
+              };
+            case 'd1.create':
+              if (state === 'collision') {
+                return { ...fail('', 'already exists'), errorCode: 7502 };
+              }
+              simulateUpdateConfig('d1_databases', {
+                binding: 'DB',
+                database_name: 'myapp-db',
+                database_id: databaseId,
+              });
+              return ok();
+            case 'd1.info':
+              return { ...ok(), data: { name: 'myapp-db', uuid: databaseId } };
+            default:
+              throw new Error(`Unexpected operation: ${operation.type}`);
+          }
+        };
+        const result = await provisionCloudflareResourcesImpl(
+          tmpDir,
+          wranglerPath,
+          { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db', readReplication } },
+          { runWrangler: run, log: silentLog, setD1ReadReplication },
+        );
+        expect(result.resources[0].action).toBe(state === 'collision' ? 'adopted' : state);
+        expect(setD1ReadReplication).toHaveBeenCalledTimes(readReplication !== undefined ? 1 : 0);
+        if (readReplication !== undefined) {
+          expect(setD1ReadReplication).toHaveBeenCalledWith({
+            databaseId,
+            accountId: AMBIENT_ACCOUNT,
+            apiBaseUrl: 'https://api.cloudflare.com/client/v4',
+            readReplication,
+          });
+        }
+        expect(operations.some((operation) => operation.type === 'auth.token')).toBe(false);
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+  }
+
   it('enables D1 replication for a reused database before continuing the deploy', async () => {
     setup(
       JSON.stringify({
@@ -201,11 +277,11 @@ describe('provisionCloudflareResources — read-first', () => {
     await provisionCloudflareResources(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db' } },
+      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db', readReplication: true } },
       {
         runWrangler: run,
         log: silentLog,
-        enableD1ReadReplication: async (context: unknown) => {
+        setD1ReadReplication: async (context: unknown) => {
           enabled.push(context);
         },
       },
@@ -216,6 +292,7 @@ describe('provisionCloudflareResources — read-first', () => {
         databaseId: uuid('db1'),
         accountId: AMBIENT_ACCOUNT,
         apiBaseUrl: 'https://api.cloudflare.com/client/v4',
+        readReplication: true,
       },
     ]);
   });
@@ -235,7 +312,7 @@ describe('provisionCloudflareResources — read-first', () => {
     await provisionCloudflareResourcesImpl(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db' } },
+      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db', readReplication: true } },
       { runWrangler: run, apiToken: 'test-token', log: silentLog },
     );
     expect(requests).toEqual([
@@ -254,7 +331,7 @@ describe('provisionCloudflareResources — read-first', () => {
     const error = await provisionCloudflareResourcesImpl(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db' } },
+      { ...emptyDesired, d1: { binding: 'DB', name: 'myapp-db', readReplication: true } },
       { runWrangler: run, log: silentLog },
     ).catch((e: unknown) => e as Error);
 
@@ -875,13 +952,50 @@ describe('provisionCloudflareResources — idempotent re-run', () => {
 });
 
 describe('provisionCloudflareResources — R2', () => {
+  it('passes the location hint only to the bucket creation operation', async () => {
+    setup(JSON.stringify({ name: 'app' }));
+    const operations: Array<CloudflareOperation> = [];
+    const run: RunWrangler = (operation) => {
+      operations.push(operation);
+      if (operation.type === 'r2.bucket.info') {
+        return Promise.resolve({
+          ...fail('', 'The specified bucket does not exist'),
+          errorCode: 10006,
+        });
+      }
+      simulateUpdateConfig('r2_buckets', { binding: 'STORAGE', bucket_name: 'myapp-uploads' });
+      return Promise.resolve(ok());
+    };
+    await provisionCloudflareResources(
+      tmpDir,
+      wranglerPath,
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
+      { runWrangler: run, log: silentLog },
+    );
+    expect(operations).toEqual([
+      expect.objectContaining({ type: 'r2.bucket.info', name: 'myapp-uploads' }),
+      expect.objectContaining({
+        type: 'r2.bucket.create',
+        name: 'myapp-uploads',
+        locationHint: 'apac',
+      }),
+    ]);
+    expect(operations[0]).not.toHaveProperty('locationHint');
+  });
+
   it('reuses when the bucket_name is already real (no wrangler call)', async () => {
     setup(JSON.stringify({ r2_buckets: [{ binding: 'STORAGE', bucket_name: 'myapp-uploads' }] }));
     const { run, calls } = makeRunner([]);
     const result = await provisionCloudflareResources(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, r2: { binding: 'STORAGE', bucketName: 'myapp-uploads' } },
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
       { runWrangler: run, log: silentLog },
     );
     expect(calls).toEqual([]);
@@ -901,7 +1015,10 @@ describe('provisionCloudflareResources — R2', () => {
     const result = await provisionCloudflareResources(
       tmpDir,
       wranglerPath,
-      { ...emptyDesired, r2: { binding: 'STORAGE', bucketName: 'myapp-uploads' } },
+      {
+        ...emptyDesired,
+        r2: { binding: 'STORAGE', bucketName: 'myapp-uploads', locationHint: 'apac' },
+      },
       { runWrangler: run, log: silentLog },
     );
     expect(calls).toEqual([

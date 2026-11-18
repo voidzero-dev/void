@@ -70,9 +70,9 @@ async function internalRequest(
   const auth = typeof token === 'string' ? { 'x-void-internal': token } : token;
   return app.fetch(
     new Request(`http://localhost/internal/${route}/${projectId}`, {
-      method: 'POST',
+      method: route === 'ai-logging' ? 'GET' : 'POST',
       headers: { 'content-type': 'application/json', ...auth },
-      body: JSON.stringify(body),
+      ...(route === 'ai-logging' ? {} : { body: JSON.stringify(body) }),
     }),
     env,
   );
@@ -107,6 +107,10 @@ async function proxyRequest(projectId: string, aiToken: string) {
         models: vi.fn(async () => []),
         toMarkdown: vi.fn(async () => ({ markdown: '' })),
         gateway: vi.fn(),
+      },
+      API: {
+        fetch: (input: string | Request, init?: RequestInit) =>
+          app.fetch(new Request(input, init), env),
       },
     } as never,
   );
@@ -298,6 +302,7 @@ describe('proxy credential on the metadata routes', () => {
     'resolve-worker',
     'resolve-resource',
     'verify-prerender-build',
+    'ai-logging',
   ];
 
   async function liveProject() {
@@ -309,6 +314,7 @@ describe('proxy credential on the metadata routes', () => {
       'resolve-worker': {},
       'resolve-resource': { type: 'kv', binding: 'CACHE' },
       'verify-prerender-build': { userId: user.id },
+      'ai-logging': {},
     };
     const expected: Record<ProxyInternalRoute, unknown> = {
       'resolve-worker': {
@@ -318,6 +324,7 @@ describe('proxy credential on the metadata routes', () => {
       },
       'resolve-resource': { cf_id: 'cf-kv-id' },
       'verify-prerender-build': { ok: true },
+      'ai-logging': { mode: 'inherit' },
     };
     return { project, deployment, bodies, expected };
   }

@@ -478,10 +478,49 @@ describe('platform Cloudflare client', () => {
         accessClientId: 'tunnel-client-id',
       },
     });
-    expect(hyperdriveOriginConfigHash(config.origin)).not.toBe(
-      hyperdriveOriginConfigHash({ ...config.origin, accessClientId: 'different-client-id' }),
+    const origin = config.origin;
+    if (origin.serviceId !== undefined) {
+      throw new Error('Expected a Tunnel-backed origin.');
+    }
+    expect(hyperdriveOriginConfigHash(origin)).not.toBe(
+      hyperdriveOriginConfigHash({ ...origin, accessClientId: 'different-client-id' }),
+    );
+    expect(hyperdriveOriginConfigHash(config.origin)).toBe(
+      '299b4b480634c413c7bad8cee0e3419c836da5bf8e6227af3cbb3273d0a359df',
     );
     expect(JSON.stringify(config)).not.toContain('secret');
+  });
+
+  it('reads a Workers VPC origin without a hostname or port', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({
+          success: true,
+          result: {
+            id: 'hyperdrive-id',
+            name: 'managed-db',
+            caching: { disabled: true },
+            origin: {
+              database: 'void',
+              service_id: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+              scheme: 'postgres',
+              user: 'runtime-user',
+            },
+          },
+        }),
+    });
+
+    await expect(client.getHyperdriveConfig('account', 'hyperdrive-id')).resolves.toEqual({
+      id: 'hyperdrive-id',
+      name: 'managed-db',
+      cachingDisabled: true,
+      origin: {
+        database: 'void',
+        serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+        scheme: 'postgresql',
+        user: 'runtime-user',
+      },
+    });
   });
 
   it.each([undefined, null, 0, 65_536, 5432.5, 'invalid', true, [5432]])(
@@ -805,6 +844,89 @@ describe('platform Cloudflare client', () => {
       await expect(verifyEmail(client)).resolves.toBeUndefined();
       expect(requests).toHaveLength(5);
     });
+  });
+
+  it('lists KV keys with metadata across cursor pages', async () => {
+    const requests: Array<URL> = [];
+    const client = new PlatformCloudflareClient('token', {
+      apiBase: 'https://cloudflare.example.test/client/v4',
+      fetcher: async (input) => {
+        const url = new URL(String(input));
+        requests.push(url);
+        const first = !url.searchParams.has('cursor');
+        return Response.json({
+          success: true,
+          result: first
+            ? [{ name: 'ai-logging:p1', metadata: { mode: 'off', at: 1 } }]
+            : [{ name: 'ai-logging:p2' }],
+          result_info: { count: 1, cursor: first ? 'next' : '' },
+        });
+      },
+    });
+    await expect(client.listKvKeys('account', 'routing', 'ai-logging:')).resolves.toEqual([
+      { name: 'ai-logging:p1', metadata: { mode: 'off', at: 1 } },
+      { name: 'ai-logging:p2' },
+    ]);
+    expect(requests.map((url) => url.pathname)).toEqual([
+      '/client/v4/accounts/account/storage/kv/namespaces/routing/keys',
+      '/client/v4/accounts/account/storage/kv/namespaces/routing/keys',
+    ]);
+    expect(requests.map((url) => Object.fromEntries(url.searchParams))).toEqual([
+      { prefix: 'ai-logging:', limit: '1000' },
+      { prefix: 'ai-logging:', limit: '1000', cursor: 'next' },
+    ]);
+  });
+
+  it('stops on a repeated KV key cursor instead of looping', async () => {
+    const client = new PlatformCloudflareClient('token', {
+      fetcher: async () =>
+        Response.json({ success: true, result: [], result_info: { cursor: 'same' } }),
+    });
+    await expect(client.listKvKeys('account', 'routing', 'ai-logging:')).rejects.toThrow(
+      'repeated KV key cursor',
+    );
+  });
+
+  it('writes and deletes KV keys in bulk batches and fails on any unwritten key', async () => {
+    const requests: Array<{ method: string; path: string; body: Array<unknown> }> = [];
+    let failed: Array<string> = [];
+    const client = new PlatformCloudflareClient('token', {
+      apiBase: 'https://cloudflare.example.test/client/v4',
+      fetcher: async (input, init) => {
+        const body = JSON.parse(String(init?.body)) as Array<unknown>;
+        requests.push({
+          method: init?.method ?? 'GET',
+          path: new URL(String(input)).pathname,
+          body,
+        });
+        return Response.json({
+          success: true,
+          result: { successful_key_count: body.length, unsuccessful_keys: failed },
+        });
+      },
+    });
+    const entries = Array.from({ length: 10_001 }, (_, index) => ({
+      key: `ai-logging:p${index}`,
+      value: 'off',
+      metadata: { mode: 'off', at: 1 },
+    }));
+    await client.putKvBulk('account', 'routing', entries);
+    await client.deleteKvBulk('account', 'routing', ['ai-logging:gone']);
+    expect(requests.map(({ method, path, body }) => [method, path, body.length])).toEqual([
+      ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 10_000],
+      ['PUT', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk', 1],
+      ['POST', '/client/v4/accounts/account/storage/kv/namespaces/routing/bulk/delete', 1],
+    ]);
+    expect(requests[0]!.body[0]).toEqual(entries[0]);
+    expect(requests[2]!.body).toEqual(['ai-logging:gone']);
+
+    failed = ['ai-logging:p1'];
+    await expect(client.putKvBulk('account', 'routing', entries.slice(0, 2))).rejects.toThrow(
+      'did not write 1 KV keys',
+    );
+    await expect(client.deleteKvBulk('account', 'routing', ['ai-logging:p1'])).rejects.toThrow(
+      'did not delete 1 KV keys',
+    );
   });
 
   it('filters KV namespaces by exact title instead of trusting an unsupported API filter', async () => {

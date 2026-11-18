@@ -7,7 +7,7 @@ Full-stack framework for Cloudflare Workers, powered by Vite.
 - Documentation source lives in `docs/`.
   - Docs is a Vitepress project using our custom theme. When asked to "link the theme", temporarily edit `docs/package.json` so that `@voidzero-dev/vitepress-theme` point to `link:../../../theme`. Rerun `vp install` to link it. Revert these when asked to "unlink the theme".
 - Packages publish to npm as `void` and `@void/*`. Consumer-facing code, docs examples, playground source, and package manifests should use only those public package names.
-- Published external runtime dependencies use compatible semver ranges. Preserve `workspace:*` for dependencies and peers between Void packages. The lockfile fixes the versions tested in this repository. Keep Miniflare's dated alpha coordinated with the Cloudflare toolchain: a caret does not accept the next date's alpha. Keep the Sandbox SDK version aligned with its packaged Docker helper and verified platform helper layer.
+- Published external runtime dependencies use compatible semver ranges. Pin `cf`, `@cloudflare/vite-plugin`, `miniflare`, `@cloudflare/config`, and `@cloudflare/build-output-utils` as an exception: update them together so fresh installs share one Miniflare and workerd. Pin `@cloudflare/config` and `@cloudflare/build-output-utils` to the exact versions `cf` and the Vite plugin depend on, so fresh installs share one copy of each. Preserve `workspace:*` for dependencies and peers between Void packages. The lockfile fixes the versions tested in this repository. Keep the Sandbox SDK version aligned with its packaged Docker helper and verified platform helper layer.
 
 ## Important Note for Release Workflows
 
@@ -24,7 +24,7 @@ Deploy hosted production before publishing the npm packages: the CLI checks the 
 - Every implementation plan should include the following:
   - During plan generation: ask clarifying questions when necessary, especially around developer-experience defining design decisions.
   - Verification:
-    - Run `vp run check` for package typechecking after completing a batch of tasks.
+    - Run `vp check` for formatting, linting, and workspace typechecking after completing a batch of tasks.
     - During development, run an exact test file (and `-t` for a focused case) first. Use `vp run test --list` to inspect affected coverage, then `vp run test` for changed-file validation. Use `--base <ref>` when changes are already committed; the default includes only staged, unstaged, and untracked files.
     - `vp run test --unit` is an iteration-only shortcut, not integration verification. Native `vp test related --run <source>` misses filesystem/subprocess inputs; prefer the smart runner's conservative fallbacks before handing off. See `TESTING.md` for builds, integration selection, and import profiling.
     - Run `vp test run` once when everything is done for final verification. CI and `vpr test:all` retain full-suite coverage. Do not repeatedly run the full suite during iteration, enable result caching for the smart selector, or disable module isolation to make tests faster.
@@ -54,7 +54,7 @@ vpr test:all                        # Format, lint, build, typecheck, and run al
 vp test run packages/void           # Only test the core plugin
 vp lint                             # Oxlint through Vite+
 vp fmt                              # Oxfmt through Vite+
-vp run check                        # Typecheck all packages with TypeScript
+vp check                            # Format, lint, and typecheck the workspace
 vp run --filter ./packages/vue typecheck # Typecheck a specific package
 ```
 
@@ -103,6 +103,10 @@ The Analog playground's TypeScript version follows Angular's compiler
 compatibility range independently of the workspace compiler.
 
 Dependency compatibility pins: Analog and SvelteKit use TypeScript 6.
+The Kit 2 compatibility fixture retains Kit 2 and Cloudflare adapter 7. pnpm's
+`update.ignoreDeps` applies to package names across the workspace, so explicitly
+review newer TypeScript, Kit, and adapter catalog versions with
+`pnpm view <package> version` during dependency updates.
 
 ## Testing
 

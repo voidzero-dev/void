@@ -1,6 +1,7 @@
 import { PLAN_EDITABLE_LIMIT_KEYS } from '@void/platform/plans';
 import { count, desc, eq } from 'drizzle-orm';
 import { Hono, type Context, type MiddlewareHandler } from 'hono';
+import { isAiLoggingMode } from '../ai-logging-policy.ts';
 import { AuthenticationConfigurationError } from '../auth/configuration.ts';
 import type { ApiEnv } from '../env.ts';
 import { isProjectId } from '../id.ts';
@@ -106,6 +107,7 @@ function auditTarget(
       archived: typeof body.archived === 'boolean' ? body.archived : undefined,
       buildInstanceType: boundedString(body.buildInstanceType, 32),
       allowShortSlugs: typeof body.allowShortSlugs === 'boolean' ? body.allowShortSlugs : undefined,
+      aiLogging: isAiLoggingMode(body.aiLogging) ? body.aiLogging : undefined,
       limits,
     });
   }
@@ -152,6 +154,9 @@ function auditTarget(
     }
     if (segments[2] === 'owner') {
       return JSON.stringify({ projectId: id, userId: boundedString(body.userId, 512) });
+    }
+    if (segments[2] === 'ai-logging') {
+      return JSON.stringify({ projectId: id, mode: boundedString(body.mode, 16) });
     }
     if (segments[2] === 'delete' || segments[2] === 'normalize') {
       return JSON.stringify({ projectId: id });

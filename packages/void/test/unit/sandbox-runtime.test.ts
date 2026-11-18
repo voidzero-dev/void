@@ -7,15 +7,15 @@ vi.mock('@cloudflare/sandbox', () => ({
   S3Gateway: class {},
 }));
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {}, RpcTarget: class {} }));
-import { envContext } from '../../src/runtime/env-raw.ts';
-import { UsageLimit } from '../../src/runtime/limits.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
+import { UsageLimit } from '../../src/runtime/limits/index.ts';
 import {
   getSandbox,
   sandbox,
   __setSandboxBindingName,
   SandboxLimitError,
   SandboxUnavailableError,
-} from '../../src/runtime/sandbox.ts';
+} from '../../src/runtime/sandbox/index.ts';
 
 afterEach(() => {
   vi.clearAllMocks();

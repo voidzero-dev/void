@@ -5,8 +5,8 @@ import {
   type BetterAuthDBSchema,
   type DBFieldAttribute,
 } from 'better-auth/db';
-import type { VoidAuthConfig } from '../runtime/auth.ts';
-import type { VoidAuthRuntimeOptions } from '../runtime/better-auth-shared.ts';
+import type { VoidAuthRuntimeOptions } from '../runtime/auth/better-auth-shared.ts';
+import type { VoidAuthConfig } from '../runtime/auth/index.ts';
 import {
   VOID_EMAIL_AUTH_PROVIDER,
   isVoidSocialAuthProvider,
@@ -43,6 +43,11 @@ export type VoidAuthMigrationTable = {
   name: string;
   order: number;
   fields: Record<string, VoidAuthMigrationField>;
+  indexes?: ReadonlyArray<{
+    name: string;
+    columns: ReadonlyArray<string>;
+    unique?: boolean;
+  }>;
 };
 
 export type VoidAuthMigrationSchema = {
@@ -55,6 +60,7 @@ type GenerateVoidAuthDatabaseModuleOptions = {
   dialect: 'sqlite' | 'postgresql' | 'mysql';
   schemaImportPath: string;
   drizzleAdapterPath: string;
+  d1BindingName?: string;
 };
 
 function resolveEmailAndPassword(
@@ -180,21 +186,27 @@ function usesUnboundedMySqlText(
 }
 
 /**
- * The default of a required field when the database can store it as a literal.
+ * The default of a field when it can be written as a literal.
  * Function, date and JSON defaults have none.
  */
-function resolveFixedDefault(
-  field: DBFieldAttribute,
-): Pick<VoidAuthMigrationField, 'defaultValue'> {
-  if (field.required === false || field.type === 'date' || isJsonField(field)) {
-    return {};
+function resolveLiteralDefault(field: DBFieldAttribute): string | number | boolean | undefined {
+  if (field.type === 'date' || isJsonField(field)) {
+    return undefined;
   }
   const value = field.defaultValue;
   return typeof value === 'string' ||
     typeof value === 'boolean' ||
     (typeof value === 'number' && Number.isFinite(value))
-    ? { defaultValue: value }
-    : {};
+    ? value
+    : undefined;
+}
+
+/** The default of a required field when the database can store it as a literal. */
+function resolveFixedDefault(
+  field: DBFieldAttribute,
+): Pick<VoidAuthMigrationField, 'defaultValue'> {
+  const value = field.required === false ? undefined : resolveLiteralDefault(field);
+  return value === undefined ? {} : { defaultValue: value };
 }
 
 function resolveReferenceFieldName(
@@ -301,7 +313,23 @@ function createColumnBuilder(
   }
 }
 
+function hasBuiltInUpdateHook(options: BetterAuthOptions, model: string, field: string): boolean {
+  if (
+    field !== 'updatedAt' ||
+    (model !== 'user' && model !== 'session' && model !== 'account' && model !== 'verification')
+  ) {
+    return false;
+  }
+  // Only Better Auth's built-in hooks are known to mean the current time.
+  // A configured field replaces that definition, including its callback.
+  return (
+    options[model]?.additionalFields?.updatedAt === undefined &&
+    !options.plugins?.some((plugin) => plugin.schema?.[model]?.fields.updatedAt !== undefined)
+  );
+}
+
 function createColumnDefinition(
+  options: BetterAuthOptions,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   schema: BetterAuthDBSchema,
   idStrategy: AuthIdStrategy,
@@ -360,6 +388,19 @@ function createColumnDefinition(
   if (field.unique && actualFieldName !== 'id') {
     parts.push('.unique()');
   }
+  // Better Auth applies these on its own writes. Direct Drizzle writes need them on the column,
+  // and these runtime-only modifiers leave the DDL, and so existing migrations, unchanged.
+  const literalDefault = resolveLiteralDefault(field);
+  if (literalDefault !== undefined) {
+    parts.push(`.$defaultFn(() => ${JSON.stringify(literalDefault)})`);
+  }
+  if (
+    field.onUpdate &&
+    field.type === 'date' &&
+    hasBuiltInUpdateHook(options, defaultModelName, defaultFieldName)
+  ) {
+    parts.push('.$onUpdate(() => new Date())');
+  }
 
   return parts.join('');
 }
@@ -382,6 +423,9 @@ function collectCoreImports(
   }
 
   for (const [defaultModelName, table] of Object.entries(schema)) {
+    for (const index of table.indexes ?? []) {
+      imports.add(index.unique ? 'uniqueIndex' : 'index');
+    }
     for (const [defaultFieldName, field] of Object.entries(table.fields)) {
       const actualFieldName = resolveFieldName(defaultFieldName, field);
       if (actualFieldName === 'id' || field.references?.field === 'id') {
@@ -466,6 +510,7 @@ export function generateVoidAuthDrizzleSchema(
     const fieldEntries = Object.entries(table.fields);
     const renderedFields = [
       `  "id": ${createColumnDefinition(
+        options,
         runtime.dialect,
         schema,
         idStrategy,
@@ -477,6 +522,7 @@ export function generateVoidAuthDrizzleSchema(
       ...fieldEntries.map(([defaultFieldName, field]) => {
         const actualFieldName = resolveFieldName(defaultFieldName, field);
         return `  ${JSON.stringify(actualFieldName)}: ${createColumnDefinition(
+          options,
           runtime.dialect,
           schema,
           idStrategy,
@@ -488,17 +534,23 @@ export function generateVoidAuthDrizzleSchema(
       }),
     ];
     const indexedFields = fieldEntries.filter(([, field]) => field.index && !field.unique);
+    const tableIndexes =
+      migrationSchema.tables.find((entry) => entry.name === table.modelName)?.indexes ?? [];
 
     lines.push(
       `export const ${variableName} = ${tableFactory}(${JSON.stringify(table.modelName)}, {`,
       ...renderedFields,
-      ...(indexedFields.length > 0
+      ...(indexedFields.length > 0 || tableIndexes.length > 0
         ? [
             `}, (table) => [`,
             ...indexedFields.map(([defaultFieldName, field]) => {
               const actualFieldName = resolveFieldName(defaultFieldName, field);
               return `  index(${JSON.stringify(`${table.modelName}_${actualFieldName}_idx`)}).on(table[${JSON.stringify(actualFieldName)}]),`;
             }),
+            ...tableIndexes.map(
+              ({ name, columns, unique }) =>
+                `  ${unique ? 'uniqueIndex' : 'index'}(${JSON.stringify(name)}).on(${columns.map((column) => `table[${JSON.stringify(column)}]`).join(', ')}),`,
+            ),
             `]);`,
           ]
         : [`});`]),
@@ -550,6 +602,7 @@ export function resolveVoidAuthMigrationSchema(
       .map(([name, table]) => ({
         name,
         order: table.order ?? DEFAULT_TABLE_ORDER,
+        ...(table.indexes?.length ? { indexes: table.indexes } : {}),
         fields: Object.fromEntries(
           Object.entries(table.fields).map(([fieldName, field]) => [
             fieldName,
@@ -583,11 +636,28 @@ export function generateVoidAuthDatabaseModule(
   const schemaImport = JSON.stringify(options.schemaImportPath);
   const provider =
     options.dialect === 'postgresql' ? 'pg' : options.dialect === 'mysql' ? 'mysql' : 'sqlite';
+  const database =
+    options.dialect === 'sqlite'
+      ? [
+          'import { createDb as __voidCreateDb } from "void/db";',
+          'import { getRuntimeRequestResource, requireRuntimeBinding } from "void/_env";',
+          '',
+          '// Keep auth reads fresh without sharing a D1 session across requests.',
+          'const __voidAuthDbKey = {};',
+          `const __voidCreateAuthDb = () => __voidCreateDb(requireRuntimeBinding<D1Database>(${JSON.stringify(options.d1BindingName ?? 'DB')}), { session: "first-primary" });`,
+          'const __voidDb = new Proxy({} as ReturnType<typeof __voidCreateDb>, {',
+          '  get(_, prop) {',
+          '    const db = getRuntimeRequestResource(__voidAuthDbKey, __voidCreateAuthDb, __voidCreateAuthDb);',
+          '    return Reflect.get(db, prop);',
+          '  },',
+          '});',
+        ].join('\n')
+      : 'import { db as __voidDb } from "void/db";';
 
   return [
     '// Auto-generated by void — do not edit',
     `import { drizzleAdapter } from ${JSON.stringify(options.drizzleAdapterPath)};`,
-    `import { db as __voidDb } from "void/db";`,
+    database,
     `import { schema as __voidAuthSchema } from ${schemaImport};`,
     '',
     '// Better Auth reads Drizzle metadata while creating the adapter.',

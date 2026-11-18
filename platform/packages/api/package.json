@@ -10,11 +10,10 @@
     "./routing": "./src/routing.ts",
     "./isr-store": "./src/isr-store.ts",
     "./usage-auth": "./src/usage-auth.ts",
-    "./proxy-token": "./src/proxy-token.ts",
-    "./admin-jsx/jsx-runtime": "./src/admin/react-jsx/jsx-runtime.ts",
-    "./admin-jsx/jsx-dev-runtime": "./src/admin/react-jsx/jsx-dev-runtime.ts"
+    "./proxy-token": "./src/proxy-token.ts"
   },
   "scripts": {
+    "check:ai-logging": "node scripts/check-ai-logging.ts",
     "db:generate": "drizzle-kit generate",
     "deploy": "node ../../scripts/wrangler-deploy.ts",
     "deploy:github-webhook-ingress": "node ../../scripts/wrangler-deploy.ts --config wrangler.github-webhook-ingress.jsonc",
@@ -39,7 +38,7 @@
     "@void/react": "workspace:*",
     "@xterm/headless": "^6.0.0",
     "aws4fetch": "^1.0.20",
-    "blake3-jit": "^1.1.0",
+    "blake3-jit": "catalog:",
     "cron-parser": "catalog:",
     "drizzle-orm": "^0.45.4",
     "hono": "catalog:platform",

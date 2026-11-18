@@ -29,23 +29,3 @@ still dominate buffered provider results. Preserve uploader hashes and artifact
 verification, active-secret lineage, cutover, trigger publication and rollback.
 The matching platform payload stays bundled with `void`. Public CLI syntax,
 authentication destinations and Workers Free defaults are unchanged.
-
-## Verification
-
-Run focused protocol, actual subprocess and deployment tests first. Existing
-failure and race scenarios replay through test-only adapters; direct typed tests
-prove public targets, secret stdin, structured absence and cancellation behavior.
-No compatibility adapter remains in production. Verify the rebuilt private
-launcher and CLI, affected selection, package typechecking and the final complete
-repository gate. Commit this work separately on main without pushing.
-
-Focused protocol, authentication, provisioning, installation and activation
-regressions passed, including secret stdin, early pipe closure, nested provider
-interruption and cancellation despite buffered not-found codes. Existing lock,
-quarantine, ownership, secret-inheritance and rollback scenarios remain covered.
-The affected selector conservatively selected the full repository after packaging
-and deleted-file changes. Workspace typechecking passed. Final `vpr test:all`
-passed formatting, lint, package/platform/playground builds, artifact checks,
-platform lint, typechecking and all 641 test files: 11,897 tests passed,
-25 skipped. Live provider tests were disabled; no remote platform mutation was
-needed for this private transport refactor.

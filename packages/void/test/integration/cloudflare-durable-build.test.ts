@@ -86,9 +86,22 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
           renderVoidConfig({
             ...readConfig(root),
             ...(options.sandbox ? { sandbox: true } : {}),
+            ...(options.name === 'native'
+              ? { worker: { compatibility_flags: ['nodejs_als', 'url_standard'] } }
+              : {}),
             cloudflare: {
               name: `durable-merge-${options.name}`,
               account_id: accountId,
+              ...(options.name === 'native'
+                ? {
+                    compatibility_date: '2026-02-24',
+                    compatibility_flags: [
+                      'nodejs_als',
+                      'global_fetch_strictly_public',
+                      'nodejs_als',
+                    ],
+                  }
+                : {}),
               ...(options.authoredHistory
                 ? {
                     durable_objects: {
@@ -155,6 +168,15 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
           return JSON.parse(readFileSync(join(root, 'dist/ssr/wrangler.json'), 'utf8'));
         };
         const emitted = build();
+        // Exercise worker/cloudflare overlap through the actual provider plugin,
+        // alongside the existing native build rather than booting another one.
+        if (options.name === 'native') {
+          expect(emitted.compatibility_flags).toEqual([
+            'nodejs_als',
+            'url_standard',
+            'global_fetch_strictly_public',
+          ]);
+        }
         expect(emitted.durable_objects.bindings).toHaveLength(
           (options.websocket ? 1 : 0) +
             (options.live ? 1 : 0) +
@@ -174,6 +196,7 @@ export default defineDurableState({ initialState: { count: 0 }, methods: { incre
           const repeated = build();
           expect(repeated.durable_objects).toEqual(emitted.durable_objects);
           expect(repeated.migrations).toEqual(emitted.migrations);
+          expect(repeated.compatibility_flags).toEqual(emitted.compatibility_flags);
         }
         if (!options.sandbox) {
           expect(emitted.containers ?? []).toEqual([]);

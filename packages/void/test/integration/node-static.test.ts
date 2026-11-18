@@ -11,6 +11,7 @@ import {
 } from '../../../../test/integration-helpers.ts';
 import { renderVoidConfig } from '../../src/config-write.ts';
 import { readConfig } from '../../src/config.ts';
+import { deserializePageData } from '../../src/pages/serialize.ts';
 import { collectPrerenderPathsNode } from '../../src/prerender.ts';
 
 declare global {
@@ -196,13 +197,13 @@ describe('playground/node-static build (target: node, output: static)', () => {
   });
 
   it('emits static page data for prerendered routes', () => {
-    const indexData = JSON.parse(
+    const indexData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/index.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
-    const aboutData = JSON.parse(
+    const aboutData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/about.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
-    const legacyData = JSON.parse(
+    const legacyData = deserializePageData(
       readFileSync(join(DIST, 'client/_void/pages/legacy.json'), 'utf-8'),
     ) as { component: string; props: Record<string, unknown>; url: string };
 
@@ -344,7 +345,7 @@ describe('playground/node-static build (target: node, output: static)', () => {
       const routerUrl = () => page.textContent('[data-testid="router-url"]');
 
       // The page HTML and its static page data were rendered for the path, without a query.
-      const pageData = JSON.parse(
+      const pageData = deserializePageData(
         readFileSync(join(DIST, 'client/_void/pages/router-url/plain.json'), 'utf-8'),
       ) as { url: string };
       expect(pageData.url).toBe('/router-url/plain');

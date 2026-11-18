@@ -30,6 +30,9 @@ jobs:
     uses: ./.github/workflows/ci.yml
     permissions:
       contents: read
+      # ci.yml's build job requests an OIDC token for remote cache uploads, so its caller must
+      # grant it, though release runs only download.
+      id-token: write
 
   platform-ci:
     needs: validate-release

@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { browserPageLogo, browserPageStyles } from '@void/platform/browser-page';
 import type { ReactNode } from 'react';
 

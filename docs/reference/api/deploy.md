@@ -1,3 +1,7 @@
+---
+description: 'Prepare a built app, SPA, or static site for a managed platform deployment without platform credentials.'
+---
+
 # Deployment artifacts
 
 Use `void/deploy` from Node.js to prepare a built Void app, SPA, or static site for a managed platform deployment without platform credentials.
@@ -48,7 +52,7 @@ try {
 }
 ```
 
-Pass a Worker output directory containing a generated `wrangler.json`, such as `dist/ssr` or `dist/server`. For native Cloudflare Build Output, pass the project root containing `.cloudflare/output/v0`. The result is a temporary copy for your publication workflow. For Containers built from a local Dockerfile, publish from the same Docker environment used to build the image.
+Pass a Worker output directory containing a generated `wrangler.json`, such as `dist/ssr` or `dist/server`. For native Cloudflare Build Output, pass the project root containing `.cloudflare/output/v1`. Rebuild artifacts made with an older Void version before preparing them with the updated toolchain. The result is a temporary copy for your publication workflow. For Containers built from a local Dockerfile, publish from the same Docker environment used to build the image.
 
 | Option        | Description                                                                                                                                          |
 | ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------- |

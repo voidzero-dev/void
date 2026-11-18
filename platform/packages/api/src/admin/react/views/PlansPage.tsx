@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { Button } from '@astryxdesign/core/Button';
 import {
   Table,
@@ -15,8 +16,10 @@ import {
   type EditablePlanLimit,
   type PlatformPlanDefinition,
 } from '@void/platform/plans';
+import { Link } from '@void/react';
 import { useEffect, useState } from 'react';
 import { useRequest, useView } from 'react-fate';
+import type { AiLoggingMode, PlanAiLoggingSettings } from '../../../ai-logging-policy.ts';
 import { PlansView, plansRequest } from '../../fate/views.ts';
 import type { AdminPlanPreview, AdminPlanProgress } from '../../plans.ts';
 import type { AdminPageProps } from '../page-utils.ts';
@@ -63,6 +66,15 @@ function limit(value: number, key?: EditablePlanLimit) {
       : 'Unlimited'
     : value.toLocaleString('en-US');
 }
+const aiLoggingLabels: Record<AiLoggingMode, string> = {
+  inherit: 'Inherit (AI Gateway setting)',
+  off: 'Off',
+  metadata: 'Metadata only',
+  full: 'Full (prompts and responses)',
+};
+function aiLoggingMode(modes: PlanAiLoggingSettings['modes'], planId: string): AiLoggingMode {
+  return Object.hasOwn(modes, planId) ? modes[planId]! : 'inherit';
+}
 function usePlans(path: string) {
   const { plans: ref } = useRequest(plansRequest(path), { mode: 'stale-while-revalidate' });
   const data = useView(PlansView, ref);
@@ -107,10 +119,12 @@ function PlanAction({
 }) {
   return (
     <form method="post" action={`${HOME}/preview`}>
-      <input type="hidden" name="action" value={action} />
-      <input type="hidden" name="id" value={id} />
-      <input type="hidden" name="revision" value={revision} />
-      {archived !== undefined && <input type="hidden" name="archived" value={String(archived)} />}
+      <input type="hidden" name="action" defaultValue={action} />
+      <input type="hidden" name="id" defaultValue={id} />
+      <input type="hidden" name="revision" defaultValue={revision} />
+      {archived !== undefined && (
+        <input type="hidden" name="archived" defaultValue={String(archived)} />
+      )}
       <Button type="submit" label={label} variant="secondary" />
     </form>
   );
@@ -118,8 +132,9 @@ function PlanAction({
 
 export function PlansPage({ path, platformName, username }: AdminPageProps) {
   usePlanConfirmation(path);
-  const { catalog, accounts } = usePlans(path);
+  const { catalog, accounts, aiLogging } = usePlans(path);
   const pending = catalog.reconciliation && !catalog.reconciliation.complete;
+  const publishPending = aiLogging.publish && !aiLogging.publish.complete;
   return (
     <Layout platformName={platformName} username={username} title="Plans">
       <SectionStack>
@@ -144,8 +159,22 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
             <p role="alert">{catalog.reconciliation.error.message}</p>
           )}
           <form method="post" action={`${HOME}/resume`}>
-            <input type="hidden" name="revision" value={catalog.revision} />
+            <input type="hidden" name="revision" defaultValue={catalog.revision} />
             <Button type="submit" label="Continue account updates" />
+          </form>
+        </SectionStack>
+      )}
+      {!pending && publishPending && (
+        <SectionStack aria-label="Pending AI logging publish">
+          <h2>AI logging publish pending</h2>
+          <p>
+            {aiLogging.remaining} projects still use their previous AI Gateway logging setting.
+            Updates continue every hour, or continue them now.
+          </p>
+          {aiLogging.publish?.error && <p role="alert">{aiLogging.publish.error}</p>}
+          <form method="post" action={`${HOME}/resume`}>
+            <input type="hidden" name="revision" defaultValue={catalog.revision} />
+            <Button type="submit" label="Continue AI logging publish" />
           </form>
         </SectionStack>
       )}
@@ -157,6 +186,7 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
             <TableHeaderCell>Accounts</TableHeaderCell>
             <TableHeaderCell>Monthly requests</TableHeaderCell>
             <TableHeaderCell>Build size</TableHeaderCell>
+            <TableHeaderCell>AI Gateway logging</TableHeaderCell>
             <TableHeaderCell>Actions</TableHeaderCell>
           </TableRow>
         </TableHeader>
@@ -164,9 +194,9 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
           {catalog.plans.map((plan) => (
             <TableRow key={plan.id}>
               <TableCell>
-                <a className="void-admin-resource-link" href={`${HOME}/${plan.id}/edit`}>
+                <Link className="void-admin-resource-link" href={`${HOME}/${plan.id}/edit`}>
                   {plan.name}
-                </a>
+                </Link>
                 <div>
                   <code>{plan.id}</code>
                 </div>
@@ -183,6 +213,7 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
               <TableCell>
                 {plan.buildInstanceType === 'standard-3' ? 'Standard' : 'Large'}
               </TableCell>
+              <TableCell>{aiLoggingLabels[aiLoggingMode(aiLogging.modes, plan.id)]}</TableCell>
               <TableCell>
                 <Button
                   href={`${HOME}/${plan.id}/edit`}
@@ -201,7 +232,7 @@ export function PlansPage({ path, platformName, username }: AdminPageProps) {
 
 export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
   usePlanConfirmation(path);
-  const { catalog, accounts, selectedPlanId } = usePlans(path);
+  const { catalog, accounts, aiLogging, selectedPlanId } = usePlans(path);
   const plan = catalog.plans.find((p) => p.id === selectedPlanId);
   const pending = catalog.reconciliation && !catalog.reconciliation.complete;
   const count = accounts.find((a) => a.planId === plan?.id)?.count ?? 0;
@@ -214,7 +245,7 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
       <h1>{plan ? `Edit ${plan.name}` : 'Add plan'}</h1>
       {pending ? (
         <p>
-          Finish the pending <a href={HOME}>account update</a> before changing plans.
+          Finish the pending <Link href={HOME}>account update</Link> before changing plans.
         </p>
       ) : (
         <>
@@ -225,11 +256,11 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
             className="void-admin-plan-form"
           >
             <SectionStack as="div">
-              <input type="hidden" name="action" value={plan ? 'set' : 'add'} />
-              <input type="hidden" name="revision" value={catalog.revision} />
+              <input type="hidden" name="action" defaultValue={plan ? 'set' : 'add'} />
+              <input type="hidden" name="revision" defaultValue={catalog.revision} />
               {plan ? (
                 <>
-                  <input type="hidden" name="id" value={plan.id} />
+                  <input type="hidden" name="id" defaultValue={plan.id} />
                   <p>
                     Plan ID: <code>{plan.id}</code> · {count} accounts
                     {plan.archived ? ' · Archived' : ''}
@@ -296,6 +327,25 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
                     submitValue="true"
                     initialValue={plan.allowShortSlugs}
                   />
+                  {/* The page value can come from a cached read; only a changed selector is sent. */}
+                  <input
+                    type="hidden"
+                    name="aiLoggingInitial"
+                    defaultValue={aiLoggingMode(aiLogging.modes, plan.id)}
+                  />
+                  <FormSelector
+                    label="AI Gateway logging default"
+                    name="aiLogging"
+                    initialValue={aiLoggingMode(aiLogging.modes, plan.id)}
+                    options={Object.entries(aiLoggingLabels).map(([value, label]) => ({
+                      value,
+                      label,
+                    }))}
+                  />
+                  <p>
+                    Applies to projects on this plan that have no project setting. Accounts on a
+                    plan missing from the catalog follow the signup default plan.
+                  </p>
                   <p>
                     Existing URLs remain available. Storage figures are informational; static
                     deployment retention is unchanged.
@@ -356,9 +406,9 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
                   action={`${HOME}/preview`}
                   className="void-admin-plan-form"
                 >
-                  <input type="hidden" name="action" value="remove" />
-                  <input type="hidden" name="id" value={plan.id} />
-                  <input type="hidden" name="revision" value={catalog.revision} />
+                  <input type="hidden" name="action" defaultValue="remove" />
+                  <input type="hidden" name="id" defaultValue={plan.id} />
+                  <input type="hidden" name="revision" defaultValue={catalog.revision} />
                   <FormSelector
                     label="Replacement plan"
                     name="replacementPlanId"
@@ -386,6 +436,7 @@ export function PlanEditPage({ path, platformName, username }: AdminPageProps) {
 function differences(
   before: PlatformPlanDefinition | undefined,
   after: PlatformPlanDefinition | undefined,
+  aiLogging: Readonly<{ before: AiLoggingMode | undefined; after: AiLoggingMode }>,
 ) {
   if (!after) {
     return [{ label: 'Plan', before: before!.name, after: 'Removed' }];
@@ -407,6 +458,11 @@ function differences(
       before: before ? (before.allowShortSlugs ? 'Allowed' : 'Not allowed') : '—',
       after: after.allowShortSlugs ? 'Allowed' : 'Not allowed',
     },
+    {
+      label: 'AI Gateway logging default',
+      before: aiLogging.before ? aiLoggingLabels[aiLogging.before] : '—',
+      after: aiLoggingLabels[aiLogging.after],
+    },
     ...PLAN_EDITABLE_LIMIT_KEYS.map((key) => ({
       label: labels[key],
       before: before ? limit(before.limits[key], key) : '—',
@@ -425,9 +481,14 @@ export function PlanPreviewPage({
   username?: string;
 }) {
   const { before, after, target } = preview;
+  const beforePlan = before.plans.find((p) => p.id === target);
   const changes = differences(
-    before.plans.find((p) => p.id === target),
+    beforePlan,
     after.plans.find((p) => p.id === target),
+    {
+      before: beforePlan ? aiLoggingMode(preview.aiLoggingBefore, target) : undefined,
+      after: aiLoggingMode(preview.aiLoggingAfter, target),
+    },
   );
   if (before.defaultPlanId !== after.defaultPlanId) {
     changes.push({
@@ -445,10 +506,10 @@ export function PlanPreviewPage({
     const replacement = after.plans.find((p) => p.id === preview.body.replacementPlanId);
     if (replacement) {
       changes.push(
-        ...differences(
-          before.plans.find((p) => p.id === target),
-          replacement,
-        ).filter((row) => row.label !== 'Display name'),
+        ...differences(beforePlan, replacement, {
+          before: aiLoggingMode(preview.aiLoggingBefore, target),
+          after: aiLoggingMode(preview.aiLoggingAfter, replacement.id),
+        }).filter((row) => row.label !== 'Display name'),
       );
     }
   }
@@ -493,9 +554,9 @@ export function PlanPreviewPage({
           <ul>
             {preview.overLimitAccounts.map((a) => (
               <li key={a.id}>
-                <a className="void-admin-resource-link" href={`/admin/users/${a.id}`}>
+                <Link className="void-admin-resource-link" href={`/admin/users/${a.id}`}>
                   {a.login}
-                </a>
+                </Link>
                 : {a.reasons.map((key) => labels[key as EditablePlanLimit] ?? key).join(', ')}
               </li>
             ))}
@@ -508,10 +569,10 @@ export function PlanPreviewPage({
           apps. Raising quotas leaves manual administrator suspensions in place.
         </p>
         <form method="post" action={`${HOME}/apply`} className="void-admin-plan-actions">
-          <input type="hidden" name="action" value={preview.action} />
-          <input type="hidden" name="id" value={target} />
-          <input type="hidden" name="revision" value={preview.expectedRevision} />
-          <input type="hidden" name="body" value={JSON.stringify(preview.body)} />
+          <input type="hidden" name="action" defaultValue={preview.action} />
+          <input type="hidden" name="id" defaultValue={target} />
+          <input type="hidden" name="revision" defaultValue={preview.expectedRevision} />
+          <input type="hidden" name="body" defaultValue={JSON.stringify(preview.body)} />
           <Button
             type="submit"
             label="Apply changes"
@@ -538,11 +599,11 @@ export function PlanProgressPage({
   username?: string;
 }) {
   const [state, setState] = useState(initial);
-  const [processed, setProcessed] = useState(initial.processed);
+  const [counts, setCounts] = useState({ accounts: initial.accounts, projects: initial.projects });
   const [running, setRunning] = useState(false);
   useEffect(() => {
     setState(initial);
-    setProcessed(initial.processed);
+    setCounts({ accounts: initial.accounts, projects: initial.projects });
     setRunning(!initial.complete && !initial.error);
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
@@ -577,7 +638,10 @@ export function PlanProgressPage({
           return;
         }
         setState(next);
-        setProcessed((count) => count + next.processed);
+        setCounts((count) => ({
+          accounts: count.accounts + (next.accounts ?? 0),
+          projects: count.projects + (next.projects ?? 0),
+        }));
         previous = next;
         if (next.complete || next.error) {
           setRunning(false);
@@ -618,13 +682,15 @@ export function PlanProgressPage({
             : state.error
               ? 'Account updates paused.'
               : 'Updating accounts…'}{' '}
-          {processed} accounts updated in this session.
+          {counts.accounts} accounts updated
+          {counts.projects ? `, AI logging published to ${counts.projects} projects` : ''} in this
+          session.
         </p>
         {state.error && <p role="alert">{state.error}</p>}
         {!state.complete && (
           <form method="post" action={`${HOME}/resume`}>
-            <input type="hidden" name="revision" value={state.revision} />
-            {target && <input type="hidden" name="id" value={target} />}
+            <input type="hidden" name="revision" defaultValue={state.revision} />
+            {target && <input type="hidden" name="id" defaultValue={target} />}
             <Button type="submit" label="Continue account updates" isDisabled={running} />
           </form>
         )}

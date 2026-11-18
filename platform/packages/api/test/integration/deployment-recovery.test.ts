@@ -365,12 +365,12 @@ test('preserves retained historical deployment artifacts while terminalizing its
 });
 
 test.each([
-  { issued: 1, held: 0 },
-  { issued: 1, held: 1 },
-  { issued: 0, held: 0 },
+  { issued: 1, held: 0, maxConcurrency: 2 },
+  { issued: 1, held: 1, maxConcurrency: 1 },
+  { issued: 0, held: 0, maxConcurrency: undefined },
 ])(
   'cutover replay to a Worker on generation $held while generation $issued is issued writes only its token',
-  async ({ issued, held }) => {
+  async ({ issued, held, maxConcurrency }) => {
     await env.db
       .update(projects)
       .set({ proxy_token_gen: issued })
@@ -384,7 +384,7 @@ test.each([
           type: 'void',
           bindings: {},
           schedules: [{ cron: '*/5 * * * *', filePath: 'crons/tick.ts' }],
-          queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS' }],
+          queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxConcurrency }],
         }),
       })
       .where(eq(deployments.id, deployment.id));
@@ -396,9 +396,14 @@ test.each([
       binding_name: 'emails',
     });
     const heldToken = await deriveProxyToken(env.JWT_SECRET, project.id, held);
+    const consumerBodies: Array<unknown> = [];
     mockCfApi({
       listWorkerBindings: () =>
         cfSuccess([{ type: 'plain_text', name: '__VOID_PROXY_TOKEN', text: heldToken }]),
+      addQueueConsumer: (_url, init) => {
+        consumerBodies.push(JSON.parse(String(init?.body)));
+        return cfSuccess({ consumer_id: 'consumer-1' });
+      },
     });
     const syncBodies: Array<string> = [];
     const originalGet = env.CRON_SCHEDULER.get.bind(env.CRON_SCHEDULER);
@@ -438,5 +443,12 @@ test.each([
     // Exactly one token: the one the Worker holds.
     expect(Object.keys(sync).filter((key) => key.startsWith('proxyToken'))).toEqual(['proxyToken']);
     expect(sync.proxyToken).toBe(heldToken);
+    expect(consumerBodies).toEqual([
+      {
+        script_name: 'void-dispatch',
+        type: 'worker',
+        settings: maxConcurrency === undefined ? {} : { max_concurrency: maxConcurrency },
+      },
+    ]);
   },
 );

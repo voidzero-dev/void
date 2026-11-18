@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
+import type { StorageConfig } from '@void/deploy-core';
 import { hash as blake3hash } from 'blake3-jit';
 import ignore from 'ignore';
 import { extname, join, relative } from 'pathslash';
@@ -383,12 +384,16 @@ function applyResourceBindings(
   migrationCount: number,
   dialect: 'sqlite' | 'postgresql' | 'mysql',
   bindingNames: PackageOptions['bindingNames'],
+  database: DeployManifest['database'],
 ): void {
   if (needsApplicationDatabase(bindings, migrationCount)) {
     if (dialect !== 'sqlite') {
       manifest.bindings.hyperdrive = ['HYPERDRIVE'];
     } else {
       manifest.bindings.d1 = [bindingNames?.d1 ?? 'DB'];
+      if (database?.readReplication !== undefined) {
+        manifest.database = { readReplication: database.readReplication };
+      }
     }
   }
   if (bindings.needsKV) {
@@ -447,9 +452,11 @@ export function buildVoidManifest(opts: {
   prerender?: Array<string>;
   assetConfig?: AssetConfig;
   options?: PackageOptions;
+  database?: DeployManifest['database'];
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
   alwaysUseHttps?: boolean;
+  storage?: StorageConfig;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -499,12 +506,17 @@ export function buildVoidManifest(opts: {
   if (bindings.needsAuth) {
     manifest.auth = true;
   }
+  if (opts.bindings.needsR2 && opts.storage?.locationHint) {
+    manifest.storage = opts.storage;
+    manifest.version = 5;
+  }
   applyResourceBindings(
     manifest,
     bindings,
     migrations?.length ?? 0,
     resolvedDialect,
     options?.bindingNames,
+    opts.database,
   );
   if (bindings.needsSandbox) {
     if (!options?.sandbox) {
@@ -742,9 +754,11 @@ export function buildFrameworkManifest(opts: {
   vars?: Record<string, string>;
   assetConfig?: AssetConfig;
   packageOptions?: Omit<PackageOptions, 'workerMain'>;
+  database?: DeployManifest['database'];
   hashedAssetsPrefix?: string;
   headerRules?: Array<HeaderRule>;
   alwaysUseHttps?: boolean;
+  storage?: StorageConfig;
   redirectRules?: Array<DevRedirectRule>;
   fallbackRules?: Array<DevRedirectRule>;
   dialect?: 'sqlite' | 'postgresql' | 'mysql';
@@ -756,12 +770,17 @@ export function buildFrameworkManifest(opts: {
   if (opts.alwaysUseHttps !== undefined) {
     manifest.alwaysUseHttps = opts.alwaysUseHttps;
   }
+  if (opts.bindings.needsR2 && opts.storage?.locationHint) {
+    manifest.storage = opts.storage;
+    manifest.version = 5;
+  }
   applyResourceBindings(
     manifest,
     opts.bindings,
     opts.migrations?.length ?? 0,
     dialect,
     po?.bindingNames,
+    opts.database,
   );
 
   if (opts.migrations && opts.migrations.length > 0) {

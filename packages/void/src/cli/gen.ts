@@ -446,7 +446,6 @@ async function runModel(root: string, name: string, columns: Array<ColumnSpec>):
     ].join('\n');
   }
 
-  // Write the model file
   mkdirSync(schemaDir, { recursive: true });
   writeIfNotExists(modelPath, content);
 
@@ -678,6 +677,7 @@ type Message = {};
 
 // export const maxBatchSize = 10;
 // export const maxBatchTimeout = 5;
+// export const maxConcurrency = 2;
 
 export default defineQueue<Message>(async (batch, env) => {
   for (const message of batch.messages) {

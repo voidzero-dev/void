@@ -65,39 +65,41 @@ function linkSkills(
       try {
         const existing = readlinkSync(linkPath);
         if (existing === relativeTarget) {
-          log.info(`  ${skill.name} — already linked`);
           continue;
         }
       } catch {
         // not a symlink
       }
-      log.warn(`  ${skill.name} — path exists but is not the expected symlink, skipping`);
+      log.warn(
+        `${relative(root, linkPath)} exists but is not a link to the ${skill.name} skill, skipping`,
+      );
       continue;
     }
 
     symlinkSync(relativeTarget, linkPath, process.platform === 'win32' ? 'junction' : 'dir');
-    log.step(`  ${skill.name} — linked`);
     linked++;
   }
   return linked;
 }
 
-export function linkSkillsForSpecificAgents(root: string, agents: Array<AgentConfig>): number {
+/** Link the bundled skills for `agents`. Returns the agents whose skills folder gained a link. */
+export function linkSkillsForSpecificAgents(
+  root: string,
+  agents: Array<AgentConfig>,
+): Array<AgentConfig> {
   const packageDir = getPackageDir();
   const skillsDir = join(packageDir, 'skills');
   const skills = parseSkills(skillsDir);
   if (skills.length === 0) {
-    return 0;
+    return [];
   }
 
-  if (agents.length === 0) {
-    return 0;
-  }
-
-  let totalLinked = 0;
-  for (const agent of agents) {
-    log.info(`${agent.displayName} → ${agent.skillsDir}`);
-    totalLinked += linkSkills(root, skillsDir, skills, agent.skillsDir);
-  }
-  return totalLinked;
+  // Several agents read one folder, such as .agents/skills. Link each folder
+  // once: a conflict in it then warns once, and a new link counts for every
+  // agent that reads it.
+  const folders = [...new Set(agents.map((agent) => agent.skillsDir))];
+  const linked = new Set(
+    folders.filter((folder) => linkSkills(root, skillsDir, skills, folder) > 0),
+  );
+  return agents.filter((agent) => linked.has(agent.skillsDir));
 }

@@ -1,4 +1,5 @@
 ---
+description: 'Create a Void app, run it locally, and deploy it. You can also add Void to an existing Vite app.'
 outline: deep
 ---
 
@@ -33,7 +34,7 @@ bun add -D void
 bunx void init
 ```
 
-```sh [vite+]
+```sh [vp]
 vp add -D void
 vpx void init
 ```
@@ -66,7 +67,7 @@ yarn run dev
 bun run dev
 ```
 
-```sh [vite+]
+```sh [vp]
 vpr dev
 ```
 

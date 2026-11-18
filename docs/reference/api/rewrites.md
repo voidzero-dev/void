@@ -1,4 +1,5 @@
 ---
+description: 'Serve another route without changing the browser URL, and read the URL that was originally requested.'
 outline: deep
 ---
 
@@ -14,7 +15,7 @@ Pass a [`RouteDestination`](./types.md#route-types) object to check the route pa
 
 ```ts
 return c.rewrite({
-  pathname: '/users/:id',
+  pathname: '/users/[id]',
   params: { id: 42 },
   query: { tab: 'activity' },
 });
@@ -22,19 +23,33 @@ return c.rewrite({
 
 With [`routing.typedRoutes`](../config.md#routing-typedroutes), a string destination must be a [`RouteUrl`](./types.md#route-types): a URL that matches one of your routes. Cast a path built at runtime, such as ``c.rewrite(`/${locale}${path}` as RouteUrl)``.
 
-For a typed redirect, build the URL with [`routeUrl()`](./types.md#routeurl-path-options). `c.redirect()` still accepts any string, so a full path is checked only when you annotate it with [`RouteUrl`](./types.md#route-types). That check applies when [`routing.typedRoutes`](../config.md#routing-typedroutes) is on. An external URL stays a plain string:
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), `c.redirect()` checks strings like a link: route URLs, same-page queries and hashes, and `http://`, `https://`, `mailto:`, or `tel:` URLs. It also accepts a `URL` or typed destination object.
+
+For a string TypeScript can't check, such as a payment provider's checkout URL, use `as Href`:
 
 ```ts
-import { routeUrl, type RouteUrl } from 'void/routes';
+import { routeUrl, type Href } from 'void/routes';
 
-return c.redirect(routeUrl('/users/:id', { params: { id: 42 } }));
-return c.redirect('/users/42' satisfies RouteUrl);
+declare const checkoutUrl: string;
+
+return c.redirect(routeUrl('/users/[id]', { params: { id: 42 } }));
+return c.redirect({ pathname: '/users/[id]', params: { id: 42 } });
 return c.redirect('https://example.com/login');
+return c.redirect(checkoutUrl as Href);
 ```
 
-`c.redirect()` sends the location it is given. The request query is not added to an internal path, a protocol-relative URL, or an absolute URL, so `c.redirect('/notes')` from `/sign-in?redirectTo=/notes` goes to `/notes`. [`routing.redirects`](../../guide/edge/redirects.md) still merge the request query into the destination.
+A cast skips the type check; Void doesn't validate redirect destinations at runtime. For request values such as `?redirectTo=`, check the origin before redirecting:
 
-A [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) is the exception. Redirecting it to a GET page drops the action key and keeps the page's other query parameters: `POST /users/42?delete&tab=profile` with `c.redirect('/users/42')` goes to `/users/42?tab=profile`. Redirects that preserve the request method keep the action key: `307` and `308`, or `301` and `302` after a `PUT`, `PATCH`, or `DELETE`.
+```ts
+const requested = new URL(c.req.query('redirectTo') ?? '/', c.req.url);
+return c.redirect(requested.origin === new URL(c.req.url).origin ? requested : '/');
+```
+
+`c.redirect()` sends the location you provide without adding the request query. From `/sign-in?redirectTo=/notes`, `c.redirect('/notes')` goes to `/notes`. Configured [`routing.redirects`](../../guide/edge/redirects.md) merge query parameters instead.
+
+A [named action](../../guide/pages-routing/actions-and-forms.md#named-actions) keeps its own query parameters. For example, `POST /users/42?delete&tab=profile` with `c.redirect('/users/42')` redirects to `/users/42?tab=profile`. The action key is removed when the redirect changes the method to GET.
+
+Redirects that preserve the method keep the action key: `307` and `308`, or `301` and `302` after `PUT`, `PATCH`, or `DELETE`. Parameters added from the [current page's query](../../guide/pages-routing/actions-and-forms.md#query-parameters-after-submission) aren't carried into the redirect.
 
 ```ts
 import { defineHandler } from 'void';

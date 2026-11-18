@@ -2,6 +2,7 @@ import type { LayoutDefinition, NamedLayoutDefinition } from './types.ts';
 
 type ResolvedLayoutEntry = {
   id: string;
+  directory: string;
   definition: LayoutDefinition | NamedLayoutDefinition;
 };
 
@@ -74,7 +75,7 @@ export function resolveNamedLayout(
   return null;
 }
 
-function resolveEffectiveLayoutEntries(
+export function resolveEffectiveLayoutEntries(
   page: { componentId: string; componentPath?: string; layout?: string | false },
   layouts: Array<LayoutDefinition>,
   namedLayouts: Array<NamedLayoutDefinition>,
@@ -86,6 +87,7 @@ function resolveEffectiveLayoutEntries(
   const defaultChain = resolveLayoutChain(page.componentId, layouts, page.componentPath).map(
     (layout) => ({
       id: toLayoutId(layout),
+      directory: layout.directory,
       definition: layout,
     }),
   );
@@ -103,10 +105,17 @@ function resolveEffectiveLayoutEntries(
 
   const namedEntry = {
     id: toLayoutId(resolved),
+    directory:
+      defaultChain.at(-1)?.directory ??
+      (page.componentPath ?? page.componentId).split('/').slice(0, -1).join('/'),
     definition: resolved,
   };
 
   if (isExclusive || defaultChain.length === 0) {
+    namedEntry.directory = (page.componentPath ?? page.componentId)
+      .split('/')
+      .slice(0, -1)
+      .join('/');
     return [namedEntry];
   }
 

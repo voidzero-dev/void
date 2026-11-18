@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { defineDurableState } from '../../src/runtime/durable.ts';
+import { defineDurableState } from '../../src/runtime/durable/index.ts';
+import { defineRoom, defineWebSocket } from '../../src/runtime/ws/index.ts';
 import {
   buildWebSocketInstanceId,
   createWebSocketDurableObject,
   forwardWebSocketRequest,
-} from '../../src/runtime/ws-server.ts';
-import { defineRoom, defineWebSocket } from '../../src/runtime/ws.ts';
+} from '../../src/runtime/ws/server.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 vi.mock('cloudflare:workers', () => ({ DurableObject: class {} }));
@@ -32,9 +32,11 @@ describe('persistent resource runtime contracts', () => {
     ).not.toThrow();
   });
 
-  it.each([defineRoom, defineWebSocket])(
-    'requires generated WebSocket metadata to match the authored name',
-    (define) => {
+  it.each(['room', 'socket'] as const)(
+    'requires generated WebSocket metadata to match the authored %s name',
+    (kind) => {
+      const define = (definition: { name?: string; messages: typeof messages }) =>
+        kind === 'room' ? defineRoom(definition) : defineWebSocket(definition);
       const definition = define({ name: 'chat-room', messages });
       expect(() => createWebSocketDurableObject(definition, route)).toThrow(
         'statically discoverable',

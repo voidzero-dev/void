@@ -94,7 +94,7 @@ function fixture() {
     EMAIL_SENDER_DOMAIN: 'mail.example.com',
     ROUTING: { get: vi.fn() },
   };
-  const app = new Hono();
+  const app = new Hono<{ Variables: { projectId: string; body: unknown } }>();
   app.use('*', async (context, next) => {
     context.set('projectId', 'proj_000000000001');
     context.set('body', await context.req.json());

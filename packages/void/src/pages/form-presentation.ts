@@ -1,3 +1,4 @@
+import type { RouteUrl } from 'void/routes';
 import type { VoidActionError } from './action-result.ts';
 import type { FormResetOptions } from './form-reset.ts';
 import type { VisitOptions } from './navigation-engine.ts';
@@ -46,6 +47,7 @@ export type FormState<TData, TEditing extends FormEditing> = FormStatus &
 /**
  * The `useIslandForm()` contract every adapter shares. Errors are keyed by whatever names the
  * action returns, not only the default fields. Submit methods take the action URL.
+ * That URL is a `RouteUrl`: any string, unless `routing.typedRoutes` is on.
  */
 export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
   FormFields<TData, Partial<Record<string, string>>, TEditing> &
@@ -53,10 +55,10 @@ export type IslandFormState<TData, TEditing extends FormEditing> = FormStatus &
     reset(...fields: ReadonlyArray<keyof TData & string>): void;
     clearErrors(...fields: ReadonlyArray<string>): void;
     clearError(): void;
-    post(url: string): Promise<void>;
-    put(url: string): Promise<void>;
-    patch(url: string): Promise<void>;
-    delete(url: string): Promise<void>;
+    post(url: RouteUrl): Promise<void>;
+    put(url: RouteUrl): Promise<void>;
+    patch(url: RouteUrl): Promise<void>;
+    delete(url: RouteUrl): Promise<void>;
   }>;
 
 export function formErrorMessage(form: Pick<FormModel, 'error' | 'errors'>): string | null {

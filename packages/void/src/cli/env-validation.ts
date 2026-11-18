@@ -10,12 +10,13 @@ import { dirname, join, resolve } from 'pathslash';
 import { findEnvFile } from '../codegen/env-types.ts';
 import { loadUserEnvFile } from '../host/load-user-env.ts';
 import { voidWarn } from '../log.ts';
-import type { EnvValidationReport } from '../runtime/env-public.ts';
+import type { EnvValidationReport } from '../runtime/env/public.ts';
 import { scanWranglerDotenvKeys } from '../shared/dotenv.ts';
 import {
   findLegacyEnvFiles,
   findReservedEnvKeys,
   isClientEnvKey,
+  legacyEnvExampleHint,
   loadLocalEnv,
   LOCAL_ENV_FILE,
   reservedEnvKeysMessage,
@@ -30,7 +31,7 @@ import { readGeneratedWranglerConfigFile } from './generated-wrangler-config.ts'
 import { resolveCloudflareOperationArgv } from './preset.ts';
 
 type EnvPublicModule = Pick<
-  typeof import('../runtime/env-public.ts'),
+  typeof import('../runtime/env/public.ts'),
   '_getRegisteredSchema' | '_hasRegisteredSchema' | '_getSchemaDefaults' | 'validateAllEnv'
 >;
 
@@ -73,7 +74,7 @@ export async function validateSecretValues(
 /** Load the registered schema by importing the user's env.ts. */
 async function loadSchema(envFile: string): Promise<EnvPublicModule | null> {
   await loadUserEnvFile(envFile);
-  const mod = await import('../runtime/env-public.ts');
+  const mod = await import('../runtime/env/public.ts');
   if (!mod._hasRegisteredSchema()) {
     return null;
   }
@@ -110,7 +111,7 @@ export async function validateProdEnv(
   const legacyFiles = findLegacyEnvFiles(root);
   if (legacyFiles.length > 0) {
     throw new Error(
-      `env: only .env is supported for local development. Remove ${legacyFiles.join(', ')} and follow the env migration guide.`,
+      `env: only .env is supported for local development. Remove ${legacyFiles.join(', ')} and follow the env migration guide.${legacyEnvExampleHint(legacyFiles)}`,
     );
   }
   // Same rule as the Vite plugin, which stops dev and build on these names.

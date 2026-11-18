@@ -66,7 +66,7 @@ export default ${helper}({
     types = generateRouteTypes(scan, join(root, 'routes'), join(root, '.void')).dts;
     const routeTable = join(root, 'generated-routes.ts');
     const worker = join(root, 'generated-worker.ts');
-    const runtimeEnvPath = join(repository, 'packages/void/src/runtime/env.ts');
+    const runtimeEnvPath = join(repository, 'packages/void/src/runtime/env/runtime.ts');
     writeFileSync(
       routeTable,
       compileRouteTable(
@@ -80,7 +80,7 @@ export default ${helper}({
           honoPath: import.meta.resolve('hono'),
           honoRoutePath: import.meta.resolve('hono/route'),
           runtimeEnvPath,
-          webSocketRuntimePath: join(repository, 'packages/void/src/runtime/ws-server.ts'),
+          webSocketRuntimePath: join(repository, 'packages/void/src/runtime/ws/server.ts'),
           projectRoot: root,
           homeDir: root,
           reactRefresh: false,

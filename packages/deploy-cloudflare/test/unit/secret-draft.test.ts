@@ -1,8 +1,28 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft, isWranglerSecretOnlyDraft } from '../../src/secret-draft.ts';
-import { voidSecretDraftVersion } from '../secret-draft-fixture.ts';
+import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';
 
 describe('immutable SDK secret draft proof', () => {
+  it('recognizes the placeholder that the secret transport deploys in one request', () => {
+    const draft = apiSecretDraftVersion();
+    expect(isVoidSecretOnlyDraft(draft)).toBe(true);
+    expect(isVoidSecretOnlyDraft({ ...draft, source: 'cf_cli' })).toBe(false);
+    expect(isVoidSecretOnlyDraft({ ...draft, source: 'dash' })).toBe(false);
+    expect(
+      isVoidSecretOnlyDraft({
+        ...draft,
+        annotations: { ...draft.annotations, 'workers/tag': 'release' },
+      }),
+    ).toBe(false);
+    expect(
+      isVoidSecretOnlyDraft({
+        ...draft,
+        annotations: { 'workers/triggered_by': 'create_version_api' },
+      }),
+    ).toBe(false);
+    expect(isVoidSecretOnlyDraft({ ...draft, bindings: [], env: {} })).toBe(false);
+  });
+
   it('recognizes the actual cf placeholder without treating its compatibility date as proof', () => {
     const draft = voidSecretDraftVersion();
     expect(isWranglerSecretOnlyDraft(draft)).toBe(false);

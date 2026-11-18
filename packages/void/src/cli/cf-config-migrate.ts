@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { isDeepStrictEqual } from 'node:util';
 import type { MigrationFollowUp } from '@cloudflare/codemods';
-import { InputConfigSchema } from '@cloudflare/config';
+import { CloudflareConfigSchema } from '@cloudflare/config';
 import { isRecord } from '@void/deploy-core';
 import { dirname, join } from 'pathslash';
 
@@ -23,9 +23,40 @@ function empty(value: unknown): boolean {
   );
 }
 
+function normalizeQueueConcurrency(raw: JsonObject): JsonObject {
+  const queues = record(raw.queues);
+  if (!Array.isArray(queues?.consumers)) {
+    return { ...raw };
+  }
+  return {
+    ...raw,
+    queues: {
+      ...queues,
+      consumers: queues.consumers.map((value) => {
+        const consumer = record(value);
+        // Wrangler's null and cf's omitted limit both mean automatic concurrency.
+        if (consumer?.max_concurrency !== null) {
+          return value;
+        }
+        const { max_concurrency: _automatic, ...rest } = consumer;
+        return rest;
+      }),
+    },
+  };
+}
+
 /** Remove build-only fields and settings translated into cf's typed config below. */
 function migrationInput(raw: JsonObject): JsonObject {
-  const result = { ...raw };
+  const result = normalizeQueueConcurrency(raw);
+  const environments = record(result.env);
+  if (environments) {
+    result.env = Object.fromEntries(
+      Object.entries(environments).map(([name, value]) => [
+        name,
+        record(value) ? normalizeQueueConcurrency(value as JsonObject) : value,
+      ]),
+    );
+  }
   if (
     !empty(result.rules) &&
     !isDeepStrictEqual(result.rules, [{ type: 'ESModule', globs: ['**/*.js', '**/*.mjs'] }])
@@ -377,7 +408,7 @@ process.stdout.write(JSON.stringify({ config, followUps: migration.followUps }))
 export function migrateBuiltWranglerConfig(
   raw: JsonObject,
   mode = 'production',
-): ReturnType<typeof InputConfigSchema.parse> {
+): ReturnType<typeof CloudflareConfigSchema.parse> {
   const environment = record(record(raw.env)?.[mode]);
   const effective = environment ? { ...raw, ...environment } : raw;
   if (environment) {
@@ -472,7 +503,7 @@ export function migrateBuiltWranglerConfig(
     if (Object.keys(exports).length > 0) {
       worker.exports = exports;
     }
-    return InputConfigSchema.parse(result);
+    return CloudflareConfigSchema.parse(result);
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }

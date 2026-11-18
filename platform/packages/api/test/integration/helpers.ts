@@ -63,7 +63,7 @@ export type TestEnv = {
   CF_ZONE_ID: string;
   JWT_SECRET: string;
   EMAIL_SIGNING_SECRET: string;
-  PLATFORM_AUTH_DATABASE_UNCACHED: string;
+  PLATFORM_AUTH_DATABASE_UNCACHED?: string;
   PROJECT_SECRET_KEYS_JSON: string;
   PROJECT_SECRET_ACTIVE_KEY_VERSION: string;
   R2_ACCESS_KEY_ID: string;
@@ -240,22 +240,27 @@ export class MemoryKVNamespace {
     this.store.delete(key);
   }
 
-  async list(options?: {
-    prefix?: string;
-    cursor?: string;
-  }): Promise<{ keys: Array<{ name: string }>; list_complete: boolean; cursor: string }> {
+  /** Like KV: sorted pages of up to `limit` (default 1000) keys, with metadata. */
+  async list(options?: { prefix?: string; cursor?: string; limit?: number }): Promise<{
+    keys: Array<{ name: string; metadata?: unknown }>;
+    list_complete: boolean;
+    cursor: string;
+  }> {
     const prefix = options?.prefix ?? '';
     const offset = options?.cursor ? Number(options.cursor) : 0;
-    const keys = Array.from(this.store.keys())
+    const limit = options?.limit ?? 1000;
+    const names = Array.from(this.store.keys())
       .filter((key) => key.startsWith(prefix))
-      .sort()
-      .slice(offset)
-      .map((name) => ({ name }));
-
+      .sort();
+    const keys = names.slice(offset, offset + limit).map((name) => {
+      const metadata = this.store.get(name)?.metadata;
+      return metadata === undefined ? { name } : { name, metadata: structuredClone(metadata) };
+    });
+    const complete = offset + limit >= names.length;
     return {
       keys,
-      list_complete: true,
-      cursor: '',
+      list_complete: complete,
+      cursor: complete ? '' : String(offset + limit),
     };
   }
 }
@@ -490,7 +495,16 @@ export function createCronSchedulerMock(): {
   return { namespace, states, calls };
 }
 
-export async function setupEnv(): Promise<TestEnv> {
+export type SetupEnvOptions = Readonly<{
+  /**
+   * Set `PLATFORM_AUTH_DATABASE_UNCACHED` (default true, like a self-hosted install).
+   * Hosted Void Cloud leaves it unset; suites whose behaviour must not depend on it
+   * pass false. Keep the default: platform access protection needs the flag.
+   */
+  authDatabaseUncached?: boolean;
+}>;
+
+export async function setupEnv(options: SetupEnvOptions = {}): Promise<TestEnv> {
   const kv = new MemoryKVNamespace();
   const isrCache = new MemoryKVNamespace();
   const staticAssets = new MemoryKVNamespace();
@@ -535,7 +549,7 @@ export async function setupEnv(): Promise<TestEnv> {
     CF_ZONE_ID,
     JWT_SECRET,
     EMAIL_SIGNING_SECRET,
-    PLATFORM_AUTH_DATABASE_UNCACHED: 'true',
+    ...(options.authDatabaseUncached === false ? {} : { PLATFORM_AUTH_DATABASE_UNCACHED: 'true' }),
     PROJECT_SECRET_KEYS_JSON,
     PROJECT_SECRET_ACTIVE_KEY_VERSION,
     R2_ACCESS_KEY_ID: 'test-r2-access-key-id',

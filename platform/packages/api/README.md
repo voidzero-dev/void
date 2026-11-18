@@ -9,6 +9,7 @@ It owns platform auth, projects, deployments, domains, secrets, provisioning, ro
 - **Platform DB**: PostgreSQL via `HYPERDRIVE.connectionString`
 - **Public API**: CLI and dashboard-facing JSON routes
 - **Internal API**: resource resolution and revalidation used by other platform workers
+- **Application D1 replication**: provisioning applies explicit `database.readReplication` values from the deploy manifest: true enables replicas and false disables them. Omitted leaves existing replication unchanged; new databases default to off.
 - **Admin UI**: React pages under `/admin/*`, server-rendered for first load and backed by a private Fate endpoint
 - **Lifecycle status**: `/admin/status` and its GET JSON endpoint project display fields from the installer-owned PostgreSQL checkpoint. Maintenance admits these routes and administrator sign-in through normal Access and admin authentication. Keep the exception narrow, retain existing Sandbox drain operator access, and keep the Fate POST endpoint and administrator writes gated.
 - **Self-hosted owner setup**: dashboard OAuth and normal signup share the first-user transaction and configured GitHub identity check. Dashboard login can create the first owner without a CLI login; it never promotes existing users. Void Cloud keeps its existing admin-only login behavior.
@@ -412,6 +413,15 @@ The Fate schema and loaders live in `src/admin/fate/`. The generated client is
 `scripts/build-admin-client.mjs` when changing Fate roots or types. Keep page
 loaders restricted to their matching `/admin/*` paths, and never add admin
 queries to the CLI API.
+
+`src/admin/fate/client.ts` registers the client schema before requests or
+hydration, in both server rendering and the browser. It owns deployment-log
+controls as per-deployment client fields; refetching server data preserves them
+until the admin session/client ends. Memo fields derive typeahead suggestions
+and formatted manifest JSON, sharing results across views until their selected
+dependencies change. Child views must be spread into their parent views so
+Fate can supply the corresponding masked refs. Health uses an observed request
+to render cached results immediately while reporting background refresh errors.
 
 Notable sections:
 

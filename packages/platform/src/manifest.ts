@@ -1,3 +1,4 @@
+import { isR2LocationHint, type R2LocationHint } from '@void/deploy-core';
 import type { PlatformApplication } from './application.ts';
 import { PLATFORM_LOGIN_KINDS, type PlatformLoginKind } from './authentication.ts';
 import { assertRecord, requiredString } from './validate.ts';
@@ -72,7 +73,9 @@ export type PlatformDeploymentManifest = Readonly<{
   resources: PlatformResourceNames;
   /** Requires schema version 5, so an older CLI refuses the manifest instead of dropping it. */
   runtimeLogs?: PlatformRuntimeLogs;
-  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4 | 5;
+  /** Requires schema version 6 so older CLIs cannot silently drop this setting. */
+  storageLocationHint?: R2LocationHint;
+  schemaVersion: typeof PLATFORM_DEPLOYMENT_SCHEMA_VERSION | 2 | 3 | 4 | 5 | 6;
 }>;
 
 export type PlatformDeploymentManifestInput = Readonly<{
@@ -97,6 +100,7 @@ export type PlatformDeploymentManifestInput = Readonly<{
   installationSlug: string;
   resources?: Partial<PlatformResourceNames>;
   runtimeLogs?: PlatformRuntimeLogs;
+  storageLocationHint?: R2LocationHint;
 }>;
 
 export type PlatformApplicationRoute = Readonly<{
@@ -279,6 +283,9 @@ export function createPlatformDeploymentManifest(
   if (input.runtimeLogs !== undefined && input.runtimeLogs !== 'minimal') {
     throw new Error('runtimeLogs must be minimal when set.');
   }
+  if (input.storageLocationHint !== undefined && !isR2LocationHint(input.storageLocationHint)) {
+    throw new Error('Invalid storageLocationHint.');
+  }
   const providers = input.authentication?.providers ?? ['github'];
   if (
     providers.some((provider) => !PLATFORM_LOGIN_KINDS.includes(provider)) ||
@@ -341,15 +348,18 @@ export function createPlatformDeploymentManifest(
     installationSlug,
     resources,
     ...(input.runtimeLogs ? { runtimeLogs: input.runtimeLogs } : {}),
-    schemaVersion: input.runtimeLogs
-      ? 5
-      : input.appAccess !== undefined
-        ? 4
-        : configurable
-          ? 3
-          : workersDev
-            ? 2
-            : PLATFORM_DEPLOYMENT_SCHEMA_VERSION,
+    ...(input.storageLocationHint ? { storageLocationHint: input.storageLocationHint } : {}),
+    schemaVersion: input.storageLocationHint
+      ? 6
+      : input.runtimeLogs
+        ? 5
+        : input.appAccess !== undefined
+          ? 4
+          : configurable
+            ? 3
+            : workersDev
+              ? 2
+              : PLATFORM_DEPLOYMENT_SCHEMA_VERSION,
   };
   createApplicationRoutes(manifest.application);
   for (const [key, value] of Object.entries(manifest.controlPlane)) {
@@ -379,7 +389,8 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     value.schemaVersion !== 2 &&
     value.schemaVersion !== 3 &&
     value.schemaVersion !== 4 &&
-    value.schemaVersion !== 5
+    value.schemaVersion !== 5 &&
+    value.schemaVersion !== 6
   ) {
     throw new Error(
       `Unsupported platform deployment schema version: ${String(value.schemaVersion)}.`,
@@ -443,7 +454,7 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
   if (
     value.schemaVersion === 4
       ? !['public', 'platform', 'custom'].includes(String(value.appAccess))
-      : value.schemaVersion === 5
+      : Number(value.schemaVersion) >= 5
         ? value.appAccess !== undefined &&
           !['public', 'platform', 'custom'].includes(String(value.appAccess))
         : value.appAccess !== undefined
@@ -456,9 +467,22 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     throw new Error('Invalid configurable authentication flag.');
   }
   if (
-    value.schemaVersion === 5 ? value.runtimeLogs !== 'minimal' : value.runtimeLogs !== undefined
+    value.schemaVersion === 5
+      ? value.runtimeLogs !== 'minimal'
+      : value.schemaVersion === 6
+        ? value.runtimeLogs !== undefined && value.runtimeLogs !== 'minimal'
+        : value.runtimeLogs !== undefined
   ) {
     throw new Error('Minimal runtime logs require deployment schema version 5.');
+  }
+  if (
+    value.schemaVersion === 6
+      ? !isR2LocationHint(value.storageLocationHint)
+      : value.storageLocationHint !== undefined
+  ) {
+    throw new Error(
+      'storageLocationHint requires deployment schema version 6 and a valid R2 location hint.',
+    );
   }
   const resourceDefaults = createPlatformResourceNames(
     requiredString(value.installationSlug, 'installationSlug'),
@@ -516,6 +540,9 @@ export function parsePlatformDeploymentManifest(value: unknown): PlatformDeploym
     displayName: requiredString(value.displayName, 'displayName'),
     installationSlug: requiredString(value.installationSlug, 'installationSlug'),
     resources,
-    ...(value.schemaVersion === 5 ? { runtimeLogs: 'minimal' as const } : {}),
+    ...(value.runtimeLogs === 'minimal' ? { runtimeLogs: 'minimal' as const } : {}),
+    ...(value.schemaVersion === 6
+      ? { storageLocationHint: value.storageLocationHint as R2LocationHint }
+      : {}),
   });
 }

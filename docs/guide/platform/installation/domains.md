@@ -1,4 +1,5 @@
 ---
+description: 'Add an application domain to an installed platform, including its DNS, routing, and HTTPS certificate.'
 outline: deep
 ---
 

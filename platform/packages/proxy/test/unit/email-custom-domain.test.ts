@@ -517,12 +517,12 @@ describe('POST /email/send — custom sender domain', () => {
     const { env, apiFetch } = createMockEnv();
     const calls = stubCloudflare();
     const body = await sendBody({ idempotencyKey: 'same-operation' });
-    expect((await (await postSend(env, body)).json()).ok).toBe(true);
+    expect(await (await postSend(env, body)).json()).toHaveProperty('ok', true);
     const leaseCalls = apiFetch.mock.calls.filter(([url]) =>
       String(url).endsWith('/domain-credential'),
     ).length;
     const replay = await postSend(env, body);
-    expect((await replay.json()).ok).toBe(true);
+    expect(await replay.json()).toHaveProperty('ok', true);
     expect(calls).toHaveLength(1);
     expect(
       apiFetch.mock.calls.filter(([url]) => String(url).endsWith('/domain-credential')),
@@ -586,8 +586,8 @@ describe('POST /email/send — custom sender domain', () => {
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.deliveries[0].error.code).toBe('QUOTA_EXCEEDED');
+    expect(body).toHaveProperty('ok', false);
+    expect(body).toHaveProperty('deliveries.0.error.code', 'QUOTA_EXCEEDED');
   });
 
   it('marks a network failure on send_raw as an unknown outcome', async () => {
@@ -601,8 +601,8 @@ describe('POST /email/send — custom sender domain', () => {
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(200);
     const body = await res.json();
-    expect(body.ok).toBe(false);
-    expect(body.deliveries[0].error).toEqual({
+    expect(body).toHaveProperty('ok', false);
+    expect(body).toHaveProperty('deliveries.0.error', {
       code: 'OUTCOME_UNKNOWN',
       message: 'provider outcome unknown; inspect email logs before retrying',
     });
@@ -718,7 +718,7 @@ describe('POST /email/send — custom sender domain', () => {
     vi.stubGlobal('fetch', cfFetch);
     const res = await postSend(env, await sendBody());
     expect(res.status).toBe(502);
-    expect((await res.json()).error).toEqual({
+    expect(await res.json()).toHaveProperty('error', {
       code: 'UPSTREAM_ERROR',
       message: 'could not lease the domain credential',
     });
@@ -735,8 +735,11 @@ describe('POST /email/send — custom sender domain', () => {
     );
     expect(res.status).toBe(403);
     const body = await res.json();
-    expect(body.error.code).toBe('INVALID_FROM');
-    expect(body.error.message).toContain('mime From must be the envelope sender');
+    expect(body).toHaveProperty('error.code', 'INVALID_FROM');
+    expect(body).toHaveProperty(
+      'error.message',
+      expect.stringContaining('mime From must be the envelope sender'),
+    );
     expect(apiFetch).not.toHaveBeenCalled();
     expect(cfFetch).not.toHaveBeenCalled();
   });
@@ -751,7 +754,7 @@ describe('POST /email/send — custom sender domain', () => {
     bytes.set([0xff, 0xfe], prefix.length);
     const res = await postSend(env, await sendBody({ mimeBase64: base64Of(bytes) }));
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toEqual({
+    expect(await res.json()).toHaveProperty('error', {
       code: 'MIME_ERROR',
       message: 'mime must be valid UTF-8',
     });

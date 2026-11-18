@@ -2,6 +2,11 @@ import { tokenizeSql } from '@void/deploy-core';
 import type { ProjectZeroTrustRouting } from '@void/edge';
 import { sql as drizzleSql } from 'drizzle-orm';
 import { Hono, type Context } from 'hono';
+import {
+  AiLoggingPublishError,
+  lockNewProjectAiLoggingInputs,
+  publishProjectAiLogging,
+} from '../ai-logging.ts';
 import { deployTokenTtlSecondsForBuildMinutes, signPrerenderToken } from '../auth/deploy-token.ts';
 import { hmacSignState } from '../auth/hmac.ts';
 import { buildManagerNamespace } from '../build-namespace.ts';
@@ -62,7 +67,7 @@ import { ensureTrackingTable, queryD1, runRemoteMigrations } from '../migrations
 import { getProjectDeploymentWorkerName, getProjectQueueName } from '../naming.ts';
 import { LOG_ROW_GROUP_BY, runtimeLogsField } from '../observability/log-rows.ts';
 import { hasSqlState } from '../pg-errors.ts';
-import { resolvePlan, resolvePlanLimits } from '../plans.ts';
+import { initialPlanDefaultFor, resolvePlan, resolvePlanLimits } from '../plans.ts';
 import { PROJECT_PERMISSION_MESSAGES } from '../project-access.ts';
 import { MAX_SLUG_LENGTH, projectNameError } from '../project-names.ts';
 import { encryptProjectSecret, decryptProjectSecret } from '../project-secrets.ts';
@@ -654,12 +659,10 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Create a new project
   .post('/', async (context) =>
     createUserProject(context, await context.req.json<{ slug: string }>()),
   )
 
-  // Get project by ID
   .get('/:id', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -1475,6 +1478,9 @@ const app = new Hono<ApiEnv>()
                     ...(targetQueue.maxRetries != null && {
                       max_retries: targetQueue.maxRetries,
                     }),
+                    ...(targetQueue.maxConcurrency != null && {
+                      max_concurrency: targetQueue.maxConcurrency,
+                    }),
                     ...(targetQueue.retryDelay != null && {
                       retry_delay: targetQueue.retryDelay,
                     }),
@@ -1786,7 +1792,6 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Get migration status for a project
   .get('/:id/migrations', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -2437,7 +2442,6 @@ const app = new Hono<ApiEnv>()
     return context.json(resources);
   })
 
-  // Fetch logs for a project
   .get('/:id/logs', async (context) => {
     const access = await requireProjectRouteCapability(context, context.req.param('id'), 'read');
     if (access instanceof Response) {
@@ -2813,7 +2817,6 @@ const app = new Hono<ApiEnv>()
 
     const { connectionString } = await context.req.json<{ connectionString: string }>();
 
-    // Check if Hyperdrive already exists
     const existing = await getProjectResources(context.get('db'), projectId);
     const found = existing.find((r) => r.type === 'hyperdrive');
     if (found) {
@@ -3387,7 +3390,16 @@ export async function createUserProject(
     // project either commits before that check or is refused here.
     const project = await context.get('db').transaction(async (tx) => {
       await lockZeroTrustConfiguration(tx, 'shared');
-      return createProject(tx, userId, body.slug);
+      await lockNewProjectAiLoggingInputs(tx);
+      const created = await createProject(tx, userId, body.slug);
+      // A plan AI logging default applies from the first request. A KV failure
+      // rolls the create back, so a retry starts clean.
+      await publishProjectAiLogging(tx, context.env.ROUTING, created.id, {
+        trigger: 'project_create',
+        initialPlanDefault: initialPlanDefaultFor(context.env),
+        creating: true,
+      });
+      return created;
     });
     let zeroTrust: Awaited<ReturnType<typeof initializeNewProjectZeroTrust>> = null;
     let zeroTrustWarning: string | undefined;
@@ -3461,6 +3473,12 @@ export async function createUserProject(
   } catch (err) {
     // Only the configuration lock above throws this here: the uninstall
     // record exists.
+    if (err instanceof AiLoggingPublishError) {
+      return context.json(
+        { error: 'The AI logging setting for the new project could not be applied. Retry.' },
+        503,
+      );
+    }
     if (err instanceof ZeroTrustUnavailableError) {
       return context.json(
         { error: 'The platform is being uninstalled, so new projects cannot be created.' },

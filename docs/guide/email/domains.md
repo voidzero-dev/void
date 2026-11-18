@@ -1,4 +1,5 @@
 ---
+description: 'Register an email domain on a Void platform, or configure sending and receiving in your own Cloudflare account.'
 outline: deep
 ---
 
@@ -50,9 +51,11 @@ Use a mail subdomain to keep existing mail on `acme.com` with its current provid
 
 ### Setup {#setup-1}
 
-Sign in with `void cloudflare login`, or use a `CLOUDFLARE_API_TOKEN` with **Email Routing Edit** and **Email Sending Edit** in addition to deploy permissions. If your browser session lacks email permissions, log out and sign in again. Global API Keys aren't supported.
+Sign in with `void cloudflare login`, or use a `CLOUDFLARE_API_TOKEN` with **Zone Read** and **Email Sending Edit** in addition to deploy permissions. Apps with `email/` handlers also need **Email Routing Edit**. If your browser session lacks email permissions, log out and sign in again. Global API Keys aren't supported.
 
 Run `void deploy --platform cloudflare`. Void shows the domain, routing, sending, DNS, and handler addresses it would configure. Accept to set up email and deploy. Later deploys reuse the setup. If you decline the initial setup, the app deploys without email.
+
+Apps without `email/` handlers use sending-only setup. Void checks the sending domain and binding without enabling inbound routing or plus addressing, so incoming mail can stay with your existing provider. Readiness confirms configuration, not inbox delivery.
 
 Without `email.from`, Void skips automatic setup and preserves authored `cloudflare.send_email` bindings and `cloudflare.addresses`; check their readiness yourself. `--require-email` still refuses deployment when automatic setup cannot be verified.
 
@@ -80,13 +83,13 @@ Setup enables the zone's plus addressing so `support+T-42@mail.acme.com` reaches
 
 ### Sending {#sending}
 
-On Workers Free, `sendEmail()` can send to verified destinations listed under **Email Routing → Destination addresses** in Cloudflare.
+On Workers Free, apps with `email/` handlers can send to verified destinations listed under **Email Routing → Destination addresses** in Cloudflare. Apps without `email/` handlers send through Email Sending, which requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans).
 
 Configure your sender domain's SPF, DKIM, and DMARC records using [Cloudflare's email authentication guidance](https://developers.cloudflare.com/email-service/concepts/email-authentication/), then check the authentication results in a received message's original headers. A successful `sendEmail()` result confirms provider acceptance; it does not confirm delivery or authentication readiness.
 
-Sending to arbitrary recipients requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Email Sending onboarding. After upgrading, run `void email setup --platform cloudflare`. Void doesn't retry onboarding during ordinary deploys.
+Sending to arbitrary recipients requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Email Sending onboarding. After upgrading, run `void email setup --platform cloudflare`. Once setup is saved, deploys don't retry onboarding.
 
-Existing DMARC or bounce-domain records can block onboarding; the checklist identifies conflicts to resolve. Inbound mail remains available.
+Existing DMARC or bounce-domain records can block onboarding; the checklist identifies conflicts to resolve. Apps with `email/` handlers keep inbound mail.
 
 The `void email usage`, `logs`, `destinations`, `allow`, and `disallow` commands apply to Void platforms.
 
@@ -115,4 +118,4 @@ Commit `void.lock.json`, then deploy in CI with:
 void deploy --platform cloudflare --require-email
 ```
 
-CI cannot answer setup prompts. Without `--require-email`, an unconfigured app can deploy without email. If setup is saved but DNS hasn't propagated, deployment waits for a later retry. Workers Free setup for verified recipients satisfies `--require-email`.
+CI cannot answer setup prompts. Without `--require-email`, an unconfigured app can deploy without email. If setup is saved but DNS hasn't propagated, deployment waits for a later retry. For apps with inbound handlers, Workers Free setup for verified recipients satisfies `--require-email`. Sending-only apps need an onboarded sending domain (Workers Paid) and a configured send binding.

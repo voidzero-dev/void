@@ -15,7 +15,30 @@ export type IslandSourceEdit = { start: number; end: number; text: string };
 
 export type StaticCssImport = { statement: string; specifier: string };
 
-type ScriptBlock = { source: string; offset: number; filename: string };
+type ScriptBlock = {
+  source: string;
+  offset: number;
+  filename: string;
+  /** A Svelte instance script: its exports declare component props, not module exports. */
+  instance?: boolean;
+};
+
+const SCRIPT_ATTRIBUTE_RE = /([^\s"'=/]+)(?:\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
+
+/** `<script module>` (Svelte 5) or `<script context="module">` (Svelte 4). */
+function isSvelteModuleScript(attributes: string): boolean {
+  for (const [, name, doubleQuoted, singleQuoted, bare] of attributes.matchAll(
+    SCRIPT_ATTRIBUTE_RE,
+  )) {
+    if (
+      name === 'module' ||
+      (name === 'context' && (doubleQuoted ?? singleQuoted ?? bare) === 'module')
+    ) {
+      return true;
+    }
+  }
+  return false;
+}
 
 // Same leading-script rule as @void/md's extractScript: a markdown page may open
 // with a <script> block, and its frontmatter starts right after that block.
@@ -40,9 +63,18 @@ export function scriptBlocks(code: string, filename: string): Array<ScriptBlock>
     return [{ source: code, offset: 0, filename }];
   }
   const scriptFilename = filename.replace(/\.(?:vue|svelte)$/, '.ts');
-  return [...code.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script\s*>/gi)].map((match) => {
-    const source = match[1]!;
-    return { source, offset: match.index! + match[0].indexOf(source), filename: scriptFilename };
+  const svelte = filename.endsWith('.svelte');
+  return [...code.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].map((match) => {
+    const source = match[2]!;
+    const block: ScriptBlock = {
+      source,
+      offset: match.index! + match[0].indexOf(source),
+      filename: scriptFilename,
+    };
+    if (svelte && !isSvelteModuleScript(match[1]!)) {
+      block.instance = true;
+    }
+    return block;
   });
 }
 

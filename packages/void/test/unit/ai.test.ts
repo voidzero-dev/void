@@ -18,12 +18,110 @@ function makeDirectAi(
 }
 
 describe('runtime ai', () => {
+  it.each([
+    ['direct', 'application/json'],
+    ['http', 'application/json'],
+    ['service', 'application/json'],
+    ['direct', 'text/event-stream'],
+    ['http', 'text/event-stream'],
+    ['service', 'text/event-stream'],
+  ] as const)(
+    'cancels provider response streams on the %s transport (%s) without serializing the signal',
+    async (transport, contentType) => {
+      vi.resetModules();
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
+      const controller = new AbortController();
+      const request = vi.fn(
+        async (_url: string, init: RequestInit) =>
+          new Response(
+            new ReadableStream({
+              start(stream) {
+                stream.enqueue(new TextEncoder().encode('data: {"a":1}\n\n'));
+                init.signal?.addEventListener('abort', () => stream.error(init.signal!.reason));
+              },
+            }),
+            { headers: { 'content-type': contentType } },
+          ),
+      );
+      vi.stubGlobal('fetch', request);
+      const env =
+        transport === 'direct'
+          ? { AI: makeDirectAi().AI, __VOID_AI_GATEWAY: 'gateway' }
+          : transport === 'service'
+            ? {
+                __VOID_PROXY: { fetch: request },
+                __PROJECT_ID: 'project',
+                __VOID_PROXY_TOKEN: 'token',
+              }
+            : {
+                __VOID_TOKEN: 'token',
+                __VOID_PROJECT_ID: 'project',
+                __VOID_PROXY_URL: 'https://proxy.test',
+              };
+      await envContext.run({ ...env, OPENAI_API_KEY: 'synthetic-provider-key' }, async () => {
+        const response = await ai.provider('openai').fetch('/chat/completions', {
+          body: { messages: [] },
+          signal: controller.signal,
+        });
+        const init = request.mock.calls[0]![1];
+        expect(init.signal).toBe(controller.signal);
+        const payload = JSON.parse(init.body as string);
+        expect(payload).not.toHaveProperty('signal');
+        expect(payload.options).toBeUndefined();
+        const reading = response.text();
+        controller.abort(new Error('provider request cancelled'));
+        await expect(reading).rejects.toThrow('provider request cancelled');
+      });
+    },
+  );
+
+  it('ends a provider SSE stream that fails without a cancellation with a void:error event', async () => {
+    vi.resetModules();
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
+    const controller = new AbortController();
+    let pulls = 0;
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(
+            new ReadableStream({
+              pull(stream) {
+                if (pulls++ === 0) {
+                  stream.enqueue(new TextEncoder().encode('data: {"a":1}\n\n'));
+                } else {
+                  stream.error(new Error('upstream reset'));
+                }
+              },
+            }),
+            { headers: { 'content-type': 'text/event-stream' } },
+          ),
+      ),
+    );
+    const env = {
+      AI: makeDirectAi().AI,
+      __VOID_AI_GATEWAY: 'gateway',
+      OPENAI_API_KEY: 'synthetic-provider-key',
+    };
+    await envContext.run(env, async () => {
+      const response = await ai.provider('openai').fetch('/chat/completions', {
+        body: { messages: [], stream: true },
+        signal: controller.signal,
+      });
+      const text = await response.text();
+      expect(text).toContain('data: {"a":1}');
+      expect(text).toContain('event: void:error');
+    });
+  });
+
   it.each(['http', 'service'] as const)(
     'keeps cancellation on the %s transport instead of serializing it as a binding option',
     async (transport) => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
       const controller = new AbortController();
       const request = vi.fn(async (_url: string, init: RequestInit) => {
         expect(init.signal).toBe(controller.signal);
@@ -72,8 +170,8 @@ describe('runtime ai', () => {
 
   it('rejects missing proxy metadata without sending credentials', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
     const request = vi.fn();
     vi.stubGlobal('fetch', request);
     await envContext.run({ __VOID_TOKEN: 'token', __VOID_PROJECT_ID: 'project' }, async () => {
@@ -88,8 +186,8 @@ describe('runtime ai', () => {
 
   it('explains missing bindings without suggesting Void login for a direct Cloudflare project', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
     await envContext.run({}, async () => {
       await expect(ai.run('@cf/meta/llama', {})).rejects.toThrow(
         'Configure a Workers AI binding (env.AI) for direct Cloudflare development',
@@ -99,8 +197,8 @@ describe('runtime ai', () => {
 
   it('routes Cloudflare provider models through the run endpoint unchanged', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -139,8 +237,8 @@ describe('runtime ai', () => {
 
   it('routes provider-native JSON requests through the provider endpoint', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -193,8 +291,8 @@ describe('runtime ai', () => {
 
   it('returns non-2xx provider responses for service-binding proxy requests', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const proxyFetch = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -236,8 +334,8 @@ describe('runtime ai', () => {
 
   it('supports provider API-key env and header overrides', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -277,8 +375,8 @@ describe('runtime ai', () => {
 
   it('serializes provider-native multipart bodies', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -331,8 +429,8 @@ describe('runtime ai', () => {
 
   it('sends JSON provider bodies unchanged through the proxy', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     const fetchMock = vi.fn(
       async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -361,8 +459,8 @@ describe('runtime ai', () => {
 
   it('returns blobs for non-JSON run responses', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
 
     vi.stubGlobal(
       'fetch',
@@ -398,8 +496,8 @@ describe('runtime ai', () => {
   describe('direct AI backend (self-host, env.AI only)', () => {
     it('selects the direct backend when only env.AI is present (ai.run → directAi.run)', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       // Any accidental fall-through to the Void proxy would hit fetch — assert it doesn't.
       const fetchMock = vi.fn(
@@ -425,8 +523,8 @@ describe('runtime ai', () => {
 
     it('selects a custom binding named by the generated runtime variable', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
       const direct = makeDirectAi();
 
       await envContext.run({ MY_AI: direct.AI, __VOID_AI_BINDING: 'MY_AI' }, async () => {
@@ -442,8 +540,8 @@ describe('runtime ai', () => {
 
     it('provider().fetch hits the user gateway with provider auth and no metering header', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) =>
@@ -493,8 +591,8 @@ describe('runtime ai', () => {
       'sends the provider-native auth header for %s',
       async (provider, keyEnv, header, value, authorization) => {
         vi.resetModules();
-        const { envContext } = await import('../../src/runtime/env-raw.ts');
-        const { ai } = await import('../../src/runtime/ai.ts');
+        const { envContext } = await import('../../src/runtime/env/raw.ts');
+        const { ai } = await import('../../src/runtime/ai/index.ts');
 
         const fetchMock = vi.fn(
           async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -520,8 +618,8 @@ describe('runtime ai', () => {
 
     it('resolves to 501 when no AI gateway is configured', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -546,8 +644,8 @@ describe('runtime ai', () => {
 
     it('resolves to 400 naming the missing provider secret', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -571,8 +669,8 @@ describe('runtime ai', () => {
 
     it('resolves to 502 when the gateway getUrl lookup rejects', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -603,8 +701,8 @@ describe('runtime ai', () => {
 
     it('resolves to 400 for an unsafe absolute provider path', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -631,8 +729,8 @@ describe('runtime ai', () => {
 
     it('forwards a direct multipart/form-data body untouched (fetch sets the boundary)', async () => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
 
       const fetchMock = vi.fn(
         async (_url: string | URL | Request, _init?: RequestInit) => new Response('ok'),
@@ -674,8 +772,8 @@ describe('runtime ai', () => {
 describe('AI usage-limit rejections', () => {
   it('preserves ordinary inference failures', async () => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
     const error = new Error('network failed');
     const direct = makeDirectAi({
       run: () => {
@@ -692,10 +790,10 @@ describe('AI usage-limit rejections', () => {
     async (method) => {
       vi.resetModules();
       const { Hono } = await import('hono');
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
-      const { createHttpRouteHandler } = await import('../../src/runtime/routing.ts');
-      const { createErrorRenderer } = await import('../../src/runtime/routing-errors.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
+      const { createHttpRouteHandler } = await import('../../src/runtime/routing/index.ts');
+      const { createErrorRenderer } = await import('../../src/runtime/routing/errors.ts');
       const direct = makeDirectAi({
         run: () => Response.json({}, { status: 429, headers: { 'Retry-After': '60' } }),
       });
@@ -722,9 +820,9 @@ describe('AI usage-limit rejections', () => {
     'rejects %s quota failures with UsageLimit',
     async (method) => {
       vi.resetModules();
-      const { envContext } = await import('../../src/runtime/env-raw.ts');
-      const { ai } = await import('../../src/runtime/ai.ts');
-      const { UsageLimit } = await import('../../src/runtime/limits.ts');
+      const { envContext } = await import('../../src/runtime/env/raw.ts');
+      const { ai } = await import('../../src/runtime/ai/index.ts');
+      const { UsageLimit } = await import('../../src/runtime/limits/index.ts');
       const fetch = vi.fn(async () =>
         Response.json(
           {
@@ -767,9 +865,9 @@ describe('AI usage-limit rejections', () => {
 
 it('preserves a quota interruption after streaming has started in a terminal event', async () => {
   vi.resetModules();
-  const { envContext } = await import('../../src/runtime/env-raw.ts');
-  const { ai } = await import('../../src/runtime/ai.ts');
-  const { UsageLimit } = await import('../../src/runtime/limits.ts');
+  const { envContext } = await import('../../src/runtime/env/raw.ts');
+  const { ai } = await import('../../src/runtime/ai/index.ts');
+  const { UsageLimit } = await import('../../src/runtime/limits/index.ts');
   const limit = new UsageLimit({ resource: 'ai', reason: 'rate_limit', message: 'Provider limit' });
   const body = new ReadableStream({
     pull(controller) {
@@ -789,8 +887,8 @@ it.each(['run', 'stream', 'image'] as const)(
   'handles native %s quotas before the binding discards the HTTP status',
   async (method) => {
     vi.resetModules();
-    const { envContext } = await import('../../src/runtime/env-raw.ts');
-    const { ai } = await import('../../src/runtime/ai.ts');
+    const { envContext } = await import('../../src/runtime/env/raw.ts');
+    const { ai } = await import('../../src/runtime/ai/index.ts');
     const direct = makeDirectAi({
       run: () =>
         Response.json(
@@ -799,7 +897,7 @@ it.each(['run', 'stream', 'image'] as const)(
         ),
     });
     await envContext.run({ AI: direct.AI }, async () => {
-      const { UsageLimit } = await import('../../src/runtime/limits.ts');
+      const { UsageLimit } = await import('../../src/runtime/limits/index.ts');
       const result = ai[method]('model', {});
       await expect(result).rejects.toBeInstanceOf(UsageLimit);
       await expect(result).rejects.toMatchObject({
@@ -813,8 +911,8 @@ it.each(['run', 'stream', 'image'] as const)(
 
 it('decodes native JSON responses and preserves explicitly requested raw responses', async () => {
   vi.resetModules();
-  const { envContext } = await import('../../src/runtime/env-raw.ts');
-  const { ai } = await import('../../src/runtime/ai.ts');
+  const { envContext } = await import('../../src/runtime/env/raw.ts');
+  const { ai } = await import('../../src/runtime/ai/index.ts');
   const direct = makeDirectAi({ run: () => Response.json({ response: 'hello' }) });
   await envContext.run({ AI: direct.AI }, async () => {
     expect(await ai.run('model', {})).toEqual({ response: 'hello' });

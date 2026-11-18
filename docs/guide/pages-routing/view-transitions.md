@@ -1,4 +1,5 @@
 ---
+description: 'Animate navigation with the View Transition API. Pages cross-fade by default, and CSS customizes the animation.'
 outline: deep
 ---
 
@@ -51,48 +52,32 @@ Override the global setting on individual links:
 ::: code-group
 
 ```tsx [React]
-{
-  /* Disable transition for this link */
-}
 <Link href="/settings" viewTransition={false}>
   Settings
 </Link>;
 
-{
-  /* Enable for just this link (even if globally disabled) */
-}
 <Link href="/about" viewTransition>
   About
 </Link>;
 ```
 
 ```vue [Vue]
-<!-- Disable transition for this link -->
 <Link href="/settings" :view-transition="false">Settings</Link>
 
-<!-- Enable for just this link (even if globally disabled) -->
 <Link href="/about" view-transition>About</Link>
 ```
 
 ```svelte [Svelte]
-<!-- Disable transition for this link -->
 <Link href="/settings" viewTransition={false}>Settings</Link>
 
-<!-- Enable for just this link (even if globally disabled) -->
 <Link href="/about" viewTransition>About</Link>
 ```
 
 ```tsx [Solid]
-{
-  /* Disable transition for this link */
-}
 <Link href="/settings" viewTransition={false}>
   Settings
 </Link>;
 
-{
-  /* Enable for just this link (even if globally disabled) */
-}
 <Link href="/about" viewTransition>
   About
 </Link>;

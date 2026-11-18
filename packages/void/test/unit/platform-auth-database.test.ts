@@ -29,6 +29,43 @@ const config = {
 };
 
 describe('fresh platform authentication database reads', () => {
+  it('restores and verifies a saved Workers VPC origin for a separate owner URL', () => {
+    const selected = {
+      id: resource.id,
+      name: resource.name,
+      database: 'platform',
+      serviceId: 'f537187c-73f7-4ad8-bcb6-38e3e3ac1177',
+      user: 'runtime',
+    };
+    const ownerUrl = 'postgresql://iam_owner@127.0.0.1/platform?sslmode=disable';
+    expect(
+      readPlatformHyperdriveSelection({ externalHyperdriveJson: JSON.stringify(selected) }),
+    ).toEqual(selected);
+    const live = {
+      ...config,
+      origin: {
+        database: 'platform',
+        scheme: 'postgresql' as const,
+        user: selected.user,
+        serviceId: selected.serviceId,
+      },
+    };
+    const recordedHash = verifyExternalPlatformHyperdrive({
+      config: live,
+      databaseUrl: ownerUrl,
+      expected: selected,
+    });
+    expect(recordedHash).toMatch(/^[a-f0-9]{64}$/);
+    expect(() =>
+      verifyExternalPlatformHyperdrive({
+        config: { ...live, origin: { ...live.origin, serviceId: 'different-service' } },
+        databaseUrl: ownerUrl,
+        expected: selected,
+        recordedHash,
+      }),
+    ).toThrow('expected database origin');
+  });
+
   it('rejects incomplete saved Hyperdrive selections without exposing checkpoint contents', () => {
     expect(readPlatformHyperdriveSelection(null)).toBeUndefined();
     for (const externalHyperdriveJson of [

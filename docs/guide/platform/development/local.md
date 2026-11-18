@@ -1,4 +1,5 @@
 ---
+description: 'Clone the repository, install workspace dependencies, and run the platform locally with Vite+.'
 outline: deep
 ---
 
@@ -101,17 +102,15 @@ Run tests for the area you changed while developing:
 
 ```sh
 vp test run platform/packages/api/test/integration/operator-auth.test.ts
-vp run check
+vp check
 ```
 
 Before preparing a release, build the packages and run the complete checks:
 
 ```sh
 vp run build:all
-vp run check
-vp lint
-vp run lint:platform
-vp fmt --check
+vp check
+vp run check:types
 vp test run
 vp run build:docs
 ```

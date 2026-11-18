@@ -20,7 +20,9 @@ Run the source checks before deployment. From the repository root:
 ```sh
 vp run build
 vp run build:platform
-vp run check
+vp check packages platform
+vp run check:sdk
+vp run check:platform
 vp test run
 ```
 
@@ -47,6 +49,20 @@ Consult the workflow files for their current inputs. Store credentials in the
 selected GitHub environment and the deployment owner's secret manager. Keep
 secret-manager locations, account access assignments and credential-issuance
 procedures in that owner's private runbook.
+
+### AI Gateway logging release
+
+The release after 1.8.0 moves project AI logging settings to ROUTING KV; see [design doc 0094](./design-docs/0094-ai-gateway-logging-policy.md). Before its first production deploy, count the saved project settings with a read-only query:
+
+```sql
+SELECT count(*) FROM project_ai_logging;
+```
+
+Expect 0: the 1.8.0 operator route always returned 503 on hosted. If it is not 0, list the rows with `SELECT project_id, mode FROM project_ai_logging ORDER BY project_id;` and, after the API deploy, run `void platform project ai-logging <project-id> <mode> --yes` for each one so the setting is published. Hosted AI works again as soon as the new proxy is live, because a missing key means `inherit`. Also check the `collect_logs` setting of the hosted `void` gateway in Cloudflare: it decides what `inherit` means on Void Cloud.
+
+The production deploy workflow runs these read-only database queries before rolling out any Workers. Inspect its saved-setting count and any rows when monitoring this release. It also reports the gateway's `collect_logs` value when the deployment token has AI Gateway Read permission; otherwise check that setting in Cloudflare.
+
+Never roll the hosted API back to 1.8.x. Its AI logging route returns 503 without `PLATFORM_AUTH_DATABASE_UNCACHED`, which hosted never sets, so every AI call through a 1.8.x proxy and every `project ai-logging` command would fail. `worker rollback-all` from the first release after 1.8.0 selects a 1.8.x API, so roll back single Workers instead. Rolling only the proxy back to 1.8.0 works against the newer API.
 
 ## Hosted Worker Maintenance
 

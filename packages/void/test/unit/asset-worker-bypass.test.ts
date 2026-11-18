@@ -170,6 +170,36 @@ describe('resolveAssetWorkerBypass for output: "static" Pages builds', () => {
     ).toEqual(['/__void', '/__void/*', '/docs/*', '/proxy', '/proxy/*']);
   });
 
+  it('leaves out rules that a wider prefix rule already matches', () => {
+    expect(
+      resolveAssetWorkerBypass(
+        facts({
+          serverPatterns: [
+            '/api/hello',
+            '/api/:name',
+            '/api-docs',
+            '/blog/:slug',
+            '/blog/tags/:tag',
+            '/blog/tags/featured',
+            '/docs/archive',
+            '/docs/:path{.+}',
+            '/proxy/*',
+            '/proxy/health',
+          ],
+        }),
+      )?.runWorkerFirst,
+    ).toEqual([
+      '/__void',
+      '/__void/*',
+      '/api-docs',
+      '/api/*',
+      '/blog/*',
+      '/docs/*',
+      '/proxy',
+      '/proxy/*',
+    ]);
+  });
+
   it.each<[string, Partial<AssetWorkerBypassFacts>, number | null]>([
     ['no hashed files', { immutableFiles: [] }, null],
     ['an empty assetsDir', { assetsDir: '' }, null],
@@ -189,6 +219,17 @@ describe('resolveAssetWorkerBypass for output: "static" Pages builds', () => {
   ])('keeps hashed files on the Worker with %s', (_name, overrides) => {
     expect(
       resolveAssetWorkerBypass(facts({ serverPatterns: ['/products'], ...overrides })),
+    ).toEqual({
+      runWorkerFirst: ['/__void', '/__void/*', '/assets/*', '/products'],
+      headers: null,
+    });
+  });
+
+  it('leaves out a server path that the assets folder rule already matches', () => {
+    expect(
+      resolveAssetWorkerBypass(
+        facts({ serverPatterns: ['/products', '/assets/guide'], immutableFiles: files(101) }),
+      ),
     ).toEqual({
       runWorkerFirst: ['/__void', '/__void/*', '/assets/*', '/products'],
       headers: null,

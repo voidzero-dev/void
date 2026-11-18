@@ -44,6 +44,7 @@ export type PlatformRuntimeManifest = Readonly<{
   appAccessSetup?: 1;
   /** The runtime honours `runtimeLogs: minimal` (PLATFORM_RUNTIME_LOGS). */
   runtimeLogs?: 1;
+  storageLocationHint?: 1;
   /** Durable deployment Queue payload and PostgreSQL operation journal contract. */
   deploymentExecution?: 1;
   authenticationProtocolVersion?: 1;
@@ -106,6 +107,9 @@ export function parsePlatformRuntimeManifest(value: unknown): PlatformRuntimeMan
   }
   if (root.appAccessSetup !== undefined && root.appAccessSetup !== 1) {
     throw new Error('Unsupported app access setup protocol.');
+  }
+  if (root.storageLocationHint !== undefined && root.storageLocationHint !== 1) {
+    throw new Error('Unsupported storage location hint protocol.');
   }
   if (root.runtimeLogs !== undefined && root.runtimeLogs !== 1) {
     throw new Error('Unsupported runtime logs protocol.');
@@ -229,6 +233,7 @@ export function parsePlatformRuntimeManifest(value: unknown): PlatformRuntimeMan
   return {
     artifacts,
     ...(root.appAccessSetup === 1 ? { appAccessSetup: 1 as const } : {}),
+    ...(root.storageLocationHint === 1 ? { storageLocationHint: 1 as const } : {}),
     ...(root.runtimeLogs === 1 ? { runtimeLogs: 1 as const } : {}),
     ...(root.deploymentExecution === 1 ? { deploymentExecution: 1 as const } : {}),
     ...(assets ? { assets } : {}),

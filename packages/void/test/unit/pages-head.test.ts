@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  absolutizeHead,
   resolveHead,
   renderHeadToString,
   renderHtmlAttrs,
@@ -41,6 +42,46 @@ describe('resolveHead', () => {
     const config: HeadConfig = { titleTemplate: '%s | My Site' };
     const middleware: HeadDescriptor = { title: 'Dashboard' };
     expect(resolveHead(config, middleware, undefined)?.title).toBe('Dashboard | My Site');
+  });
+
+  it('middleware titleTemplate wins over config', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | Admin');
+  });
+
+  it('applies middleware titleTemplate without a config template', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(undefined, middleware, page)?.title).toBe('Users | Admin');
+  });
+
+  it('falls back to config titleTemplate when middleware sets none', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { meta: [{ name: 'robots', content: 'noindex' }] };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users | My Site');
+  });
+
+  it('drops the config titleTemplate when middleware sets an empty one', () => {
+    const config: HeadConfig = { titleTemplate: '%s | My Site' };
+    const middleware: HeadConfig = { titleTemplate: '' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(config, middleware, page)?.title).toBe('Users');
+  });
+
+  it('inserts a title containing `$` replacement patterns as written', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    for (const title of ['A $& B', 'Price $` x', "x $' y", 'Tom $$ Jerry', '$1 off']) {
+      expect(resolveHead(undefined, middleware, { title })?.title).toBe(`${title} | Admin`);
+    }
+  });
+
+  it('does not emit titleTemplate in the resolved head', () => {
+    const middleware: HeadConfig = { titleTemplate: '%s | Admin' };
+    const page: HeadDescriptor = { title: 'Users' };
+    expect(resolveHead(undefined, middleware, page)).toEqual({ title: 'Users | Admin' });
   });
 
   it('deduplicates meta by name — page wins', () => {
@@ -120,6 +161,70 @@ describe('resolveHead', () => {
 
   it('returns undefined when layers are defined but empty', () => {
     expect(resolveHead({}, {}, {})).toBeUndefined();
+  });
+});
+
+describe('absolutizeHead', () => {
+  const page = (meta: NonNullable<HeadDescriptor['meta']>): HeadDescriptor => ({ meta });
+
+  it('resolves a root-relative crawler URL against the request', () => {
+    const head = page([{ property: 'og:image', content: '/og-image.jpg' }]);
+    expect(absolutizeHead(head, 'https://app.test/docs/intro')?.meta).toEqual([
+      { property: 'og:image', content: 'https://app.test/og-image.jpg' },
+    ]);
+  });
+
+  it('resolves every meta tag that must be absolute', () => {
+    const keys = [
+      'og:image',
+      'og:image:url',
+      'og:image:secure_url',
+      'og:video',
+      'og:video:url',
+      'og:video:secure_url',
+      'og:audio',
+      'og:audio:url',
+      'og:audio:secure_url',
+      'og:url',
+    ];
+    const head = page(keys.map((property) => ({ property, content: '/shared' })));
+    for (const entry of absolutizeHead(head, 'https://app.test/blog/post')!.meta!) {
+      expect(entry.content).toBe('https://app.test/shared');
+    }
+  });
+
+  it('resolves twitter:image by name', () => {
+    const head = page([{ name: 'twitter:image', content: '/card.png' }]);
+    expect(absolutizeHead(head, 'https://app.test/')?.meta![0]?.content).toBe(
+      'https://app.test/card.png',
+    );
+  });
+
+  it('keeps absolute, protocol-relative and other values as written', () => {
+    const meta: NonNullable<HeadDescriptor['meta']> = [
+      { property: 'og:image', content: 'https://cdn.test/a.png' },
+      { property: 'og:url', content: '//app.test/b' },
+      { name: 'description', content: '/not-a-url' },
+      { property: 'og:title', content: '/still-a-title' },
+    ];
+    const head = page(meta);
+    expect(absolutizeHead(head, 'https://app.test/')).toBe(head);
+  });
+
+  it('returns the input when there is nothing to resolve', () => {
+    expect(absolutizeHead(undefined, 'https://app.test/')).toBeUndefined();
+    const head: HeadDescriptor = { title: 'Home' };
+    expect(absolutizeHead(head, 'https://app.test/')).toBe(head);
+  });
+
+  it('keeps values relative without a request URL, such as during a prerender', () => {
+    const head = page([{ property: 'og:image', content: '/og-image.jpg' }]);
+    expect(absolutizeHead(head, undefined)).toBe(head);
+  });
+
+  it('leaves a malformed value exactly as the app wrote it', () => {
+    const head = page([{ property: 'og:image', content: 'http://' }]);
+    expect(absolutizeHead(head, 'https://app.test/')?.meta).toEqual(head.meta);
   });
 });
 

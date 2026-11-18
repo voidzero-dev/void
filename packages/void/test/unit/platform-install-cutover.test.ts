@@ -254,6 +254,11 @@ async function createFakeCloudflare() {
     createZone: async (): Promise<never> => {
       throw new Error('No zone expected');
     },
+    deleteKvBulk: async (_account: string, namespace: string, keys: ReadonlyArray<string>) => {
+      for (const key of keys) {
+        kv.delete(`${namespace}/${key}`);
+      }
+    },
     deleteKvValue: async (_account: string, namespace: string, key: string) => {
       kv.delete(`${namespace}/${key}`);
     },
@@ -265,12 +270,25 @@ async function createFakeCloudflare() {
       origin: hyperdriveOriginFromConnectionString(DATABASE_URL),
     }),
     getWorkerPlainTextBindings: plainTextBindings,
+    listKvKeys: async (_account: string, namespace: string, prefix: string) =>
+      [...kv.keys()]
+        .filter((key) => key.startsWith(`${namespace}/${prefix}`))
+        .map((key) => ({ name: key.slice(namespace.length + 1) })),
     listWorkerDomains: async () => [],
     listWorkerNames: async () => [...workers.keys()],
     listWorkerRoutes: async () => [],
     listWorkerServiceRoutes: async () => [],
     publishWorkerCustomDomainsSafely: async () => {},
     publishWorkerRoutesSafely: async () => {},
+    putKvBulk: async (
+      _account: string,
+      namespace: string,
+      entries: ReadonlyArray<{ key: string; value: string }>,
+    ) => {
+      for (const entry of entries) {
+        kv.set(`${namespace}/${entry.key}`, entry.value);
+      }
+    },
     putKvValue: async (_account: string, namespace: string, key: string, value: string) => {
       kv.set(`${namespace}/${key}`, value);
     },

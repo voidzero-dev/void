@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -18,6 +19,8 @@ import {
   defineSharedIslandHmrTests,
   defineSharedIslandTests,
 } from '../../../../test/pages-island-contract.ts';
+import { PAGES_PROTOCOL_VERSION } from '../../../edge/src/pages-protocol.ts';
+import { decodePageData, deserializePageData } from '../../../void/src/pages/serialize.ts';
 
 declare global {
   interface Window {
@@ -204,10 +207,70 @@ afterAll(async () => {
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  // Cold dev clients each load the unbundled module graph. Keep that smoke
+  // group serial; the full production contract still runs concurrently.
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
+  describe.concurrent('deferred hydration', () => defineDeferredHydrationTests(getBase));
 }
 
-function defineTransitionAwaitTests(getBase: () => string) {
+function defineDeferredHydrationTests(getBase: () => string) {
+  it('still reports real hydration errors on a page with deferred props', async () => {
+    const page = await browser.newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    try {
+      await page.route('**/deferred', async (route) => {
+        const response = await route.fetch();
+        const html = await response.text();
+        expect(html).toContain('Deferred Page</h1>');
+        await route.fulfill({
+          response,
+          body: html.replace('Deferred Page</h1>', 'Stale server heading</h1>'),
+        });
+      });
+      await page.goto(getBase() + '/deferred');
+      await page.getByTestId('deferred-resolved').waitFor();
+      await page.waitForFunction(
+        () => document.querySelector('h1')?.textContent === 'Deferred Page',
+      );
+      expect(errors.some((error) => /hydration|#418/i.test(error))).toBe(true);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  it('deferred props: useId hydrates without mismatches or recoverable errors', async () => {
+    const page = await browser.newPage();
+    const errors: Array<string> = [];
+    page.on('pageerror', (error) => errors.push(error.message));
+    page.on('console', (message) => {
+      if (message.type() === 'error') {
+        errors.push(message.text());
+      }
+    });
+    try {
+      await page.goto(getBase() + '/deferred');
+      await page.waitForSelector('#app[data-hydrated="true"]');
+      await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
+      await page.waitForFunction(
+        () =>
+          document.querySelector<HTMLElement>('[data-testid="deferred-title"]')?.dataset.clientId,
+      );
+
+      const ids = await page.evaluate(() => {
+        const title = document.querySelector<HTMLElement>('[data-testid="deferred-title"]')!;
+        return { server: title.id, client: title.dataset.clientId };
+      });
+      expect(ids.server).toBe(ids.client);
+      expect(errors).toEqual([]);
+    } finally {
+      await page.context().close();
+    }
+  });
+}
+
+function defineTransitionAwaitTests(getBase: () => string, serverOutput: () => string = () => '') {
   describe.concurrent('React action completion', { retry: 0 }, () => {
     const cases = ['transition', 'form-action', 'action-state', 'plain', 'use-form'] as const;
 
@@ -217,6 +280,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
         async (mode, { expect }) => {
           const context = await browser.newContext();
           const page = await context.newPage();
+          const diagnostics = collectBrowserDiagnostics(page);
           const errors: Array<string> = [];
           page.on('pageerror', (error) => errors.push(error.message));
           let releaseResponse!: () => void;
@@ -225,7 +289,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           });
           try {
             const url = `${getBase()}/transition-await`;
-            await page.goto(url);
+            const documentResponse = await page.goto(url);
+            expect(documentResponse?.status()).toBe(200);
             await page.waitForSelector('#app[data-hydrated="true"]');
             await page.getByTestId('operation').selectOption(operation);
             await page.route('**/transition-await*', async (route) => {
@@ -249,7 +314,9 @@ function defineTransitionAwaitTests(getBase: () => string) {
               })(),
             ]);
             expect(response.status()).toBe(200);
-            expect((await response.json()).props.revision).toBe('updated');
+            expect(
+              decodePageData<{ props: { revision: string } }>(await response.json()).props.revision,
+            ).toBe('updated');
             await expect
               .poll(() => page.getByTestId('completed').textContent(), { timeout: 2000 })
               .toBe('complete');
@@ -257,6 +324,10 @@ function defineTransitionAwaitTests(getBase: () => string) {
             await expect.poll(() => button.textContent()).toBe('run');
             expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
             expect(errors).toEqual([]);
+          } catch (error) {
+            throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, {
+              cause: error,
+            });
           } finally {
             releaseResponse();
             await context.close();
@@ -268,6 +339,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
     it.for(cases)('action resolves when awaited from %s', async (mode, { expect }) => {
       const context = await browser.newContext();
       const page = await context.newPage();
+      const diagnostics = collectBrowserDiagnostics(page);
       const errors: Array<string> = [];
       page.on('pageerror', (error) => errors.push(error.message));
       let releaseResponse!: () => void;
@@ -276,7 +348,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
       });
 
       try {
-        await page.goto(`${getBase()}/transition-await`);
+        const documentResponse = await page.goto(`${getBase()}/transition-await`);
+        expect(documentResponse?.status()).toBe(200);
         await page.waitForSelector('#app[data-hydrated="true"]');
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('initial');
         await page.route('**/transition-await*', async (route) => {
@@ -297,7 +370,9 @@ function defineTransitionAwaitTests(getBase: () => string) {
           })(),
         ]);
         expect(response.status()).toBe(200);
-        expect((await response.json()).props.revision).toBe('updated');
+        expect(
+          decodePageData<{ props: { revision: string } }>(await response.json()).props.revision,
+        ).toBe('updated');
 
         // The server has finished. Awaiting its result must not keep React's
         // Action pending forever or prevent the new page from committing.
@@ -307,6 +382,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         await expect.poll(() => page.getByTestId('revision').textContent()).toBe('updated');
         await expect.poll(() => button.textContent()).toBe('run');
         expect(errors).toEqual([]);
+      } catch (error) {
+        throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
       } finally {
         releaseResponse();
         await context.close();
@@ -318,6 +395,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
       async (operation, { expect }) => {
         const context = await browser.newContext();
         const page = await context.newPage();
+        const diagnostics = collectBrowserDiagnostics(page);
         const errors: Array<string> = [];
         page.on('pageerror', (error) => errors.push(error.message));
         let releaseResponse!: () => void;
@@ -326,7 +404,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
         });
         try {
           const url = `${getBase()}/transition-await`;
-          await page.goto(url);
+          const documentResponse = await page.goto(url);
+          expect(documentResponse?.status()).toBe(200);
           await page.waitForSelector('#app[data-hydrated="true"]');
           await page.getByTestId('operation').selectOption(operation);
           const method = operation === 'action' ? 'POST' : 'GET';
@@ -377,6 +456,8 @@ function defineTransitionAwaitTests(getBase: () => string) {
           await expect.poll(() => button.textContent()).toBe('run');
           expect(page.url()).toBe(operation === 'visit' ? `${url}?visited=1` : url);
           expect(errors).toEqual([]);
+        } catch (error) {
+          throw new Error(`${diagnostics()}\nServer output:\n${serverOutput()}`, { cause: error });
         } finally {
           releaseResponse();
           await context.close();
@@ -387,6 +468,7 @@ function defineTransitionAwaitTests(getBase: () => string) {
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -401,11 +483,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('hydrates without React errors', async () => {
@@ -649,30 +737,9 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
 
       const text = await page.textContent('[data-testid="deferred-resolved"]');
-      expect(text).toBe('Count: 42');
+      expect(text).toContain('Count: 42');
       expect(await page.evaluate(() => window.__SPA_MARKER)).toBe(true);
       expect(page.url()).toBe(BASE + '/deferred');
-    } finally {
-      await page.context().close();
-    }
-  });
-
-  it('deferred props: useId hydrates without mismatches', async () => {
-    const page = await newPage();
-    try {
-      await page.goto(BASE + '/deferred');
-      await waitForHydration(page);
-      await page.waitForFunction(() => document.querySelector('[data-testid="deferred-resolved"]'));
-      await page.waitForFunction(
-        () =>
-          document.querySelector<HTMLElement>('[data-testid="deferred-title"]')?.dataset.clientId,
-      );
-
-      const ids = await page.evaluate(() => {
-        const title = document.querySelector<HTMLElement>('[data-testid="deferred-title"]')!;
-        return { server: title.id, client: title.dataset.clientId };
-      });
-      expect(ids.server).toBe(ids.client);
     } finally {
       await page.context().close();
     }
@@ -700,6 +767,18 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
       await page.waitForFunction(() =>
         document.querySelector('h1')?.textContent?.includes('Users'),
       );
+      await page.goBack();
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Welcome'),
+      );
+      expect(await page.title()).toBe('Home | React Pages Demo');
+
+      await page.click('a[href="/deferred"]');
+      await page.waitForFunction(() =>
+        document.querySelector('h1')?.textContent?.includes('Deferred'),
+      );
+      expect(await page.title()).toBe('');
+
       await page.goBack();
       await page.waitForFunction(() =>
         document.querySelector('h1')?.textContent?.includes('Welcome'),
@@ -907,6 +986,7 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
 describe('react-pages client (dev)', () => {
   let child: ChildProcess | undefined;
   let stderr = '';
+  let serverOutput = () => '';
   let originalLayout: string | undefined;
   const coldStartResponses: Array<{ path: string; status: number; body: string }> = [];
 
@@ -927,6 +1007,7 @@ describe('react-pages client (dev)', () => {
         return child;
       }, serverTimeout);
       DEV_BASE = server.base;
+      serverOutput = server.output;
       const paths = ['/', '/users', '/action-error', '/router-params/alpha', '/visit-await'];
       coldStartResponses.push(
         ...(await Promise.all(
@@ -1028,11 +1109,11 @@ describe('react-pages client (dev)', () => {
     expect(userHtml).toContain('<meta property="og:title" content="Alice">');
 
     const inertiaRoot = await fetch(`${DEV_BASE}/`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaRoot.status).toBe(200);
     expect(inertiaRoot.headers.get('X-VoidPages')).toBe('true');
-    const rootPage = (await inertiaRoot.json()) as {
+    const rootPage = decodePageData(await inertiaRoot.json()) as {
       component: string;
       props: Record<string, unknown>;
       shared: Record<string, unknown>;
@@ -1052,10 +1133,10 @@ describe('react-pages client (dev)', () => {
     );
 
     const inertiaUsers = await fetch(`${DEV_BASE}/users`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUsers.status).toBe(200);
-    const usersPage = (await inertiaUsers.json()) as {
+    const usersPage = decodePageData(await inertiaUsers.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
     };
@@ -1070,11 +1151,15 @@ describe('react-pages client (dev)', () => {
 
     const postValid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: 'Charlie', email: 'charlie@example.com' }),
     });
     expect(postValid.status).toBe(200);
-    const validPage = (await postValid.json()) as {
+    const validPage = decodePageData(await postValid.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
@@ -1085,11 +1170,15 @@ describe('react-pages client (dev)', () => {
 
     const postInvalid = await fetch(`${DEV_BASE}/users`, {
       method: 'POST',
-      headers: { 'X-VoidPages': 'true', 'Content-Type': 'application/json' },
+      headers: {
+        'X-VoidPages': 'true',
+        'X-VoidPages-Version': PAGES_PROTOCOL_VERSION,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({ name: '', email: '' }),
     });
     expect(postInvalid.status).toBe(200);
-    const invalidPage = (await postInvalid.json()) as {
+    const invalidPage = decodePageData(await postInvalid.json()) as {
       component: string;
       props: { users: ReadonlyArray<{ id: number; name: string }> };
       errors: Record<string, string> | null;
@@ -1100,10 +1189,10 @@ describe('react-pages client (dev)', () => {
     expect(invalidPage.props.users.length).toBeGreaterThanOrEqual(2);
 
     const inertiaUser = await fetch(`${DEV_BASE}/users/1`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaUser.status).toBe(200);
-    const userPage = (await inertiaUser.json()) as {
+    const userPage = decodePageData(await inertiaUser.json()) as {
       component: string;
       props: { user: { id: number; name: string; email: string } };
       head: PageHead;
@@ -1113,10 +1202,10 @@ describe('react-pages client (dev)', () => {
     expect(userPage.head.title).toBe('Alice | React Pages Demo');
 
     const inertiaCharlie = await fetch(`${DEV_BASE}/users/3`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaCharlie.status).toBe(200);
-    const charliePage = (await inertiaCharlie.json()) as {
+    const charliePage = decodePageData(await inertiaCharlie.json()) as {
       component: string;
       props: { user: { id: number; name: string; email: string } };
     };
@@ -1125,7 +1214,7 @@ describe('react-pages client (dev)', () => {
     expect(charliePage.props.user.email).toBe('charlie@example.com');
 
     const inertiaBlog = await fetch(`${DEV_BASE}/blog`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(inertiaBlog.status).toBe(200);
     expect(inertiaBlog.headers.get('content-type')).toContain('text/html');
@@ -1153,28 +1242,42 @@ describe('react-pages client (dev)', () => {
     expect(validBlog.success).toBe(true);
 
     const deferredInertia = await fetch(`${DEV_BASE}/deferred`, {
-      headers: { 'X-VoidPages': 'true' },
+      headers: { 'X-VoidPages': 'true', 'X-VoidPages-Version': PAGES_PROTOCOL_VERSION },
     });
     expect(deferredInertia.headers.get('content-type')).toContain('application/x-ndjson');
     const ndjsonText = await deferredInertia.text();
     const ndjsonLines = ndjsonText.trim().split('\n');
     expect(ndjsonLines.length).toBe(2);
-    const pageObj = JSON.parse(ndjsonLines[0]);
+    const pageObj = deserializePageData<{
+      component: string;
+      props: { title: string };
+      deferredKeys: Record<string, string>;
+      __deferred: string;
+      data: unknown;
+    }>(ndjsonLines[0]);
     expect(pageObj.component).toBe('deferred');
     expect(pageObj.props.title).toBe('Deferred Page');
     expect(pageObj.deferredKeys).toEqual({ stats: 'stats' });
-    const deferredLine = JSON.parse(ndjsonLines[1]);
+    const deferredLine = deserializePageData<{
+      component: string;
+      props: { title: string };
+      deferredKeys: Record<string, string>;
+      __deferred: string;
+      data: unknown;
+    }>(ndjsonLines[1]);
     expect(deferredLine.__deferred).toBe('stats');
-    expect(deferredLine.data).toEqual({ count: 42 });
+    expect(deferredLine.data).toEqual({ count: 42, date: new Date('2026-11-08T00:00:00Z') });
 
     const deferredHtml = await (await fetch(`${DEV_BASE}/deferred`)).text();
     expect(deferredHtml).toContain('Deferred Page');
-    expect(deferredHtml).not.toContain('Switched to client rendering');
-    expect(deferredHtml).not.toContain('server rendering aborted');
+    expect(deferredHtml).toContain('VOID_DEFERRED_SHELL');
   });
 
   defineClientTests(() => DEV_BASE, 'smoke');
-  defineTransitionAwaitTests(() => DEV_BASE);
+  defineTransitionAwaitTests(
+    () => DEV_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => DEV_BASE,
     () => browser,
@@ -1227,6 +1330,7 @@ describe('react-pages client (dev)', () => {
 
 describe('react-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
+  let serverOutput = () => '';
 
   beforeAll(async () => {
     if (!existsSync(join(ROOT, 'playground/react-pages/dist'))) {
@@ -1241,6 +1345,7 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
       30_000,
     );
     PREVIEW_BASE = server.base;
+    serverOutput = server.output;
   });
 
   afterAll(async () => {
@@ -1250,7 +1355,10 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   });
 
   defineClientTests(() => PREVIEW_BASE);
-  defineTransitionAwaitTests(() => PREVIEW_BASE);
+  defineTransitionAwaitTests(
+    () => PREVIEW_BASE,
+    () => serverOutput(),
+  );
   defineSharedIslandTests(
     () => PREVIEW_BASE,
     () => browser,

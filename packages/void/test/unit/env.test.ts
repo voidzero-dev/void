@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getRuntimeBinding, getRuntimeEnv, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { getRuntimeBinding, getRuntimeEnv, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 const globalScope = globalThis as {
   __env__?: unknown;
@@ -41,9 +41,9 @@ describe('runtime env resolution', () => {
   // dependency optimizer reload evaluates them again while a request is in flight.
   it('shares the request env and scope with another copy of the env module', async () => {
     vi.resetModules();
-    const first = await import('../../src/runtime/env.ts');
+    const first = await import('../../src/runtime/env/runtime.ts');
     vi.resetModules();
-    const second = await import('../../src/runtime/env.ts');
+    const second = await import('../../src/runtime/env/runtime.ts');
     expect(second.withRuntimeEnv).not.toBe(first.withRuntimeEnv);
 
     const key = {};

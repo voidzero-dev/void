@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'pathslash';
+import vitePlus from 'vite-plus/package.json' with { type: 'json' };
 import { renderVoidConfig } from '../config-write.ts';
 import { getPackageDir } from './agents.ts';
 import starterStyles from './starter-ui.css?raw';
@@ -13,7 +14,6 @@ export const SCAFFOLD_GITIGNORE_LINES = [
   '.void-wrangler.jsonc',
   '.env',
   '.env.*',
-  '!.env.example',
   '*.tsbuildinfo',
   '.DS_Store',
 ] as const;
@@ -31,10 +31,12 @@ export const SCAFFOLD_BASE_DEV_DEPENDENCIES = {
   typescript: '^7.0.2',
 } as const;
 
-export const SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES = {
-  vite: 'npm:@voidzero-dev/vite-plus-core@^1.4.0',
-  'vite-plus': '^1.4.0',
-} as const;
+// Bundle the tested release's metadata into the CLI: Vite+ and its core must
+// upgrade together, and their version numbers need not match.
+export const SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES: Readonly<Record<'vite' | 'vite-plus', string>> = {
+  vite: vitePlus.dependencies.vite,
+  'vite-plus': vitePlus.version,
+};
 
 export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
   {
@@ -50,7 +52,7 @@ export const SCAFFOLD_TOOLCHAIN_OPTIONS = [
 ] as const;
 
 const REACT_SCAFFOLD_COMPILER_DEV_DEPENDENCIES = {
-  'oxc-transform-react': '^0.152.0',
+  'oxc-transform-react': '>=0.152.0 <0.157.0',
 } as const;
 
 export const SCAFFOLD_FRAMEWORK_OPTIONS = [

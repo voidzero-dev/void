@@ -1,76 +1,33 @@
-import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
-import { createServer, request as httpRequest, type Server } from 'node:http';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { createServer, request as httpRequest } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
-import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { pathToFileURL } from 'node:url';
-import type { CloudflareOperation } from '@void/deploy-cloudflare';
-import { afterEach, expect, it } from 'vite-plus/test';
+import { expect, it } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
 import {
-  decodeCloudflareOperationResult,
-  encodeCloudflareOperation,
-} from '../../src/cli/cloudflare-process.ts';
+  executeCloudflareD1Sql,
+  importCloudflareD1Sql,
+  resolveCloudflareD1Context,
+} from '../../src/cli/cloudflare-operations.ts';
+import { decodeCloudflareOperationResult } from '../../src/cli/cloudflare-process.ts';
 import { Buffer } from '../../src/cli/node-buffer.ts';
-import { resolveCloudflareOperationArgv } from '../../src/cli/preset.ts';
+import {
+  cleanups,
+  listen,
+  runOperation,
+  systemEnv,
+  temporaryDirectory,
+  tokenEnv,
+} from '../helpers/cloudflare-operation-process.ts';
 
 const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   .version as string;
 const cfVersion = JSON.parse(readFileSync(new URL(import.meta.resolve('cf/package.json')), 'utf8'))
   .version as string;
-
-const cleanups: Array<() => unknown> = [];
-afterEach(async () => {
-  for (const cleanup of cleanups.splice(0).reverse()) {
-    await cleanup();
-  }
-});
-
-function temporaryDirectory(prefix: string): string {
-  const directory = mkdtempSync(join(tmpdir(), prefix));
-  cleanups.push(() => rmSync(directory, { recursive: true, force: true }));
-  return directory;
-}
-
-/** Serve on a random local port until the test ends and return the origin. */
-async function listen(server: Server): Promise<string> {
-  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
-  cleanups.push(
-    () =>
-      new Promise<void>((resolve) => {
-        server.close(() => resolve());
-        server.closeAllConnections();
-      }),
-  );
-  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
-}
-
-// Children get only what Node needs, so host credentials cannot leak into a test.
-const systemEnv = {
-  PATH: process.env.PATH,
-  SYSTEMROOT: process.env.SYSTEMROOT,
-  WINDIR: process.env.WINDIR,
-  TMP: process.env.TMP,
-  TEMP: process.env.TEMP,
-};
-
-function tokenEnv(
-  api?: string,
-  token: 'CLOUDFLARE_API_TOKEN' | 'CF_API_TOKEN' = 'CLOUDFLARE_API_TOKEN',
-): NodeJS.ProcessEnv {
-  return {
-    ...systemEnv,
-    CI: 'true',
-    [token]: 'synthetic-token',
-    CLOUDFLARE_ACCOUNT_ID: 'test-account',
-    ...(api ? { CLOUDFLARE_API_BASE_URL: `${api}/client/v4` } : {}),
-  };
-}
 
 function unproxiedEnv(api: string): NodeJS.ProcessEnv {
   return {
@@ -85,25 +42,58 @@ function unproxiedEnv(api: string): NodeJS.ProcessEnv {
   };
 }
 
-/** Run the operation process the CLI spawns; `preload` is imported first to stub cf. */
-function runOperation(
-  cwd: string,
-  request: CloudflareOperation | Array<string>,
-  env: NodeJS.ProcessEnv,
-  preload?: string,
-): Promise<{ status: number; stdout: string; stderr: string }> {
-  const [command, ...prefix] = resolveCloudflareOperationArgv();
-  const args = Array.isArray(request) ? request : encodeCloudflareOperation(request);
-  return new Promise((resolve) => {
-    execFile(
-      command!,
-      [...(preload ? ['--import', pathToFileURL(preload).href] : []), ...prefix, ...args],
-      { cwd, encoding: 'utf8', timeout: 20_000, maxBuffer: 128 * 1024 * 1024, env },
-      (error, stdout, stderr) =>
-        resolve({ status: error ? Number(error.code) || 1 : 0, stdout, stderr }),
+it.each(['apac', undefined] as const)(
+  'creates R2 buckets with location hint %s through installed cf',
+  async (locationHint) => {
+    const directory = temporaryDirectory('void-cf-r2-location-');
+    const configPath = join(directory, 'wrangler.json');
+    writeFileSync(configPath, JSON.stringify({ name: 'test-worker', account_id: 'test-account' }));
+    const requests: Array<{ path: string; body: Record<string, unknown> }> = [];
+    const api = await listen(
+      createServer(async (request, response) => {
+        const chunks: Array<Buffer> = [];
+        for await (const chunk of request) {
+          chunks.push(Buffer.from(chunk));
+        }
+        requests.push({
+          path: request.url ?? '',
+          body: JSON.parse(Buffer.concat(chunks).toString()),
+        });
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        response.end(
+          JSON.stringify({ success: true, errors: [], result: { name: 'test-storage' } }),
+        );
+      }),
     );
-  });
-}
+    const result = await runOperation(
+      directory,
+      {
+        type: 'r2.bucket.create',
+        name: 'test-storage',
+        binding: 'STORAGE',
+        configPath,
+        locationHint,
+      },
+      tokenEnv(api),
+    );
+    expect(result.status, result.stderr).toBe(0);
+    expect(requests).toEqual([
+      {
+        path: '/client/v4/accounts/test-account/r2/buckets',
+        body: expect.objectContaining({
+          name: 'test-storage',
+          ...(locationHint ? { locationHint } : {}),
+        }),
+      },
+    ]);
+    if (!locationHint) {
+      expect(requests[0]!.body).not.toHaveProperty('locationHint');
+    }
+    expect(JSON.parse(readFileSync(configPath, 'utf8')).r2_buckets).toEqual([
+      { binding: 'STORAGE', bucket_name: 'test-storage' },
+    ]);
+  },
+);
 
 it.each([
   { observability: { enabled: true } },
@@ -848,7 +838,7 @@ it('uses pinned cf despite a project-local CLI and preserves D1 results and the 
   ]);
 }, 30_000);
 
-it('sends D1 SQL that starts with a comment as one --sql value through the pinned cf', async () => {
+it('sends D1 SQL that starts with a comment through the pinned cf', async () => {
   const directory = temporaryDirectory('void-cf-d1-comment-sql-');
   const bodies: Array<unknown> = [];
   const api = await listen(
@@ -885,6 +875,140 @@ it('sends D1 SQL that starts with a comment as one --sql value through the pinne
   );
   expect(output.status, output.stderr).toBe(0);
   expect(bodies).toEqual([{ sql }]);
+}, 30_000);
+
+it('sends a CRLF D1 SQL file to the query API with LF outside quoted values', async () => {
+  const directory = temporaryDirectory('void-cf-d1-crlf-sql-');
+  const bodies: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      bodies.push(JSON.parse(body));
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ success: true, result: [{ results: [], success: true }] }));
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const file = join(directory, 'trigger.sql');
+  writeFileSync(
+    file,
+    "CREATE TRIGGER trg BEFORE DELETE ON probe_z\r\nBEGIN\r\n  SELECT RAISE(ABORT, 'no\r\nchange');\r\nEND;\r\n",
+  );
+  const output = await runOperation(
+    directory,
+    { type: 'd1.execute', database: 'DB', file, configPath },
+    tokenEnv(api),
+  );
+  expect(output.status, output.stderr).toBe(0);
+  expect(bodies).toEqual([
+    {
+      sql: "CREATE TRIGGER trg BEFORE DELETE ON probe_z\nBEGIN\n  SELECT RAISE(ABORT, 'no\r\nchange');\nEND;\n",
+    },
+  ]);
+}, 30_000);
+
+it('preserves rows from large D1 queries without importing or exceeding argv limits', async () => {
+  const directory = temporaryDirectory('void-cf-d1-large-query-');
+  const sql = '/*' + 'synthetic comment '.repeat(150_000) + '*/ SELECT 42 AS answer;';
+  const requests: Array<{ url: string | undefined; body: unknown }> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      requests.push({ url: request.url, body: JSON.parse(body) });
+      response.setHeader('Content-Type', 'application/json');
+      response.end(
+        JSON.stringify({ success: true, result: [{ success: true, results: [{ answer: 42 }] }] }),
+      );
+    }),
+  );
+  writeFileSync(
+    join(directory, 'wrangler.json'),
+    JSON.stringify({
+      name: 'test-worker',
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const context = resolveCloudflareD1Context(directory, 'DB', async (operation) =>
+    decodeCloudflareOperationResult(await runOperation(directory, operation, tokenEnv(api))),
+  );
+  await expect(executeCloudflareD1Sql(context, sql)).resolves.toEqual([{ answer: 42 }]);
+  expect(requests).toEqual([
+    { url: '/client/v4/accounts/test-account/d1/database/test-database/query', body: { sql } },
+  ]);
+}, 30_000);
+
+it('imports large D1 SQL without putting its contents in process arguments', async () => {
+  const directory = temporaryDirectory('void-cf-d1-large-sql-');
+  const sql = "INSERT INTO messages (text) VALUES ('" + 'synthetic data '.repeat(40) + "');\n";
+  const contents = sql.repeat(4096);
+  const etag = createHash('md5').update(contents).digest('hex');
+  let uploaded = '';
+  let uploadAuthorization: string | undefined;
+  const upload = await listen(
+    createServer(async (request, response) => {
+      uploadAuthorization = request.headers.authorization;
+      for await (const chunk of request) {
+        uploaded += chunk;
+      }
+      response.setHeader('etag', '"' + etag + '"');
+      response.end();
+    }),
+  );
+  const requests: Array<unknown> = [];
+  const api = await listen(
+    createServer(async (request, response) => {
+      expect(request.url).toBe('/client/v4/accounts/test-account/d1/database/test-database/import');
+      expect(request.headers.authorization).toBe('Bearer synthetic-token');
+      let body = '';
+      for await (const chunk of request) {
+        body += chunk;
+      }
+      const input = JSON.parse(body);
+      requests.push(input);
+      const result =
+        input.action === 'init'
+          ? { filename: 'upload.sql', upload_url: upload + '/upload' }
+          : input.action === 'ingest'
+            ? { success: true, at_bookmark: 'import-bookmark', status: 'active' }
+            : { success: true, status: 'complete', result: { num_queries: 4096 } };
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ success: true, result }));
+    }),
+  );
+  const configPath = join(directory, 'wrangler.json');
+  writeFileSync(
+    configPath,
+    JSON.stringify({
+      name: 'test-worker',
+      account_id: 'test-account',
+      d1_databases: [{ binding: 'DB', database_id: 'test-database' }],
+    }),
+  );
+  const context = resolveCloudflareD1Context(directory, 'DB', async (operation) =>
+    decodeCloudflareOperationResult(await runOperation(directory, operation, tokenEnv(api))),
+  );
+  await expect(importCloudflareD1Sql(context, contents)).resolves.toBeUndefined();
+  expect(uploaded).toBe(contents);
+  expect(uploadAuthorization).toBeUndefined();
+  expect(requests).toEqual([
+    { action: 'init', etag },
+    { action: 'ingest', etag, filename: 'upload.sql' },
+    { action: 'poll', current_bookmark: 'import-bookmark' },
+  ]);
 }, 30_000);
 
 it('uses the configured HTTP proxy for cf resource requests', async () => {

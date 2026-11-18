@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   existsSync,
   mkdtempSync,
   mkdirSync,
@@ -10,8 +11,10 @@ import {
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { InitReport } from '../../src/cli/init-report.ts';
 import {
   detectProjectState,
   ensureVoidWorkerCompatibilityDate,
@@ -26,6 +29,7 @@ import {
 } from '../../src/cli/init.ts';
 import { savePlatformConnection } from '../../src/cli/platform-registry.ts';
 import { readDeploymentPlatform } from '../../src/cli/project.ts';
+import { SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES } from '../../src/cli/template.ts';
 import { LATEST_KNOWN_COMPAT_DATE } from '../../src/cli/wrangler.ts';
 import { buildDrizzleKitSpawnEnv } from '../../src/cli/yarn-pnp.ts';
 import { readConfig } from '../../src/config.ts';
@@ -38,6 +42,8 @@ const mockNote = vi.fn();
 const mockOutro = vi.fn();
 const mockLogWarn = vi.fn();
 const mockLogInfo = vi.fn();
+const mockLogStep = vi.fn();
+const mockLogMessage = vi.fn();
 const mockGetToken = vi.fn();
 const mockGetApiUrl = vi.fn();
 const mockRunLogin = vi.fn();
@@ -53,7 +59,7 @@ it('pins compatibility date in the lock without rewriting authored TypeScript', 
     "import { defineConfig } from 'void/config';\nexport default defineConfig({ remote: process.env.REMOTE === '1' });\n";
   try {
     writeFileSync(join(root, 'void.config.ts'), source);
-    ensureVoidWorkerCompatibilityDate(root);
+    ensureVoidWorkerCompatibilityDate(root, new InitReport());
     expect(readFileSync(join(root, 'void.config.ts'), 'utf8')).toBe(source);
     const lock = JSON.parse(readFileSync(join(root, 'void.lock.json'), 'utf8'));
     expect(lock.resolved.compatibility_date).toBe(LATEST_KNOWN_COMPAT_DATE);
@@ -219,6 +225,406 @@ describe('init scaffold arguments', () => {
   });
 });
 
+describe('init question order', () => {
+  const DEPLOY_PROMPT = 'Where should this project deploy?';
+  const answers: Record<string, unknown> = {
+    'Choose a Pages scaffold toolchain:': 'vite',
+    'Choose a Pages framework to scaffold:': 'react',
+    'Choose a Pages starter:': 'static',
+    'Choose a database setup for this project:': 'none',
+    [DEPLOY_PROMPT]: 'none',
+  };
+
+  it('asks where a new starter deploys before writing its files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-'));
+    let entriesAtDeployPrompt: Array<string> | undefined;
+    try {
+      mockSelect.mockImplementation((options: { message: string }) => {
+        if (options.message === DEPLOY_PROMPT) {
+          entriesAtDeployPrompt = readdirSync(root);
+        }
+        return answers[options.message];
+      });
+
+      await runInitCommand(root);
+
+      expect(entriesAtDeployPrompt).toEqual([]);
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      expect(readDeploymentPlatform(root)).toBe('none');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('leaves the folder empty when the deployment question is cancelled', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-cancel-'));
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('Cancelled');
+    });
+    try {
+      mockSelect.mockImplementation((options: { message: string }) =>
+        options.message === DEPLOY_PROMPT ? Symbol.for('cancel') : answers[options.message],
+      );
+
+      await expect(runInitCommand(root)).rejects.toThrow('Cancelled');
+
+      expect(exit).toHaveBeenCalledWith(0);
+      expect(readdirSync(root)).toEqual([]);
+    } finally {
+      exit.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['an empty folder', 'Empty project detected. Creating a Pages starter.', false],
+    ['an existing app', 'Existing project detected. Configuring Void.', true],
+  ])('says what it does in %s before asking about Git', async (_name, message, existing) => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-order-git-'));
+    // Outside CI, init asks whether to initialize Git.
+    delete process.env.CI;
+    try {
+      if (existing) {
+        writeExistingViteApp(root, { void: '^0.0.1' });
+      }
+      mockSelect.mockImplementation((options: { message: string }) => answers[options.message]);
+      mockConfirm.mockResolvedValue(false);
+
+      await runInitCommand(root);
+
+      const infoIndex = mockLogInfo.mock.calls.findIndex(([text]) => text === message);
+      const gitIndex = mockConfirm.mock.calls.findIndex(
+        ([options]) => options?.message === 'Initialize a git repository?',
+      );
+      expect(infoIndex).not.toBe(-1);
+      expect(gitIndex).not.toBe(-1);
+      expect(mockLogInfo.mock.invocationCallOrder[infoIndex]).toBeLessThan(
+        mockConfirm.mock.invocationCallOrder[gitIndex]!,
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('init summary', () => {
+  const STARTER_FLAGS = [
+    '--toolchain',
+    'vite',
+    '--framework',
+    'react',
+    '--starter',
+    'sqlite',
+    '--deploy',
+    'none',
+  ];
+
+  it('describes a new starter in one line instead of listing its files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-starter-'));
+    // The user's shell is in the project, so the Git command needs no -C.
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+    try {
+      mkdirSync(join(root, '.claude'));
+
+      await runInitCommand(root, parseInitArgs(['--git', ...STARTER_FLAGS]));
+
+      expect(existsSync(join(root, 'pages', 'index.tsx'))).toBe(true);
+      const fileSteps = mockLogStep.mock.calls.filter(([text]) =>
+        /^(Created|Updated|Pinned) /.test(String(text)),
+      );
+      expect(fileSteps).toEqual([]);
+      expect(summaryMessages('✓')).toEqual([
+        'Created a React Pages starter with D1 (SQLite)',
+        'Linked Void skills for Claude Code',
+      ]);
+      expect(summaryMessages('→')).toEqual([
+        'Git (optional): git add -A && git commit -m "chore: initial commit"',
+      ]);
+      // The summary comes last, right before the success line.
+      const [lastSummary] = mockLogMessage.mock.invocationCallOrder.slice(-1);
+      expect(lastSummary).toBeLessThan(mockOutro.mock.invocationCallOrder[0]!);
+      expect(mockLogStep.mock.invocationCallOrder.every((order) => order < lastSummary!)).toBe(
+        true,
+      );
+    } finally {
+      cwd.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the files it created and changed in an existing project', async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), 'void-init-summary-existing-')));
+    try {
+      writeExistingViteApp(root);
+      writeFileSync(
+        join(root, 'vite.config.ts'),
+        'import { defineConfig } from "vite";\n\nexport default defineConfig({\n  plugins: [],\n});\n',
+      );
+      writeFileSync(join(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true } }\n');
+      mkdirSync(join(root, '.claude'));
+      mockSelect.mockResolvedValue('none');
+      mockConfirm.mockResolvedValue(false);
+
+      await runInitCommand(root);
+
+      expect(summaryMessages('✓')).toEqual([
+        [
+          'Configured Void',
+          '+ .gitignore',
+          '+ void.config.ts',
+          '~ package.json    added void and dev/build scripts',
+          '~ vite.config.ts  added voidPlugin()',
+          '~ tsconfig.json   extends .void/tsconfig.json, added void/env to types',
+        ],
+        'Linked Void skills for Claude Code',
+      ]);
+      expect(summaryMessages('→')).toEqual([]);
+
+      mockLogMessage.mockClear();
+      await runInitCommand(root);
+
+      // The skills are already linked, too.
+      expect(summaryMessages('✓')).toEqual(['Void is already set up. No files changed.']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    ['installed', true],
+    ['not installed', false],
+  ])(
+    'asks for an install after removing a dependency when void is %s',
+    async (_name, voidInstalled) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-summary-lockfile-'));
+      const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
+      try {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({
+            name: 'app',
+            type: 'module',
+            scripts: { dev: 'vite', build: 'vite build' },
+            devDependencies: { '@cloudflare/workers-types': '^4.0.0', vite: '^8.0.0', void: '*' },
+          }) + '\n',
+        );
+        writeFileSync(
+          join(root, 'tsconfig.json'),
+          JSON.stringify({ compilerOptions: { types: ['@cloudflare/workers-types'] } }) + '\n',
+        );
+        if (voidInstalled) {
+          writeInstalledVoid(root);
+        }
+        mockSelect.mockResolvedValue('none');
+        mockConfirm.mockResolvedValue(false);
+
+        await runInitCommand(root);
+
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
+        expect(pkg.devDependencies['@cloudflare/workers-types']).toBeUndefined();
+        expect(summaryMessages('✓')[0]).toEqual(
+          expect.arrayContaining([
+            expect.stringMatching(/^~ package\.json +removed @cloudflare\/workers-types$/),
+          ]),
+        );
+        // Init's own install updates the lockfile when void still has to be installed.
+        expect(installCalls()).toHaveLength(voidInstalled ? 0 : 1);
+        expect(summaryMessages('→')).toEqual(
+          voidInstalled ? ['Run `npm install` to update your lockfile'] : [],
+        );
+      } finally {
+        cwd.mockRestore();
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('lists a root Wrangler config that it creates as a new file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-wrangler-'));
+    try {
+      // Targeted init writes no void.config.ts, so the Cloudflare config goes to the root.
+      writeFileSync(join(root, 'package.json'), JSON.stringify({ dependencies: { astro: '*' } }));
+
+      await runInitCommand(root, { tsconfig: true, github: false });
+
+      expect(existsSync(join(root, 'void.config.ts'))).toBe(false);
+      expect(summaryMessages('✓')).toEqual([
+        ['Configured Void', '+ tsconfig.json', '+ .gitignore', '+ wrangler.jsonc'],
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the files that the config migration creates as new files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-migration-'));
+    try {
+      writeExistingViteApp(root);
+      writeFileSync(
+        join(root, 'vite.config.ts'),
+        'import { defineConfig } from "vite";\n\nexport default defineConfig({\n  plugins: [],\n});\n',
+      );
+      writeFileSync(join(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true } }\n');
+      writeFileSync(join(root, 'wrangler.jsonc'), '{ "name": "app" }\n');
+      mockSelect.mockResolvedValue('none');
+      mockConfirm.mockResolvedValue(false);
+
+      await runInitCommand(root);
+
+      expect(existsSync(join(root, 'wrangler.jsonc'))).toBe(false);
+      // Later steps change void.config.ts and .gitignore again, and no other
+      // step records void.lock.json.
+      expect(summaryMessages('✓')).toEqual([
+        [
+          'Configured Void',
+          '+ void.config.ts',
+          '+ void.lock.json',
+          '+ .gitignore',
+          '~ package.json    added void and dev/build scripts',
+          '~ vite.config.ts  added voidPlugin()',
+          '~ tsconfig.json   extends .void/tsconfig.json, added void/env to types',
+        ],
+      ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists what two steps added to void.lock.json without repeating it', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-lock-'));
+    try {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({
+          name: 'app',
+          dependencies: { astro: '*' },
+          devDependencies: { void: '*' },
+        }),
+      );
+      writeInstalledVoid(root);
+      // Init does not rewrite authored TypeScript, so it pins the date in the
+      // lock. The Astro step then finds the date there and adds only its flag.
+      writeFileSync(
+        join(root, 'void.config.ts'),
+        "import { defineConfig } from 'void/config';\nexport default defineConfig({ remote: process.env.REMOTE === '1' });\n",
+      );
+      writeFileSync(
+        join(root, 'void.lock.json'),
+        JSON.stringify({ version: 1, source: {}, resolved: {}, text: '{}\n' }) + '\n',
+      );
+      mockSelect.mockResolvedValue('none');
+      mockConfirm.mockResolvedValue(false);
+
+      await runInitCommand(root);
+
+      expect(summaryMessages('✓')[0]).toEqual(
+        expect.arrayContaining([
+          expect.stringMatching(
+            /^~ void\.lock\.json +pinned compatibility_date, added nodejs_als$/,
+          ),
+        ]),
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('names every agent whose skills it linked', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-agents-'));
+    try {
+      writeExistingViteApp(root);
+      // Codex and Cursor read the same skills folder.
+      mkdirSync(join(root, '.codex'));
+      mkdirSync(join(root, '.cursor'));
+
+      await runInitCommand(root, { tsconfig: true, github: false });
+
+      expect(summaryMessages('✓')).toContain('Linked Void skills for Codex and Cursor');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not call Void set up after a targeted run that changed no files', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-targeted-'));
+    try {
+      // --tsconfig adds neither the void dependency nor its Vite plugin.
+      writeExistingViteApp(root);
+
+      await runInitCommand(root, { tsconfig: true, github: false });
+      mockLogMessage.mockClear();
+      await runInitCommand(root, { tsconfig: true, github: false });
+
+      expect(summaryMessages('✓')).toEqual(['No files changed.']);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  // Root can write to a read-only file.
+  it.skipIf(process.getuid?.() === 0)('does not list a file that it failed to write', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-readonly-'));
+    const tsconfigPath = join(root, 'tsconfig.json');
+    const original = '{ "compilerOptions": { "strict": true } }\n';
+    try {
+      writeExistingViteApp(root);
+      // The run stops here, before it changes any other file.
+      writeFileSync(tsconfigPath, original);
+      chmodSync(tsconfigPath, 0o444);
+
+      await expect(runInitCommand(root, { tsconfig: true, github: false })).rejects.toThrow(
+        /EACCES|EPERM/,
+      );
+
+      expect(readFileSync(tsconfigPath, 'utf-8')).toBe(original);
+      expect(mockLogWarn).not.toHaveBeenCalled();
+    } finally {
+      chmodSync(tsconfigPath, 0o644);
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('lists the files it already changed when a later question is cancelled', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-summary-cancel-'));
+    // The real process.exit() runs the exit listener that init-report.test.ts covers.
+    // This one throws, so init reports the same way as for a failed step.
+    const exit = vi.spyOn(process, 'exit').mockImplementation(() => {
+      throw new Error('Cancelled');
+    });
+    try {
+      writeExistingViteApp(root);
+      writeFileSync(
+        join(root, 'vite.config.ts'),
+        'import { defineConfig } from "vite";\n\nexport default defineConfig({\n  plugins: [],\n});\n',
+      );
+      writeFileSync(join(root, 'tsconfig.json'), '{ "compilerOptions": { "strict": true } }\n');
+      // Init configures an existing project before its first question, about the database.
+      mockSelect.mockResolvedValue(Symbol.for('cancel'));
+
+      await expect(runInitCommand(root)).rejects.toThrow('Cancelled');
+
+      expect(exit).toHaveBeenCalledWith(0);
+      expect(mockLogWarn.mock.calls).toEqual([
+        [
+          [
+            'Setup did not finish. Files changed so far:',
+            '+ .gitignore',
+            '+ void.config.ts',
+            '~ package.json    added void and dev/build scripts',
+            '~ vite.config.ts  added voidPlugin()',
+            '~ tsconfig.json   extends .void/tsconfig.json, added void/env to types',
+          ].join('\n'),
+        ],
+      ]);
+      expect(mockLogMessage).not.toHaveBeenCalled();
+      expect(mockOutro).not.toHaveBeenCalled();
+    } finally {
+      exit.mockRestore();
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+});
+
 describe('GitHub Actions deployment workflows', () => {
   it('requires a selected URL for a Void deployment workflow', () => {
     expect(() => getWorkflowYaml('/project', 'npm', 'my-app', 'void')).toThrow('void connect');
@@ -334,7 +740,8 @@ vi.mock('@voidzero-dev/vite-plus-prompts', () => ({
     warn: (...args: Array<unknown>) => mockLogWarn(...args),
     error: vi.fn(),
     info: (...args: Array<unknown>) => mockLogInfo(...args),
-    step: vi.fn(),
+    step: (...args: Array<unknown>) => mockLogStep(...args),
+    message: (...args: Array<unknown>) => mockLogMessage(...args),
   },
   confirm: (...args: Array<unknown>) => mockConfirm(...args),
   select: (...args: Array<unknown>) => mockSelect(...args),
@@ -494,6 +901,13 @@ function workspaceNotes() {
   return mockNote.mock.calls.filter((call) => call[1] === 'Workspace subpackage');
 }
 
+/** The closing summary lines init printed with `symbol`: ✓ for finished work, → for next steps. */
+function summaryMessages(symbol: '✓' | '→'): Array<string | Array<string>> {
+  return mockLogMessage.mock.calls
+    .filter(([, options]) => stripVTControlCharacters(String(options?.symbol)) === symbol)
+    .map(([message]) => message);
+}
+
 function writeInstalledVoid(dir: string): void {
   mkdirSync(join(dir, 'node_modules', 'void'), { recursive: true });
   writeFileSync(
@@ -622,6 +1036,8 @@ afterEach(() => {
   mockOutro.mockReset();
   mockLogWarn.mockReset();
   mockLogInfo.mockReset();
+  mockLogStep.mockReset();
+  mockLogMessage.mockReset();
   mockGetToken.mockReset();
   mockGetApiUrl.mockReset();
   mockRunLogin.mockReset();
@@ -1369,8 +1785,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.react).toBeDefined();
       expect(pkg.dependencies['react-dom']).toBeDefined();
       expect(pkg.dependencies.hono).toBeDefined();
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies.typescript).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
@@ -1448,6 +1866,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(tsconfig.compilerOptions.jsx).toBe('react-jsx');
       expect(tsconfig.include).toContain('pages');
       expect(tsconfig.include).toContain('db');
+
+      expect(mockLogInfo).toHaveBeenCalledWith('Empty project detected. Creating a Pages starter.');
+      // The starter has its own pages.
+      expect(mockLogInfo).not.toHaveBeenCalledWith(expect.stringContaining('skipping demo'));
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -1494,6 +1916,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(readFileSync(join(root, 'db', 'migrations', '0000_generated.sql'), 'utf-8')).toContain(
         'CREATE TABLE "messages"',
       );
+      expect(summaryMessages('✓')).toEqual(['Created a Vue Pages starter with PostgreSQL']);
+      expect(summaryMessages('→')).toEqual([
+        'Add DATABASE_URL to .env before running `vp dev` (Void uses it for local PostgreSQL development)',
+      ]);
 
       const toolchainPrompt = mockSelect.mock.calls[0]?.[0];
       expect(toolchainPrompt.message).toBe('Choose a Pages scaffold toolchain:');
@@ -1582,8 +2008,10 @@ describe('isScaffoldableEmptyProject', () => {
       expect(pkg.dependencies.hono).toBeDefined();
       expect(pkg.devDependencies.void).toBeDefined();
       expect(pkg.devDependencies['@void/react']).toBeDefined();
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.packageManager).toBeUndefined();
       expectPnpmAllowBuilds(root);
       expect(detectProjectState(root).packageManager).toBe('pnpm');
@@ -1644,19 +2072,94 @@ describe('isScaffoldableEmptyProject', () => {
         );
         expect(installCalls()[0][0]).toBe('vp');
         const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
-        expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+        expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         if (packageManager.startsWith('npm@')) {
           expect(pkg.overrides.vite).toBe('$vite');
         } else if (packageManager.startsWith('bun@')) {
-          expect(pkg.overrides.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+          expect(pkg.overrides.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         } else if (packageManager.startsWith('yarn@')) {
-          expect(pkg.resolutions.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+          expect(pkg.resolutions.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
         }
       } finally {
         rmSync(root, { recursive: true, force: true });
       }
     },
   );
+
+  it.each(['npm', 'pnpm', 'yarn', 'bun'])(
+    'preserves an existing Vite+ pairing and overrides with %s',
+    async (manager) => {
+      const root = mkdtempSync(join(tmpdir(), 'void-init-existing-vp-'));
+      const core = 'npm:@voidzero-dev/vite-plus-core@8.4.1000';
+      const policy = { vite: core, vitest: '5.2.0', unrelated: '^2.0.0' };
+      try {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({
+            packageManager: manager + '@1.0.0',
+            devDependencies: { 'vite-plus': '1.8.0', vite: core, '@void/react': '^1.10.0' },
+            ...(manager === 'yarn' ? { resolutions: policy } : { overrides: policy }),
+          }),
+        );
+        if (manager === 'pnpm') {
+          writeFileSync(
+            join(root, 'pnpm-workspace.yaml'),
+            '# User toolchain\noverrides: { "vite@*": "' + core + '", "vitest@*": "5.2.0" }\n',
+          );
+        }
+        mockSelect.mockResolvedValueOnce('vite-plus').mockResolvedValueOnce('static');
+        mockConfirm.mockResolvedValueOnce(false);
+        await runInitCommand(root);
+        expect(existsSync(join(root, 'pages/index.tsx'))).toBe(true);
+        const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+        expect(pkg.devDependencies).toMatchObject({ 'vite-plus': '1.8.0', vite: core });
+        expect(manager === 'yarn' ? pkg.resolutions : pkg.overrides).toEqual(policy);
+        if (manager === 'pnpm') {
+          expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+            '"vite@*": "' + core + '"',
+          );
+        }
+      } finally {
+        rmSync(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('preserves catalog references when scaffolding with an existing Vite+ toolchain', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'void-init-catalog-vp-'));
+    try {
+      writeFileSync(
+        join(root, 'package.json'),
+        JSON.stringify({
+          packageManager: 'pnpm@12.4.1',
+          devDependencies: {
+            '@void/react': '^1.10.0',
+            'vite-plus': 'catalog:tools',
+            vite: 'catalog:',
+          },
+        }),
+      );
+      writeFileSync(
+        join(root, 'pnpm-workspace.yaml'),
+        '# Selected toolchain\ncatalog: { vite: "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n' +
+          'catalogs: { tools: { vite-plus: "1.6.0" } }\noverrides: { "vite@*": "catalog:" }\n',
+      );
+      mockSelect.mockResolvedValueOnce('vite-plus').mockResolvedValueOnce('static');
+      mockConfirm.mockResolvedValueOnce(false);
+      await runInitCommand(root);
+      expect(existsSync(join(root, 'pages/index.tsx'))).toBe(true);
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      expect(pkg.devDependencies).toMatchObject({ 'vite-plus': 'catalog:tools', vite: 'catalog:' });
+      expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+        '"vite@*": "catalog:"',
+      );
+      expect(readFileSync(join(root, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+        'vite-plus: "1.6.0"',
+      );
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
 
   it.each(['package-lock.json', 'yarn.lock', 'bun.lock'])(
     'preserves %s without switching a Vite+ starter to pnpm',
@@ -1725,7 +2228,9 @@ describe('isScaffoldableEmptyProject', () => {
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.devDependencies.void).toBe('^0.8.9');
       expect(readFileSync(join(root, 'vite.config.ts'), 'utf-8')).toContain(
         'voidReact({ react: { compiler: true } })',
@@ -1743,6 +2248,8 @@ describe('isScaffoldableEmptyProject', () => {
 
   it('offers to scaffold in a subfolder from a non-project parent directory', async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-init-'));
+    // The user's shell stays in the parent directory.
+    const cwd = vi.spyOn(process, 'cwd').mockReturnValue(root);
     try {
       mkdirSync(join(root, 'existing-project'));
       mockSelect
@@ -1757,10 +2264,15 @@ describe('isScaffoldableEmptyProject', () => {
 
       expect(existsSync(join(root, 'package.json'))).toBe(false);
       expect(existsSync(join(root, 'vite.config.ts'))).toBe(false);
+      expect(summaryMessages('✓')).toEqual([
+        'Created a static React Pages starter in ./my-new-app',
+      ]);
 
       const appRoot = join(root, 'my-new-app');
       const pkg = JSON.parse(readFileSync(join(appRoot, 'package.json'), 'utf-8'));
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
       expect(pkg.scripts.dev).toBe('vp dev');
       expect(readFileSync(join(appRoot, 'pages', 'index.tsx'), 'utf-8')).toContain(
         'Welcome to Void',
@@ -1794,7 +2306,11 @@ describe('isScaffoldableEmptyProject', () => {
           shell: process.platform === 'win32',
         }),
       );
+      expect(String(mockOutro.mock.calls.at(-1)?.[0])).toContain(
+        'Run `cd my-new-app && vp dev` to start developing.',
+      );
     } finally {
+      cwd.mockRestore();
       rmSync(root, { recursive: true, force: true });
     }
   });
@@ -2620,7 +3136,7 @@ export default config;
       expect(gitignore).toContain('.wrangler');
       expect(gitignore).toContain('.env');
       expect(gitignore.split('\n')).toContain('.env.*');
-      expect(gitignore.split('\n')).toContain('!.env.example');
+      expect(gitignore.split('\n')).not.toContain('!.env.example');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }
@@ -2878,11 +3394,13 @@ export default config;
 
       const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf-8'));
       expect(pkg.scripts.dev).toBe('vp dev');
-      expect(pkg.devDependencies['vite-plus']).toBe('^1.4.0');
-      expect(pkg.devDependencies.vite).toBe('npm:@voidzero-dev/vite-plus-core@^1.4.0');
+      expect(pkg.devDependencies['vite-plus']).toBe(
+        SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus'],
+      );
+      expect(pkg.devDependencies.vite).toBe(SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES.vite);
       expect(pkg.devDependencies.void).toBe('^0.2.3');
       expect(pkg.devDependencies['@void/react']).toBe('^0.2.3');
-      expect(pkg.devDependencies['oxc-transform-react']).toBe('^0.152.0');
+      expect(pkg.devDependencies['oxc-transform-react']).toBe('>=0.152.0 <0.157.0');
       expectPnpmAllowBuilds(root);
 
       const reactViteConfig = readFileSync(join(root, 'vite.config.ts'), 'utf-8');
@@ -2986,7 +3504,7 @@ export default config;
 
       await runInitCommand(root);
 
-      expect(mockLogInfo).toHaveBeenCalledWith('PostgreSQL already configured in void.config.ts');
+      expect(JSON.stringify(summaryMessages('✓'))).not.toContain('database:');
       expect(readConfig(root).database).toEqual({ dialect: 'pg', casing: 'snake_case' });
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -3748,6 +4266,46 @@ export default config;
     }
   });
 
+  it.each([false, true])(
+    'keeps the workspace Vite+ toolchain for a new member (catalog: %s)',
+    async (catalog) => {
+      const wsroot = mkdtempSync(join(tmpdir(), 'void-init-vp-workspace-'));
+      try {
+        const pair = {
+          'vite-plus': catalog ? 'catalog:tools' : '1.6.0',
+          vite: catalog ? 'catalog:' : 'npm:@voidzero-dev/vite-plus-core@1.6.0',
+        };
+        writeFileSync(
+          join(wsroot, 'package.json'),
+          JSON.stringify({ private: true, devDependencies: pair }),
+        );
+        writeFileSync(
+          join(wsroot, 'pnpm-workspace.yaml'),
+          'packages: [packages/*]\ncatalog: { vite: "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n' +
+            'catalogs: { tools: { vite-plus: "1.6.0" } }\noverrides: { "vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0" }\n',
+        );
+        const member = join(wsroot, 'packages/app');
+        mkdirSync(member, { recursive: true });
+        mockSelect
+          .mockResolvedValueOnce('vite-plus')
+          .mockResolvedValueOnce('react')
+          .mockResolvedValueOnce('static');
+        mockConfirm.mockResolvedValueOnce(false);
+        await runInitCommand(member);
+        expect(existsSync(join(member, 'pages/index.tsx'))).toBe(true);
+        expect(
+          JSON.parse(readFileSync(join(member, 'package.json'), 'utf8')).devDependencies,
+        ).toMatchObject(pair);
+        expect(readFileSync(join(wsroot, 'pnpm-workspace.yaml'), 'utf8')).toContain(
+          '"vite@*": "npm:@voidzero-dev/vite-plus-core@1.6.0"',
+        );
+        expect(installCalls()).toHaveLength(0);
+      } finally {
+        rmSync(wsroot, { recursive: true, force: true });
+      }
+    },
+  );
+
   it('void init in an empty pnpm workspace subpackage skips leaf install and starter migration', async () => {
     const wsroot = mkdtempSync(join(tmpdir(), 'void-init-'));
     try {
@@ -3774,6 +4332,11 @@ export default config;
       expect(body).toMatch(/Scaffolded the Pages starter/);
       expect(body).toMatch(/void db generate/);
       expect(body).toContain(toSlash(wsroot));
+      // The starter's own files stay hidden, but not the edit to the workspace root.
+      expect(summaryMessages('✓')[0]).toEqual([
+        'Created a Vue Pages starter with D1 (SQLite)',
+        '~ ../../pnpm-workspace.yaml  approved builds',
+      ]);
     } finally {
       rmSync(wsroot, { recursive: true, force: true });
     }

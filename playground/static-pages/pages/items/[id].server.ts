@@ -1,9 +1,11 @@
 import { defineHandler } from 'void';
+import type { PageParams } from 'void/routes';
 
 export type Props = Readonly<{
   id: string;
 }>;
 
 export const loader = defineHandler<Props>((c) => {
-  return { id: c.req.param('id') };
+  const { id } = c.req.param() as PageParams<'/items/[id]'>;
+  return { id };
 });

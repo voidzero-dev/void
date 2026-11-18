@@ -1,4 +1,10 @@
-import { isRecord, type AssetConfig } from '@void/deploy-core';
+import {
+  isRecord,
+  isR2LocationHint,
+  R2_LOCATION_HINTS,
+  type AssetConfig,
+  type StorageConfig,
+} from '@void/deploy-core';
 import type { RewriteDestination } from 'void/routes';
 import {
   VOID_AUTH_PROVIDERS,
@@ -27,6 +33,8 @@ export type DatabaseConfig = {
   dialect?: 'sqlite' | 'pg' | 'mysql';
   /** Column naming for keys without an explicit column name, as in Drizzle's `casing` option. */
   casing?: DatabaseCasing;
+  /** Enable or disable D1 read replication during deployment. Omit to preserve existing settings. */
+  readReplication?: boolean;
 };
 
 /** Curated Worker fields accepted by the `worker` config field. */
@@ -45,6 +53,8 @@ export type NotFoundHandling = 'single-page-application' | '404-page' | 'none';
 
 /** Routing configuration — headers, redirects, rewrites, fallbacks, revalidation, prerendering. */
 export type RoutingConfig = {
+  /** Use trailing-slash Pages URLs and directory indexes for prerendered HTML. */
+  trailingSlash?: boolean;
   /** Redirect HTTP to HTTPS with a 308. Requires the Cloudflare target. Omitted means off. */
   alwaysUseHttps?: boolean;
   /** Disable ISR and edge prerendering, including per-page policies. Static output is unaffected. */
@@ -177,6 +187,7 @@ export type CloudflareConfig = Record<string, unknown> & {
 
 /** Shape of the Void project config. All fields optional. */
 export type VoidConfig = {
+  storage?: StorageConfig;
   sourceDir?: string;
   target?: 'cloudflare' | 'node' | 'bun' | 'deno';
   output?: 'server' | 'static';
@@ -222,6 +233,7 @@ const VALID_DATABASE_CASINGS = new Set(['snake_case', 'camelCase']);
 const MAX_WORKER_CPU_MS = 300000;
 const VALID_SANDBOX_INSTANCE_TYPES = new Set<SandboxInstanceType>([
   'lite',
+  'basic',
   'standard-1',
   'standard-2',
   'standard-3',
@@ -446,7 +458,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate sourceDir
   if (obj.sourceDir !== undefined) {
     if (typeof obj.sourceDir !== 'string') {
       throw new Error(`config: "sourceDir" in ${CONFIG_FILE} must be a string.`);
@@ -454,7 +465,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     validateSourceDir(obj.sourceDir, CONFIG_FILE);
   }
 
-  // Validate target
   if (obj.target !== undefined) {
     if (typeof obj.target !== 'string' || !VALID_TARGETS.has(obj.target)) {
       throw new Error(
@@ -463,14 +473,32 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate output
   if (obj.output !== undefined) {
     if (typeof obj.output !== 'string' || !VALID_OUTPUTS.has(obj.output)) {
       throw new Error(`config: "output" in ${CONFIG_FILE} must be one of: server, static.`);
     }
   }
 
-  // Validate auth
+  if (obj.storage !== undefined) {
+    if (
+      !isRecord(obj.storage) ||
+      Object.keys(obj.storage).some((key) => key !== 'locationHint') ||
+      (obj.storage.locationHint !== undefined && !isR2LocationHint(obj.storage.locationHint))
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} must be one of: ${R2_LOCATION_HINTS.join(', ')}.`,
+      );
+    }
+    if (
+      obj.storage.locationHint !== undefined &&
+      isNodeTarget(obj.target as VoidConfig['target'])
+    ) {
+      throw new Error(
+        `config: "storage.locationHint" in ${CONFIG_FILE} requires target: "cloudflare".`,
+      );
+    }
+  }
+
   if (obj.auth !== undefined) {
     if (!isRecord(obj.auth)) {
       throw new Error(`config: "auth" in ${CONFIG_FILE} must be an object.`);
@@ -513,7 +541,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate head
   if (obj.head !== undefined) {
     if (!isRecord(obj.head)) {
       throw new Error(`config: "head" in ${CONFIG_FILE} must be an object.`);
@@ -557,12 +584,25 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate routing
   if (obj.routing !== undefined) {
     if (!isRecord(obj.routing)) {
       throw new Error(`config: "routing" in ${CONFIG_FILE} must be an object.`);
     }
     const routing = obj.routing;
+
+    if (routing.trailingSlash !== undefined && typeof routing.trailingSlash !== 'boolean') {
+      throw new Error(`config: "routing.trailingSlash" in ${CONFIG_FILE} must be a boolean.`);
+    }
+    if (
+      routing.trailingSlash === true &&
+      isRecord(obj.cloudflare) &&
+      isRecord(obj.cloudflare.assets) &&
+      obj.cloudflare.assets.html_handling === 'drop-trailing-slash'
+    ) {
+      throw new Error(
+        `config: "routing.trailingSlash" conflicts with cloudflare.assets.html_handling: "drop-trailing-slash".`,
+      );
+    }
 
     if (routing.alwaysUseHttps !== undefined && typeof routing.alwaysUseHttps !== 'boolean') {
       throw new Error(`config: "routing.alwaysUseHttps" in ${CONFIG_FILE} must be a boolean.`);
@@ -576,7 +616,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing.typedRoutes" in ${CONFIG_FILE} must be a boolean.`);
     }
 
-    // Validate routing.notFound
     if (routing.notFound !== undefined) {
       if (typeof routing.notFound !== 'string' || !VALID_NOT_FOUND_HANDLING.has(routing.notFound)) {
         throw new Error(
@@ -589,7 +628,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       throw new Error(`config: "routing.isr" in ${CONFIG_FILE} must be a boolean.`);
     }
 
-    // Validate routing.revalidate
     if (routing.revalidate !== undefined) {
       if (typeof routing.revalidate === 'number') {
         if (!Number.isFinite(routing.revalidate) || routing.revalidate < 0) {
@@ -617,7 +655,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.prerender
     if (routing.prerender !== undefined) {
       if (
         !Array.isArray(routing.prerender) ||
@@ -636,7 +673,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.headers
     if (routing.headers !== undefined) {
       if (!isRecord(routing.headers)) {
         throw new Error(`config: "routing.headers" in ${CONFIG_FILE} must be an object.`);
@@ -656,7 +692,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.redirects
     if (routing.redirects !== undefined) {
       if (!isRecord(routing.redirects)) {
         throw new Error(`config: "routing.redirects" in ${CONFIG_FILE} must be an object.`);
@@ -697,7 +732,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate routing.revalidateQueryAllowlist
     if (routing.revalidateQueryAllowlist !== undefined) {
       if (!isRecord(routing.revalidateQueryAllowlist)) {
         throw new Error(`"routing.revalidateQueryAllowlist" in ${CONFIG_FILE} must be an object`);
@@ -727,7 +761,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate inference
   if (obj.inference !== undefined) {
     if (!isRecord(obj.inference)) {
       throw new Error(`config: "inference" in ${CONFIG_FILE} must be an object.`);
@@ -740,7 +773,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       );
     }
 
-    // Validate inference.bindings
     if (inf.bindings !== undefined) {
       if (!isRecord(inf.bindings)) {
         throw new Error(`config: "inference.bindings" in ${CONFIG_FILE} must be an object.`);
@@ -768,12 +800,10 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.build
     if (inf.build !== undefined && typeof inf.build !== 'string') {
       throw new Error(`config: "inference.build" in ${CONFIG_FILE} must be a string.`);
     }
 
-    // Validate inference.scanDirs
     if (inf.scanDirs !== undefined) {
       if (!Array.isArray(inf.scanDirs) || !inf.scanDirs.every((d) => typeof d === 'string')) {
         throw new Error(
@@ -789,7 +819,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.appType
     if (inf.appType !== undefined) {
       if (typeof inf.appType !== 'string' || !VALID_APP_TYPES.has(inf.appType)) {
         throw new Error(
@@ -798,18 +827,15 @@ function validateConfigObject(obj: unknown): VoidConfig {
       }
     }
 
-    // Validate inference.outputDir
     if (inf.outputDir !== undefined && typeof inf.outputDir !== 'string') {
       throw new Error(`config: "inference.outputDir" in ${CONFIG_FILE} must be a string.`);
     }
   }
 
-  // Validate remote
   if (obj.remote !== undefined && typeof obj.remote !== 'boolean') {
     throw new Error(`config: "remote" in ${CONFIG_FILE} must be a boolean.`);
   }
 
-  // Validate sandbox
   if (obj.sandbox !== undefined && typeof obj.sandbox !== 'boolean') {
     if (!isRecord(obj.sandbox)) {
       throw new Error(`config: "sandbox" in ${CONFIG_FILE} must be a boolean or an object.`);
@@ -838,7 +864,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate worker
   if (obj.worker !== undefined) {
     if (!isRecord(obj.worker)) {
       throw new Error(`config: "worker" in ${CONFIG_FILE} must be an object.`);
@@ -944,14 +969,13 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate database
   if (obj.database !== undefined) {
     if (isRecord(obj.database)) {
       const databaseCfg = obj.database;
       for (const key of Object.keys(databaseCfg)) {
-        if (key !== 'dialect' && key !== 'casing') {
+        if (key !== 'dialect' && key !== 'casing' && key !== 'readReplication') {
           throw new Error(
-            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing.`,
+            `config: Unknown key 'database.${key}' in ${CONFIG_FILE}. Valid: dialect, casing, readReplication.`,
           );
         }
       }
@@ -972,14 +996,25 @@ function validateConfigObject(obj: unknown): VoidConfig {
           `config: "database.casing" in ${CONFIG_FILE} must be "snake_case" or "camelCase".`,
         );
       }
+      if (databaseCfg.readReplication !== undefined) {
+        if (typeof databaseCfg.readReplication !== 'boolean') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} must be a boolean.`,
+          );
+        }
+        if (databaseCfg.dialect !== undefined && databaseCfg.dialect !== 'sqlite') {
+          throw new Error(
+            `config: "database.readReplication" in ${CONFIG_FILE} is only supported for D1 (sqlite).`,
+          );
+        }
+      }
     } else if (typeof obj.database !== 'string' || !VALID_DATABASE_VALUES.has(obj.database)) {
       throw new Error(
-        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect" and "casing".`,
+        `config: "database" in ${CONFIG_FILE} must be "pg", "mysql" or an object with "dialect", "casing" and "readReplication".`,
       );
     }
   }
 
-  // Validate ai
   if (obj.ai !== undefined) {
     if (!isRecord(obj.ai)) {
       throw new Error(`config: "ai" in ${CONFIG_FILE} must be an object.`);
@@ -1000,7 +1035,6 @@ function validateConfigObject(obj: unknown): VoidConfig {
     }
   }
 
-  // Validate email
   if (obj.email !== undefined) {
     if (!isRecord(obj.email)) {
       throw new Error(`config: "email" in ${CONFIG_FILE} must be an object.`);

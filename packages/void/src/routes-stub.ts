@@ -1,4 +1,4 @@
-export { routeUrl } from './runtime/route-url.ts';
+export { routeUrl } from './runtime/routing/route-url.ts';
 export type {
   Href,
   RoutePath,
@@ -8,7 +8,7 @@ export type {
   RouteDestination,
   RouteUrl,
   RouteUrlInput,
-} from './runtime/route-url.ts';
+} from './runtime/routing/route-url.ts';
 
 /** Known URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface RoutePathMap {}
@@ -16,11 +16,11 @@ export interface RoutePathMap {}
 /** Page URL patterns and their parameter names, augmented by .void/routes.d.ts. */
 export interface PagePathMap {}
 
-/** Union of the app's page URL patterns, such as `/users/:id`. */
+/** Union of the app's page URL patterns, such as `/users/[id]`. */
 export type PagePath = keyof PagePathMap & string;
 
 /**
- * Params a page receives: `{ id: string }` for `/users/:id`. An unnamed `[...]`
+ * Params a page receives: `{ id: string }` for `/users/[id]`. An unnamed `[...]`
  * catch-all has no param. A union of patterns gives a union of params.
  */
 export type PageParams<P extends PagePath> = P extends PagePath
@@ -56,9 +56,9 @@ export type RewriteDestination = RouteName | (string & {});
 /** Stub interface for page action types — augmented by generated routes.d.ts */
 export interface PageActionMap {}
 
-/** Parse "/path?action" into base path and action name */
+/** Parse "/path?action&key=value" into base path and action name. */
 export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer Action}`
-  ? { base: Base; action: Action }
+  ? { base: Base; action: Action extends `${infer Name}&${string}` ? Name : Action }
   : { base: U; action: never };
 
 /** Resolve body type for a useForm URL (single action or named action) */
@@ -84,7 +84,6 @@ export type ResolveActionBody<U extends string> =
       : PageNamedActionBody<PageActionMap[ParseActionUrl<U>['base']], ParseActionUrl<U>['action']>
     : Record<string, unknown>;
 
-/** Resolve params type */
 export type ResolveActionParams<U extends string> =
   ParseActionUrl<U>['base'] extends keyof PageActionMap
     ? PageActionMap[ParseActionUrl<U>['base']] extends { params: infer P }
@@ -92,7 +91,6 @@ export type ResolveActionParams<U extends string> =
       : never
     : never;
 
-/** Has params check */
 export type HasActionParams<U extends string> = [ResolveActionParams<U>] extends [never]
   ? false
   : ResolveActionParams<U> extends Record<string, string>
@@ -101,6 +99,7 @@ export type HasActionParams<U extends string> = [ResolveActionParams<U>] extends
 
 type ActionFormBaseOptions = {
   resetOnSuccess?: boolean;
+  throwOnError?: boolean;
 };
 
 /** Form options type (requires params for dynamic routes) */
@@ -110,7 +109,7 @@ export type ActionFormOptions<U extends string> = ActionFormBaseOptions &
 type PageActionUrl<K extends string, P> = P extends { body: unknown }
   ? K
   : P extends { actions: infer A }
-    ? `${K}?${keyof A & string}`
+    ? `${K}?${keyof A & string}${'' | `&${string}`}`
     : never;
 
 /** Valid useForm URLs — single-action pages + "page?name" combos + default actions */

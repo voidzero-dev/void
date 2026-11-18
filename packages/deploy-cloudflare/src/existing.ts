@@ -3,7 +3,11 @@ import { isRecord } from '@void/deploy-core';
 import { parseRootWranglerConfig } from './config.ts';
 import { isCleanCommandExit, isWorkerNotFound, type CloudflareCommandRunner } from './execute.ts';
 import type { CloudflareOperation } from './operations.ts';
-import { isVoidSecretOnlyDraft, isWranglerSecretOnlyDraft } from './secret-draft.ts';
+import {
+  isVoidSecretDraftHeader,
+  isVoidSecretOnlyDraft,
+  isWranglerSecretOnlyDraft,
+} from './secret-draft.ts';
 
 export type ExistingCloudflareWorker = {
   versionId: string;
@@ -115,9 +119,10 @@ async function readCloudflareWorker(
   if (
     proveSecretDraft &&
     !isSecretOnlyDraft &&
-    isRecord(version.annotations) &&
-    Object.keys(version.annotations).length === 1 &&
-    version.annotations['workers/triggered_by'] === 'secret'
+    ((isRecord(version.annotations) &&
+      Object.keys(version.annotations).length === 1 &&
+      version.annotations['workers/triggered_by'] === 'secret') ||
+      isVoidSecretDraftHeader(version))
   ) {
     const source = await read({ type: 'versions.view', versionId, includeSource: true, ...target });
     if (source?.id === versionId) {

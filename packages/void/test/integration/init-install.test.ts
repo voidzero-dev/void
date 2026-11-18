@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { installProjectDependencies } from '../../src/cli/init.ts';
+import { SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES } from '../../src/cli/template.ts';
 
 let root: string;
 let bin: string;
@@ -71,18 +72,110 @@ describe('init dependency installation (real subprocesses)', () => {
     );
   });
 
-  it('bootstraps Vite+ when neither a local nor a global vp is installed', () => {
+  it.each(['1.6.0', '^1.3.0'])(
+    'bootstraps the project-selected Vite+ %s without a local or global vp',
+    (version) => {
+      const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
+      pkg.devDependencies['vite-plus'] = version;
+      writeFileSync(join(root, 'package.json'), JSON.stringify(pkg));
+      executable('npx');
+      executable('pnpm', 1);
+
+      installProjectDependencies(root, 'pnpm');
+
+      // Assert the received argv: Windows cmd.exe must preserve the semver caret.
+      expect(calls()).toEqual([
+        {
+          command: 'npx',
+          args: [
+            '--yes',
+            `--package=vite-plus@${version}`,
+            'vp',
+            'install',
+            '--no-frozen-lockfile',
+          ],
+          cwd: root,
+        },
+      ]);
+    },
+  );
+
+  it.each([
+    ['pnpm', 'catalog:', 'catalog'],
+    ['pnpm', 'catalog:', 'catalogs.default'],
+    ['pnpm', 'catalog:default', 'catalog'],
+    ['pnpm', 'catalog:default', 'catalogs.default'],
+    ['pnpm', 'catalog:tools', 'catalogs.tools'],
+    ['bun', 'catalog:', 'catalog'],
+    ['bun', 'catalog:default', 'catalogs.default'],
+    ['bun', 'catalog:tools', 'catalogs.tools'],
+    ['yarn', 'catalog:', 'catalog'],
+    ['yarn', 'catalog:tools', 'catalogs.tools'],
+  ] as const)(
+    'bootstraps the Vite+ version from the %s workspace catalog (%s in %s)',
+    (manager, spec, location) => {
+      const member = join(root, 'packages/app');
+      mkdirSync(member, { recursive: true });
+      writeFileSync(
+        join(member, 'package.json'),
+        JSON.stringify({ devDependencies: { 'vite-plus': spec } }),
+      );
+      const entries = { 'vite-plus': '1.6.0' };
+      const catalogs =
+        location === 'catalog'
+          ? { catalog: entries }
+          : { catalogs: { [location.slice('catalogs.'.length)]: entries } };
+      // YAML accepts JSON, so the YAML files can be written as JSON.
+      if (manager === 'pnpm') {
+        writeFileSync(
+          join(root, 'pnpm-workspace.yaml'),
+          JSON.stringify({ packages: ['packages/*'], ...catalogs }),
+        );
+      } else if (manager === 'bun') {
+        writeFileSync(
+          join(root, 'package.json'),
+          JSON.stringify({ workspaces: { packages: ['packages/*'], ...catalogs } }),
+        );
+      } else {
+        writeFileSync(join(root, 'package.json'), JSON.stringify({ workspaces: ['packages/*'] }));
+        writeFileSync(join(root, '.yarnrc.yml'), JSON.stringify(catalogs));
+      }
+      executable('npx');
+      installProjectDependencies(member, manager);
+      expect(calls()).toEqual([
+        {
+          command: 'npx',
+          args: ['--yes', '--package=vite-plus@1.6.0', 'vp', 'install', '--no-frozen-lockfile'],
+          cwd: member,
+        },
+      ]);
+    },
+  );
+
+  it('bootstraps with the CLI’s own Vite+ version when the catalog entry is missing', () => {
+    const member = join(root, 'packages/app');
+    mkdirSync(member, { recursive: true });
+    writeFileSync(
+      join(member, 'package.json'),
+      JSON.stringify({ devDependencies: { 'vite-plus': 'catalog:missing' } }),
+    );
+    writeFileSync(
+      join(root, 'pnpm-workspace.yaml'),
+      'packages: [packages/*]\ncatalog: { vite-plus: "1.6.0" }\n',
+    );
     executable('npx');
-    executable('pnpm', 1);
-
-    installProjectDependencies(root, 'pnpm');
-
-    // Assert the received argv: Windows cmd.exe must preserve the semver caret.
+    installProjectDependencies(member, 'pnpm');
     expect(calls()).toEqual([
       {
         command: 'npx',
-        args: ['--yes', '--package=vite-plus@^1.4.0', 'vp', 'install', '--no-frozen-lockfile'],
-        cwd: root,
+        args: [
+          '--yes',
+          `--package=vite-plus@${SCAFFOLD_VITE_PLUS_DEV_DEPENDENCIES['vite-plus']}`,
+          'vp',
+          'install',
+          '--no-frozen-lockfile',
+        ],
+        cwd: member,
       },
     ]);
   });

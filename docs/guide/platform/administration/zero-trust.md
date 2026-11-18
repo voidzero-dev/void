@@ -1,4 +1,5 @@
 ---
+description: 'Require Cloudflare Access sign-in on project hostnames, including custom domains, before visitors reach an app.'
 outline: deep
 ---
 

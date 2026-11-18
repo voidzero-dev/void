@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vite-plus/test';
 import { safeJsonStringify } from '../../src/pages/protocol.ts';
-import { islandFrontmatterScript, serializePageData } from '../../src/pages/serialize.ts';
+import {
+  deserializePageData,
+  islandFrontmatterScript,
+  serializePageData,
+} from '../../src/pages/serialize.ts';
 
 describe.each([
   ['serializePageData', serializePageData],
@@ -10,8 +14,8 @@ describe.each([
     const payload = { html: '</script><script>alert(1)</script>' };
     const out = serialize(payload);
     expect(out).not.toMatch(/<\/script/i);
-    expect(out).toContain('\\u003c/script\\u003e');
-    expect(JSON.parse(out)).toEqual(payload);
+    expect(out).toMatch(/\\u003c\/script\\u003e/i);
+    expect(deserializePageData(out)).toEqual(payload);
   });
 
   it('escapes <, >, &, U+2028 and U+2029 and still round-trips', () => {
@@ -28,7 +32,7 @@ describe.each([
       expect(out).not.toContain(char);
     }
     expect(out).toContain('\\u0026');
-    expect(JSON.parse(out)).toEqual(payload);
+    expect(deserializePageData(out)).toEqual(payload);
   });
 });
 
@@ -46,9 +50,11 @@ describe('islandFrontmatterScript', () => {
     const script = islandFrontmatterScript({ title: '</script><script>alert(1)</script>' });
 
     expect(script.indexOf('</script>')).toBe(script.length - '</script>'.length);
-    expect(JSON.parse(script.slice(script.indexOf('>') + 1, -'</script>'.length))).toEqual({
-      title: '</script><script>alert(1)</script>',
-    });
+    expect(deserializePageData(script.slice(script.indexOf('>') + 1, -'</script>'.length))).toEqual(
+      {
+        title: '</script><script>alert(1)</script>',
+      },
+    );
   });
 
   it('is empty without frontmatter', () => {

@@ -1,4 +1,5 @@
 ---
+description: 'See how routes, pages, middleware, and other optional directories map onto a Void app.'
 outline: deep
 ---
 

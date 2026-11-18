@@ -2,8 +2,8 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { Hono } from 'hono';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vite-plus/test';
 import { compileWorkerClient } from '../../src/router/compile.ts';
-import { FetchError as RuntimeFetchError } from '../../src/runtime/fetch-error.ts';
-import { createServerFetch } from '../../src/runtime/fetch-server.ts';
+import { FetchError as RuntimeFetchError } from '../../src/runtime/client/fetch-error.ts';
+import { createServerFetch } from '../../src/runtime/client/fetch-server.ts';
 
 describe('compileWorkerClient', () => {
   it('wires the server runtime to the app and request context', () => {

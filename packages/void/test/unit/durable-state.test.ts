@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vite-plus/test';
-import { defineDurableState } from '../../src/runtime/durable.ts';
-import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { defineDurableState } from '../../src/runtime/durable/index.ts';
+import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 
 vi.mock('cloudflare:workers', () => ({
   DurableObject: class {

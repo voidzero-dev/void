@@ -153,7 +153,5 @@ export function applyClientHead(head: HeadDescriptor | undefined): void {
     cursor = el.nextSibling as Node | null;
   }
 
-  if (head?.title !== undefined) {
-    document.title = head.title;
-  }
+  document.title = head?.title ?? '';
 }

@@ -1,7 +1,7 @@
 import { parseSync } from 'vite';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { getRawRuntimeEnv } from '../../src/runtime/env-raw.ts';
-import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env.ts';
+import { getRawRuntimeEnv } from '../../src/runtime/env/raw.ts';
+import { getRuntimeRequestResource, withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import {
   injectSvelteKitBuildHooks,
   injectSvelteKitHooks,

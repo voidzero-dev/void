@@ -11,7 +11,7 @@
 
 <div>
   <h1>Blog</h1>
-  <Counter initial={0} />
+  <Counter initial={0} createdAt={new Date("2026-11-08T00:00:00Z")} />
   <h2>Posts</h2>
   <ul>
     {#each posts as post (post.slug)}

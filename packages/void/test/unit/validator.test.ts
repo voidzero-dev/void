@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
-import type { CloudContext } from '../../src/runtime/handler.ts';
-import { runValidation, type ValidatorSlots } from '../../src/runtime/validator.ts';
+import type { CloudContext } from '../../src/runtime/handler/index.ts';
+import { runValidation, type ValidatorSlots } from '../../src/runtime/handler/validator.ts';
 import type { StandardSchemaV1 } from '../../src/standard-schema.ts';
 
 type ValidationIssueBody = {
@@ -25,7 +25,12 @@ function failSchema(issues: Array<StandardSchemaV1.Issue>): StandardSchemaV1 {
 }
 
 function mockContext(body?: unknown): CloudContext {
-  return { req: { json: async () => body } } as unknown as CloudContext;
+  return {
+    req: {
+      json: async () => body,
+      header: () => undefined,
+    },
+  } as unknown as CloudContext;
 }
 
 describe('runValidation', () => {

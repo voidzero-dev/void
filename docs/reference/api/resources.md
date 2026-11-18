@@ -1,4 +1,5 @@
 ---
+description: 'Clients for KV, object storage, AI, cache revalidation, and logs.'
 outline: deep
 ---
 
@@ -104,18 +105,17 @@ Revalidate ISR-cached pages on demand. In local development this is a no-op beca
 
 ```ts
 import { revalidate } from 'void/isr';
-import type { RouteUrl } from 'void/routes';
 
-await revalidate({ paths: ['/', '/blog/hello'] satisfies RouteUrl[] });
+await revalidate({ paths: ['/', '/blog/hello'] });
 await revalidate({ all: true });
 ```
 
-`paths` is `string[]`. Annotate the array with `satisfies RouteUrl[]` so TypeScript checks each path when [`routing.typedRoutes`](../config.md#routing-typedroutes) is on.
+With [`routing.typedRoutes`](../config.md#routing-typedroutes), each path must match one of your routes. Build paths with `routeUrl()`, or use `as RouteUrl` for paths you validate at runtime. Without this setting, `RouteUrl` is `string`.
 
 **Signature:**
 
 ```ts
-function revalidate(options: { paths?: string[]; all?: boolean }): Promise<void>;
+function revalidate(options: { paths?: RouteUrl[]; all?: boolean }): Promise<void>;
 ```
 
 ## Logging {#logging}

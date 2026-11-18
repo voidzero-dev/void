@@ -6,6 +6,7 @@ import {
   getValidationErrors,
   interpolateRouteParams,
   isAbortError,
+  isCallSiteActionError,
   isEqualFormValue,
   parseFormResetArgs,
   submitAction,
@@ -35,7 +36,7 @@ export function useForm<U extends ActionUrl & string>(
 export function useForm(
   url: string,
   defaults: Record<string, unknown>,
-  options?: { params?: Record<string, string>; resetOnSuccess?: boolean },
+  options?: { params?: Record<string, string>; resetOnSuccess?: boolean; throwOnError?: boolean },
 ): FormReturn<Record<string, unknown>> {
   const router = useContext(RouterContext);
   // ErrorsContext provides the errors signal accessor — a reactive function
@@ -79,6 +80,7 @@ export function useForm(
 
   const [defaults_, setDefaults] = createSignal<Record<string, unknown>>(initialDefaults);
   let successTimeout: ReturnType<typeof setTimeout> | null = null;
+  let latestRequestId = 0;
 
   const hasChanges = createMemo(() => {
     const current = defaults_();
@@ -123,6 +125,9 @@ export function useForm(
   }
 
   async function submit(method: string, opts: FormSubmitOptions = {}) {
+    const requestId = ++latestRequestId;
+    // Edits made while this request is in flight stay unsaved.
+    const submittedData = cloneFormValue(data);
     setPending(true);
     setWasSuccessful(false);
     setRecentlySuccessful(false);
@@ -139,14 +144,25 @@ export function useForm(
 
       // Params are filled in on submit, so a param that would change the
       // request path (such as "..") fails this submit, not the page render.
-      const result = await submitAction(router, interpolateRouteParams(url, options?.params), {
-        method,
-        data: { ...data },
-        ...opts,
-      });
+      const result = await submitAction(
+        router,
+        interpolateRouteParams(url, options?.params),
+        {
+          method,
+          data: submittedData,
+          ...opts,
+        },
+        options,
+      );
+      // A newer submit owns the form's state, even if this one still completed.
+      if (requestId !== latestRequestId) {
+        return;
+      }
 
       if (!result.ok) {
-        const validationErrors = getValidationErrors(result.error.body);
+        const validationErrors = isCallSiteActionError(result.error)
+          ? getValidationErrors(result.error.body)
+          : null;
         if (validationErrors) {
           replaceErrors(validationErrors);
         } else {
@@ -158,10 +174,12 @@ export function useForm(
       setWasSuccessful(true);
       setRecentlySuccessful(true);
       if (options?.resetOnSuccess) {
-        setDataStore(reconcile(cloneFormValue(initialDefaults)));
+        if (isEqualFormValue(data, submittedData)) {
+          setDataStore(reconcile(cloneFormValue(initialDefaults)));
+        }
         setDefaults(cloneFormValue(initialDefaults));
       } else {
-        setDefaults(cloneFormValue(data));
+        setDefaults(cloneFormValue(submittedData));
       }
       successTimeout = setTimeout(() => {
         setRecentlySuccessful(false);
@@ -172,7 +190,9 @@ export function useForm(
       }
       throw submitError;
     } finally {
-      setPending(false);
+      if (requestId === latestRequestId) {
+        setPending(false);
+      }
     }
   }
 

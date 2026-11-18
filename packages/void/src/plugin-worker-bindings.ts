@@ -187,7 +187,6 @@ export function mergeWorkerBindings(
     result.kv_namespaces = kv;
   }
 
-  // R2
   const r2Name = bindingNames?.r2 ?? 'STORAGE';
   if (bindings.needsR2 && !hasBinding(resolved.r2_buckets, r2Name)) {
     result.r2_buckets = [{ binding: r2Name, bucket_name: 'default' }];
@@ -287,6 +286,7 @@ export function mergeWorkerBindings(
         queue: cloudflareQueueName(q.name, cloudflareNames),
         ...(q.maxBatchSize != null && { max_batch_size: q.maxBatchSize }),
         ...(q.maxBatchTimeout != null && { max_batch_timeout: q.maxBatchTimeout }),
+        ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
         ...(q.maxRetries != null && { max_retries: q.maxRetries }),
         ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
       })),

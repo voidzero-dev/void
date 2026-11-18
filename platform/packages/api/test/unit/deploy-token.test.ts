@@ -1,11 +1,7 @@
 import { describe, it, expect } from 'vite-plus/test';
-import {
-  signDeployToken,
-  signPrerenderToken,
-  verifyDeployToken,
-  verifyPrerenderToken,
-} from '../../src/auth/deploy-token.ts';
+import { signDeployToken, signPrerenderToken } from '../../src/auth/deploy-token.ts';
 import { signJwt, verifyJwt } from '../../src/auth/jwt.ts';
+import { verifyDeployToken, verifyPrerenderToken } from '../helpers/project-token.ts';
 
 const SECRET = 'test-secret-key-for-deploy-token';
 

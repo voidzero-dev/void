@@ -292,7 +292,6 @@ describe('resolvePageTtl', () => {
       resolvePageTtl([{ pattern: '/p', revalidate: 120 }], undefined, { '/p': 3600 }, '/p'),
     ).toBe(120);
   });
-  // Inherit-eligible page with NO pathRevalidate → resolvePathTtl(undefined) → 0.
   it('an inherit-eligible page with NO pathRevalidate resolves 0', () => {
     expect(resolvePageTtl([{ pattern: '/x' }], undefined, undefined, '/x')).toBe(0);
   });
@@ -494,7 +493,6 @@ describe('matchesLiteralPage', () => {
   it('an inherit-eligible literal page with a positive per-path rule vouches', () => {
     expect(matchesLiteralPage([{ pattern: '/catch' }], '/catch', { '/catch': 60 })).toBe(true);
   });
-  // An inherit-eligible literal page whose per-path rule resolves 0 does NOT vouch.
   it('an inherit-eligible literal page whose per-path rule is 0 does NOT vouch', () => {
     expect(matchesLiteralPage([{ pattern: '/catch' }], '/catch', { '/catch': 0 })).toBe(false);
   });
@@ -535,6 +533,13 @@ describe('shouldBypassIsr', () => {
   it('returns true when the request accepts event streams', () => {
     const request = new Request('https://example.com', {
       headers: { Accept: 'text/html, text/event-stream; q=1' },
+    });
+    expect(shouldBypassIsr(request)).toBe(true);
+  });
+
+  it('returns true when the request negotiates markdown', () => {
+    const request = new Request('https://example.com', {
+      headers: { Accept: 'text/markdown' },
     });
     expect(shouldBypassIsr(request)).toBe(true);
   });

@@ -34,6 +34,7 @@ export const plansDataView = dataView<PlansRecord>('AdminPlans')({
   id: true,
   catalog: true,
   accounts: true,
+  aiLogging: true,
   selectedPlanId: true,
 });
 export type AdminPlans = Entity<typeof plansDataView, 'AdminPlans'>;
@@ -84,6 +85,7 @@ export const deploymentsPageDataView = dataView<DeploymentsPageRecord>('AdminDep
 });
 export const userDetailDataView = dataView<UserDetailRecord>('AdminUserDetail')({
   limits: true,
+  aiLogging: true,
   plans: true,
   id: true,
   user: true,
@@ -103,6 +105,7 @@ export const projectDetailDataView = dataView<ProjectDetailRecord>('AdminProject
   domains: true,
   builds: true,
   zeroTrust: true,
+  aiLogging: true,
   cfAccountId: true,
   deployUrl: true,
   tz: true,

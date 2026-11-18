@@ -1,4 +1,5 @@
 ---
+description: 'Change the platform database schema, generate a migration, and see how CI checks that schema.'
 outline: deep
 ---
 

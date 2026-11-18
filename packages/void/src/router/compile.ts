@@ -4,11 +4,13 @@ import type { VoidAuthProvider } from '../auth/providers.ts';
 import type { DevRedirectRule, HeaderRule } from '../cli/types.ts';
 import type { NotFoundHandling } from '../config.ts';
 import type { MigrationPlanBundle } from '../migrations/plan.ts';
+import { createBoundaryManifest } from '../pages/boundary-plans.ts';
 import { resolveLayoutIds } from '../pages/layout-resolution.ts';
+import { patternToRegex } from '../pages/manifest.ts';
 import { cloudflareQueueName, type CloudflareQueueNames } from '../queues/cloudflare-names.ts';
 import { generateQueueResolverSource } from '../queues/dispatch.ts';
-import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env-raw.ts';
-import { ASSET_EXTENSIONS } from '../runtime/routing-assets.ts';
+import { INTERNAL_BINDING_EXACT_NAMES, INTERNAL_BINDING_PREFIXES } from '../runtime/env/raw.ts';
+import { ASSET_EXTENSIONS } from '../runtime/routing/assets.ts';
 import { DEFAULT_SANDBOX_CLASS_NAME } from '../sandbox/config.ts';
 import type { ScanResult } from './scan.ts';
 
@@ -19,7 +21,7 @@ function pushDefaultErrorPageHelpers(lines: Array<string>, options: CompileOptio
   lines.push(
     `const __errorRenderer = __createErrorRenderer(${JSON.stringify({ dev: options.dev === true, projectRoot: options.projectRoot, homeDir: options.homeDir })});`,
   );
-  lines.push('app.onError(__errorRenderer.onError);');
+  lines.push('app.onError(__createPageErrorHandler(__matchedRoutes, __errorRenderer.onError));');
 }
 
 export type AuthCompileOptions = {
@@ -32,6 +34,7 @@ export type AuthCompileOptions = {
 };
 
 export type CompileOptions = {
+  trailingSlash?: boolean;
   /** Absolute path to the hono module entry */
   honoPath: string;
   /** Absolute path to `hono/route` from the same Hono copy as `honoPath` */
@@ -191,8 +194,13 @@ export function compileRouteTable(
   lines.push(`import { AsyncLocalStorage } from "node:async_hooks";`);
   lines.push(`import { Hono } from ${JSON.stringify(options.honoPath)};`);
   lines.push(
-    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    `import { createRoutingRuntime as __createRoutingRuntime, createHttpRouteHandler as __createHttpRouteHandler, createErrorRenderer as __createErrorRenderer, createPageGetHandler as __createPageGetHandler, createStaticNotFound as __createStaticNotFound, createPageMutationHandler as __createPageMutationHandler, createNamedActionMarker as __createNamedActionMarker, markRouteHandler as __markRouteHandler, createPagesFallback as __createPagesFallback, createModuleLoader as __createModuleLoader, createClientAssetTags as __createClientAssetTags, createManifestLoader as __createManifestLoader, createSsrFallback as __createSsrFallback, createAssetNotFound as __createAssetNotFound, buildPrerenderPath as __buildPrerenderPath } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
   );
+  if (pages) {
+    lines.push(
+      `import { createPageErrorHandler as __createPageErrorHandler } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};`,
+    );
+  }
   if (options.nodeTarget) {
     lines.push(`const withRuntimeEnv = (_env, fn) => fn();`);
   } else {
@@ -220,7 +228,7 @@ export function compileRouteTable(
     options.webSocketRuntimePath
   ) {
     lines.push(
-      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest } from ${JSON.stringify(options.webSocketRuntimePath)};`,
+      `import { createWebSocketDurableObject as __createWebSocketDurableObject, createWebSocketTombstoneDurableObject as __createWebSocketTombstoneDurableObject, forwardWebSocketRequest as __forwardWebSocketRequest, __registerWebSocketRoutes } from ${JSON.stringify(options.webSocketRuntimePath)};`,
     );
   }
   if (options.hasLive && options.liveRuntimePath) {
@@ -230,7 +238,6 @@ export function compileRouteTable(
   }
   lines.push('');
 
-  // Generate eager imports for middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     const mw = scan.middleware[i];
     lines.push(`import middleware${i} from ${JSON.stringify(`${middlewareDir}/${mw.filePath}`)};`);
@@ -259,7 +266,13 @@ export function compileRouteTable(
   for (const r of scan.routes) {
     routePatterns.push(r.pattern);
   }
-  if (pages && scan.pages.pages.length > 0) {
+  if (
+    pages &&
+    (scan.pages.pages.length > 0 ||
+      scan.pages.boundaries?.some(
+        (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+      ))
+  ) {
     for (const p of scan.pages.pages) {
       routePatterns.push(p.pattern);
     }
@@ -297,11 +310,13 @@ export function compileRouteTable(
 
   // After routing rules, which ignore the action key as platform dispatch does,
   // and before auth and user middleware, so their c.redirect() drops it too.
-  if (pages && scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+  if (pages) {
     lines.push(
       `import { matchedRoutes as __matchedRoutes } from ${JSON.stringify(options.honoRoutePath)};`,
     );
-    lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    if (scan.pages.pages.some((page) => page.methods.includes('actions'))) {
+      lines.push('app.use(__createNamedActionMarker(__matchedRoutes));');
+    }
   }
 
   const headerRules = emitEdgeRules ? options.headerRules : undefined;
@@ -322,7 +337,6 @@ export function compileRouteTable(
     lines.push('app.use("*", __routingRuntime.headerMiddleware(__headerRules));');
   }
 
-  // Register user middleware
   for (let i = 0; i < scan.middleware.length; i++) {
     lines.push(`app.use(middleware${i});`);
   }
@@ -400,6 +414,7 @@ export function compileRouteTable(
             params: route.params,
             className: route.className,
             bindingName: route.bindingName,
+            mode: route.mode,
             ...(route.name !== undefined && { name: route.name }),
           },
         )}, ${auth ? '__voidAuthOptions' : 'undefined'}, ${auth ? '__resolveVoidAuthState' : 'undefined'});`,
@@ -413,6 +428,7 @@ export function compileRouteTable(
           params: route.params,
           className: route.className,
           bindingName: route.bindingName,
+          mode: route.mode,
           ...(route.name !== undefined && { name: route.name }),
         })),
       )};`,
@@ -421,6 +437,10 @@ export function compileRouteTable(
   }
   for (let i = 0; i < webSockets.length; i++) {
     lines.push(`__voidWebSocketRoutes[${i}].key = websocket${i}.key;`);
+  }
+  if (webSockets.length > 0 && options.webSocketRuntimePath) {
+    // Register after `key` is attached so getRoom() shares the client's addressing.
+    lines.push('__registerWebSocketRoutes(__voidWebSocketRoutes);');
   }
   for (const className of options.webSocketTombstones ?? []) {
     lines.push(
@@ -438,8 +458,20 @@ export function compileRouteTable(
 
   // Pages mode — generate page route handlers
   const pageNames = createIdentifierNames();
-  if (pages && scan.pages.pages.length > 0) {
+  if (
+    pages &&
+    (scan.pages.pages.length > 0 ||
+      scan.pages.boundaries?.some(
+        (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+      ))
+  ) {
     compilePageRoutes(lines, scan, pages, options, pageNames);
+  }
+
+  if (!pages || !createBoundaryManifest(scan.pages).root) {
+    lines.push(
+      'export async function __voidRenderStaticNotFound() { return new Response(null, { status: 204 }); }',
+    );
   }
 
   // Ordinary HTTP hooks are fallbacks for WebSocket paths. Explicit API and
@@ -453,9 +485,26 @@ export function compileRouteTable(
     lines.push('');
   }
 
-  if (pages && scan.pages.pages.length > 0) {
-    lines.push(
-      `app.notFound(__createPagesFallback({ routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} }));`,
+  const trackAssetMisses = !options.nodeTarget && !managedDispatch;
+  const registerNotFound = (handler: string): void => {
+    const tracked = trackAssetMisses ? `__routingRuntime.trackNotFound(${handler})` : handler;
+    lines.push(`app.notFound(${tracked});`);
+  };
+  if (trackAssetMisses) {
+    lines.push('app.notFound(__routingRuntime.trackNotFound());');
+  }
+  if (
+    pages &&
+    (scan.pages.pages.length > 0 ||
+      scan.pages.boundaries?.some(
+        (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+      ))
+  ) {
+    const pagePatterns = options.trailingSlash
+      ? `[${scan.pages.pages.map((page) => patternToRegex(page.pattern)).join(', ')}]`
+      : 'undefined';
+    registerNotFound(
+      `__createPagesFallback({ ${createBoundaryManifest(scan.pages).root ? 'pageNotFound: __voidRootNotFound, ' : ''}routing: __routingRuntime, errors: __errorRenderer, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, trailingSlash: ${options.trailingSlash === true}, pagePatterns: ${pagePatterns} })`,
     );
   }
 
@@ -465,18 +514,24 @@ export function compileRouteTable(
     lines.push(
       `const getClientAssetTags = __createClientAssetTags(${JSON.stringify({ entryId: ssr.clientEntryRelativePath, entryUrl: '/' + ssr.clientEntryRelativePath, kind: 'ssr', dev: options.dev === true, reactRefresh: options.reactRefresh })});`,
     );
-    lines.push(
-      `app.notFound(__createSsrFallback({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, load: () => import(${JSON.stringify(ssr.serverEntryPath)}), assets: getClientAssetTags }));`,
+    registerNotFound(
+      `__createSsrFallback({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson}, load: () => import(${JSON.stringify(ssr.serverEntryPath)}), assets: getClientAssetTags })`,
     );
   } else if (
     emitEdgeRules &&
     (options.fallbackRules?.length ||
       options.redirectRules?.some((rule) => rule.status === 200) ||
       (!options.nodeTarget && options.headerRules?.length)) &&
-    !(pages && scan.pages.pages.length > 0)
+    !(
+      pages &&
+      (scan.pages.pages.length > 0 ||
+        scan.pages.boundaries?.some(
+          (boundary) => boundary.kind === 'not-found' && !boundary.directory,
+        ))
+    )
   ) {
-    lines.push(
-      `app.notFound(__createAssetNotFound({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} }));`,
+    registerNotFound(
+      `__createAssetNotFound({ routing: __routingRuntime, nodeTarget: ${JSON.stringify(options.nodeTarget === true)}, assetsDir: ${JSON.stringify(options.assetsDir)}, fallbackRules: ${fallbackRulesJson} })`,
     );
   }
 
@@ -925,7 +980,11 @@ function compilePrerenderCollector(
     lines.push(`      paths.push(${JSON.stringify(path)});`);
   }
 
-  lines.push(`      return [...new Set(paths)];`);
+  lines.push(
+    options.trailingSlash
+      ? `      return [...new Set(paths.map((path) => path.endsWith("/") ? path : path + "/"))];`
+      : `      return [...new Set(paths)];`,
+  );
   lines.push(`    });`);
   lines.push(`  });`);
   lines.push(`}`);
@@ -939,19 +998,16 @@ function compilePageRoutes(
   options: CompileOptions,
   pageNames: (componentId: string) => string,
 ): void {
-  // Import protocol helpers and renderer
   lines.push(`import { renderPage } from "virtual:void-pages-renderer";`);
   if (options.dev) {
     lines.push(`import { getVoidPagesDevCss } from "virtual:void-pages-dev-assets";`);
   }
 
-  // Import island renderer if any island pages exist
   const hasIslandPages = scan.pages.pages.some((p) => p.renderMode === 'island');
   if (hasIslandPages) {
     lines.push(`import { renderIslandPage } from "virtual:void-islands-renderer";`);
   }
   lines.push('');
-  // Emit head config constant from void.json
   lines.push(`const __voidHeadConfig = ${JSON.stringify(pages.headConfig ?? null)};`);
   lines.push('');
   pushDefaultErrorPageHelpers(lines, options);
@@ -961,6 +1017,7 @@ function compilePageRoutes(
   const relPagesDir = pages.pagesDirRelative;
   const pageCssKeys: Record<string, Array<string>> = {};
   const pageDevRootPhases: Record<string, Array<Array<string>>> = {};
+  const boundaryManifest = createBoundaryManifest(scan.pages);
   const projectRoot = options.projectRoot;
   const toDevRootUrl = (absolutePath: string): string =>
     '/' + absolutePath.replaceAll('\\', '/').slice(projectRoot.replaceAll('\\', '/').length + 1);
@@ -980,7 +1037,6 @@ function compilePageRoutes(
     const layoutIds = resolveLayoutIds(page, scan.pages.layouts, scan.pages.namedLayouts);
     const layoutRoots: Array<string> = [];
     for (const layoutId of layoutIds) {
-      // Map layout IDs back to file paths
       const layout = scan.pages.layouts.find(
         (l) => (l.directory ? `${l.directory}/layout` : 'layout') === layoutId,
       );
@@ -1004,6 +1060,30 @@ function compilePageRoutes(
     pageCssKeys[page.componentId] = keys;
     pageDevRootPhases[page.componentId] = routeRootPhases.filter((phase) => phase.length > 0);
   }
+  for (const plan of Object.values(boundaryManifest.plans)) {
+    const files = [...scan.pages.layouts, ...scan.pages.namedLayouts]
+      .filter((layout) => {
+        const id =
+          'name' in layout
+            ? layout.directory
+              ? layout.directory + '/_layouts/' + layout.name
+              : '_layouts/' + layout.name
+            : layout.directory
+              ? layout.directory + '/layout'
+              : 'layout';
+        const key = scan.pages.pages.some((page) => page.componentId === id)
+          ? id.replace(/(^|\/)([^/]+)$/, '$1_$2')
+          : id;
+        return plan.layouts.includes(key);
+      })
+      .map((layout) => layout.filePath);
+    files.push(plan.filePath);
+    pageCssKeys[plan.id] = files.map((file) => `${relPagesDir}/${file}`);
+    pageDevRootPhases[plan.id] = [
+      [virtualDevUrl(pages.clientEntryId)],
+      files.map((file) => toDevRootUrl(`${pages.pagesDir}/${file}`)),
+    ];
+  }
   lines.push('const __loadPagesManifest = __createManifestLoader();');
   const assetMetadata = {
     pageCssKeys,
@@ -1020,18 +1100,22 @@ function compilePageRoutes(
     );
   }
 
-  // Generate lazy loaders and route registrations for each page
+  if (boundaryManifest.root) {
+    const island = scan.pages.pages.length > 0 && scan.pages.pages.every((page) => page.island);
+    lines.push(
+      `const __voidRootNotFoundOptions = { componentId: ${JSON.stringify(boundaryManifest.root)}, load: async () => ({ loader: () => new Response(null, { status: 404 }) }), render: ${island ? 'renderIslandPage' : 'renderPage'}, assets: ${island && pages.islandClientEntryId ? 'getIslandsAssetTags' : 'getPagesAssetTags'}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: island ? 'island' : 'server', dev: options.dev === true, boundaries: { notFound: boundaryManifest.root, errors: boundaryManifest.rootErrors ?? [] } })} }; const __voidRootNotFound = __createPageGetHandler(__voidRootNotFoundOptions); export const __voidRenderStaticNotFound = __createStaticNotFound({ ...__voidRootNotFoundOptions, render: renderPage, assets: getPagesAssetTags });`,
+    );
+  }
+
   const seenServerFiles = new Set<string>();
   for (const page of scan.pages.pages) {
     const safeId = pageNames(page.componentId);
 
-    // Determine server module path
     let serverImportPath: string | null = null;
     if (page.serverPath) {
       serverImportPath = `${pages.pagesDir}/${page.serverPath}`;
     }
 
-    // Generate lazy loader for server module (if any)
     if (serverImportPath && !seenServerFiles.has(serverImportPath)) {
       seenServerFiles.add(serverImportPath);
       const loaderName = `_pload_${safeId}`;
@@ -1061,13 +1145,15 @@ function compilePageRoutes(
       page.renderMode === 'island' && pages.islandClientEntryId
         ? 'getIslandsAssetTags'
         : 'getPagesAssetTags';
-    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}) })} }`;
-    lines.push(
-      `app.get(${JSON.stringify(page.pattern)}, __createPageGetHandler(${routeOptions}));`,
-    );
+    const trailingCatchAll = options.trailingSlash && page.catchAll;
+    const pattern = trailingCatchAll ? page.pattern.slice(0, -1) : page.pattern;
+    const catchAllParam = page.pattern.match(/:([^/{}]+)\{\.\+\}\/$/)?.[1];
+    const middlewareBoundaries = `middlewareBoundaries: ${JSON.stringify({ notFound: boundaryManifest.root, errors: (boundaryManifest.pages[page.componentId]?.errors ?? []).filter((id) => !boundaryManifest.plans[id].directory) })}, `;
+    const routeOptions = `{ ${serverImportPath ? 'load: _pload_' + safeId + ', ' : ''}${mdHeadRef ? 'head: ' + mdHeadRef + ', ' : ''}${trailingCatchAll ? `trailingSlash: true, catchAllParam: ${JSON.stringify(catchAllParam)}, ` : ''}${middlewareBoundaries}componentId: ${JSON.stringify(page.componentId)}, render: ${renderer}, assets: ${assetTags}, headConfig: __voidHeadConfig, renderOptions: ${JSON.stringify({ renderMode: page.renderMode, ...(options.dev === true ? { dev: true } : {}), ...(boundaryManifest.pages[page.componentId] && { boundaries: boundaryManifest.pages[page.componentId] }) })} }`;
+    lines.push(`app.get(${JSON.stringify(pattern)}, __createPageGetHandler(${routeOptions}));`);
     if (page.methods.includes('action') || page.methods.includes('actions')) {
       lines.push(
-        `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(page.pattern)}, __createPageMutationHandler({ ...${routeOptions}, namedActions: ${JSON.stringify(page.methods.includes('actions'))} }));`,
+        `app.on(["POST", "PUT", "PATCH", "DELETE"], ${JSON.stringify(pattern)}, __createPageMutationHandler({ ...${routeOptions}, namedActions: ${JSON.stringify(page.methods.includes('actions'))} }));`,
       );
     }
   }
@@ -1264,6 +1350,7 @@ const __filterInternalBindings = (env) => __filterBindings(env, ${JSON.stringify
     : '';
   const fetchHandler = `__createWorkerFetch({
     app, assets: serveWithAssets, withRawEnv: __withRawEnv, withRuntimeEnv,
+    staticNotFound: __voidRenderStaticNotFound,
     filterBindings: __filterInternalBindings,
     internalRoute: __voidHandleInternalRoute,
     collectPrerenderPaths: __voidCollectPrerenderPaths${alwaysUseHttps ? ', alwaysUseHttps: true' : ''}${versionMetadataBinding ? ', versionMetadataBinding: ' + JSON.stringify(versionMetadataBinding) : ''}${envSchemaModule ? ', validateEnv: _validateEnvOnce' : ''}${remotePath ? ', remoteEnv: (env) => ' + createRemoteEnvCall : ''}${hasEmail ? ', emailReceipt: __handleEmailReceipt' : ''}${isr ? ', isr: { deploymentId: __VOID_ISR_DEPLOYMENT_ID, handle: (request, env, ctx, render) => handleIsr(request, env, ctx, { revalidate: __VOID_ISR_REVALIDATE, pages: __VOID_ISR_PAGES, pathRevalidate: __VOID_ISR_PATH_REVALIDATE, deploymentId: __VOID_ISR_DEPLOYMENT_ID, queryAllowlist: ' + JSON.stringify(isr.queryAllowlist) + ' }, render) }' : ''}
@@ -1372,7 +1459,7 @@ ${envValidateCall}${remoteEnvSwap}${isrDeploymentStamp}  const userEnv = __filte
 
 `
     : '';
-  return `${sandboxImport}${entryImport}${liveRuntimeImport}import app, { scheduled, __voidCollectPrerenderPaths, __voidHandleInternalRoute, __withRawEnv${queueImport}${emailImport}${webSocketClasses.length > 0 ? `, ${webSocketClasses.join(', ')}` : ''}${liveRouteImport} } from 'virtual:void-routes';
+  return `${sandboxImport}${entryImport}${liveRuntimeImport}import app, { scheduled, __voidCollectPrerenderPaths, __voidRenderStaticNotFound, __voidHandleInternalRoute, __withRawEnv${queueImport}${emailImport}${webSocketClasses.length > 0 ? `, ${webSocketClasses.join(', ')}` : ''}${liveRouteImport} } from 'virtual:void-routes';
 ${durableObjectImports}\n${runtimeEnvImport}${emailProxyImport}${envSchemaImport}${remoteImport}${isrImport}${filterBindingsHelper}${assetHelper}
 ${fetchDeclaration}
 ${scheduledHandler}
@@ -1408,7 +1495,7 @@ export function compileNodeApp(
   // Path discovery answers only the build-time prerender runner, which passes
   // `{ __VOID_PRERENDER: "1" }` as the Hono env. HTTP servers never do: Node
   // passes `{ incoming, outgoing }`, Bun its Server and Deno its handler info.
-  const discoveryRequest = `c.req.method === "POST" && c.req.path === "/__void/prerender-paths" && c.env?.__VOID_PRERENDER === "1"`;
+  const discoveryRequest = `((c.req.method === "POST" && c.req.path === "/__void/prerender-paths") || (c.req.method === "GET" && c.req.path === "/__void/static-not-found")) && c.env?.__VOID_PRERENDER === "1"`;
   const envMiddleware = envSchemaModule
     ? `app.use("*", async (c, next) => { if (!(${discoveryRequest})) await _validateEnvOnce(${envSource}); return next(); });\n`
     : '';
@@ -1416,21 +1503,37 @@ export function compileNodeApp(
   return `${staticImport}
 import { fileURLToPath } from "node:url";
 import { Hono } from ${JSON.stringify(honoPath)};
-import innerApp, { __voidCollectPrerenderPaths } from "virtual:void-routes";
+import innerApp, { __voidCollectPrerenderPaths, __voidRenderStaticNotFound } from "virtual:void-routes";
 import { prerenderPathsResponse as __prerenderPathsResponse } from ${JSON.stringify(ROUTING_RUNTIME_PATH)};
 ${envSchemaImport}
-// Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
-const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
-const assetApp = new Hono();
-assetApp.get("*", serveStatic({ root: clientRoot, allowPercentInPath: true }));
-const assets = { fetch: (request) => assetApp.fetch(request) };
+// dist/client, created on first use so a server that supplies its own ASSETS
+// (a single executable, for one) never looks for a directory it doesn't have.
+let fileAssets;
+const clientAssets = () => {
+  if (!fileAssets) {
+    // Resolved by nodeTargetPlugin for this emitted chunk, including shared chunks.
+    const clientRoot = fileURLToPath(import.meta.voidClientDirectory);
+    const assetApp = new Hono();
+    assetApp.get("*", serveStatic({
+      root: clientRoot,
+      allowPercentInPath: true,
+      // Windows permits a trailing separator when opening a regular file.
+      // Directory URLs must look up an index so they cannot alias those files.
+      rewriteRequestPath: (path) => path.endsWith("/") ? path + "index.html" : path,
+    }));
+    fileAssets = { fetch: (request) => assetApp.fetch(request) };
+  }
+  return fileAssets;
+};
+const assetsFor = (c) => (typeof c.env?.ASSETS?.fetch === "function" ? c.env.ASSETS : clientAssets());
 const app = new Hono();
 ${envMiddleware}app.post("/__void/prerender-paths", async (c) => {
   if (c.env?.__VOID_PRERENDER !== "1") return c.notFound();
   return __prerenderPathsResponse(() => __voidCollectPrerenderPaths(c.req.raw));
 });
-app.get("/assets/*", (c) => assets.fetch(c.req.raw));
-app.all("*", (c) => innerApp.fetch(c.req.raw, { ...c.env, ASSETS: assets }));
+app.get("/__void/static-not-found", (c) => c.env?.__VOID_PRERENDER === "1" ? __voidRenderStaticNotFound(c.req.raw, { ...c.env, ASSETS: assetsFor(c) }) : c.notFound());
+app.get("/assets/*", (c) => assetsFor(c).fetch(c.req.raw));
+app.all("*", (c) => innerApp.fetch(c.req.raw, { ...c.env, ASSETS: assetsFor(c) }));
 export default app;`;
 }
 

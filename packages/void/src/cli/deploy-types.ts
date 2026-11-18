@@ -36,6 +36,8 @@ export type RunDeployOptions = {
   dir?: string;
   spa?: boolean;
   skipBuild?: boolean;
+  /** Deploy without applying application or authentication database migrations. */
+  skipMigrations?: boolean;
   debug?: boolean;
   platform?: Exclude<DeploymentPlatform, 'none'>;
   provision?: boolean;
@@ -266,7 +268,10 @@ export interface CloudflareEmailStepResult {
   map: EmailAddressMapInput | null;
 }
 
-export type RunDeployTargetAdapter = DeployTargetAdapter<RunDeployOptions, CliLogger>;
+export type RunDeployTargetAdapter = Pick<
+  DeployTargetAdapter<RunDeployOptions, CliLogger>,
+  'target' | 'deploy'
+>;
 
 export type PrerenderSourceInputs = {
   /** `pages/` exists — file-based pages contribute static + `getPrerenderPaths()` paths. */

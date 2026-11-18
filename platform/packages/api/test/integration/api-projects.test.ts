@@ -1,12 +1,7 @@
 import { eq } from 'drizzle-orm';
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vite-plus/test';
 import { importLegacyAuthentication } from '../../src/auth/configuration.ts';
-import {
-  signDeployToken,
-  signProjectCredentialToken,
-  verifyDeployToken,
-  verifyPrerenderToken,
-} from '../../src/auth/deploy-token.ts';
+import { signDeployToken, signProjectCredentialToken } from '../../src/auth/deploy-token.ts';
 import { revokeConnectionSessions } from '../../src/auth/sessions.ts';
 import {
   createDeployment,
@@ -37,6 +32,7 @@ import {
   platformSettings,
   projectCleanupJobs,
 } from '../../src/schema.ts';
+import { verifyDeployToken, verifyPrerenderToken } from '../helpers/project-token.ts';
 import {
   createTestBuild,
   setupEnv,
@@ -2444,7 +2440,6 @@ describe('POST /projects/:id/rollback', () => {
     expect(body.deploymentId).toBe(d1.id);
     expect(body.migrationDiff).toEqual([]);
 
-    // Verify KV routing updated
     const routing = (await env.ROUTING.get(project.slug, 'json')) as { workerName: string };
     expect(routing.workerName).toBe(`user-rollback-app-${d1.id}`);
   });
@@ -2817,7 +2812,6 @@ describe('POST /projects/:id/rollback', () => {
     );
     expect(res.status).toBe(200);
 
-    // Verify domain KV routing updated
     const domainRouting = (await env.ROUTING.get('domain:rollback.example.com', 'json')) as {
       workerName: string;
     };
@@ -2969,7 +2963,9 @@ describe('POST /projects/:id/rollback', () => {
         version: 4,
         type: 'void',
         bindings: {},
-        queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 20 }],
+        queues: [
+          { name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 20, maxConcurrency: 2 },
+        ],
       }),
     );
     await updateDeploymentStatus(env.db, target.id, 'live');
@@ -2981,7 +2977,9 @@ describe('POST /projects/:id/rollback', () => {
         version: 4,
         type: 'void',
         bindings: {},
-        queues: [{ name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 5 }],
+        queues: [
+          { name: 'emails', bindingName: 'QUEUE_EMAILS', maxBatchSize: 5, maxConcurrency: 1 },
+        ],
       }),
     );
     await updateDeploymentStatus(env.db, current.id, 'live');
@@ -2992,9 +2990,9 @@ describe('POST /projects/:id/rollback', () => {
       consumer_id: 'consumer-1',
       script: 'void-dispatch',
       type: 'worker',
-      settings: { batch_size: 5, max_retries: 2 },
+      settings: { batch_size: 5, max_retries: 2, max_concurrency: 1 },
     };
-    const newConsumer = { ...oldConsumer, settings: { batch_size: 20 } };
+    const newConsumer = { ...oldConsumer, settings: { batch_size: 20, max_concurrency: 2 } };
     let listCalls = 0;
     const updateBodies: Array<unknown> = [];
     mockCfApi({
@@ -3037,11 +3035,11 @@ describe('POST /projects/:id/rollback', () => {
     expect(res.status).toBe(500);
     expect((await db.getProject(env.db, project.id))?.active_deployment_id).toBe(current.id);
     expect(updateBodies).toHaveLength(2);
-    expect(updateBodies[0]).toMatchObject({ settings: { batch_size: 20 } });
+    expect(updateBodies[0]).toMatchObject({ settings: { batch_size: 20, max_concurrency: 2 } });
     expect(updateBodies[1]).toEqual({
       script_name: 'void-dispatch',
       type: 'worker',
-      settings: { batch_size: 5, max_retries: 2 },
+      settings: { batch_size: 5, max_retries: 2, max_concurrency: 1 },
     });
   });
 

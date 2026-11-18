@@ -172,7 +172,7 @@ export default { __kind: "socket", messages: { client: schema, server: schema } 
         honoPath: import.meta.resolve('hono'),
         honoRoutePath: import.meta.resolve('hono/route'),
         runtimeEnvPath,
-        webSocketRuntimePath: join(root, 'packages/void/src/runtime/ws-server.ts'),
+        webSocketRuntimePath: join(root, 'packages/void/src/runtime/ws/server.ts'),
         projectRoot: temporary,
         homeDir: temporary,
         reactRefresh: false,

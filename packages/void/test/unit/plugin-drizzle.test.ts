@@ -1,7 +1,7 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { int, mysqlTable } from 'drizzle-orm/mysql-core';
 import { pgTable, serial } from 'drizzle-orm/pg-core';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -16,7 +16,7 @@ vi.mock('../../src/log', () => ({
 import { voidWarn } from '../../src/log.ts';
 import { getMiniflareDatabasePath, openSqliteDatabase } from '../../src/migrations/runner.ts';
 import { drizzlePlugin } from '../../src/plugin-drizzle.ts';
-import { withRuntimeEnv } from '../../src/runtime/env.ts';
+import { withRuntimeEnv } from '../../src/runtime/env/runtime.ts';
 import { startFakeMySqlServer } from '../helpers/fake-mysql-server.ts';
 
 const roots: Array<string> = [];
@@ -53,7 +53,10 @@ type ExecutableDbModule = {
     query(expectedOwner: string): Promise<number>;
     transaction<T>(callback: (tx: { instanceId: number }) => T | Promise<T>): Promise<T>;
   };
-  createDb(connectionString: string): ExecutableDbModule['db'];
+  createDb(
+    connectionString: string,
+    options?: { session?: D1SessionConstraint },
+  ): ExecutableDbModule['db'];
   withEnv<T>(env: Record<string, unknown>, callback: () => T): T;
 };
 
@@ -70,7 +73,7 @@ async function loadExecutableDbModule(
   fakeStateKeys.push(stateKey);
 
   const fakeDriverPath = join(root, 'fake-driver.mjs');
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const stateExpression = `globalThis[${JSON.stringify(stateKey)}]`;
   const createDatabaseSource = `
 function createPool(dialect, options) {
@@ -180,6 +183,11 @@ export function drizzle(config) {
     /^import \{ ((?:getRuntimeBinding|getRuntimeRequestResource|requireRuntimeBinding)[^}]*) \} from .*;$/m,
     (_match, imports: string) => `import { ${imports} } from ${JSON.stringify(envUrl)};`,
   );
+  code = code.replace(
+    /^import \{ (createD1SessionAccess[^}]*) \} from .*;$/m,
+    (_match, imports: string) =>
+      `import { ${imports} } from ${JSON.stringify(new URL('../../src/runtime/db/session.ts', import.meta.url).href)};`,
+  );
   writeFileSync(join(root, 'virtual-db.mjs'), code);
   writeFileSync(
     join(root, 'harness.mjs'),
@@ -206,7 +214,7 @@ async function loadDriverDbModule(dialect: 'postgresql' | 'mysql'): Promise<{
   const root = createProjectRoot({ schema: false });
   const plugin = drizzlePlugin(root, false, dialect, { forceVirtualDb: true });
   const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const clientsKey = `__void_db_clients_${dialect}_${crypto.randomUUID().replaceAll('-', '')}`;
   const clients: Array<{ end(): unknown }> = [];
   (globalThis as Record<string, unknown>)[clientsKey] = clients;
@@ -247,7 +255,7 @@ async function loadMySqlDbModule(): Promise<{
   const root = createProjectRoot();
   const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
   const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-  const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+  const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
   const code = load
     .call({}, '\0virtual:void-db')
     .replace(
@@ -305,6 +313,21 @@ describe('drizzlePlugin db typing generation', () => {
     };
     module.createDb(other as unknown as string);
     expect(state.clients[2]).toEqual({ constraint: 'first-unconstrained', owner: 'other' });
+  });
+
+  it('lets an explicit D1 client start on primary without changing the default request session', async () => {
+    const { module, state } = await loadExecutableDbModule('sqlite');
+    const binding = { withSession: (constraint: string) => ({ constraint }) };
+
+    module.withEnv({ DB: binding }, () => {
+      module.createDb(binding as unknown as string, { session: 'first-primary' });
+      void module.db.instanceId;
+    });
+
+    expect(state.clients).toEqual([
+      { constraint: 'first-primary' },
+      { constraint: 'first-unconstrained' },
+    ]);
   });
 
   it('uses a primary D1 session when a framework handler has no Void request scope', async () => {
@@ -407,7 +430,108 @@ describe('drizzlePlugin db typing generation', () => {
 
     const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
     expect(dts).toContain('import type { DrizzleD1Database } from "void/_db";');
+    expect(dts).toContain('options?: { session?: DbSessionStart }');
+    expect(dts).toContain('export type { DbSessionStart } from "void/_db";');
+    expect(dts).toContain('export declare function setSession(');
+    expect(dts).toContain('export declare function getBookmark<TSchema');
+    expect(dts).toContain('): DrizzleD1Database<Schema>;');
     expect(dts).not.toContain('void/_db-pg');
+  });
+
+  it.each([false, true])('typechecks generated D1 session helpers (schema: %s)', (schema) => {
+    const root = createProjectRoot({ schema });
+    const sqliteCore = JSON.stringify(
+      fileURLToPath(import.meta.resolve('drizzle-orm/sqlite-core')),
+    );
+    if (schema) {
+      writeFileSync(
+        join(root, 'db/schema.ts'),
+        `import { integer, sqliteTable } from ${sqliteCore};
+export const profile = sqliteTable('profile', { id: integer('id').primaryKey() });
+`,
+      );
+    }
+    drizzlePlugin(root, false, 'sqlite', { forceVirtualDb: true });
+    symlinkSync(
+      fileURLToPath(new URL('../../../../node_modules', import.meta.url)),
+      join(root, 'node_modules'),
+    );
+    writeFileSync(join(root, 'package.json'), '{"type":"module"}');
+    const fixture = join(root, 'session-inputs.ts');
+    writeFileSync(
+      fixture,
+      `
+import { integer, sqliteTable } from ${sqliteCore};
+import { db, createDb, setSession, getBookmark, type DbSessionStart, type DrizzleD1Database } from 'void/db';
+declare const binding: D1Database;
+declare const bookmark: string;
+const start: DbSessionStart = { bookmark };
+setSession(start);
+setSession('first-primary');
+setSession('first-unconstrained');
+createDb(binding, { session: start });
+createDb(binding, { session: 'first-primary' });
+createDb(binding, { session: 'first-unconstrained' });
+const returned: string | null = getBookmark(createDb(binding));
+void returned;
+const otherSchema = { audit: sqliteTable('audit', { sequence: integer('sequence').primaryKey() }) };
+declare const otherClient: DrizzleD1Database<typeof otherSchema>;
+declare const schemalessClient: DrizzleD1Database;
+const bookmarks: Array<D1SessionBookmark | null> = [
+  getBookmark(),
+  getBookmark(undefined),
+  getBookmark(db),
+  getBookmark(schemalessClient),
+  getBookmark(otherClient),
+];
+void bookmarks;
+// @ts-expect-error A raw D1 binding is not a Drizzle client.
+getBookmark(binding);
+// @ts-expect-error Constraint typos must not compile.
+setSession('first-primray');
+// @ts-expect-error Constraint typos must not compile.
+createDb(binding, { session: 'first-primray' });
+// @ts-expect-error Bookmark strings require a wrapper.
+setSession(bookmark);
+// @ts-expect-error Bookmark strings require a wrapper.
+createDb(binding, { session: bookmark });
+// @ts-expect-error Missing bookmarks require an explicit fallback.
+setSession({ bookmark: undefined });
+// @ts-expect-error Null is not a bookmark.
+createDb(binding, { session: { bookmark: null } });
+`,
+    );
+    writeFileSync(
+      join(root, 'tsconfig.json'),
+      JSON.stringify({
+        compilerOptions: {
+          noEmit: true,
+          strict: true,
+          skipLibCheck: true,
+          target: 'ES2022',
+          module: 'NodeNext',
+          moduleResolution: 'NodeNext',
+          allowImportingTsExtensions: true,
+          types: ['node', '@cloudflare/workers-types'],
+          typeRoots: [join(root, 'node_modules/@types'), join(root, 'node_modules')],
+          paths: {
+            'void/db': [join(root, '.void/db.d.ts')],
+            'void/_db': [fileURLToPath(new URL('../../src/runtime/db/index.ts', import.meta.url))],
+            '@schema': [join(root, 'db/schema.ts')],
+          },
+        },
+        files: [fixture],
+      }),
+    );
+    const tsc = join(
+      dirname(fileURLToPath(import.meta.resolve('typescript/package.json'))),
+      'bin/tsc',
+    );
+    const result = spawnSync(process.execPath, [tsc, '--project', join(root, 'tsconfig.json')], {
+      encoding: 'utf8',
+      timeout: 30_000,
+    });
+    expect(result.status, `${result.error ?? ''}${result.stdout}${result.stderr}`).toBe(0);
   });
 
   it('keeps postgres-only types off the shared db runtime entry', () => {
@@ -422,6 +546,20 @@ describe('drizzlePlugin db typing generation', () => {
       `export { sql, eq, ne, gt, gte, lt, lte, and, or, not, desc, asc, like, ilike, notLike, inArray, notInArray, isNull, isNotNull, between, notBetween, exists, notExists, count, sum, avg, min, max } from "void/_db";`,
     );
   });
+
+  it.each(['sqlite', 'postgresql', 'mysql'] as const)(
+    'exports Drizzle query types from the %s database types',
+    (dialect) => {
+      const root = createProjectRoot();
+
+      drizzlePlugin(root, false, dialect);
+
+      const dts = readFileSync(join(root, '.void', 'db.d.ts'), 'utf8');
+      expect(dts).toContain(
+        'export type { AnyColumn, SQL, SQLWrapper, BatchItem } from "void/_db";',
+      );
+    },
+  );
 
   it('generates MySQL database types from the dedicated runtime entry', () => {
     const root = createProjectRoot();
@@ -586,7 +724,7 @@ describe('drizzlePlugin db typing generation', () => {
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'mysql', { forceVirtualDb: true });
       const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-      const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+      const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
       const code = load
         .call({}, '\0virtual:void-db')
         .replace(
@@ -689,7 +827,7 @@ export const requestPoolConfig = (env) =>
       const root = createProjectRoot({ schema: hasSchema });
       const plugin = drizzlePlugin(root, false, 'postgresql', { forceVirtualDb: true });
       const load = getHookHandler(plugin.load) as (this: object, id: string) => string;
-      const envUrl = new URL('../../src/runtime/env.ts', import.meta.url).href;
+      const envUrl = new URL('../../src/runtime/env/runtime.ts', import.meta.url).href;
       const code = load
         .call({}, '\0virtual:void-db')
         .replace(
@@ -881,8 +1019,8 @@ export const requestPoolOptions = (env) =>
     expect(resolved).toBe('\0virtual:void-db');
 
     const code = load.call({}, '\0virtual:void-db');
-    expect(code).toContain('requireRuntimeBinding("myapp_db")');
-    expect(code).not.toContain('requireRuntimeBinding("DB")');
+    expect(code).toContain('createD1SessionAccess("myapp_db")');
+    expect(code).not.toContain('createD1SessionAccess("DB")');
   });
 
   it('can keep void/db off tsconfig paths for metaframeworks that materialize aliases', () => {
@@ -957,3 +1095,4 @@ export const requestPoolOptions = (env) =>
     expect(warnMock).not.toHaveBeenCalled();
   });
 });
+import { spawnSync } from 'node:child_process';

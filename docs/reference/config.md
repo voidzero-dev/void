@@ -1,4 +1,5 @@
 ---
+description: 'Configure routing, inference, output, and the deployment target in void.config.ts.'
 outline: deep
 ---
 
@@ -42,6 +43,8 @@ export default defineConfig({
 ```
 
 TypeScript provides editor completion and checks. Void validates the config again when it runs, including values computed at runtime.
+
+Use relative imports or package names inside `void.config.ts`. TypeScript path aliases such as `@/lib/theme` are not supported.
 
 The shorter JSON fragments below show individual fields to place inside `defineConfig({ ... })`.
 
@@ -149,10 +152,11 @@ Use an object to also set how Drizzle names columns declared without a name:
 }
 ```
 
-| Key       | Values                                  | Description                                                                                                                                                                         |
-| --------- | --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `dialect` | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                  |
-| `casing`  | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name |
+| Key               | Values                                  | Description                                                                                                                                                                                |
+| ----------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `dialect`         | `"sqlite"` (default), `"pg"`, `"mysql"` | Database backend. `"sqlite"` is D1                                                                                                                                                         |
+| `casing`          | `"snake_case"`, `"camelCase"`           | [Drizzle casing](https://orm.drizzle.team/docs/sql-schema-declaration#camel-and-snake-casing) for `void/db` queries and `void db` commands. Omit to use each key as its column name        |
+| `readReplication` | `boolean` (optional)                    | D1 only. Enable (`true`) or disable (`false`) [read replication](../guide/database/d1.md#read-replication) on deployment. Omit to preserve existing settings; new databases default to off |
 
 When using an external database:
 
@@ -272,7 +276,7 @@ Enable and configure Cloudflare Sandboxes. Importing from `void/sandbox` enables
 | `platformImage`     | `string` | `cloudflare/debian-trixie`  |
 | `instanceType`      | `string` | `lite`                      |
 
-Supported sizes are `lite` and `standard-1` through `standard-4`. Native deploys build Dockerfiles with Docker; registry images must be digest-pinned references from the Cloudflare managed registry. Custom images must include the matching Sandbox SDK helper. For a local Dockerfile, supply `platformImage` when deploying to a managed platform. See [Sandboxes](../guide/sandboxes.md) for image setup and runtime examples.
+Supported sizes are `lite`, `basic`, and `standard-1` through `standard-4`. Native deploys build Dockerfiles with Docker; registry images must be digest-pinned references from the Cloudflare managed registry. Custom images must include the matching Sandbox SDK helper. For a local Dockerfile, supply `platformImage` when deploying to a managed platform. See [Sandboxes](../guide/sandboxes.md) for image setup and runtime examples.
 
 Sandbox requires [Workers Paid](https://dash.cloudflare.com/?to=/:account/workers/plans) and Containers access. Managed runtime tokens need Account / Containers: Edit and Account / Cloudchamber: Edit. See [Sandbox deployment](../guide/sandboxes.md#deployment).
 
@@ -294,6 +298,18 @@ Void-managed WebSocket route files (`*.ws.ts`) are Cloudflare-only because they 
 ```json
 { "target": "node" }
 ```
+
+### `storage.locationHint`
+
+Choose a preferred region when Void creates your app's R2 bucket, on either a Void platform or a direct Cloudflare deployment:
+
+```json
+{ "storage": { "locationHint": "apac" } }
+```
+
+Supported hints are `apac` (Asia Pacific), `eeur` (Eastern Europe), `enam` (Eastern North America), `weur` (Western Europe), `wnam` (Western North America), and `oc` (Oceania). Cloudflare treats these as [best-effort location hints](https://developers.cloudflare.com/r2/reference/data-location/), not data residency guarantees.
+
+The project setting overrides the platform's default. Without either, Cloudflare chooses automatically. This only affects new buckets: changing the hint never moves or replaces an existing bucket. Apps that do not use R2 create no bucket.
 
 ### `worker`
 
@@ -349,6 +365,8 @@ cloudflare: {
 
 Void writes a generated Cloudflare config for its tooling and records provisioned resource IDs and append-only migration history in `void.lock.json`. Commit the lock when it changes. Root `wrangler.jsonc` and `wrangler.json` are migrated on `void init` or `void deploy`; Void keeps backup copies under `.void/config-migration/`.
 
+Bindings declared here are typed on `c.env` after `void prepare` or starting a dev server or build. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) for an example and RPC type overrides.
+
 If you need to remove a value that Void previously generated, remove it from the `resolved` object in `void.lock.json`. Void refreshes the generated Cloudflare file on the next command. Put ongoing custom settings in `cloudflare` in `void.config.ts`.
 
 ### `deploy.cloudflare.mode`
@@ -376,15 +394,29 @@ routing: {
 }
 ```
 
+#### `routing.trailingSlash`
+
+Give Pages URLs a trailing slash and prerender them as directory indexes. For example, `/posts/` produces `posts/index.html`; `/posts` redirects to `/posts/`.
+
+```ts
+routing: {
+  trailingSlash: true,
+}
+```
+
+The default is `false`, which writes `posts.html`. API routes keep their URLs, and third-party frameworks use their own routing settings. See [Static Site Generation](../guide/ssg.md#trailing-slashes-and-directory-indexes) for hosting details.
+
 #### `routing.typedRoutes`
 
-Type-check URL strings against your app's routes in `Link`'s `href`, `router.visit()`, `router.prefetch()`, `router.flush()`, and `c.rewrite()`. Omitted or `false` means off; `void init` turns it on for new apps. It changes types only, not navigation at runtime. Strings may also be same-page queries or hashes, or `http://`, `https://`, `mailto:`, and `tel:` URLs. `c.redirect()`, `revalidate({ paths })`, and `routing.prerender` stay plain strings until you annotate them. See [Checked URL strings](../guide/type-safety#checked-url-strings).
+Check URL strings against your app's routes in links, router methods, redirects, rewrites, island forms, cache revalidation, and stream clients. This changes TypeScript checks only; navigation at runtime stays the same.
 
 ```ts
 routing: {
   typedRoutes: true,
 }
 ```
+
+The default is `false`; `void init` enables it for new apps. See [Checked URL strings](../guide/type-safety#checked-url-strings) for accepted URLs and casts for values you validate at runtime. To check `routing.prerender`, [annotate its paths](#routing-prerender).
 
 #### `routing.headers`
 

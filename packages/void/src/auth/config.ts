@@ -8,7 +8,7 @@ import {
 } from 'vite';
 import { discoverSchema } from '../drizzle/discover.ts';
 import { readProjectPaths, type ProjectPaths } from '../project-paths.ts';
-import type { VoidAuthConfig } from '../runtime/auth.ts';
+import type { VoidAuthConfig } from '../runtime/auth/index.ts';
 import type { AstNode, AstProgram } from '../shared/ast.ts';
 
 function isVoidAuthConfigSource(code: string, filename: string): boolean {

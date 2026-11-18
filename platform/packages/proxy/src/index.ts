@@ -17,7 +17,7 @@ import { r2 } from './r2.ts';
 import { readRequestJson, requestBodyMaxBytes, RequestBodyError } from './request-body.ts';
 import { verifyPrerenderAuthority, verifyProjectDeployAccess } from './resolve.ts';
 import { revalidate } from './revalidate.ts';
-import type { Env, JwtPayload, ProxyBody, ProxyEnv } from './types.ts';
+import type { JwtPayload, ProxyBody, ProxyEnv } from './types.ts';
 
 const app = new Hono<ProxyEnv>();
 
@@ -40,7 +40,6 @@ app.use('/*', async (context, next) => {
   await next();
 });
 
-// CORS
 app.use(
   '/*',
   cors({
@@ -50,7 +49,6 @@ app.use(
   }),
 );
 
-// Health check
 app.get('/health', (context) =>
   context.json({
     ok: true,
@@ -283,8 +281,18 @@ app.post('/*', async (context, next) => {
   }
 });
 
-// AI usage limit check — only applies to AI routes
+// Check the installation capability before spending quota or calling AI.
 app.post('/ai/*', async (context, next) => {
+  if (!proxyCapabilityEnabled(context.env.PLATFORM_CAPABILITIES, 'ai')) {
+    return context.json(
+      {
+        error: 'platform capability unavailable',
+        capability: 'ai',
+        message: 'This Void platform does not enable AI.',
+      },
+      501,
+    );
+  }
   if (await context.env.ROUTING.get(`ai-block:${context.get('projectId')}`, { cacheTtl: 60 })) {
     return usageLimitResponse({
       code: 'usage_limit',

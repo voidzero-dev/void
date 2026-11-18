@@ -30,6 +30,9 @@ const useVitePlus = toolchain === 'vite-plus';
 const vitePlusVersion = JSON.parse(
   readFileSync(join(root, 'node_modules/vite-plus/package.json'), 'utf8'),
 ).version;
+const vitePlusCoreVersion = JSON.parse(
+  readFileSync(join(root, 'node_modules/vite/package.json'), 'utf8'),
+).version;
 const work = mkdtempSync(join(tmpdir(), 'void-packed-consumer-'));
 const archiveDir = join(work, 'archives');
 mkdirSync(archiveDir);
@@ -239,8 +242,8 @@ try {
           )
             .trim()
             .split('\n'),
-          ['node_modules/dependency', '.env', '.env.local', '.env.production'],
-          'Init must ignore local environment files while allowing the example',
+          ['node_modules/dependency', '.env', '.env.local', '.env.production', '.env.example'],
+          'Init must ignore local environment files',
         );
         writeFileSync(
           join(fixture, '.npmrc'),
@@ -274,12 +277,12 @@ try {
         if (useVitePlus) {
           assert.equal(
             manifest.devDependencies['vite-plus'],
-            `^${vitePlusVersion}`,
+            vitePlusVersion,
             'Vite+ init must match the tested workspace toolchain',
           );
           assert.equal(
             manifest.devDependencies.vite,
-            `npm:@voidzero-dev/vite-plus-core@^${vitePlusVersion}`,
+            `npm:@voidzero-dev/vite-plus-core@${vitePlusCoreVersion}`,
             'Vite+ init must use the matching core alias',
           );
           const installedVitePlus = JSON.parse(
@@ -287,9 +290,18 @@ try {
           );
           assert.equal(installedVitePlus.name, 'vite-plus');
           assert.equal(
-            installedVitePlus.version.split('.')[0],
-            vitePlusVersion.split('.')[0],
-            'The consumer must use a compatible Vite+ release',
+            installedVitePlus.version,
+            vitePlusVersion,
+            'The consumer must use the tested Vite+ release',
+          );
+          const installedCore = JSON.parse(
+            readFileSync(join(fixture, 'node_modules/vite/package.json'), 'utf8'),
+          );
+          assert.equal(installedCore.version, vitePlusCoreVersion);
+          assert.equal(
+            installedVitePlus.dependencies.vite,
+            `npm:@voidzero-dev/vite-plus-core@${installedCore.version}`,
+            'The installed CLI and core must belong to the same toolchain release',
           );
         } else {
           assert(
@@ -341,16 +353,47 @@ try {
           [join(fixture, 'node_modules/typescript/bin/tsc'), '--noEmit'],
           fixture,
         );
+        if (useVitePlus) {
+          // Vitest loads the app's Vite config, Void's plugin included, and runs the tests in
+          // Node.js. The test from docs/guide/testing.md replaces the KV module it uses.
+          mkdirSync(join(fixture, 'src'), { recursive: true });
+          writeFileSync(
+            join(fixture, 'src/visits.ts'),
+            `import { kv } from 'void/kv';\nexport async function countVisit(): Promise<number> {\n  const visits = ((await kv.get<number>('visits')) ?? 0) + 1;\n  await kv.put('visits', visits);\n  return visits;\n}\n`,
+          );
+          writeFileSync(
+            join(fixture, 'src/visits.test.ts'),
+            `import { expect, it, vi } from 'vite-plus/test';\nimport { loader } from '../pages/index.server';\nimport { countVisit } from './visits';\nvi.mock('void/kv', () => {\n  const values = new Map<string, unknown>();\n  return { kv: { get: async (key: string) => values.get(key) ?? null, put: async (key: string, value: unknown) => { values.set(key, value); } } };\n});\nit('counts visits', async () => {\n  await countVisit();\n  expect(await countVisit()).toBe(2);\n});\nit('imports a page loader', () => {\n  expect(loader).toBeTypeOf('function');\n});\n`,
+          );
+          await run(process.execPath, [vite, 'test', 'run'], fixture);
+          rmSync(join(fixture, 'src/visits.ts'));
+          rmSync(join(fixture, 'src/visits.test.ts'));
+        }
         // The installed package must find and verify every bundled runtime artifact.
         await run(
           process.execPath,
           [
             '--input-type=module',
             '-e',
-            `import { findPackageJSON } from 'node:module';
-import { readFileSync } from 'node:fs';
+            `import assert from 'node:assert/strict';
+import { findPackageJSON } from 'node:module';
+import { readFileSync, realpathSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
-const manifestPath = findPackageJSON('@void/platform', import.meta.resolve('void'));
+const voidEntry = import.meta.resolve('void');
+const manifest = (name, from) => pathToFileURL(realpathSync(findPackageJSON(name, from))).href;
+const miniflare = manifest('miniflare', voidEntry);
+const workerd = manifest('workerd', miniflare);
+for (const name of ['cf', '@cloudflare/vite-plugin']) {
+  const tool = manifest(name, voidEntry);
+  const types = manifest('@cloudflare/runtime-types', tool);
+  assert.equal(manifest('miniflare', tool), miniflare, name + ' installs a second Miniflare');
+  assert.equal(manifest('miniflare', types), miniflare, name + ' runtime types install a second Miniflare');
+  assert.equal(manifest('workerd', types), workerd, name + ' runtime types install a second workerd');
+  for (const shared of ['@cloudflare/config', '@cloudflare/build-output-utils']) {
+    assert.equal(manifest(shared, tool), manifest(shared, voidEntry), name + ' installs a second ' + shared);
+  }
+}
+const manifestPath = findPackageJSON('@void/platform', voidEntry);
 const entry = JSON.parse(readFileSync(manifestPath, 'utf8')).exports['./installer'].import;
 const { resolvePlatformRuntime } = await import(new URL(entry, pathToFileURL(manifestPath)));
 const runtime = resolvePlatformRuntime();
@@ -496,7 +539,7 @@ if (runtime.manifest.platformVersion !== ${JSON.stringify(version)}) throw new E
           }
         }
         console.log(
-          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+' : 'public Vite'} build/typecheck, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
+          `Passed packed ${label} (${suite}): init, frozen install, ${useVitePlus ? 'Vite+ build/typecheck/test' : 'public Vite build/typecheck'}, assets, KV, email, runtime integrity${full ? ', dev/preview, hydration/navigation' : ', dev HTTP'}${framework === 'react' ? ', Node target' : ''}`,
         );
       } catch (error) {
         failures.push({ fixture: label, error: String(error.stack ?? error) });

@@ -30,8 +30,8 @@ describe('compile', () => {
     expect(result.headings[3]).toMatchObject({ depth: 2, text: 'Section 2' });
   });
 
-  // The 0-based indices of code lines that carry the shiki `highlighted` class.
-  // (Shiki emits one `<span class="line">` per line plus a trailing empty line,
+  // The 0-based indices of code lines that carry the `highlighted` class.
+  // (The highlighter emits one `<span class="line">` per line plus a trailing empty line,
   // so we compare highlighted positions rather than a fixed line count.)
   const highlightedLineIndices = (html: string): ReadonlyArray<number> =>
     [...html.matchAll(/<span class="(line[^"]*)"/g)]
@@ -61,6 +61,11 @@ describe('compile', () => {
   it('leaves fences without curly meta unhighlighted', async () => {
     const result = await compile('```ts\nconst a = 1;\nconst b = 2;\n```');
     expect(result.html).not.toContain('highlighted');
+  });
+
+  it('highlights code blocks with the default light and dark themes', async () => {
+    const result = await compile('```ts\nconst a = 1;\n```');
+    expect(result.html).toContain('class="shiki shiki-themes github-light github-dark"');
   });
 
   it('still applies markdown-it-attrs to non-fence content', async () => {

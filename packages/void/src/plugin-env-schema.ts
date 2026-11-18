@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, realpathSync } from 'node:fs';
 import { parseEnv } from 'node:util';
 import { join, resolve } from 'pathslash';
-import { loadEnv, resolveEnvPrefix, type Plugin, type ResolvedConfig } from 'vite';
+import { loadEnv, normalizePath, resolveEnvPrefix, type Plugin, type ResolvedConfig } from 'vite';
 import { findEnvFile, generateEnvTypes } from './codegen/env-types.ts';
 import { writeFileIfChanged } from './codegen/write-if-changed.ts';
 import { loadUserEnvFile } from './host/load-user-env.ts';
@@ -13,6 +13,7 @@ import {
   findLegacyEnvFiles,
   findReservedEnvKeys,
   isClientEnvKey,
+  legacyEnvExampleHint,
   loadLocalEnv,
   LOCAL_ENV_FILE,
   reservedEnvKeysMessage,
@@ -72,7 +73,7 @@ function stripLocalClientEnv(
   config: ResolvedConfig,
   before: ProcessEnvCopies | undefined,
 ): void {
-  if (config.envDir === false || realDir(config.envDir) !== realDir(root)) {
+  if (config.envDir === false || realPath(config.envDir) !== realPath(root)) {
     return;
   }
   const file = join(root, LOCAL_ENV_FILE);
@@ -107,12 +108,22 @@ function stripLocalClientEnv(
 }
 
 /** Match Vite's canonical paths, including Windows short names and filesystem casing. */
-function realDir(dir: string): string {
+function realPath(path: string): string {
   try {
-    return realpathSync.native(dir);
+    return realpathSync.native(path);
   } catch {
-    return resolve(dir);
+    return resolve(path);
   }
+}
+
+/** Module ids that name an env file: its path as found, and as Vite resolves it. */
+function envFileIdsFor(envFile: string | null): Set<string> {
+  return new Set(envFile ? [normalizePath(envFile), normalizePath(realPath(envFile))] : []);
+}
+
+/** A hook filter pattern that matches exactly `id`. */
+function exactId(id: string): RegExp {
+  return new RegExp(`^${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`);
 }
 
 /** Patterns Vite's `define` typically uses for env-shaped constants. */
@@ -133,6 +144,22 @@ const DEFINE_ENV_PATTERN =
 export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = {}): Plugin {
   const outDir = join(root, '.void');
   let envFile: string | null = null;
+  // `config` finds the file again. The transform filter below keeps the ids found here: a hook
+  // filter is fixed when the plugin is created.
+  let envFileIds = envFileIdsFor(findEnvFile(root));
+  // Generated server entries import env.ts only to register its schema. Keep that import when
+  // the app's package.json declares `"sideEffects": false`, which would let the bundler drop it.
+  // The filter matches the resolved id, which for a symlink is the target's path, whatever its
+  // file name.
+  const keepEnvFileImport: Plugin['transform'] = {
+    filter: { id: [...envFileIds].map(exactId) },
+    handler(code, id) {
+      if (this.environment.config.consumer === 'client' || !envFileIds.has(id)) {
+        return;
+      }
+      return { code, map: null, moduleSideEffects: true };
+    },
+  };
   let command: 'serve' | 'build' = 'serve';
   let processEnvCopiesBefore: ProcessEnvCopies | undefined;
   const appliedClientDefaults = new Map<string, string>();
@@ -302,7 +329,7 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
       const legacyFiles = findLegacyEnvFiles(root);
       if (legacyFiles.length > 0) {
         throw new Error(
-          `void/env supports one local file: .env. Remove ${legacyFiles.join(', ')} and follow the env migration guide.`,
+          `void/env supports one local file: .env. Remove ${legacyFiles.join(', ')} and follow the env migration guide.${legacyEnvExampleHint(legacyFiles)}`,
         );
       }
       // Every mode (serve, build, preview), with or without env.ts. Only the
@@ -317,6 +344,7 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
         throw new Error(reservedEnvKeysMessage('.env', reservedInDotenv));
       }
       envFile = findEnvFile(root);
+      envFileIds = envFileIdsFor(envFile);
       if (!envFile) {
         return;
       }
@@ -392,5 +420,6 @@ export function envSchemaPlugin(root: string, options: EnvSchemaPluginOptions = 
         await importUserEnv();
       }
     },
+    ...(envFileIds.size > 0 && { transform: keepEnvFileImport }),
   };
 }

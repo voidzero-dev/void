@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { createJiti } from 'jiti';
 import { join } from 'pathslash';
+import { aliasHint } from './host/alias-hint.ts';
 
 export const LEGACY_CONFIG_FILE = 'void.json';
 export const TYPED_CONFIG_FILE = 'void.config.ts';
@@ -51,10 +52,9 @@ export function loadVoidConfig(root: string): LoadedVoidConfig | null {
     try {
       return { source: TYPED_CONFIG_FILE, value: loadTypedVoidConfigFile(typedPath) };
     } catch (error) {
-      throw new Error(
-        `config: Could not load ${TYPED_CONFIG_FILE}: ${error instanceof Error ? error.message : String(error)}`,
-        { cause: error },
-      );
+      const base = `config: Could not load ${TYPED_CONFIG_FILE}: ${error instanceof Error ? error.message : String(error)}`;
+      const hint = aliasHint(error, TYPED_CONFIG_FILE);
+      throw new Error(hint ? `${base}\n\n${hint}` : base, { cause: error });
     }
   }
 

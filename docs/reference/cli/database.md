@@ -1,4 +1,5 @@
 ---
+description: 'Generate migrations, apply them, and update the local database from your Drizzle schema.'
 outline: deep
 ---
 
@@ -51,10 +52,11 @@ Programmatic seed modules must export either a default function or a named `seed
 ```
 void db execute <sql>
 void db execute --file <path>
-void db execute --remote <sql>
+void db execute --remote <sql> [--yes]
+void db execute --remote --file <path> [--yes]
 ```
 
-Run ad-hoc SQL against the database. Provide SQL inline or from a file. SELECT queries display results as a formatted table; other statements execute silently.
+Run ad-hoc SQL against the database. Provide SQL inline or from a file. A statement that returns rows prints them as a formatted table, and statements that change data print nothing. SQL with several statements runs as a script without printed results.
 
 By default, targets the local database. Pass `--remote` to run against the deployed database selected in `.void/project.json`:
 
@@ -63,7 +65,9 @@ By default, targets the local database. Pass `--remote` to run against the deplo
 - **Hosted PostgreSQL and MySQL projects**: fetches the stored connection string from the platform and connects directly.
 - **Direct Cloudflare PostgreSQL and MySQL projects**: uses `DATABASE_URL` from the current shell; Cloudflare cannot return the password from Hyperdrive.
 
-For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. Non-TTY environments (CI) skip the prompt.
+On direct Cloudflare D1 deployments, a `--file` larger than 100 KB runs as a D1 import: Void waits for it to finish, the database cannot serve queries until then, and query rows are not printed. Smaller files print rows like inline SQL.
+
+For destructive statements (`DELETE`, `UPDATE`, `DROP`, etc.) when running in a TTY, you will be prompted to confirm before the query is sent to the deployed database. A TTY also asks before a D1 import, whatever the file contains. Pass `--yes` to skip the prompt. Non-TTY environments (CI) never prompt, so `--yes` is optional there.
 
 ## `void db migrate` {#void-db-migrate}
 
@@ -129,6 +133,8 @@ void db connect --provider @acme/void-db-provider --region region-id
 The command saves `DATABASE_URL` in `.env`. When authenticated with a linked Void project, it also updates the encrypted deployment URL; pass `--local-only` to skip that sync. `neon` is built in. Other adapters are project dependencies or local modules exporting a `DatabaseProviderAdapter` from `void/database-provider`.
 
 Provider-created credentials are never printed. For direct Cloudflare deploys, configure the same URL as a protected `DATABASE_URL` in the shell or CI environment that runs deploy.
+
+For an existing PostgreSQL database migrated by Drizzle, [adopt its applied migration history](../../guide/database.md#adopt-existing-drizzle) before the first Void deployment.
 
 ## `void db set-url` {#void-db-set-url}
 

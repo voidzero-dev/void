@@ -1,4 +1,5 @@
 ---
+description: 'Connect MySQL through Cloudflare Hyperdrive, then query it with Drizzle. Void applies your migrations on deploy.'
 outline: deep
 ---
 

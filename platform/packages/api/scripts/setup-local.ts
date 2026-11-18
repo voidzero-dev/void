@@ -88,7 +88,7 @@ async function resolveAdminEmail(): Promise<string> {
     message: 'Local admin email',
     placeholder: 'you@example.com',
     defaultValue: existingEmail,
-    validate: validateEmail,
+    validate: (value) => validateEmail(value ?? ''),
   });
 
   if (p.isCancel(answer)) {

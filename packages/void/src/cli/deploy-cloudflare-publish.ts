@@ -66,7 +66,7 @@ export async function publishCloudflareWorker(input: {
     workersDevSubdomain,
     readinessAccessOrigin,
   } = input.preflight;
-  const { migrations, d1MigrateToken, generatedConfigPath, prepareBuildOutput } = input.build;
+  const { d1MigrateToken, generatedConfigPath, prepareBuildOutput } = input.build;
   const { workerWasMissingBeforeSecretProvisioning, initialAuthSecret, appliedMigrations } =
     input.migration;
 
@@ -132,13 +132,10 @@ export async function publishCloudflareWorker(input: {
       verifyUploader: cfOutput ? cfUploaderIsPinned : assertUploaderStillPinned,
       requireVersionMetadata: existingWorker === null || hasVersionMetadata,
       requirePreviewForReadiness: existingWorker !== null && !hasVersionMetadata,
-      message: encodeCloudflareVersionMessage(
-        migrations.map((migration) => migration.name),
-        {
-          ...readCloudflareTriggerConfig(generatedConfigPath, configPath),
-          ...(existingWorker ? { preserve: true } : {}),
-        },
-      ),
+      message: encodeCloudflareVersionMessage(input.migration.migrationHistory, {
+        ...readCloudflareTriggerConfig(generatedConfigPath, configPath),
+        ...(existingWorker ? { preserve: true } : {}),
+      }),
       allowFirstDeploymentBootstrap: workerWasMissingBeforeSecretProvisioning,
       ...(pinActiveSecrets ? { pinActiveSecrets } : {}),
       atomic,
@@ -178,7 +175,8 @@ export async function publishCloudflareWorker(input: {
     formatDeploySummary({
       workerName,
       migrations: appliedMigrations,
-      d1MigrationsCurrent: d1MigrateToken !== undefined,
+      d1MigrationsCurrent:
+        input.migration.migrationHistory !== null && d1MigrateToken !== undefined,
       // Existing Worker handoffs preserve remote triggers rather than publishing source jobs.
       cronJobs: existingWorker ? undefined : analysis.jobs.length,
       queues: existingWorker ? undefined : desired.queues.length,

@@ -1,4 +1,5 @@
 ---
+description: "Keep your framework's routes and rendering, and use Void for databases, storage, jobs, and deployment."
 outline: deep
 ---
 
@@ -25,6 +26,8 @@ TanStack Start and React Router use the Cloudflare Vite plugin provided by Void.
 
 Detection is automatic. The CLI reads your `package.json` dependencies.
 
+In vinext apps, `middleware.ts` and `proxy.ts` also apply to files in `public/`. When either file is present, static requests go through the Worker and count toward its request usage. Apps without middleware keep static asset delivery.
+
 ## Feature Support
 
 With `voidPlugin()` added to the framework's Vite config, frameworks get most of the same backend/platform features as [Void apps](../../guide/app-types.md#void-apps):
@@ -33,6 +36,7 @@ With `voidPlugin()` added to the framework's Vite config, frameworks get most of
 - **Typed database:** query types come from your Drizzle schema.
 - **Migrations:** local D1 is updated on dev startup, and migrations are validated and deployed with `void deploy`.
 - **Runtime helpers:** `void/db`, `void/kv`, `void/storage`, and `void/ai` give you typed access to Cloudflare bindings in dev and production.
+- **Environment variables:** TanStack Start, React Router, and vinext support validated values from [`void/env`](#environment-variables).
 - **Auth:** Void-managed auth is not supported in framework mode yet. For now, use Better Auth's official integration for your framework.
 - **Cron jobs:** scheduled handlers via the `crons/` directory.
 - **Queue consumers:** typed producers and consumers via the `queues/` directory.
@@ -43,6 +47,12 @@ For framework apps, Void revalidation caches public HTML document responses with
 Frameworks can also access bindings directly via the framework's own mechanisms (e.g. `env` from `cloudflare:workers` in SvelteKit 3, Analog, and Astro, `platform.env` in SvelteKit 2, `event.context.cloudflare.env` in Nuxt).
 
 ## Configuration
+
+### Environment variables
+
+In TanStack Start, React Router, and vinext, import `env` from `void/env` to read values validated by your [`env.ts`](../../guide/env-vars.md) schema. Defaults, type conversions, and async validators work in both development and production.
+
+Reading a missing or invalid value throws an error. Requests that do not read that value can still run. For other frameworks, use the framework's environment API.
 
 ### `void.config.ts`
 

@@ -365,6 +365,7 @@ export async function replayDeploymentCutover(
         ...(queue.maxBatchSize != null && { batch_size: queue.maxBatchSize }),
         ...(queue.maxBatchTimeout != null && { max_wait_time_ms: queue.maxBatchTimeout * 1000 }),
         ...(queue.maxRetries != null && { max_retries: queue.maxRetries }),
+        ...(queue.maxConcurrency != null && { max_concurrency: queue.maxConcurrency }),
         ...(queue.retryDelay != null && { retry_delay: queue.retryDelay }),
       },
     );

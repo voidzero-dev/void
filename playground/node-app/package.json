@@ -9,7 +9,7 @@
     "start": "node dist/ssr/index.js"
   },
   "dependencies": {
-    "@hono/node-server": "^2.1.5",
+    "@hono/node-server": "catalog:",
     "hono": "catalog:",
     "react": "catalog:",
     "react-dom": "catalog:"

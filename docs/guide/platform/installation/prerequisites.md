@@ -1,4 +1,5 @@
 ---
+description: 'Check the Cloudflare account, domain, and API token permissions you need before installing a Void platform.'
 outline: deep
 ---
 
@@ -169,7 +170,7 @@ Save the printed URL in your password manager and paste it into Void's `PostgreS
 The installer can create Hyperdrive for you or use one you manage separately. For an existing configuration:
 
 1. Point it at the dedicated platform database using a runtime user, and disable SQL result caching.
-2. Select it in the installer and review the database, host, port, and runtime user.
+2. Select it in the installer and review the database and runtime user. Check the origin's host and port, or its Workers VPC service ID for a private database.
 3. Supply a database owner connection at the PostgreSQL URL prompt so Void can apply migrations.
 
 To create one first, choose **Set up a separately managed Hyperdrive** and follow the printed instructions or [Cloudflare’s setup guide](https://developers.cloudflare.com/hyperdrive/get-started/). Rerun the installer once it is ready. Void leaves its configuration under your control. For unattended setup, use the Hyperdrive variables in [Install from CI](/guide/platform/installation/ci).

@@ -183,8 +183,7 @@ onBeforeUnmount(() => {
           @keydown.right.prevent="moveTab($event, index, 1)"
           @keydown.left.prevent="moveTab($event, index, -1)"
         >
-          <span class="demos-tab-index">0{{ index + 1 }}</span
-          >{{ item.label }}
+          <span class="demos-tab-index">0{{ index + 1 }}</span>{{ item.label }}
         </button>
       </div>
       <div

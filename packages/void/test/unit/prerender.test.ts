@@ -12,7 +12,7 @@ import {
   prerenderPages,
   prerenderPagesNode,
 } from '../../src/prerender.ts';
-import { renderDefaultErrorPage } from '../../src/runtime/error-pages/index.ts';
+import { renderDefaultErrorPage } from '../../src/runtime/routing/error-pages/index.ts';
 import { INTERNAL_ENV_KEYS, stripInternalEnvKeys } from '../../src/shared/env.ts';
 
 const tempDirs: Array<string> = [];
@@ -185,6 +185,9 @@ export default {
   fetch(request, env) {
     if (new URL(request.url).pathname === '/__void/prerender-paths' && env?.__VOID_PRERENDER === '1') {
       return Response.json({ paths: ${JSON.stringify(paths)} });
+    }
+    if (new URL(request.url).pathname === '/__void/static-not-found' && env?.__VOID_PRERENDER === '1') {
+      return new Response(null, { status: 204 });
     }
     return new Response(${JSON.stringify(customPage)}, { headers: { 'content-type': 'text/html' } });
   },

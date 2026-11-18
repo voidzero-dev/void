@@ -33,7 +33,7 @@ import {
   compareEmailRoutes,
   compileEmailPattern,
   type CompiledEmailPattern,
-} from '../../router/email.ts';
+} from '../../shared/email-pattern.ts';
 import { registerEmailSink, type CapturedMessage } from './dev-inbox.ts';
 import {
   createMessageProxy,

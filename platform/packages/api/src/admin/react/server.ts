@@ -3,7 +3,7 @@ import type { Context } from 'hono';
 import type { PageObject } from 'void/pages-protocol';
 import type { ApiEnv } from '../../env.ts';
 import { formatPlatformPageTitle } from '../../platform-identity.ts';
-import type { createFateClient } from '../fate/client.generated.ts';
+import type { createAdminFateClient } from '../fate/client.ts';
 import { adminComponents, adminLayoutTree, type AdminPageId } from './pages.ts';
 
 export async function renderAdminPage(
@@ -13,7 +13,7 @@ export async function renderAdminPage(
   props: Record<string, unknown>,
   options: {
     status?: number;
-    fateSnapshot?: Parameters<ReturnType<typeof createFateClient>['hydrate']>[0];
+    fateSnapshot?: Parameters<ReturnType<typeof createAdminFateClient>['hydrate']>[0];
   } = {},
 ): Promise<Response> {
   const platformName = String(props.platformName ?? 'Void');

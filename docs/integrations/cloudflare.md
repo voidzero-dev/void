@@ -1,4 +1,5 @@
 ---
+description: 'Deploy to Cloudflare Workers. Void detects the resources your app uses, creates bindings, and publishes the Worker.'
 outline: deep
 ---
 
@@ -42,7 +43,7 @@ Add `void/env` to your TypeScript types:
 }
 ```
 
-This provides binding types and Workers runtime types.
+This provides binding and Workers runtime types. For custom bindings in `void.config.ts`, run `void prepare` or start the dev server or build to type them on `c.env`. See [Custom Binding Types](../guide/type-safety.md#custom-binding-types) for RPC methods on service and Durable Object bindings.
 
 ### Available bindings
 
@@ -142,7 +143,7 @@ Set these CI secrets and variables as needed:
 | `CF_ACCESS_CLIENT_ID`, `CF_ACCESS_CLIENT_SECRET` | When Cloudflare Access protects the readiness URL.                                                                                                                                        |
 | `CF_ACCESS_READINESS_ORIGIN`                     | When Access protects a route or Custom Domain and `workers_dev` is `false`. See [Cloudflare Access](#cloudflare-access).                                                                  |
 
-For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Email Routing Edit and Email Sending Edit.
+For email, run `void email setup --platform cloudflare` locally, commit `void.lock.json`, and pass `--require-email` in CI. The token also needs Zone Read and Email Sending Edit, plus Email Routing Edit for apps with `email/` handlers.
 
 #### Cloudflare Access
 
@@ -174,7 +175,11 @@ Set production server values with `void secret put <NAME>`. Void preserves exist
 
 ### Readiness and rollback
 
-Void normally verifies an uploaded version before sending it traffic. A Worker with workers.dev turned off and no route or Custom Domain has no URL Void can check, so that deploy skips the readiness check and activates the uploaded version. If readiness or trigger updates fail, it restores the previous deployment. If trigger updates fail and Void cannot restore the previous version's triggers, for example because another tool deployed it or it is an empty draft, the new version stays live and the error says which version is serving traffic. Finish or cancel any gradual rollout in Cloudflare before deploying through Void.
+Void checks an uploaded version before sending it traffic. If the Worker has no public URL, because workers.dev is off and no route or Custom Domain is configured, Void activates it without a readiness check.
+
+If readiness or trigger updates fail, Void restores the previous deployment. If trigger updates fail and the previous triggers can't be restored, such as after another tool's deployment or from an empty draft, the new version stays live. The error names the version serving traffic.
+
+Finish or cancel gradual rollouts in Cloudflare before deploying through Void.
 
 For an existing Durable Object Worker that Cloudflare cannot stage, review the changes and use:
 
@@ -203,7 +208,7 @@ Void deploys native apps, static sites, SPAs, supported SSGs, and Cloudflare bui
 - `--skip-build` works for existing static output. Worker apps require a fresh build.
 - Named Cloudflare environments aren't supported. Use a separate Void project config for each target.
 - Sandbox requires Workers Paid and Docker. See [Sandbox requirements](../guide/sandboxes.md#deployment) for plan and token permissions.
-- Email to arbitrary recipients requires Workers Paid; verified recipients and inbound mail work on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
+- Email to arbitrary recipients, and all sending from apps without `email/` handlers, requires Workers Paid. Apps with handlers keep inbound mail and verified recipients on Workers Free. See [Email](../guide/email/domains.md#your-own-cloudflare-account).
 - Node.js, Bun, and Deno use their [own deployment path](./nodejs-bun-deno.md).
 
 Commit Durable Object migration history in `void.lock.json`. Do not delete or reorder deployed steps.

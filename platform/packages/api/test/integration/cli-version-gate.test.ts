@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vite-plus/test';
 import type { Db } from '../../src/db.ts';
 import app from '../../src/index.ts';
 import { MIN_CLI_VERSION } from '../../src/middleware/cli-version.ts';

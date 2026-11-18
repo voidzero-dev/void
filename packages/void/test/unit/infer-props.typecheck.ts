@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, it } from 'vite-plus/test';
 import { z } from 'zod';
 import type { InferProps } from '../../src/pages/defer.ts';
-import { defineHandler, defineMiddleware } from '../../src/runtime/handler.ts';
+import { defineHandler, defineMiddleware } from '../../src/runtime/handler/index.ts';
 
 type Book = { id: string; title: string };
 type Author = { id: string; name: string };

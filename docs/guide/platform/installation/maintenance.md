@@ -1,4 +1,5 @@
 ---
+description: 'Resume, repair, upgrade, or recover an installation, including when the keychain or API is unavailable.'
 outline: deep
 ---
 
@@ -113,6 +114,8 @@ void platform upgrade [id]
 
 An upgrade validates the runtime, applies supported pending migrations, deploys the Workers, and checks their health. Existing Worker secrets are preserved.
 
+Install, upgrade, and repair also publish saved [AI Gateway logging](/reference/cli/platform-users#ai-gateway-logging) settings. Affected projects may show `pending` for about 2 minutes afterward, including projects returning to `inherit`. Check progress with `void platform project show <project-id>`.
+
 Before starting, Void checks access to the installation's Cloudflare account, Workers, and existing R2 buckets. If credentials are rejected, set `CLOUDFLARE_API_TOKEN` to a management token scoped to that account and retry. This overrides the installation's saved management token.
 
 Some upgrades pause application traffic until the new version passes health checks. If a command fails while traffic is paused:
@@ -143,6 +146,11 @@ Keep the earlier runtime files if you need rollback. If the installed version is
 
 Do not roll back to 0.26.0 or earlier after upgrading to a later release. Void does not refuse this rollback, but those releases reject the credentials that later releases give your apps. Every project deployed or rotated since the upgrade loses AI, email, ISR revalidation, remote D1, KV, and R2, and prerendering until you upgrade again. If you have rolled back that far, upgrade again, then run `void platform system rotate-proxy-tokens --all --yes` and check with `--plan` until nothing is pending or failed.
 
+Rolling back can restore prompt and response logging:
+
+- **1.8.0** applies project AI logging settings but ignores [plan defaults](/guide/platform/administration/plans#ai-gateway-logging). Projects without an override use the gateway's setting, which enables logging on a new installation. Plan defaults stay saved and are published again on upgrade.
+- **Before 1.8.0**, no project or plan AI logging settings apply.
+
 Let running rotations finish before you roll back. If an older proxy runs next to a newer API, prerendering and remote D1, KV, and R2 fail until both run the same release. After a rollback to the release just before credential rotation, projects deployed since the upgrade lose prerendering and remote D1, KV, and R2 until they are deployed again or you upgrade again. A rotated project deployed during any rollback stays broken after you upgrade again, and 0.26.0 and earlier also drop rotations that have not finished. After upgrading again from any rollback, run the same `rotate-proxy-tokens` commands.
 
 :::
@@ -156,7 +164,9 @@ void platform upgrade [id] --runtime-logs minimal
 void platform upgrade [id] --runtime-logs full
 ```
 
-Later upgrades keep the setting. The upgrade also changes Workers Logs on the projects' existing deployments. If that step fails, the upgrade still finishes and prints what to run next: `void platform repair [id]` after switching to minimal, or the same upgrade again after switching to full. Records stored before the change are not removed; they expire with Cloudflare's retention.
+The setting also applies to existing project deployments, and later upgrades keep it. Previously stored logs remain until Cloudflare's retention period ends.
+
+If updating project logs fails, the platform upgrade still completes and prints a recovery command. Run `void platform repair [id]` after switching to minimal, or repeat the upgrade after switching to full.
 
 While runtime logs are minimal, `void platform rollback` refuses a runtime that does not support the setting. Run `void platform upgrade [id] --runtime-logs full` first.
 

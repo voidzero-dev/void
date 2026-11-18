@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { verifyEmailReceiptThroughProxy } from '../../src/runtime/email-protocol.ts';
+import { verifyEmailReceiptThroughProxy } from '../../src/runtime/email/protocol.ts';
 
 const input = {
   receipt: 'receipt-token',

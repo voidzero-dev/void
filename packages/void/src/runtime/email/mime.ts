@@ -7,7 +7,7 @@
  */
 
 import { validate as isValidEmailSyntax } from 'email-validator';
-import { bytesToBase64 } from '../base64.ts';
+import { bytesToBase64 } from '../../shared/base64.ts';
 import { indexOfControl, threadingId, threadingReferences, trimFws } from './threading.ts';
 import type {
   Address,

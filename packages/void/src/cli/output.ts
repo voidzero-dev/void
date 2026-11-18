@@ -34,6 +34,19 @@ export function printSuccess(message: string): void {
   outro(`\n${pc.green(`✓ ${stripVTControlCharacters(message)}`)}`, { withGuide: false });
 }
 
+/**
+ * Something a multi-step command finished, listed in its closing summary before
+ * `printSuccess`. Lines after the first are indented under it.
+ */
+export function printDone(message: string | Array<string>): void {
+  log.message(message, { symbol: pc.green('✓') });
+}
+
+/** Something the user should do next, listed in a command's closing summary. */
+export function printNextStep(message: string): void {
+  log.message(message, { symbol: pc.blue('→') });
+}
+
 export function formatCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
 }

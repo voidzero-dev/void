@@ -181,10 +181,10 @@ export function islandsPlugin(
               `const ${name} = {` +
                 ` inheritAttrs: false,` +
                 ` render() {` +
-                ` const props = this.$attrs;` +
+                ` const props = { ...this.$attrs };` +
                 ` return _h_island("div", {` +
                 ` "data-island": ${JSON.stringify(islandId)},` +
-                ` "data-props": JSON.stringify(props),` +
+                ` "data-props": _serializeIslandProps(props),` +
                 ` "data-hydrate": ${JSON.stringify(strategy)}` +
                 ` }, _h_island(${rawName}, props));` +
                 ` }` +
@@ -208,7 +208,10 @@ export function islandsPlugin(
             }
             return editIslandSource(code, edits, {
               insert: [
-                { offset: openEnd, text: '\nimport { h as _h_island } from "vue";' },
+                {
+                  offset: openEnd,
+                  text: '\nimport { h as _h_island } from "vue";\nimport { serializePageData as _serializeIslandProps } from "void/pages-server";',
+                },
                 { offset: closeIdx, text: '\n' + wrappers.join('\n') + '\n' },
               ],
             });
@@ -279,7 +282,10 @@ export async function renderIslandPage(pageObj, assetTags) {
     }
   });
 
+  let renderFailure;
+  if (Object.keys(boundaryManifest.plans).length) app.config.errorHandler = error => { renderFailure ??= { error }; };
   const html = await renderToString(app);
+  if (renderFailure) throw renderFailure.error;
   // The rendered islands also count: in dev, the page may have gained its
   // first island after this module computed __pagesNeedingClientJS.
   const __hasIslands = html.includes("data-island=");

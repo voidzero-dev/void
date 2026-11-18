@@ -165,7 +165,6 @@ export async function publishWorkerDeployment(input: {
     input.currentStatus = 'cutover';
   }
 
-  // Queue setup
   input.currentStep = 'queue_setup';
   markPhase('queue_setup');
   const queueNames = (manifest.queues ?? []).map((q) => q.name);
@@ -204,6 +203,7 @@ export async function publishWorkerDeployment(input: {
               max_wait_time_ms: q.maxBatchTimeout * 1000,
             }),
             ...(q.maxRetries != null && { max_retries: q.maxRetries }),
+            ...(q.maxConcurrency != null && { max_concurrency: q.maxConcurrency }),
             ...(q.retryDelay != null && { retry_delay: q.retryDelay }),
           },
         );
@@ -359,7 +359,6 @@ export async function publishWorkerDeployment(input: {
   }
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 
-  // Routing switch
   await snapshotCronState();
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
   markPhase('routing_switch');

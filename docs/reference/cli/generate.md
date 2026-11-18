@@ -1,4 +1,5 @@
 ---
+description: 'Scaffold a Drizzle table and the routes that list, create, and fetch a row.'
 outline: deep
 ---
 

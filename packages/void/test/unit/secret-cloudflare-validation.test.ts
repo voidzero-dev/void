@@ -3,8 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { cancel, confirm, CANCEL_SYMBOL, password } from '@voidzero-dev/vite-plus-prompts';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { number, string } from '../../src/runtime/env-helpers.ts';
-import { defineEnv } from '../../src/runtime/env-public.ts';
+import { number, string } from '../../src/runtime/env/helpers.ts';
+import { defineEnv } from '../../src/runtime/env/public.ts';
 
 const cloudflare = vi.hoisted(() => ({
   put: vi.fn(),

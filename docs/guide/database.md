@@ -1,4 +1,5 @@
 ---
+description: 'Define tables in TypeScript and query them with Drizzle. Use the same schema with D1, PostgreSQL, or MySQL.'
 outline: deep
 ---
 
@@ -165,16 +166,13 @@ const allUsers = await db.select().from(users);
 import { users } from '@schema';
 import { db, eq, and, or } from 'void/db';
 
-// Single condition
 const user = await db.select().from(users).where(eq(users.id, 1));
 
-// Multiple conditions
 const admins = await db
   .select()
   .from(users)
   .where(and(eq(users.role, 'admin'), eq(users.name, 'Alice')));
 
-// OR conditions
 const result = await db
   .select()
   .from(users)
@@ -184,19 +182,16 @@ const result = await db
 ### Insert
 
 ```ts
-// Single row
 await db.insert(users).values({
   name: 'Alice',
   email: 'alice@example.com',
 });
 
-// Insert and return the created row
 const [created] = await db
   .insert(users)
   .values({ name: 'Bob', email: 'bob@example.com' })
   .returning();
 
-// Multiple rows
 await db.insert(users).values([
   { name: 'Alice', email: 'alice@example.com' },
   { name: 'Bob', email: 'bob@example.com' },
@@ -208,7 +203,6 @@ await db.insert(users).values([
 ```ts
 await db.update(users).set({ role: 'admin' }).where(eq(users.id, 1));
 
-// Update and return the modified row
 const [updated] = await db.update(users).set({ role: 'admin' }).where(eq(users.id, 1)).returning();
 ```
 
@@ -384,6 +378,41 @@ npm install arktype
 | `void db seed`     | Reset the local database and run a seed file         |
 
 See the [CLI reference](../reference/cli/database.md#database) for connection setup, SQL execution, Studio, exports, and other commands.
+
+## Adopt an existing Drizzle PostgreSQL database {#adopt-existing-drizzle}
+
+To use Void with a PostgreSQL database that Drizzle has already migrated, record its applied migrations before your first deployment:
+
+1. Back up the database and pause deployments. Try the procedure on a restored copy first.
+2. Set `database: 'pg'` in `void.config.ts`. Keep your existing schema, SQL filenames, and `db/migrations/meta/` directory. Do not regenerate or rename migrations during adoption.
+3. Read Drizzle's migration history. The default table is `drizzle.__drizzle_migrations`; use your configured schema and table if different.
+
+   ```sql
+   SELECT hash, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at;
+   ```
+
+   Match each row's `created_at` to `when` in `meta/_journal.json`, and its `hash` to the SQL file's SHA-256. Resolve any differences before continuing.
+
+4. Save this as `adopt-void.sql`. Replace the example filenames with **only the migrations you verified as applied**, including `.sql`. Leave pending migrations out.
+
+   ```sql [adopt-void.sql]
+   BEGIN;
+   CREATE TABLE IF NOT EXISTS _void_migrations (
+     name TEXT PRIMARY KEY,
+     applied_at TEXT NOT NULL
+   );
+   INSERT INTO _void_migrations (name, applied_at)
+   VALUES
+     ('0000_create_users.sql', CURRENT_TIMESTAMP::text),
+     ('0001_add_email.sql', CURRENT_TIMESTAMP::text)
+   ON CONFLICT (name) DO NOTHING;
+   COMMIT;
+   ```
+
+5. Run the file with your PostgreSQL client, stopping on errors. Use the database and search path Void will use. This records the filenames without running their SQL or changing Drizzle's history.
+6. Connect Void to the database and run `void db status`. Only new migrations should be pending. For direct Cloudflare deployments, set `DATABASE_URL` in the shell or CI environment that runs `void deploy`.
+
+Repeat these steps for each database; development and production may have different migration histories. Keep Drizzle's history table, and use Void for future migrations.
 
 ## Hand-written migrations {#hand-written-migrations}
 

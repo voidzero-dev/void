@@ -30,10 +30,11 @@ import {
   writeJournal,
 } from '../migrations/collect.ts';
 import type { MySqlClient } from '../migrations/runner-mysql.ts';
+import type { SqliteDatabase, SqliteStatement } from '../migrations/runner.ts';
 import { assertJournalCoherence, validateMigrations } from '../migrations/validate.ts';
 import { detectFramework } from '../plugin-inference.ts';
 import { readProjectPaths } from '../project-paths.ts';
-import type { SeedFn } from '../runtime/seed.ts';
+import type { SeedFn } from '../runtime/db/seed.ts';
 import { cfAccessHeaders } from '../shared/cf-access.ts';
 import { loadLocalEnv } from '../shared/env.ts';
 import { getProxyUrl, getToken } from './auth.ts';
@@ -52,6 +53,7 @@ import {
   quoteSqlString,
 } from './db-export-sequences.ts';
 import { formatTimestamp } from './gen.ts';
+import { Buffer } from './node-buffer.ts';
 import { printSuccess, dim, formatCount, formatUrl, getErrorMessage, pc } from './output.ts';
 import { readDeploymentPlatform, readProjectConfig } from './project.ts';
 import { drizzleKitBin } from './yarn-pnp.ts';
@@ -204,7 +206,7 @@ export async function runDbCommand(root: string, args: DbArgs): Promise<void> {
   } else if (args.action === 'seed') {
     await runSeed(root, args.file, dialect, args.yes);
   } else if (args.action === 'execute') {
-    await runExecute(root, args.command, args.file, dialect, args.remote);
+    await runExecute(root, args.command, args.file, dialect, args.remote, args.yes);
   } else if (args.action === 'migrate') {
     await runMigrate(root, dialect, args.remote);
   } else if (args.action === 'studio') {
@@ -818,16 +820,18 @@ async function runSeed(
 
 /**
  * Fail-closed check for read-only SQL (SELECT or plain EXPLAIN), which skips the remote
- * confirmation prompt. Comments are stripped first so they cannot hide `ANALYZE`.
- * Multiple statements and `WITH` (a CTE can write) are rejected, and so is `EXPLAIN ANALYZE`
- * in either form, because PostgreSQL executes the analyzed statement.
+ * confirmation prompt. A semicolon anywhere but the end means a script, and it is read from the
+ * raw text: a semicolon inside a literal must stay visible, or `SELECT '--' ; DROP TABLE users`
+ * reads as one comment-only SELECT and skips the prompt. Comments are stripped for the read-only
+ * test so they cannot hide `ANALYZE`. `WITH` (a CTE can write) is rejected, and so is
+ * `EXPLAIN ANALYZE` in either form, because PostgreSQL executes the analyzed statement.
  */
 function isSafeStatement(sql: string): boolean {
-  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
-  const stripped = decommented.replace(/;\s*$/, '');
-  if (stripped.includes(';')) {
+  if (sql.replace(/;\s*$/, '').includes(';')) {
     return false;
   }
+  const decommented = sql.replace(/\/\*[\s\S]*?\*\//g, ' ').replace(/--[^\n]*/g, ' ');
+  const stripped = decommented.replace(/;\s*$/, '');
   if (/^\s*SELECT\b/i.test(stripped)) {
     return true;
   }
@@ -842,6 +846,27 @@ function isSafeStatement(sql: string): boolean {
     return true;
   }
   return false;
+}
+
+/**
+ * Prepare one statement. better-sqlite3 refuses SQL that holds no statement or more than one
+ * with a `RangeError`, before it runs anything (`src/objects/statement.cpp`). Those are the
+ * only errors this call can raise that way, so the caller runs the same text through
+ * `exec()`, which handles a script and reports no rows. Execution errors never come back
+ * here, so nothing is replayed.
+ */
+function prepareSingleStatement(
+  db: SqliteDatabase,
+  sql: string,
+): SqliteStatement<Record<string, unknown>> | undefined {
+  try {
+    return db.prepare<Record<string, unknown>>(sql);
+  } catch (error) {
+    if (error instanceof RangeError) {
+      return undefined;
+    }
+    throw error;
+  }
 }
 
 /**
@@ -897,10 +922,14 @@ async function executeExternalRemoteSql(
 
 /**
  * Prompt the user to confirm a destructive remote query when running in a TTY.
- * Returns true if execution should proceed, false if it was cancelled.
+ * `always` asks even for read-only SQL, and `yes` (`--yes`) never asks. Returns true if
+ * execution should proceed, false if it was cancelled.
  */
-async function confirmDestructiveRemote(sql: string): Promise<boolean> {
-  if (isSafeStatement(sql)) {
+async function confirmDestructiveRemote(
+  sql: string,
+  { always = false, yes = false }: { always?: boolean; yes?: boolean } = {},
+): Promise<boolean> {
+  if (yes || (!always && isSafeStatement(sql))) {
     return true;
   }
   if (!process.stdin.isTTY) {
@@ -915,32 +944,48 @@ async function confirmDestructiveRemote(sql: string): Promise<boolean> {
   return true;
 }
 
+// D1's maximum SQL statement length. A direct D1 `--file` of this size or smaller cannot hit
+// that limit on the query API, which prints rows; a larger dump runs as a D1 import (up to 5 GB).
+const D1_MAX_SQL_STATEMENT_BYTES = 100_000;
+
 async function runExecute(
   root: string,
   command: string | undefined,
   file: string | undefined,
   dialect: DatabaseDialect,
   remote?: boolean,
+  yes?: boolean,
 ): Promise<void> {
   if (remote) {
     const directCloudflare = readDeploymentPlatform(root) === 'cloudflare';
     const sql = file ? readFileSync(resolve(root, file), 'utf-8') : command!;
 
     if (directCloudflare) {
-      const shouldProceed = await confirmDestructiveRemote(sql);
+      const bulkImport =
+        dialect === 'sqlite' &&
+        file !== undefined &&
+        Buffer.byteLength(sql) > D1_MAX_SQL_STATEMENT_BYTES;
+      if (bulkImport) {
+        log.warn(
+          `${file} is larger than 100 KB, so Void runs it as a D1 import. The database cannot serve queries until the import finishes, and query rows are not printed.`,
+        );
+      }
+      const shouldProceed = await confirmDestructiveRemote(sql, { always: bulkImport, yes });
       if (!shouldProceed) {
         log.info('Cancelled.');
         process.exit(0);
       }
       if (dialect === 'sqlite') {
-        const { executeCloudflareD1Sql, resolveCloudflareD1Context } =
+        const { executeCloudflareD1Sql, importCloudflareD1Sql, resolveCloudflareD1Context } =
           await import('./cloudflare-operations.ts');
-        const rows = await executeCloudflareD1Sql(
-          resolveCloudflareD1Context(root, configuredD1Binding(root)),
-          sql,
-        );
-        if (rows.length > 0) {
-          printTable(rows);
+        const context = resolveCloudflareD1Context(root, configuredD1Binding(root));
+        if (bulkImport) {
+          await importCloudflareD1Sql(context, sql);
+        } else {
+          const rows = await executeCloudflareD1Sql(context, sql);
+          if (rows.length > 0) {
+            printTable(rows);
+          }
         }
       } else {
         const dbUrl = process.env.DATABASE_URL;
@@ -968,7 +1013,7 @@ async function runExecute(
       process.exit(1);
     }
 
-    const shouldProceed = await confirmDestructiveRemote(sql);
+    const shouldProceed = await confirmDestructiveRemote(sql, { yes });
     if (!shouldProceed) {
       log.info('Cancelled.');
       process.exit(0);
@@ -1092,12 +1137,13 @@ async function runExecute(
 
   const db = await openSqliteDatabase(dbPath);
   try {
-    const trimmed = sql.trimStart();
-    if (/^SELECT\b/i.test(trimmed)) {
-      const rows = db.prepare(sql).all() as Array<Record<string, unknown>>;
-      if (rows.length === 0) {
-        log.info('No rows returned.');
-      } else {
+    const statement = prepareSingleStatement(db, sql);
+    if (statement?.reader) {
+      // `reader` is the statement's own answer to "returns rows": SELECT, WITH ... SELECT,
+      // PRAGMA reads, EXPLAIN and RETURNING. Writes and DDL run silently, like every other
+      // target.
+      const rows = statement.all();
+      if (rows.length > 0) {
         printTable(rows);
       }
     } else {

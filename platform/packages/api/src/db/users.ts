@@ -5,7 +5,7 @@ import { getDefaultPlan, lockPlanCatalog, requireAssignablePlan } from '../plans
 import { users, oauthAccounts, projects, deployments } from '../schema.ts';
 import type { PlanId } from '../tiers.ts';
 import type { OAuthAccount, User } from '../types.ts';
-import { type Db } from './client.ts';
+import { type Db, type Tx } from './client.ts';
 
 // --- Users ---
 
@@ -302,11 +302,29 @@ export async function linkGitHubIdentity(
   }
 }
 
-export async function updateUserPlan(db: Db, id: string, plan: PlanId): Promise<void> {
+/**
+ * Saves an account's plan under the plan lock. `inTransaction` runs before the
+ * commit with the plan the account had, read through a write so Hyperdrive cannot
+ * answer it from its cache (`null` when the account does not exist).
+ */
+export async function updateUserPlan(
+  db: Db,
+  id: string,
+  plan: PlanId,
+  inTransaction?: (tx: Tx, previousPlan: string | null) => Promise<void>,
+): Promise<void> {
   await db.transaction(async (tx) => {
     await lockPlanCatalog(tx);
     await requireAssignablePlan(tx, plan);
+    const before = inTransaction
+      ? await tx
+          .update(users)
+          .set({ id: sql`${users.id}` })
+          .where(eq(users.id, id))
+          .returning({ plan: users.plan })
+      : [];
     await tx.update(users).set({ plan }).where(eq(users.id, id));
+    await inTransaction?.(tx, before[0]?.plan ?? null);
   });
 }
 

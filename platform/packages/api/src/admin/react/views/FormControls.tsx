@@ -1,4 +1,5 @@
 /** @jsxImportSource react */
+
 import { CheckboxInput } from '@astryxdesign/core/CheckboxInput';
 import { NumberInput } from '@astryxdesign/core/NumberInput';
 import { Selector } from '@astryxdesign/core/Selector';

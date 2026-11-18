@@ -6,7 +6,13 @@ import type { DeployManifest } from '../../../types.ts';
 import { AdminCard } from './AdminCard.tsx';
 import { CodeBlock } from './CodeBlock.tsx';
 
-export function DeploymentManifestCard({ manifest }: { manifest: DeployManifest }) {
+export function DeploymentManifestCard({
+  manifest,
+  manifestJson,
+}: {
+  manifest: Pick<DeployManifest, 'bindings' | 'migrations' | 'schedules'>;
+  manifestJson: string;
+}) {
   return (
     <AdminCard title="Manifest">
       <Table>
@@ -61,7 +67,7 @@ export function DeploymentManifestCard({ manifest }: { manifest: DeployManifest 
         chevronPosition="start"
         defaultIsOpen={false}
       >
-        <CodeBlock code={JSON.stringify(manifest, null, 2)} language="json" />
+        <CodeBlock code={manifestJson} language="json" />
       </Collapsible>
     </AdminCard>
   );

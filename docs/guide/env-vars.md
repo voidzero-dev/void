@@ -1,3 +1,7 @@
+---
+description: 'Declare environment variables in env.ts and read the typed values from void/env. Use .env locally and secrets in production.'
+---
+
 # Environment variables
 
 Declare your environment variables in `env.ts`, then read them through `env` from `void/env`. Use `.env` for local values and `void secret put` for production server values.

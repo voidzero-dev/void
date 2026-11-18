@@ -13,9 +13,21 @@ import {
 } from '@void/platform/plans';
 import { and, asc, count, eq, gt, inArray } from 'drizzle-orm';
 import type { Context } from 'hono';
+import {
+  freshPlanAiLoggingInputs,
+  planAiLoggingChanges,
+  previewPlanAiLoggingPublish,
+  readPlanAiLoggingProgress,
+  runPlanAiLoggingPublishPage,
+  startPlanAiLoggingPublish,
+  writePlanAiLoggingSettings,
+  type PlanAiLoggingPublishProgress,
+} from '../ai-logging-plans.ts';
+import { parsePlanAiLoggingInput, type PlanAiLoggingSettings } from '../ai-logging-policy.ts';
 import type { DbOrTx } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import {
+  initialPlanDefaultFor,
   lockPlanCatalog,
   readPlanCatalog,
   readPlanCatalogWithAccounts,
@@ -47,7 +59,7 @@ function assertPlanRolloutComplete(context: Context<ApiEnv>): void {
 }
 
 export function initialPlanDefault(context: Context<ApiEnv>): BuiltinPlanId {
-  return context.env.PLATFORM_INSTALLATION_ID ? 'custom' : 'free';
+  return initialPlanDefaultFor(context.env);
 }
 
 function invalidInput(error: unknown): never {
@@ -92,6 +104,14 @@ function requirePlan(catalog: PlatformPlanCatalog, id: string): PlatformPlanDefi
   return plan;
 }
 
+function planAiLoggingInput(body: Record<string, unknown>) {
+  try {
+    return parsePlanAiLoggingInput(body.aiLogging);
+  } catch (error) {
+    throw new OperatorError(400, (error as Error).message, 'invalid_argument');
+  }
+}
+
 function applyPatch(
   plan: PlatformPlanDefinition,
   body: Record<string, unknown>,
@@ -99,6 +119,9 @@ function applyPatch(
   if (body.allowShortSlugs !== undefined && typeof body.allowShortSlugs !== 'boolean') {
     throw new OperatorError(400, 'allowShortSlugs must be a boolean.', 'invalid_argument');
   }
+  // The AI logging default lives in its own setting (see `proposePlanAiLogging`);
+  // here it is only checked, so a bad value fails before anything is saved.
+  planAiLoggingInput(body);
   return {
     ...plan,
     ...(body.allowShortSlugs === undefined ? {} : { allowShortSlugs: body.allowShortSlugs }),
@@ -190,11 +213,12 @@ export function proposePlanCatalog(
         body.name === undefined &&
         body.limits === undefined &&
         body.buildInstanceType === undefined &&
-        body.allowShortSlugs === undefined
+        body.allowShortSlugs === undefined &&
+        body.aiLogging === undefined
       ) {
         throw new OperatorError(
           400,
-          'Set a name, limits, buildInstanceType, or allowShortSlugs.',
+          'Set a name, limits, buildInstanceType, allowShortSlugs, or aiLogging.',
           'invalid_argument',
         );
       }
@@ -273,6 +297,45 @@ export function proposePlanCatalog(
   return { catalog: next, affectedPlanIds, removedPlanId, replacementPlanId, loweredLimits };
 }
 
+/**
+ * Plan AI logging defaults after a catalog change. `add` copies the source plan's
+ * default, `remove` drops the plan's entry, and `aiLogging` on `add`/`set` sets it
+ * (`inherit` clears it; leaving it out keeps it).
+ */
+export function proposePlanAiLogging(
+  modes: PlanAiLoggingSettings['modes'],
+  action: PlanCatalogAction,
+  id: string | undefined,
+  body: Record<string, unknown>,
+  removedPlanId: string | undefined,
+): PlanAiLoggingSettings['modes'] {
+  const input = planAiLoggingInput(body);
+  if (input !== undefined && action !== 'add' && action !== 'set') {
+    throw new OperatorError(
+      400,
+      'aiLogging can be set only when adding or editing a plan.',
+      'invalid_argument',
+    );
+  }
+  const next = { ...modes };
+  const assign = (planId: string, mode: string | undefined) => {
+    if (mode === undefined || mode === 'inherit') {
+      delete next[planId];
+    } else {
+      next[planId] = mode as PlanAiLoggingSettings['modes'][string];
+    }
+  };
+  if (action === 'add') {
+    const planId = parsePlatformPlanId(body.id);
+    assign(planId, input ?? modes[parsePlatformPlanId(body.copyFrom)]);
+  } else if (action === 'set' && id && input !== undefined) {
+    assign(id, input);
+  } else if (removedPlanId) {
+    delete next[removedPlanId];
+  }
+  return next;
+}
+
 async function accountCount(db: DbOrTx, planIds: Array<string>): Promise<number> {
   if (!planIds.length) {
     return 0;
@@ -282,7 +345,12 @@ async function accountCount(db: DbOrTx, planIds: Array<string>): Promise<number>
 }
 
 export async function getOperatorPlanCatalog(context: Context<ApiEnv>) {
-  return readPlanCatalogWithAccounts(context.get('db'), initialPlanDefault(context));
+  const db = context.get('db');
+  const [listing, aiLogging] = await Promise.all([
+    readPlanCatalogWithAccounts(db, initialPlanDefault(context)),
+    readPlanAiLoggingProgress(db, initialPlanDefault(context)),
+  ]);
+  return { ...listing, aiLogging };
 }
 
 export async function mutateOperatorPlanCatalog(
@@ -297,7 +365,12 @@ export async function mutateOperatorPlanCatalog(
   }
   const result = await context.get('db').transaction(async (tx) => {
     await lockPlanCatalog(tx);
-    const previous = await readPlanCatalog(tx, initialPlanDefault(context));
+    // Read through a write, not a cacheable read: the catalog revision names the AI
+    // logging publish run, and a cached revision would give two changes the same run.
+    const { catalog: previous, settings: savedAiLogging } = await freshPlanAiLoggingInputs(
+      tx,
+      initialPlanDefault(context),
+    );
     revision(body, previous, preview);
     if (previous.reconciliation && !previous.reconciliation.complete) {
       throw new OperatorError(
@@ -316,6 +389,34 @@ export async function mutateOperatorPlanCatalog(
       }
       invalidInput(error);
     }
+    const aiLoggingModes = proposePlanAiLogging(
+      savedAiLogging.modes,
+      action,
+      id,
+      body,
+      proposal.removedPlanId,
+    );
+    const moved =
+      proposal.removedPlanId && proposal.replacementPlanId
+        ? { from: proposal.removedPlanId, to: proposal.replacementPlanId }
+        : undefined;
+    const aiLoggingChange = planAiLoggingChanges({
+      before: previous,
+      after: proposal.catalog,
+      modesBefore: savedAiLogging.modes,
+      modesAfter: aiLoggingModes,
+      ...(moved ? { moved } : {}),
+    });
+    const knownBefore = new Set(previous.plans.map((plan) => plan.id));
+    const aiLoggingPublish = startPlanAiLoggingPublish(
+      savedAiLogging.publish,
+      proposal.catalog.revision,
+      aiLoggingChange,
+      {
+        ...(moved ? { moved } : {}),
+        added: proposal.catalog.plans.map((plan) => plan.id).filter((id) => !knownBefore.has(id)),
+      },
+    );
     const affectedAccounts = await accountCount(
       tx,
       proposal.removedPlanId ? [proposal.removedPlanId] : proposal.affectedPlanIds,
@@ -355,6 +456,7 @@ export async function mutateOperatorPlanCatalog(
       affectedAccounts,
       loweredLimits: proposal.loweredLimits,
       warnings,
+      aiLogging: { modes: aiLoggingModes, modesBefore: savedAiLogging.modes, ...aiLoggingChange },
       ...(proposal.removedPlanId
         ? {
             removedPlanId: proposal.removedPlanId,
@@ -363,7 +465,17 @@ export async function mutateOperatorPlanCatalog(
         : {}),
     };
     if (preview) {
-      return { dryRun: true as const, expectedRevision: previous.revision, ...outcome };
+      return {
+        dryRun: true as const,
+        expectedRevision: previous.revision,
+        ...outcome,
+        aiLoggingPublish: await previewPlanAiLoggingPublish(
+          tx,
+          aiLoggingPublish,
+          proposal.catalog,
+          moved,
+        ),
+      };
     }
     if (proposal.removedPlanId && proposal.replacementPlanId) {
       await tx
@@ -372,6 +484,13 @@ export async function mutateOperatorPlanCatalog(
         .where(eq(users.plan, proposal.removedPlanId));
     }
     await writePlanCatalog(tx, proposal.catalog);
+    const aiLoggingSettings: PlanAiLoggingSettings = {
+      modes: aiLoggingModes,
+      publish: aiLoggingPublish,
+    };
+    if (JSON.stringify(aiLoggingSettings) !== JSON.stringify(savedAiLogging)) {
+      await writePlanAiLoggingSettings(tx, aiLoggingSettings);
+    }
     return outcome;
   });
   if (preview) {
@@ -385,16 +504,27 @@ export async function mutateOperatorPlanCatalog(
     };
   }
   if (!result.catalog.reconciliation) {
-    return { ...result, reconciliation: { complete: true, processed: 0 }, ok: true };
+    const aiLoggingPublish = await runPlanAiLoggingPublishPage(
+      context.get('db'),
+      context.env.ROUTING,
+      initialPlanDefault(context),
+    );
+    return {
+      ...result,
+      reconciliation: { complete: true, processed: 0 },
+      aiLoggingPublish,
+      ok: !aiLoggingPublish.error,
+    };
   }
-  const reconciliation = await syncOperatorPlanCatalog(context, {
+  const synced = await syncOperatorPlanCatalog(context, {
     expectedRevision: result.catalog.revision,
   });
   return {
     ...result,
-    catalog: reconciliation.catalog,
-    reconciliation: reconciliation.reconciliation,
-    ok: !('error' in reconciliation.reconciliation && reconciliation.reconciliation.error),
+    catalog: synced.catalog,
+    reconciliation: synced.reconciliation,
+    aiLoggingPublish: synced.aiLoggingPublish,
+    ok: syncSucceeded(synced),
   };
 }
 
@@ -469,7 +599,26 @@ async function previewQuotaOverages(
   return entries.filter((entry) => entry !== null);
 }
 
-/** Advance a durable keyset cursor. Retries reread usage and never reset an account. */
+type PlanAccountsProgress = Readonly<{
+  complete: boolean;
+  processed: number;
+  error?: PlatformPlanReconciliation['error'];
+}>;
+
+/** Whether a sync step finished without an account or AI logging error. */
+export function syncSucceeded(
+  result: Readonly<{
+    reconciliation: PlanAccountsProgress;
+    aiLoggingPublish: PlanAiLoggingPublishProgress;
+  }>,
+): boolean {
+  return !result.reconciliation.error && !result.aiLoggingPublish.error;
+}
+
+/**
+ * One step of a pending plan update: a page of account updates (limits) and a page
+ * of the AI logging publish. Callers repeat it until both report complete.
+ */
 export async function syncOperatorPlanCatalog(
   context: Context<ApiEnv>,
   body: Record<string, unknown>,
@@ -484,6 +633,7 @@ export async function syncOperatorPlanCatalog(
   if (dryRun(body)) {
     const affectedAccounts =
       operation && !operation.complete ? await accountCount(db, [...operation.planIds]) : 0;
+    const aiLogging = await readPlanAiLoggingProgress(db, initialPlanDefault(context));
     return {
       dryRun: true as const,
       action: 'plans.sync',
@@ -492,8 +642,30 @@ export async function syncOperatorPlanCatalog(
       catalog,
       affectedAccounts,
       reconciliation: { complete: !operation || operation.complete, processed: 0 },
+      aiLoggingPublish: {
+        complete: !aiLogging.publish || aiLogging.publish.complete,
+        processed: 0,
+        remaining: aiLogging.remaining,
+        expectedBy: null,
+      },
     };
   }
+  const accounts = await reconcilePlanAccountsPage(context, catalog);
+  const aiLoggingPublish = await runPlanAiLoggingPublishPage(
+    db,
+    context.env.ROUTING,
+    initialPlanDefault(context),
+  );
+  return { ...accounts, aiLoggingPublish };
+}
+
+/** Advance a durable keyset cursor. Retries reread usage and never reset an account. */
+async function reconcilePlanAccountsPage(
+  context: Context<ApiEnv>,
+  catalog: PlatformPlanCatalog,
+): Promise<Readonly<{ catalog: PlatformPlanCatalog; reconciliation: PlanAccountsProgress }>> {
+  const db = context.get('db');
+  const operation = catalog.reconciliation;
   if (!operation || operation.complete) {
     return { catalog, reconciliation: { complete: true, processed: 0 } };
   }

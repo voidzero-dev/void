@@ -7,12 +7,37 @@ export type RouteTypesResult = {
   dts: string;
 };
 
+/** Present bracket parameters without changing the router's compiled patterns. */
+function publicRoutePattern(pattern: string): string {
+  return pattern
+    .split('/')
+    .map((segment) => {
+      if (segment === '*') {
+        return '[...]';
+      }
+      const param = segment.match(/^:([^/{}]+)(\{\.\+\})?$/);
+      return param ? `[${param[2] ? '...' : ''}${param[1]}]` : segment;
+    })
+    .join('/');
+}
+
+/** Legacy keys stay indexable and carry the exact same contract as the public key. */
+function legacyRouteAlias(lines: Array<string>, map: string, pattern: string): void {
+  const publicPattern = publicRoutePattern(pattern);
+  if (publicPattern !== pattern) {
+    // Escape comment delimiters in static segments before writing JSDoc.
+    const label = JSON.stringify(publicPattern).replace(/\*\//g, '*\\/');
+    lines.push(`    /** @deprecated Use ${label} instead. */`);
+    lines.push(`    ${JSON.stringify(pattern)}: ${map}[${JSON.stringify(publicPattern)}];`);
+  }
+}
+
 /** Percent-encode a pattern's fixed segments the way `routeUrl()` serializes its pathname. */
 function encodeRoutePattern(pattern: string): string {
   return pattern
     .split('/')
     .map((segment) => {
-      if (segment.startsWith(':') || segment === '*') {
+      if (segment.startsWith(':') || segment === '*' || /^\[.*\]$/.test(segment)) {
         return segment;
       }
       const url = new URL('https://void.invalid');
@@ -63,15 +88,35 @@ export function generateRouteTypes(
   lines.push('  >["output"];');
   lines.push('}');
   lines.push('');
+  // JSON keeps invalid array positions as null, but omits the same values in objects.
+  // Find optional object keys before Serialize removes their omitted-value union members.
+  lines.push('type JsonOmitted = undefined | Function | symbol;');
+  lines.push('type SerializeArrayElement<T> = T extends JsonOmitted ? null : Serialize<T>;');
+  // A homomorphic map preserves ordinary arrays and tuples, but maps methods too
+  // on array intersections (e.g. Zod brands). Rebuild those as JSON arrays.
+  lines.push('type SerializeArray<T extends readonly unknown[]> =');
+  lines.push('  { [K in keyof T]: SerializeArrayElement<T[K]> } extends infer A');
+  lines.push('    ? A extends readonly unknown[] ? A');
+  lines.push('      : T extends unknown[] ? Array<SerializeArrayElement<T[number]>>');
+  lines.push('      : ReadonlyArray<SerializeArrayElement<T[number]>>');
+  lines.push('    : never;');
+  lines.push('type JsonOptionalKeys<T> = {');
+  lines.push('  [K in keyof T]-?: Extract<T[K], JsonOmitted> extends never ? never : K;');
+  lines.push('}[keyof T];');
+  lines.push('type SerializeObject<T> = {');
+  lines.push(
+    '  [K in keyof T as K extends symbol ? never : T[K] extends JsonOmitted ? never : K]: Serialize<T[K]>;',
+  );
+  lines.push('};');
+  lines.push('');
   lines.push('type Serialize<T> =');
   lines.push('  T extends Response ? never :');
   lines.push('  T extends Date ? string :');
   lines.push('  T extends bigint ? never :');
-  lines.push('  T extends Function ? never :');
-  lines.push('  T extends undefined ? never :');
-  lines.push('  T extends Array<infer U> ? Array<Serialize<U>> :');
+  lines.push('  T extends JsonOmitted ? never :');
+  lines.push('  T extends readonly unknown[] ? SerializeArray<T> :');
   lines.push(
-    '  T extends object ? { [K in keyof T as T[K] extends Function ? never : K]: Serialize<T[K]> } :',
+    '  T extends object ? SerializeObject<Omit<T, JsonOptionalKeys<T>> & Partial<Pick<T, JsonOptionalKeys<T>>>> :',
   );
   lines.push('  T;');
   lines.push('');
@@ -113,23 +158,39 @@ export function generateRouteTypes(
   lines.push('    ? { pathname: P } & RouteOptions<P>');
   lines.push('    : never;');
   lines.push(
-    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | "*" ? string : S;',
+    '  type RouteUrlSegment<S extends string> = S extends `:${string}` | `[${string}]` | "*" ? string : S;',
   );
+  lines.push(
+    '  type CheckedRoutePath<P extends string> = P extends `/${infer Segment}/${infer Rest}`',
+  );
+  lines.push('    ? Rest extends ""');
+  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
+  lines.push('      : P');
+  lines.push('    : P extends `/${infer Segment}`');
+  lines.push('      ? string extends RouteUrlSegment<Segment> ? never : P');
+  lines.push('      : P;');
   lines.push(
     '  type RouteSegmentsUrl<P extends string> = P extends `${infer Segment}/${infer Rest}`',
   );
   lines.push('    ? `${RouteUrlSegment<Segment>}/${RouteSegmentsUrl<Rest>}`');
   lines.push('    : RouteUrlSegment<P>;');
-  lines.push('  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/*`');
+  lines.push(
+    '  type RoutePatternUrl<P extends string> = P extends `${infer Prefix}/${"*" | "[...]"}/`',
+  );
+  lines.push('    ? `${RouteSegmentsUrl<Prefix>}/` | `${RouteSegmentsUrl<Prefix>}/${string}/`');
+  lines.push('    : P extends `${infer Prefix}/${"*" | "[...]"}`');
   lines.push(
     '    ? (Prefix extends "" ? "/" : RouteSegmentsUrl<Prefix>) | `${RouteSegmentsUrl<Prefix>}/${string}`',
   );
   lines.push('    : RouteSegmentsUrl<P>;');
   lines.push('  type EncodedRoutePath = EncodedRoutePathMap[keyof EncodedRoutePathMap] & string;');
-  lines.push('  type RoutePathUrl = RoutePatternUrl<RoutePath | EncodedRoutePath>;');
+  lines.push(
+    '  type RoutePathUrl = RoutePatternUrl<CheckedRoutePath<RoutePath | EncodedRoutePath>>;',
+  );
+  lines.push('  type BuiltRouteUrl = string & { readonly __voidRouteUrl: true };');
   lines.push('  type TypedRoutes = RouteTypesConfig extends { typedRoutes: true } ? true : false;');
   lines.push('  export type RouteUrl = TypedRoutes extends true');
-  lines.push('    ? RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
+  lines.push('    ? BuiltRouteUrl | RoutePathUrl | `${RoutePathUrl}${"?" | "#"}${string}`');
   lines.push('    : string;');
   lines.push('  export type Href = TypedRoutes extends true');
   lines.push(
@@ -165,7 +226,8 @@ export function generateRouteTypes(
   }
   for (const [pattern, params] of paths) {
     const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
-    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: ${names};`);
+    legacyRouteAlias(lines, 'RoutePathMap', pattern);
   }
   lines.push('  }');
   lines.push('');
@@ -184,7 +246,8 @@ export function generateRouteTypes(
   }
   for (const [pattern, params] of pagePaths) {
     const names = [...params].map((name) => JSON.stringify(name)).join(' | ') || 'never';
-    lines.push(`    ${JSON.stringify(pattern)}: ${names};`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: ${names};`);
+    legacyRouteAlias(lines, 'PagePathMap', pattern);
   }
   lines.push('  }');
   lines.push('  export type PagePath = keyof PagePathMap & string;');
@@ -195,9 +258,16 @@ export function generateRouteTypes(
   // `routeUrl()` returns `/caf%C3%A9%20menu` for `/café menu`, so accept that spelling too.
   lines.push('  export interface EncodedRoutePathMap {');
   for (const pattern of paths.keys()) {
-    const encoded = encodeRoutePattern(pattern);
-    if (encoded !== pattern) {
-      lines.push(`    ${JSON.stringify(pattern)}: ${JSON.stringify(encoded)};`);
+    const publicPattern = publicRoutePattern(pattern);
+    const encoded = encodeRoutePattern(publicPattern);
+    if (encoded !== publicPattern) {
+      lines.push(`    ${JSON.stringify(publicPattern)}: ${JSON.stringify(encoded)};`);
+      // Preserve the original encoded map's keys and values too.
+      if (publicPattern !== pattern) {
+        lines.push(
+          `    ${JSON.stringify(pattern)}: ${JSON.stringify(encodeRoutePattern(pattern))};`,
+        );
+      }
     }
   }
   lines.push('  }');
@@ -220,7 +290,7 @@ export function generateRouteTypes(
     '  export type ParseActionUrl<U extends string> = U extends `${infer Base}?${infer Action}` ? {',
   );
   lines.push('    base: Base;');
-  lines.push('    action: Action;');
+  lines.push('    action: Action extends `${infer Name}&${string}` ? Name : Action;');
   lines.push('  } : {');
   lines.push('    base: U;');
   lines.push('    action: never;');
@@ -243,7 +313,7 @@ export function generateRouteTypes(
   lines.push('  type PageActionUrl<K extends string, P> = P extends { body: any }');
   lines.push('    ? K');
   lines.push('    : P extends { actions: infer A }');
-  lines.push('      ? `${K}?${keyof A & string}`');
+  lines.push("      ? `${K}?${keyof A & string}${'' | `&${string}`}`");
   lines.push('      : never;');
   lines.push('');
   lines.push('  export type ResolveActionBody<U extends string> =');
@@ -269,6 +339,7 @@ export function generateRouteTypes(
   lines.push('');
   lines.push('  type ActionFormBaseOptions = {');
   lines.push('    resetOnSuccess?: boolean;');
+  lines.push('    throwOnError?: boolean;');
   lines.push('  };');
   lines.push('');
   lines.push('  export type ActionFormOptions<U extends string> = ActionFormBaseOptions &');
@@ -300,7 +371,7 @@ export function generateRouteTypes(
   }
 
   for (const [pattern, methods] of routesByPattern) {
-    lines.push(`    ${JSON.stringify(pattern)}: {`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
 
     for (const [method, sources] of methods) {
       const imports = sources.map((route) => {
@@ -318,6 +389,7 @@ export function generateRouteTypes(
     }
 
     lines.push('    };');
+    legacyRouteAlias(lines, 'RouteMap', pattern);
   }
 
   lines.push('  }');
@@ -336,7 +408,7 @@ export function generateRouteTypes(
       const importPath = relative(outDir, `${routesDir}/${route.filePath}`);
       return `(typeof import(${JSON.stringify(importPath)}))["default"]["messages"]`;
     });
-    lines.push(`    ${JSON.stringify(pattern)}: {`);
+    lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
     lines.push(`      params: RouteParams<${JSON.stringify(sources[0]!.params)}>;`);
     lines.push(
       `      client: ${imports.map((source) => `ExtractInput<${source}["client"]>`).join(' & ')};`,
@@ -344,7 +416,16 @@ export function generateRouteTypes(
     lines.push(
       `      server: ${imports.map((source) => `ExtractOutput<${source}["server"]>`).join(' | ')};`,
     );
+    const roomSources = sources.filter((route) => route.mode === 'room');
+    if (roomSources.length > 0) {
+      const actions = roomSources.map((route) => {
+        const importPath = relative(outDir, `${routesDir}/${route.filePath}`);
+        return `NonNullable<(typeof import(${JSON.stringify(importPath)}))["default"]["actions"]>`;
+      });
+      lines.push(`      actions: ${actions.join(' | ')};`);
+    }
     lines.push('    };');
+    legacyRouteAlias(lines, 'WebSocketRouteMap', pattern);
   }
 
   lines.push('  }');
@@ -402,7 +483,7 @@ export function generateRouteTypes(
     }
 
     for (const [pattern, bodies] of bodiesByPattern) {
-      lines.push(`    ${JSON.stringify(pattern)}: {`);
+      lines.push(`    ${JSON.stringify(publicRoutePattern(pattern))}: {`);
       bodies.forEach((body, index) => {
         if (index > 0) {
           lines.push('    } | {');
@@ -410,6 +491,7 @@ export function generateRouteTypes(
         lines.push(...body);
       });
       lines.push('    };');
+      legacyRouteAlias(lines, 'PageActionMap', pattern);
     }
 
     lines.push('  }');

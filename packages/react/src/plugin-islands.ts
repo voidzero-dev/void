@@ -156,13 +156,11 @@ export function islandsPlugin(
             const replacement = `import ${rawName} from ${specRaw}`;
             edits.push({ start: islandImport.start, end: islandImport.end, text: replacement });
 
-            // Generate wrapper that adds data-island attributes during SSR.
-            // Uses _React_island (imported below) for createElement.
             wrappers.push(
               `var ${name} = function ${name}(props) {` +
                 ` return _React_island.createElement("div", {` +
                 ` "data-island": ${JSON.stringify(islandId)},` +
-                ` "data-props": JSON.stringify(props),` +
+                ` "data-props": _serializeIslandProps(props),` +
                 ` "data-hydrate": ${JSON.stringify(strategy)}` +
                 ` }, _React_island.createElement(${rawName}, props));` +
                 ` };`,
@@ -170,9 +168,9 @@ export function islandsPlugin(
           }
 
           if (wrappers.length > 0) {
-            // Prepend a React import for the wrapper functions
             return editIslandSource(code, edits, {
-              prepend: 'import _React_island from "react";\n',
+              prepend:
+                'import _React_island from "react";\nimport { serializePageData as _serializeIslandProps } from "void/pages-server";\n',
               append: '\n' + wrappers.join('\n'),
             });
           }

@@ -74,6 +74,14 @@ export type AstExportNamedDeclaration = AstNode & {
   exportKind?: string;
 };
 
+export type AstExportAllDeclaration = AstNode & {
+  type: 'ExportAllDeclaration';
+  /** The namespace name in `export * as name from`; null for `export * from`. */
+  exported?: AstNode | null;
+  /** "type" for `export type * from`, "value" (or undefined) otherwise. */
+  exportKind?: string;
+};
+
 export type AstExportDefaultDeclaration = AstNode & {
   type: 'ExportDefaultDeclaration';
   declaration?: AstNode;

@@ -81,6 +81,17 @@ describe('saved platform install choices', () => {
     expect(argumentsFor()).not.toContain('--runtime-logs');
   });
 
+  it.each(['apac', 'automatic'] as const)(
+    'replays storage location %s in a saved plan',
+    (storageLocation) => {
+      savePlatformInstallChoices(argumentsFor({ storageLocation }), 'Account', directory);
+      expect(listSavedPlatformInstallPlans(directory)[0]!.args.storageLocation).toBe(
+        storageLocation,
+      );
+      expect(argumentsFor()).not.toContain('--storage-location');
+    },
+  );
+
   it('updates the same account and slug while retaining plans for other accounts', () => {
     const first = savePlatformInstallChoices(argumentsFor(), 'Account', directory);
     const other = savePlatformInstallChoices(

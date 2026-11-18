@@ -1,6 +1,6 @@
 {
   "extends": "./.void/tsconfig.json",
-  "include": ["app/**/*.ts", "app/**/*.tsx"],
+  "include": ["env.d.ts", "app/**/*.ts", "app/**/*.tsx"],
   "compilerOptions": {
     "target": "ES2022",
     "module": "NodeNext",

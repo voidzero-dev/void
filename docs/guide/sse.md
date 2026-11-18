@@ -1,4 +1,5 @@
 ---
+description: 'Stream events from a route handler to the browser. Void formats the messages, sends keepalives, and closes the stream.'
 outline: deep
 ---
 
@@ -140,6 +141,8 @@ stream.close();
 ```
 
 The client wraps native `EventSource`. It supports cookie credentials and typed event handlers, but it does not support request bodies or arbitrary headers. Use cookie auth, signed URLs, or a fetch-based streaming route when you need custom headers.
+
+With [`routing.typedRoutes`](../reference/config.md#routing-typedroutes), TypeScript checks the URL against your routes, such as `` `/api/jobs/${id}` ``. External `http://` and `https://` URLs also work. For a URL you validate at runtime, use `as RouteUrl` from `void/routes` to skip the type check.
 
 JSON parsing is the default. Set `parse: 'text'` or pass a custom parser for non-JSON payloads:
 

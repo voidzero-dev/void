@@ -7,8 +7,8 @@
     "strict": true,
     "skipLibCheck": true,
     "noEmit": true,
-    "types": ["@cloudflare/workers-types"],
+    "types": ["@cloudflare/workers-types", "node"],
     "allowImportingTsExtensions": true
   },
-  "include": ["src"]
+  "include": ["src", "test"]
 }

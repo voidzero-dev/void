@@ -69,7 +69,6 @@ async function protectedProjectReachedDomainLimit(db: Db, projectId: string): Pr
 const app = new Hono<ApiEnv>()
   .use('/:id/domains/*', capabilityMiddleware('customDomains'))
 
-  // Add a custom domain to a project
   .post('/:id/domains', async (context) => {
     const projectId = context.req.param('id');
     const access = await requireProjectRouteCapability(context, projectId, 'settings');
@@ -300,7 +299,6 @@ const app = new Hono<ApiEnv>()
     });
   })
 
-  // Remove a custom domain
   .delete('/:id/domains/:domainId', async (context) => {
     const projectId = context.req.param('id');
     const domainId = context.req.param('domainId');

@@ -237,35 +237,15 @@ const CASES: Record<string, string> = {
 
 describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
   for (const [name, raw] of Object.entries(CASES)) {
-    it(name, async () => {
-      expect(await renderCapturedLog(raw)).toBe(await render(raw));
+    it.concurrent(name, async () => {
+      const [actual, expected] = await Promise.all([renderCapturedLog(raw), render(raw)]);
+      expect(actual).toBe(expected);
     });
   }
 
-  // Explicit timeout. This is the slowest test in the file (~4s for 900 cases)
-  // and it timed out at vitest's 5s default on CI once the count went up.
-  // Bounded generously rather than trimming coverage — the fuzz is what found
-  // both the ED3 gap and the wide-glyph mutation rule.
+  // xterm defers writes through timers. Overlap independent comparisons in eight
+  // lanes; each lane owns and resets its terminal, with real timers throughout.
   it('agrees on randomly generated escape soup', async () => {
-    // Deterministic LCG — no Math.random, so a failure is always reproducible.
-    // ONE terminal, reset between cases. Measured: this is NOT where the time
-    // goes — 900 fresh terminals cost 4.11s and reuse 3.94s, because the cost is
-    // xterm's parser at ~4ms per case. Kept anyway (fewer allocations), but the
-    // explicit timeout below is what actually stops this flaking on CI, which is
-    // slower than a laptop and hit vitest's 5s default. `reset()` restores the
-    // buffer, cursor and modes, i.e. the fresh state each case assumes.
-    const term = new Terminal({ cols: COLS, rows: 1, allowProposedApi: true });
-    const renderReused = async (raw: string): Promise<string> => {
-      term.reset();
-      await new Promise<void>((resolve) => term.write(raw, resolve));
-      const buffer = term.buffer.active;
-      return (buffer.getLine(buffer.baseY)?.translateToString(false) ?? '').trimEnd();
-    };
-    let seed = 0x2f6e2b1;
-    const rand = (n: number): number => {
-      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
-      return seed % n;
-    };
     const atoms = [
       'a',
       'bc',
@@ -335,14 +315,66 @@ describe('renderCapturedLog matches a real terminal (xterm.js oracle)', () => {
       '\x1b[T',
       '\x1b[2S',
     ];
-    for (let i = 0; i < 900; i++) {
+
+    const inputs = new Set<string>();
+    const generate = (length: number, rand: (n: number) => number) => {
       let raw = '';
-      const len = 1 + rand(12);
-      for (let j = 0; j < len; j++) {
+      for (let j = 0; j < length; j++) {
         raw += atoms[rand(atoms.length)];
       }
-      expect(await renderCapturedLog(raw), JSON.stringify(raw)).toBe(await renderReused(raw));
+      inputs.add(raw);
+    };
+    // Preserve every input from the original regression corpus. Its floating
+    // point LCG produced 691 distinct strings from 900 iterations, almost all
+    // with lengths 1, 5 or 9. Rechecking duplicates adds no independent coverage.
+    let legacySeed = 0x2f6e2b1;
+    const legacyRand = (n: number): number => {
+      legacySeed = (legacySeed * 1103515245 + 12345) & 0x7fffffff;
+      return legacySeed % n;
+    };
+    for (let i = 0; i < 900; i++) {
+      generate(1 + legacyRand(12), legacyRand);
     }
-    term.dispose();
+    expect(inputs.size).toBe(691);
+
+    // Replace the 209 duplicate inputs with deterministic xorshift32 cases.
+    // Cycle lengths explicitly so all lengths 1..12 are exercised.
+    let seed = 0x2f6e2b1;
+    const rand = (n: number): number => {
+      seed ^= seed << 13;
+      seed ^= seed >>> 17;
+      seed ^= seed << 5;
+      return (seed >>> 0) % n;
+    };
+    for (let i = 0; inputs.size < 900; i++) {
+      generate(2 + (i % 11), rand);
+    }
+    const corpus = [...inputs];
+    const lanes = Array.from({ length: 8 }, async (_, lane) => {
+      const term = new Terminal({ cols: COLS, rows: 1, allowProposedApi: true });
+      try {
+        for (let index = lane; index < corpus.length; index += 8) {
+          const raw = corpus[index]!;
+          term.reset();
+          const [actual] = await Promise.all([
+            renderCapturedLog(raw),
+            new Promise<void>((resolve) => term.write(raw, resolve)),
+          ]);
+          const buffer = term.buffer.active;
+          const expected = (buffer.getLine(buffer.baseY)?.translateToString(false) ?? '').trimEnd();
+          expect(actual, JSON.stringify(raw)).toBe(expected);
+        }
+      } finally {
+        term.dispose();
+      }
+    });
+    // Drain every lane before reporting failure, so no terminal work leaks into
+    // another test when one comparison fails.
+    const results = await Promise.allSettled(lanes);
+    for (const result of results) {
+      if (result.status === 'rejected') {
+        throw result.reason;
+      }
+    }
   }, 60_000);
 });

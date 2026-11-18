@@ -47,7 +47,7 @@ relative to `platform/` unless they begin with `../`.
 | `vp run --filter @voidcloud/platform dev`    | Start the dashboard development server                    |
 | `vp run build:all`                           | Build all packages, platform apps, and playgrounds        |
 | `vp test run --project 'platform-*'`         | Run platform tests                                        |
-| `vp run check`                               | Typecheck the workspace                                   |
+| `vp check`                                   | Format, lint, and typecheck the workspace                 |
 | `vp run --filter @voidcloud/platform health` | Check the selected platform using operator authentication |
 
 The workspace `dev` and `build` scripts in `platform/package.json` apply to the

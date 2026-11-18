@@ -1,6 +1,7 @@
 {
   "extends": "./.void/tsconfig.json",
   "compilerOptions": {
+    "noEmit": true,
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
@@ -12,5 +13,5 @@
     "types": ["void/env"],
     "allowImportingTsExtensions": true
   },
-  "include": ["pages", "routes", "middleware"]
+  "include": ["env.d.ts", "pages", "routes", "middleware"]
 }

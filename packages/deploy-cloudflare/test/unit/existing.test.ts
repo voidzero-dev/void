@@ -15,7 +15,7 @@ import {
 } from '../../src/existing.ts';
 import type { CloudflareOperation } from '../../src/operations.ts';
 import { operationFixture } from '../operation-fixture.ts';
-import { voidSecretDraftVersion } from '../secret-draft-fixture.ts';
+import { apiSecretDraftVersion, voidSecretDraftVersion } from '../secret-draft-fixture.ts';
 
 const worker: ExistingCloudflareWorker = {
   versionId: 'original',
@@ -498,10 +498,11 @@ describe('existing Worker preservation', () => {
     );
   });
 
-  it.each(['placeholder', 'real-code', 'owner-drift'] as const)(
+  it.each(['placeholder', 'api-placeholder', 'real-code', 'owner-drift'] as const)(
     'verifies immutable SDK secret-draft proof before its first DO migration: %s',
     async (scenario) => {
-      const source = voidSecretDraftVersion();
+      const source =
+        scenario === 'api-placeholder' ? apiSecretDraftVersion() : voidSecretDraftVersion();
       if (scenario === 'real-code') {
         source.modules[0]!.content_base64 = Buffer.from(
           'export default { fetch() { return new Response("app"); } };',
@@ -531,6 +532,7 @@ describe('existing Worker preservation', () => {
               stderr: '',
               data: {
                 id: operation.versionId,
+                source: source.source,
                 annotations: source.annotations,
                 resources: {
                   bindings: source.bindings,
@@ -557,7 +559,7 @@ describe('existing Worker preservation', () => {
             apiBaseUrl: 'https://api.cloudflare.test/client/v4',
             readMigrationTag: async () => null,
           });
-          if (scenario === 'placeholder') {
+          if (scenario === 'placeholder' || scenario === 'api-placeholder') {
             await expect(inspection).resolves.toBeUndefined();
           } else {
             await expect(inspection).rejects.toThrow(

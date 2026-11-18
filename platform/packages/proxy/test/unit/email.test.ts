@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { URL } from 'node:url';
 import { fileURLToPath } from 'node:url';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -218,50 +219,6 @@ function nonAuthKvReads(kv: MockKv): Array<string> {
 
 // The floor cache lives for the whole isolate; start every test cold.
 beforeEach(clearProxyTokenStateCache);
-
-// --- Inbound helpers ---
-
-function streamOf(bytes: Uint8Array): ReadableStream<Uint8Array> {
-  return new ReadableStream<Uint8Array>({
-    start(controller) {
-      controller.enqueue(bytes);
-      controller.close();
-    },
-  });
-}
-
-function createInboundMessage(to: string, from = 'sender@example.com') {
-  const bytes = new TextEncoder().encode('Subject: hi\r\n\r\nhello\r\n');
-  return {
-    from,
-    to,
-    rawSize: bytes.byteLength,
-    raw: streamOf(bytes),
-    headers: new Headers({ Subject: 'hi' }),
-    setReject: vi.fn(),
-    forward: vi.fn(async () => {}),
-    reply: vi.fn(async () => {}),
-  };
-}
-
-function createCtx() {
-  const pending: Array<Promise<unknown>> = [];
-  return {
-    ctx: { waitUntil: (p: Promise<unknown>) => pending.push(p), passThroughOnException: () => {} },
-    settle: () => Promise.allSettled(pending),
-  };
-}
-
-type InboundMessage = ReturnType<typeof createInboundMessage>;
-
-async function routeInboundMessage(
-  env: Record<string, unknown>,
-  message: InboundMessage,
-): Promise<void> {
-  const { ctx, settle } = createCtx();
-  await (worker.email as (m: unknown, e: unknown, c: unknown) => Promise<void>)(message, env, ctx);
-  await settle();
-}
 
 // --- wrangler.jsonc ---
 
@@ -565,10 +522,6 @@ function monthKeyFor(projectId: string): string {
   return `email-sent:${projectId}:${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, '0')}`;
 }
 
-function putsWithPrefix(kv: MockKv, prefix: string): Array<Array<unknown>> {
-  return kv.put.mock.calls.filter((call) => String(call[0]).startsWith(prefix));
-}
-
 interface SendResponseBody {
   ok: boolean;
   error?: { code: string; message: string };
@@ -652,7 +605,7 @@ describe('POST /email/send — request validation', () => {
         return new Promise(() => {});
       });
       const env = createMockEnv(kv, { SEND_EMAIL: { send } });
-      const apiFetch = (env.API as { fetch: ReturnType<typeof vi.fn> }).fetch;
+      const apiFetch = (env.API as { fetch: ReturnType<typeof vi.fn<typeof fetch>> }).fetch;
       const normalFetch = apiFetch.getMockImplementation()!;
       let markAdmissionStarted!: () => void;
       const admissionStarted = new Promise<void>((resolve) => {

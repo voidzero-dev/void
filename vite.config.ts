@@ -53,7 +53,7 @@ const hookTimeout = 120_000 * ciTimeoutScale;
 
 const platformAlias = {
   'void/_sandbox-container': fileURLToPath(
-    new URL('packages/void/src/runtime/sandbox-container.ts', import.meta.url),
+    new URL('packages/void/src/runtime/sandbox/container.ts', import.meta.url),
   ),
   'void:sandbox-controller-source': fileURLToPath(
     new URL('platform/packages/api/test/__mocks__/sandbox-controller-source.ts', import.meta.url),
@@ -84,7 +84,7 @@ export default defineConfig({
       },
       'test:all': {
         command:
-          'vp fmt --check && vp lint && vp run build:all && node test/check-playground-build-artifacts.mjs && vp run lint:platform && vp run check && vp test run',
+          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp test run',
         // `vp run` passes ONLY the env vars a task declares to that task — not the full environment.
         // Without this, the gated live Cloudflare e2e's credentials never reach `vp test run`, so it
         // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
@@ -137,6 +137,10 @@ export default defineConfig({
     },
     jsPlugins: [
       {
+        name: 'vite-plus',
+        specifier: 'vite-plus/oxlint-plugin',
+      },
+      {
         name: 'react-hooks-js',
         specifier: 'eslint-plugin-react-hooks',
       },
@@ -156,6 +160,11 @@ export default defineConfig({
       '.worktrees/**',
     ],
     overrides: [
+      {
+        // Fate may emit unused imports; still lint and typecheck the generated client.
+        files: ['platform/packages/api/src/admin/fate/client.generated.ts'],
+        rules: { 'no-unused-vars': 'off' },
+      },
       {
         files: ['**/*.ts', '**/*.tsx', '**/*.mts', '**/*.cts'],
         rules: {
@@ -280,6 +289,8 @@ export default defineConfig({
       '@typescript-eslint/no-duplicate-enum-values': 'error',
       '@typescript-eslint/no-explicit-any': 'error',
       '@typescript-eslint/no-extra-non-null-assertion': 'error',
+      // Enforced across the workspace by both `vp check` and `vp lint`.
+      '@typescript-eslint/no-floating-promises': 'error',
       '@typescript-eslint/no-misused-new': 'error',
       '@typescript-eslint/no-non-null-asserted-optional-chain': 'error',
       '@typescript-eslint/no-require-imports': 'error',
@@ -294,7 +305,6 @@ export default defineConfig({
       'getter-return': 'error',
       'import/default': 'error',
       'import/namespace': 'error',
-      'jest/no-focused-tests': 'error',
       'no-array-constructor': 'error',
       'no-async-promise-executor': 'error',
       'no-case-declarations': 'error',
@@ -362,6 +372,9 @@ export default defineConfig({
       'no-unused-expressions': 'error',
       'no-unused-labels': 'error',
       'no-unused-private-class-members': 'error',
+      // Also covers packages without TypeScript's `noUnusedLocals` and plain JS scripts.
+      // An options object drops oxlint's default `^_` ignore pattern, so restate it.
+      'no-unused-vars': ['error', { args: 'none', varsIgnorePattern: '^_' }],
       'no-useless-backreference': 'error',
       'no-useless-catch': 'error',
       'no-useless-escape': 'error',
@@ -406,15 +419,27 @@ export default defineConfig({
       'unicorn/prefer-set-size': 'error',
       'use-isnan': 'error',
       'valid-typeof': 'error',
+      // Import test APIs from `vite-plus/test`, not `vitest`.
+      'vite-plus/prefer-vite-plus-imports': 'error',
+      // Vitest rejects `.only` only in CI; catch it locally and in pre-commit too.
+      'vitest/no-focused-tests': 'error',
     },
     options: {
-      typeAware: false,
-      typeCheck: false,
+      typeAware: true,
+      typeCheck: true,
     },
   },
   resolve: { alias: platformAlias },
   test: {
     fsModuleCache: true,
+    // Reuse Node's compiled JS/TypeScript across real subprocesses and forks.
+    // Vitest disables it for V8 coverage; also honor standalone Node coverage.
+    env: {
+      NODE_COMPILE_CACHE:
+        process.env.NODE_COMPILE_CACHE ??
+        fileURLToPath(new URL('./node_modules/.cache/node-compile', import.meta.url)),
+      ...(process.env.NODE_V8_COVERAGE ? { NODE_DISABLE_COMPILE_CACHE: '1' } : {}),
+    },
     silent: 'passed-only',
     sequence: { sequencer: SuiteSequencer },
     // Node 24 bundles undici 7. Its fetch() calls socket.setTypeOfService() on each new
@@ -445,7 +470,7 @@ export default defineConfig({
           name: 'unit',
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
-          include: ['packages/*/test/unit/**/*.test.ts'],
+          include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },
           pool: 'threads',
@@ -531,6 +556,7 @@ export default defineConfig({
           // schedule the longest files first and fill idle slots across package boundaries.
           name: 'parallel-integration',
           fsModuleCache: true,
+          pool: 'forks',
           // Bound simultaneous database engines and framework compilers locally.
           // Unit tests still fill unused integration workers in the same phase.
           sequence: { groupOrder: 2 },

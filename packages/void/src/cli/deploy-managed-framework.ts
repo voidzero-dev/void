@@ -47,6 +47,7 @@ export async function runFrameworkDeploy(
   skipBuild?: boolean,
   gitMetadata?: GitDeployMetadata,
   cliLog?: CliLogger,
+  skipMigrations?: boolean,
 ): Promise<void> {
   log.info(`${detected.name} framework deploy`);
   cliLog?.info('deploy_mode', { mode: 'framework', framework: detected.name });
@@ -199,6 +200,8 @@ export async function runFrameworkDeploy(
   const manifest = buildFrameworkManifest({
     frameworkName: detected.name,
     alwaysUseHttps: voidConfig.routing?.alwaysUseHttps,
+    storage: voidConfig.storage,
+    database: typeof voidConfig.database === 'object' ? voidConfig.database : undefined,
     workerMain: actualWorkerMain,
     bindings,
     migrations: validatedMigrations,
@@ -217,6 +220,9 @@ export async function runFrameworkDeploy(
     fallbackRules,
     dialect,
   });
+  if (skipMigrations) {
+    manifest.migrationMode = 'skip';
+  }
   const workerFiles = collectWorkerFiles(actualWorkerDir);
   cliLog?.info('package_end', {
     mode: 'framework',
@@ -224,7 +230,7 @@ export async function runFrameworkDeploy(
   });
 
   // Migration SQL bytes ride along inside the worker bundle (compiled in
-  // by the framework via `migration-handler.ts`); the deploy body only
+  // by the framework via `runtime/db/migrations`); the deploy body only
   // needs `manifest.migrations.pending` so the platform knows to invoke
   // the worker's `/__void/migrate` endpoint after dispatch.
   const result = await streamDirectR2Deploy({

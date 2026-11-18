@@ -1,4 +1,5 @@
 ---
+description: 'Send transactional email, receive messages in route handlers, and inspect outgoing mail in a local inbox.'
 outline: deep
 ---
 

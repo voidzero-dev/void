@@ -1,4 +1,5 @@
 ---
+description: 'Sessions, users, and auth clients from void/auth, plus the browser helpers in void/client.'
 outline: deep
 ---
 
@@ -8,7 +9,7 @@ Imported from `"void/auth"`. Client-side helpers imported from `"void/client"`.
 
 ## `defineAuth(config)` {#defineauth-config}
 
-Advanced escape hatch for customizing Void's Better Auth config.
+Customize Better Auth in a root-level `auth.ts` file. Spread `defaults` to keep Void's configuration:
 
 ```ts
 import { defineAuth } from 'void/auth';
@@ -43,7 +44,7 @@ function getUser(): AuthUser | null;
 
 ## `getSession()` {#getsession}
 
-Returns the current Better Auth request state, or `null`.
+Returns the current user and session, or `null` when signed out.
 
 ```ts
 import { getSession } from 'void/auth';
@@ -57,9 +58,30 @@ const state = getSession();
 function getSession(): AuthState | null;
 ```
 
-## `requireAuth(c)` {#requireauth-c}
+## `getAuth(c)` {#getauth-c}
 
-Extracts the authenticated user from the request context. Throws a 401 `HTTPException` if no session is present.
+Returns the Better Auth instance for the current request, including plugin APIs inferred from `auth.ts`. Use it with Better Auth plugin helpers or to forward requests to `auth.handler`.
+
+```ts
+import { defineHandler } from 'void';
+import { getAuth } from 'void/auth';
+
+export const GET = defineHandler((c) => getAuth(c).handler(c.req.raw));
+```
+
+Enable [authentication](../../guide/auth.md) before calling this helper; it throws if no instance is available. Anonymous requests can use it too. Call `requireAuth(c)` separately to require a signed-in user.
+
+Void includes cookies set by `getAuth(c).api` calls in the response. For example, `signInEmail` and `signUpEmail` sign in the current browser. A cross-origin `POST` must come from a configured `trustedOrigins` entry for those cookies to be sent. See [Calling Better Auth APIs](../../guide/auth.md#calling-better-auth-apis) for session updates and account creation.
+
+**Signature:**
+
+```ts
+function getAuth(c: CloudContext): AuthInstance;
+```
+
+## `requireAuth(c, options?)` {#requireauth-c}
+
+Returns the signed-in user or throws a `401` `HTTPException` if no session is present:
 
 ```ts
 import { defineHandler } from 'void';
@@ -71,10 +93,26 @@ export const GET = defineHandler((c) => {
 });
 ```
 
+In a page loader or middleware, that exception shows the nearest applicable [`_error` component](../../guide/pages-routing/errors.md#http-exceptions). To send visitors to login instead, pass `throwRedirect`:
+
+```ts
+import { defineHandler } from 'void';
+import { requireAuth } from 'void/auth';
+
+export const loader = defineHandler((c) => {
+  const user = requireAuth(c, { throwRedirect: '/login' });
+  return { email: user.email };
+});
+```
+
+`throwRedirect` works in loaders, actions, and middleware. For a signed-out request, it stops execution with a `302` redirect for GET/HEAD requests or `303` for other methods. Pages client navigation follows the redirect without a document reload. Signing in does not repeat a rejected action.
+
+Choose a trusted destination in your app; validate any URL supplied by a user before passing it here.
+
 **Signature:**
 
 ```ts
-function requireAuth(c: CloudContext): AuthUser;
+function requireAuth(c: CloudContext, options?: { throwRedirect?: string }): AuthUser;
 ```
 
 ## `AuthUser` {#authuser}

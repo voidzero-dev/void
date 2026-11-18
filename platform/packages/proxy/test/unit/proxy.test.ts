@@ -129,7 +129,7 @@ function createMockApi(
     });
   };
 
-  return { fetch: handler ?? defaultHandler };
+  return { fetch: vi.fn(handler ?? defaultHandler) };
 }
 
 function createEnv(
@@ -355,7 +355,7 @@ describe('proxy worker', () => {
         duplex: 'half',
       } as RequestInit);
       let status: number | undefined;
-      const response = worker.fetch(request, createEnv()).then((value) => {
+      const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
 
@@ -504,7 +504,7 @@ describe('proxy worker', () => {
         duplex: 'half',
       } as RequestInit);
       let status: number | undefined;
-      const response = worker.fetch(request, createEnv()).then((value) => {
+      const response = Promise.resolve(worker.fetch(request, createEnv())).then((value) => {
         status = value.status;
       });
       await vi.advanceTimersByTimeAsync(5_000);
@@ -1399,6 +1399,337 @@ describe('proxy worker', () => {
     });
   });
 
+  describe('AI platform capability', () => {
+    it.each(
+      ['/ai/run', '/ai/models', '/ai/toMarkdown', '/ai/provider'].flatMap((path) =>
+        ['project token', 'user token'].map((credential) => ({ path, credential })),
+      ),
+    )('denies $path with a valid $credential when AI is disabled', async ({ path, credential }) => {
+      const env = { ...createEnv(), PLATFORM_CAPABILITIES: '{"ai":false}' };
+      const res = await worker.fetch(
+        post(
+          path,
+          {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          },
+          credential === 'user token' ? { authorization: `Bearer ${validToken}` } : undefined,
+        ),
+        env,
+      );
+
+      expect(res.status).toBe(501);
+      expect(await res.json()).toEqual({
+        error: 'platform capability unavailable',
+        capability: 'ai',
+        message: 'This Void platform does not enable AI.',
+      });
+      for (const binding of Object.values(env.AI)) {
+        expect(binding).not.toHaveBeenCalled();
+      }
+      expect(env.ROUTING.get.mock.calls.some(([key]) => key.startsWith('ai-block:'))).toBe(false);
+    });
+
+    it.each(['{}', '{"email":true}', '{"ai":"true"}', 'null', '[]', 'invalid JSON'])(
+      'denies AI when its capability is not enabled in %s',
+      async (capabilities) => {
+        const env = { ...createEnv(), PLATFORM_CAPABILITIES: capabilities };
+        const res = await worker.fetch(
+          post('/ai/run', {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          }),
+          env,
+        );
+
+        expect(res.status).toBe(501);
+        expect(env.AI.run).not.toHaveBeenCalled();
+      },
+    );
+
+    it('authenticates before checking the AI capability', async () => {
+      const env = { ...createEnv(), PLATFORM_CAPABILITIES: '{"ai":false}' };
+      const res = await worker.fetch(
+        post('/ai/run', {
+          model: 'test-model',
+          inputs: {},
+          projectId: 'proj_000000000001',
+          aiToken: 'invalid-token',
+        }),
+        env,
+      );
+
+      expect(res.status).toBe(403);
+      expect(env.AI.run).not.toHaveBeenCalled();
+    });
+
+    it.each([undefined, '', '{"ai":true}'])(
+      'allows AI with enabled or unspecified capabilities (%s)',
+      async (capabilities) => {
+        const env = { ...createEnv(), PLATFORM_CAPABILITIES: capabilities };
+        const res = await worker.fetch(
+          post('/ai/run', {
+            model: 'test-model',
+            inputs: {},
+            projectId: 'proj_000000000001',
+            aiToken: aiTokens['proj_000000000001'],
+          }),
+          env,
+        );
+
+        expect(res.status).toBe(200);
+        expect(env.AI.run).toHaveBeenCalledOnce();
+      },
+    );
+  });
+
+  describe('operator-controlled AI logging', () => {
+    const PROJECT = 'proj_000000000042';
+    const POLICY_KEY = `ai-logging:${PROJECT}`;
+    const AI_LOGGING_PATHS = ['/ai/run', '/ai/toMarkdown', '/ai/provider'] as const;
+
+    function aiBody(path: string, extra: Record<string, unknown> = {}) {
+      const base: Record<string, unknown> =
+        path === '/ai/provider'
+          ? { provider: 'openai', providerKey: 'test-key', path: 'chat/completions', body: {} }
+          : { model: 'm', inputs: {} };
+      return { projectId: PROJECT, aiToken: aiTokens[PROJECT], ...base, ...extra };
+    }
+
+    function loggingEnv(kvData: Record<string, string> = {}) {
+      const env = createEnv(
+        {
+          gateway: vi.fn(() => ({
+            getUrl: async () => 'https://gateway.test/v1/account/void/openai',
+            run: vi.fn(),
+          })),
+        },
+        kvData,
+      );
+      const upstream = vi.fn<typeof fetch>(async () => Response.json({ ok: true }));
+      vi.stubGlobal('fetch', upstream);
+      return { env, upstream };
+    }
+
+    function policyReads(env: ReturnType<typeof createEnv>) {
+      return env.ROUTING.get.mock.calls.filter(([key]) => String(key).startsWith('ai-logging:'));
+    }
+
+    function apiPolicyCalls(env: ReturnType<typeof createEnv>) {
+      return (env.API.fetch as ReturnType<typeof vi.fn>).mock.calls.filter(([input]) =>
+        String(typeof input === 'string' ? input : input.url).includes('/internal/ai-logging/'),
+      );
+    }
+
+    it('reads ROUTING with a 30 second cache and inherits when no policy is published', async () => {
+      const { env, upstream } = loggingEnv();
+      for (const path of AI_LOGGING_PATHS) {
+        const response = await worker.fetch(post(path, aiBody(path)), env);
+        expect(response.status).toBe(200);
+      }
+      expect(policyReads(env)).toEqual(AI_LOGGING_PATHS.map(() => [POLICY_KEY, { cacheTtl: 30 }]));
+      for (const method of [env.AI.run, env.AI.toMarkdown]) {
+        const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+        expect(options.gateway).toStrictEqual({
+          id: 'void',
+          metadata: { projectId: usageTags[PROJECT] },
+        });
+        expect(options).not.toHaveProperty('extraHeaders');
+      }
+      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      expect([...headers.keys()].filter((name) => name.startsWith('cf-aig-'))).toEqual([]);
+      expect(apiPolicyCalls(env)).toEqual([]);
+    });
+
+    it('strips logging controls from binding session headers as well as request headers', async () => {
+      const { env } = loggingEnv({ [POLICY_KEY]: 'metadata' });
+      await worker.fetch(
+        post(
+          '/ai/run',
+          aiBody('/ai/run', {
+            options: {
+              sessionOptions: {
+                extraHeaders: {
+                  'CF-AIG-Collect-Log': 'false',
+                  'cf-aig-collect-log-payload': 'true',
+                  'cf-aig-metadata': '{"projectId":"forged"}',
+                  'x-keep': 'session-header',
+                },
+              },
+            },
+          }),
+        ),
+        env,
+      );
+      expect(env.AI.run).toHaveBeenCalledWith(
+        'm',
+        {},
+        expect.objectContaining({
+          sessionOptions: { extraHeaders: { 'x-keep': 'session-header' } },
+          extraHeaders: { 'cf-aig-collect-log-payload': 'false' },
+        }),
+      );
+    });
+
+    it.each([
+      { mode: 'off', collectLog: false, payload: 'false' },
+      { mode: 'metadata', collectLog: true, payload: 'false' },
+      { mode: 'full', collectLog: true, payload: 'true' },
+    ])(
+      'enforces $mode logging for inference and Markdown conversion',
+      async ({ mode, collectLog, payload }) => {
+        const { env } = loggingEnv({ [POLICY_KEY]: mode });
+        for (const path of ['/ai/run', '/ai/toMarkdown']) {
+          const response = await worker.fetch(
+            post(
+              path,
+              aiBody(path, {
+                options: {
+                  gateway: { collectLog: !collectLog, collectLogPayload: true },
+                  extraHeaders: {
+                    'CF-AIG-Collect-Log-Payload': 'true',
+                    'cf-aig-collect-log': 'true',
+                    'x-keep': 'yes',
+                  },
+                },
+              }),
+            ),
+            env,
+          );
+          expect(response.status).toBe(200);
+        }
+        for (const method of [env.AI.run, env.AI.toMarkdown]) {
+          const options = method.mock.calls[0]!.at(-1) as Record<string, unknown>;
+          expect(options.gateway).toStrictEqual({
+            id: 'void',
+            metadata: { projectId: usageTags[PROJECT] },
+            collectLog,
+          });
+          expect(options.extraHeaders).toStrictEqual({
+            'cf-aig-collect-log-payload': payload,
+            'x-keep': 'yes',
+          });
+        }
+      },
+    );
+
+    it.each([
+      { mode: 'off', collectLog: 'false', payload: 'false' },
+      { mode: 'metadata', collectLog: 'true', payload: 'false' },
+      { mode: 'full', collectLog: 'true', payload: 'true' },
+    ])('enforces $mode logging for provider calls', async ({ mode, collectLog, payload }) => {
+      const { env, upstream } = loggingEnv({ [POLICY_KEY]: mode });
+      const response = await worker.fetch(
+        post(
+          '/ai/provider',
+          aiBody('/ai/provider', {
+            headers: { 'CF-AIG-Collect-Log': 'true', 'cf-aig-collect-log-payload': 'true' },
+          }),
+        ),
+        env,
+      );
+      expect(response.status).toBe(200);
+      const headers = new Headers(upstream.mock.calls[0]![1]!.headers);
+      expect([...headers].filter(([name]) => name.startsWith('cf-aig-'))).toStrictEqual([
+        ['cf-aig-collect-log', collectLog],
+        ['cf-aig-collect-log-payload', payload],
+      ]);
+    });
+
+    it.each(AI_LOGGING_PATHS)(
+      'refuses %s with a retryable 503 when the policy cannot be read',
+      async (path) => {
+        const { env, upstream } = loggingEnv();
+        const routingGet = env.ROUTING.get.getMockImplementation()!;
+        env.ROUTING.get.mockImplementation(async (key: string) => {
+          if (key.startsWith('ai-logging:')) {
+            throw new TypeError('kv unavailable');
+          }
+          return routingGet(key);
+        });
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+          const response = await worker.fetch(post(path, aiBody(path)), env);
+          expect(response.status).toBe(503);
+          expect(response.headers.get('retry-after')).toBe('5');
+          expect(await response.json()).toMatchObject({ error: 'ai_logging_policy_unavailable' });
+          expect(logged).toHaveBeenCalledWith('[ai] logging setting unavailable', {
+            projectId: PROJECT,
+            reason: 'kv_error',
+            error: 'TypeError',
+          });
+        } finally {
+          logged.mockRestore();
+        }
+        expect(env.AI.run).not.toHaveBeenCalled();
+        expect(env.AI.toMarkdown).not.toHaveBeenCalled();
+        expect(env.AI.gateway).not.toHaveBeenCalled();
+        expect(upstream).not.toHaveBeenCalled();
+      },
+    );
+
+    // Which values are refused is unit tested with the shared parser; the read-error
+    // test above shows every path stops when the policy is refused.
+    it('refuses a published value it does not know', async () => {
+      const [path, value] = ['/ai/run', 'bogus'];
+      const { env, upstream } = loggingEnv({ [POLICY_KEY]: value });
+      const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+      try {
+        const response = await worker.fetch(post(path, aiBody(path)), env);
+        expect(response.status).toBe(503);
+        expect(response.headers.get('retry-after')).toBeNull();
+        expect(await response.json()).toMatchObject({ error: 'ai_logging_policy_invalid' });
+        expect(logged).toHaveBeenCalledWith('[ai] logging setting unavailable', {
+          projectId: PROJECT,
+          reason: 'invalid_value',
+          valueLength: value.length,
+        });
+        // The value itself is never logged.
+        for (const call of logged.mock.calls) {
+          expect(JSON.stringify(call)).not.toContain(value);
+        }
+      } finally {
+        logged.mockRestore();
+      }
+      expect(env.AI.run).not.toHaveBeenCalled();
+      expect(env.AI.toMarkdown).not.toHaveBeenCalled();
+      expect(upstream).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      { name: '/ai/models', path: '/ai/models', body: { inputs: {} }, status: 200 },
+      { name: 'an unknown AI route', path: '/ai/foo', body: {}, status: 404 },
+      { name: '/ai/run without a model', path: '/ai/run', body: { inputs: {} }, status: 400 },
+      {
+        name: '/ai/provider with malformed file data',
+        path: '/ai/provider',
+        status: 400,
+        body: {
+          provider: 'openai',
+          providerKey: 'k',
+          path: 'files',
+          body: {
+            type: 'form',
+            entries: [{ name: 'file', value: { __voidFile: true, data: '%%%' } }],
+          },
+        },
+      },
+    ])('never reads the policy for $name', async ({ path, body, status }) => {
+      const { env } = loggingEnv({ [POLICY_KEY]: 'bogus' });
+      const response = await worker.fetch(
+        post(path, { projectId: PROJECT, aiToken: aiTokens[PROJECT], ...body }),
+        env,
+      );
+      expect(response.status).toBe(status);
+      expect(policyReads(env)).toEqual([]);
+      expect(apiPolicyCalls(env)).toEqual([]);
+    });
+  });
+
   describe('AI: /ai/run', () => {
     it('replaces a serialized signal with native request cancellation', async () => {
       const env = createEnv();
@@ -1807,7 +2138,7 @@ describe('proxy worker', () => {
 
   describe('AI: /ai/provider', () => {
     function mockProviderFetch(response: BodyInit, init?: ResponseInit) {
-      const fetchMock = vi.fn(async () => new Response(response, init));
+      const fetchMock = vi.fn<typeof fetch>(async () => new Response(response, init));
       vi.stubGlobal('fetch', fetchMock);
       return fetchMock;
     }
@@ -2199,7 +2530,7 @@ describe('proxy worker', () => {
       );
 
       expect(res.status).toBe(401);
-      const json = await res.json();
+      const json = await res.json<{ error: string }>();
       expect(json.error).toContain('Invalid API key');
     });
 
@@ -2228,7 +2559,7 @@ describe('proxy worker', () => {
 
   describe('revalidate: /revalidate', () => {
     it('forwards revalidation to API via service binding', async () => {
-      const apiFetch = vi.fn(
+      const apiFetch = vi.fn<typeof fetch>(
         async () =>
           new Response(JSON.stringify({ purged: 2 }), {
             headers: { 'content-type': 'application/json' },
@@ -2252,13 +2583,13 @@ describe('proxy worker', () => {
       // Fetcher.fetch() receives (url: string, init: RequestInit)
       const [url, init] = apiFetch.mock.calls[0];
       expect(url).toBe('https://api/internal/revalidate/proj_000000000001');
-      expect(init.method).toBe('POST');
-      expect(new Headers(init.headers).get('x-void-internal')).toBe(aiTokens['proj_000000000001']);
-      expect(JSON.parse(init.body)).toEqual({ paths: ['/', '/blog'] });
+      expect(init!.method).toBe('POST');
+      expect(new Headers(init!.headers).get('x-void-internal')).toBe(aiTokens['proj_000000000001']);
+      expect(JSON.parse(init!.body as string)).toEqual({ paths: ['/', '/blog'] });
     });
 
     it('forwards all:true revalidation', async () => {
-      const apiFetch = vi.fn(
+      const apiFetch = vi.fn<typeof fetch>(
         async () =>
           new Response(JSON.stringify({ purged: 10 }), {
             headers: { 'content-type': 'application/json' },
@@ -2279,7 +2610,7 @@ describe('proxy worker', () => {
       expect(await res.json()).toEqual({ purged: 10 });
 
       const [, init] = apiFetch.mock.calls[0];
-      expect(JSON.parse(init.body)).toEqual({ all: true });
+      expect(JSON.parse(init!.body as string)).toEqual({ all: true });
     });
 
     it('rejects unauthenticated revalidation requests', async () => {

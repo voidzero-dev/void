@@ -437,9 +437,7 @@ export function getGitCommit(root: string): string | null {
     // credentials like the build spawns. No `localBinRoot`: `git` must never
     // resolve to a binary shipped in the project's node_modules/.bin.
     const gitEnv = buildEnv();
-    // Check if in a git repo
     execSync('git rev-parse --is-inside-work-tree', { cwd: root, stdio: 'ignore', env: gitEnv });
-    // Check if working tree is clean
     const status = execSync('git status --porcelain', {
       cwd: root,
       encoding: 'utf-8',
@@ -448,7 +446,6 @@ export function getGitCommit(root: string): string | null {
     if (status !== '') {
       return null;
     }
-    // Get current commit hash
     return execSync('git rev-parse HEAD', { cwd: root, encoding: 'utf-8', env: gitEnv }).trim();
   } catch {
     return null;
@@ -539,6 +536,7 @@ export function toManifestSchedulesAndQueues(
       bindingName: q.bindingName,
       ...(q.maxBatchSize != null && { maxBatchSize: q.maxBatchSize }),
       ...(q.maxBatchTimeout != null && { maxBatchTimeout: q.maxBatchTimeout }),
+      ...(q.maxConcurrency != null && { maxConcurrency: q.maxConcurrency }),
       ...(q.maxRetries != null && { maxRetries: q.maxRetries }),
       ...(q.retryDelay != null && { retryDelay: q.retryDelay }),
     })),

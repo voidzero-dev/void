@@ -71,6 +71,15 @@ function defineCodeCopyTests(getBase: () => string) {
       const copied = await page.evaluate(() => navigator.clipboard.readText());
       expect(copied).toContain('voidMarkdown(),');
       expect(copied.split('voidVue()')).toHaveLength(2);
+
+      const jsxBlock = page.locator('div.language-tsx');
+      expect(await jsxBlock.locator('.line.diff.remove').textContent()).toBe('  <Old />');
+      expect(await jsxBlock.locator('.line.diff.add').textContent()).toBe('  <New />');
+      await jsxBlock.hover();
+      await jsxBlock.locator('button.copy').click();
+      await jsxBlock.locator('button.copy.copied').waitFor();
+      const copiedJsx = await page.evaluate(() => navigator.clipboard.readText());
+      expect(copiedJsx.replaceAll('\r\n', '\n')).toBe('<div>\n  <New />\n</div>');
     } finally {
       await context.close();
     }
@@ -195,7 +204,7 @@ function defineSidebarTests(getBase: () => string) {
       expect(body).toContain('Getting Started');
       expect(body).toContain('Code Examples');
       expect(body).toContain('Learn how to use Void');
-      expect(body).toContain('Shiki syntax highlighting demos');
+      expect(body).toContain('Syntax highlighting demos');
     } finally {
       await page.context().close();
     }

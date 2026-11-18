@@ -264,7 +264,6 @@ const TreeNode = defineComponent({
                     onClick: folder ? handleToggle : undefined,
                   },
                   [
-                    // Expand/collapse chevron (folders only)
                     folder
                       ? h(Icon, {
                           icon: 'lucide:chevron-right',
@@ -274,7 +273,6 @@ const TreeNode = defineComponent({
                           },
                         })
                       : h('span', { style: spacerStyle }),
-                    // Icon
                     folder
                       ? h(Icon, {
                           icon: isExpanded ? 'lucide:folder-open' : 'lucide:folder',
@@ -284,7 +282,6 @@ const TreeNode = defineComponent({
                           icon: getFileIcon(item.name, props.dark),
                           style: iconSize,
                         }),
-                    // Name
                     item.link
                       ? h(
                           'a',
@@ -298,11 +295,9 @@ const TreeNode = defineComponent({
                           item.name,
                         )
                       : h('span', { style: nameStyle }, item.name),
-                    // Description
                     item.description ? h('span', { style: descStyle }, item.description) : null,
                   ],
                 ),
-                // Children
                 isExpanded && item.children
                   ? h(
                       'ul',

@@ -11,6 +11,7 @@ vi.mock('../../src/log', () => ({
 
 import {
   readConfig,
+  validateConfig,
   convertHeadersConfig,
   convertFallbacksConfig,
   convertRedirectsConfig,
@@ -28,6 +29,30 @@ import { resolveSandboxConfig } from '../../src/sandbox/config.ts';
 
 const warnMock = vi.mocked(voidWarn);
 
+describe('storage.locationHint', () => {
+  it.each(['apac', 'eeur', 'enam', 'weur', 'wnam', 'oc'])('accepts %s', (locationHint) => {
+    expect(validateConfig({ storage: { locationHint } })).toMatchObject({
+      storage: { locationHint },
+    });
+  });
+  it.each([
+    null,
+    true,
+    'apac',
+    { locationHint: 'APAC' },
+    { locationHint: '' },
+    { locationHint: null },
+    { location: 'apac' },
+  ])('rejects invalid storage configuration %j', (storage) => {
+    expect(() => validateConfig({ storage })).toThrow('storage.locationHint');
+  });
+  it.each(['node', 'bun', 'deno'])('rejects hints for %s targets', (target) => {
+    expect(() => validateConfig({ target, storage: { locationHint: 'apac' } })).toThrow(
+      'cloudflare',
+    );
+  });
+});
+
 const tmpDir = join(import.meta.dirname, '.tmp-config-test');
 
 function setup(content?: string) {
@@ -41,6 +66,38 @@ function setup(content?: string) {
 function cleanup() {
   rmSync(tmpDir, { recursive: true, force: true });
 }
+
+describe('routing.trailingSlash', () => {
+  it.each([true, false, undefined])('preserves %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(readConfig(tmpDir).routing?.trailingSlash).toBe(trailingSlash);
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it.each(['true', 1, null, {}])('rejects non-boolean %s', (trailingSlash) => {
+    setup(JSON.stringify({ routing: { trailingSlash } }));
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('routing.trailingSlash');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+  it('rejects conflicting Cloudflare HTML handling', () => {
+    setup(
+      JSON.stringify({
+        routing: { trailingSlash: true },
+        cloudflare: { assets: { html_handling: 'drop-trailing-slash' } },
+      }),
+    );
+    try {
+      expect(() => readConfig(tmpDir)).toThrow('conflicts');
+    } finally {
+      rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
 
 describe('routing.alwaysUseHttps', () => {
   it.each([true, false, undefined])('preserves %s without applying a default', (alwaysUseHttps) => {
@@ -402,6 +459,22 @@ describe('readConfig', () => {
 
     expect(config.image).toMatch(/sandbox\.Dockerfile$/);
     expect(config.platformImage).toBe('cloudflare/debian-trixie');
+  });
+
+  it('reads sandbox basic instanceType', () => {
+    setup(
+      JSON.stringify({
+        sandbox: {
+          image: './Dockerfile.sandbox',
+          instanceType: 'basic',
+        },
+      }),
+    );
+    expect(readConfig(tmpDir).sandbox).toEqual({
+      image: './Dockerfile.sandbox',
+      instanceType: 'basic',
+    });
+    cleanup();
   });
 
   it('throws on invalid sandbox config', () => {
@@ -1532,6 +1605,9 @@ describe('database config', () => {
     [{ casing: 'snake_case' }, 'sqlite', 'snake_case'],
     [{ dialect: 'pg' }, 'postgresql', undefined],
     [{}, 'sqlite', undefined],
+    [{ readReplication: true }, 'sqlite', undefined],
+    [{ readReplication: false }, 'sqlite', undefined],
+    [{ dialect: 'sqlite', readReplication: true }, 'sqlite', undefined],
   ])('accepts the object form %j', (database, dialect, casing) => {
     setup(JSON.stringify({ database }));
     const config = readConfig(tmpDir);
@@ -1552,9 +1628,13 @@ describe('database config', () => {
     ],
     [{ casing: 'snake' }, '"database.casing" in void.json must be "snake_case" or "camelCase"'],
     [{ casing: 'preserve' }, '"database.casing" in void.json must be "snake_case" or "camelCase"'],
+    [{ readReplication: 'true' }, '"database.readReplication" in void.json must be a boolean'],
+    [{ readReplication: null }, '"database.readReplication" in void.json must be a boolean'],
+    [{ dialect: 'pg', readReplication: true }, 'only supported for D1 (sqlite)'],
+    [{ dialect: 'mysql', readReplication: false }, 'only supported for D1 (sqlite)'],
     [
       { dialect: 'pg', url: 'x' },
-      "Unknown key 'database.url' in void.json. Valid: dialect, casing.",
+      "Unknown key 'database.url' in void.json. Valid: dialect, casing, readReplication.",
     ],
   ])('rejects %j', (database, message) => {
     setup(JSON.stringify({ database }));
@@ -1577,7 +1657,11 @@ describe('database config', () => {
     const schema = JSON.parse(readFileSync(join(import.meta.dirname, '../../schema.json'), 'utf8'));
     const [shorthand, object] = schema.properties.database.oneOf;
     expect(shorthand.enum).toEqual(['pg', 'mysql']);
-    expect(Object.keys(object.properties)).toEqual(['dialect', 'casing']);
+    expect(Object.keys(object.properties)).toEqual(['dialect', 'casing', 'readReplication']);
+    expect(object.properties.readReplication).toMatchObject({ type: 'boolean' });
+    expect(object.properties.readReplication).not.toHaveProperty('default');
+    expect(object.if).toEqual({ required: ['readReplication'] });
+    expect(object.then).toEqual({ properties: { dialect: { const: 'sqlite' } } });
     expect(object.properties.dialect.enum).toEqual(['sqlite', 'pg', 'mysql']);
     expect(object.properties.casing.enum).toEqual(['snake_case', 'camelCase']);
     expect(object.additionalProperties).toBe(false);

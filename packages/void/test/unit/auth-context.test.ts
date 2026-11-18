@@ -5,7 +5,7 @@ import {
   getUser,
   type AuthState,
   type AuthUser,
-} from '../../src/runtime/auth.ts';
+} from '../../src/runtime/auth/index.ts';
 
 describe('authContext', () => {
   it('runs callback with provided store and exposes it via getUser/getSession', () => {
@@ -48,9 +48,9 @@ describe('authContext', () => {
   it('returns the same ALS instance across module re-evaluations', async () => {
     // resetModules re-evaluates auth.ts, like a second module load.
     vi.resetModules();
-    const first = await import('../../src/runtime/auth.ts');
+    const first = await import('../../src/runtime/auth/index.ts');
     vi.resetModules();
-    const second = await import('../../src/runtime/auth.ts');
+    const second = await import('../../src/runtime/auth/index.ts');
 
     expect(first.authContext).toBe(second.authContext);
     expect(authContext).toBe(first.authContext);

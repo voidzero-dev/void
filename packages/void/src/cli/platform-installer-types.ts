@@ -13,6 +13,10 @@ import type {
 } from '@void/platform/installer';
 import type { ensurePlatformAccessHealthChecks } from './platform-access-health.ts';
 import type { verifyInstalledPlatformAccessProtection } from './platform-access-preflight.ts';
+import type {
+  AiLoggingProjectionKv,
+  AiLoggingProjectionResult,
+} from './platform-ai-logging-projection.ts';
 import type { initializeInstalledAppAccess } from './platform-app-access.ts';
 import type { initializeInstalledPlatformAuthentication } from './platform-auth-bootstrap.ts';
 import {
@@ -125,6 +129,14 @@ export type PlatformDatabaseLifecycleLock = (() => Promise<void>) & {
   readAdministratorSetup?: () => Promise<PlatformAdministratorSetupState>;
   /** Project Zero Trust state that decides whether uninstall may start. */
   readProjectZeroTrust?: () => Promise<PlatformProjectZeroTrustState>;
+  /**
+   * Publishes every project's AI logging setting from the database to ROUTING KV
+   * under the project row locks. Missing on test locks, which then skip it.
+   */
+  publishAiLogging?: (
+    kv: AiLoggingProjectionKv,
+    onProgress?: (message: string) => void,
+  ) => Promise<AiLoggingProjectionResult>;
   /** Project slugs, which --purge-resources requires to be empty. */
   readProjects?: () => Promise<ReadonlyArray<string>>;
   /** Block Zero Trust writers in the API until the returned release runs. */
@@ -196,14 +208,17 @@ export type InstallerClient = Pick<
   | 'createQueue'
   | 'createR2Bucket'
   | 'createZone'
+  | 'deleteKvBulk'
   | 'deleteKvValue'
   | 'getWorkerPlainTextBindings'
+  | 'listKvKeys'
   | 'listWorkerDomains'
   | 'listWorkerNames'
   | 'listWorkerRoutes'
   | 'listWorkerServiceRoutes'
   | 'publishWorkerCustomDomainsSafely'
   | 'publishWorkerRoutesSafely'
+  | 'putKvBulk'
   | 'putKvValue'
   | 'putR2Object'
   | 'request'

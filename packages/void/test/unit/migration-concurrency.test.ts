@@ -5,7 +5,7 @@ import {
   createMigrationHandler,
   type MigrationEntry,
   type MigrationResponse,
-} from '../../src/runtime/migration-handler.ts';
+} from '../../src/runtime/db/migrations/d1-handler.ts';
 
 const databases: Array<DatabaseSync> = [];
 afterEach(() => {

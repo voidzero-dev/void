@@ -1,4 +1,5 @@
-/** @jsxImportSource @voidcloud/api/admin-jsx */
+/** @jsxImportSource react */
+
 import { AppShell } from '@astryxdesign/core/AppShell';
 import { DropdownMenu } from '@astryxdesign/core/DropdownMenu';
 import { SideNav, SideNavItem, SideNavSection } from '@astryxdesign/core/SideNav';

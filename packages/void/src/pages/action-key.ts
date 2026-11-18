@@ -36,3 +36,55 @@ export function searchWithoutActionKey(search: string): string {
   }
   return rest < search.length ? '?' + search.slice(rest) : '';
 }
+
+/**
+ * Names the page query that an action request carries only because it posts
+ * to the page it runs on. Redirects leave that query out.
+ */
+export const PRESERVED_QUERY_HEADER = 'X-VoidPages-Preserved-Query';
+
+export function queryKey(segment: string): string | undefined {
+  return new URLSearchParams(segment).keys().next().value;
+}
+
+/**
+ * For an action URL on the page's own path, `url` with the page's query
+ * parameters after its own. A key the action URL names wins over the page's.
+ * `preserved` is the query that was added, as sent.
+ */
+export function withPageQuery(
+  url: string,
+  page: { pathname: string; search: string },
+): { url: string; preserved: string } {
+  const hashIndex = url.indexOf('#');
+  const base = hashIndex === -1 ? url : url.slice(0, hashIndex);
+  const q = base.indexOf('?');
+  if (!page.search || base.slice(0, q === -1 ? base.length : q) !== page.pathname) {
+    return { url, preserved: '' };
+  }
+  const own = new Set(new URLSearchParams(q === -1 ? '' : base.slice(q + 1)).keys());
+  const preserved = page.search
+    .slice(1)
+    .split('&')
+    .filter((segment) => segment !== '' && !own.has(queryKey(segment)!))
+    .join('&');
+  if (!preserved) {
+    return { url, preserved };
+  }
+  const query = q === -1 || q === base.length - 1 ? '?' : base.slice(q) + '&';
+  return {
+    url: base.slice(0, q === -1 ? base.length : q) + query + preserved + url.slice(base.length),
+    preserved,
+  };
+}
+
+/** `search` without the page query that `withPageQuery()` added to its end. */
+export function searchWithoutPreservedQuery(search: string, preserved: string | null): string {
+  if (!preserved) {
+    return search;
+  }
+  if (search === '?' + preserved) {
+    return '';
+  }
+  return search.endsWith('&' + preserved) ? search.slice(0, -preserved.length - 1) : search;
+}

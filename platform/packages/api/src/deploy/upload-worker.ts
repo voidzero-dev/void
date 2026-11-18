@@ -246,6 +246,7 @@ export async function uploadDeploymentWorker(input: {
       projectSlug: project.slug,
       proxyToken: proxyToken.token,
       emailSenderDomain: context.env.EMAIL_SENDER_DOMAIN,
+      storageLocationHint: context.env.R2_LOCATION_HINT,
       deploymentId: deployment.id,
     },
   );

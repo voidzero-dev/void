@@ -35,8 +35,8 @@ function readCliVersion(): string | null {
 
 const VOID_CLI_VERSION = readCliVersion();
 
-/** The oldest Void platform release this CLI supports. */
-export const MIN_PLATFORM_VERSION = '1.6.0';
+/** The oldest Void platform release this CLI supports, including queue concurrency caps. */
+export const MIN_PLATFORM_VERSION = '1.10.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 
@@ -61,12 +61,12 @@ type PlatformVersionProbe =
   | { kind: 'unknown' };
 
 /**
- * Returns whether `version` is older than MIN_PLATFORM_VERSION, or null when
- * it is not a release version. A prerelease sorts before its release.
+ * Returns whether `version` is older than the release `minimumVersion`, or null
+ * when it is not a release version. A prerelease sorts before its release.
  */
-function isOlderThanMinimumPlatform(version: string): boolean | null {
+export function isOlderPlatformVersion(version: string, minimumVersion: string): boolean | null {
   const actual = RELEASE_VERSION.exec(version);
-  const minimum = RELEASE_VERSION.exec(MIN_PLATFORM_VERSION)!;
+  const minimum = RELEASE_VERSION.exec(minimumVersion)!;
   if (!actual) {
     return null;
   }
@@ -99,7 +99,7 @@ function assertSupportedPlatform(apiUrl: string, probe: PlatformVersionProbe): v
   // comes from a hosted deployment that does not set PLATFORM_VERSION yet.
   // Any other value that is not a release version comes from a custom or
   // development build and cannot be ordered. Both pass.
-  if (version === 'hosted' || isOlderThanMinimumPlatform(version) !== true) {
+  if (version === 'hosted' || isOlderPlatformVersion(version, MIN_PLATFORM_VERSION) !== true) {
     return;
   }
   throw new Error(
@@ -717,6 +717,46 @@ export class PlatformClient {
       probe = await this.probePlatformVersion();
     }
     return probe.kind === 'version' && probe.directWorkerUpload;
+  }
+
+  /** Older servers otherwise ignore the execution mode and apply SQL anyway. */
+  async requireMigrationSkipSupport(): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/capabilities`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      await throwPlatformApiError('Failed to check migration capabilities', response, 'deploy');
+    }
+    const capabilities = response.ok
+      ? ((await response.json()) as { skipMigrations?: unknown })
+      : null;
+    if (capabilities?.skipMigrations !== true) {
+      throw new Error(
+        'deploy: This Void platform does not support --skip-migrations. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+    }
+  }
+
+  /** Platforms that predate the flag ignore the setting and keep replication on. */
+  async requireD1ReadReplicationSupport(): Promise<void> {
+    const response = await this.request(`${this.baseUrl}/capabilities`, {
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (!response.ok && response.status !== 404) {
+      await throwPlatformApiError(
+        'Failed to check D1 read replication support',
+        response,
+        'deploy',
+      );
+    }
+    const capabilities = response.ok
+      ? ((await response.json()) as { d1ReadReplication?: unknown })
+      : null;
+    if (capabilities?.d1ReadReplication !== true) {
+      throw new Error(
+        'deploy: This Void platform cannot apply `database.readReplication` from void.config.ts. Ask its administrator to upgrade with `void platform upgrade`.',
+      );
+    }
   }
 
   /** Reads the platform version from public discovery, without credentials. */

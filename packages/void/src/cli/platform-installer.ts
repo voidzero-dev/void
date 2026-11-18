@@ -15,6 +15,7 @@ import { PLATFORM_ADMIN_ASSETS_DIRECTORY, resolvePlatformRuntime } from '@void/p
 import { join } from 'pathslash';
 import { ensurePlatformAccessToken } from './cf-access.ts';
 import { getErrorMessage } from './output.ts';
+import { publishInstallationAiLogging } from './platform-ai-logging-projection.ts';
 import {
   initializeInstalledAppAccess,
   PlatformAppAccessCredentialError,
@@ -88,6 +89,7 @@ import {
 } from './platform-registry.ts';
 import { assertPlatformRuntimeLogsSupported } from './platform-runtime-logs.ts';
 import { assertPlatformWorkerSecretUpdateAuthority } from './platform-secret-update-authority.ts';
+import { assertPlatformStorageSupported } from './platform-storage.ts';
 import { platformManagedWorkerTraffic } from './platform-traffic.ts';
 
 export { PLATFORM_REMOTE_INSTALLATION_MANIFEST_KEY as REMOTE_INSTALLATION_MANIFEST_KEY } from '@void/platform';
@@ -241,6 +243,7 @@ export async function installPlatform(
     throw new Error('platform: This runtime does not support the installation’s app access setup.');
   }
   assertPlatformRuntimeLogsSupported(plan.deployment, runtime);
+  assertPlatformStorageSupported(plan.deployment, runtime);
   const hasEmailGatewayArtifact = runtime.artifacts.emailGateway !== undefined;
   if (
     existing?.steps.some((step) => step.key === 'private-previews-initialized:v1') &&
@@ -300,9 +303,9 @@ export async function installPlatform(
       config: live,
       databaseUrl: secrets.databaseUrl,
       expected: {
+        ...(plan.externalHyperdrive ?? live.origin),
         id: hyperdriveAction.id,
         name: hyperdriveAction.name,
-        host: plan.externalHyperdrive?.host ?? live.origin.host,
         user: plan.externalHyperdrive?.user ?? live.origin.user ?? '',
       },
       ...(recordedHyperdrive ? { recordedHash: recordedHyperdrive.configHash } : {}),
@@ -761,6 +764,15 @@ export async function installPlatform(
       ids,
       runParallelPinnedPlatformWrangler,
       runPinnedPlatformWrangler,
+    });
+    // Second pass: the old API may have saved settings to the database only while
+    // the Workers were uploading.
+    await publishInstallationAiLogging({
+      client: dependencies.client,
+      accountId: state.plan.account.id,
+      routingKvId: requireId(ids, 'routing-kv'),
+      databaseLock: releaseDatabaseLock,
+      onProgress: dependencies.onProgress,
     });
 
     state.manifest = setInstallationEndpoints(

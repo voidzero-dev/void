@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
   killChild,
   spawnPlaygroundServer,
@@ -42,10 +43,12 @@ afterAll(async () => {
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
-  describe.concurrent('shared client behavior', () => registerClientTests(getBase, coverage));
+  const clientSuite = coverage === 'smoke' ? describe : describe.concurrent;
+  clientSuite('shared client behavior', () => registerClientTests(getBase, coverage));
 }
 
 function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') {
+  const diagnostics = new WeakMap<Page, () => string>();
   registerSharedClientTests({ getBase, newPage, waitForHydration, coverage });
   if (coverage === 'smoke') {
     return;
@@ -60,11 +63,17 @@ function registerClientTests(getBase: () => string, coverage: 'smoke' | 'full') 
     const context = await browser.newContext();
     const page = await context.newPage();
     page.setDefaultTimeout(10_000);
+    diagnostics.set(page, collectBrowserDiagnostics(page));
     return page;
   }
 
   async function waitForHydration(page: Page) {
-    await page.waitForSelector('#app[data-hydrated="true"]');
+    try {
+      await page.waitForSelector('#app[data-hydrated="true"]');
+    } catch (error) {
+      console.error(diagnostics.get(page)?.());
+      throw error;
+    }
   }
 
   it('hydrates without console errors', async () => {

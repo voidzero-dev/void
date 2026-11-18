@@ -11,12 +11,7 @@ import {
 } from '../../../platform/src/email-protocol.ts';
 import { compileRouteTable } from '../../src/router/compile.ts';
 import { compileWorkerEntry } from '../../src/router/compile.ts';
-import {
-  compileEmailPattern,
-  hasEmailHandlers,
-  scanEmailHandlersSync,
-} from '../../src/router/email.ts';
-import * as emailBarrel from '../../src/runtime/email.ts';
+import { hasEmailHandlers, scanEmailHandlersSync } from '../../src/router/email.ts';
 import {
   buildReplyMessage,
   createMessageProxy,
@@ -30,6 +25,7 @@ import {
   replyEmail,
   type EmailEnvelope,
 } from '../../src/runtime/email/inbound.ts';
+import * as emailBarrel from '../../src/runtime/email/index.ts';
 import { MAX_MESSAGE_BYTES, MimeError } from '../../src/runtime/email/mime.ts';
 
 /** The one shape message the address rule (`email-validator`) throws; it never echoes the address. */
@@ -37,7 +33,7 @@ const INVALID_ADDRESS =
   'address is not a valid email address (ASCII local part and dotted domain, RFC 5322 dot-atom; ' +
   "at most 64 characters before the '@' and 254 in total).";
 import { createInboundTestHarness } from '../../src/runtime/email/testing.ts';
-import { envContext } from '../../src/runtime/env-raw.ts';
+import { envContext } from '../../src/runtime/env/raw.ts';
 
 vi.mock('cloudflare:email', () => ({
   EmailMessage: class MockEmailMessage {
@@ -180,68 +176,6 @@ describe('scanEmailHandlersSync', () => {
     const scan = scanEmailHandlersSync(root);
     expect(scan.defaultHandler).toBe('_default.mjs');
     expect(scan.addresses).toEqual([]);
-  });
-});
-
-describe('compileEmailPattern', () => {
-  it('compiles static address', () => {
-    expect(compileEmailPattern('support')).toEqual({
-      kind: 'static',
-      regexSource: '^support$',
-      paramNames: [],
-    });
-  });
-
-  it('compiles static + tag', () => {
-    expect(compileEmailPattern('support+[ticket]')).toEqual({
-      kind: 'static-tag',
-      regexSource: '^support\\+([^+@]+)$',
-      paramNames: ['ticket'],
-    });
-  });
-
-  it('compiles dynamic', () => {
-    expect(compileEmailPattern('[user]')).toEqual({
-      kind: 'dynamic',
-      regexSource: '^([^+@]+)$',
-      paramNames: ['user'],
-    });
-  });
-
-  it('compiles dynamic + tag', () => {
-    expect(compileEmailPattern('[user]+[tag]')).toEqual({
-      kind: 'dynamic-tag',
-      regexSource: '^([^+@]+)\\+([^+@]+)$',
-      paramNames: ['user', 'tag'],
-    });
-  });
-
-  it('escapes literal dots', () => {
-    expect(compileEmailPattern('alerts.ops')).toEqual({
-      kind: 'static',
-      regexSource: '^alerts\\.ops$',
-      paramNames: [],
-    });
-  });
-
-  it('returns null for too many `+` separators', () => {
-    expect(compileEmailPattern('a+b+c')).toBeNull();
-  });
-
-  it('returns null for invalid literal chars', () => {
-    expect(compileEmailPattern('hello world')).toBeNull();
-  });
-
-  it('lowercases uppercase basenames before compilation', () => {
-    // Patterns are lowercased to match the lowercased recipient — uppercase
-    // in the filename is fine, just normalized.
-    expect(compileEmailPattern('[Foo]')?.paramNames).toEqual(['foo']);
-    expect(compileEmailPattern('Support')?.regexSource).toBe('^support$');
-  });
-
-  it('returns null for invalid param shapes', () => {
-    expect(compileEmailPattern('[1abc]')).toBeNull(); // starts with digit
-    expect(compileEmailPattern('[]')).toBeNull(); // empty
   });
 });
 

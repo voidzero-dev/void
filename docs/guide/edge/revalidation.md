@@ -1,4 +1,5 @@
 ---
+description: 'Cache rendered pages and refresh them in the background, so visitors keep reading while a new version renders.'
 outline: deep
 ---
 
@@ -61,6 +62,8 @@ export const loader = defineHandler(async (c) => {
 });
 ```
 
+Use a whole number such as `3600` directly in the export. Expressions such as `60 * 60` and re-exports are ignored with a warning.
+
 Per-page values take precedence over `void.config.ts` patterns.
 
 A page's `revalidate` export also applies to `routes/` handlers whose URLs match the page pattern. For example, if `pages/[...slug].server.ts` exports `revalidate`, Void can also cache the `GET` response of `routes/now.ts`. Void never caches paths under `/api`. To keep a route handler's response out of the cache, set `x-revalidate: 0` on it. See [Per-response TTL override](#per-response-ttl-override).
@@ -106,6 +109,8 @@ Responses that vary by request headers, such as `Vary: Accept-Language` or `Vary
 
 Requests with `Cookie`, `Authorization`, or Cloudflare Access's `Cf-Access-Jwt-Assertion` header bypass the ISR cache entirely and always dispatch to the worker. Authenticated responses are not shared between users, including when Access authentication supplies no cookie.
 
+A request that negotiates a representation other than the cached HTML document also bypasses the cache, because each path holds a single cached body. That covers `Accept: text/event-stream` and `Accept: text/markdown`, so middleware that answers those requests in another format runs on every request.
+
 ## Cache keys and rewrites
 
 For a dispatch rewrite, the cache key includes both the destination and original pathname. A direct request to `/en/docs/foo` therefore uses a different entry from `/docs/foo` rewritten to that destination.
@@ -121,13 +126,12 @@ You can purge ISR cache entries programmatically from a route handler:
 ```ts
 import { defineHandler } from 'void';
 import { revalidate } from 'void/isr';
-import type { RouteUrl } from 'void/routes';
 
 export const POST = defineHandler(async (c) => {
   // ... update content in database ...
 
-  // Purge specific pages. `satisfies RouteUrl[]` checks the paths when routing.typedRoutes is on.
-  await revalidate({ paths: ['/', '/blog/hello-world'] satisfies RouteUrl[] });
+  // Purge specific pages
+  await revalidate({ paths: ['/', '/blog/hello-world'] });
 
   // Or purge all cached pages
   await revalidate({ all: true });
@@ -135,3 +139,5 @@ export const POST = defineHandler(async (c) => {
   return c.json({ ok: true });
 });
 ```
+
+With [`routing.typedRoutes`](../../reference/config.md#routing-typedroutes), TypeScript checks each path against your routes. For a path you validate at runtime, use `as RouteUrl` from `void/routes` to skip the type check.

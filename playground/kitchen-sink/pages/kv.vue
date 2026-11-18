@@ -47,9 +47,7 @@ function deleteKey(name: string) {
     </form>
     <div v-if="lookedUp" style="margin-top: 10px">
       <strong>{{ lookedUp.key }}</strong> =
-      <span v-if="lookedUp.value !== null"
-        ><code>{{ lookedUp.value }}</code></span
-      >
+      <span v-if="lookedUp.value !== null"><code>{{ lookedUp.value }}</code></span>
       <span v-else><em>(not found)</em></span>
     </div>
 

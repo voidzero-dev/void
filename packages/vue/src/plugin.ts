@@ -15,11 +15,11 @@ export function voidVue(options?: VoidVueOptions): Array<Plugin> {
   const pagesDir = resolvePagesDir(root);
   return [
     vue(options?.vue) as Plugin,
-    ...pagesPlugin(pagesDir, {
-      root,
-      viewTransitions: options?.viewTransitions,
-      prefetch: options?.prefetch,
-    }),
+    ...pagesPlugin(
+      pagesDir,
+      { root, viewTransitions: options?.viewTransitions, prefetch: options?.prefetch },
+      options?.vue?.script?.babelParserPlugins,
+    ),
     ...islandsPlugin(pagesDir, { root }),
   ];
 }
