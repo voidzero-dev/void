@@ -1,0 +1,33 @@
+{
+  "base": "react-pages",
+  "framework": "react",
+  "kind": "seeded",
+  "planted": [
+    {
+      "id": "sqli-invoice-search",
+      "class": "sql_injection",
+      "severity": "critical",
+      "file": "routes/api/invoices/search.ts",
+      "cwe": ["CWE-89"],
+      "keywords": ["sql", "injection", "sqli"]
+    },
+    {
+      "id": "idor-invoice-detail",
+      "class": "idor",
+      "severity": "high",
+      "file": "routes/api/invoices/[id].ts",
+      "cwe": ["CWE-639", "CWE-284", "CWE-285", "CWE-862", "CWE-863", "CWE-200"],
+      "keywords": ["idor", "insecure direct", "owner", "authoriz", "access control", "other users"]
+    }
+  ],
+  "decoys": [
+    {
+      "file": "routes/api/invoices/index.ts",
+      "note": "ORDER BY is interpolated, but only from an allowlist; values are bound."
+    },
+    {
+      "file": "lib/session.ts",
+      "note": "HMAC cookie checked with crypto.subtle.verify."
+    }
+  ]
+}

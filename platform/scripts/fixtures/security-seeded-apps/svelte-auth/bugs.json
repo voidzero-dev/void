@@ -1,0 +1,28 @@
+{
+  "base": "svelte-pages",
+  "framework": "svelte",
+  "kind": "seeded",
+  "planted": [
+    {
+      "id": "jwt-not-verified",
+      "class": "jwt_not_verified",
+      "severity": "critical",
+      "file": "lib/jwt.ts",
+      "alsoFiles": ["middleware/02.auth.ts", "routes/api/admin/export.ts"],
+      "cwe": ["CWE-347", "CWE-345", "CWE-287", "CWE-290"],
+      "keywords": ["jwt", "signature", "verif", "forge", "token"]
+    },
+    {
+      "id": "open-redirect-login",
+      "class": "open_redirect",
+      "severity": "high",
+      "file": "routes/auth/login.ts",
+      "cwe": ["CWE-601"],
+      "keywords": ["redirect"]
+    }
+  ],
+  "decoys": [
+    { "file": "routes/auth/logout.ts", "note": "next= is checked to be a same-site path." },
+    { "file": "pages/dashboard.svelte", "note": "Svelte text interpolation escapes." }
+  ]
+}

@@ -171,6 +171,8 @@ export default defineConfig({
       '.pnpm-store/**',
       'playground-local/**',
       '.worktrees/**',
+      // App overlays a spike builds on top of playground apps; planted bugs, not checked code.
+      'platform/scripts/fixtures/security-seeded-apps/**',
     ],
     overrides: [
       {
