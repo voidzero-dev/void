@@ -102,6 +102,14 @@ vpr test:all
 `vpr test:all` formats, lints, builds, typechecks, and tests the merged monorepo. Investigate slow
 or hanging tests when they occur instead of routinely increasing timeouts.
 
+`vpr test:all` runs the tests as three cached tasks: `test:group:platform`, `test:group:unit`, and
+`test:group:integration`. Vite Task records the files each group reads and replays the group when
+none of them changed, so a platform-only change does not rerun the SDK groups and an unchanged
+checkout replays all three. A failed group is never replayed. Run `vp test run` (or
+`vp run test:full`) to execute every test regardless of the cache, for example when chasing a
+flaky test. CI does not use the group tasks. Every Vitest project must belong to exactly one group
+in the root `vite.config.ts`; add a new project to a group when you create it.
+
 Subprocess and provisioning-lock unit tests start alongside the platform projects so their real
 process deadlines can overlap database work. The remaining SDK unit and integration files then
 share a scheduling phase. `vp run test:unit` includes `unit`, `unit-pglite`, and `cli-unit`; CI does the same.

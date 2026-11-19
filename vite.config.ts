@@ -40,6 +40,25 @@ const sdkPgliteUnitTests = [
 // (packages/void/test/e2e/cloudflare-deploy-live.test.ts) needs all three, so forward them into the
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
+const testGroupInput = [{ auto: true }, '!node_modules/.cache/**'];
+// Integration tests build and serve some playgrounds in place. That output is derived from
+// tracked sources and rewritten by the tests themselves, so it is not an input either.
+const integrationGroupInput = [
+  ...testGroupInput,
+  ...[
+    '.astro',
+    '.cloudflare',
+    '.nuxt',
+    '.output',
+    '.react-router',
+    '.svelte-kit',
+    '.void',
+    'build',
+    'dist',
+  ].map((directory) => `!playground/*/${directory}/**`),
+  '!playground-local/**',
+];
+
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
@@ -83,9 +102,28 @@ export default defineConfig({
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
       },
+      // Node's compile cache is shared and rewritten by every run, so it is not an input.
+      // One cached task per test group, so `test:all` replays a group whose inputs did not change.
+      // Every Vitest project must belong to exactly one group. Test output is not restored on a hit.
+      'test:group:platform': {
+        command: "vp test run --project 'platform-*'",
+        cache: { input: testGroupInput, output: [] },
+      },
+      'test:group:unit': {
+        command: 'vp test run --project unit --project unit-pglite --project cli-unit',
+        cache: { input: testGroupInput, output: [] },
+      },
+      'test:group:integration': {
+        command: 'vp test run --project parallel-integration',
+        cache: {
+          input: integrationGroupInput,
+          output: [],
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
+      },
       'test:all': {
         command:
-          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp test run',
+          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',
         // `vp run` passes ONLY the env vars a task declares to that task — not the full environment.
         // Without this, the gated live Cloudflare e2e's credentials never reach `vp test run`, so it
         // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
