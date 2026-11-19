@@ -312,8 +312,14 @@ ${['react', 'vue', 'svelte', 'solid']
 async function createFixture({
   typedRoutes = false,
   includeHandlers = true,
+  staticOnly = false,
   extraFiles = {},
-}: { typedRoutes?: boolean; includeHandlers?: boolean; extraFiles?: Record<string, string> } = {}) {
+}: {
+  typedRoutes?: boolean;
+  includeHandlers?: boolean;
+  staticOnly?: boolean;
+  extraFiles?: Record<string, string>;
+} = {}) {
   const root = mkdtempSync(join(tmpdir(), 'void-route-util-'));
   roots.push(root);
   const files: Record<string, string> = {
@@ -323,19 +329,23 @@ async function createFixture({
     'check-use-params.ts': useParamsCheck,
     'package.json': '{"type":"module"}',
     ...(includeHandlers && {
-      'routes/api/users/[id].ts':
-        "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
       'routes/api/legacy.ts':
         "import { defineHandler } from 'void/handler'; export default defineHandler(() => ({ ok: true }));",
+      ...(!staticOnly && {
+        'routes/api/users/[id].ts':
+          "import { defineHandler } from 'void/handler'; export const GET = defineHandler(() => ({ ok: true }));",
+      }),
     }),
     'pages/index.tsx': 'export default function Page() { return null; }',
     'pages/about.tsx': 'export default function Page() { return null; }',
     'pages/café menu.tsx': 'export default function Page() { return null; }',
-    'pages/café/[id].tsx': 'export default function Page() { return null; }',
-    'pages/users/[id].tsx': 'export default function Page() { return null; }',
-    'pages/blog/[category]/[slug].tsx': 'export default function Page() { return null; }',
-    'pages/files/[...path].tsx': 'export default function Page() { return null; }',
-    'pages/wild/[...].tsx': 'export default function Page() { return null; }',
+    ...(!staticOnly && {
+      'pages/café/[id].tsx': 'export default function Page() { return null; }',
+      'pages/users/[id].tsx': 'export default function Page() { return null; }',
+      'pages/blog/[category]/[slug].tsx': 'export default function Page() { return null; }',
+      'pages/files/[...path].tsx': 'export default function Page() { return null; }',
+      'pages/wild/[...].tsx': 'export default function Page() { return null; }',
+    }),
     'check.ts': `import type { Context, MiddlewareHandler } from 'hono';
 import { getCookie } from 'hono/cookie';
 import {
@@ -503,6 +513,20 @@ function userUrl<T extends string | number>(id: T) {
 function forwardOptions<T extends RouteOptions<'/users/[id]'>>(options: T) {
   return routeUrl('/users/[id]', options);
 }
+function forwardRouteOptions<P extends RoutePath>(path: P, options: RouteOptions<P>) {
+  return routeUrl(path, options);
+}
+function forwardRouteOptionsSubtype<P extends RoutePath, O extends RouteOptions<P>>(path: P, options: O) {
+  return routeUrl(path, options);
+}
+function forwardExplicitOptions<P extends RoutePath>(path: P, options: RouteOptions<P>) {
+  return routeUrl<P>(path, options);
+}
+function forwardAnyOptions<P extends RoutePath>(path: P, options: any) {
+  return routeUrl(path, options);
+}
+const buildRoute: <P extends RoutePath>(path: P, options: RouteOptions<P>) => string = routeUrl;
+const buildRouteWithSubtype: <P extends RoutePath, O extends RouteOptions<P>>(path: P, options: O) => string = routeUrl;
 function forwardStaticOptions<T extends RouteOptions<'/about'>>(options: T) {
   return routeUrl('/about', options);
 }
@@ -528,7 +552,7 @@ const staticDestination: RouteDestination<'/about'> = { pathname: '/about' };
 routeUrl('/about', staticDestination);
 declare const indexedParams: Record<string, unknown> & { id: number };
 routeUrl('/users/[id]', { params: indexedParams });
-void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs];
+void [userUrl, forwardOptions, forwardRouteOptions, forwardRouteOptionsSubtype, forwardExplicitOptions, forwardAnyOptions, buildRoute, buildRouteWithSubtype, forwardStaticOptions, forwardDestination, forwardArgs, forwardGenericArgs];
 `,
         },
       });
@@ -548,10 +572,33 @@ void [userUrl, forwardOptions, forwardStaticOptions, forwardDestination, forward
 function forward(...args: Parameters<typeof routeUrl>) {
   return routeUrl(...args);
 }
+function wrap<A extends unknown[], R>(fn: (...args: A) => R): (...args: A) => R {
+  return (...args) => fn(...args);
+}
+function curry<P, A extends unknown[], R>(fn: (path: P, ...args: A) => R) {
+  return (path: P) => (...args: A): R => fn(path, ...args);
+}
+export const wrapped = wrap(routeUrl);
+wrapped('/about');
+wrapped('/users/[id]', { params: { id: 42 } });
+wrapped('/blog/[category]/[slug]', { params: { category: 'typescript', slug: 'routes' } });
+// @ts-expect-error wrapping retains required params
+wrapped('/users/[id]');
+// @ts-expect-error wrapping retains per-route param names
+wrapped('/users/[id]', { params: { slug: 'routes' } });
+// @ts-expect-error wrapping retains route checks
+wrapped('/missing');
+function forwardWrappedOptions<P extends RoutePath, O extends RouteOptions<P>>(path: P, options: O) {
+  return wrapped(path, options);
+}
+forwardWrappedOptions('/users/[id]', { params: { id: 42 }, trace: 'request' });
+// @ts-expect-error forwarding an options subtype still requires the route's params
+forwardWrappedOptions('/users/[id]', { hash: 'team' });
+export const curried = curry(routeUrl);
 const buildAbout: (path: '/about') => string = routeUrl;
 const buildAboutWithOptions: (path: '/about', options?: RouteOptions<'/about'>) => string = routeUrl;
-// @ts-expect-error a dynamic route cannot be used as a one-argument callback
-const buildUser: (path: '/users/[id]') => string = routeUrl;
+// @ts-expect-error a builder specialized to a dynamic route requires options
+const buildUser: (path: '/users/[id]') => string = routeUrl<'/users/[id]'>;
 void [buildAbout, buildAboutWithOptions, buildUser];
 declare const options: RouteOptions<RoutePath>;
 const userUrl = routeUrl.bind(undefined, '/users/[id]');
@@ -587,15 +634,75 @@ forward('/users/[id]', { params: { id: true } });
 routeUrl<string>('/about', options);
 // @ts-expect-error widening a route type cannot bypass dynamic-route checks
 routeUrl<string>('/users/[id]', options);
-// @ts-expect-error explicit diagnostic type arguments cannot widen the route type
-routeUrl<string, [path: string, options?: unknown]>('/about', options);
+// @ts-expect-error an unknown candidate cannot make options optional for a dynamic route
+routeUrl<RoutePath, '/missing'>('/users/[id]');
+`,
+          'check-inferred-exports.ts': `import { curried, wrapped } from './dist/check-function-helpers.js';
+curried('/about')();
+curried('/about')({ hash: 'team' });
+curried('/users/[id]')({ params: { id: 42 } });
+// @ts-expect-error currying retains required params
+curried('/users/[id]')();
+// @ts-expect-error currying retains per-route param names
+curried('/users/[id]')({ params: { slug: 'routes' } });
+// @ts-expect-error currying retains route checks
+curried('/missing');
+wrapped('/about');
+wrapped('/users/[id]', { params: { id: 42 } });
+// @ts-expect-error the emitted wrapper declaration retains required params
+wrapped('/users/[id]');
 `,
         },
       });
-      expect(typecheck(root, declarations, ['check-function-helpers.ts'], {}, tsc)).toEqual({
+      expect(
+        typecheck(
+          root,
+          declarations,
+          ['check-function-helpers.ts'],
+          { declaration: true, emitDeclarationOnly: true, noEmit: false, outDir: './dist' },
+          tsc,
+        ),
+      ).toEqual({ output: '', status: 0 });
+      expect(typecheck(root, declarations, ['check-inferred-exports.ts'], {}, tsc)).toEqual({
         output: '',
         status: 0,
       });
+    },
+  );
+
+  it.each(declarationChecks)(
+    'keeps options optional in static function helpers through $declarations declarations with TS $version',
+    async ({ declarations, tsc }) => {
+      const root = await createFixture({
+        includeHandlers: false,
+        staticOnly: true,
+        extraFiles: {
+          'check-static-binding.ts': `import { routeUrl } from 'void/routes';
+const build = routeUrl.bind(undefined, '/about');
+build();
+build({ hash: 'team' });
+const buildAbout = (routeUrl<'/about'>).bind(undefined, '/about');
+buildAbout();
+buildAbout({ hash: 'team' });
+// @ts-expect-error static routes still reject params when bound
+buildAbout({ params: { id: 42 } });
+declare const unchecked: any;
+routeUrl.call(undefined, unchecked);
+routeUrl.call(undefined, unchecked, undefined);
+`,
+        },
+      });
+      for (const compilerOptions of [
+        { exactOptionalPropertyTypes: true },
+        { strictNullChecks: false },
+      ]) {
+        expect
+          .soft(
+            typecheck(root, declarations, ['check-static-binding.ts'], compilerOptions, tsc),
+            JSON.stringify(compilerOptions),
+          )
+          .toEqual({ output: '', status: 0 });
+      }
     },
   );
 
@@ -835,7 +942,7 @@ routeUrl<'/users/[id]'>('/users/[id]', { params: { id: 42, extra: 'x' } });
 // @ts-expect-error widening the type argument cannot omit required params
 routeUrl<string>('/users/[id]');
 declare const uncheckedOptions: Record<string, any>;
-// @ts-expect-error index signatures cannot satisfy the diagnostic rejection guard
+// @ts-expect-error an index signature does not supply the required params
 routeUrl('/users/[id]', uncheckedOptions);
 const uncheckedPath = JSON.parse('"/users/[id]"');
 routeUrl(uncheckedPath, { params: { id: 42 } });
@@ -843,47 +950,30 @@ routeUrl(uncheckedPath, { params: { id: 42 } });
 routeUrl(uncheckedPath);
 // @ts-expect-error undefined cannot supply the options for a path typed as any
 routeUrl(uncheckedPath, undefined);
-// @ts-expect-error explicit type arguments cannot select the erased callback signature
-routeUrl<RoutePath, any, any, any>(uncheckedPath);
-const boxed = Object.assign('Param id for /users/[id] must be a string or number.' as const, { params: { id: true } });
-// @ts-expect-error a boxed diagnostic message is still invalid options
-routeUrl('/users/[id]', boxed);
-// @ts-expect-error diagnostic message strings cannot act as options
-routeUrl('/about', 'Options for /about must be an object.');
-// @ts-expect-error diagnostic message values cannot turn unknown options into valid ones
-routeUrl('/about', { search: 'Unknown routeUrl option: search.' });
-const fakePath = {
-  get 'Missing options for /users/[id]. Pass { params: { ... } } as the second argument.'(): never { throw new Error(); },
-  get 'Expected a route pattern literal; string is too broad.'(): never { throw new Error(); },
-};
-// @ts-expect-error diagnostic objects cannot act as route patterns
-routeUrl(fakePath);
+// @ts-expect-error a broad candidate cannot make required options optional
+routeUrl<RoutePath, string>(uncheckedPath);
 const fakeUnknownPath = Object.assign('/missing' as const, {
   get 'Unknown route: /missing. Use a registered route pattern.'(): never { throw new Error(); },
 });
 // @ts-expect-error a boxed error message cannot make an unknown path valid
 routeUrl<RoutePath, '/missing'>(fakeUnknownPath);
-const fakeMissingOptions = {
-  get 'Missing options for /users/[id]. Pass { params: { ... } } as the second argument.'(): never { throw new Error(); },
-};
-// @ts-expect-error a diagnostic object cannot replace a path and its required options
-routeUrl<RoutePath, '/users/[id]'>(fakeMissingOptions);
-// @ts-expect-error a diagnostic message cannot become a params object
-routeUrl('/users/[id]', { params: "Params for /users/[id] must be an object." });
-// @ts-expect-error a diagnostic message cannot become a query object
-routeUrl('/about', { query: 'Query for /about must be an object with supported query values.' });
 // @ts-expect-error an any-valued unknown option remains invalid
 routeUrl('/about', { search: undefined as any });
-// @ts-expect-error an array of diagnostic messages cannot become options
-routeUrl('/about', ['Unknown routeUrl option: 0.'] as const);
 // @ts-expect-error explicit diagnostic type arguments retain native params checking
-routeUrl<RoutePath, '/users/[id]', { params: { id: boolean } }>('/users/[id]', { params: 'Param id for /users/[id] must be a string or number.' });
-// @ts-expect-error diagnostic type arguments cannot widen the original checked tuple
-routeUrl<RoutePath, '/users/[id]', unknown>('/users/[id]', { params: 'Param id for /users/[id] must be a string or number.' });
+routeUrl<RoutePath, '/users/[id]'>('/users/[id]', { params: { id: true } });
+// @ts-expect-error an any candidate cannot bypass the route pattern check
+routeUrl<'/about', any>('/missing', { params: {} });
+// @ts-expect-error an any candidate cannot bypass per-route param checks
+routeUrl<'/users/[id]', any>('/users/[id]', { params: {} });
 `,
-          'check-exact-optional.ts': `import { routeUrl } from 'void/routes';
+          'check-exact-optional.ts': `import { routeUrl, type RouteOptions } from 'void/routes';
 routeUrl('/about');
+routeUrl('/about', undefined);
 routeUrl('/users/[id]', { params: { id: 42 } });
+function forwardStaticOptions<O extends RouteOptions<'/about'>>(options?: O) {
+  return routeUrl('/about', options);
+}
+void forwardStaticOptions;
 declare const value: any;
 // @ts-expect-error exact optional properties do not allow params on static routes
 routeUrl('/about', { params: value });
@@ -914,12 +1004,12 @@ routeUrl('/users/[id]', { params: { id: 42, extra: value } });
 
   it.each(declarationChecks)(
     'uses native option errors and custom path errors through $declarations declarations with TS $version',
-    async ({ declarations, tsc, version }) => {
+    async ({ declarations, tsc }) => {
       const cases: Array<[call: string, message: string | RegExp, kind: 'native' | 'custom']> = [
         ["routeUrl('/missing');", 'Unknown route: /missing.', 'custom'],
         ["routeUrl('/missing', {});", 'Unknown route: /missing.', 'custom'],
         ["routeUrl('/users/42');", 'Unknown route: /users/42.', 'custom'],
-        ["routeUrl('/users/[id]');", 'Missing options for /users/[id].', 'custom'],
+        ["routeUrl('/users/[id]');", 'Expected 2 arguments, but got 1.', 'native'],
         ["routeUrl('/users/[id]', {});", "Property 'params' is missing", 'native'],
         [
           "routeUrl('/users/[id]', { query: { page: 1 } });",
@@ -1000,13 +1090,13 @@ routeUrl('/users/[id]', { params: { id: 42, extra: value } });
         ],
         ["routeUrl('/about', { 0: 'unknown' });", "'0' does not exist", 'native'],
         ["routeUrl('/about', { search: 'x' });", "'search' does not exist", 'native'],
-        ["routeUrl('/users/[id]', undefined);", 'Missing options for /users/[id].', 'custom'],
-        ["routeUrl('' as '/about' | '/users/[id]');", 'Missing options for /users/[id].', 'custom'],
         [
-          "routeUrl('' as string);",
-          'Expected a route pattern literal; string is too broad.',
-          'custom',
+          "routeUrl('/users/[id]', undefined);",
+          "Argument of type 'undefined' is not assignable",
+          'native',
         ],
+        ["routeUrl('' as '/about' | '/users/[id]');", 'Expected 2 arguments, but got 1.', 'native'],
+        ["routeUrl('' as string, {});", "Argument of type 'string' is not assignable", 'native'],
         ["routeUrl('' as '/about' | '/missing', {});", 'Unknown route: /missing.', 'custom'],
         ["routeUrl('/missing', undefined);", 'Unknown route: /missing.', 'custom'],
         ["routeUrl('/missing', {} as unknown);", 'Unknown route: /missing.', 'custom'],
@@ -1036,34 +1126,26 @@ routeUrl('/users/[id]', { params: { id: 42, extra: value } });
         if (kind === 'native') {
           expect(diagnostics[index]).not.toContain('UrlTypeError');
           expect(diagnostics[index]).not.toContain('UrlErrorToken');
-          expect(diagnostics[index]).not.toContain('[invalid]');
-          expect(diagnostics[index]).not.toContain('Missing options for');
+          expect(diagnostics[index]).not.toContain('Symbol.toPrimitive');
           expect(diagnostics[index]).not.toMatch(
             /not assignable to type '"(?:Missing|Unknown|Invalid|Param|Query|Hash|Options)/,
           );
         }
       });
-      expect(output).not.toContain('TS2554');
+      expect(output).not.toContain('No overload matches this call');
       expect(output).not.toContain('UrlTypeError<never>');
       expect(output).not.toContain('RouteUrlOptionsInput');
       expect(output).not.toContain('__voidUrlError');
-      expect(diagnostics[25]).not.toContain('Missing options for /about.');
-      expect(diagnostics[27]).not.toContain('Unknown route: /about.');
+      expect(output).not.toContain('Unknown route: /about.');
       const missingSlug = diagnostics.at(-1)!.trim();
-      const detail =
-        "Property 'slug' is missing in type '{ category: string; }' but required in type '{ category: string | number; slug: string | number; }'.";
-      expect(missingSlug).toContain(detail);
-      if (version.startsWith('7.')) {
-        expect(missingSlug).toBe(
-          `No overload matches this call.\n  The last overload gave the following error.\n    ${detail}`,
-        );
-        expect(missingSlug.length).toBeLessThan(250);
-      }
+      expect(missingSlug).toBe(
+        "Property 'slug' is missing in type '{ category: string; }' but required in type '{ category: string | number; slug: string | number; }'.",
+      );
     },
   );
 
   it.each(declarationChecks)(
-    'explains missing options for generic routes through $declarations declarations with TS $version',
+    'requires options for generic paths through $declarations declarations with TS $version',
     async ({ declarations, tsc }) => {
       const root = await createFixture({
         extraFiles: {
@@ -1083,8 +1165,7 @@ void bare;
         tsc,
       );
       expect(status).not.toBe(0);
-      expect(output).toContain('Missing options for');
-      expect(output).toContain('Pass { params: { ... } } as the second argument.');
+      expect(output).toContain("Argument of type '[]' is not assignable");
     },
   );
 

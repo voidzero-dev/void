@@ -158,63 +158,32 @@ type UrlOptions = {
   hash?: string;
 };
 
-type RouteUrlArgs<P extends RoutePath> = [RoutePathMap[P]] extends [never]
-  ? [options?: RouteOptions<P>]
-  : [options: RouteOptions<P>];
-type UnknownRouteMessage<P extends string> = string extends P
-  ? 'Expected a route pattern literal; string is too broad.'
-  : `Unknown route: ${Exclude<P, RoutePath>}. Use a registered route pattern.`;
-type RoutePathWithParams<P extends RoutePath> = P extends RoutePath
-  ? [RoutePathMap[P]] extends [never]
-    ? never
-    : P
-  : never;
-type StaticRoutePath = Exclude<RoutePath, RoutePathWithParams<RoutePath>>;
-type IsAny<T> = 0 extends 1 & T ? true : false;
+// An unknown pattern has no matching route params, so TypeScript can report
+// the path error even if the options argument is absent. In static-only apps,
+// keep P alone so an unchecked path doesn't affect the optional options tuple.
+// A broad candidate must also keep P so it cannot widen the checked pattern.
+type MatchingRoute<P extends RoutePath, Candidate extends string> = [
+  RoutePathMap[RoutePath],
+] extends [never]
+  ? P
+  : string extends Candidate
+    ? P
+    : P & Candidate;
+
+// Function helpers can widen Candidate to string when they infer the signature.
+type UnknownRoute<Candidate extends string> = string extends Candidate
+  ? never
+  : Candidate &
+      UrlTypeError<`Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.`> &
+      UrlErrorToken;
 
 /** Build a relative URL from a known route pattern. */
-export function routeUrl<P extends RoutePath>(path: P, ...args: RouteUrlArgs<NoInfer<P>>): RouteUrl;
-// TypeScript erases Erased to any when comparing overloads to a callback. Give
-// that comparison a static route signature. Calls can only instantiate it as never.
-// Function helpers instantiate O as unknown and keep the original checked tuple.
-// Explicit <P> calls use the valid overload because this one requires two type arguments.
-export function routeUrl<
-  P extends RoutePath,
-  S extends RoutePath | (string & {}),
-  O = never,
-  Erased extends never = never,
->(
-  path: IsAny<Erased> extends true
-    ? StaticRoutePath
-    : unknown extends O
-      ? string extends S
-        ? S & P
-        : [S] extends [RoutePath]
-          ? S & P
-          : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken
-      : [S] extends [RoutePath]
-        ? [O] extends [undefined]
-          ? UrlTypeError<`Missing options for ${RoutePathWithParams<NoInfer<S> & RoutePath>}. Pass { params: { ... } } as the second argument.`> &
-              UrlErrorToken
-          : S
-        : S & UrlTypeError<UnknownRouteMessage<NoInfer<S>>> & UrlErrorToken,
-  ...args: IsAny<Erased> extends true
-    ? RouteUrlArgs<StaticRoutePath>
-    : unknown extends O
-      ? RouteUrlArgs<NoInfer<P>>
-      : [O] extends [undefined]
-        ? // Paths typed as any may require options. Keep the native arity check.
-          IsAny<S> extends true
-          ? RouteUrlArgs<S & RoutePath>
-          : [options?: undefined]
-        : // Infer O before selecting the known route's native options type.
-          [
-            options: O extends never
-              ? O
-              : [S] extends [RoutePath]
-                ? RouteOptions<NoInfer<S> & RoutePath>
-                : unknown,
-          ]
+// A single signature with a positional path preserves inference in wrappers and currying helpers.
+export function routeUrl<P extends RoutePath, Candidate extends RoutePath | (string & {}) = P>(
+  path: MatchingRoute<P, Candidate> | UnknownRoute<Candidate>,
+  ...options: [RoutePathMap[NoInfer<MatchingRoute<P, Candidate>>]] extends [never]
+    ? [options?: RouteOptions<MatchingRoute<P, Candidate>>]
+    : [options: RouteOptions<MatchingRoute<P, Candidate>>]
 ): RouteUrl;
 export function routeUrl(path: string, ...args: [options?: unknown]): RouteUrl {
   return buildRouteUrl(path, args[0] as UrlOptions | undefined) as RouteUrl;
