@@ -26,6 +26,7 @@ import {
   enqueueSecurityScanForLiveDeployment,
   finishSecurityScanEnqueue,
 } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import {
   type DeployManifest,
   type DeployEvent,
@@ -186,6 +187,7 @@ export async function recoverFailedDeployment(input: {
       securityScan,
       securityScanModules,
     );
+    await recheckPublicRequestBestEffort(context.env, context.get('db'), projectId, 'a deploy');
   };
 
   const emitSlugDone = (): void => {

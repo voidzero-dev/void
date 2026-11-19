@@ -226,6 +226,18 @@ async function enqueueInSavepoint(
     .limit(1);
   // An open public request makes every live deploy its gate scan (§5.5), also under
   // `public`; otherwise a protected project under `public` is out of scope for now.
+  // The request follows the new live deployment; its re-check after the commit
+  // (`public-gate-flow.ts`) sets the state.
+  if (openRequest) {
+    await tx
+      .update(securityPublicRequests)
+      .set({
+        target_deployment_id: deploymentId,
+        revision: sql`${securityPublicRequests.revision} + 1`,
+        updated_at: sql`now()`,
+      })
+      .where(eq(securityPublicRequests.id, openRequest.id));
+  }
   const trigger: SecurityScanTrigger = openRequest ? 'gate' : input.trigger;
   const skipped = !openRequest && policy.mode === 'public' && isProtected;
   const [operation] = await tx

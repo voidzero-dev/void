@@ -21,6 +21,7 @@ import { projectRouteKey } from '../routing.ts';
 import { buildStaticRoutingJson } from '../routing.ts';
 import { deployments } from '../schema.ts';
 import { finishSecurityScanEnqueue } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import { REASON_REQUESTS_EXCEEDED } from '../suspension.ts';
 import { STATIC_RETENTION_LIMIT } from '../tiers.ts';
 import {
@@ -383,5 +384,6 @@ export async function publishStaticDeployment(input: {
     workers: 0,
   });
   await finishSecurityScanEnqueue(context.env, context.get('db'), securityScan);
+  await recheckPublicRequestBestEffort(context.env, context.get('db'), project.id, 'a deploy');
   await finishOrphanSweep();
 }

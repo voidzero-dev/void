@@ -1048,6 +1048,29 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   `security-gate-judge.test.ts` (pure judge function over scan + findings + deployment).
 - Exit: invariant tests: no flip without pass or bypass; no bypass with urgent open;
   no deploy ever refused because of a request.
+- As built: pure judge in `security/public-gate-judge.ts` and copy in `public-gate-copy.ts`;
+  tx-level code in `public-gate.ts`; drivers (re-check, bypass, hourly backstop) in
+  `public-gate-flow.ts`, split so `zero-trust/project.ts` has no import cycle. The checkpoint
+  takes `gate: ask | flip | bypass` and `requester`; `reconcileProjectZeroTrustGated` returns
+  `{row, publicRequest, held, skipped}`. Lock order is project row, ZT shared, policy shared;
+  the policy writer takes ZT shared first when turning the gate on. `security/exposure.ts`
+  holds the exposure catch-up, run by `maintenance.ts` under `public` mode.
+  Deviations: tests are fewer than listed. Built: `security-gate-judge.test.ts` (unit),
+  `security-public-gate.test.ts` (ask, hold, pass, bypass, protect-cancel, ZT disable
+  refused), `security-exposure.test.ts`; existing suites updated for the new
+  `setProjectZeroTrustProtection` result and GET fields. Not built yet:
+  `security-gate-bypass.test.ts`, `security-gate-zero-trust.test.ts` (race cases #64, #72,
+  #89, #90, #93, #94, strict reader 503), and the `zero-trust-deploy-admission` and
+  `zero-trust-disable-bypass` extensions. Review round: the hourly backstop judges every
+  picked request (holds need no budget), rotates by touching `updated_at`, and shares the
+  cron run's routing budget with `reconcilePendingProjectZeroTrust` (passed from `scheduled`);
+  a pass with too little budget commits its checkpoint and the project stays reconciling,
+  as the checkpoint already does. Any `trigger=exposure` scan of the live deployment stops
+  further catch-up scans. `held_reason` for a failed gate scan is `failed_installation` or
+  `failed_project`; copy varies on it. Still not built: the race tests (#64, #72, #89, #90,
+  #93, #94, the two lock-based races), the strict-reader 503, the rollback retarget test and
+  the operator 202 and dry-run shapes; the route test covers 403, 422 and 409 only.
+  The scheduler poke after the hourly backstop runs only when a request was judged.
 
 **M17 Operator security routes (rest).**
 

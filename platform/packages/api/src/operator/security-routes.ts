@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import { capabilityMiddleware, getPlatformCapabilities } from '../capabilities.ts';
 import type { ApiEnv } from '../env.ts';
+import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
 import {
   changeSecurityPolicy,
@@ -43,18 +44,18 @@ securityOperatorRoutes.post(
   async (context) => {
     const body = await readBody(context);
     try {
-      return context.json(
-        await changeSecurityPolicy(context.get('db'), body, {
-          userId: context.get('user').id,
-          preview: dryRun(body),
-          // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
-          probe: async () =>
-            runSecurityProbe(
-              context.env,
-              (await readStoredSecurityPolicy(context.get('db'))).policy,
-            ),
-        }),
-      );
+      const result = await changeSecurityPolicy(context.get('db'), body, {
+        userId: context.get('user').id,
+        preview: dryRun(body),
+        // Leaving `disabled` re-runs the probe (and provisions the scanner) first.
+        probe: async () =>
+          runSecurityProbe(context.env, (await readStoredSecurityPolicy(context.get('db'))).policy),
+      });
+      // Canceled requests queued their emails in the policy transaction.
+      if ('canceledRequests' in result && result.canceledRequests > 0) {
+        await pokeSecurityScanScheduler(context.env);
+      }
+      return context.json(result);
     } catch (error) {
       throw securityOperatorError(error);
     }

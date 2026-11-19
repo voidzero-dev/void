@@ -25,6 +25,7 @@ import { checkScanFence } from './fence.ts';
 import { ingestSecurityScanResult } from './ingest.ts';
 import { prepareSecurityScanInput } from './input/prepare.ts';
 import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
+import { recheckPublicRequestForScan } from './public-gate-flow.ts';
 
 export { checkScanFence, judgeScanFence } from './fence.ts';
 
@@ -78,7 +79,12 @@ export class SecurityScanControl extends WorkerEntrypoint<
       return null;
     }
     try {
-      return await prepareSecurityScanInput(this.env, db, scanId, attempt);
+      const input = await prepareSecurityScanInput(this.env, db, scanId, attempt);
+      if (input === null) {
+        // A scan with nothing to send is stored here (`no changes`, backlog only).
+        await recheckPublicRequestForScan(this.env, db, scanId);
+      }
+      return input;
     } catch (error) {
       console.error('[security-scan] scan input could not be built', {
         scanId,
@@ -112,16 +118,15 @@ export class SecurityScanControl extends WorkerEntrypoint<
       return { ok: false };
     }
     try {
-      const ingested = await ingestSecurityScanResult(
-        this.env,
-        createDb(this.env.HYPERDRIVE.connectionString),
-        scanId,
-        attempt,
-        {
-          status: report?.status,
-          findings: typeof report?.findings === 'string' ? report.findings : null,
-        },
-      );
+      const db = createDb(this.env.HYPERDRIVE.connectionString);
+      const ingested = await ingestSecurityScanResult(this.env, db, scanId, attempt, {
+        status: report?.status,
+        findings: typeof report?.findings === 'string' ? report.findings : null,
+      });
+      if (ingested.ok && ingested.kind === 'stored') {
+        // The public gate judges the stored result (a gate scan, or any scan of the live deployment).
+        await recheckPublicRequestForScan(this.env, db, scanId);
+      }
       return { ok: ingested.ok };
     } catch (error) {
       console.error('[security-scan] scan result could not be stored', {

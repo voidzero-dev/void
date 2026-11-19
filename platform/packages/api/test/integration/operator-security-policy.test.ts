@@ -640,11 +640,12 @@ describe('operator security policy', () => {
     expect(await storedPolicy()).toMatchObject({ mode: 'disabled', revision: 8 });
   });
 
-  test('refuses unknown fields and the public gate for now', async () => {
+  test('refuses unknown fields and the public gate while the policy is Off', async () => {
     await seedPolicy();
     expect((await request('/policy', { expectedRevision: 3, modes: 'all' })).status).toBe(400);
     const gate = await request('/policy', { expectedRevision: 3, publicGate: true });
-    expect(gate.status).toBe(400);
+    expect(gate.status).toBe(409);
+    expect(await gate.json()).toMatchObject({ error: 'security public gate needs policy' });
     expect((await request('/policy', { expectedRevision: 3 })).status).toBe(400);
   });
 });

@@ -147,6 +147,7 @@ import {
 } from './schema.ts';
 import { SecurityScanControl } from './security/control.ts';
 import { runSecurityMaintenance } from './security/maintenance.ts';
+import { reconcilePendingPublicRequests } from './security/public-gate-flow.ts';
 import { SecurityScanScheduler } from './security/scheduler.ts';
 import { isAdminSuspended, REASON_REQUESTS_EXCEEDED } from './suspension.ts';
 import { getCurrentBillingPeriodStart } from './tiers.ts';
@@ -159,7 +160,9 @@ import { lockZeroTrustConfiguration } from './zero-trust/lock.ts';
 import { reconcilePendingProjectZeroTrust } from './zero-trust/maintenance.ts';
 import { reconcileProjectZeroTrustDomains } from './zero-trust/project.ts';
 import {
+  MAX_ROUTING_KEYS_PER_RUN,
   resolveProjectZeroTrustRoutingForPublication,
+  type RoutingBudget,
   withProjectZeroTrustRouting,
 } from './zero-trust/routing.ts';
 import { markProjectCustomDomainsChanged } from './zero-trust/state.ts';
@@ -785,8 +788,15 @@ async function scheduled(
     );
   }
 
-  await reconcilePendingProjectZeroTrust(env, db).catch((error) =>
+  const routingBudget: RoutingBudget = { remaining: MAX_ROUTING_KEYS_PER_RUN };
+  await reconcilePendingProjectZeroTrust(env, db, undefined, routingBudget).catch((error) =>
     console.error('[scheduled] Zero Trust reconciliation failed:', error),
+  );
+
+  // Public gate backstop: judge open public requests again (for example after an
+  // installation operation ends). Flips only when the full reconcile fits its budget.
+  await reconcilePendingPublicRequests(env, db, undefined, routingBudget).catch((error) =>
+    console.error('[scheduled] public request re-check failed:', error),
   );
 
   // Repair published AI logging settings that drifted from Postgres, and advance

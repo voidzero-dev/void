@@ -28,6 +28,7 @@ import {
 import { resolveSecurityScanModel, type SecurityScanModel } from './models.ts';
 import { enqueueSecurityCapRefused, runSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient, securitySpendMonth } from './policy.ts';
+import { recheckPublicRequestForScan } from './public-gate-flow.ts';
 import {
   cancelSecurityScanRows,
   claimSecurityScan,
@@ -112,6 +113,33 @@ export function securityScanQueueStore(db: Db): SecurityScanQueueStore {
     endQueued: (scanId, attempt, end) => endQueuedSecurityScan(db, scanId, attempt, end),
     requeue: (scanId, attempt) => requeueSecurityScan(db, scanId, attempt),
     isRunning: (scanId, attempt) => isSecurityScanRunning(db, scanId, attempt),
+  };
+}
+
+/**
+ * The store, with a hook after a scan the scheduler itself ended (a refused start,
+ * a used-up budget): the public gate judges the project again (`public-gate-flow.ts`).
+ */
+export function endNotifyingStore(
+  store: SecurityScanQueueStore,
+  onEnded: (scanId: string) => Promise<void>,
+): SecurityScanQueueStore {
+  const after = async (scanId: string, ended: boolean): Promise<boolean> => {
+    if (ended) {
+      await onEnded(scanId).catch((error) =>
+        console.warn('[security-scan] public gate re-check failed', {
+          scanId,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+    }
+    return ended;
+  };
+  return {
+    ...store,
+    end: async (scanId, attempt, end) => after(scanId, await store.end(scanId, attempt, end)),
+    endQueued: async (scanId, attempt, end) =>
+      after(scanId, await store.endQueued(scanId, attempt, end)),
   };
 }
 
@@ -593,7 +621,9 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
         now: () => passStart,
         storage: this.ctx.storage,
         readPolicy: () => readSecurityPolicyLenient(db),
-        store: securityScanQueueStore(db),
+        store: endNotifyingStore(securityScanQueueStore(db), (scanId) =>
+          recheckPublicRequestForScan(this.env, db, scanId),
+        ),
         controller: securityScanControllerClient(this.env),
         onBudgetRefused: async ({ projectId, cap }) => {
           await enqueueSecurityCapRefused(db, {

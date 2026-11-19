@@ -225,11 +225,13 @@ app.post('/:id/zero-trust', async (context) => {
     operatorAuditIntent(`zero-trust/projects/${projectId}`, { protected: protectedProject }),
     async () => {
       try {
+        // With the public gate on this stores a public request instead of going public.
         await setProjectZeroTrustProtection(
           context.env,
           context.get('db'),
           projectId,
           protectedProject,
+          { requester: { userId: context.get('user').id, via: 'admin' } },
         );
       } catch (error) {
         projectZeroTrustError(error);

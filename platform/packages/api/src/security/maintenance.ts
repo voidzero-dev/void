@@ -24,6 +24,7 @@ import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { queueExposureCatchUpScans } from './exposure.ts';
 import { hasPendingSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { probeAndRecord } from './probe.ts';
@@ -137,6 +138,9 @@ export async function runSecurityMaintenance(
   if (policy.mode !== 'disabled') {
     repoked = await step('re-poke', 0, () => queueStalePendingSecurityScans(db, now));
     backlogged = await step('backlog', 0, () => skipBackloggedSecurityScans(db, now));
+    if (policy.mode === 'public') {
+      await step('exposure catch-up', 0, () => queueExposureCatchUpScans(env, db));
+    }
     await step('poke', undefined, async () => {
       if (await hasQueuedSecurityScans(db)) {
         await deps.poke();

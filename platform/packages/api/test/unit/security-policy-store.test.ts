@@ -228,12 +228,50 @@ describe('proposeSecurityPolicyChange', () => {
     ).toMatchObject({ status: 400 });
   });
 
-  it('refuses to turn the public gate on until it ships', () => {
-    expect(
-      refused(() =>
-        proposeSecurityPolicyChange(stored({ mode: 'all' }), { publicGate: true }, context),
-      ),
-    ).toMatchObject({ status: 400 });
+  describe('turning the public gate on (spec §5.5)', () => {
+    const gateOn = (
+      policy: Partial<SecurityPolicy>,
+      zeroTrust?: 'enabled' | 'off' | 'public_only' | 'operation',
+    ) =>
+      proposeSecurityPolicyChange(stored(policy), { publicGate: true }, { ...context, zeroTrust });
+
+    it('turns on when the policy is on, the probe is fresh and Zero Trust is enabled', () => {
+      const result = gateOn({ mode: 'all' }, 'enabled');
+      expect(result.next.publicGate).toBe(true);
+      expect(result.changes.publicGateOn).toBe(true);
+    });
+
+    it('says one thing per reason', () => {
+      expect(refused(() => gateOn({ mode: 'disabled' }, 'enabled'))).toMatchObject({
+        status: 409,
+        code: 'security public gate needs policy',
+      });
+      expect(
+        refused(() =>
+          gateOn(
+            { mode: 'all', entitlement: probe({ checkedAt: '2026-01-01T00:00:00.000Z' }) },
+            'enabled',
+          ),
+        ),
+      ).toMatchObject({ status: 409, code: 'security entitlement missing' });
+      expect(refused(() => gateOn({ mode: 'all' }, 'off'))).toMatchObject({
+        status: 409,
+        code: 'security public gate needs zero trust',
+        message: expect.stringContaining('Turn on platform Zero Trust first'),
+      });
+      expect(refused(() => gateOn({ mode: 'all' }, 'public_only'))).toMatchObject({
+        code: 'security public gate needs zero trust',
+        message: expect.stringContaining('public-only mode'),
+      });
+      expect(refused(() => gateOn({ mode: 'all' }, 'operation'))).toMatchObject({
+        code: 'security public gate needs zero trust',
+        message: expect.stringContaining('Wait for the Zero Trust change'),
+      });
+      // Zero Trust not read at all: the gate cannot turn on.
+      expect(refused(() => gateOn({ mode: 'all' }))).toMatchObject({
+        code: 'security public gate needs zero trust',
+      });
+    });
   });
 
   it('refuses a blocked or unpriced default and blocking the current default', () => {

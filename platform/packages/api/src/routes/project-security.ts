@@ -33,6 +33,8 @@ import {
   securityDetailLevel,
   type SecurityViewer,
 } from '../security/project-view.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
+import { publicRequestView } from '../security/public-gate.ts';
 import { SECURITY_SEVERITIES, type SecuritySeverity } from '../security/schema.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
@@ -200,16 +202,25 @@ const app = new Hono<ApiEnv>()
       const body = await readJson(context);
       const resolution = parseSecurityResolution(field(body, 'reason'));
       const comment = parseSecurityComment(field(body, 'comment'), 'comment');
-      return context.json(
-        await resolveSecurityFinding(context.get('db'), {
-          projectId,
-          ref: context.req.param('fid'),
-          userId: context.get('user').id,
-          resolution,
-          comment,
-          expectedRevision: field(body, 'expectedRevision'),
-        }),
+      const resolved = await resolveSecurityFinding(context.get('db'), {
+        projectId,
+        ref: context.req.param('fid'),
+        userId: context.get('user').id,
+        resolution,
+        comment,
+        expectedRevision: field(body, 'expectedRevision'),
+      });
+      // An open public request is judged again: the last urgent finding may be gone.
+      const request = await recheckPublicRequestBestEffort(
+        context.env,
+        context.get('db'),
+        projectId,
+        'a resolve',
       );
+      return context.json({
+        ...resolved,
+        ...(request ? { publicRequest: await publicRequestView(context.get('db'), request) } : {}),
+      });
     } catch (error) {
       return failure(context, error);
     }
@@ -232,7 +243,16 @@ const app = new Hono<ApiEnv>()
       });
       // The alarm sends the "reopened" email when the finding was urgent.
       await pokeSecurityScanScheduler(context.env);
-      return context.json(reopened);
+      const request = await recheckPublicRequestBestEffort(
+        context.env,
+        context.get('db'),
+        projectId,
+        'a reopen',
+      );
+      return context.json({
+        ...reopened,
+        ...(request ? { publicRequest: await publicRequestView(context.get('db'), request) } : {}),
+      });
     } catch (error) {
       return failure(context, error);
     }

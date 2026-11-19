@@ -54,6 +54,7 @@ import {
   finishSecurityScanEnqueue,
   type SecurityScanEnqueued,
 } from '../security/enqueue.ts';
+import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
 import {
   SUPPORTED_MANIFEST_VERSIONS,
   type DeployManifest,
@@ -1163,6 +1164,7 @@ export async function handleManifestOnlyDeploy(context: Context<ApiEnv>): Promis
   }
   // The admission committed: finish a scan of a cutover it promoted to live.
   await finishSecurityScanEnqueue(context.env, context.get('db'), recoveredSecurityScan);
+  await recheckPublicRequestBestEffort(context.env, context.get('db'), projectId, 'a deploy');
   // Delete only input this request staged itself. A CLI upload's prefix can
   // belong to the operation a retried request matched; its operation or the
   // stale-input sweep removes it.

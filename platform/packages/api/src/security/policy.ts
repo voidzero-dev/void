@@ -38,9 +38,14 @@ import { and, count, eq, gte, inArray, notLike, sql, type SQL } from 'drizzle-or
 import type { Db, DbOrTx } from '../db.ts';
 import { getPlatformSetting, setPlatformSetting } from '../platform-settings.ts';
 import { projects, projectZeroTrust } from '../schema.ts';
-import { readZeroTrustConfigurationStrict } from '../zero-trust/configuration.ts';
+import {
+  readZeroTrustConfigurationStrict,
+  zeroTrustConfigurationStatus,
+} from '../zero-trust/configuration.ts';
+import { lockZeroTrustConfiguration } from '../zero-trust/lock.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
 import type { SecurityProbeReport } from './probe.ts';
+import { cancelAllOpenRequests, listOpenRequestSlugs } from './public-gate.ts';
 import {
   projectSecuritySettings,
   securityPlatformSpend,
@@ -125,6 +130,13 @@ export async function readSecurityPolicyStrict(db: DbOrTx): Promise<SecurityPoli
 export async function lockSecurityPolicy(tx: DbOrTx): Promise<void> {
   await tx.execute(
     sql`SELECT pg_advisory_xact_lock(hashtextextended('void:platform:security-policy', 0))`,
+  );
+}
+
+/** Takes the policy lock shared: a gate check runs while no policy writer does (design doc 0095 M16). */
+export async function lockSecurityPolicyShared(tx: DbOrTx): Promise<void> {
+  await tx.execute(
+    sql`SELECT pg_advisory_xact_lock_shared(hashtextextended('void:platform:security-policy', 0))`,
   );
 }
 
@@ -281,6 +293,7 @@ export type SecurityPolicyChanges = Readonly<{
   unblocked: ReadonlyArray<SecurityModelId>;
   noticeAccepted: number | null;
   limits: ReadonlyArray<Readonly<{ key: SecurityLimitKey; from: number; to: number }>>;
+  publicGateOn: boolean;
   publicGateOff: boolean;
   /** The stored row was bad data; this write replaces it. */
   repaired: boolean;
@@ -301,7 +314,15 @@ export type SecurityPolicyChangeContext = Readonly<{
   entitlement?: SecurityEntitlement;
   /** A preview of a change whose apply runs the probe: the stored result is not checked. */
   probeOnApply?: boolean;
+  /**
+   * Installation Zero Trust as the public gate needs it. Left out, the gate cannot turn
+   * on (it is read under the Zero Trust lock by `changeSecurityPolicy`).
+   */
+  zeroTrust?: SecurityZeroTrustFact;
 }>;
+
+/** Installation Zero Trust, as far as the public gate cares (spec §5.5 turn-on table). */
+export type SecurityZeroTrustFact = 'enabled' | 'off' | 'public_only' | 'operation';
 
 function noticeIsCurrent(notice: SecurityThirdPartyNotice | null): boolean {
   return notice !== null && notice.version === SECURITY_PROVIDER_NOTICE_VERSION;
@@ -392,6 +413,54 @@ function assertEntitlement(policy: SecurityPolicy, now: number): void {
   );
 }
 
+function probeRunsOnApply(
+  current: SecurityPolicy,
+  mode: SecurityMode,
+  context: SecurityPolicyChangeContext,
+): boolean {
+  return context.probeOnApply === true && current.mode === 'disabled' && mode !== 'disabled';
+}
+
+/** The turn-on conditions of "Scan before a project goes public" (spec §5.5), one message per reason. */
+function assertPublicGateTurnsOn(
+  mode: SecurityMode,
+  next: SecurityPolicy,
+  context: SecurityPolicyChangeContext,
+  probeRunsOnApply: boolean,
+): void {
+  if (mode === 'disabled') {
+    throw SecurityApiError.of(
+      'publicGateNeedsPolicy',
+      'Set the policy to Public projects only or All projects first: void platform security policy public',
+    );
+  }
+  if (!probeRunsOnApply && !isSecurityEntitlementFresh(next.entitlement, context.now)) {
+    throw SecurityApiError.of('entitlementMissing', 'Run void platform security probe first.', {
+      missing: next.entitlement && !next.entitlement.ok ? next.entitlement.missing : ['probe'],
+      checkedAt: next.entitlement?.checkedAt ?? null,
+    });
+  }
+  switch (context.zeroTrust) {
+    case 'enabled':
+      return;
+    case 'public_only':
+      throw SecurityApiError.of(
+        'publicGateNeedsZeroTrust',
+        'Turn off public-only mode first: run void platform zero-trust configure with identity providers and policies.',
+      );
+    case 'operation':
+      throw SecurityApiError.of(
+        'publicGateNeedsZeroTrust',
+        'Wait for the Zero Trust change to finish, then try again.',
+      );
+    default:
+      throw SecurityApiError.of(
+        'publicGateNeedsZeroTrust',
+        'Turn on platform Zero Trust first: void platform zero-trust configure …',
+      );
+  }
+}
+
 /**
  * The policy after `request`, with every rule checked. Throws `SecurityApiError` for
  * a refused change. Leaving `disabled` needs a probe pass less than 24 hours old;
@@ -403,12 +472,6 @@ export function proposeSecurityPolicyChange(
   context: SecurityPolicyChangeContext,
 ): SecurityPolicyProposal {
   const current = stored.policy;
-  if (request.publicGate === true) {
-    // The public gate ships with its Zero Trust checks (design doc 0095, M16).
-    throw SecurityApiError.invalid(
-      '"Scan before a project goes public" is not available on this platform version yet.',
-    );
-  }
   let thirdPartyNotice = current.thirdPartyNotice;
   if (request.acceptProviderNoticeVersion !== undefined) {
     if (request.acceptProviderNoticeVersion !== SECURITY_PROVIDER_NOTICE_VERSION) {
@@ -434,13 +497,15 @@ export function proposeSecurityPolicyChange(
     thirdPartyNotice,
     limits,
     entitlement: context.entitlement ?? current.entitlement,
-    // `publicGate: true` was refused above, so a request can only turn the gate off.
+    // Policy Off turns the gate off in the same change.
     publicGate: mode === 'disabled' ? false : (request.publicGate ?? current.publicGate),
   };
-  const probeRunsOnApply =
-    context.probeOnApply === true && current.mode === 'disabled' && mode !== 'disabled';
-  assertDefaultModel(next, request, probeRunsOnApply);
-  if (current.mode === 'disabled' && mode !== 'disabled' && !probeRunsOnApply) {
+  const probeApplies = probeRunsOnApply(current, mode, context);
+  if (request.publicGate === true) {
+    assertPublicGateTurnsOn(mode, next, context, probeApplies);
+  }
+  assertDefaultModel(next, request, probeApplies);
+  if (current.mode === 'disabled' && mode !== 'disabled' && !probeApplies) {
     assertEntitlement(next, context.now);
   }
   const changes: SecurityPolicyChanges = {
@@ -457,6 +522,7 @@ export function proposeSecurityPolicyChange(
         ? []
         : [{ key, from: current.limits[key], to: limits[key] }],
     ),
+    publicGateOn: !current.publicGate && next.publicGate,
     publicGateOff: current.publicGate && !next.publicGate,
     repaired: stored.unreadable !== null,
   };
@@ -467,6 +533,7 @@ export function proposeSecurityPolicyChange(
     changes.unblocked.length > 0 ||
     changes.noticeAccepted !== null ||
     changes.limits.length > 0 ||
+    changes.publicGateOn ||
     changes.publicGateOff ||
     changes.repaired;
   if (!changed) {
@@ -509,6 +576,19 @@ export type SecurityPolicyPreviewCounts = Readonly<{
    * new default is third-party: the others stay on `securityFallbackModel` (spec §8.3).
    */
   pickedBlockedAccepted: Readonly<Partial<Record<SecurityModelId, number>>>;
+  /** Only with a public gate change (spec §5.5). */
+  gate?: SecurityPolicyGateCounts;
+}>;
+
+export type SecurityPolicyGateCounts = Readonly<{
+  /** Turning on: protected projects the gate covers. */
+  protectedProjects: number;
+  /** Turning on: projects already going public; they finish going public (edge #87). */
+  goingPublic: number;
+  /** Turning on: new projects start public, so they are not gated. */
+  newProjectsStartPublic: boolean;
+  /** Turning off: slugs with an open request; the requests are canceled. */
+  openRequests: ReadonlyArray<string>;
 }>;
 
 function projectsText(count: number, adjective = ''): string {
@@ -529,6 +609,17 @@ export function securityFallbackModel(
       (id) => !isThirdPartySecurityModel(id) && isSecurityModelPriced(id) && !blocked.includes(id),
     ) ?? null
   );
+}
+
+function openRequestLines(counts: SecurityPolicyPreviewCounts): Array<string> {
+  const open = counts.gate?.openRequests ?? [];
+  if (open.length === 0) {
+    return [];
+  }
+  return [
+    `  ${open.length} open public ${open.length === 1 ? 'request is' : 'requests are'} canceled; ${open.length === 1 ? 'the project stays' : 'the projects stay'} protected: ${open.slice(0, 10).join(', ')}${open.length > 10 ? `, and ${open.length - 10} more` : ''}`,
+    '  The owners and project admins get an email.',
+  ];
 }
 
 function modeLines(
@@ -579,6 +670,7 @@ function modeLines(
     );
     if (current.publicGate) {
       lines.push('  "Scan before a project goes public" turns off too.');
+      lines.push(...openRequestLines(counts));
     }
     return lines;
   }
@@ -669,8 +761,29 @@ export function securityPolicyPreviewLines(
       `Limits: ${changes.limits.map((limit) => `${limit.key} ${limit.from} → ${limit.to}`).join(', ')}`,
     );
   }
+  if (changes.publicGateOn) {
+    lines.push('Turn on: Scan before a project goes public');
+    const gate = counts.gate;
+    lines.push(
+      `  Asking to make one of ${projectsText(gate?.protectedProjects ?? 0, 'protected')} public scans its live deployment first. It stays protected until the scan passes or a project admin bypasses it with a reason.`,
+    );
+    if ((gate?.goingPublic ?? 0) > 0) {
+      lines.push(
+        `  ${projectsText(gate?.goingPublic ?? 0)} already going public finish going public (asked before the gate).`,
+      );
+    }
+    if (gate?.newProjectsStartPublic) {
+      lines.push(
+        '  New projects start public, so they are not gated. Turn on "protect new projects" in Zero Trust to cover them.',
+      );
+    }
+    lines.push(
+      '  While it is on, installation Zero Trust cannot be turned off or switched to public-only mode.',
+    );
+  }
   if (changes.publicGateOff && !changes.mode) {
     lines.push('Turn off: Scan before a project goes public');
+    lines.push(...openRequestLines(counts));
   }
   return lines;
 }
@@ -821,7 +934,65 @@ export async function securityPolicyPreviewCounts(
     noOwnModelAccepted,
     pickedBlocked,
     pickedBlockedAccepted,
+    ...(changes.publicGateOn || changes.publicGateOff
+      ? { gate: await gatePreviewCounts(db, changes, protects) }
+      : {}),
   };
+}
+
+async function gatePreviewCounts(
+  db: DbOrTx,
+  changes: SecurityPolicyChanges,
+  protects: boolean,
+): Promise<SecurityPolicyGateCounts> {
+  if (changes.publicGateOff) {
+    return {
+      protectedProjects: 0,
+      goingPublic: 0,
+      newProjectsStartPublic: false,
+      openRequests: await listOpenRequestSlugs(db),
+    };
+  }
+  const [goingPublic] = await db
+    .select({ total: count() })
+    .from(projects)
+    .innerJoin(projectZeroTrust, eq(projectZeroTrust.project_id, projects.id))
+    .where(
+      and(
+        eq(projects.status, 'active'),
+        notLike(projects.slug, 'preview-%'),
+        sql`NOT ${projectZeroTrust.desired_protected} AND ${projectZeroTrust.status} <> 'ready'`,
+      ),
+    );
+  let newProjectsStartPublic = false;
+  try {
+    newProjectsStartPublic =
+      (await readZeroTrustConfigurationStrict(db))?.protectNewProjects === false;
+  } catch {
+    newProjectsStartPublic = false;
+  }
+  return {
+    protectedProjects: await countProjects(db, 'protected', protects),
+    goingPublic: goingPublic?.total ?? 0,
+    newProjectsStartPublic,
+    openRequests: [],
+  };
+}
+
+/** Installation Zero Trust, as the public gate needs it (spec §5.5 turn-on table). */
+export async function readSecurityZeroTrustFact(db: DbOrTx): Promise<SecurityZeroTrustFact> {
+  try {
+    const configuration = await readZeroTrustConfigurationStrict(db);
+    if (!configuration?.enabled) {
+      return 'off';
+    }
+    if (configuration.publicAccess) {
+      return 'public_only';
+    }
+    return zeroTrustConfigurationStatus(configuration) === 'ready' ? 'enabled' : 'operation';
+  } catch {
+    return 'off';
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -878,6 +1049,8 @@ export type SecurityPolicyChangeResult =
       policy: SecurityPolicy;
       changes: SecurityPolicyChanges;
       canceledScans: number;
+      /** Open public requests the gate-off canceled; the projects stay protected. */
+      canceledRequests: number;
     }>;
 
 export class SecurityPolicyRevisionError extends SecurityApiError {
@@ -928,6 +1101,7 @@ export async function changeSecurityPolicy(
         userId: options.userId,
         now: options.now ?? Date.now(),
         probeOnApply: true,
+        zeroTrust: request.publicGate === true ? await readSecurityZeroTrustFact(db) : undefined,
       });
       // The probe takes up to a few minutes, so it runs outside the transaction. The
       // revision check below still refuses the write if the policy changed meanwhile.
@@ -942,6 +1116,13 @@ export async function changeSecurityPolicy(
   // Read the clock after the probe: its result must not look like it is from the future.
   const now = options.now ?? Date.now();
   return db.transaction(async (tx) => {
+    // Turning the gate on re-reads Zero Trust under its lock, taken before the policy
+    // lock (the order the public gate checkpoint uses). The disable and public-only
+    // claims take the same lock exclusive and read `publicGate` under it, so the two
+    // writes run one at a time (spec §5.5, edge #90).
+    if (request.publicGate === true) {
+      await lockZeroTrustConfiguration(tx, 'shared');
+    }
     await lockSecurityPolicy(tx);
     const stored = await readStoredSecurityPolicy(tx);
     const current = stored.policy;
@@ -953,6 +1134,7 @@ export async function changeSecurityPolicy(
       now,
       entitlement,
       probeOnApply: options.preview && options.probe !== undefined,
+      zeroTrust: request.publicGate === true ? await readSecurityZeroTrustFact(tx) : undefined,
     });
     if (options.preview) {
       const counts = await securityPolicyPreviewCounts(tx, current, next, changes);
@@ -981,7 +1163,23 @@ export async function changeSecurityPolicy(
         .returning({ id: securityScans.id });
       canceledScans = canceled.length;
     }
-    return { ok: true as const, policy: written, changes, canceledScans };
+    let canceledRequests = 0;
+    if (changes.publicGateOff) {
+      // Gate off, for any cause: open requests are canceled and the projects stay
+      // protected. The emails are queued here and sent after the commit.
+      canceledRequests = (
+        await cancelAllOpenRequests(
+          tx,
+          changes.mode?.to === 'disabled' ? 'policy_off' : 'gate_off',
+          {
+            kind: 'installation_admin',
+            userId: options.userId,
+            role: null,
+          },
+        )
+      ).length;
+    }
+    return { ok: true as const, policy: written, changes, canceledScans, canceledRequests };
   });
 }
 
