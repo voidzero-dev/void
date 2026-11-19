@@ -136,7 +136,7 @@ The API and proxy share their JWT signing configuration. Change it as a coordina
 
 ## GitHub Deployment Integration
 
-The GitHub App used to build connected repositories is separate from the OAuth application used for platform sign-in. Its repository permissions are Contents read, Metadata read, Pull requests read, and Checks write.
+The GitHub App used to build connected repositories is separate from the OAuth application used for platform sign-in. Its repository permissions are Contents read, Metadata read, Pull requests read, and Checks write. With security audits on, the API also publishes a `Void Security Audit` check run (always `neutral`, counts only). Its pull request comment needs Pull requests write; with read only, the API skips the comment and still publishes the check.
 
 Subscribe to `push`, `installation`, `installation_repositories`, `pull_request`, `workflow_run`, `check_run`, and `check_suite`. The last two subscriptions deliver requests from GitHub's rerun buttons; granting Checks write alone does not enable those events. An API hostname protected by Access cannot receive these deliveries. Deploy the optional ingress described in [Platform Development](../../docs/guide/platform/development/runtime.md#optional-github-webhook-ingress-for-access-protected-apis) and set the App webhook URL to that environment's isolated `/github` endpoint. Keep `/webhooks/github` only for an API origin that is not Access-protected.
 

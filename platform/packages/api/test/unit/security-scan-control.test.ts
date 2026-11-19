@@ -5,6 +5,8 @@ const mocks = vi.hoisted(() => ({
   capability: vi.fn(),
   prepare: vi.fn(),
   ingest: vi.fn(),
+  recheck: vi.fn(),
+  github: vi.fn(),
 }));
 vi.mock('cloudflare:workers', () => ({
   WorkerEntrypoint: class {
@@ -30,6 +32,12 @@ vi.mock('../../src/db.ts', () => ({
 vi.mock('../../src/capabilities.ts', () => ({ getPlatformCapabilities: mocks.capability }));
 vi.mock('../../src/security/input/prepare.ts', () => ({ prepareSecurityScanInput: mocks.prepare }));
 vi.mock('../../src/security/ingest.ts', () => ({ ingestSecurityScanResult: mocks.ingest }));
+vi.mock('../../src/security/public-gate-flow.ts', () => ({
+  recheckPublicRequestForScan: mocks.recheck,
+}));
+vi.mock('../../src/security/github-check.ts', () => ({
+  reportSecurityScanToGitHub: mocks.github,
+}));
 
 import { judgeScanFence, SecurityScanControl } from '../../src/security/control.ts';
 
@@ -172,6 +180,30 @@ describe('SecurityScanControl', () => {
 
     mocks.ingest.mockResolvedValue({ ok: false });
     expect(await control().result('ss_1', 2, report)).toEqual({ ok: false });
+  });
+
+  it('reports a stored result on GitHub after the call, through waitUntil (M28)', async () => {
+    const waited: Array<Promise<unknown>> = [];
+    const report = { status: { status: 'succeeded' }, findings: '{}' };
+    const withCtx = new SecurityScanControl(
+      { props: identity, waitUntil: (work: Promise<unknown>) => waited.push(work) } as never,
+      env as never,
+    );
+    mocks.github.mockResolvedValue({ reported: true, checkRunId: '1', comments: 0 });
+
+    mocks.ingest.mockResolvedValue({ ok: true, kind: 'stored', status: 'succeeded' });
+    expect(await withCtx.result('ss_1', 2, report)).toEqual({ ok: true });
+    expect(mocks.github).toHaveBeenCalledWith(env, expect.anything(), 'ss_1');
+    expect(waited).toHaveLength(1);
+
+    // A retried attempt has no result yet; a stored "nothing to send" scan reports too.
+    mocks.github.mockClear();
+    mocks.ingest.mockResolvedValue({ ok: true, kind: 'retried' });
+    await withCtx.result('ss_1', 2, report);
+    expect(mocks.github).not.toHaveBeenCalled();
+    mocks.prepare.mockResolvedValue(null);
+    expect(await withCtx.input('ss_1', 2)).toBeNull();
+    expect(mocks.github).toHaveBeenCalledWith(env, expect.anything(), 'ss_1');
   });
 
   it('answers not taken when ingest throws or the caller is not trusted', async () => {

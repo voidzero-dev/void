@@ -1595,6 +1595,56 @@ readers: scheduler reserve · model proxy (each call) · status/budget view · c
 comment (counts only); `check_run:rerequested` for this name queues a project rescan
 only for callers who could rescan, else no-op. Tests: `security-github-check.test.ts`.
 
+As built (M28):
+
+```
+ingest stored (control.ts result / input "nothing to send") ─ waitUntil ─► reportSecurityScanToGitHub
+  managedBuilds + securityAudits + GitHub App? ended scan (succeeded/incomplete/failed/refused/timed_out)?
+  deployment made by a platform build (container / GitHub Actions), full 40-hex commit_sha,
+  deployments.commit null or equal? connection passes installationCoversRepo?
+  ├► createCheckRun (in_progress) ─► completeCheckRun (neutral)      external_id = scan id
+  └► scoped token {pull_requests: write} ─► open PRs with head = commit ─► edit our comment / post one
+check_run:rerequested, name "Void Security Audit" (webhooks.ts) ─► handleSecurityCheckRerequest
+  scan (external_id) ─► connection matches installation + repo ─► sender GitHub id ─► Void user
+  (oauth_accounts) ─► settings on the project ─► checked deployment still live ─► queueSecurityRescan
+```
+
+- `security/github-check.ts`. Reuses `github/check-run.ts` (create, then complete); no new
+  column and no outbox kind: a lost check is not retried beyond the helpers' own retries
+  (best-effort, as the spec says). Counts are the project's open urgent findings at ingest.
+- Which deploys: only one a platform build made. A CLI deploy only claims its commit (GitHub may
+  not know it, and the code may differ), so it gets no check; a deploy whose claimed commit is
+  not the build's (or its OIDC `sha`) gets none either. `builds` keeps no repository, so a
+  build older than the project's connection row (a reconnect replaces it) gets none: a fork or
+  mirror could hold the same commit. A reconnect to the same repo loses checks until the next build.
+- Which scans: every ended scan that ran. Skipped, superseded and canceled scans send nothing.
+  An unfinished scan is never "clean": title `Security scan did not finish (refused)` (or
+  `timed out`, or a project-cause `failed` reason: `bad output`, `input missing`), and an
+  incomplete one says so in the summary. `credits` and `infrastructure` are the platform's,
+  not the user's code, so the title is a plain `Security scan did not finish`. Spec
+  §11.3 names only the two counts titles. A scan the reaper times out (no ingest) sends nothing.
+- Copy: the spec title and summary, plus the landing link (`/security/projects/<slug>`, also the
+  `details_url`). No title, file or line: public repos show check runs to anyone.
+- PR comment: open PRs whose head is the commit (at most 5), one comment per project, found
+  again by the marker `<!-- void-security-audit:<projectId> -->` on a comment our App wrote
+  (`performed_via_github_app` is `GITHUB_APP_ID`, or the `<GITHUB_APP_SLUG>[bot]` login; a
+  copied marker is not ours) and edited in place. A new comment only while something is urgent,
+  so clean scans add no noise, and only when the whole list was read: a failed read or more
+  than 3 pages of 100 skips that PR (logged) rather than risk a second comment. It needs the
+  App's Pull requests **write** permission (`operations.md` listed read): without it the scoped
+  token cannot be minted and only the check is sent.
+- Re-run: the clicker's GitHub account must be a Void sign-in with `settings` (owner or admin),
+  not suspended, on a connection the installation still covers, and the check must be about the
+  live deployment (a rescan scans the live one, so an old commit's Re-run would not match).
+  Then the project rescan rules apply (scope, one scan at a time, stored code; caps at start; no
+  cost confirm: the click is the request). Every refusal is a no-op that writes nothing to
+  GitHub; the webhook answer names the reason (`sender cannot rescan`, an `OperatorError`
+  code); a database error stays a 500. An accepted Re-run writes nothing either: the rescan's result is a new check run.
+  `check_suite:rerequested` (Re-run all) does not rescan; it stays a build rerun.
+- Deviations: also changed `routes/webhooks.ts`, `security/control.ts`,
+  `security-scan-control.test.ts` and `platform/meta/operations.md`. No user docs: hosted
+  GitHub checks have no user page yet (M36).
+
 **M29 Page forms and dashboard pages.** Page forms (resolve, comment, model, budget,
 bypass) with CSRF (`admin/middleware/csrf.ts` pattern) and the same server operations.
 Dashboard: `pages/projects/index.tsx`, `pages/projects/[slug]/security.tsx` (+ `.server.ts`)

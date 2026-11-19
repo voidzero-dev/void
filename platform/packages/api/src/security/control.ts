@@ -22,6 +22,7 @@ import {
 } from '../provisioning/security-scanner.ts';
 import type { ScanFence, ScanResultReport } from '../security-scanner-controller-runtime.ts';
 import { checkScanFence } from './fence.ts';
+import { reportSecurityScanToGitHub } from './github-check.ts';
 import { ingestSecurityScanResult } from './ingest.ts';
 import { prepareSecurityScanInput } from './input/prepare.ts';
 import { handleSecurityModelRequest, securityModelProxyDeps } from './model-proxy.ts';
@@ -43,6 +44,16 @@ export class SecurityScanControl extends WorkerEntrypoint<
   ApiEnv['Bindings'],
   SecurityScannerIdentity
 > {
+  /** Keeps the Worker alive for best-effort work after the call returns. */
+  private later(work: Promise<unknown>): void {
+    try {
+      this.ctx.waitUntil(work);
+    } catch {
+      // No execution context (a unit test): the work is already running.
+      void work;
+    }
+  }
+
   /** The binding props must name this installation's scanner. */
   private trusted(scanId: unknown, attempt: unknown): scanId is string {
     if (!getPlatformCapabilities(this.env).securityAudits) {
@@ -83,6 +94,7 @@ export class SecurityScanControl extends WorkerEntrypoint<
       if (input === null) {
         // A scan with nothing to send is stored here (`no changes`, backlog only).
         await recheckPublicRequestForScan(this.env, db, scanId);
+        this.later(reportSecurityScanToGitHub(this.env, db, scanId));
       }
       return input;
     } catch (error) {
@@ -126,6 +138,8 @@ export class SecurityScanControl extends WorkerEntrypoint<
       if (ingested.ok && ingested.kind === 'stored') {
         // The public gate judges the stored result (a gate scan, or any scan of the live deployment).
         await recheckPublicRequestForScan(this.env, db, scanId);
+        // Hosted only (M28): the `Void Security Audit` check, off the RPC path.
+        this.later(reportSecurityScanToGitHub(this.env, db, scanId));
       }
       return { ok: ingested.ok };
     } catch (error) {
