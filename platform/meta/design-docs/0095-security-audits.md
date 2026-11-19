@@ -1208,6 +1208,34 @@ runs, deepseek 8/10 with 75% valid; both stopped at the caps). Changes:
   the worst-case reserve is $2.21 for glm-5.3 and $0.50 for deepseek (was $1.10 / $0.25);
   S8 measured a median $0.99 (glm) and $0.22 (deepseek) when a scan stops at the old cap.
 
+S4 rerun after those changes (2026-11-19, VoidZero, runner at HEAD, caps 1.2M / 120k; `security-spike-s4.ts
+--live`, T2 input, 5 seeded + 3 clean apps, n = 8 scans per model; glm-5.3 ran in two
+batches because the harness budget guard skipped four of its apps in the first). Spend
+$7.49 at list prices; `void-spike-sa-s4` Worker and container app deleted, lists back to
+the baseline (20 Workers, 87 container apps).
+
+|                                      | glm-5.3 (default)       | deepseek-v4.1-flash-1017 |
+| ------------------------------------ | ----------------------- | ------------------------ |
+| Planted crit/high found (bar ≥ 7/10) | 4/10, all confirmed     | 10/10, all confirmed     |
+| False confirmed crit/high (bar ≤ 2)  | 0                       | 0                        |
+| Valid runs (bar ≥ 95%)               | 4/8 (50%)               | 8/8 (100%)               |
+| Calls per scan (bar ≤ 80)            | median 28, max 78       | median 54, max 72        |
+| Cost per scan at list price          | median $0.74, max $1.34 | median $0.18, max $0.29  |
+| Wall time (bar p95 < 20 min)         | p95 19.2 min            | p95 15.7 min             |
+| Result                               | FAIL                    | PASS                     |
+
+- Before the fix, deepseek was 8/10 with 75% valid runs: the tolerant parsing and the
+  separate retry for a bad report took it to 10/10 and 100%. One deepseek scan ended
+  `incomplete (token_cap)` and still kept its confirmed findings.
+- glm-5.3 still fails in the hunt session in 4 of 8 scans (`bad_output`: three
+  `shape`, one `no_submit`), so those scans have nothing to keep. Both seeded apps that got
+  through the hunt (react-d1, svelte-auth) had all 4 planted bugs found and confirmed; the
+  three seeded apps whose hunt failed (api-plain, solid-r2, vue-kv) count as missed.
+- The cost bar (median ≤ $3) passes for both. Stopping at the cap is rarer: glm-5.3
+  hit it in 2 of 8 scans, deepseek in 1 of 8.
+- The PRD default stays glm-5.3 until the user decides; on this harness deepseek meets
+  every S4 bar and glm-5.3 does not.
+
 Live spikes need one scratch account with Workers Paid, Containers, Workers AI or
 AI Gateway credits, Unified Billing for third-party hosts, and a runtime token with
 Containers Edit, Cloudchamber Edit and AI Gateway / Workers AI permissions. Scripts read
