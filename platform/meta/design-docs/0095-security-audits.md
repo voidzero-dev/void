@@ -1615,6 +1615,92 @@ AI Gateway credits, Unified Billing for third-party hosts, and a runtime token w
 Containers Edit, Cloudchamber Edit and AI Gateway / Workers AI permissions. Scripts read
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` and delete everything they create.
 
+S13 throwaway copy (2026-11-19, VoidZero, `security-spike-copy.ts`; the account has
+Workers for Platforms). Per run the script makes a dispatch namespace, a sandbox Worker
+(no workers.dev; it is the namespace's outbound Worker, serves the AI / email / queue
+stubs as RPC entrypoints and keeps a call log) and a scratch controller (workers.dev +
+key header; the only way in, as `https://copy.void.internal/...`). Per copy: the built
+seeded app uploaded unchanged into the namespace, a new empty D1 / KV / R2 per binding,
+`db/migrations` applied, fake values for secrets (and for text vars with a secret name),
+stubs for AI / email / queue, cron and queue-consumer triggers dropped. Apps: react-d1
+(D1, Durable Object, assets, a secret), api-plain (D1, KV, vars, a cron, a real outbound
+call), solid-r2 (R2), and react-d1 again (warm). Result: **PASS**, with one design change
+(the copy guard below).
+
+| Measure                      | Result                                                                                                                    |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| Copy serves the app          | 17/17 route checks; pages, assets, migrated tables, fake-secret cookie accepted                                           |
+| Time to ready (bar < 60 s)   | 9.0 / 9.1 / 9.3 s cold, 9.3 s warm (first create call → first 200)                                                        |
+| Where the time goes          | stores 0.7–1.2 s, migrations 0.2–0.5 s, assets 3.8–4.1 s (3 buckets in parallel), script upload 3.0–3.4 s, first hit ~1 s |
+| Outbound blocked             | yes, with the copy guard (see below); without it a Durable Object reaches the internet                                    |
+| Not reachable from internet  | workers.dev name 404, not an account script (10007), controller 403 without or with a wrong key                           |
+| Delete                       | 2.1–3.6 s per copy (script + its stores); lists back to baseline                                                          |
+| Cost per copy (list prices)  | $0.000006–0.000014 (requests, D1 rows, one KV write, prorated script); WfP's $25/month base is already paid here          |
+| One-time setup (per install) | namespace 1.2 s, sandbox Worker 11.5 s, controller 12.6 s                                                                 |
+
+- Egress from the copy's Worker code: `fetch` to https, http, a bare IP,
+  `api.cloudflare.com` and another workers.dev Worker all end in the outbound Worker
+  (403); `connect()` fails ("proxy request failed"); a `waitUntil` fetch is blocked too.
+- **Durable Objects bypass the outbound Worker** (Cloudflare documents this; measured with
+  `--no-guard`): from a Durable Object in the copy, `fetch` reached example.com,
+  1.1.1.1 and `api.cloudflare.com`, and an outbound WebSocket opened. `connect()` still
+  failed there. So M30 adds a **copy guard**: a module loaded before the app's entry that
+  replaces `globalThis.fetch` (non-writable) with a call to the sandbox through a service
+  binding, and `WebSocket` with a constructor that throws. With it, every probe from the
+  Worker and from the Durable Object was blocked, and the sandbox log still names each
+  call. The guard runs in the app's own isolate: it stops the app's own calls, it is not a
+  boundary against code written to escape it; the outbound Worker stays as the second
+  layer.
+- Real app code: api-plain's charge route called its payments API; the call reached the
+  sandbox (403) carrying the fake key, never the real `sk_live_…` var. react-d1 with test
+  rows seeded through the D1 API: the planted SQL injection returned another owner's
+  invoice and the planted IDOR returned owner 2's invoice to user 1, so `confirmed
+  (runtime)` checks are possible on a copy.
+- Stubs: `AI.run`, `EMAIL.send`, `QUEUE.send` from the copy to the sandbox entrypoints work
+  (service-binding RPC from a namespace script to an account Worker).
+- Findings for M30: assets are uploaded again for every copy (no reuse across scripts,
+  about 4 s; the copy could skip assets when no check needs them); a KV key written through
+  the API was visible to the copy after ~10 s, so seed KV through the copy or wait;
+  `kv.map('sid:')` stores under `sid::<key>`; a fresh copy's Durable Object answered its
+  first call with "internal error" in 2 of 17 copies (one retry worked); Void does not
+  catch a thrown `Response` in a handler, so the dispatcher sees `#<Response>` (same on a
+  native deploy); the solid-r2 build has no `KV` binding although its code uses `void/kv`
+  (fixture/inference gap, not the copy).
+- Cleanup: every `void-spike-sa-s13-*` namespace, namespace script, Worker, D1, KV and R2
+  deleted; final lists show none, and the account totals match the baseline (4 dispatch
+  namespaces, 21 Workers, 80 KV namespaces, 40 R2 buckets). Other `void-spike-sa-*`
+  resources are never listed for deletion.
+
+S5 static confirmations (2026-11-19, VoidZero, `security-spike-s4.ts --live --report
+confirmations`, deepseek-v4.1-flash-1017, T2 input, the 5 seeded apps × 2 runs = 10
+scans, harness Worker `void-spike-sa-s5`). A planted bug counts when its best match is
+`confirmed` (the runner keeps that verdict only after the separate verify session reported
+it again), has a sink_path and a trace step in the planted file. Result: **PASS**.
+
+| Measure                                       | Result                                                       |
+| --------------------------------------------- | ------------------------------------------------------------ |
+| Planted bugs confirmed with a trace (bar 70%) | 20/20 (100%); all 20 traces have 2+ steps, median 11         |
+| Leads / missed among planted bugs             | 0 / 0                                                        |
+| All findings                                  | 38 confirmed, 4 needs_validation, 25 rejected                |
+| Verify sessions per scan                      | 3–7                                                          |
+| False confirmed crit/high                     | 2 (both in decoy files, see below)                           |
+| Runs                                          | 9 succeeded, 1 `incomplete (run_incomplete)`                 |
+| Calls / cost / wall time per scan             | median 52 (max 62) / median $0.15 (max $0.25) / p95 12.7 min |
+| Spend                                         | $1.68 (cap $3)                                               |
+
+- "confirmed (static)" works on this input: no planted bug stayed a lead, so the
+  fail branch (every result is a lead) does not apply. The S4 bars also pass on this run.
+- The two false confirmed are in decoy files and are debatable rather than wrong:
+  api-plain's charge route has no idempotency key (repeat charges), and react-d1's HMAC
+  key becomes the string "undefined" when `SESSION_SECRET` is unset.
+- `sink_path` is sometimes an expression, not a path (`fetch(url)`,
+  `void/storage:storage.get(key)`); the trace still names the file, so ingest and the UI
+  should not treat `sink_path` as a file path.
+- Cleanup: `void-spike-sa-s5` Worker and its container app deleted; the lists are back to
+  the baseline (21 Workers, 88 container apps). The harness now deletes only its own
+  container apps (`<worker>-*`), not every `void-spike-sa-*` app, because other spikes can
+  run on the account at the same time.
+
 ### Spike results S7 / S9 / S11 (local, 2026-11-19)
 
 Scripts: `security-spike-inputs.ts` (S7), `security-spike-refusals.ts` with

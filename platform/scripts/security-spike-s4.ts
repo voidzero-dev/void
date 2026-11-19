@@ -39,6 +39,16 @@
  * Pass (per model; PRD §15.2): >= 7/10 planted crit/high found, <= 2 false confirmed,
  * >= 95% schema-valid runs, <= 80 calls per scan, p95 wall time < 20 min. Prints one JSON
  * report and one PASS/FAIL line per model; exits 1 if the default model fails.
+ *
+ * S5 (`--report confirmations`, spec §20 S5): the same scans, scored for "confirmed
+ * (static)": a planted bug counts when its best match is `confirmed` (the runner keeps that
+ * verdict only after a separate verify session reported it again) with a sink_path and a
+ * trace that reaches the planted file. Also reported: traces of 2+ steps, leads, verify
+ * sessions per scan and the verdict mix of all findings. Pass: >= 70% of planted bugs
+ * confirmed with a trace on the default model ("none confirm" means every result is a lead).
+ *   ... node platform/scripts/security-spike-s4.ts --live --report confirmations \
+ *     --models @cf/deepseek-ai/deepseek-v4.1-flash-1017 --apps api-plain,react-d1,... \
+ *     --runs 2 --budget-usd 3
  */
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
@@ -69,10 +79,11 @@ import {
 import { startFakeModel } from '../packages/security-scanner/test/fake-model/server.ts';
 import {
   SPIKE_PREFIX,
-  deleteSpikeResources,
+  cfApi,
   deploySpikeWorker,
   listSpikeResources,
   percentile,
+  runWrangler,
   waitForWorker,
   type SpikeEnv,
 } from './security-spike-s1.ts';
@@ -1174,7 +1185,10 @@ export async function runLocalScan(input: ScanInput, fixture: Fixture): Promise<
     line_end: null,
     sink_path: bug.file,
     outside_diff: false,
-    trace: [{ file: bug.file, line: null, note: 'fake' }],
+    trace: [
+      { file: bug.file, line: null, note: 'fake source' },
+      { file: bug.file, line: null, note: 'fake sink' },
+    ],
     evidence: 'fake',
     conditions: '',
     fix: 'fake',
@@ -1293,6 +1307,11 @@ export type BugResult = {
   verdict: 'confirmed' | 'needs_validation' | 'missed';
   severity: string | null;
   title: string | null;
+  /** S5: the best match has a sink_path and a trace step in the planted file(s). */
+  traced: boolean;
+  traceSteps: number;
+  trace: Array<string>;
+  sinkPath: string | null;
 };
 
 export type ScanScore = {
@@ -1316,12 +1335,26 @@ export function scoreScan(run: ScanRun, fixture: Fixture, input: ScanInput): Sca
     const best =
       matches.find((finding) => finding.verdict === 'confirmed') ??
       matches.find((finding) => finding.verdict === 'needs_validation');
+    const bugFiles = new Set([bug.file, ...(bug.alsoFiles ?? [])]);
+    const trace = best?.trace ?? [];
     return {
       id: bug.id,
       app: fixture.name,
       verdict: best ? (best.verdict === 'confirmed' ? 'confirmed' : 'needs_validation') : 'missed',
       severity: best?.severity ?? null,
       title: best?.title ?? null,
+      traced:
+        best !== undefined &&
+        best.sink_path !== null &&
+        trace.some((step) => bugFiles.has(normPath(step.file))),
+      traceSteps: trace.length,
+      trace: trace.map((step) =>
+        `${normPath(step.file)}${step.line === null ? '' : `:${step.line}`} ${step.note ?? ''}`.slice(
+          0,
+          160,
+        ),
+      ),
+      sinkPath: best?.sink_path ?? null,
     };
   });
   const overlay = new Set(
@@ -1413,6 +1446,110 @@ export function summarize(runs: Array<ScanRun & { score?: ScanScore }>) {
   };
 }
 
+// ---------- cleanup ----------
+
+/**
+ * Delete the harness Worker and only its own container apps (`<worker>-*`): other
+ * `void-spike-sa-*` spikes may be running on the same account at the same time.
+ */
+async function deleteHarness(env: SpikeEnv, worker: string) {
+  const log: Array<string> = [];
+  const own = (name: string) => name === worker || name.startsWith(`${worker}-`);
+  if ((await listSpikeResources(env)).workers.includes(worker)) {
+    const deleted = runWrangler(env, ['delete', worker, '--force'], tmpdir());
+    log.push(`wrangler delete ${worker}: exit ${deleted.status}`);
+  }
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const apps = (await listSpikeResources(env)).containerApps.filter((app) => own(app.name));
+    if (apps.length === 0) {
+      break;
+    }
+    for (const app of apps) {
+      const deleted = await cfApi(env, `/containers/applications/${app.id}`, { method: 'DELETE' });
+      log.push(`DELETE container app ${app.name} (${app.id}): ${deleted.status}`);
+    }
+    await sleep(3_000);
+  }
+  const listed = await listSpikeResources(env);
+  return {
+    log,
+    after: {
+      workerCount: listed.workerCount,
+      containerAppCount: listed.containerAppCount,
+      workers: listed.workers.filter(own),
+      containerApps: listed.containerApps.filter((app) => own(app.name)),
+    },
+  };
+}
+
+// ---------- S5: static confirmations ----------
+
+/** S5: share of planted bugs that end `confirmed` with a trace, per model. */
+export function confirmationsReport(
+  results: Array<ScanRun & { score: ScanScore }>,
+  models: Array<SecurityModelId>,
+  verdicts: Array<string>,
+  failures: Array<string>,
+) {
+  const out: Record<string, unknown> = {};
+  for (const model of models) {
+    const runsFor = results.filter((run) => run.model === model);
+    const seeded = runsFor.filter((run) => loadFixture(run.app).kind === 'seeded');
+    const bugs = seeded.flatMap((run) => run.score.bugs.map((bug) => ({ ...bug, run: run.run })));
+    const planted = bugs.length;
+    const confirmed = bugs.filter((bug) => bug.verdict === 'confirmed');
+    const traced = confirmed.filter((bug) => bug.traced);
+    const multiStep = traced.filter((bug) => bug.traceSteps >= 2);
+    const allFindings = runsFor.flatMap((run) => run.findings);
+    const share = planted ? traced.length / planted : 0;
+    const pass = planted > 0 && share >= 0.7;
+    out[model] = {
+      scans: runsFor.length,
+      seededScans: seeded.length,
+      planted,
+      confirmed: confirmed.length,
+      confirmedWithTrace: traced.length,
+      confirmedWithTraceShare: round(share, 3),
+      traceOfTwoOrMoreSteps: multiStep.length,
+      needsValidation: bugs.filter((bug) => bug.verdict === 'needs_validation').length,
+      missed: bugs.filter((bug) => bug.verdict === 'missed').length,
+      medianTraceSteps: traced.length
+        ? percentile(
+            traced.map((bug) => bug.traceSteps),
+            50,
+          )
+        : null,
+      verifySessionsPerScan: runsFor.map(
+        (run) => run.sessions.filter((session) => session.phase === 'verify').length,
+      ),
+      allFindings: {
+        confirmed: allFindings.filter((finding) => finding.verdict === 'confirmed').length,
+        needsValidation: allFindings.filter((finding) => finding.verdict === 'needs_validation')
+          .length,
+        rejected: allFindings.filter((finding) => finding.verdict === 'rejected').length,
+      },
+      falseConfirmed: runsFor.reduce((sum, run) => sum + run.score.falseConfirmed.length, 0),
+      pass,
+      bugs: bugs.map((bug) => ({
+        bug: `${bug.app}/${bug.id}#${bug.run}`,
+        verdict: bug.verdict,
+        traced: bug.traced,
+        sinkPath: bug.sinkPath,
+        trace: bug.trace,
+      })),
+    };
+    verdicts.push(
+      `S5 ${model}: ${pass ? 'PASS' : 'FAIL'} (${traced.length}/${planted} confirmed with a trace)`,
+    );
+    if (!pass && model === DEFAULT_SECURITY_MODEL) {
+      failures.push(
+        `default model ${model}: ${traced.length}/${planted} planted bugs confirmed with a trace (bar 70%)`,
+      );
+    }
+  }
+  return out;
+}
+
 // ---------- main ----------
 
 async function main() {
@@ -1427,8 +1564,13 @@ async function main() {
       'budget-usd': { type: 'string', default: '10' },
       out: { type: 'string' },
       keep: { type: 'boolean', default: false },
+      report: { type: 'string', default: 'quality' },
     },
   });
+  if (values.report !== 'quality' && values.report !== 'confirmations') {
+    throw new Error('--report is quality or confirmations');
+  }
+  const confirmations = values.report === 'confirmations';
   if (values.local === values.live) {
     throw new Error('Pass exactly one of --local or --live.');
   }
@@ -1454,7 +1596,7 @@ async function main() {
     );
   }
   const report: Record<string, unknown> = {
-    spike: 'S4',
+    spike: confirmations ? 'S5' : 'S4',
     mode: values.local ? 'local' : 'live',
     limits: LIMITS,
     apps: fixtures.map((fixture) => {
@@ -1483,7 +1625,7 @@ async function main() {
       results.push({ ...run, score: scoreScan(run, fixture, input) });
     }
     const missed = results.flatMap((run) =>
-      run.score.bugs.filter((bug) => bug.verdict !== 'confirmed'),
+      run.score.bugs.filter((bug) => bug.verdict !== 'confirmed' || (confirmations && !bug.traced)),
     );
     if (results.some((run) => run.status !== 'succeeded') || missed.length > 0) {
       failures.push(
@@ -1498,13 +1640,13 @@ async function main() {
     }));
     report.failures = failures;
     console.log(JSON.stringify(report, null, 2));
-    console.log(failures.length ? 'S4 local FAIL' : 'S4 local PASS');
+    console.log(`${report.spike} local ${failures.length ? 'FAIL' : 'PASS'}`);
     process.exitCode = failures.length ? 1 : 0;
     return;
   }
 
   const env = spikeEnv();
-  const worker = `${SPIKE_PREFIX}s4`;
+  const worker = `${SPIKE_PREFIX}${confirmations ? 's5' : 's4'}`;
   let spent = 0;
   let reserved = 0;
   try {
@@ -1552,7 +1694,7 @@ async function main() {
   } finally {
     if (!values.keep) {
       env.token = freshToken();
-      report.cleanup = await deleteSpikeResources(env, [worker]);
+      report.cleanup = await deleteHarness(env, worker);
       const after = (
         report.cleanup as { after: { workers: Array<string>; containerApps: Array<unknown> } }
       ).after;
@@ -1615,11 +1757,14 @@ async function main() {
       ),
     };
     verdicts.push(`S4 ${model}: ${pass ? 'PASS' : 'FAIL'}`);
-    if (!pass && model === DEFAULT_SECURITY_MODEL) {
+    if (!pass && model === DEFAULT_SECURITY_MODEL && !confirmations) {
       failures.push(`default model ${model} misses the S4 bar: ${JSON.stringify(checks)}`);
     }
   }
   report.models = perModel;
+  if (confirmations) {
+    report.confirmations = confirmationsReport(results, models, verdicts, failures);
+  }
   report.runs = results.map(({ findings, ...run }) => ({
     ...run,
     findings: findings.map((finding) => ({
@@ -1640,7 +1785,7 @@ async function main() {
   for (const line of verdicts) {
     console.log(line);
   }
-  console.log(failures.length ? 'S4 FAIL' : 'S4 PASS');
+  console.log(`${report.spike} ${failures.length ? 'FAIL' : 'PASS'}`);
   process.exitCode = failures.length ? 1 : 0;
 }
 
