@@ -66,6 +66,10 @@ export const adminComponents = {
   invitations: async () => ({
     default: (await import('./views/InvitationsPage.tsx')).InvitationsPage,
   }),
+  security: async () => ({ default: (await import('./views/SecurityPage.tsx')).SecurityPage }),
+  securityPreview: async () => ({
+    default: (await import('./views/SecurityPage.tsx')).SecurityPreviewPage,
+  }),
   zeroTrust: async () => ({ default: (await import('./views/ZeroTrustPage.tsx')).ZeroTrustPage }),
 };
 
@@ -150,6 +154,14 @@ export function matchAdminRoute(path: string): AdminPageId | null {
   }
   if (path === '/admin/invitations') {
     return 'invitations';
+  }
+  if (
+    path === '/admin/security' ||
+    path === '/admin/security/findings' ||
+    path === '/admin/security/scans' ||
+    path === '/admin/security/requests'
+  ) {
+    return 'security';
   }
   if (path === '/admin/zero-trust') {
     return 'zeroTrust';

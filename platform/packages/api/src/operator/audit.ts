@@ -349,6 +349,9 @@ function auditTarget(
       projectDefaultMonthlyUsd: securityUsdTarget(body.projectDefaultMonthlyUsd),
     });
   }
+  if (segments[0] === 'security' && segments[1] === 'bypasses-seen' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform' });
+  }
   if (segments[0] === 'security' && segments[1] === 'probe' && segments.length === 2) {
     return JSON.stringify({ installation: 'platform' });
   }

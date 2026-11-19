@@ -996,3 +996,32 @@ body {
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr));
   gap: var(--spacing-4);
 }
+
+.void-admin-security {
+  max-width: 1120px;
+  grid-template-columns: minmax(0, 1fr);
+}
+.void-admin-security h1,
+.void-admin-security h2,
+.void-admin-security h3,
+.void-admin-security p {
+  margin: 0;
+}
+.void-admin-security-intro p {
+  color: var(--color-text-secondary);
+}
+.void-admin-security-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-2);
+}
+.void-admin-security-models {
+  display: grid;
+  gap: var(--spacing-2);
+  min-width: 0;
+  border: 0;
+  padding: 0;
+}
+.void-admin-security-form {
+  align-items: flex-start;
+}

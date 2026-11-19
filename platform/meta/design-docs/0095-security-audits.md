@@ -1121,6 +1121,41 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests: integration `admin-security.test.ts`, extend `admin-zero-trust-actions.test.ts`;
   unit view snapshots where the admin suite already has them.
 - Exit: every PRD §10.6 item reachable; no comment or reason text in audit rows.
+- As built: data in `admin/security-data.ts` (one Fate source `AdminSecurity` with a
+  `section` for the four pages, so the pages are `/admin/security`, `/findings`, `/scans`,
+  `/requests`); writes in `admin/routes/security.ts` (`/admin/security/*` and
+  `/admin/projects/:id/security/*`, the latter mounted beside the project routes with a guard scoped
+  to its own paths). Every write calls the operator function (`changeSecurityPolicy`,
+  `changeSecurityBudgets`, `setProjectSecurityModel`, `setProjectSecurityCeiling`,
+  `queueSecurityRescan`, `bypassPublicRequest`) inside `executeAuditedMutation`; policy and
+  budget forms post twice (`step=preview` renders the `securityPreview` page from the real
+  `dryRun`, `step=apply` writes). Banner and badge: `renderAdminPage` puts `securityChrome`
+  into the shared page data (read only while the capability is on, never throws) and `Layout`
+  reads it with `useShared` (guarded, because the navigation fallback renders the shell outside a
+  Void page). "Unseen" bypasses use a per-admin `platform_settings` row
+  (`security.bypasses-seen.<userId>`) and an explicit "Mark all as seen" button, audited as
+  `security/bypasses-seen`; no new table. "Cancel request" is the existing `protected=true` form.
+  Deviations: (1) no finding detail page, resolve, reopen or comment forms in the panel (the plan's
+  M18 scope lists none; the operator API has them); (2) the probe banner says "failing (checked
+  <time>)" because the policy stores the last check time, not when it began to fail, and the cause
+  text comes from the failed check name; (3) the silent-gap flags are the 3-project-cause-failures
+  streak and the installation failure rate over 20% in 24 h; the "protection changed 2+ times in 7
+  days" flag has no stored history to read, so it is not built; (4) Findings sort is the operator
+  list order (oldest first), with the Urgent preset as a filter, not "urgent first"; (5) the
+  "public-only switch" on the Zero Trust page is not a control in the admin form (blank fields only
+  re-save an installation that is already public-only, which the gate cannot coexist with), so only
+  Disable is greyed out; the server refusals are unchanged. `client.generated.ts` is regenerated
+  with `node platform/packages/api/scripts/build-admin-client.mjs`.
+  Review round: (a) "Mark all as seen" posts the newest bypass time the page listed (`through`);
+  the server clamps it to the newest real `created_at` and stores the first millisecond after
+  that row, so neither the app clock nor database microseconds can hide or re-show a bypass, and
+  a bypass made after the page loaded stays new. (b) The admin bypass route is deliberately open
+  with the capability off, like `POST /projects/:id/security/public-request/bypass`: held
+  requests are no longer re-checked while the capability is off (the backstop returns early), so
+  the bypass is how an admin releases one. Model, limit and rescan routes stay 501. (c) Deviation 1
+  is a real gap against spec §13.1, which lists a finding detail page with a comment box and
+  Resolve / Reopen. The panel does not have them; use the operator API or CLI until a later
+  milestone adds them.
 
 **M19 Signed project page.**
 
