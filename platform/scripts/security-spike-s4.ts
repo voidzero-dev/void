@@ -91,8 +91,8 @@ export const SPIKE_MODELS: Array<SecurityModelId> = [
 /** M7 / policy defaults (packages/platform/src/security-policy.ts, model-proxy.ts, D21, D24). */
 export const LIMITS = {
   callsPerScan: 80,
-  maxInputTokens: 600_000,
-  maxOutputTokens: 60_000,
+  maxInputTokens: 1_200_000,
+  maxOutputTokens: 120_000,
   callOutputTokens: 16_384,
   ratePerMinute: 10,
   rateWaitLimitMs: 120_000,

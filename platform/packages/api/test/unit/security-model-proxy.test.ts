@@ -415,7 +415,7 @@ describe('third-party calls through AI Gateway REST', () => {
   });
 
   it('adds access_programs to every openai/* body and clamps the output to what is left', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 59_000 });
+    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 119_000 });
     h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
     await call(h, '/v1/responses', {
       model: TERRA,
@@ -607,7 +607,7 @@ describe('third-party calls through AI Gateway REST', () => {
   });
 
   it('answers a tokens stop when what is left is below the provider minimum', async () => {
-    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 59_990 });
+    h.scan.value = scanRow({ modelUsed: TERRA, tokensOut: 119_990 });
     const response = await call(h, '/v1/responses', { model: TERRA, input: 'x' });
     expect(response.status).toBe(429);
     expect(response.headers.get(SECURITY_STOP_HEADER)).toBe('tokens');
@@ -616,7 +616,7 @@ describe('third-party calls through AI Gateway REST', () => {
   });
 
   it('lowers a thinking budget with the output limit, or stops when it cannot', async () => {
-    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 58_500 });
+    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 118_500 });
     h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
     const thinking = { type: 'enabled', budget_tokens: 4000 };
     await call(h, '/v1/messages', { model: OPUS, max_tokens: 8000, thinking, messages: [] });
@@ -626,7 +626,7 @@ describe('third-party calls through AI Gateway REST', () => {
       thinking: { type: 'enabled', budget_tokens: 1499 },
     });
 
-    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 59_000 });
+    h.scan.value = scanRow({ modelUsed: OPUS, tokensOut: 119_000 });
     const response = await call(h, '/v1/messages', {
       model: OPUS,
       max_tokens: 8000,
@@ -713,11 +713,11 @@ describe('refusals before a call is sent', () => {
     expect(calls.status).toBe(429);
     expect(calls.headers.get(SECURITY_STOP_HEADER)).toBe('scan_calls');
 
-    h.scan.value = scanRow({ tokensIn: 600_000 });
+    h.scan.value = scanRow({ tokensIn: 1_200_000 });
     expect(
       (await call(h, '/v1/chat/completions', chatBody())).headers.get(SECURITY_STOP_HEADER),
     ).toBe('tokens');
-    h.scan.value = scanRow({ tokensOut: 60_000 });
+    h.scan.value = scanRow({ tokensOut: 120_000 });
     expect(
       (await call(h, '/v1/chat/completions', chatBody())).headers.get(SECURITY_STOP_HEADER),
     ).toBe('tokens');

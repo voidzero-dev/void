@@ -46,9 +46,9 @@ import {
 const CF = '@cf/zai-org/glm-5.3';
 const FLASH = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 /** glm-5.3 at 600k in + 60k out: $1.104. */
-const RESERVE_NANO = 1_104_000_000;
+const RESERVE_NANO = 2_208_000_000;
 /** deepseek flash at 600k in + 60k out: $0.252. */
-const FLASH_RESERVE_NANO = 252_000_000;
+const FLASH_RESERVE_NANO = 504_000_000;
 
 let env: TestEnv;
 

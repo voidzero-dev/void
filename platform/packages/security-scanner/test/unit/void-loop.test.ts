@@ -279,6 +279,44 @@ describe('Engine B on the fake model', () => {
     expect(await second.runSession(spec())).toMatchObject({ kind: 'submitted', repaired: true });
   });
 
+  test('repairs harmless slips in a report without spending the retry', async () => {
+    const slip = { ...SQL, verdict: 'Confirmed', severity: 'HIGH', note: 'extra field' };
+    const engine = await engineWith([
+      chatToolCall('submit_findings', {
+        ...report([slip, lead({ severity: 'low' })]),
+        run_status: 'Complete',
+      }),
+    ]);
+    const outcome = await engine.runSession(spec());
+    expect(outcome).toMatchObject({ kind: 'submitted', repaired: false, stats: { turns: 1 } });
+    if (outcome.kind === 'submitted') {
+      expect(outcome.report.findings.map((f) => [f.verdict, f.severity])).toEqual([
+        ['confirmed', 'high'],
+        ['needs_validation', null],
+      ]);
+    }
+  });
+
+  test('takes a report that came as JSON text, also in a fence', async () => {
+    const fenced = await engineWith([
+      chatText(`Done.\n\`\`\`json\n${JSON.stringify(report([SQL]))}\n\`\`\``),
+    ]);
+    expect(await fenced.runSession(spec())).toMatchObject({ kind: 'submitted', repaired: true });
+    await model?.close();
+    const bare = await engineWith([chatText(JSON.stringify(report([])))]);
+    expect(await bare.runSession(spec())).toMatchObject({ kind: 'submitted' });
+  });
+
+  test('a plain-text answer and a bad report each get their own retry', async () => {
+    const engine = await engineWith([
+      chatText('thinking out loud'),
+      chatToolCall('submit_findings', report([confirmed({ fix: '' })])),
+      chatToolCall('submit_findings', report([SQL])),
+    ]);
+    expect(await engine.runSession(spec())).toMatchObject({ kind: 'submitted', repaired: true });
+    expect(messagesOf(2).at(-1)!.content).toContain('your last output was invalid');
+  });
+
   test('a content filter stop is a refusal', async () => {
     const engine = await engineWith([chatText('', 'content_filter')]);
     expect(await engine.runSession(spec())).toMatchObject({

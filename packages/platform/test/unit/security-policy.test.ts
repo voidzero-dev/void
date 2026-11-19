@@ -54,8 +54,8 @@ describe('security policy defaults', () => {
       limits: {
         concurrency: 2,
         timeoutMinutes: 20,
-        maxInputTokens: 600_000,
-        maxOutputTokens: 60_000,
+        maxInputTokens: 1_200_000,
+        maxOutputTokens: 120_000,
         modelCallsPerScan: 80,
       },
       budgets: {

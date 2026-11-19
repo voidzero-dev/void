@@ -49,7 +49,7 @@ export const READ_TIMEOUT_MS = 30_000;
  * `node` and a home, nothing else. No token, URL or project data.
  */
 export const EXEC_ENV: Readonly<Record<string, string>> = Object.freeze({
-  PATH: '/usr/local/bin:/usr/bin:/bin',
+  PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
   HOME: '/scan',
 });
 /** A probe container is destroyed by this alarm even when the request was dropped. */

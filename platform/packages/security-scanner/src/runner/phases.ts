@@ -61,6 +61,7 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   // Candidates past the verify cap had no second session, so they stay leads.
   const unverified = candidates.slice(task.maxVerify).map(asLead);
   const verified: Array<FindingRecord> = [];
+  let verifyFailed = false;
 
   for (const [position, candidate] of toVerify.entries()) {
     const outcome = await run({
@@ -69,6 +70,14 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
       prompt: verifyPrompt(candidate),
       check: oneRecordAtMost,
     });
+    if (outcome.kind === 'bad_output') {
+      // One unreadable check must not cost the findings already confirmed. The candidate
+      // stays a lead, the other candidates still get their session, and the scan ends
+      // incomplete so the public gate does not read it as a full pass (S4 follow-up).
+      verifyFailed = true;
+      verified.push(asLead(candidate));
+      continue;
+    }
     if (outcome.kind !== 'submitted') {
       const fields = outcomeStatus(outcome);
       // Only an `incomplete` scan keeps findings, and then only verified confirmed ones.
@@ -79,7 +88,7 @@ export async function runPhases(options: PhasesOptions): Promise<PhasesResult> {
   }
 
   const all = [...verified, ...unverified, ...rejected];
-  if (hunt.report.run_status === 'incomplete') {
+  if (hunt.report.run_status === 'incomplete' || verifyFailed) {
     return {
       ...result,
       status: 'incomplete',

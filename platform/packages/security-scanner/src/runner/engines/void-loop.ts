@@ -2,6 +2,7 @@
 // through the model proxy at `http://model.void.internal`, the four scan tools,
 // at most `maxTurns` model calls per session, one repair turn (spec §8.1).
 
+import { jsonFromText, validateFindingsLenient, validateFindingsTextLenient } from '../coerce.ts';
 import {
   classifyProxyStop,
   PROXY_STOP_HEADER,
@@ -10,7 +11,7 @@ import {
 } from '../status.ts';
 import { scanToolDefinitions } from '../tools/definitions.ts';
 import type { FsTools, ToolResult } from '../tools/fs.ts';
-import { describeValidationError, validateFindingsText } from '../validate-findings.ts';
+import { describeValidationError } from '../validate-findings.ts';
 import { emptyStats, type Engine, type SessionOutcome, type SessionSpec } from './types.ts';
 
 export const VOID_LOOP_VERSION = 'void-loop/1';
@@ -147,6 +148,9 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
         { role: 'system', content: spec.system },
         { role: 'user', content: spec.prompt },
       ];
+      // One nudge for an answer with no tool call, one repair for a report that failed the
+      // check: a model that wandered once still gets its retry for the report itself.
+      let nudgeUsed = false;
       let repairUsed = false;
       while (stats.turns < spec.maxTurns) {
         if (spec.signal?.aborted) {
@@ -180,15 +184,27 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
           ...(choice.toolCalls.length > 0 ? { tool_calls: choice.toolCalls } : {}),
         });
         if (choice.toolCalls.length === 0) {
-          if (repairUsed) {
+          // The report sometimes arrives as JSON text instead of a tool call; take it if it holds.
+          const inText = choice.content === null ? null : jsonFromText(choice.content);
+          const textResult = inText === null ? null : validateFindingsLenient(inText);
+          if (textResult?.ok && (spec.check?.(textResult.report) ?? null) === null) {
+            return done({ kind: 'submitted', report: textResult.report, repaired: true });
+          }
+          if (nudgeUsed) {
             return done({
               kind: 'bad_output',
               errorKind: 'no_submit',
               message: 'session ended without submit_findings',
             });
           }
-          repairUsed = true;
-          messages.push({ role: 'user', content: NO_SUBMIT_NUDGE });
+          nudgeUsed = true;
+          messages.push({
+            role: 'user',
+            content:
+              textResult?.ok === false
+                ? `${NO_SUBMIT_NUDGE} Your last output was invalid: ${describeValidationError(textResult)}.`
+                : NO_SUBMIT_NUDGE,
+          });
           continue;
         }
         let repairOfferedThisTurn = false;
@@ -203,14 +219,18 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
               });
               continue;
             }
-            const result = validateFindingsText(toolCall.function.arguments);
+            const result = validateFindingsTextLenient(toolCall.function.arguments);
             let problem: { kind: string; message: string } | null = null;
             if (!result.ok) {
               problem = { kind: result.kind, message: describeValidationError(result) };
             } else {
               const extra = spec.check?.(result.report) ?? null;
               if (extra === null) {
-                return done({ kind: 'submitted', report: result.report, repaired: repairUsed });
+                return done({
+                  kind: 'submitted',
+                  report: result.report,
+                  repaired: repairUsed || nudgeUsed,
+                });
               }
               problem = { kind: 'shape', message: extra };
             }
@@ -226,7 +246,7 @@ export function createVoidLoopEngine(options: VoidLoopOptions): Engine {
             messages.push({
               role: 'tool',
               tool_call_id: toolCall.id,
-              content: `error: the report was not accepted: ${problem.message}. Fix it and call submit_findings again. This is your only retry.`,
+              content: `error: your last output was invalid: ${problem.message}. Fix it and call submit_findings again. This is your only retry.`,
             });
             continue;
           }

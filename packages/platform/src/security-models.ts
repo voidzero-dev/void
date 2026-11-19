@@ -121,8 +121,8 @@ export const SECURITY_PROVIDER_NAMES: Readonly<Record<SecurityModelHost, string>
 export const SECURITY_PROVIDER_NOTICE_VERSION = 1;
 
 /** Token counts a scan reserve is computed from when no limits are given (spec §16.1). */
-export const SECURITY_RESERVE_INPUT_TOKENS = 600_000;
-export const SECURITY_RESERVE_OUTPUT_TOKENS = 60_000;
+export const SECURITY_RESERVE_INPUT_TOKENS = 1_200_000;
+export const SECURITY_RESERVE_OUTPUT_TOKENS = 120_000;
 
 export function isSecurityModelId(value: unknown): value is SecurityModelId {
   return SECURITY_MODEL_IDS.some((id) => id === value);

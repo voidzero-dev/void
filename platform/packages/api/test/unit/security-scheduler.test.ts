@@ -261,7 +261,7 @@ describe('runSecurityScanQueue', () => {
       }),
     );
     expect(h.reserve).toHaveBeenCalledWith(
-      expect.objectContaining({ scanId: 's1', projectId: 'proj_s1', reserveNano: 1_104_000_000 }),
+      expect.objectContaining({ scanId: 's1', projectId: 'proj_s1', reserveNano: 2_208_000_000 }),
     );
     expect(h.starts).toEqual([
       {

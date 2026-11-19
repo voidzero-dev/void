@@ -210,7 +210,7 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 **M2 Shared model list and policy types.**
 
 - Scope: `security-models.ts` (6 models, engine, host, badges, $/M, reserve =
-  600k×in + 60k×out, notice version, provider names); `security-policy.ts` (type,
+  1.2M×in + 120k×out, notice version, provider names); `security-policy.ts` (type,
   defaults, strict parser, ranges, error code strings shared by API and CLI). Sonnet
   price: see Risks R6. New package exports in `packages/platform/package.json`.
 - Tests (unit): `packages/platform/test/unit/security-models.test.ts` (every model has a
@@ -1151,6 +1151,23 @@ that adds the token and calls REST `/ai/v1/messages` or `/ai/v1/responses` with
   reads work. Result: no bodies, no cache (PASS). Cost by `securityScan` tag is not
   readable from the logs, so the spend meter stays the only cost source (the fail
   branch). Not covered: the binding path and meter vs gateway (needs credits).
+
+S4/S8 follow-up (2026-11-19, first run on VoidZero: glm-5.3 found 2/10 with 25% valid
+runs, deepseek 8/10 with 75% valid; both stopped at the caps). Changes:
+
+- Runner. One unreadable verify session no longer drops the scan: that candidate stays a
+  lead, the other candidates still get a session, and the scan ends `incomplete
+  (run_incomplete)` (only confirmed findings are stored, so the gate does not pass it).
+  Engine B repairs harmless slips before the strict check (`coerce.ts`: enum case,
+  fields the schema lacks, a severity on a lead, line numbers as strings), takes a report
+  sent as JSON text (also in a fence), gives the no-tool-call nudge and the invalid-report
+  repair a retry each, and tells the model "your last output was invalid: <reason>". The
+  API ingest still uses the strict validator.
+- Controller. `EXEC_ENV.PATH` now ends with `/usr/sbin:/sbin`; without it `useradd`
+  failed with ENOENT, so no live scan could start.
+- Caps. Defaults go to 1.2M input and 120k output tokens (ranges unchanged). At the cap
+  the worst-case reserve is $2.21 for glm-5.3 and $0.50 for deepseek (was $1.10 / $0.25);
+  S8 measured a median $0.99 (glm) and $0.22 (deepseek) when a scan stops at the old cap.
 
 Live spikes need one scratch account with Workers Paid, Containers, Workers AI or
 AI Gateway credits, Unified Billing for third-party hosts, and a runtime token with

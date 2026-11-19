@@ -52,8 +52,8 @@ export type SecurityLimitRange = Readonly<{ min: number; max: number; default: n
 export const SECURITY_LIMIT_RANGES: Readonly<Record<SecurityLimitKey, SecurityLimitRange>> = {
   concurrency: { min: 1, max: 10, default: 2 },
   timeoutMinutes: { min: 5, max: 60, default: 20 },
-  maxInputTokens: { min: 50_000, max: 2_000_000, default: 600_000 },
-  maxOutputTokens: { min: 5_000, max: 200_000, default: 60_000 },
+  maxInputTokens: { min: 50_000, max: 2_000_000, default: 1_200_000 },
+  maxOutputTokens: { min: 5_000, max: 200_000, default: 120_000 },
   modelCallsPerScan: { min: 10, max: 200, default: 80 },
 };
 

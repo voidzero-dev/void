@@ -192,18 +192,21 @@ describe('runPhases', () => {
     expect(result).toMatchObject({ status: 'refused', refusalCategory: 'cyber', findings: [] });
   });
 
-  test('bad output in a verify session fails the scan with no findings', async () => {
+  test('bad output in a verify session keeps the confirmed findings and ends incomplete', async () => {
     const engine = scriptedEngine([
-      submitted([confirmed()]),
-      { kind: 'bad_output', errorKind: 'too_many_records', message: 'x' },
+      submitted([
+        confirmed({ fingerprint: 'a' }),
+        confirmed({ fingerprint: 'b', severity: 'low' }),
+        confirmed({ fingerprint: 'c', severity: 'low' }),
+      ]),
+      submitted([confirmed({ fingerprint: 'a' })]),
+      { kind: 'bad_output', errorKind: 'shape', message: 'x' },
+      submitted([confirmed({ fingerprint: 'c', severity: 'low' })]),
     ]);
     const result = await runPhases({ engine, task: TASK, hasMemory: false });
-    expect(result).toMatchObject({
-      status: 'failed',
-      reason: 'bad_output',
-      errorClass: 'too_many_records',
-      findings: [],
-    });
+    expect(result).toMatchObject({ status: 'incomplete', reason: 'run_incomplete' });
+    expect(result.findings.map((f) => f.fingerprint)).toEqual(['a', 'c']);
+    expect(engine.specs).toHaveLength(4);
   });
 
   test('a hunt that says run_status incomplete keeps confirmed findings only', async () => {

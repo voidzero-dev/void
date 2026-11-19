@@ -121,7 +121,10 @@ describe('ScannerController scan attempt', () => {
     });
     // No token reaches the container: every exec but the readiness check gets exactly
     // PATH and HOME, so `node` is found without inheriting anything.
-    expect(EXEC_ENV).toEqual({ PATH: '/usr/local/bin:/usr/bin:/bin', HOME: '/scan' });
+    expect(EXEC_ENV).toEqual({
+      PATH: '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+      HOME: '/scan',
+    });
     for (const call of fake.execs) {
       if (call.argv[0] === 'true') {
         continue;

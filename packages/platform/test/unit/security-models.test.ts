@@ -112,19 +112,19 @@ describe('security model prices', () => {
     });
   });
 
-  it('reserves 600k input and 60k output tokens per scan (spec §16.1 table)', () => {
+  it('reserves 1.2M input and 120k output tokens per scan (S4/S8 follow-up of spec §16.1)', () => {
     const reserves = Object.fromEntries(
       SECURITY_MODEL_IDS.map((id) => [id, securityScanReserveUsd(id)?.toFixed(2) ?? null]),
     );
     expect(reserves).toEqual({
-      '@cf/deepseek-ai/deepseek-v4.1-flash-1017': '0.25',
-      'openai/gpt-6.1-terra': '0.90',
-      '@cf/zai-org/glm-5.3': '1.10',
-      'openai/gpt-6.1-sol': '1.80',
-      'anthropic/claude-opus-5.5': '3.60',
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017': '0.50',
+      'openai/gpt-6.1-terra': '1.80',
+      '@cf/zai-org/glm-5.3': '2.21',
+      'openai/gpt-6.1-sol': '3.60',
+      'anthropic/claude-opus-5.5': '7.20',
       'anthropic/claude-sonnet-5.5': null,
     });
-    expect(securityScanReserveUsd('@cf/zai-org/glm-5.3')).toBe(1.104);
+    expect(securityScanReserveUsd('@cf/zai-org/glm-5.3')).toBe(2.208);
   });
 
   it('follows the policy token limits', () => {
