@@ -6,6 +6,7 @@ import {
   ProjectNotFoundError,
   projectAccessErrorBody,
 } from '../project-access.ts';
+import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
 import { mintSecurityPageToken } from '../security/page-token.ts';
 import {
@@ -222,15 +223,16 @@ const app = new Hono<ApiEnv>()
     try {
       const body = await readJson(context);
       const comment = parseSecurityComment(field(body, 'comment'), 'comment');
-      return context.json(
-        await reopenSecurityFinding(context.get('db'), {
-          projectId,
-          ref: context.req.param('fid'),
-          userId: context.get('user').id,
-          comment,
-          expectedRevision: field(body, 'expectedRevision'),
-        }),
-      );
+      const reopened = await reopenSecurityFinding(context.get('db'), {
+        projectId,
+        ref: context.req.param('fid'),
+        userId: context.get('user').id,
+        comment,
+        expectedRevision: field(body, 'expectedRevision'),
+      });
+      // The alarm sends the "reopened" email when the finding was urgent.
+      await pokeSecurityScanScheduler(context.env);
+      return context.json(reopened);
     } catch (error) {
       return failure(context, error);
     }

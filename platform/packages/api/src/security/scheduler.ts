@@ -26,7 +26,8 @@ import {
   type ModelCallFailure,
 } from './call-ledger.ts';
 import { resolveSecurityScanModel, type SecurityScanModel } from './models.ts';
-import { readSecurityPolicyLenient } from './policy.ts';
+import { enqueueSecurityCapRefused, runSecurityNotifications } from './notifications.ts';
+import { readSecurityPolicyLenient, securitySpendMonth } from './policy.ts';
 import {
   cancelSecurityScanRows,
   claimSecurityScan,
@@ -90,6 +91,10 @@ export type SecurityScanQueueDeps = Readonly<{
   readPolicy(): Promise<SecurityPolicy>;
   store: SecurityScanQueueStore;
   controller: SecurityScanController;
+  /** A scan was skipped because a cap is used up: queue its 100% email. Best effort. */
+  onBudgetRefused?(
+    input: Readonly<{ projectId: string; cap: 'project' | 'platform' }>,
+  ): Promise<void>;
 }>;
 
 export type SecurityScanQueueRun = Readonly<{
@@ -429,6 +434,9 @@ async function startClaimed(
         reason: 'budget',
         errorClass: `${reserve.cap}_cap`,
       });
+      await bestEffort('cap alert', scanId, async () =>
+        deps.onBudgetRefused?.({ projectId: candidate.projectId, cap: reserve.cap }),
+      );
       return 'ended';
     }
     const result = await startSafely(deps.controller, {
@@ -587,9 +595,38 @@ export class SecurityScanScheduler extends DurableObject<ApiEnv['Bindings']> {
         readPolicy: () => readSecurityPolicyLenient(db),
         store: securityScanQueueStore(db),
         controller: securityScanControllerClient(this.env),
+        onBudgetRefused: async ({ projectId, cap }) => {
+          await enqueueSecurityCapRefused(db, {
+            projectId,
+            month: securitySpendMonth(passStart),
+            cap,
+          });
+        },
       });
     } catch (error) {
       console.error('[security-scan] scheduler pass failed', error);
+      await armSecurityScheduler(
+        this.ctx.storage,
+        Date.now() + SECURITY_SCHEDULER_RESCAN_MS,
+        passStart,
+      );
+    }
+    await this.sendNotifications(db, passStart);
+  }
+
+  /** Drains the security email outbox (`notifications.ts`) and arms the alarm for what is left. */
+  private async sendNotifications(db: Db, passStart: number): Promise<void> {
+    try {
+      const run = await runSecurityNotifications(db, this.env);
+      if (run.nextAt !== null) {
+        await armSecurityScheduler(
+          this.ctx.storage,
+          Math.max(run.nextAt, Date.now() + POKE_DELAY_MS),
+          passStart,
+        );
+      }
+    } catch (error) {
+      console.error('[security-notify] outbox pass failed', error);
       await armSecurityScheduler(
         this.ctx.storage,
         Date.now() + SECURITY_SCHEDULER_RESCAN_MS,

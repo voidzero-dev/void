@@ -239,7 +239,11 @@ describe('proposeSecurityPolicyChange', () => {
   it('refuses a blocked or unpriced default and blocking the current default', () => {
     expect(
       refused(() =>
-        proposeSecurityPolicyChange(stored(), { block: ['@cf/zai-org/glm-5.3'] }, context),
+        proposeSecurityPolicyChange(
+          stored(),
+          { block: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'] },
+          context,
+        ),
       ),
     ).toMatchObject({ status: 422, code: 'security model not allowed' });
     expect(
@@ -428,8 +432,8 @@ describe('securityPolicyPreviewLines', () => {
       ),
     ).toEqual([
       `Provider notice accepted (version ${SECURITY_PROVIDER_NOTICE_VERSION}).`,
-      'Change default model: @cf/zai-org/glm-5.3 → anthropic/claude-opus-5.5',
-      '  9 projects have no model of their own. They stay on @cf/zai-org/glm-5.3 until a project owner or admin accepts the Anthropic notice.',
+      'Change default model: @cf/deepseek-ai/deepseek-v4.1-flash-1017 → anthropic/claude-opus-5.5',
+      '  9 projects have no model of their own. They stay on @cf/deepseek-ai/deepseek-v4.1-flash-1017 until a project owner or admin accepts the Anthropic notice.',
     ]);
   });
 
@@ -441,14 +445,14 @@ describe('securityPolicyPreviewLines', () => {
       version: SECURITY_PROVIDER_NOTICE_VERSION,
     };
     expect(lines({}, block, { pickedBlocked: { 'openai/gpt-6.1-terra': 1 } })).toEqual([
-      'Block openai/gpt-6.1-terra: 1 project picked it. It uses the default model (@cf/zai-org/glm-5.3) from its next scan.',
+      'Block openai/gpt-6.1-terra: 1 project picked it. It uses the default model (@cf/deepseek-ai/deepseek-v4.1-flash-1017) from its next scan.',
     ]);
     const thirdParty = {
       defaultModel: 'anthropic/claude-opus-5.5',
       thirdPartyNotice: accepted,
     } as const;
     expect(lines(thirdParty, block, { pickedBlocked: { 'openai/gpt-6.1-terra': 2 } })).toEqual([
-      'Block openai/gpt-6.1-terra: 2 projects picked it. They stay on @cf/zai-org/glm-5.3 until a project owner or admin accepts the Anthropic notice.',
+      'Block openai/gpt-6.1-terra: 2 projects picked it. They stay on @cf/deepseek-ai/deepseek-v4.1-flash-1017 until a project owner or admin accepts the Anthropic notice.',
     ]);
     expect(
       lines(thirdParty, block, {
@@ -501,9 +505,9 @@ describe('securityPolicyPreviewLines', () => {
 
 describe('helpers', () => {
   it('falls back to the first non-blocked priced @cf model', () => {
-    expect(securityFallbackModel([])).toBe('@cf/zai-org/glm-5.3');
-    expect(securityFallbackModel(['@cf/zai-org/glm-5.3'])).toBe(
-      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    expect(securityFallbackModel([])).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
+    expect(securityFallbackModel(['@cf/deepseek-ai/deepseek-v4.1-flash-1017'])).toBe(
+      '@cf/zai-org/glm-5.3',
     );
     expect(
       securityFallbackModel(['@cf/zai-org/glm-5.3', '@cf/deepseek-ai/deepseek-v4.1-flash-1017']),

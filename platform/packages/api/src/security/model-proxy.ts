@@ -50,6 +50,7 @@ import {
   type SecurityCallHold,
   type SecurityCallRefusal,
   type SecurityCallSettlement,
+  type SecuritySpendCaps,
 } from './budget.ts';
 import {
   SECURITY_MAX_SESSION_INDEX,
@@ -59,6 +60,8 @@ import {
   type ModelCallFailureReason,
 } from './call-ledger.ts';
 import { judgeScanFence } from './control.ts';
+import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { enqueueSecurityCapNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { projectSecuritySettings, securityScans } from './schema.ts';
 
@@ -148,6 +151,15 @@ export type SecurityModelProxyDeps = Readonly<{
     input: Parameters<typeof holdSecurityModelCall>[1],
   ): Promise<SecurityCallHold | SecurityCallRefusal>;
   settle(input: Parameters<typeof settleSecurityModelCall>[1]): Promise<SecurityCallSettlement>;
+  /** After a settle: queue the 80% / 100% cap emails (best effort; absent in some tests). */
+  notifyCaps?(
+    input: Readonly<{
+      projectId: string;
+      month: string;
+      caps: SecuritySpendCaps;
+      settlement: SecurityCallSettlement;
+    }>,
+  ): Promise<void>;
   scanTag(scanId: string): Promise<string>;
   gatewayId: string;
   accountId: string;
@@ -174,6 +186,18 @@ export function securityModelProxyDeps(env: ApiEnv['Bindings']): SecurityModelPr
     },
     hold: (input) => holdSecurityModelCall(db, input),
     settle: (input) => settleSecurityModelCall(db, input),
+    notifyCaps: async ({ projectId, month, caps, settlement }) => {
+      const queued = await enqueueSecurityCapNotifications(db, {
+        projectId,
+        month,
+        caps,
+        projectSpentNano: settlement.projectSpentNano,
+        platformSpentNano: settlement.platformSpentNano,
+      });
+      if (queued) {
+        await pokeSecurityScanScheduler(env);
+      }
+    },
     scanTag: (scanId) => deriveSecurityScanTag(env.JWT_SECRET, scanId),
     gatewayId: env.AI_GATEWAY_ID ?? DEFAULT_GATEWAY_ID,
     accountId: env.CF_ACCOUNT_ID,
@@ -1023,7 +1047,7 @@ export async function handleSecurityModelRequest(
         ? hold.holdNano
         : 0;
     try {
-      await deps.settle({
+      const settlement = await deps.settle({
         scanId,
         projectId: scan.projectId,
         month: hold.month,
@@ -1032,6 +1056,11 @@ export async function handleSecurityModelRequest(
         inputTokens: tokens.input,
         outputTokens: tokens.output,
       });
+      await deps
+        .notifyCaps?.({ projectId: scan.projectId, month: hold.month, caps, settlement })
+        .catch((error: unknown) =>
+          console.error('[security-model-proxy] cap alert failed', { scanId, attempt, error }),
+        );
     } catch (error) {
       // The hold stays charged: the meter errs high, never low.
       console.error('[security-model-proxy] settle failed', { scanId, attempt, error });

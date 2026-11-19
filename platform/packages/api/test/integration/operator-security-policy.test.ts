@@ -130,7 +130,7 @@ function entitlement(hoursAgo: number, overrides: Record<string, unknown> = {}) 
 async function seedPolicy(overrides: Record<string, unknown> = {}) {
   const policy = {
     mode: 'disabled',
-    defaultModel: '@cf/zai-org/glm-5.3',
+    defaultModel: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     blockedModels: [],
     thirdPartyNotice: null,
     limits: {
@@ -200,7 +200,11 @@ describe('operator security policy', () => {
       capability: false,
       unreadable: null,
       entitlementFresh: false,
-      policy: { mode: 'disabled', defaultModel: '@cf/zai-org/glm-5.3', revision: 0 },
+      policy: {
+        mode: 'disabled',
+        defaultModel: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+        revision: 0,
+      },
       providerNotice: { version: SECURITY_PROVIDER_NOTICE_VERSION, accepted: false },
     });
     const on = (await (await request('/policy')).json()) as {
@@ -352,7 +356,7 @@ describe('operator security policy', () => {
     await seedPolicy({ entitlement: null });
     // Blocked default, unpriced default, missing provider notice, public gate.
     for (const body of [
-      { block: ['@cf/zai-org/glm-5.3'] },
+      { block: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'] },
       { defaultModel: 'anthropic/claude-sonnet-5.5' },
       { defaultModel: 'anthropic/claude-opus-5.5' },
       { publicGate: true },
@@ -410,7 +414,7 @@ describe('operator security policy', () => {
     await seedPolicy();
     const blockDefault = await request('/policy', {
       expectedRevision: 3,
-      block: ['@cf/zai-org/glm-5.3'],
+      block: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'],
     });
     expect(blockDefault.status).toBe(422);
     expect(await blockDefault.json()).toMatchObject({ error: 'security model not allowed' });
@@ -553,7 +557,7 @@ describe('operator security policy', () => {
     const body = (await response.json()) as { preview: Array<string> };
     expect(body.preview).toEqual([
       `Provider notice accepted (version ${SECURITY_PROVIDER_NOTICE_VERSION}).`,
-      'Change default model: @cf/zai-org/glm-5.3 → anthropic/claude-opus-5.5',
+      'Change default model: @cf/deepseek-ai/deepseek-v4.1-flash-1017 → anthropic/claude-opus-5.5',
       '  2 projects have no model of their own. 1 of them accepted the provider notice and use anthropic/claude-opus-5.5 from their next scan; the other 1 stays on @cf/zai-org/glm-5.3 until a project owner or admin accepts the Anthropic notice.',
       // Spec §8.3: a project without the notice stays on the first non-blocked @cf model.
       'Block @cf/deepseek-ai/deepseek-v4.1-flash-1017: 2 projects picked it. 1 of them accepted the provider notice and use the default model (anthropic/claude-opus-5.5) from their next scan; the other 1 stays on @cf/zai-org/glm-5.3 until a project owner or admin accepts the Anthropic notice.',

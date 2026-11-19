@@ -5,6 +5,14 @@ import {
   sendProjectInvitationEmail,
   sendWelcomeEmail,
   sendDeployFailedEmail,
+  sendSecurityBypassEmail,
+  sendSecurityFindingsEmail,
+  sendSecurityNowPublicEmail,
+  sendSecurityPlatformCapEmail,
+  sendSecurityProjectCapEmail,
+  sendSecurityPublicCanceledEmail,
+  sendSecurityPublicHeldEmail,
+  sendSecurityReopenEmail,
 } from '../../src/email.ts';
 
 type SentMessage = {
@@ -289,5 +297,314 @@ describe('platform email identity', () => {
     expect(sent[0].from).toBe('Void <noreply@void.cloud>');
     expect(sent[0].subject).toBe("You're invited to Void Cloud");
     expect(sent[0].text).toContain("void connect 'api.void.cloud'");
+  });
+});
+
+describe('security emails (spec §12)', () => {
+  const finding = (
+    over: Partial<Parameters<typeof sendSecurityFindingsEmail>[2]['findings'][number]> = {},
+  ): Parameters<typeof sendSecurityFindingsEmail>[2]['findings'][number] => ({
+    label: 'F-12',
+    severity: 'critical',
+    title: 'SQL built from request query',
+    file: 'src/routes/api/search.ts',
+    urgent: true,
+    duplicateNote: null,
+    ...over,
+  });
+  const findingsData = {
+    slug: 'acme-web',
+    scanCount: 1,
+    deployment: { id: 'dpl_8f2c', commit: '4e1b9a2ffff', at: Date.parse('2026-11-10T14:02:00Z') },
+    tier: 'source_diff' as const,
+    baseDeploymentId: 'dpl_7c20',
+    filesScanned: 14,
+    coverage: 'complete' as const,
+    model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    provider: null,
+    findings: [
+      finding(),
+      finding({ label: 'F-16', severity: 'medium', title: 'Cookie', urgent: false }),
+    ],
+    moreFindings: 0,
+    leads: 3,
+  };
+
+  it('names the counts, the deployment and the reason, and keeps to titles and paths', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityFindingsEmail(binding, 'a@example.com', findingsData, {
+      kind: 'owner_admin',
+    });
+    const [message] = sent;
+    expect(message.subject).toBe(
+      '[Void Cloud] acme-web: 2 new security findings (1 critical, 1 medium)',
+    );
+    expect(message.text).toContain('dpl_8f2c · commit 4e1b9a2 · Nov 10, 14:02 UTC');
+    expect(message.text).toContain('changes since dpl_7c20 · source diff · 14 files · complete');
+    expect(message.text).toContain('CRITICAL  F-12');
+    expect(message.text).toContain('Also 3 new leads that need a human look');
+    expect(message.text).toContain('F-12 is urgent: confirmed critical or high.');
+    expect(message.text).toContain('You get this because you are an owner or admin of acme-web.');
+    expect(message.text).toContain('/security/projects/acme-web');
+    expect(message.text).not.toContain('dash.void.cloud');
+  });
+
+  it('writes the singular subject and the author footer', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityFindingsEmail(
+      binding,
+      'a@example.com',
+      { ...findingsData, findings: [finding({ severity: 'medium', urgent: false })], leads: 0 },
+      { kind: 'author', deploymentIds: ['dpl_8f2c'] },
+    );
+    expect(sent[0].subject).toBe('[Void Cloud] acme-web: 1 new security finding (medium)');
+    expect(sent[0].text).toContain('You get this because you deployed dpl_8f2c to acme-web.');
+    expect(sent[0].text).not.toContain('urgent');
+  });
+
+  it('says how many scans a merged email covers and warns when a third party ran the model', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityFindingsEmail(
+      binding,
+      'a@example.com',
+      { ...findingsData, scanCount: 2, model: 'anthropic/claude-opus-5.5', provider: 'Anthropic' },
+      { kind: 'owner_admin' },
+    );
+    expect(sent[0].text).toContain('2 security scans of acme-web found new issues.');
+    expect(sent[0].text).toContain('Run by Anthropic: its usage policy applies and it may refuse.');
+  });
+
+  it('escapes model text, cuts it to 120 characters and never links a URL', async () => {
+    const { binding, sent } = mockBinding();
+    const title = `<img src=x onerror=alert(1)> https://evil.example/${'a'.repeat(200)}`;
+    await sendSecurityFindingsEmail(
+      binding,
+      'a@example.com',
+      { ...findingsData, findings: [finding({ title, file: '<b>x</b>.ts' })] },
+      { kind: 'owner_admin' },
+    );
+    const [message] = sent;
+    expect(message.html).not.toContain('<img');
+    expect(message.html).not.toContain('<b>x</b>');
+    expect(message.html).toContain('&lt;img src=x onerror=alert(1)&gt;');
+    expect(message.html).not.toContain('href="https://evil.example');
+    expect(message.html).not.toContain('a'.repeat(121));
+    expect(message.text).toContain('…');
+  });
+
+  it('shows a possible duplicate and the overflow line', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityFindingsEmail(
+      binding,
+      'a@example.com',
+      {
+        ...findingsData,
+        findings: [
+          finding({ duplicateNote: 'possible duplicate of F-3, resolved false positive on Nov 2' }),
+        ],
+        moreFindings: 4,
+      },
+      { kind: 'owner_admin' },
+    );
+    expect(sent[0].text).toContain('(possible duplicate of F-3, resolved false positive on Nov 2)');
+    expect(sent[0].text).toContain('and 4 more');
+    expect(sent[0].subject).toBe('[Void Cloud] acme-web: 5 new security findings');
+  });
+
+  it('names the actor role, never the person, in a reopened email, and cuts the comment to 300', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityReopenEmail(
+      binding,
+      'a@example.com',
+      {
+        slug: 'acme-web',
+        finding: { label: 'F-12', severity: 'critical', title: 'SQL', file: 'src/a.ts' },
+        actorRole: 'admin',
+        comment: `Still broken <b>${'x'.repeat(400)}`,
+      },
+      { kind: 'owner_admin' },
+    );
+    expect(sent[0].subject).toBe('[Void Cloud] acme-web: F-12 reopened (critical)');
+    expect(sent[0].text).toContain('Reopened by a project admin: "Still broken <b>');
+    expect(sent[0].html).toContain('Still broken &lt;b&gt;');
+    expect(sent[0].text).not.toContain('x'.repeat(301));
+  });
+
+  it('shows the raise line that works for a project cap', async () => {
+    const { binding, sent } = mockBinding();
+    const base = {
+      slug: 'acme-web',
+      percent: 80 as const,
+      spentNano: 80_120_000_000,
+      capNano: 100_000_000_000,
+      resetLabel: 'Dec 1',
+    };
+    await sendSecurityProjectCapEmail(
+      binding,
+      'a@example.com',
+      { ...base, raise: { kind: 'project_admin', usdArgument: '100', limitUsd: '$100.00' } },
+      { kind: 'owner_admin' },
+    );
+    await sendSecurityProjectCapEmail(
+      binding,
+      'a@example.com',
+      {
+        ...base,
+        percent: 100,
+        spentNano: 100_000_000_000,
+        raise: { kind: 'platform_admin', usdArgument: '150' },
+      },
+      { kind: 'owner_admin' },
+    );
+    expect(sent[0].subject).toBe(
+      '[Void Cloud] acme-web: 80% of the monthly security scan budget used ($80.12 of $100.00)',
+    );
+    expect(sent[0].text).toContain('void project security budget --usd 100');
+    expect(sent[0].text).toContain('up to the platform limit of $100.00');
+    expect(sent[0].text).not.toContain('void platform security budget');
+    expect(sent[1].subject).toBe(
+      '[Void Cloud] acme-web: monthly security scan budget used up, new deploys are not scanned until Dec 1',
+    );
+    expect(sent[1].text).toContain('void platform security budget --project acme-web --usd 150');
+    expect(sent[1].text).not.toContain('void project security budget');
+  });
+
+  it('writes the platform cap email for installation admins', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityPlatformCapEmail(
+      binding,
+      'root@example.com',
+      {
+        percent: 80,
+        spentNano: 801_400_000_000,
+        capNano: 1_000_000_000_000,
+        resetLabel: 'Dec 1',
+        raiseUsdArgument: '1500',
+      },
+      { kind: 'installation_admin' },
+    );
+    expect(sent[0].subject).toBe(
+      '[Void Cloud] Platform: 80% of the monthly security scan budget used ($801.40 of $1,000.00)',
+    );
+    expect(sent[0].text).toContain('void platform security budget --platform-usd 1500');
+    expect(sent[0].text).toContain('You get this because you are an administrator of Void Cloud.');
+    expect(sent[0].text).not.toContain('/security/projects/');
+  });
+
+  describe('public requests', () => {
+    const base = {
+      slug: 'acme-web',
+      requestedBy: 'a project admin',
+      requestedAt: Date.parse('2026-11-17T14:02:00Z'),
+      scanned: 'dpl_9a1d · full scan · complete',
+      blockers: [finding(), finding({ label: 'F-15', severity: 'high', title: 'No auth' })],
+      blockerCount: 2,
+    };
+
+    it('never offers a bypass in the held email for urgent findings', async () => {
+      const { binding, sent } = mockBinding();
+      await sendSecurityPublicHeldEmail(
+        binding,
+        'a@example.com',
+        { ...base, state: 'held_findings', noResultReason: null },
+        { kind: 'requester' },
+      );
+      const [message] = sent;
+      expect(message.subject).toBe(
+        '[Void Cloud] acme-web stays protected: 2 urgent security findings must be resolved first',
+      );
+      expect(message.text).toContain('Blocking');
+      expect(message.text).toContain('F-15');
+      expect(message.text).not.toMatch(/bypass/i);
+      expect(message.html).not.toMatch(/bypass/i);
+      expect(message.text).toContain('You get this because you asked for acme-web to go public.');
+    });
+
+    it('names the bypass command only when there is no result or no deploy to scan', async () => {
+      const { binding, sent } = mockBinding();
+      await sendSecurityPublicHeldEmail(
+        binding,
+        'a@example.com',
+        {
+          ...base,
+          blockers: [],
+          blockerCount: 0,
+          state: 'held_no_result',
+          noResultReason: 'refused by anthropic/claude-opus-5.5',
+        },
+        { kind: 'owner_admin' },
+      );
+      await sendSecurityPublicHeldEmail(
+        binding,
+        'a@example.com',
+        { ...base, blockers: [], blockerCount: 0, state: 'needs_deploy', noResultReason: null },
+        { kind: 'owner_admin' },
+      );
+      expect(sent[0].subject).toBe(
+        '[Void Cloud] acme-web stays protected: the security scan did not finish (refused by anthropic/claude-opus-5.5)',
+      );
+      expect(sent[0].text).toContain('void project zero-trust bypass --reason');
+      expect(sent[1].subject).toBe(
+        '[Void Cloud] acme-web stays protected: deploy again so the live code can be scanned',
+      );
+      expect(sent[1].text).toContain('void project zero-trust bypass --reason');
+    });
+
+    it('writes the now-public and canceled emails', async () => {
+      const { binding, sent } = mockBinding();
+      await sendSecurityNowPublicEmail(
+        binding,
+        'a@example.com',
+        { slug: 'acme-web', how: 'passed' },
+        { kind: 'owner_admin' },
+      );
+      await sendSecurityNowPublicEmail(
+        binding,
+        'a@example.com',
+        { slug: 'acme-web', how: 'bypassed' },
+        { kind: 'owner_admin' },
+      );
+      await sendSecurityPublicCanceledEmail(
+        binding,
+        'a@example.com',
+        { slug: 'acme-web', cause: 'gate_off' },
+        { kind: 'owner_admin' },
+      );
+      expect(sent.map((message) => message.subject)).toEqual([
+        '[Void Cloud] acme-web is now public (security scan passed)',
+        '[Void Cloud] acme-web is now public (security scan bypassed)',
+        '[Void Cloud] acme-web public request canceled: it stays protected',
+      ]);
+      expect(sent[2].text).toContain('turned off "Scan before a project goes public"');
+      expect(sent[2].text).toContain('void project zero-trust public');
+    });
+  });
+
+  it('names the person and the cut reason in the bypass email', async () => {
+    const { binding, sent } = mockBinding();
+    await sendSecurityBypassEmail(
+      binding,
+      'root@example.com',
+      {
+        slug: 'acme-web',
+        actor: 'alice@example.com',
+        actorRole: 'project admin',
+        at: Date.parse('2026-11-17T15:10:00Z'),
+        reason: `Scanner down <script> ${'y'.repeat(400)}`,
+        skipped: 'the scan did not finish (timed out)',
+        deploymentId: 'dpl_a3f0',
+        uncheckedFixes: ['F-15'],
+      },
+      { kind: 'installation_admin' },
+    );
+    const [message] = sent;
+    expect(message.subject).toBe(
+      '[Void Cloud] acme-web: security scan bypassed by a project admin',
+    );
+    expect(message.text).toContain('alice@example.com (project admin) · Nov 17, 15:10 UTC');
+    expect(message.text).toContain('no urgent finding · 1 fix not yet checked by a scan (F-15)');
+    expect(message.text).not.toContain('y'.repeat(301));
+    expect(message.html).toContain('&lt;script&gt;');
+    expect(message.text).toContain('void platform security bypasses --project acme-web');
   });
 });

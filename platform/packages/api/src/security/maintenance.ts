@@ -24,6 +24,7 @@ import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
+import { hasPendingSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { probeAndRecord } from './probe.ts';
 import {
@@ -124,6 +125,12 @@ export async function runSecurityMaintenance(
   const reservesReleased = await step('stranded reserves', 0, () =>
     releaseStrandedSecurityScanReserves(db),
   );
+  // Email rows wait for the alarm whatever the policy says: a lost poke is retried here.
+  await step('notification poke', undefined, async () => {
+    if (await hasPendingSecurityNotifications(db)) {
+      await deps.poke();
+    }
+  });
   let repoked = 0;
   let backlogged = 0;
   let probed = false;

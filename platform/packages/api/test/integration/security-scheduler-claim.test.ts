@@ -65,6 +65,8 @@ async function savePolicy(overrides: Partial<SecurityPolicy> = {}) {
     ...defaultSecurityPolicy(),
     mode: 'all',
     revision: 1,
+    // These tests price a glm-5.3 reserve; the product default is deepseek flash.
+    defaultModel: CF,
     ...overrides,
   });
 }

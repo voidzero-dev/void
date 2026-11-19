@@ -16,6 +16,7 @@ import { resolveSecurityFinding } from '../../src/security/project-findings.ts';
 import {
   projectSecuritySettings,
   securityFindingEvents,
+  securityNotifications,
   securityFindings,
   securityProjectEvents,
   securityProjectSpend,
@@ -550,6 +551,14 @@ describe('comment, resolve, reopen', () => {
     ).toBe(409);
     const actions = await env.db.select().from(securityFindingEvents);
     expect(actions.map((event) => event.action).sort()).toEqual(['reopened', 'resolved']);
+    // A human reopen of an urgent finding queues one "reopened" email, once per reopen.
+    expect(
+      (await env.db.select().from(securityNotifications)).map((notice) => [
+        notice.kind,
+        notice.project_id,
+        notice.dedupe_key,
+      ]),
+    ).toEqual([['reopen', project.id, `reopen:sf_test${project.id}1:1`]]);
   });
 
   it('stays open while the capability is off, and re-checks the role inside the transaction', async () => {

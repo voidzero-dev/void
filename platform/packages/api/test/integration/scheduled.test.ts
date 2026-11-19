@@ -30,6 +30,7 @@ import {
   securityRawOutputPrefix,
   sweepSecurityRawOutputs,
 } from '../../src/security/maintenance.ts';
+import { enqueueSecurityNotification } from '../../src/security/notifications.ts';
 import {
   setupEnv,
   teardownEnv,
@@ -984,6 +985,25 @@ describe('scheduled() security audit maintenance', () => {
     expect(await statuses()).toEqual({ ...untouched, ss_lease: 'timed_out' });
     expect(pokes).toBe(0);
     expect(await env.STATIC_ASSETS_R2.get(`${raw}findings.json`)).toBeNull();
+  });
+
+  it('pokes the scheduler for a pending email row, with the policy Off too, and not without one', async () => {
+    await savePolicy('disabled');
+    await scheduled(mockController, securityBindings(true), mockCtx);
+    expect(pokes).toBe(0);
+
+    const { id } = await createTestUser(env.db, `security-mail-${crypto.randomUUID()}`);
+    const project = await createTestProject(env.db, id);
+    await enqueueSecurityNotification(env.db, {
+      kind: 'findings',
+      projectId: project.id,
+      scanId: 'ss_mail',
+    });
+    await scheduled(mockController, securityBindings(true), mockCtx);
+    expect(pokes).toBe(1);
+    // The fast tier never runs it.
+    await scheduled(fastController, securityBindings(true), mockCtx);
+    expect(pokes).toBe(1);
   });
 
   it('keeps the newest scan rows, the current base and open gate scans; trims closed requests', async () => {

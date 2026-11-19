@@ -987,6 +987,38 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   email), `security-notifications.test.ts`; integration `security-recipients.test.ts`
   (#25, #27, #46–#48, #69, #70).
 - Exit: one email per scan; bypass email to every installation admin.
+- As built: copy is pure in `security/notification-copy.ts`; the senders are in `email.ts`
+  (`sendSecurity*Email`, subject prefix is `[<platform display name>]`, so `[Void Cloud]` on
+  the hosted platform, not a fixed `[Void]`); `security/recipients.ts` works out who gets
+  what at send time (suspended or email-less users skipped, one email per person and per
+  address, reason order requester, owner/admin, author); `security/notifications.ts` has
+  `enqueueSecurityNotification` (dedupe key per spec §12), the cap helpers and
+  `runSecurityNotifications`, which the scheduler alarm runs after each queue pass and
+  re-arms for the next due row. Rows are queued in the same transaction as the change: findings
+  at ingest (`news` non-empty), human reopen of an urgent finding (`reopenSecurityFinding`,
+  route pokes the scheduler), 80/100% after a model call settles (`notifyCaps` dep in the proxy)
+  and 100% when a scan is `skipped:budget` (`onBudgetRefused` dep of the queue pass: a hold
+  keeps `spent + hold ≤ cap`, so spend alone may never reach 100%). Public and bypass kinds
+  have senders, builders and `enqueueSecurityNotification` inputs; **M16 calls them**.
+  Deviations: (1) the table has no column for the new-finding ids, so the findings email
+  rebuilds them at send time from the scan's `created` / `promoted` / `reopened` /
+  `severity_changed` events (open, confirmed, not informational; reopened and raised ones only
+  while urgent). A raise to critical counts as new there even when the finding was already high (ingest's own `news` is stricter). **Decision:** keep it. The event stores no old severity, so the email cannot tell high→critical from medium→critical, and a schema change is not worth it for a rare second email that reports a worse finding. A test pins it (`security-recipients`).
+  (2) Cap, reopen and public rows keep their parameters in the dedupe key (no schema change);
+  a held row whose request left that state, a cap-80 row whose cap was raised, a finding
+  resolved since, and rows older than 7 days are dropped unsent. (3) Retries: 1 min, then 5
+  min, third failure is `failed`; a recipient that failed while another got the email is
+  logged and not retried (no double send). (4) `EMAIL` unbound marks every pending row
+  `skipped` (a later "on" does not replay old news). (5) The hourly maintenance pokes the
+  scheduler while any row is pending, also with the policy Off. (6) Unit
+  `security-notifications.test.ts` covers keys, retry constants and the copy helpers; the
+  database cases (recipients #25 #27 #46–#48 #69 #70, cooldown, merge, retry, email off, bypass
+  to every installation admin) are in integration `security-recipients.test.ts`. (7) Tests that expected the old default model and scan limits (commits 9727781b8 and
+  8d3a1a067) now name the new default, or pin glm where they price a glm reserve. (8) A crash
+  between the send and the row update leaves the row pending, so the email goes out twice
+  on the retry. Accepted: an email twice beats an email never, and no test covers it. (9)
+  Test clocks: a row is due from the database clock at its insert, so tests that pass a
+  time start it a few seconds ahead.
 
 **M16 Scan before public (gate).**
 

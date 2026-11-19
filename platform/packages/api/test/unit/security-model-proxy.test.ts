@@ -242,6 +242,34 @@ describe('Workers AI calls (@cf, Engine B)', () => {
     expect(securityModelCostNanoUsd(CF, 1000, 200)).toBe(1000 * 1400 + 200 * 4400);
   });
 
+  it('hands the month totals and caps to the cap alert after a settle, and survives its failure', async () => {
+    const notices: Array<unknown> = [];
+    let fail = false;
+    const settled = { projectSpentNano: 80, platformSpentNano: 7 };
+    h.deps = {
+      ...h.deps,
+      settle: async () => settled,
+      notifyCaps: async (input) => {
+        notices.push(input);
+        if (fail) {
+          throw new Error('db down');
+        }
+      },
+    };
+    h.aiRun.mockResolvedValue({
+      response: 'ok',
+      usage: { prompt_tokens: 1, completion_tokens: 1 },
+    });
+    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
+    expect(notices).toMatchObject([
+      { projectId: 'proj_1', month: '2026-11-01', settlement: settled },
+    ]);
+    // A failed alert never fails the model call.
+    fail = true;
+    expect((await call(h, '/v1/chat/completions', chatBody())).status).toBe(200);
+    expect(notices).toHaveLength(2);
+  });
+
   it('answers in chat-completions shape, which the Void loop reads', async () => {
     h.aiRun.mockResolvedValue({
       response: null,

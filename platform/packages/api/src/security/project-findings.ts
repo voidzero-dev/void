@@ -16,6 +16,8 @@ import { requireProjectCapability } from '../project-access.ts';
 import { users } from '../schema.ts';
 import type { ProjectRole } from '../types.ts';
 import { SecurityApiError } from './errors.ts';
+import { isUrgentSeverity } from './findings.ts';
+import { enqueueSecurityNotification } from './notifications.ts';
 import {
   effectiveSeverity,
   parseSecurityFindingRef,
@@ -553,6 +555,16 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
       action: 'reopened',
       comment: input.comment,
     });
+    // A human reopen of an urgent finding (confirmed critical or high) is emailed (M15).
+    const urgent = row.verdict === 'confirmed' && isUrgentSeverity(row.severity);
+    if (urgent) {
+      await enqueueSecurityNotification(tx, {
+        kind: 'reopen',
+        projectId: input.projectId,
+        findingId: row.id,
+        reopenCount: row.reopenCount + 1,
+      });
+    }
     return {
       ok: true as const,
       id: securityFindingLabel(row.number),

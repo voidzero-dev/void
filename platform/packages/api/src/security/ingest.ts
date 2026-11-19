@@ -17,8 +17,8 @@
  *   after commit: promote the backlog (succeeded), raw output to R2, forget the call
  *   ledger, poke the scheduler.
  *
- * The public gate re-check (M16) and notification rows (M15) take `news` / `reopened`
- * from the result.
+ * The findings email row (M15) is written in the same transaction when `news` is not empty.
+ * The public gate re-check (M16) takes `news` / `reopened` from the result.
  */
 import { and, desc, eq, inArray, isNull, lt, notInArray, sql } from 'drizzle-orm';
 import {
@@ -61,6 +61,7 @@ import {
 import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
 import { securityRawOutputPrefix } from './maintenance.ts';
+import { enqueueSecurityNotification } from './notifications.ts';
 import { requeueSecurityScan, SECURITY_SCAN_MAX_ATTEMPTS } from './queue.ts';
 import {
   projectSecuritySettings,
@@ -682,6 +683,10 @@ export async function ingestSecurityScanResult(
     });
   }
   await afterAttempt(env, scanId, attempt);
+  if (stored.news.length > 0) {
+    // The alarm sends the findings email; a lost poke is covered by the hourly re-poke.
+    await pokeSecurityScanScheduler(env);
+  }
   return {
     ok: true,
     kind: 'stored',
@@ -835,6 +840,10 @@ async function storeOutcome(
     })
     .where(eq(securityScans.id, scanId));
   await releaseSecurityScanReserveIn(tx, scanId);
+  if (result.news.length > 0) {
+    // One findings email per scan; the outbox row commits with the findings (M15).
+    await enqueueSecurityNotification(tx, { kind: 'findings', projectId, scanId });
+  }
   return { ...result, capped };
 }
 

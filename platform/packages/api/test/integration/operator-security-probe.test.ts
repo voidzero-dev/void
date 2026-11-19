@@ -199,7 +199,7 @@ describe('security probe', () => {
 
     // Check 4: a 1-token call with payload logging and the cache off.
     expect(fakes.ai).toHaveBeenCalledWith(
-      '@cf/zai-org/glm-5.3',
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
       expect.objectContaining({ max_tokens: 1 }),
       expect.objectContaining({
         gateway: expect.objectContaining({ id: 'void', skipCache: true }),
@@ -315,7 +315,8 @@ describe('security probe', () => {
     const body = await probe();
     expect(check(body, 'workers_ai')).toMatchObject({
       status: 'fail',
-      message: 'Could not run @cf/zai-org/glm-5.3. It needs Workers Paid or prepaid AI credits.',
+      message:
+        'Could not run @cf/deepseek-ai/deepseek-v4.1-flash-1017. It needs Workers Paid or prepaid AI credits.',
     });
     expect(body.entitlement).toMatchObject({ ok: false, missing: ['workers_ai'] });
   });
@@ -381,7 +382,10 @@ describe('security probe', () => {
       details: {
         missing: ['workers_ai'],
         checks: [
-          { name: 'workers_ai', message: SECURITY_PROBE_COPY.workersAi('@cf/zai-org/glm-5.3') },
+          {
+            name: 'workers_ai',
+            message: SECURITY_PROBE_COPY.workersAi('@cf/deepseek-ai/deepseek-v4.1-flash-1017'),
+          },
         ],
       },
     });

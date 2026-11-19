@@ -77,6 +77,8 @@ function onPolicy(overrides: Partial<SecurityPolicy> = {}): SecurityPolicy {
   return {
     ...defaultSecurityPolicy(),
     mode: 'all',
+    // These cases are written around glm; the product default is deepseek flash.
+    defaultModel: CF,
     entitlement: {
       checkedAt: '2026-11-18T11:00:00.000Z',
       ok: true,
@@ -331,6 +333,20 @@ describe('runSecurityScanQueue', () => {
     expect(run.nextAlarm).toBeNull();
   });
 
+  it('tells the cap alert which cap refused the scan, and survives its failure', async () => {
+    const h = harness();
+    const refused = vi.fn(async () => {
+      throw new Error('db down');
+    });
+    h.reserve.mockResolvedValue({ ok: false, cap: 'project', capNano: 1, spentNano: 1 });
+    h.queue.candidates = [candidate('s1', 'alice')];
+    await runSecurityScanQueue({ ...h.deps, onBudgetRefused: refused });
+    expect(refused).toHaveBeenCalledWith({ projectId: 'proj_s1', cap: 'project' });
+    expect(h.ends).toEqual([
+      ['s1', 1, { status: 'skipped', reason: 'budget', errorClass: 'project_cap' }],
+    ]);
+  });
+
   it('retries a failed start once after a back-off, then fails it (infrastructure)', async () => {
     const h = harness();
     h.start.mockRejectedValue(new Error('gate unreachable'));
@@ -541,7 +557,7 @@ describe('which model runs', () => {
     const policy = onPolicy({ defaultModel: OPUS, thirdPartyNotice: notice });
     expect(resolveSecurityScanModel(policy, { model: null, noticeVersion: null })).toEqual({
       requested: OPUS,
-      used: CF,
+      used: FLASH,
       engine: 'void_loop',
     });
     expect(resolveSecurityScanModel(policy, { model: null, noticeVersion: 1 })).toEqual({
@@ -554,7 +570,9 @@ describe('which model runs', () => {
       thirdPartyNotice: notice,
       entitlement: { ...onPolicy().entitlement!, hosts: { openai: true, anthropic: false } },
     });
-    expect(resolveSecurityScanModel(noCredits, { model: null, noticeVersion: 1 })?.used).toBe(CF);
+    expect(resolveSecurityScanModel(noCredits, { model: null, noticeVersion: 1 })?.used).toBe(
+      FLASH,
+    );
   });
 
   it('has no model when every @cf model is blocked and the third-party one is not allowed', () => {

@@ -22,6 +22,7 @@ import {
   securityFindingEvents,
   securityFindings,
   securityMemoryRejected,
+  securityNotifications,
   securityPlatformSpend,
   securityScans,
 } from '../../src/schema.ts';
@@ -408,6 +409,18 @@ describe('scan result ingest', () => {
     });
     expect(forgotten).toEqual([['scan_exit', 1]]);
     expect(pokes).toBeGreaterThan(0);
+    // One findings email per scan: the outbox row commits with the findings.
+    expect(
+      (await env.db.select().from(securityNotifications)).map((notice) => [
+        notice.kind,
+        notice.project_id,
+        notice.scan_ids,
+        notice.dedupe_key,
+        notice.status,
+      ]),
+    ).toEqual([
+      ['findings', project.id, ['scan_exit'], `findings:${project.id}:scan_exit`, 'pending'],
+    ]);
     // A second delivery of the same result is fenced off.
     expect(await ingest('scan_exit', report)).toEqual({ ok: false });
   });
