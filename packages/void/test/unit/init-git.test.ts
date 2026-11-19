@@ -3,7 +3,6 @@ import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { CANCEL_SYMBOL, cancel, confirm, log } from '@voidzero-dev/vite-plus-prompts';
-import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { initialCommitCommand, setupGit } from '../../src/cli/init-git.ts';
 
@@ -141,13 +140,29 @@ describe('initial commit hint', () => {
     );
   });
 
-  it('targets the created subfolder, quoting shell metacharacters', () => {
-    const child = join(root, "app's $name `value`");
+  it('targets a created subfolder by its path from the shell', () => {
+    // The user's shell stays in the parent directory.
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    expect(initialCommitCommand(join(root, 'my-app'))).toBe(
+      'git -C my-app add -A && git -C my-app commit -m "chore: initial commit"',
+    );
+  });
+
+  it('quotes shell metacharacters in the subfolder name', () => {
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    const name = "app's $name `value`";
     const argument =
-      process.platform === 'win32' ? `"${toSlash(child)}"` : `'${child.replaceAll("'", "'\\''")}'`;
+      process.platform === 'win32' ? `"${name}"` : `'${name.replaceAll("'", "'\\''")}'`;
     const git = `git -C ${argument}`;
-    expect(initialCommitCommand(child)).toBe(
+    expect(initialCommitCommand(join(root, name))).toBe(
       `${git} add -A && ${git} commit -m "chore: initial commit"`,
+    );
+  });
+
+  it('keeps git from reading the subfolder name as an option', () => {
+    vi.spyOn(process, 'cwd').mockReturnValue(root);
+    expect(initialCommitCommand(join(root, '-app'))).toBe(
+      'git -C ./-app add -A && git -C ./-app commit -m "chore: initial commit"',
     );
   });
 });

@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { cancel, confirm, isCancel, log } from '@voidzero-dev/vite-plus-prompts';
 import { dirname, join, resolve } from 'pathslash';
-import { quoteShellPath, shellDirectory } from './init-shell.ts';
+import { projectPathFromShell } from './init-shell.ts';
 
 export async function setupGit(root: string, git?: boolean): Promise<boolean> {
   if (git === false) {
@@ -59,8 +59,9 @@ export async function setupGit(root: string, git?: boolean): Promise<boolean> {
 }
 
 export function initialCommitCommand(root: string): string {
-  // Use the absolute path because init can create a subfolder.
-  const directory = resolve(root);
-  const git = directory === shellDirectory() ? 'git' : `git -C ${quoteShellPath(directory)}`;
+  // Init can create a subfolder. Like `vp create`, name it relative to the
+  // user's shell: the command repeats the path, and an absolute one wraps.
+  const path = projectPathFromShell(root);
+  const git = path === undefined ? 'git' : `git -C ${path}`;
   return `${git} add -A && ${git} commit -m "chore: initial commit"`;
 }

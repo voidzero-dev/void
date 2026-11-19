@@ -19,6 +19,11 @@ export class InitReport {
   readonly completed: Array<string> = [];
   /** What the user should do next. */
   readonly nextSteps: Array<string> = [];
+  /**
+   * How to finish by hand the step that init is on, such as "Run `vp install`
+   * to finish setup". Only a run that stops during that step prints it.
+   */
+  unfinished: string | undefined;
   /** The new starter in one line. See `setStarter`. */
   private starter: string | undefined;
   /** Files recorded by the time the starter was created. */
@@ -140,7 +145,10 @@ export class InitReport {
     }
   }
 
-  /** Print what the run did before it stopped. Prints nothing if it did nothing. */
+  /**
+   * Print what the run did before it stopped, and how to finish the step it
+   * stopped in. Prints nothing if there is neither.
+   */
   private printStopped(): void {
     if (this.printed) {
       return;
@@ -154,10 +162,13 @@ export class InitReport {
       log.warn(['Setup did not finish. Files changed so far:', ...lines].join('\n'));
     } else if (this.completed.length > 0 || this.nextSteps.length > 0) {
       log.warn('Setup did not finish. Done so far:');
-    } else {
+    } else if (!this.unfinished) {
       return;
     }
     this.printOtherWork();
+    if (this.unfinished) {
+      printNextStep(this.unfinished, { wrap: false });
+    }
   }
 
   private printOtherWork(): void {
