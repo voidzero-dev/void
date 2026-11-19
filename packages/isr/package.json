@@ -36,13 +36,14 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@cloudflare/workers-types": "catalog:",
     "@void/edge": "workspace:*"
   },
   "devDependencies": {
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:"
   }

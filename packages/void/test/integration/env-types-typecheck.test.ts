@@ -86,7 +86,7 @@ describe('generated env types in a consumer project', () => {
 
     const result = spawnSync(
       process.execPath,
-      [join(workspaceRoot, 'node_modules/typescript/lib/tsc.js'), '--project', root],
+      [join(workspaceRoot, 'node_modules/tsrs/bin/tsrs'), '--project', root],
       { encoding: 'utf8' },
     );
     expect(result.status, result.stdout + result.stderr).toBe(0);

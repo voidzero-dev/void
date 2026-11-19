@@ -40,7 +40,7 @@
   "scripts": {
     "build": "vp pack",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit --rootDir ../.."
+    "typecheck": "tsrs --noEmit --rootDir ../.."
   },
   "dependencies": {
     "@vitejs/plugin-react": "catalog:"

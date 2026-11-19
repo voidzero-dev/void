@@ -183,11 +183,11 @@ await fetch('/api/serialization', { method: 'POST', body: { name: 42 } });
       mkdirSync(dirname(join(root, path)), { recursive: true });
       writeFileSync(join(root, path), content);
     }
-    const tsc = join(
-      dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-      'bin/tsc',
+    const tsrs = join(
+      dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+      'bin/tsrs',
     );
-    const result = spawnSync(process.execPath, [tsc, '-p', join(root, 'tsconfig.json')], {
+    const result = spawnSync(process.execPath, [tsrs, '-p', join(root, 'tsconfig.json')], {
       encoding: 'utf8',
       timeout: 30_000,
     });

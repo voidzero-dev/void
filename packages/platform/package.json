@@ -48,7 +48,7 @@
   "scripts": {
     "build": "vp pack && vp run build:runtime && vp run build:stamp",
     "dev": "vp pack --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@void/deploy-core": "workspace:*",
@@ -57,6 +57,7 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "@void/isr": "workspace:*",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite-plus": "catalog:",
     "wrangler": "catalog:"

@@ -37,6 +37,8 @@ catalog:
   '@types/node': ^26.6.6
   '@voidzero-dev/vite-plus-prompts': 1.6.0
   typescript: 7.0.2
+  # Match the tsrs version bundled with vite-plus so `vp check` and `typecheck` agree.
+  tsrs: 7.1.0-beta.tsrs2
   '@voidzero-dev/vitepress-theme': ^5.0.7
   pathslash: ^0.1.0
   vite: npm:@voidzero-dev/vite-plus-core@8.3.8000

@@ -195,7 +195,7 @@ export const POST = () => sendEmail({ to: 'test@example.com', subject: 'Test', t
       runtime: true,
     });
     try {
-      for (const args of [['build'], ['exec', 'tsc', '--noEmit']]) {
+      for (const args of [['build'], ['exec', 'tsrs', '--noEmit']]) {
         const result = spawn.sync('vp', args, {
           cwd: acceptanceFixture.root,
           encoding: 'utf8',
