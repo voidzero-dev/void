@@ -1,3 +1,4 @@
+import { parseSecurityArgs, type ProjectSecurityArgs } from './project-security-args.ts';
 import type { SubcommandDef } from './subcommand-prompt.ts';
 
 const LOG_LEVELS = new Set(['error', 'warn', 'info', 'log', 'debug', 'all']);
@@ -27,6 +28,11 @@ export const projectSubcommands: Array<SubcommandDef> = [
     name: 'zero-trust',
     hint: 'status | protect | public | reconcile',
     description: 'Inspect or override Cloudflare Zero Trust protection',
+  },
+  {
+    name: 'security',
+    hint: 'status | list | show | comment | resolve | reopen | scans | model | budget | open',
+    description: 'Review security audit findings and settings',
   },
   { name: 'logs', description: 'Show runtime logs from the deployed project' },
   { name: 'requests', description: 'Show request-level traffic (status, method, timing)' },
@@ -60,6 +66,7 @@ export type ProjectArgs =
       action: '' | 'status' | 'protect' | 'public' | 'reconcile';
       projectSlug: string;
     }
+  | ProjectSecurityArgs
   | { subcommand: 'team'; action: '' }
   | {
       subcommand: 'team';
@@ -223,6 +230,10 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
     };
   }
 
+  if (subcommand === 'security') {
+    return parseSecurityArgs(rest);
+  }
+
   if (subcommand === 'logs') {
     let filter = '';
     let range = '1h';
@@ -329,7 +340,7 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
   }
 
   throw new Error(
-    'project: Usage: void project <status|link|list|team|token|zero-trust|logs|requests|rollback|cancel|delete|purge-cache>.',
+    'project: Usage: void project <status|link|list|team|token|zero-trust|security|logs|requests|rollback|cancel|delete|purge-cache>.',
   );
 }
 

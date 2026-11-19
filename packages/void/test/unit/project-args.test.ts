@@ -376,3 +376,65 @@ describe('parseProjectArgs', () => {
     });
   });
 });
+
+describe('security', () => {
+  const base = { subcommand: 'security', projectSlug: '', json: false };
+  it('parses the actions', () => {
+    expect(parseProjectArgs(['security'])).toEqual({ ...base, action: '' });
+    expect(parseProjectArgs(['security', 'status', '--json', '--project', 'a'])).toEqual({
+      ...base,
+      json: true,
+      projectSlug: 'a',
+      action: 'status',
+    });
+    expect(parseProjectArgs(['security', 'list', '--urgent', '--state', 'all'])).toMatchObject({
+      action: 'list',
+      urgent: true,
+      state: 'all',
+    });
+    expect(
+      parseProjectArgs([
+        'security',
+        'resolve',
+        'F-12,13',
+        'f-12',
+        '--reason',
+        'false-positive',
+        '--comment',
+        '- ok',
+      ]),
+    ).toMatchObject({ ids: ['F-12', 'F-13'], reason: 'false_positive', comment: '- ok' });
+    expect(parseProjectArgs(['security', 'comment', '12', '-dash text'])).toMatchObject({
+      id: 'F-12',
+      text: '-dash text',
+    });
+    expect(parseProjectArgs(['security', 'budget', '--usd', '12.50'])).toMatchObject({
+      change: 'set',
+      usd: 12.5,
+    });
+    expect(parseProjectArgs(['security', 'budget', '--off'])).toMatchObject({ change: 'off' });
+    expect(
+      parseProjectArgs(['security', 'model', '--default', '--accept-provider-notice']),
+    ).toMatchObject({
+      change: 'default',
+      acceptNotice: true,
+    });
+    expect(parseProjectArgs(['security', 'scans', '--limit', '100'])).toMatchObject({ limit: 100 });
+  });
+  it.each([
+    [['security', 'bogus'], 'Usage'],
+    [['security', 'resolve', 'F-1', '--reason', 'fixed'], 'comment is required'],
+    [['security', 'resolve', 'F-1', '--comment', 'x'], '--reason is required'],
+    [['security', 'resolve', 'x1', '--reason', 'fixed', '--comment', 'x'], 'not a finding id'],
+    [['security', 'comment', 'F-1', 'a'.repeat(4001)], 'at most 4000'],
+    [['security', 'scans', '--limit', '101'], '--limit'],
+    [['security', 'budget', '--usd', '1.234'], '--usd'],
+    [['security', 'budget', '--usd', '5', '--off'], 'not both'],
+    [['security', 'list', '--severity', 'bad'], '--severity'],
+    [['security', 'status', '--urgent'], 'not used'],
+    [['security', 'model', 'x', '--default'], 'not both'],
+    [['security', 'model', '--accept-provider-notice'], 'needs a model id'],
+  ])('rejects %j', (args, text) => {
+    expect(() => parseProjectArgs(args)).toThrow(text);
+  });
+});

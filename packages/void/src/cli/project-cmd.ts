@@ -64,6 +64,20 @@ export async function runProjectCommand(root: string, args: ProjectArgs): Promis
     const { runProjectZeroTrustCommand } = await import('./project-zero-trust.ts');
     return runProjectZeroTrustCommand(root, { ...args, action });
   }
+  if (args.subcommand === 'security') {
+    if (cloudflare) {
+      throw new Error(
+        'project: Security audits are available only for projects hosted on a Void platform.',
+      );
+    }
+    if (args.action === '') {
+      const { printHelpPage } = await import('./help.ts');
+      printHelpPage(['project', 'security']);
+      return;
+    }
+    const { runProjectSecurityCommand } = await import('./project-security.ts');
+    return runProjectSecurityCommand(root, args);
+  }
   if (args.subcommand === 'logs') {
     const { runLogsCommand } = await import('./logs.ts');
     return runLogsCommand(

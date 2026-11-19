@@ -638,6 +638,7 @@ const HELP_TREE: HelpTree = {
         command: 'zero-trust <command>',
         description: 'Inspect or override Cloudflare Zero Trust protection',
       },
+      { command: 'security <command>', description: 'Review security audit findings and settings' },
       { command: 'logs', description: 'Show runtime logs from the deployed project' },
       { command: 'requests', description: 'Show request-level traffic (status, method, timing)' },
       { command: 'rollback [deployId]', description: 'Roll back to a previous deployment' },
@@ -758,6 +759,82 @@ const HELP_TREE: HelpTree = {
             ),
           ]),
         ),
+      },
+      security: {
+        summary:
+          'Review security audit findings, scans, model and budget for a Void platform project.',
+        usage: ['void project security <command> [options]'],
+        commands: [
+          {
+            command: 'status',
+            description: 'Urgent findings, policy, model, budget and last scan',
+          },
+          {
+            command: 'list',
+            description: 'List findings (--urgent, --state, --severity, --leads)',
+          },
+          { command: 'show <F-id>', description: 'Show one finding with its history' },
+          {
+            command: 'comment <F-id> "<text>"',
+            description: 'Add a comment (collaborator or higher)',
+          },
+          {
+            command: 'resolve <F-id>...',
+            description: 'Resolve findings with --reason and --comment',
+          },
+          { command: 'reopen <F-id>', description: 'Reopen a resolved finding with --comment' },
+          { command: 'scans', description: 'Show scan history (--limit, up to 100)' },
+          { command: 'model [<id> | --default]', description: 'Show or set the scan model' },
+          {
+            command: 'budget [--usd N | --off]',
+            description: 'Show or set this project monthly scan budget',
+          },
+          {
+            command: 'open',
+            description: 'Open the read-only security page (link works for 15 minutes)',
+          },
+        ],
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--json', description: 'Print machine-readable output' },
+          { command: '--urgent', description: 'list: only urgent findings' },
+          {
+            command: '--state <state>',
+            description: 'list: open, resolved or all (default: open)',
+          },
+          {
+            command: '--severity <level>',
+            description: 'list: critical, high, medium, low or informational',
+          },
+          { command: '--leads', description: 'list: include leads that need a human look' },
+          {
+            command: '--reason <reason>',
+            description: 'resolve: fixed, false-positive or accepted-risk',
+          },
+          {
+            command: '--comment <text>',
+            description: 'resolve, reopen: why (up to 4,000 characters)',
+          },
+          { command: '--limit <n>', description: 'scans: how many scans, 1 to 100' },
+          { command: '--default', description: 'model: use the platform default model' },
+          {
+            command: '--accept-provider-notice',
+            description: 'model: accept the third-party provider notice',
+          },
+          { command: '--usd <amount>', description: 'budget: monthly cap in dollars' },
+          { command: '--off', description: 'budget: clear this project own cap' },
+        ],
+        examples: [
+          {
+            command: 'void project security list --urgent',
+            description: 'Show findings to fix first',
+          },
+          {
+            command:
+              'void project security resolve F-12 --reason fixed --comment "Bound params in 4e1b9a3"',
+            description: 'Resolve a finding',
+          },
+        ],
       },
       logs: {
         summary: 'Show runtime logs from the deployed project.',

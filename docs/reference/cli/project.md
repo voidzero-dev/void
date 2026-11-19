@@ -72,6 +72,41 @@ protection change is finished; if one is refused, the owner or a project
 administrator can run `void project zero-trust reconcile` before you retry.
 These commands do not apply to direct Cloudflare deployments.
 
+## `void project security` {#void-project-security}
+
+Review security audit findings for a project on a Void platform that has security audits turned on:
+
+```sh
+void project security status
+void project security list [--urgent] [--state open|resolved|all] [--severity <level>] [--leads]
+void project security show <F-id>
+void project security comment <F-id> "<text>"
+void project security resolve <F-id>... --reason fixed|false-positive|accepted-risk --comment "<text>"
+void project security reopen <F-id> --comment "<text>"
+void project security scans [--limit <n>]
+void project security model [<id> | --default] [--accept-provider-notice]
+void project security budget [--usd <amount> | --off]
+void project security open
+```
+
+Every command takes `--project <slug>` (then `VOID_PROJECT`, then the linked project) and `--json`.
+
+| Command                                            | Who can run it                                                        |
+| -------------------------------------------------- | --------------------------------------------------------------------- |
+| `status`, `list`, `open`                           | Any project member. Readers see finding ids, severity and state only. |
+| `show`                                             | Any project member. Collaborators and up see title, file and details. |
+| `comment`                                          | Collaborators, admins and the owner.                                  |
+| `resolve`, `reopen`, `model` (set), `budget` (set) | Project admins and the owner.                                         |
+| `scans`, `budget` (show)                           | Collaborators, admins and the owner.                                  |
+
+- `resolve` needs `--reason` and a `--comment` of up to 4,000 characters. Pass several ids to resolve them together.
+- `list` hides leads unless you pass `--leads`.
+- `model` with a third-party model prints the provider notice. Repeat the command with `--accept-provider-notice` to accept it.
+- `budget --usd` cannot exceed the platform limit. `--off` clears this project's own cap.
+- `open` prints a read-only page link that works for 15 minutes and opens it in a browser when run in a terminal.
+
+On a platform without security audits, these commands tell you to ask the administrator to upgrade. They do not apply to direct Cloudflare deployments.
+
 ## `void project token <create|list|renew|revoke>` {#void-project-token-create-list-renew-revoke}
 
 Manage revocable `aud: deploy` credentials for one Void platform project. The

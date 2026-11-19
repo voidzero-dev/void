@@ -20,6 +20,7 @@ import {
   securityFindings,
   securityProjectEvents,
   securityProjectSpend,
+  securityPublicRequests,
   securityScans,
 } from '../../src/security/schema.ts';
 import {
@@ -298,6 +299,66 @@ describe('GET /projects/:id/security: who sees what', () => {
     const { project, people } = await setup();
     const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
     expect(body.policy).toMatchObject({ applies: true, reason: 'not protected by Zero Trust' });
+  });
+});
+
+describe('GET /projects/:id/security: the open public request', () => {
+  async function openRequest(projectId: string, userId: string) {
+    await env.db.insert(securityPublicRequests).values({
+      id: 'spr_open',
+      project_id: projectId,
+      state: 'held_findings',
+      requested_by_user_id: userId,
+      requested_via: 'project',
+      target_deployment_id: 'dpl_live',
+      blockers: 2,
+      blocker_ids: ['F-1', 'F-2'],
+    });
+  }
+
+  it('shows the open request with its state, blockers and target deployment', async () => {
+    await savePolicy({ mode: 'public' });
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    await addFinding(project.id, { number: 2, severity: 'high' });
+    await openRequest(project.id, people.admin.id);
+    const body = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
+    expect(body.publicRequest).toMatchObject({
+      id: 'spr_open',
+      state: 'held_findings',
+      targetDeploymentId: 'dpl_live',
+      blockers: { count: 2, ids: ['F-1', 'F-2'] },
+      requestedByRole: 'admin',
+    });
+  });
+
+  it('gives a reader only ids, never titles or files', async () => {
+    await savePolicy({ mode: 'public' });
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    await addFinding(project.id, { number: 2, severity: 'high' });
+    await openRequest(project.id, people.admin.id);
+    const response = await call(`/projects/${project.id}/security`, people.reader.jwt);
+    const body = await json(response);
+    expect(body.publicRequest.blockers).toEqual({ count: 2, ids: ['F-1', 'F-2'] });
+    expect(body.publicRequest.state).toBe('held_findings');
+    const text = JSON.stringify(body);
+    expect(text).not.toContain('SECRET TITLE');
+    expect(text).not.toContain('secret-1.ts');
+  });
+
+  it('still shows the request while the capability is off', async () => {
+    await savePolicy({ mode: 'public' });
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    await openRequest(project.id, people.admin.id);
+    const response = await call(`/projects/${project.id}/security`, people.reader.jwt, {
+      bindings: env,
+    });
+    expect(response.status).toBe(200);
+    const body = await json(response);
+    expect(body.policy.applies).toBe(false);
+    expect(body.publicRequest).toMatchObject({ id: 'spr_open', state: 'held_findings' });
   });
 });
 

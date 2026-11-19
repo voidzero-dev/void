@@ -14,6 +14,16 @@ import {
 } from './platform-errors.ts';
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 import type {
+  ProjectSecurityStatus,
+  SecurityBudgetChange,
+  SecurityFindingChange,
+  SecurityFindingDetail,
+  SecurityFindingList,
+  SecurityFindingQuery,
+  SecurityModelChange,
+  SecurityScanList,
+} from './security-api-types.ts';
+import type {
   DeployAssetUploadRequest,
   DeployEvent,
   DeployUploadPayload,
@@ -153,6 +163,28 @@ async function throwPlatformApiError(
     await res.text(),
     isCloudflareAccessChallenge(res) ? undefined : permission,
   );
+}
+
+/**
+ * Turns a refused security route into the sentence the user should read. A 404 with no JSON body
+ * is the router of a platform that has no security routes; a 404 with JSON is a real miss (unknown
+ * project or finding). The platform's own message is the copy for the other refusals.
+ */
+export function securityApiError(error: unknown): unknown {
+  if (!(error instanceof PlatformApiError)) {
+    return error;
+  }
+  const parsed = parsePlatformErrorBody(error.body);
+  if (error.status === 404 && parsed === null) {
+    return new Error(
+      'project: This Void platform does not support security audits. Ask its administrator to upgrade with `void platform upgrade`.',
+    );
+  }
+  const message = platformErrorMessage(parsed);
+  if (message && [400, 409, 422, 501, 503].includes(error.status)) {
+    error.message = message;
+  }
+  return error;
 }
 
 export function isExpiredTokenError(error: unknown): boolean {
@@ -925,6 +957,131 @@ export class PlatformClient {
       'Failed to update project Zero Trust',
       { method: 'PUT', body: { protected: protectedProject }, permission: 'settings' },
     );
+  }
+
+  private async security<T>(
+    path: string,
+    action: string,
+    options: { method?: string; body?: unknown; permission: ProjectPermission },
+  ): Promise<T> {
+    try {
+      return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, options);
+    } catch (error) {
+      throw securityApiError(error);
+    }
+  }
+
+  async getProjectSecurity(projectId: string): Promise<ProjectSecurityStatus> {
+    return this.security(`${projectId}/security`, 'Failed to read project security', {
+      permission: 'read',
+    });
+  }
+
+  async listProjectSecurityFindings(
+    projectId: string,
+    query: SecurityFindingQuery,
+  ): Promise<SecurityFindingList> {
+    const params = new URLSearchParams({ state: query.state, limit: String(query.limit) });
+    if (query.urgent) {
+      params.set('urgent', '1');
+    }
+    if (query.severity) {
+      params.set('severity', query.severity);
+    }
+    if (query.cursor) {
+      params.set('cursor', query.cursor);
+    }
+    return this.security(
+      `${projectId}/security/findings?${params}`,
+      'Failed to list security findings',
+      { permission: 'read' },
+    );
+  }
+
+  async getProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+  ): Promise<SecurityFindingDetail> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}`,
+      'Failed to read security finding',
+      { permission: 'read' },
+    );
+  }
+
+  async commentOnProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    text: string,
+  ): Promise<{ ok: true; id: string }> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/comments`,
+      'Failed to comment on security finding',
+      { method: 'POST', body: { text }, permission: 'configure' },
+    );
+  }
+
+  async resolveProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    body: { reason: string; comment: string; expectedRevision: number },
+  ): Promise<SecurityFindingChange> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/resolve`,
+      'Failed to resolve security finding',
+      { method: 'POST', body, permission: 'settings' },
+    );
+  }
+
+  async reopenProjectSecurityFinding(
+    projectId: string,
+    findingId: string,
+    body: { comment: string; expectedRevision: number },
+  ): Promise<SecurityFindingChange> {
+    return this.security(
+      `${projectId}/security/findings/${encodeURIComponent(findingId)}/reopen`,
+      'Failed to reopen security finding',
+      { method: 'POST', body, permission: 'settings' },
+    );
+  }
+
+  async listProjectSecurityScans(projectId: string, limit: number): Promise<SecurityScanList> {
+    return this.security(
+      `${projectId}/security/scans?${new URLSearchParams({ limit: String(limit) })}`,
+      'Failed to list security scans',
+      { permission: 'deploy' },
+    );
+  }
+
+  async setProjectSecurityModel(
+    projectId: string,
+    body: { model: string | null; acceptProviderNoticeVersion?: number },
+  ): Promise<SecurityModelChange> {
+    return this.security(`${projectId}/security/model`, 'Failed to set security model', {
+      method: 'PUT',
+      body,
+      permission: 'settings',
+    });
+  }
+
+  async setProjectSecurityBudget(
+    projectId: string,
+    monthlyUsd: number | null,
+  ): Promise<SecurityBudgetChange> {
+    return this.security(`${projectId}/security/budget`, 'Failed to set security budget', {
+      method: 'PUT',
+      body: { monthlyUsd },
+      permission: 'settings',
+    });
+  }
+
+  async createProjectSecurityPageLink(
+    projectId: string,
+  ): Promise<{ url: string; expiresAt: string }> {
+    return this.security(`${projectId}/security/page-link`, 'Failed to create security page link', {
+      method: 'POST',
+      permission: 'read',
+    });
   }
 
   async reconcileProjectZeroTrust(projectId: string): Promise<ProjectZeroTrustUpdateResponse> {

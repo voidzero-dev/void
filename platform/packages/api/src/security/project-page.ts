@@ -247,7 +247,7 @@ function findingBlock(finding: SecurityFindingView, full: boolean): string {
 function cutNote(shown: number, total: number): string {
   return shown < total
     ? `<p class="void-auth-note">${esc(
-        `Showing ${shown} of ${total}. See the rest with: void project security findings`,
+        `Showing ${shown} of ${total}. See the rest with: void project security list`,
       )}</p>`
     : '';
 }

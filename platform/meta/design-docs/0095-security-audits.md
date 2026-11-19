@@ -1191,6 +1191,20 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests (unit): `project-args.test.ts`, `project-security-command.test.ts`,
   `cli-help.test.ts`, `project-lookup-client.test.ts` (404 split).
 - Exit: mock replies print the spec §13.3 copy.
+- As built: `project-security-args.ts` (parser, no regex), `project-security.ts` (printers and
+  runner), `security-api-types.ts`, client methods `*ProjectSecurity*` with `securityApiError`: a 404 with
+  no JSON body is "does not support security audits"; a 404 with JSON stays an API error; the
+  platform `message` replaces the generic text for 400/409/422/501/503. Resolve reads the finding
+  for its revision, then posts (one call per id; a failure on one id does not stop the rest, the
+  command then fails). The model flag `--accept-provider-notice` first sends version 0, which the
+  platform refuses with the current version and notice; the CLI prints the notice and resends.
+  `list` hides leads unless `--leads`. **Deviations:** (1) `GET /projects/:id/security` returned
+  `publicRequest: null` since M14; it now returns the open request (route change), so `status` can show
+  the `Public` line. (2) The M19 page said `void project security findings`; the command is
+  `list` (page text and its test fixed). (3) `status` cannot know the caller's role, so the
+  public request lines always name the next command; a caller without `settings` gets the 403 copy
+  when running it. (4) `--usd` is capped at 10000 in the parser (the API limit); a project ceiling
+  comes back as the platform's 422 copy.
 
 **M21 CLI `void project zero-trust` changes.**
 

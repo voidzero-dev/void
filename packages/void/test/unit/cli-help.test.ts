@@ -153,6 +153,13 @@ describe('rendered help advertises the flags the parser honours', () => {
     expect(page).toContain('--project <name>');
   });
 
+  it('lists the project security commands', () => {
+    const page = render(['project', 'security']);
+    expect(page).toContain('resolve <F-id>');
+    expect(page).toContain('--accept-provider-notice');
+    expect(render(['project'])).toContain('security <command>');
+  });
+
   it('states plain limits for remote studio and purge-cache', () => {
     const studio = render(['db', 'studio']);
     expect(studio).not.toContain('not yet');

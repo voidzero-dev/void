@@ -310,7 +310,7 @@ if (helpPath) {
     },
     {
       name: 'project',
-      hint: 'status | link | list | team | token | zero-trust | logs | requests | rollback | cancel | delete | purge-cache',
+      hint: 'status | link | list | team | token | zero-trust | security | logs | requests | rollback | cancel | delete | purge-cache',
       description: 'Manage projects, teams, deployments, and scoped CI credentials',
     },
     { name: 'secret', hint: 'list | put | delete | sync', description: 'Manage project secrets' },

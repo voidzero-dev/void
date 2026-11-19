@@ -34,7 +34,7 @@ import {
   type SecurityViewer,
 } from '../security/project-view.ts';
 import { recheckPublicRequestBestEffort } from '../security/public-gate-flow.ts';
-import { publicRequestView } from '../security/public-gate.ts';
+import { openPublicRequestView, publicRequestView } from '../security/public-gate.ts';
 import { SECURITY_SEVERITIES, type SecuritySeverity } from '../security/schema.ts';
 import { requireProjectRouteCapability } from './project-access.ts';
 
@@ -114,14 +114,16 @@ const app = new Hono<ApiEnv>()
     if (access instanceof Response) {
       return access;
     }
-    return context.json(
-      await projectSecurityStatus({
-        db: context.get('db'),
-        project: access.project,
-        viewer: viewer(context, access.role),
-        capability: capabilityOn(context),
-      }),
-    );
+    const status = await projectSecurityStatus({
+      db: context.get('db'),
+      project: access.project,
+      viewer: viewer(context, access.role),
+      capability: capabilityOn(context),
+    });
+    return context.json({
+      ...status,
+      publicRequest: await openPublicRequestView(context.get('db'), projectId),
+    });
   })
   .get('/:id/security/findings', async (context) => {
     const projectId = context.req.param('id');

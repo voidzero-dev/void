@@ -565,9 +565,7 @@ describe('accounts and large projects', () => {
     expect(owner).toContain('void project security resolve F-102 --reason fixed');
     expect(owner).toContain('Other open: 101');
     expect(owner).toContain('Resolved: 2');
-    expect(owner).toContain(
-      'Showing 100 of 101. See the rest with: void project security findings',
-    );
+    expect(owner).toContain('Showing 100 of 101. See the rest with: void project security list');
 
     const reader = await view(await signIn(people.reader.id, project.id));
     expect(reader).toContain('F-102');
