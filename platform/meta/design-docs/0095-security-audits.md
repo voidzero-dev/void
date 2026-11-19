@@ -1525,6 +1525,160 @@ AI Gateway credits, Unified Billing for third-party hosts, and a runtime token w
 Containers Edit, Cloudchamber Edit and AI Gateway / Workers AI permissions. Scripts read
 `CLOUDFLARE_ACCOUNT_ID` and `CLOUDFLARE_API_TOKEN` and delete everything they create.
 
+### Spike results S7 / S9 / S11 (local, 2026-11-19)
+
+Scripts: `security-spike-inputs.ts` (S7), `security-spike-refusals.ts` with
+`fixtures/security-refusals.json` (S9), `security-spike-redteam.ts` (S11). They share
+`security-spike-local.ts`, which runs the script again with a small loader: stand-ins for
+`cloudflare:workers` and the build-time `void:*` sources, and the DB packages resolved from
+the API package. They run the real runner, engines, MCP server, controller, model proxy,
+budget SQL and ingest (PGlite) in plain Node with the fake model. No product code changed.
+
+| Spike        | Result           | Numbers                                                                                         |
+| ------------ | ---------------- | ----------------------------------------------------------------------------------------------- |
+| S7 inputs    | **PASS** 26/26   | 100% of first-party server files readable in all 4 apps; 8 go-live sites, 6 enqueue, 2 excluded |
+| S9 refusals  | **FAIL** 15/20   | 9/12 refusals end `refused` (75%), 0 end `succeeded`; 3 mapping bugs                            |
+| S11 red team | **FAIL** 149/150 | no escape, no egress, no token, caps and server rules hold; 1 tool-path gap (Engine A Glob)     |
+
+**S7.** Each Pages playground is copied to `playground-local/security-spike-s7/<app>` and
+built with `vp build`. The worker files come from the CLI's own `collectWorkerFiles`, the
+scan input from the real `bundleSources` / `buildSecurityScanInput`.
+
+| App    | Build | Modules (code / maps), bytes | First-party readable (app + workspace) | Registry sources (same as disk), packages | Full input (no lockfile) | With repo lockfile           | Snapshot          |
+| ------ | ----- | ---------------------------- | -------------------------------------- | ----------------------------------------- | ------------------------ | ---------------------------- | ----------------- |
+| React  | 1.9 s | 103 (52 / 51), 4.49 MB       | 81/81 (46 + 35)                        | 43 (43/43), 6                             | 163 files, 2.34 MB       | 122 files, 41 dropped, 2 unv | 4.52 MB, 106 objs |
+| Vue    | 1.6 s | 70 (35 / 35), 2.08 MB        | 57/57 (33 + 24)                        | 34 (34/34), 8                             | 115 files, 1.28 MB       | 86 files, 29 dropped, 5 unv  | 2.11 MB, 73 objs  |
+| Svelte | 3.7 s | 64 (32 / 32), 1.50 MB        | 62/62 (31 + 31)                        | 55 (55/55), 6                             | 141 files, 0.89 MB       | 87 files, 54 dropped, 1 unv  | 1.52 MB, 67 objs  |
+| Solid  | 2.4 s | 65 (34 / 31), 1.67 MB        | 63/63 (32 + 31)                        | 35 (35/35), 6                             | 129 files, 0.94 MB       | 96 files, 33 dropped, 2 unv  | 1.70 MB, 68 objs  |
+
+- Every map entry has `sourcesContent`. First-party text equals the file on disk, except
+  virtual modules (`virtual:void-routes`, `@void-island-wrap/*`) and 9 Vue SFCs (the Vue
+  plugin's text is a few bytes off, e.g. 353 vs 360 bytes for `pages/index.vue`).
+- Modules with no map go in as built code (`_worker/…`, note `no-source-maps`): React 1
+  (`rolldown-runtime`), Solid 3 (two tiny island chunks, `pages-client.js`). Coverage
+  stays `complete`.
+- Workspace packages (`packages/*/dist/…`, the map path after `..` is dropped) are
+  first-party and always sent. Registry code under `node_modules/.pnpm/<pkg>@<ver>/` is
+  byte-equal to the installed package in all 167 cases.
+- Lockfile: the platform gets none today, so all registry code is `unverified` and sent
+  (input about 2× larger). With the repo's `pnpm-lock.yaml`, registry files are dropped
+  and coverage turns `partial (partial-third-party-only)`; 1–5 files an app stay
+  `unverified` because `parsePnpmLock` reads only direct `importers` deps (transitive
+  ones such as `scheduler`, `devalue`).
+- Snapshot per deployment: the module bytes + `modules.json` + `sources.json` (+
+  `assets.json`), 67–106 R2 objects; 3 more per scan (`backlog`, `server-leads`, `scope`).
+- T2 after a one-line change to `routes/api/health.ts`: `built_diff`, 2 modules changed
+  (the chunk's map and `index.js.map`), focus = that file + `virtual:void-routes`.
+- GitHub compare lists at most 300 files (`GITHUB_COMPARE_MAX_FILES`): at or above that
+  it counts as truncated and the scan falls back to T2.
+- Go-live sites (plain-text search of `platform/packages/api/src`; every write of status
+  `live` or of the active pointer):
+
+  ```
+  deploy/recovery.ts:111,114     commitCutoverLive (publish-static :237, publish-worker :437)
+                                   └─► enqueueSecurityScanInTx                   trigger deploy
+  deploy/execute.ts:875,884      promoteProtectedDeployment ─► enqueueSecurityScanInTx  recovery
+  deploy/compensate.ts:492,501   post-routing recovery ─► finishLiveSecurityScan
+                                   └─► enqueueSecurityScanForLiveDeployment ─► …InTx
+  routes/projects.ts:1286        rollback                 not scanned (spec §6.1)
+  operator/project-normalization.ts:162  operator repair  not scanned (no new code)
+  ```
+
+  Managed builds run `void deploy` in the build container, so they take the same path.
+  M8 covers every site; nothing to add.
+
+**S9.** 18 recorded fixtures (refusal, plain-text refusal, controls) for the 3 engines, run
+through the real `runScan` and engine code, then the API's `parseRunnerStatus` /
+`securityScanOutcome` / `shouldRetrySecurityScan`; plus 3 provider refusals sent through the
+real model proxy. Live refusal rates stay BLOCKED (no Unified Billing credits, see S2/S3).
+
+| Engine      | Refusals → `refused` | Notes                                                                        |
+| ----------- | -------------------- | ---------------------------------------------------------------------------- |
+| B void-loop | 1/1                  | plain-text refusals (2) end `failed (bad_output)`, never `succeeded`         |
+| A Agent SDK | 4/4                  | the refusal category is lost (bug 3)                                         |
+| C Codex SDK | 4/7                  | `cyber policy:` text (bug 1) and proxy-hidden 400 (bug 2) end infrastructure |
+
+- Controls hold: 402 → `failed (credits)` for A and C, a dropped stream → `failed
+  (infrastructure)`, clean submits → `succeeded`.
+- Known model risk, not a mapping bug: a model that "declines" by sending an empty report
+  (`B5`) ends `succeeded`, the same as a clean scan.
+
+**S11.** 150 checks in 10 groups: tools 30, tar 20, MCP 8, engines 24, output 12, phrases
+7, input 9, egress 19, caps 12, ingest 9. All hold except one.
+
+- Held: every path trick (`..`, absolute, `/proc/self/environ`, symlinks, backslashes,
+  NUL, long paths) is refused by the Engine B tools and the MCP server; `bash` / `fetch` /
+  `web_search` / `shell` do not exist; all 20 bad tars end `failed (input_invalid)` with
+  nothing written outside the root (planted `out/status.json` included); planted
+  `AGENTS.md`, `CLAUDE.md`, `.mcp.json`, `.codex/config.toml`, `.agents/skills`,
+  `.claude/settings.json` are not read (no setting sources, project docs off); the
+  controller locks egress before start, `DenyAll` answers 403, scan identity comes from
+  props; the proxy refuses provider-run tools, `mcp_servers`, `container`, `background`,
+  `additional_tools`, filters `anthropic-beta`, replaces caller auth and `cf-aig-*`, and
+  never answers with the token; 30 concurrent calls → exactly 10 reach the model; the
+  session cap (40), token cap, `max_tokens` clamp, $0.01 project cap under concurrency,
+  worst-case charge for a stream with no usage, fences (409) and 16 MiB (413) hold; a
+  forged `server:reviewer_text` fingerprint gets its own row; scan N+1 writing `rejected`
+  or a weaker lead does not close, demote or hide scan N's confirmed high bug; a status
+  for another scan ends `bad_output`; a 300-record flood stores ≤ 100; `incomplete`
+  keeps confirmed only; a secret and its base64 form never reach the tar.
+- Known risks (recorded, not fails): the reviewer-text check misses split, spaced,
+  homoglyph, zero-width and other-word forms (8 tried); a hard link in `/scan/input` is
+  readable (not reachable: the tar refuses links); after two refused reports the MCP
+  server still takes a third submit (bounded by the 40-call session cap); app code placed
+  under a registry package's `node_modules/` path is dropped when a lockfile is used (a
+  malicious owner is a non-goal).
+
+**Product bugs found** (not fixed here):
+
+1. `platform/packages/security-scanner/src/runner/status.ts:214` (`CODEX_POLICY_CODES`,
+   used at :224). Codex 0.162.1 prints `CodexErr::CyberPolicy` as `cyber policy: <msg>`
+   (space, no code). Repro: fixture C1 (`turn.failed` "cyber policy: This request has been
+   flagged…"). Got `failed (infrastructure, codex_turn_failed)`, retried once and blamed
+   on the install. Expected `refused`.
+2. `platform/packages/api/src/security/model-proxy.ts:1096-1102` (upstream-failed branch of
+   `handleSecurityModelRequest`). The provider body is kept only for the log, so an OpenAI
+   400 `code: cyber_policy` reaches Codex as `upstream_failed` "The model call failed.",
+   and the last failure says `upstream`. Repro: chain P1. Got `failed (infrastructure)`.
+   Expected `refused` (pass the policy code on, or record a refusal as the last failure).
+3. `platform/packages/security-scanner/src/runner/engines/claude.ts:293` reads
+   `result.stop_details?.category`. In Claude Code 2.1.328 `stop_details` is on the
+   assistant message, not on the result. Repro: fixtures A1, P3. Got `refusal_category:
+   null`. Expected `cyber`.
+4. `platform/packages/security-scanner/src/runner/engines/claude.ts:148`
+   (`createPathHook`): `pattern` is checked only when it starts with `/`. Repro:
+   `createPathHook(root)({ tool_name: 'Glob', tool_input: { pattern: '../../**/*' } })`
+   answers `{}` (allowed). Glob could list file names outside `/scan/input` and
+   `/scan/memory` (Read stays blocked). Expected deny: resolve a relative pattern against
+   the cwd, or refuse a `..` segment.
+
+### S12 legal checklist (open questions for the user)
+
+Not decided here. Each needs a written answer before MVP.
+
+1. Anthropic terms for operators. A self-hosted operator runs Engine A with their own
+   Cloudflare account and Unified Billing. Who is the "Customer" under the Anthropic
+   Commercial Terms / Agent SDK terms: the operator, Cloudflare, or VoidZero? Do the
+   Agent SDK terms allow it inside a product that other people install?
+2. Redistributing Claude Code. The Engine A image ships the Claude Code native binary
+   (via the Agent SDK package) and Void publishes that image on ghcr. Is publishing that
+   image allowed, or must each operator build or pull it from Anthropic?
+3. Codex licence. The Engine C image ships the `codex` binary and the SDK (Apache-2.0,
+   plus `bwrap`, `codex-code-mode-host` and LGPL voice libraries in the platform
+   package). Is shipping `LICENSE` enough, or do we need a `NOTICE` and the LGPL texts
+   (and the source offer for LGPL parts)?
+4. OpenAI usage policies. Is automated vulnerability scanning of a customer's own code
+   allowed for `openai/*` models through Cloudflare? Does `access_programs.cyber:
+   standard` (sent by the proxy) need an agreement, and is the trusted-access-for-cyber
+   program needed for scan prompts?
+5. Naming. Can docs, UI and CLI say "Claude", "Claude Code", "Codex" or "GPT" (as model
+   or engine names)? Proposal to check: Void names only ("Engine A / C", "security
+   audits") and plain model ids, with no third-party names in product names, badges or
+   the image names.
+6. Data terms. Unified Billing sends customer source code to Anthropic / OpenAI through
+   Cloudflare. Does the provider notice (`SECURITY_PROVIDER_NOTICE_VERSION`) cover what
+   each provider's terms require (retention, training, zero-data-retention)?
+
 ## Test strategy
 
 Fakes:
