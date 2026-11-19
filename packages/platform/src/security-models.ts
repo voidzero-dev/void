@@ -19,8 +19,8 @@ export type SecurityThirdPartyHost = 'openai' | 'anthropic';
 export type SecurityRefusalRisk = 'low' | 'medium' | 'medium-high';
 
 export const SECURITY_MODEL_IDS = [
-  '@cf/zai-org/glm-5.3',
   '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  '@cf/zai-org/glm-5.3',
   'openai/gpt-6.1-terra',
   'openai/gpt-6.1-sol',
   'anthropic/claude-sonnet-5.5',
@@ -30,7 +30,7 @@ export const SECURITY_MODEL_IDS = [
 export type SecurityModelId = (typeof SECURITY_MODEL_IDS)[number];
 
 /** The installation default when the policy names none. */
-export const DEFAULT_SECURITY_MODEL: SecurityModelId = '@cf/zai-org/glm-5.3';
+export const DEFAULT_SECURITY_MODEL: SecurityModelId = '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 
 export type SecurityModelPrice = Readonly<{
   /** USD per million input tokens. */
@@ -53,20 +53,20 @@ export type SecurityModel = Readonly<{
 /** In `SECURITY_MODEL_IDS` order, so the first `@cf/*` entry is the fallback model. */
 export const SECURITY_MODELS: ReadonlyArray<SecurityModel> = [
   {
-    id: '@cf/zai-org/glm-5.3',
-    host: 'workers-ai',
-    engine: 'void_loop',
-    zeroDataRetention: true,
-    refusalRisk: 'low',
-    price: { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
-  },
-  {
     id: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
     host: 'workers-ai',
     engine: 'void_loop',
     zeroDataRetention: true,
     refusalRisk: 'low',
     price: { inputUsdPerMillion: 0.3, outputUsdPerMillion: 1.2 },
+  },
+  {
+    id: '@cf/zai-org/glm-5.3',
+    host: 'workers-ai',
+    engine: 'void_loop',
+    zeroDataRetention: true,
+    refusalRisk: 'low',
+    price: { inputUsdPerMillion: 1.4, outputUsdPerMillion: 4.4 },
   },
   {
     id: 'openai/gpt-6.1-terra',

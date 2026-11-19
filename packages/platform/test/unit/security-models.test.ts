@@ -22,7 +22,7 @@ describe('security model list', () => {
   it('lists six models in fallback order, the default first', () => {
     expect(SECURITY_MODELS.map((model) => model.id)).toEqual([...SECURITY_MODEL_IDS]);
     expect(SECURITY_MODEL_IDS).toHaveLength(6);
-    expect(DEFAULT_SECURITY_MODEL).toBe('@cf/zai-org/glm-5.3');
+    expect(DEFAULT_SECURITY_MODEL).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
     expect(SECURITY_MODEL_IDS[0]).toBe(DEFAULT_SECURITY_MODEL);
     expect(new Set(SECURITY_MODEL_IDS).size).toBe(SECURITY_MODEL_IDS.length);
   });

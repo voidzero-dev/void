@@ -48,7 +48,7 @@ describe('security policy defaults', () => {
     expect(SECURITY_POLICY_SETTINGS_KEY).toBe('securityAudits.policy');
     expect(defaultSecurityPolicy()).toEqual({
       mode: 'disabled',
-      defaultModel: '@cf/zai-org/glm-5.3',
+      defaultModel: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
       blockedModels: [],
       thirdPartyNotice: null,
       limits: {
@@ -139,7 +139,11 @@ describe('security policy strict parser', () => {
     ['negative revision', stored({ revision: -1 }), 'revision'],
     ['unknown mode', stored({ mode: 'on' }), 'disabled, public or all'],
     ['unknown model', stored({ defaultModel: 'openai/gpt-4' }), 'defaultModel must be one of'],
-    ['blocked default', stored({ blockedModels: ['@cf/zai-org/glm-5.3'] }), 'is blocked'],
+    [
+      'blocked default',
+      stored({ blockedModels: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'] }),
+      'is blocked',
+    ],
     [
       'duplicate block',
       stored({ blockedModels: ['openai/gpt-6.1-sol', 'openai/gpt-6.1-sol'] }),
@@ -278,18 +282,18 @@ describe('stored security policy written by another release', () => {
   it('replaces an unpriced default (a later release priced it)', () => {
     const value = stored({ defaultModel: 'anthropic/claude-sonnet-5.5', thirdPartyNotice: notice });
     expect(() => parseSecurityPolicy(value)).toThrow('has no price yet');
-    expect(readSecurityPolicy(value).defaultModel).toBe('@cf/zai-org/glm-5.3');
+    expect(readSecurityPolicy(value).defaultModel).toBe('@cf/deepseek-ai/deepseek-v4.1-flash-1017');
   });
 
   it('replaces a blocked default, and a third-party default without the notice', () => {
-    const blocked = stored({ blockedModels: ['@cf/zai-org/glm-5.3'] });
+    const blocked = stored({ blockedModels: ['@cf/deepseek-ai/deepseek-v4.1-flash-1017'] });
     expect(() => parseSecurityPolicy(blocked)).toThrow('is blocked');
-    expect(readSecurityPolicy(blocked).defaultModel).toBe(
-      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
-    );
+    expect(readSecurityPolicy(blocked).defaultModel).toBe('@cf/zai-org/glm-5.3');
     const noNotice = stored({ defaultModel: 'openai/gpt-6.1-terra' });
     expect(() => parseSecurityPolicy(noNotice)).toThrow('needs the accepted provider notice');
-    expect(readSecurityPolicy(noNotice).defaultModel).toBe('@cf/zai-org/glm-5.3');
+    expect(readSecurityPolicy(noNotice).defaultModel).toBe(
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+    );
   });
 
   it('falls back to a third-party model only when every @cf model is blocked', () => {

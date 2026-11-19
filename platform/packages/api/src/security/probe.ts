@@ -117,7 +117,7 @@ export function securityProbeWorkersAiModel(policy: SecurityPolicy): SecurityMod
   if (model.host === 'workers-ai' && !policy.blockedModels.includes(model.id)) {
     return model.id;
   }
-  return securityFallbackModel(policy.blockedModels) ?? '@cf/zai-org/glm-5.3';
+  return securityFallbackModel(policy.blockedModels) ?? '@cf/deepseek-ai/deepseek-v4.1-flash-1017';
 }
 
 /** One priced model per third-party host, called the way its engine calls it. */
