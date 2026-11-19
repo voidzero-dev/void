@@ -18,6 +18,7 @@ const pgliteUnitTests = [
 ];
 const cliUnitTests = [
   'packages/void/test/unit/cf-*.test.ts',
+  'packages/void/test/unit/cloudflare-operation-process*.test.ts',
   'packages/void/test/unit/provision-*.test.ts',
   'packages/void/test/unit/deploy-drift.test.ts',
 ];
@@ -39,6 +40,7 @@ const sdkPgliteUnitTests = [
 // (packages/void/test/e2e/cloudflare-deploy-live.test.ts) needs all three, so forward them into the
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
+const testGroupInput = [{ auto: true }, '!node_modules/.cache/**'];
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
@@ -72,7 +74,24 @@ const platformAlias = {
   ),
 };
 
-export default defineConfig({
+// Each Vitest project belongs to exactly one cached test group of `vp run test`. The check at
+// the end of this file fails when a project is in no group, so a new project cannot be left out.
+const testGroups = {
+  platform: [
+    'platform-unit',
+    'platform-unit-pglite',
+    'platform-api-integration',
+    'platform-api-integration-threads',
+  ],
+  unit: ['unit', 'unit-pglite', 'cli-unit'],
+  integration: ['parallel-integration'],
+};
+
+function testGroupCommand(group: keyof typeof testGroups): string {
+  return `vp test run ${testGroups[group].map((name) => `--project ${name}`).join(' ')}`;
+}
+
+const config = defineConfig({
   run: {
     tasks: {
       'build:all': {
@@ -82,9 +101,38 @@ export default defineConfig({
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
       },
+      // Node's compile cache is shared and rewritten by every run, so it is not an input.
+      // One cached task per test group, so `test:all` replays a group whose inputs did not change.
+      // Test output is not restored on a hit.
+      'test:group:platform': {
+        command: testGroupCommand('platform'),
+        cache: { input: testGroupInput, output: [] },
+      },
+      'test:group:unit': {
+        command: testGroupCommand('unit'),
+        cache: { input: testGroupInput, output: [] },
+      },
+      'test:group:integration': {
+        command: testGroupCommand('integration'),
+        cache: {
+          input: testGroupInput,
+          output: [],
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
+      },
+      // Local verification without the static checks: build the packages, then the cached test
+      // groups. Tests copy and build the playgrounds they use, so the playground builds of
+      // `build:all` are only needed by the artifact and type checks in `test:all`.
+      test: {
+        command:
+          "vp run --cache build && vp run --cache --filter './platform/packages/**' build && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration",
+        cache: {
+          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
+        },
+      },
       'test:all': {
         command:
-          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run check:types && vp test run',
+          'vp run --cache build:all && node test/check-playground-build-artifacts.mjs && vp check && vp run --cache check:types && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',
         // `vp run` passes ONLY the env vars a task declares to that task — not the full environment.
         // Without this, the gated live Cloudflare e2e's credentials never reach `vp test run`, so it
         // skips even when the CI job injects them. `untrackedEnv` forwards them without folding them
@@ -461,7 +509,10 @@ export default defineConfig({
           include: cliUnitTests,
           pool: 'threads',
           maxWorkers,
-          ...(process.platform === 'win32' ? { testTimeout: 20_000 } : {}),
+          // These files run their real subprocess tests concurrently. A test then also waits
+          // while its neighbours block the thread in a synchronous spawn, so Vitest's 5-second
+          // default is too short on a busy machine.
+          testTimeout: 20_000,
         },
       },
       {
@@ -590,3 +641,18 @@ export default defineConfig({
     ],
   },
 });
+
+const groupedProjects = Object.values(testGroups).flat();
+for (const project of config.test?.projects ?? []) {
+  const name = typeof project === 'object' && 'test' in project ? project.test?.name : undefined;
+  if (
+    typeof name !== 'string' ||
+    groupedProjects.filter((grouped) => grouped === name).length !== 1
+  ) {
+    throw new Error(
+      `Vitest project ${JSON.stringify(name)} must be listed in exactly one entry of testGroups in vite.config.ts.`,
+    );
+  }
+}
+
+export default config;

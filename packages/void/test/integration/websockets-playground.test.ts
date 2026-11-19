@@ -1,9 +1,16 @@
-import { readFileSync, rmSync } from 'node:fs';
+import type { ChildProcess } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import spawn from 'cross-spawn';
 import { chromium, type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
-import { killChild, startServer } from '../../../../test/integration-helpers.ts';
+import {
+  createIsolatedPlayground,
+  killChild,
+  spawnFixtureServer,
+  startServer,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 
@@ -69,13 +76,13 @@ function collectUnexpectedBrowserErrors(page: Page) {
 }
 
 describe('playground/websockets', () => {
-  let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
+  let child: ChildProcess;
 
   beforeAll(async () => {
-    const playground = join(ROOT, 'playground/websockets');
-    rmSync(join(playground, 'dist'), { recursive: true, force: true });
-    const build = spawn.sync('vp', ['run', '--filter', './playground/websockets', 'build'], {
-      cwd: ROOT,
+    fixture = createIsolatedPlayground(ROOT, 'playground/websockets');
+    const build = spawn.sync('vp', ['run', 'build'], {
+      cwd: fixture.root,
       encoding: 'utf8',
       env: { ...process.env, VOID_INSPECTOR_PORT: 'false' },
     });
@@ -84,38 +91,16 @@ describe('playground/websockets', () => {
     browser = await chromium.launch();
 
     const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          './playground/websockets',
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VITE_VOID_NOTIFICATION_STREAM_DELAY_MS: '10',
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
+      child = spawnFixtureServer(fixture.root, 'dev', port, {
+        VITE_VOID_NOTIFICATION_STREAM_DELAY_MS: '10',
+      });
       return child;
     }, 20_000);
     base = server.base;
   });
 
   it('builds WebSocket routes as SQLite-backed Durable Objects', () => {
-    const config = JSON.parse(
-      readFileSync(join(ROOT, 'playground/websockets/dist/ssr/wrangler.json'), 'utf8'),
-    );
+    const config = JSON.parse(readFileSync(join(fixture.root, 'dist/ssr/wrangler.json'), 'utf8'));
     expect(config.durable_objects.bindings).toEqual(
       expect.arrayContaining([
         { name: 'WsChatRoomWs', class_name: 'WsChatRoomWs' },
@@ -136,6 +121,7 @@ describe('playground/websockets', () => {
       await killChild(child);
     }
     await browser?.close();
+    fixture?.cleanup();
   });
 
   it('chat reconnects to a fresh room and sends a typed message', async () => {

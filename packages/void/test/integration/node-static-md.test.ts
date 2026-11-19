@@ -1,21 +1,29 @@
-import { execSync } from 'node:child_process';
-import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { beforeAll, describe, expect, it } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
+import {
+  createIsolatedPlayground,
+  type IsolatedPlayground,
+} from '../../../../test/integration-helpers.ts';
 
 // A Markdown-only pages app still needs a client build: its closeBundle
 // prerenders. Markdown pages are implicit islands, so the client input comes
 // from the islands plugin; without it the build fails with UNRESOLVED_ENTRY.
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
 const PLAYGROUND = 'playground/node-static-md';
-const DIST = join(ROOT, PLAYGROUND, 'dist');
+let fixture: IsolatedPlayground;
+let DIST: string;
 
 describe('playground/node-static-md build (Markdown-only, target: node, output: static)', () => {
   beforeAll(() => {
-    const pg = join(ROOT, PLAYGROUND);
-    rmSync(join(pg, 'dist'), { recursive: true, force: true });
-    rmSync(join(pg, '.void'), { recursive: true, force: true });
-    execSync(`vp run --filter ./${PLAYGROUND} build`, { cwd: ROOT, stdio: 'pipe' });
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+    DIST = join(fixture.root, 'dist');
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
+  });
+
+  afterAll(() => {
+    fixture?.cleanup();
   });
 
   it('emits the Node SSR entry', () => {

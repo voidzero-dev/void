@@ -8,22 +8,31 @@ export function shellDirectory(): string {
   return resolve(process.cwd());
 }
 
-/** Quote a path for the user's shell, including names containing quotes, $ or backticks. */
-export function quoteShellPath(path: string): string {
-  if (/^[A-Za-z0-9_@./:-]+$/.test(path)) {
-    return path;
+/** Quote an argument for the user's shell, such as a path with spaces, quotes, $ or backticks. */
+export function quoteShellArgument(argument: string): string {
+  if (/^[A-Za-z0-9_@./:-]+$/.test(argument)) {
+    return argument;
   }
-  return process.platform === 'win32' ? `"${path}"` : `'${path.replaceAll("'", "'\\''")}'`;
+  return process.platform === 'win32' ? `"${argument}"` : `'${argument.replaceAll("'", "'\\''")}'`;
+}
+
+/**
+ * The path from the user's shell to `root`, quoted as a command argument, or
+ * undefined when the shell is already there.
+ */
+export function projectPathFromShell(root: string): string | undefined {
+  const shell = shellDirectory();
+  const directory = resolve(root);
+  if (directory === shell) {
+    return undefined;
+  }
+  const path = relative(shell, directory);
+  // A command would read a leading dash as an option, and `cd -` as the previous directory.
+  return quoteShellArgument(path.startsWith('-') ? `./${path}` : path);
 }
 
 /** Prefix `command` with a `cd` from the user's shell into `root` when they differ. */
 export function commandInProject(root: string, command: string): string {
-  const shell = shellDirectory();
-  const directory = resolve(root);
-  if (directory === shell) {
-    return command;
-  }
-  const path = relative(shell, directory);
-  // `cd` would read a leading dash as an option, and `cd -` as the previous directory.
-  return `cd ${quoteShellPath(path.startsWith('-') ? `./${path}` : path)} && ${command}`;
+  const path = projectPathFromShell(root);
+  return path === undefined ? command : `cd ${path} && ${command}`;
 }

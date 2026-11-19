@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import {
   createIsolatedPlayground,
   killChild,
+  spawnFixtureServer,
   startServer,
   type IsolatedPlayground,
   type StartedServer,
@@ -18,33 +19,14 @@ let DEV_BASE: string;
 
 describe('playground/react-router dev', { retry: 2 }, () => {
   let child: ReturnType<typeof spawn>;
+  let fixture: IsolatedPlayground;
 
   beforeAll(async () => {
-    const server = await startServer((port) => {
-      child = spawn(
-        'vp',
-        [
-          'run',
-          '--filter',
-          `./${PLAYGROUND}`,
-          'dev',
-          '--host',
-          '127.0.0.1',
-          '--port',
-          String(port),
-          '--strictPort',
-        ],
-        {
-          cwd: ROOT,
-          stdio: ['ignore', 'pipe', 'pipe'],
-          env: {
-            ...process.env,
-            VOID_INSPECTOR_PORT: 'false',
-          },
-        },
-      );
-      return child;
-    }, 30_000);
+    fixture = createIsolatedPlayground(ROOT, PLAYGROUND);
+    const server = await startServer(
+      (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
+      30_000,
+    );
     DEV_BASE = server.base;
   });
 
@@ -52,6 +34,7 @@ describe('playground/react-router dev', { retry: 2 }, () => {
     if (child) {
       await killChild(child);
     }
+    fixture?.cleanup();
   });
 
   it('applies env.ts to server routes', async () => {

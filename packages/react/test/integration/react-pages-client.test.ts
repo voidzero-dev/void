@@ -1,14 +1,16 @@
-import { execSync, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFileSync, type ChildProcess } from 'node:child_process';
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { describe, expect, it, beforeAll, afterAll, vi } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
   waitForServer,
+  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
@@ -41,9 +43,11 @@ type PageHead = {
 };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
-const REACT_PAGES_ROOT = join(ROOT, 'playground/react-pages');
-const REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
-const LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground | undefined;
+let REACT_PAGES_ROOT: string;
+let REACT_PAGES_LAYOUT: string;
+let LATE_WORKER_DEPS_ROOT: string;
 const OPTIMIZER_PROBE_FILES = {
   '_optimizer-helper.ts': `import { value } from '@void-repro/worker-only';
 export const readWorkerValue = () => value;`,
@@ -199,11 +203,16 @@ export default function Layout({ children }: { children: ReactNode }) {
 }
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/react-pages');
+  REACT_PAGES_ROOT = fixture.root;
+  REACT_PAGES_LAYOUT = join(REACT_PAGES_ROOT, 'pages/layout.tsx');
+  LATE_WORKER_DEPS_ROOT = join(REACT_PAGES_ROOT, 'node_modules/@void-repro');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -995,11 +1004,10 @@ describe('react-pages client (dev)', () => {
       originalLayout = readFileSync(REACT_PAGES_LAYOUT, 'utf-8');
       installLateWorkerDeps();
       writeFileSync(REACT_PAGES_LAYOUT, lateWorkerDepLayout());
-      rmSync(join(REACT_PAGES_ROOT, 'node_modules/.vite'), { recursive: true, force: true });
 
       const serverTimeout = process.platform === 'win32' ? 45_000 : 20_000;
       const server = await startServer((port) => {
-        child = spawnPlaygroundServer(ROOT, 'react-pages', 'dev', port);
+        child = spawnFixtureServer(REACT_PAGES_ROOT, 'dev', port);
         stderr = '';
         child.stderr!.on('data', (chunk: Buffer) => {
           stderr += String(chunk);
@@ -1322,8 +1330,8 @@ describe('react-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(REACT_PAGES_ROOT, 'pages/blog/_Counter.tsx'),
-    islandFile: join(REACT_PAGES_ROOT, 'pages/blog/index.island.tsx'),
+    counterFile: () => join(REACT_PAGES_ROOT, 'pages/blog/_Counter.tsx'),
+    islandFile: () => join(REACT_PAGES_ROOT, 'pages/blog/index.island.tsx'),
     hmrKeepsState: true,
   });
 });
@@ -1333,15 +1341,10 @@ describe('react-pages client (preview)', { retry: 2 }, () => {
   let serverOutput = () => '';
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/react-pages/dist'))) {
-      execSync('vp run --filter ./playground/react-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: REACT_PAGES_ROOT, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'react-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(REACT_PAGES_ROOT, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

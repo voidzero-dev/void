@@ -206,7 +206,7 @@ const svelte: SvelteLinkProps['href'] = '/unknown';
 void [same, known, built, react, vue, svelte];
 `;
 
-// Svelte's implementation uses runes, so this tsc fixture covers the other adapters.
+// Svelte's implementation uses runes, so this tsrs fixture covers the other adapters.
 // Svelte's `submit` takes the same `RouteUrl`, and `post`/`put`/`patch`/`delete` come from IslandFormState.
 const islandFormCheck = `import { useIslandForm as react } from ${adapterSource('react/src/runtime/use-island-form.ts')};
 import { useIslandForm as vue } from ${adapterSource('vue/src/runtime/use-island-form.ts')};
@@ -457,11 +457,11 @@ function typecheck(
       include,
     }),
   );
-  const tsc = join(
-    dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-    'bin/tsc',
+  const tsrs = join(
+    dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+    'bin/tsrs',
   );
-  const result = spawnSync(process.execPath, [tsc, '-p', join(root, config)], {
+  const result = spawnSync(process.execPath, [tsrs, '-p', join(root, config)], {
     encoding: 'utf8',
   });
   return { output: result.stdout + result.stderr, status: result.status };
@@ -747,11 +747,11 @@ void [hrefs, route, emptyCatchAll, nestedCatchAll, unknown, external];
         include: ['routes.d.ts', 'check.ts'],
       }),
     );
-    const tsc = join(
-      dirname(createRequire(import.meta.url).resolve('typescript/package.json')),
-      'bin/tsc',
+    const tsrs = join(
+      dirname(createRequire(import.meta.url).resolve('tsrs/package.json')),
+      'bin/tsrs',
     );
-    const result = spawnSync(process.execPath, [tsc, '-p', join(root, 'tsconfig.json')], {
+    const result = spawnSync(process.execPath, [tsrs, '-p', join(root, 'tsconfig.json')], {
       encoding: 'utf8',
     });
     expect({ output: result.stdout + result.stderr, status: result.status }).toEqual({

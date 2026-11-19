@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, expect, it, vi } from 'vite-plus/test';
 import { printDeploySuccess } from '../../src/cli/deploy-summary.ts';
-import { pc, printSuccess } from '../../src/cli/output.ts';
+import { pc, printNextStep, printSuccess } from '../../src/cli/output.ts';
 
 afterEach(() => vi.restoreAllMocks());
 
@@ -14,6 +14,17 @@ function capture(action: () => void): string {
   action();
   return output;
 }
+
+it('keeps a copyable recovery command intact even when it exceeds the terminal width', () => {
+  const command =
+    'node node_modules/.pnpm/vite-plus@1.7.0/node_modules/vite-plus/bin/vp install && ' +
+    './node_modules/.bin/void db generate';
+  const message = `Run \`${command}\` to finish setup`;
+
+  expect(stripVTControlCharacters(capture(() => printNextStep(message, { wrap: false })))).toBe(
+    `→ ${message}\n`,
+  );
+});
 
 it('separates the final success with a blank line and exactly one space after the checkmark', () => {
   const output = capture(() =>

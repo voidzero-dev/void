@@ -1,13 +1,15 @@
-import { execSync, type ChildProcess } from 'node:child_process';
+import { execFileSync, type ChildProcess } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { type Browser, type Page } from 'playwright';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
 import { collectBrowserDiagnostics } from '../../../../test/browser-helpers.ts';
 import {
+  createIsolatedPlayground,
   killChild,
-  spawnPlaygroundServer,
+  spawnFixtureServer,
   startServer,
+  type IsolatedPlayground,
 } from '../../../../test/integration-helpers.ts';
 import { launchPagesBrowser } from '../../../../test/pages-browser.ts';
 import {
@@ -29,17 +31,21 @@ declare global {
 type StampedElement = HTMLElement & { __stamp?: number };
 
 const ROOT = join(import.meta.dirname, '..', '..', '..', '..');
+// Both server groups build and serve one isolated copy of the playground, never its source.
+let fixture: IsolatedPlayground;
 let DEV_BASE: string;
 let PREVIEW_BASE: string;
 
 let browser: Browser;
 
 beforeAll(async () => {
+  fixture = createIsolatedPlayground(ROOT, 'playground/solid-pages');
   browser = await launchPagesBrowser();
 });
 
 afterAll(async () => {
   await browser?.close();
+  fixture?.cleanup();
 });
 
 function defineClientTests(getBase: () => string, coverage: 'smoke' | 'full' = 'full') {
@@ -218,7 +224,7 @@ describe('solid-pages client (dev)', () => {
 
   beforeAll(async () => {
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'solid-pages', 'dev', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'dev', port)),
       45_000,
       { expectStatus: 200, expectBody: '__VOID_PAGE_DATA__' },
     );
@@ -232,7 +238,7 @@ describe('solid-pages client (dev)', () => {
   });
 
   it('dev: does not prebundle @void/solid in the worker environment', () => {
-    const workerDepsDir = join(ROOT, 'playground/solid-pages/node_modules/.vite/deps_void_worker');
+    const workerDepsDir = join(fixture.root, 'node_modules/.vite/deps_void_worker');
     const metadataPath = join(workerDepsDir, '_metadata.json');
 
     expect(existsSync(metadataPath)).toBe(true);
@@ -259,8 +265,8 @@ describe('solid-pages client (dev)', () => {
   defineSharedIslandHmrTests({
     getBase: () => DEV_BASE,
     getBrowser: () => browser,
-    counterFile: join(ROOT, 'playground/solid-pages/pages/blog/_Counter.tsx'),
-    islandFile: join(ROOT, 'playground/solid-pages/pages/blog/index.island.tsx'),
+    counterFile: () => join(fixture.root, 'pages/blog/_Counter.tsx'),
+    islandFile: () => join(fixture.root, 'pages/blog/index.island.tsx'),
     hmrKeepsState: false,
   });
 });
@@ -269,15 +275,10 @@ describe('solid-pages client (preview)', { retry: 2 }, () => {
   let child: ChildProcess | undefined;
 
   beforeAll(async () => {
-    if (!existsSync(join(ROOT, 'playground/solid-pages/dist'))) {
-      execSync('vp run --filter ./playground/solid-pages build', {
-        cwd: ROOT,
-        stdio: 'pipe',
-      });
-    }
+    execFileSync('vp', ['run', 'build'], { cwd: fixture.root, stdio: 'pipe' });
 
     const server = await startServer(
-      (port) => (child = spawnPlaygroundServer(ROOT, 'solid-pages', 'preview', port)),
+      (port) => (child = spawnFixtureServer(fixture.root, 'preview', port)),
       30_000,
     );
     PREVIEW_BASE = server.base;

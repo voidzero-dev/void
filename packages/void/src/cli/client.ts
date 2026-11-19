@@ -36,7 +36,7 @@ function readCliVersion(): string | null {
 const VOID_CLI_VERSION = readCliVersion();
 
 /** The oldest Void platform release this CLI supports, including queue concurrency caps. */
-export const MIN_PLATFORM_VERSION = '1.10.0';
+export const MIN_PLATFORM_VERSION = '1.11.0';
 
 const RELEASE_VERSION = /^(\d+)\.(\d+)\.(\d+)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$/;
 

@@ -208,6 +208,43 @@ describe('an init run that stops early', () => {
     ]);
   });
 
+  it('says how to finish the step it stopped in, after what it had done', async () => {
+    const report = new InitReport();
+    const failure = new Error('vp install failed with exit code 1');
+
+    await expect(
+      report.printIfStopped(async () => {
+        report.setStarter('Created a React Pages starter with D1 (SQLite)');
+        report.next('Add DATABASE_URL to .env');
+        report.unfinished = 'Run `vp install` to finish setup';
+        throw failure;
+      }),
+    ).rejects.toBe(failure);
+
+    expect(vi.mocked(log.warn).mock.calls).toEqual([['Setup did not finish. Done so far:']]);
+    expect(vi.mocked(printNextStep).mock.calls).toEqual([
+      ['Add DATABASE_URL to .env'],
+      ['Run `vp install` to finish setup', { wrap: false }],
+    ]);
+  });
+
+  it('prints only how to finish a step that stopped before init changed anything', async () => {
+    const report = new InitReport();
+
+    await expect(
+      report.printIfStopped(async () => {
+        report.unfinished = 'Run `npm install` to finish setup';
+        throw new Error('npm install failed with exit code 1');
+      }),
+    ).rejects.toThrow('npm install failed');
+
+    // No heading: there is no finished work to list under it.
+    expect(log.warn).not.toHaveBeenCalled();
+    expect(vi.mocked(printNextStep).mock.calls).toEqual([
+      ['Run `npm install` to finish setup', { wrap: false }],
+    ]);
+  });
+
   it('prints nothing when it stops before it changes anything', async () => {
     await expect(
       new InitReport().printIfStopped(async () => {
@@ -225,11 +262,14 @@ describe('an init run that stops early', () => {
 
     await report.printIfStopped(async () => {
       report.created('void.config.ts');
+      // The summary lists finished work, not how to finish a step by hand.
+      report.unfinished = 'Run `npm install` to finish setup';
       report.print();
     });
 
     expect(log.warn).not.toHaveBeenCalled();
     expect(vi.mocked(printDone).mock.calls).toEqual([[['Configured Void', '+ void.config.ts']]]);
+    expect(printNextStep).not.toHaveBeenCalled();
     expect(process.listeners('exit')).toEqual(listeners);
   });
 });

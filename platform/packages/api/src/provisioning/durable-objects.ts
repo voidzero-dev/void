@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { and, eq, sql } from 'drizzle-orm';
 import {
   createAssetUploadSession,
@@ -32,6 +33,7 @@ import { CF_API_BASE, cfFetch, CloudflareApiError } from './cloudflare-api.ts';
 import { putDurableSnapshotModule, putDurableSnapshotObject } from './durable-snapshot.ts';
 
 type Env = ApiEnv['Bindings'];
+type DispatchWorkerEnv = Pick<Env, 'CF_ACCOUNT_ID' | 'CF_API_TOKEN' | 'DISPATCH_NAMESPACE'>;
 type Binding = Record<string, unknown> & { type: string; name: string };
 type Snapshot = {
   metadata: Record<string, unknown> & { bindings: Array<Binding> };
@@ -60,7 +62,7 @@ export async function durableObjectWorkerName(
   return `void-do-${projectId}-${digest.slice(0, 16)}`;
 }
 
-function url(env: Env, worker: string): string {
+function url(env: DispatchWorkerEnv, worker: string): string {
   return `${CF_API_BASE}/${env.CF_ACCOUNT_ID}/workers/dispatch/namespaces/${namespace(env)}/scripts/${worker}`;
 }
 
@@ -72,17 +74,25 @@ function marker(
   return JSON.stringify({ protocol: 1, projectId, dispatchNamespace: namespace(env), className });
 }
 
-async function readBindings(env: Env, worker: string): Promise<Array<Binding> | undefined> {
+async function readBindings(
+  env: DispatchWorkerEnv,
+  worker: string,
+  {
+    confirmWorkerExists = true,
+    signal,
+  }: { confirmWorkerExists?: boolean; signal?: AbortSignal } = {},
+): Promise<Array<Binding> | undefined> {
   try {
     const bindings = await cfFetch<Array<Binding>>(
       `${url(env, worker)}/bindings`,
       env.CF_API_TOKEN,
+      { signal },
     );
     // Dispatch can return an empty binding list for a script without a Worker.
     // Confirm absence before provisioning; an existing unmarked Worker must
     // still fail the ownership check.
-    if (bindings.length === 0) {
-      await cfFetch(`${url(env, worker)}/settings`, env.CF_API_TOKEN);
+    if (confirmWorkerExists && bindings.length === 0) {
+      await cfFetch(`${url(env, worker)}/settings`, env.CF_API_TOKEN, { signal });
     }
     return bindings;
   } catch (error) {
@@ -350,19 +360,55 @@ export function managedDurableObjectBindings(manifest: DeployManifest): Array<Bi
 }
 
 export async function verifyManagedDurableObjectApplicationBindings(
-  env: Env,
+  env: DispatchWorkerEnv,
   worker: string,
   manifest: DeployManifest,
+  {
+    deadline,
+    delaysMs = [250, 500, 1_000],
+  }: { deadline?: number; delaysMs?: ReadonlyArray<number> } = {},
 ): Promise<void> {
-  if (!manifest.durableObjects?.bindings.length) {
+  const expectedBindings = managedDurableObjectBindings(manifest);
+  if (!expectedBindings.length) {
     return;
   }
-  const actual = await readBindings(env, worker);
-  for (const expected of managedDurableObjectBindings(manifest)) {
-    const binding = actual?.find((value) => value.name === expected.name);
-    if (binding?.type !== expected.type || binding.namespace_id !== expected.namespace_id) {
+  const matchesExpected = (actual: Array<Binding> | undefined): boolean =>
+    expectedBindings.every((expected) => {
+      const binding = actual?.find((value) => value.name === expected.name);
+      return binding?.type === expected.type && binding.namespace_id === expected.namespace_id;
+    });
+
+  // Keep queued verification inside the same deadline as the uploads so a
+  // slow series of reads cannot spend the time reserved for cleanup.
+  const remaining = deadline === undefined ? undefined : deadline - Date.now();
+  const timeout = new Error(
+    'The deployment reached its time limit while verifying application Durable Object bindings.',
+  );
+  if (remaining !== undefined && remaining <= 0) {
+    throw timeout;
+  }
+  const controller = new AbortController();
+  const timer =
+    remaining === undefined ? undefined : setTimeout(() => controller.abort(timeout), remaining);
+  const signal = controller.signal;
+  const read = () => readBindings(env, worker, { confirmWorkerExists: false, signal });
+  try {
+    let actual = await read();
+    for (const wait of delaysMs) {
+      if (matchesExpected(actual)) {
+        return;
+      }
+      await delay(wait, undefined, { signal });
+      actual = await read();
+    }
+    if (!matchesExpected(actual)) {
       throw new Error('Application custom Durable Object binding could not be verified.');
     }
+  } catch (error) {
+    signal.throwIfAborted();
+    throw error;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

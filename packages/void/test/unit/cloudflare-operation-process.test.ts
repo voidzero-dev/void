@@ -5,7 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { connect } from 'node:net';
 import { join } from 'node:path';
 import type { Duplex } from 'node:stream';
-import { expect, it } from 'vite-plus/test';
+import { expect, it as serialIt } from 'vite-plus/test';
 import { isVoidSecretOnlyDraft } from '../../../deploy-cloudflare/src/secret-draft.ts';
 import { voidSecretDraftVersion } from '../../../deploy-cloudflare/test/secret-draft-fixture.ts';
 import {
@@ -23,6 +23,10 @@ import {
   temporaryDirectory,
   tokenEnv,
 } from '../helpers/cloudflare-operation-process.ts';
+
+// Each test waits for a real child process with its own directory and local API server.
+// Running them concurrently overlaps those waits; every test still spawns its own process.
+const it = serialIt.concurrent;
 
 const voidVersion = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'))
   .version as string;

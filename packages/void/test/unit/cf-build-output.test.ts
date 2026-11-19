@@ -32,7 +32,7 @@ import {
 } from '@void/deploy-cloudflare';
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
-import { afterEach, expect, it, vi } from 'vite-plus/test';
+import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
 import {
   type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
@@ -50,10 +50,18 @@ const roots: Array<string> = [];
 const CF_BUILD_TIMEOUT_MS = process.platform === 'win32' ? 45_000 : 15_000;
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+// Concurrent tests share this list, so directories are removed when the file ends.
+afterAll(() => {
   for (const root of roots.splice(0)) {
     rmSync(root, { recursive: true, force: true });
   }
 });
+
+// Most tests here wait for a real cf child process with their own directory and local API
+// server, so they run concurrently. Tests that use `vi` run alone through serialIt: they patch
+// globals, and Vitest clears every mock's call history whenever another test starts.
+const it = serialIt.concurrent;
 
 function worker(config: Record<string, unknown>): string {
   const root = mkdtempSync(join(tmpdir(), 'void-cf-build-output-test-'));
@@ -418,7 +426,7 @@ it('returns only the public fields of the prepared output', async () => {
   });
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'rejects a legacy asset symlink outside the asset directory',
   async () => {
     const output = worker({
@@ -439,13 +447,13 @@ it.skipIf(process.platform === 'win32')(
   },
 );
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native modules', async () => {
   const root = await nativeBuild();
   symlinkSync('index.js', join(getWorkerBundleDir(root), 'alias.js'));
   await expect(prepareCfBuildOutput(root)).rejects.toThrow('Symlinks are not permitted');
 });
 
-it.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
+serialIt.skipIf(process.platform === 'win32')('rejects symlinked native assets', async () => {
   const root = await nativeBuild();
   const secret = join(root, 'secret.txt');
   writeFileSync(secret, 'private');
@@ -853,7 +861,7 @@ it(
   CF_BUILD_TIMEOUT_MS,
 );
 
-it(
+serialIt(
   'keeps local .env client values out of framework Worker output',
   async () => {
     const root = mkdtempSync(join(tmpdir(), 'void-cf-framework-env-test-'));
@@ -1316,7 +1324,7 @@ it('reads a framework config as JSONC and still rejects one that is not an objec
   }
 });
 
-it.skipIf(process.platform === 'win32')(
+serialIt.skipIf(process.platform === 'win32')(
   'builds a named Sandbox image into cf prebuilt output and cleans up its local tag',
   async () => {
     const output = worker({

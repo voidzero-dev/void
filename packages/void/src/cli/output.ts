@@ -43,12 +43,30 @@ export function printDone(message: string | Array<string>): void {
 }
 
 /** Something the user should do next, listed in a command's closing summary. */
-export function printNextStep(message: string): void {
-  log.message(message, { symbol: pc.blue('→') });
+export function printNextStep(message: string, { wrap = true }: { wrap?: boolean } = {}): void {
+  // Let the terminal wrap the display without inserting newlines into a
+  // command the user needs to paste into their shell.
+  const output = wrap
+    ? undefined
+    : ({
+        columns: Buffer.byteLength(message) + 2,
+        write: (chunk: string) => process.stdout.write(chunk),
+      } as unknown as Writable);
+  log.message(message, { symbol: pc.blue('→'), output });
 }
 
 export function formatCount(count: number, singular: string, plural = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : plural}`;
+}
+
+/** How long a step took, in the form `vp create` prints: "215ms", "2.4s" or "12s". */
+export function formatDuration(durationMs: number): string {
+  const ms = Math.round(durationMs);
+  if (ms < 1000) {
+    return `${Math.max(1, ms)}ms`;
+  }
+  const tenths = Math.round(ms / 100);
+  return tenths < 100 ? `${(tenths / 10).toFixed(1)}s` : `${Math.round(ms / 1000)}s`;
 }
 
 /** Keep recovery commands on the same CLI when using the local checkout launcher. */
@@ -59,7 +77,7 @@ export function cliCommandName(): 'void' | 'void-dev' {
 
 /** Keep phase updates visible in static progress output, including redirected terminals. */
 export function createSpinner(
-  options?: Pick<SpinnerOptions, 'onCancel'>,
+  options?: Pick<SpinnerOptions, 'onCancel' | 'indicator' | 'cancelMessage'>,
   isTerminal: boolean = process.stdout.isTTY === true,
 ): SpinnerResult {
   const accessible =
@@ -92,7 +110,8 @@ export function createSpinner(
     cancel(msg = '') {
       cancelled = true;
       if (msg) {
-        log.warn(msg);
+        // The red ■ that a cancelled spinner leaves in a terminal.
+        log.error(msg);
       }
     },
     error(msg = '') {

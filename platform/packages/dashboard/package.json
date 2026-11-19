@@ -9,7 +9,7 @@
     "deploy:staging": "node ../../scripts/wrangler-deploy.ts --build --env staging",
     "dev": "node scripts/refresh-access-token.mjs && vp dev",
     "preview": "vp preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsrs --noEmit"
   },
   "dependencies": {
     "@astryxdesign/core": "catalog:",
@@ -27,6 +27,7 @@
     "@types/react-dom": "^19.3.0",
     "@void/react": "workspace:*",
     "@voidcloud/api": "workspace:*",
+    "tsrs": "catalog:",
     "typescript": "catalog:",
     "vite": "catalog:",
     "vite-plus": "catalog:",

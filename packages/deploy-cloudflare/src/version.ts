@@ -1309,10 +1309,21 @@ async function activateCloudflareVersionWithSecretsFile(
     return { ok: false, reason: 'upload-output-invalid' };
   }
   options.onProgress?.('Verifying the uploaded Worker...');
-  if (inheritanceBaseline) {
-    let recent = await readRecentCloudflareVersionIds(options);
-    // A failed read immediately after upload must not require another upload.
-    // Retry only unavailable metadata; unexpected version histories still fail.
+  const baseline = inheritanceBaseline;
+  if (baseline) {
+    // The list can still show the exact pre-upload history after a successful upload.
+    // Wait for a fresh read, but pass any other history straight to the lineage check.
+    const readUpdatedHistory = async () => {
+      const recent = await readRecentCloudflareVersionIds(options);
+      const unchanged =
+        recent?.length === baseline.length &&
+        recent.every(
+          (version, index) =>
+            version.id === baseline[index]!.id && version.number === baseline[index]!.number,
+        );
+      return unchanged ? null : recent;
+    };
+    let recent = await readUpdatedHistory();
     for (let attempt = 0; recent === null && attempt < 2; attempt++) {
       await (options.sleep ?? delay)(250 * 2 ** attempt);
       if (!options.verifyUploader()) {
@@ -1324,10 +1335,10 @@ async function activateCloudflareVersionWithSecretsFile(
           rollback: 'not-needed',
         };
       }
-      recent = await readRecentCloudflareVersionIds(options);
+      recent = await readUpdatedHistory();
     }
-    const previousLatest = inheritanceBaseline.at(-1);
-    const expected = [...inheritanceBaseline.map((version) => version.id), versionId].slice(-10);
+    const previousLatest = baseline.at(-1);
+    const expected = [...baseline.map((version) => version.id), versionId].slice(-10);
     if (recent === null) {
       return {
         ok: false,

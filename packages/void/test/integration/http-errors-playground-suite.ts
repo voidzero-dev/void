@@ -111,7 +111,14 @@ type PageData = {
   deferredKeys?: Record<string, string>;
 };
 
-describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mode) => {
+export type HttpErrorsMode = 'dev' | 'production';
+
+/** Each mode runs from its own test file, so both servers and browser matrices run in parallel. */
+export function describeHttpErrorsPlayground(mode: HttpErrorsMode): void {
+  describe(`HTTP errors playground (${mode})`, () => httpErrorsSuite(mode));
+}
+
+function httpErrorsSuite(mode: HttpErrorsMode): void {
   let playground: IsolatedPlayground;
   let server: StartedServer;
   let browser: Browser;
@@ -367,4 +374,4 @@ describe.each(['dev', 'production'] as const)('HTTP errors playground (%s)', (mo
       expect(await page.title()).toBe('HTTP Errors Example');
     });
   });
-});
+}
