@@ -1048,12 +1048,14 @@ void [builder, RouteBuilder, renamed, mixed, callback, known];
   );
 
   it.each(declarationChecks)(
-    'checks routeUrl in apps with hundreds of routes through $declarations declarations with TS $version',
+    'checks routeUrl in apps with thousands of routes through $declarations declarations with TS $version',
     async ({ declarations, tsc }) => {
-      // A non-primitive member in Candidate's constraint made `P & Candidate` a cross product
-      // of the route union, which TypeScript rejects (TS2590) past ~316 route keys.
+      // About 1,800 route keys, since each dynamic page also has a `:param` alias. A
+      // non-primitive member in Candidate's constraint made `P & Candidate` a cross product
+      // that TypeScript rejects (TS2590) past ~316 keys, and a deferred path check rejected
+      // generic helpers (TS2859) past ~1,400.
       const pages = Object.fromEntries(
-        Array.from({ length: 150 }, (_, index) => [
+        Array.from({ length: 600 }, (_, index) => [
           [`pages/large/s${index}.tsx`, 'export default function Page() { return null; }'],
           [`pages/large/d${index}/[id].tsx`, 'export default function Page() { return null; }'],
         ]).flat(),
@@ -1215,6 +1217,9 @@ void [forward, forwardIntersectedPath];
           expect(diagnostics[index]).not.toMatch(
             /not assignable to type '"(?:Missing|Unknown|Invalid|Param|Query|Hash|Options)/,
           );
+        } else {
+          // The error names the path the caller wrote, not its widened `string` type.
+          expect(diagnostics[index]).toMatch(/^Argument of type '"/);
         }
       });
       expect(output).not.toContain('No overload matches this call');

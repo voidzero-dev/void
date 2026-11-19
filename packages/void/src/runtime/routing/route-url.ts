@@ -1,5 +1,5 @@
 import type { EncodedRoutePathMap, RoutePathMap, RouteTypesConfig } from 'void/routes';
-import type { UrlErrorToken, UrlTypeError } from './url-diagnostics.ts';
+import type { UrlErrorToken } from './url-diagnostics.ts';
 
 /**
  * Encode one path segment of a route param. `encodeURIComponent` keeps dots, and
@@ -161,32 +161,43 @@ type UrlOptions = {
 // An unknown pattern has no matching route params, so TypeScript can report
 // the path error even if the options argument is absent. In static-only apps,
 // keep P alone so an unchecked path doesn't affect the optional options tuple.
-// A broad candidate must also keep P so it cannot widen the checked pattern.
+// A broad candidate must also keep P so it cannot widen the checked pattern. Candidate
+// holds only the string literals in the path, so narrow P by it only when one of them
+// is unknown: a path such as `P | '/about'` has other members that P must keep.
 type MatchingRoute<P extends RoutePath, Candidate extends string> = [
   RoutePathMap[RoutePath],
 ] extends [never]
   ? P
-  : string extends Candidate
+  : [Candidate] extends [RoutePath]
     ? P
-    : P & Candidate;
+    : string extends Candidate
+      ? P
+      : P & Candidate;
 
 // Function helpers can widen Candidate to string when they infer the signature.
 // The marker must not be a subtype of the path: method signatures and code without
 // strictFunctionTypes compare parameters bivariantly and would accept the route.
+// A string-literal message also keeps the quoted path in the error: TypeScript prints
+// the argument as `string` when the parameter type has no literal or template members.
 type UnknownRoute<Candidate extends string> = string extends Candidate
   ? never
-  : UrlTypeError<`Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.`> &
+  : `Unknown route: ${Exclude<NoInfer<Candidate>, RoutePath>}. Use a registered route pattern.` &
       UrlErrorToken;
 
-// Keep P and Candidate out of a top-level union so TypeScript infers each from the
-// whole argument. A generic path such as `P & RoutePath` would otherwise be inferred
-// from its first member alone. The inner check always holds; its false branch only
-// gives Candidate an inference site.
-type RouteArgument<P extends RoutePath, Candidate extends string> = string extends Candidate
+// Keep P out of a top-level union so TypeScript infers it from the whole argument. A
+// generic path such as `P & RoutePath` would otherwise be inferred from its first member
+// alone. The inner check always holds; its false branch only gives Candidate an inference
+// site. That site is a template literal, so only string literals infer a candidate. Other
+// paths, such as `P & RoutePath` in a generic helper, infer never and resolve to P like a
+// plain parameter. Left deferred, the check would compare every route in that union with
+// every other one, which exceeds TypeScript's complexity limit in apps with ~1,400 routes.
+type RouteArgument<P extends RoutePath, Candidate extends string> = [Candidate] extends [never]
   ? P
-  : [Candidate] extends [unknown]
-    ? MatchingRoute<P, Candidate> | UnknownRoute<Candidate>
-    : Candidate;
+  : string extends Candidate
+    ? P
+    : [Candidate] extends [unknown]
+      ? MatchingRoute<P, Candidate> | UnknownRoute<Candidate>
+      : `${Candidate}`;
 
 /** Build a relative URL from a known route pattern. */
 // A single signature with a positional path preserves inference in wrappers and currying helpers.
