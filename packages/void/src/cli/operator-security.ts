@@ -339,6 +339,29 @@ async function runBackfill(
   io.outputMutation(result, args);
 }
 
+async function runWebhook(
+  client: OperatorClient,
+  origin: string,
+  args: OperatorArgs,
+  io: SecurityIo,
+): Promise<void> {
+  const preview = await previewOf(client, args, args.path, args.body);
+  if (!(await io.confirm(origin, preview, args))) {
+    return;
+  }
+  const result = await client.request(args.path, {
+    method: 'POST',
+    body: args.body,
+    timeoutMs: args.timeoutMs,
+  });
+  io.outputMutation(result, args);
+  if (!args.json && typeof result.secret === 'string') {
+    process.stderr.write(
+      `${dim('Save the signing secret above now; it is not shown again. Check each request: X-Void-Signature is t=<seconds>,v1=<HMAC-SHA256 hex of "<t>.<body>">.')}\n`,
+    );
+  }
+}
+
 async function runModel(
   client: OperatorClient,
   origin: string,
@@ -381,7 +404,11 @@ async function runMutation(
     case 'limits':
     case 'public-gate':
     case 'sweeps':
+    case 'fallback':
+    case 'digest':
       return changeWithRevision(client, origin, args, io, { ...args.body });
+    case 'webhook':
+      return runWebhook(client, origin, args, io);
     case 'models': {
       const { acceptProviderNotice, ...fields } = args.body;
       const body: Result = { ...fields };

@@ -3,6 +3,7 @@
  *
  *   rescan (operator or project) ────────────────────────────► T3 full   (edge #43)
  *   sweep (scheduled, M25) ──────────────────────────────────► T3 full, `standard` profile
+ *   fallback (M26) of a rescan or a sweep ───────────────────► T3 full, as the failed scan
  *   no succeeded scan yet ───────────────────────────────────► T3 full (first scan)
  *   base snapshot gone ──────────────────────────────────────► T3 full (no usable base)
  *   T1 source diff possible (hosted `managedBuilds`, M11) ───► T1
@@ -23,6 +24,25 @@ export type SecurityFullReason =
   | 'sweep'
   | 'gate_recheck';
 
+/** The full reasons a fallback scan carries over from the scan it re-runs. */
+export type SecurityFallbackFullReason = Extract<SecurityFullReason, 'rescan' | 'sweep'>;
+
+/**
+ * The full reason a fallback carries, from the coverage notes set when it was queued
+ * (`queueSecurityFallbackScans`); `null` for a fallback that follows the base rule.
+ */
+export function securityFallbackFullReason(
+  notes: ReadonlyArray<string>,
+): SecurityFallbackFullReason | null {
+  if (notes.includes(SECURITY_FULL_REASON_NOTES.rescan)) {
+    return 'rescan';
+  }
+  if (notes.includes(SECURITY_FULL_REASON_NOTES.sweep)) {
+    return 'sweep';
+  }
+  return null;
+}
+
 export type SecurityTierChoice = Readonly<{
   tier: SecurityScanTier;
   fullReason: SecurityFullReason | null;
@@ -37,6 +57,11 @@ export function chooseSecurityTier(
     baseSnapshot: boolean;
     /** T1 checks passed (M11); always false on a self-hosted install. */
     sourceDiff?: boolean;
+    /**
+     * A fallback (M26) of a rescan or a sweep: the full scan the failed one was. Without
+     * it the base rule could diff the deployment against itself and scan nothing.
+     */
+    fallbackOf?: SecurityFallbackFullReason | null;
   }>,
 ): SecurityTierChoice {
   if (input.trigger === 'rescan') {
@@ -44,6 +69,9 @@ export function chooseSecurityTier(
   }
   if (input.trigger === 'sweep') {
     return { tier: 'full', fullReason: 'sweep' };
+  }
+  if (input.trigger === 'fallback' && input.fallbackOf) {
+    return { tier: 'full', fullReason: input.fallbackOf };
   }
   if (input.baseDeploymentId === null) {
     return { tier: 'full', fullReason: 'first_scan' };

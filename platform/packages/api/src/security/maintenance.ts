@@ -9,6 +9,8 @@
  *   ─ ended rows still holding a reserve → released
  *   ─ raw output sweep (30 d)       ─ daily probe (entitlement older than 24 h)
  *                                   ─ scheduled full sweeps (policy `sweeps.on`)
+ *                                   ─ fallback backstop (policy `fallbackToCf`)
+ *   ─ failure-streak emails, weekly digest (policy `digest`), M26
  *   ─ scan row retention
  *   ─ closed request retention
  *
@@ -24,8 +26,10 @@ import { paginatedR2Delete } from '../assets.ts';
 import { getPlatformCapabilities } from '../capabilities.ts';
 import type { Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
+import { queueSecurityDigest, queueSecurityStreakNotifications } from './alerts.ts';
 import { pokeSecurityScanScheduler } from './enqueue.ts';
 import { queueExposureCatchUpScans } from './exposure.ts';
+import { queueSecurityFallbackScans } from './fallback.ts';
 import { hasPendingSecurityNotifications } from './notifications.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import { probeAndRecord } from './probe.ts';
@@ -81,6 +85,8 @@ export type SecurityMaintenanceReport = Readonly<{
   repoked: number;
   backlogged: number;
   sweepsQueued: number;
+  fallbacksQueued: number;
+  alertsQueued: number;
   rawSwept: number;
   scanRowsDeleted: number;
   requestsDeleted: number;
@@ -130,14 +136,18 @@ export async function runSecurityMaintenance(
     releaseStrandedSecurityScanReserves(db),
   );
   // Email rows wait for the alarm whatever the policy says: a lost poke is retried here.
-  await step('notification poke', undefined, async () => {
-    if (await hasPendingSecurityNotifications(db)) {
-      await deps.poke();
-    }
-  });
+  const notificationPoke = () =>
+    step('notification poke', undefined, async () => {
+      if (await hasPendingSecurityNotifications(db)) {
+        await deps.poke();
+      }
+    });
+  await notificationPoke();
   let repoked = 0;
   let backlogged = 0;
   let sweepsQueued = 0;
+  let fallbacksQueued = 0;
+  let alertsQueued = 0;
   let probed = false;
   if (policy.mode !== 'disabled') {
     repoked = await step('re-poke', 0, () => queueStalePendingSecurityScans(db, now));
@@ -148,11 +158,19 @@ export async function runSecurityMaintenance(
     sweepsQueued = await step('scheduled sweeps', 0, () =>
       queueSecuritySweeps(env, db, policy, now),
     );
+    fallbacksQueued = await step('fallback backstop', 0, async () => {
+      return (await queueSecurityFallbackScans(env, db, policy, { now })).length;
+    });
+    alertsQueued = await step('streak emails', 0, () => queueSecurityStreakNotifications(db, now));
+    alertsQueued += await step('weekly digest', 0, () => queueSecurityDigest(db, policy, now));
     await step('poke', undefined, async () => {
       if (await hasQueuedSecurityScans(db)) {
         await deps.poke();
       }
     });
+    if (alertsQueued > 0) {
+      await notificationPoke();
+    }
     if (securityProbeDue(policy, now)) {
       probed = await step('daily probe', false, async () => {
         await deps.probe();
@@ -175,6 +193,8 @@ export async function runSecurityMaintenance(
     repoked,
     backlogged,
     sweepsQueued,
+    fallbacksQueued,
+    alertsQueued,
     rawSwept,
     scanRowsDeleted,
     requestsDeleted,

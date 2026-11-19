@@ -577,3 +577,183 @@ export function composeSecurityBypassEmail(
     pageSlug: null,
   };
 }
+
+// ---------------------------------------------------------------------------
+// Failure streaks and the weekly digest (Phase 2, M26)
+// ---------------------------------------------------------------------------
+
+export type SecurityStreakScanLine = Readonly<{
+  id: string;
+  deploymentId: string | null;
+  /** `refused by anthropic/claude-opus-5.5`, `timed out`, `bad output`, … */
+  outcome: string;
+  at: number | null;
+}>;
+
+export type SecurityProjectStreakEmailData = Readonly<{
+  platform: string;
+  slug: string;
+  failures: number;
+  /** Newest first, at most a few. */
+  scans: ReadonlyArray<SecurityStreakScanLine>;
+  /** The third-party model that refused, when the newest failure is a refusal. */
+  refusedModel: string | null;
+  /** The `@cf` model to switch to in that case. */
+  cfModel: string | null;
+  /** The platform's re-scan on the `@cf` default is on. */
+  fallbackOn: boolean;
+}>;
+
+export function composeSecurityProjectStreakEmail(
+  data: SecurityProjectStreakEmailData,
+  reason: SecurityEmailReason,
+): SecurityEmailContent {
+  const details = data.scans.map((scan) =>
+    [
+      `  ${pad(scan.id, 22)}`,
+      pad(scan.deploymentId ?? '', 22),
+      pad(cutSecurityEmailText(scan.outcome, 60), 40),
+      scan.at === null ? '' : formatSecurityStamp(scan.at),
+    ]
+      .join(' ')
+      .trimEnd(),
+  );
+  if (data.failures > data.scans.length) {
+    details.push(`  and ${data.failures - data.scans.length} more`);
+  }
+  const notes: Array<string> = [];
+  if (data.refusedModel && data.cfModel) {
+    notes.push(
+      `${data.refusedModel} refused to review this code. A project admin or owner can switch the model: void project security model ${data.cfModel} --project ${data.slug}`,
+    );
+    if (!data.fallbackOn) {
+      notes.push(
+        `A platform admin can also re-scan once on the @cf default after a refusal: void platform security fallback on`,
+      );
+    }
+  }
+  notes.push('Deploys are not blocked. The next scan covers every change since the last good one.');
+  return {
+    subject: `${bracket(data.platform)} ${data.slug}: ${data.failures} security scans in a row did not finish`,
+    intro: `The last ${data.failures} security scans of ${data.slug} did not succeed, so its newest code has no security result yet.`,
+    details,
+    notes,
+    actions: [
+      `See them:   void project security scans --project ${data.slug}`,
+      `Scan again: void project security scan --project ${data.slug}`,
+    ],
+    footer: securityEmailFooter(reason, data.slug, data.platform),
+    pageSlug: data.slug,
+  };
+}
+
+const INSTALLATION_REASON_LABELS: Readonly<Record<string, string>> = {
+  credits: 'no AI credits left',
+  infrastructure: 'scanner or container error',
+  backlog: 'waited over 24 hours in the queue',
+};
+
+export type SecurityInstallationStreakEmailData = Readonly<{
+  platform: string;
+  /** Scans that ended in the last 24 hours. */
+  ended: number;
+  /** Of those, failures with a platform cause. */
+  failed: number;
+  byReason: Readonly<Record<string, number>>;
+}>;
+
+export function composeSecurityInstallationStreakEmail(
+  data: SecurityInstallationStreakEmailData,
+  reason: SecurityEmailReason,
+): SecurityEmailContent {
+  const reasons = Object.entries(data.byReason).sort(
+    (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
+  );
+  return {
+    subject: `${bracket(data.platform)} Platform: ${data.failed} of ${data.ended} security scans failed in the last 24 hours`,
+    intro: `Security scans are failing for a platform reason, not because of the projects' code. Deploys still go out, without a security result.`,
+    details: reasons.map(
+      ([key, count]) =>
+        `  ${pad(String(count), 6)}${INSTALLATION_REASON_LABELS[key] ?? key.split('_').join(' ')}`,
+    ),
+    notes: data.byReason.credits
+      ? [
+          'Add Workers AI credits on the Cloudflare account, then the next deploys are scanned again.',
+        ]
+      : [],
+    actions: [
+      'Status:  void platform security status',
+      'Scans:   void platform security scans --status failed',
+    ],
+    footer: securityEmailFooter(reason, null, data.platform),
+    pageSlug: null,
+  };
+}
+
+export type SecurityDigestEmailData = Readonly<{
+  platform: string;
+  /** `Nov 9 – Nov 15`. */
+  weekLabel: string;
+  scans: Readonly<{
+    ended: number;
+    succeeded: number;
+    projectFailures: number;
+    installationFailures: number;
+    budgetSkips: number;
+  }>;
+  newFindings: Readonly<{
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+    leads: number;
+  }>;
+  resolvedFindings: number;
+  openUrgentFindings: number;
+  projectsWithUrgentFindings: number;
+  projectsWithFailureStreaks: number;
+  openPublicRequests: number;
+  bypasses: number;
+}>;
+
+export function composeSecurityDigestEmail(
+  data: SecurityDigestEmailData,
+  reason: SecurityEmailReason,
+): SecurityEmailContent {
+  const found = data.newFindings;
+  const newTotal = found.critical + found.high + found.medium + found.low;
+  const row = (label: string, value: string) => `  ${pad(label, 26)}${value}`;
+  const details = [
+    row(
+      'Scans',
+      `${data.scans.ended} ended: ${data.scans.succeeded} succeeded, ${data.scans.projectFailures} failed (project), ${data.scans.installationFailures} failed (platform), ${data.scans.budgetSkips} skipped (budget)`,
+    ),
+    row(
+      'New findings',
+      `${newTotal}: ${found.critical} critical, ${found.high} high, ${found.medium} medium, ${found.low} low; ${found.leads} ${plural(found.leads, 'lead', 'leads')}`,
+    ),
+    row('Resolved', String(data.resolvedFindings)),
+    row(
+      'Urgent and open now',
+      `${data.openUrgentFindings} in ${data.projectsWithUrgentFindings} ${plural(data.projectsWithUrgentFindings, 'project', 'projects')}`,
+    ),
+    row(
+      'Failure streaks now',
+      `${data.projectsWithFailureStreaks} ${plural(data.projectsWithFailureStreaks, 'project', 'projects')}`,
+    ),
+    row('Open public requests', String(data.openPublicRequests)),
+    row('Scan bypasses', String(data.bypasses)),
+  ];
+  return {
+    subject: `${bracket(data.platform)} Platform: weekly security summary (${data.weekLabel})`,
+    intro: `Security audits on ${data.platform} in the week ${data.weekLabel} (UTC).`,
+    details,
+    notes: [],
+    actions: [
+      'Urgent:  void platform security findings --urgent',
+      'Scans:   void platform security scans',
+    ],
+    footer: securityEmailFooter(reason, null, data.platform),
+    pageSlug: null,
+  };
+}

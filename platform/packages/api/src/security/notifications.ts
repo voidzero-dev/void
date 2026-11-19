@@ -7,20 +7,25 @@
  *   human reopen          ─ reopen ───┤    │          30-min cooldown, merge scans
  *   spend crosses 80/100% ─ cap_* ────┼──► │  recipients worked out now
  *   public gate (M16)     ─ public_* ─┤    │  one email per person
- *   bypass (M16)          ─ bypass ───┘    └► sent | skipped | retry ×3 (1 min, 5 min)
+ *   bypass (M16)          ─ bypass ───┤    └► sent | skipped | retry ×3 (1 min, 5 min)
+ *   hourly (M26)          ─ streak_*, digest
+ *   any of the above, webhook set ─ webhook twin row ─► signed POST (ids and counts)
  *
  * A row stores no recipient and no text: both are worked out at send time, so an owner
  * transfer, a role change or a finding resolved in between is respected (edge #25, #47,
- * #69, #70). `EMAIL` unbound skips quietly (edge #27).
+ * #69, #70). `EMAIL` unbound skips the emails quietly (edge #27); webhook rows still go.
  */
-import { and, asc, desc, eq, inArray, lte, max, min, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lte, max, min, ne, sql } from 'drizzle-orm';
 import type { Db, DbOrTx } from '../db.ts';
 import {
   sendSecurityBypassEmail,
+  sendSecurityDigestEmail,
   sendSecurityFindingsEmail,
+  sendSecurityInstallationStreakEmail,
   sendSecurityNowPublicEmail,
   sendSecurityPlatformCapEmail,
   sendSecurityProjectCapEmail,
+  sendSecurityProjectStreakEmail,
   sendSecurityPublicCanceledEmail,
   sendSecurityPublicHeldEmail,
   sendSecurityReopenEmail,
@@ -40,19 +45,27 @@ import {
   securityUsdArgument,
   type SecuritySpendCaps,
 } from './budget.ts';
+import {
+  readSecurityDigestCounts,
+  securityDigestIsEmpty,
+  type SecurityDigestCounts,
+} from './digest.ts';
 import { isUrgentSeverity, severityRank } from './findings.ts';
+import { securityCfDefaultModel } from './models.ts';
 import {
   SECURITY_EMAIL_MAX_FINDINGS,
   formatSecurityDay,
   securityActorRoleLabel,
   type SecurityEmailFinding,
   type SecurityPublicHeldState,
+  type SecurityStreakScanLine,
 } from './notification-copy.ts';
 import { readSecurityPolicyLenient } from './policy.ts';
 import {
   resolveInstallationAdminRecipients,
   resolveProjectAdminRecipients,
   resolveProjectSecurityRecipients,
+  resolveProjectStreakRecipients,
   resolvePublicRequestRecipients,
   type SecurityRecipient,
 } from './recipients.ts';
@@ -66,9 +79,22 @@ import {
   securityPublicRequests,
   securityScanBypasses,
   securityScans,
+  SECURITY_PLATFORM_NOTIFICATION_KINDS,
   type SecurityNotificationKind,
   type SecurityPublicRequestState,
 } from './schema.ts';
+import {
+  listSecurityProjectStreaks,
+  readSecurityInstallationFailures,
+  securityInstallationFailing,
+  type SecurityProjectStreak,
+} from './streaks.ts';
+import {
+  postSecurityWebhook,
+  securityWebhookOn,
+  type SecurityWebhookEnv,
+  type SecurityWebhookEvent,
+} from './webhook.ts';
 
 /** At most one findings email per project in this window; later scans merge into the next one. */
 export const SECURITY_FINDINGS_COOLDOWN_MS = 30 * 60_000;
@@ -105,7 +131,27 @@ export type SecurityNotificationInput =
     }>
   | Readonly<{ kind: 'public_now_public'; projectId: string; requestId: string }>
   | Readonly<{ kind: 'public_canceled'; projectId: string; requestId: string }>
-  | Readonly<{ kind: 'scan_bypass'; projectId: string; requestId: string; bypassId: string }>;
+  | Readonly<{ kind: 'scan_bypass'; projectId: string; requestId: string; bypassId: string }>
+  /** One per streak: keyed by the scan before it (`null`: the project never had one). */
+  | Readonly<{ kind: 'streak_project'; projectId: string; sinceScanId: string | null }>
+  /** At most one per UTC day, `2026-11-20`. */
+  | Readonly<{ kind: 'streak_installation'; day: string }>
+  /** One per covered week, keyed by its Monday, `2026-11-09`. */
+  | Readonly<{ kind: 'digest'; week: string }>;
+
+/** A webhook row's key is `webhook:` and the key of the event it copies. */
+const WEBHOOK_PREFIX = 'webhook:';
+
+/** The key of the event a row tells: a `webhook` row's key without its prefix. */
+function eventKeyOf(row: Pick<Row, 'dedupe_key'>): string {
+  return row.dedupe_key.startsWith(WEBHOOK_PREFIX)
+    ? row.dedupe_key.slice(WEBHOOK_PREFIX.length)
+    : row.dedupe_key;
+}
+
+function isPlatformKind(kind: SecurityNotificationKind): boolean {
+  return (SECURITY_PLATFORM_NOTIFICATION_KINDS as ReadonlyArray<string>).includes(kind);
+}
 
 /** The unique key of a notification; the same event queued twice is one email. */
 export function securityNotificationDedupeKey(input: SecurityNotificationInput): string {
@@ -126,31 +172,48 @@ export function securityNotificationDedupeKey(input: SecurityNotificationInput):
       return `public_canceled:${input.requestId}`;
     case 'scan_bypass':
       return `scan_bypass:${input.bypassId}`;
+    case 'streak_project':
+      return `streak_project:${input.projectId}:${input.sinceScanId ?? 'start'}`;
+    case 'streak_installation':
+      return `streak_installation:${input.day}`;
+    case 'digest':
+      return `digest:${input.week}`;
   }
 }
 
 /**
  * Queues one notification. Returns `false` when the same event is already queued (or
  * sent). Pass the transaction of the change that caused it, so the row and the change
- * commit together; poke the scheduler after the commit.
+ * commit together; poke the scheduler after the commit. With a webhook set, a `webhook`
+ * row for the same event commits with it.
  */
 export async function enqueueSecurityNotification(
   db: DbOrTx,
   input: SecurityNotificationInput,
 ): Promise<boolean> {
+  const key = securityNotificationDedupeKey(input);
+  const values = {
+    project_id: isPlatformKind(input.kind) || !('projectId' in input) ? null : input.projectId,
+    scan_ids: input.kind === 'findings' ? [input.scanId] : [],
+    request_id: 'requestId' in input ? input.requestId : null,
+    scan_bypass_id: input.kind === 'scan_bypass' ? input.bypassId : null,
+  };
   const rows = await db
     .insert(securityNotifications)
-    .values({
-      id: generateId('sn'),
-      kind: input.kind,
-      project_id: input.kind === 'cap_platform' ? null : input.projectId,
-      scan_ids: input.kind === 'findings' ? [input.scanId] : [],
-      request_id: 'requestId' in input ? input.requestId : null,
-      scan_bypass_id: input.kind === 'scan_bypass' ? input.bypassId : null,
-      dedupe_key: securityNotificationDedupeKey(input),
-    })
+    .values({ id: generateId('sn'), kind: input.kind, dedupe_key: key, ...values })
     .onConflictDoNothing({ target: securityNotifications.dedupe_key })
     .returning({ id: securityNotifications.id });
+  if (rows.length > 0 && (await securityWebhookOn(db))) {
+    await db
+      .insert(securityNotifications)
+      .values({
+        id: generateId('sn'),
+        kind: 'webhook',
+        dedupe_key: WEBHOOK_PREFIX + key,
+        ...values,
+      })
+      .onConflictDoNothing({ target: securityNotifications.dedupe_key });
+  }
   return rows.length > 0;
 }
 
@@ -309,6 +372,14 @@ async function failRows(
   return outcome;
 }
 
+/** What the outbox needs: the mail binding, and the keyring that holds the webhook secret. */
+export type SecurityNotifyEnv = PlatformEmailEnv & Partial<SecurityWebhookEnv>;
+
+export type SecurityNotifyOptions = Readonly<{
+  /** The webhook POST; tests replace it. */
+  fetch?: typeof fetch;
+}>;
+
 /**
  * One alarm pass over the outbox. Due rows are delivered; a findings row waits out the
  * project's 30-minute cooldown and then goes out with every other due findings row of the
@@ -316,17 +387,21 @@ async function failRows(
  */
 export async function runSecurityNotifications(
   db: Db,
-  env: PlatformEmailEnv,
+  env: SecurityNotifyEnv,
   now: number = Date.now(),
+  options: SecurityNotifyOptions = {},
 ): Promise<SecurityNotificationRun> {
   const totals = { sent: 0, skipped: 0, failed: 0 };
-  if (!env.EMAIL) {
+  const emailOn = Boolean(env.EMAIL);
+  if (!emailOn) {
     // Email is off: nothing to send now, and a later "on" does not replay old news.
+    // Webhook rows do not need the mail binding.
     await db
       .update(securityNotifications)
       .set({ status: 'skipped' })
-      .where(eq(securityNotifications.status, 'pending'));
-    return { ...totals, nextAt: null };
+      .where(
+        and(eq(securityNotifications.status, 'pending'), ne(securityNotifications.kind, 'webhook')),
+      );
   }
   const due = await db
     .select()
@@ -335,6 +410,7 @@ export async function runSecurityNotifications(
       and(
         eq(securityNotifications.status, 'pending'),
         lte(securityNotifications.next_attempt_at, iso(now)),
+        emailOn ? undefined : eq(securityNotifications.kind, 'webhook'),
       ),
     )
     .orderBy(asc(securityNotifications.created_at), asc(securityNotifications.id))
@@ -368,9 +444,20 @@ export async function runSecurityNotifications(
     }
   }
 
+  // After one failed webhook POST the rest of this pass's webhook rows wait: a dead
+  // endpoint costs one timeout per pass, not one per row, and the emails keep going.
+  let webhookDownUntil: number | null = null;
   for (const group of groups) {
+    if (group[0]!.kind === 'webhook' && webhookDownUntil !== null) {
+      await delayRows(
+        db,
+        group.map((row) => row.id),
+        webhookDownUntil,
+      );
+      continue;
+    }
     try {
-      const delivery = await deliver(db, env, group, now);
+      const delivery = await deliver(db, env, group, now, options);
       if (delivery.kind === 'wait') {
         await delayRows(
           db,
@@ -396,6 +483,9 @@ export async function runSecurityNotifications(
       if ((await failRows(db, group, now)) === 'failed') {
         totals.failed += group.length;
       }
+      if (group[0]!.kind === 'webhook') {
+        webhookDownUntil = now + SECURITY_NOTIFICATION_BACKOFF_MS[0];
+      }
     }
   }
   return { ...totals, nextAt: await nextPendingAt(db) };
@@ -403,9 +493,10 @@ export async function runSecurityNotifications(
 
 async function deliver(
   db: Db,
-  env: PlatformEmailEnv,
+  env: SecurityNotifyEnv,
   group: ReadonlyArray<Row>,
   now: number,
+  options: SecurityNotifyOptions,
 ): Promise<Delivery> {
   const row = group[0]!;
   switch (row.kind) {
@@ -425,6 +516,14 @@ async function deliver(
       return deliverPublicCanceled(db, env, row);
     case 'scan_bypass':
       return deliverBypass(db, env, row, now);
+    case 'streak_project':
+      return deliverProjectStreak(db, env, row, now);
+    case 'streak_installation':
+      return deliverInstallationStreak(db, env, row);
+    case 'digest':
+      return deliverDigest(db, env, row, now);
+    case 'webhook':
+      return deliverWebhook(db, env, row, now, options);
   }
 }
 
@@ -1176,6 +1275,347 @@ async function deliverBypass(
       .where(eq(securityScanBypasses.id, bypass.id));
   }
   return delivery;
+}
+
+// ---------------------------------------------------------------------------
+// Failure streaks and the weekly digest (M26; rows are queued by `alerts.ts`)
+// ---------------------------------------------------------------------------
+
+/** Scans listed in one streak email. */
+const STREAK_SCANS_SHOWN = 5;
+const DAY_MS = 24 * 60 * 60_000;
+
+type StreakScanRow = Readonly<{
+  id: string;
+  deploymentId: string | null;
+  status: string;
+  statusReason: string | null;
+  errorClass: string | null;
+  model: string | null;
+  finishedAt: string | null;
+}>;
+
+/** `refused by anthropic/…`, `timed out`, `bad output (not_json)`: why a scan gave no result. */
+export function securityStreakOutcome(
+  scan: Omit<StreakScanRow, 'id' | 'deploymentId' | 'finishedAt'>,
+): string {
+  switch (scan.status) {
+    case 'refused':
+      return scan.model ? `refused by ${scan.model}` : 'refused';
+    case 'timed_out':
+      return 'timed out';
+    case 'incomplete':
+      return scan.statusReason
+        ? `incomplete (${scan.statusReason.split('_').join(' ')})`
+        : 'incomplete';
+    case 'failed':
+      if (scan.statusReason === 'bad_output') {
+        return scan.errorClass ? `bad output (${scan.errorClass})` : 'bad output';
+      }
+      if (scan.statusReason === 'input_missing') {
+        return 'code not stored';
+      }
+      return scan.statusReason ? `failed (${scan.statusReason.split('_').join(' ')})` : 'failed';
+    default:
+      return scan.status.split('_').join(' ');
+  }
+}
+
+/** The streak a `streak_project` row was queued for, if it is still going. */
+async function streakOfRow(db: Db, row: Row, now: number): Promise<SecurityProjectStreak | null> {
+  // `streak_project:<projectId>:<since>`, also on a webhook row.
+  const since = eventKeyOf(row).split(':')[2];
+  if (row.project_id === null || !since) {
+    return null;
+  }
+  const streaks = await listSecurityProjectStreaks(db, {
+    now,
+    projectId: row.project_id,
+    freshOnly: false,
+  });
+  const sinceScanId = since === 'start' ? null : since;
+  return streaks.find((streak) => streak.sinceScanId === sinceScanId) ?? null;
+}
+
+async function streakScans(
+  db: Db,
+  projectId: string,
+  ids: ReadonlyArray<string>,
+): Promise<Array<StreakScanRow>> {
+  if (ids.length === 0) {
+    return [];
+  }
+  return db
+    .select({
+      id: securityScans.id,
+      deploymentId: securityScans.deployment_id,
+      status: securityScans.status,
+      statusReason: securityScans.status_reason,
+      errorClass: securityScans.error_class,
+      model: securityScans.model_used,
+      finishedAt: securityScans.finished_at,
+    })
+    .from(securityScans)
+    .where(and(eq(securityScans.project_id, projectId), inArray(securityScans.id, [...ids])))
+    .orderBy(desc(securityScans.created_at), desc(securityScans.id));
+}
+
+async function deliverProjectStreak(
+  db: Db,
+  env: PlatformEmailEnv,
+  row: Row,
+  now: number,
+): Promise<Delivery> {
+  const streak = await streakOfRow(db, row, now);
+  const slug = row.project_id ? await projectSlug(db, row.project_id) : null;
+  if (!streak || slug === null) {
+    // A scan succeeded meanwhile, or the project is gone: the streak is over.
+    return SKIP;
+  }
+  const scans = await streakScans(
+    db,
+    streak.projectId,
+    streak.scanIds.slice(0, STREAK_SCANS_SHOWN),
+  );
+  const lines: Array<SecurityStreakScanLine> = scans.map((scan) => ({
+    id: scan.id,
+    deploymentId: scan.deploymentId,
+    outcome: securityStreakOutcome(scan),
+    at: scan.finishedAt ? stampMs(scan.finishedAt) : null,
+  }));
+  const newest = scans[0];
+  const policy = await readSecurityPolicyLenient(db);
+  const refusedModel =
+    newest?.status === 'refused' && newest.model !== null && !newest.model.startsWith('@cf/')
+      ? newest.model
+      : null;
+  const data = {
+    slug,
+    failures: streak.failures,
+    scans: lines,
+    refusedModel,
+    cfModel: securityCfDefaultModel(policy),
+    fallbackOn: policy.fallbackToCf,
+  };
+  const recipients = await resolveProjectStreakRecipients(db, streak.projectId);
+  return sendToAll(recipients, (recipient) =>
+    sendSecurityProjectStreakEmail(env, recipient.email, data, recipient.reason),
+  );
+}
+
+async function deliverInstallationStreak(
+  db: Db,
+  env: PlatformEmailEnv,
+  row: Row,
+): Promise<Delivery> {
+  const day = eventKeyOf(row).split(':')[1];
+  const at = day ? Date.parse(`${day}T00:00:00Z`) : Number.NaN;
+  if (!Number.isFinite(at)) {
+    return SKIP;
+  }
+  // The 24 hours up to when the row was queued: a retry tells the same numbers.
+  const failures = await readSecurityInstallationFailures(db, stampMs(row.created_at));
+  if (!securityInstallationFailing(failures)) {
+    return SKIP;
+  }
+  const recipients = await resolveInstallationAdminRecipients(db);
+  return sendToAll(recipients, (recipient) =>
+    sendSecurityInstallationStreakEmail(
+      env,
+      recipient.email,
+      { ended: failures.ended, failed: failures.failed, byReason: failures.byReason },
+      recipient.reason,
+    ),
+  );
+}
+
+/** The week a `digest` row covers, from its key. */
+function digestWeekOfRow(row: Row) {
+  // `digest:<monday>`, also on a webhook row.
+  const week = eventKeyOf(row).split(':')[1];
+  const fromMs = week ? Date.parse(`${week}T00:00:00Z`) : Number.NaN;
+  if (!week || !Number.isFinite(fromMs)) {
+    return null;
+  }
+  return { week, fromMs, toMs: fromMs + 7 * DAY_MS };
+}
+
+async function digestCountsOfRow(
+  db: Db,
+  row: Row,
+  now: number,
+): Promise<SecurityDigestCounts | null> {
+  const week = digestWeekOfRow(row);
+  if (week === null) {
+    return null;
+  }
+  const counts = await readSecurityDigestCounts(db, week, now);
+  return securityDigestIsEmpty(counts) ? null : counts;
+}
+
+async function deliverDigest(
+  db: Db,
+  env: PlatformEmailEnv,
+  row: Row,
+  now: number,
+): Promise<Delivery> {
+  const week = digestWeekOfRow(row);
+  const counts = await digestCountsOfRow(db, row, now);
+  if (week === null || counts === null) {
+    return SKIP;
+  }
+  const { week: _week, ...rest } = counts;
+  const data = {
+    ...rest,
+    weekLabel: `${formatSecurityDay(week.fromMs)} – ${formatSecurityDay(week.toMs - DAY_MS)}`,
+  };
+  const recipients = await resolveInstallationAdminRecipients(db);
+  return sendToAll(recipients, (recipient) =>
+    sendSecurityDigestEmail(env, recipient.email, data, recipient.reason),
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Webhook (M26): the twin row of any event, posted signed; ids and counts only
+// ---------------------------------------------------------------------------
+
+/** The webhook body of the event a `webhook` row copies; `null` when there is nothing to tell. */
+export async function securityWebhookEventOf(
+  db: Db,
+  row: Row,
+  now: number,
+): Promise<SecurityWebhookEvent | null> {
+  if (!row.dedupe_key.startsWith(WEBHOOK_PREFIX)) {
+    return null;
+  }
+  const key = eventKeyOf(row);
+  const parts = key.split(':');
+  const kind = parts[0] ?? '';
+  const event = (data: Record<string, unknown>, slug: string | null): SecurityWebhookEvent => ({
+    id: row.id,
+    type: `security.${kind}`,
+    createdAt: iso(stampMs(row.created_at)),
+    project: row.project_id === null ? null : { id: row.project_id, slug },
+    data,
+  });
+  const slug = row.project_id === null ? null : await projectSlug(db, row.project_id);
+  if (row.project_id !== null && slug === null) {
+    return null;
+  }
+  switch (kind) {
+    case 'findings': {
+      const { findings, leads } = await newFindingsOfScans(db, row.project_id!, row.scan_ids);
+      const bySeverity: Record<string, number> = {};
+      for (const finding of findings) {
+        bySeverity[finding.severity] = (bySeverity[finding.severity] ?? 0) + 1;
+      }
+      return event(
+        {
+          scanIds: row.scan_ids,
+          newFindings: findings.length,
+          urgent: findings.filter((finding) => finding.urgent).length,
+          bySeverity,
+          findingIds: findings.map((finding) => finding.label),
+          leads,
+        },
+        slug,
+      );
+    }
+    case 'reopen': {
+      const [finding] = await db
+        .select({
+          number: securityFindings.number,
+          severity: securityFindings.severity,
+          override: securityFindings.severity_override,
+        })
+        .from(securityFindings)
+        .where(eq(securityFindings.id, parts[1] ?? ''))
+        .limit(1);
+      return finding
+        ? event(
+            {
+              findingId: `F-${finding.number}`,
+              severity: finding.override ?? finding.severity,
+              reopenCount: Number(parts[2]),
+            },
+            slug,
+          )
+        : null;
+    }
+    case 'cap_project':
+    case 'cap_platform': {
+      const cap = capKeyParts(key);
+      return cap ? event({ month: cap.month, percent: cap.percent }, slug) : null;
+    }
+    case 'public_held':
+      return event(
+        {
+          requestId: row.request_id,
+          state: parts[2] ?? null,
+          gateScanId: parts[3] && parts[3] !== '-' ? parts[3] : null,
+        },
+        slug,
+      );
+    case 'public_now_public':
+    case 'public_canceled':
+      return event({ requestId: row.request_id }, slug);
+    case 'scan_bypass':
+      return event({ requestId: row.request_id, bypassId: row.scan_bypass_id }, slug);
+    case 'streak_project': {
+      const streak = await streakOfRow(db, row, now);
+      return streak
+        ? event(
+            {
+              failures: streak.failures,
+              scanIds: streak.scanIds.slice(0, STREAK_SCANS_SHOWN),
+              sinceScanId: streak.sinceScanId,
+            },
+            slug,
+          )
+        : null;
+    }
+    case 'streak_installation': {
+      const failures = await readSecurityInstallationFailures(db, stampMs(row.created_at));
+      return event(
+        {
+          day: parts[1] ?? null,
+          ended: failures.ended,
+          failed: failures.failed,
+          byReason: failures.byReason,
+        },
+        null,
+      );
+    }
+    case 'digest': {
+      const counts = await digestCountsOfRow(db, row, now);
+      return counts ? event({ ...counts }, null) : null;
+    }
+    default:
+      return null;
+  }
+}
+
+async function deliverWebhook(
+  db: Db,
+  env: SecurityNotifyEnv,
+  row: Row,
+  now: number,
+  options: SecurityNotifyOptions,
+): Promise<Delivery> {
+  const event = await securityWebhookEventOf(db, row, now);
+  if (event === null) {
+    return SKIP;
+  }
+  if (!env.PROJECT_SECRET_KEYS_JSON || !env.PROJECT_SECRET_ACTIVE_KEY_VERSION) {
+    throw new Error('The platform keyring is not bound; the webhook secret cannot be read.');
+  }
+  const webhookEnv: SecurityWebhookEnv = {
+    PROJECT_SECRET_KEYS_JSON: env.PROJECT_SECRET_KEYS_JSON,
+    PROJECT_SECRET_ACTIVE_KEY_VERSION: env.PROJECT_SECRET_ACTIVE_KEY_VERSION,
+    PLATFORM_INSTALLATION_ID: env.PLATFORM_INSTALLATION_ID,
+  };
+  const result = await postSecurityWebhook(webhookEnv, db, event, options.fetch);
+  return result === 'sent' ? SENT : SKIP;
 }
 
 /** Hourly backstop: are there rows an alarm should still deliver? */

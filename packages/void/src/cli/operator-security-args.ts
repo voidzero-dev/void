@@ -190,6 +190,35 @@ export const securityOperatorCommands: Array<OperatorCommand> = [
   },
   {
     group: 'security',
+    action: 'fallback',
+    description:
+      'Re-scan once on the @cf default after a third-party scan is refused, fails or times out',
+    path: '/security/policy',
+    positional: ['state'],
+    usage: ['void platform security fallback <on|off> [options]'],
+    method: 'POST',
+  },
+  {
+    group: 'security',
+    action: 'digest',
+    description: 'Turn the weekly security summary email to installation admins on or off',
+    path: '/security/policy',
+    positional: ['state'],
+    usage: ['void platform security digest <on|off> [options]'],
+    method: 'POST',
+  },
+  {
+    group: 'security',
+    action: 'webhook',
+    description:
+      'Send signed security events (ids and counts only) to an https URL, or turn it off',
+    path: '/security/webhook',
+    positional: ['url'],
+    usage: ['void platform security webhook <https-url|off> [options]'],
+    method: 'POST',
+  },
+  {
+    group: 'security',
     action: 'cancel',
     description: 'Cancel a waiting or running scan',
     path: '/security/scans/:sid/cancel',
@@ -376,6 +405,23 @@ export function applySecurityArgs(
             : {}),
         },
       };
+      return;
+    }
+    case 'fallback':
+    case 'digest': {
+      const state = parameters[0]!;
+      if (state !== 'on' && state !== 'off') {
+        throw new Error(`platform: Usage: void platform security ${action} <on|off>.`);
+      }
+      parsed.body = { [action === 'fallback' ? 'fallbackToCf' : 'digest']: state === 'on' };
+      return;
+    }
+    case 'webhook': {
+      const url = parameters[0]!;
+      if (url !== 'off' && !url.startsWith('https://')) {
+        throw new Error('platform: Usage: void platform security webhook <https-url|off>.');
+      }
+      parsed.body = { url: url === 'off' ? null : url };
       return;
     }
     case 'public-gate': {

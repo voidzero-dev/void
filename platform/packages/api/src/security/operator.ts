@@ -30,6 +30,7 @@ import {
   securityUsdToCents,
 } from './budget.ts';
 import { SecurityApiError, SecurityPolicyUnreadableError } from './errors.ts';
+import { SECURITY_FULL_REASON_NOTES, type SecurityFallbackFullReason } from './input/tier.ts';
 import {
   lockSecurityPolicy,
   readSecurityPolicyLenient,
@@ -751,13 +752,26 @@ type RescanTarget = Readonly<{
   deploymentId: string;
 }>;
 
-/** Scans queued by a person or a schedule for the live deployment, not by a deploy. */
-export type SecurityManualTrigger = 'rescan' | 'backfill' | 'sweep';
+/**
+ * Scans queued by a person or a schedule for the live deployment, not by a deploy.
+ * `fallback` (M26) is the one re-scan on the `@cf` default after a failed scan.
+ */
+export type SecurityManualTrigger = 'rescan' | 'backfill' | 'sweep' | 'fallback';
 
 export type SecurityRescanOptions = Readonly<{
   trigger?: SecurityManualTrigger;
   /** Who asks, for the wording of a refusal: only an operator can cancel a scan. */
   by?: 'operator' | 'project';
+  /**
+   * The open public request a fallback re-runs the gate scan for: the row carries it,
+   * so a protected project's fallback still runs under `public` (like a gate scan).
+   */
+  publicRequestId?: string | null;
+  /**
+   * A fallback of a rescan or a sweep is the same full scan: the note set here makes the
+   * scan start choose it (`securityFallbackFullReason`).
+   */
+  fallbackOf?: SecurityFallbackFullReason | null;
 }>;
 
 /**
@@ -941,6 +955,8 @@ export async function queueSecurityRescan(
       deployment_id: preview.target.deploymentId,
       status: 'queued',
       trigger,
+      public_request_id: options.publicRequestId ?? null,
+      coverage_notes: options.fallbackOf ? [SECURITY_FULL_REASON_NOTES[options.fallbackOf]] : [],
       input_r2_key: input.r2Key,
       policy_mode_at_enqueue: policy.mode,
       public_at_enqueue: !isProtected,

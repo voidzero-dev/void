@@ -1494,6 +1494,42 @@ timed_out; streak email to installation admins split by cause; weekly digest; we
 URL (signed body, ids and counts only). Tests: `security-fallback.test.ts`,
 `security-notifications.test.ts`.
 
+As built (M26):
+
+- Fallback: only third-party → `@cf` default (`securityCfDefaultModel`), one per failed
+  scan, never a fallback of a fallback or of a `local` scan. Eligible: `refused`,
+  `timed_out`, `failed` + `bad_output`, still the project's newest scan, its deployment
+  still live, ended < 24 h ago. It uses the base tier rule, except that a fallback of a
+  rescan or a sweep is that full scan again (a `rescan` / `sweep` coverage note set at
+  queue time, read by `chooseSecurityTier`; a sweep's also gets the `standard` profile).
+  Queued right after ingest and by the hourly backstop (covers reaper `timed_out`; the
+  cron runs it before the public gate backstop). A fallback of a gate scan carries the
+  open `public_request_id`, so it is still claimed under `public` and keeps the gate
+  rule that it is never `no changes` (edge #85). `security/fallback.ts`.
+- Streak emails are always on (no setting); the digest is opt-in (`policy.digest`,
+  default off). Both are queued hourly (`security/alerts.ts`).
+- Project-cause streak (≥ 3 ended scans in a row failed, newest < 48 h old) → owner +
+  project admins + installation admins (spec §12; the line above said installation
+  admins only). Skipped scans neither count nor break a streak (as the panel flag).
+  Once per streak: the key is the newest non-failure scan before it, and no row is
+  queued while the project has a `streak_project` row newer than its last good scan
+  ended (the key can move past the 50-scan window or after retention). Skipped at send
+  time if the streak already ended.
+- Installation-cause flag: ≥ 3 installation-cause failures (`failure_cause =
+  'installation'` or `skipped:backlog`) and > 20% of ended scans in the last 24 h →
+  installation admins, at most once per UTC day.
+- Digest: last full UTC week (Monday to Monday), counts only; an empty week sends nothing.
+- Webhook: its own `platform_settings` key `securityAudits.webhook` (kept out of the
+  policy) with a random secret, stored encrypted and shown once by `void platform
+  security webhook <https-url|off>` (`POST /security/webhook`). Each outbox event gets a
+  `webhook` twin row, sent even with no EMAIL binding. Body: ids and counts only;
+  `X-Void-Signature: t=<s>,v1=<HMAC-SHA256("<t>.<body>")>`, `t` taken at send time; no
+  redirects, 10 s timeout, outbox retries. After one failed POST the pass holds its other
+  webhook rows for the first backoff, so a dead endpoint costs one timeout per pass. Audit keeps only the host. The milestone map lists webhooks under
+  M31; they are built here as this section says.
+- CLI: `void platform security fallback <on|off>`, `digest <on|off>`, `webhook`.
+- Migration 0065 (unreleased) was edited in place for the new notification kinds; no 0066. Extra tests: `security-alerts.test.ts`. No admin panel change.
+
 **M27 Per-plan caps.** Stored in a separate settings key `plans:security-caps`
 (`{ <planId>: usdCents | null }`), not in `PlanLimits`, so the exact-key catalog parser
 and rollback stay safe (same reason as `plans:ai-logging` in 0094). Ceiling order:

@@ -119,6 +119,14 @@ export type SecurityPolicy = Readonly<{
   /** "Scan before a project goes public" (spec §5.5). */
   publicGate: boolean;
   sweeps: SecuritySweeps;
+  /**
+   * Phase 2 (spec §8.5): after a third-party scan is refused, gives bad output or times
+   * out, scan the same deployment once more on the `@cf` default. Off by default; it
+   * never goes from `@cf` to a third-party model.
+   */
+  fallbackToCf: boolean;
+  /** Phase 2 (spec §20): a weekly summary email to installation admins. Off by default. */
+  digest: boolean;
   revision: number;
 }>;
 
@@ -248,6 +256,56 @@ function parseSweeps(value: unknown, strict: boolean): SecuritySweeps {
   return { on: input.on, everyDays: Math.min(range.max, Math.max(range.min, days)) };
 }
 
+/**
+ * An on/off setting added after the first release. A row saved before it existed reads
+ * as Off. The strict parser refuses anything but a boolean; the lenient reader reads it
+ * as Off, so bad data never starts paid scans or sends mail.
+ */
+function parseAddedFlag(value: unknown, label: string, strict: boolean): boolean {
+  if (value === undefined) {
+    return false;
+  }
+  if (typeof value === 'boolean') {
+    return value;
+  }
+  if (strict) {
+    throw new Error(`${label} must be true or false.`);
+  }
+  return false;
+}
+
+/** Longest webhook URL the API stores. */
+export const SECURITY_WEBHOOK_URL_MAX = 2048;
+
+/**
+ * The security webhook URL (spec §20): `https` only, no user name or password in it
+ * (the body is signed instead), at most `SECURITY_WEBHOOK_URL_MAX` characters.
+ * Returns the normalized URL.
+ */
+export function parseSecurityWebhookUrl(value: unknown): string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > SECURITY_WEBHOOK_URL_MAX) {
+    throw new Error(
+      `The webhook URL must be an https URL of at most ${SECURITY_WEBHOOK_URL_MAX} characters.`,
+    );
+  }
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error('The webhook URL must be an https URL.');
+  }
+  if (url.protocol !== 'https:' || url.hostname === '') {
+    throw new Error('The webhook URL must be an https URL.');
+  }
+  if (url.username !== '' || url.password !== '') {
+    throw new Error('The webhook URL must not hold a user name or password.');
+  }
+  if (url.hash !== '') {
+    throw new Error('The webhook URL must not have a #fragment.');
+  }
+  return url.href;
+}
+
 /** The policy of an installation that never saved one: Off, nothing accepted or probed. */
 export function defaultSecurityPolicy(): SecurityPolicy {
   return {
@@ -260,6 +318,8 @@ export function defaultSecurityPolicy(): SecurityPolicy {
     entitlement: null,
     publicGate: false,
     sweeps: defaultSecuritySweeps(),
+    fallbackToCf: false,
+    digest: false,
     revision: 0,
   };
 }
@@ -478,6 +538,8 @@ export function parseSecurityPolicy(value: unknown): SecurityPolicy {
     entitlement: input.entitlement === null ? null : parseSecurityEntitlement(input.entitlement),
     publicGate: parseBoolean(input.publicGate, 'publicGate'),
     sweeps: parseSweeps(input.sweeps, true),
+    fallbackToCf: parseAddedFlag(input.fallbackToCf, 'fallbackToCf', true),
+    digest: parseAddedFlag(input.digest, 'digest', true),
     revision,
   };
   assertSecurityPolicyConsistent(policy);
@@ -580,6 +642,8 @@ export function readSecurityPolicy(value: unknown): SecurityPolicy {
     entitlement: input.entitlement === null ? null : parseSecurityEntitlement(input.entitlement),
     publicGate: parseBoolean(input.publicGate, 'publicGate'),
     sweeps: parseSweeps(input.sweeps, false),
+    fallbackToCf: parseAddedFlag(input.fallbackToCf, 'fallbackToCf', false),
+    digest: parseAddedFlag(input.digest, 'digest', false),
     revision,
   };
   assertSecurityPolicyConsistent(policy);

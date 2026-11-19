@@ -205,6 +205,7 @@ export async function claimSecurityScan(
           status: securityScans.status,
           attempt: securityScans.attempt,
           trigger: securityScans.trigger,
+          publicRequestId: securityScans.public_request_id,
           firstQueuedAt: securityScans.first_queued_at,
           projectStatus: projects.status,
           suspended: users.suspended_reason,
@@ -268,6 +269,7 @@ async function claimRefusal(
   projectId: string,
   row: Readonly<{
     trigger: SecurityScanTrigger;
+    publicRequestId: string | null;
     firstQueuedAt: string | null;
     projectStatus: string;
     suspended: string | null;
@@ -286,7 +288,10 @@ async function claimRefusal(
   ) {
     return { kind: 'ended', status: 'skipped', reason: 'backlog' };
   }
-  if (mode === 'public' && row.trigger !== 'gate' && (await projectIsProtected(tx, projectId))) {
+  // A fallback of a gate scan (M26) runs for the same public request.
+  const forRequest =
+    row.trigger === 'gate' || (row.trigger === 'fallback' && row.publicRequestId !== null);
+  if (mode === 'public' && !forRequest && (await projectIsProtected(tx, projectId))) {
     return { kind: 'ended', status: 'skipped', reason: 'protected' };
   }
   return null;

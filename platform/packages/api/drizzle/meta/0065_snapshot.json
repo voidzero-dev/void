@@ -8007,7 +8007,7 @@
       "checkConstraints": {
         "security_notifications_kind": {
           "name": "security_notifications_kind",
-          "value": "(\"security_notifications\".\"kind\" IN ('findings', 'reopen', 'cap_project', 'cap_platform', 'public_held', 'public_now_public', 'public_canceled', 'scan_bypass'))"
+          "value": "(\"security_notifications\".\"kind\" IN ('findings', 'reopen', 'cap_project', 'cap_platform', 'public_held', 'public_now_public', 'public_canceled', 'scan_bypass', 'streak_project', 'streak_installation', 'digest', 'webhook'))"
         },
         "security_notifications_status": {
           "name": "security_notifications_status",
@@ -8015,7 +8015,7 @@
         },
         "security_notifications_project": {
           "name": "security_notifications_project",
-          "value": "(\"security_notifications\".\"project_id\" IS NULL) = (\"security_notifications\".\"kind\" = 'cap_platform')"
+          "value": "\"security_notifications\".\"kind\" = 'webhook' OR (\"security_notifications\".\"project_id\" IS NULL) = (\"security_notifications\".\"kind\" IN ('cap_platform', 'streak_installation', 'digest'))"
         },
         "security_notifications_attempts": {
           "name": "security_notifications_attempts",

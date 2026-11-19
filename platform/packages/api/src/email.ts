@@ -6,19 +6,25 @@ import {
 } from './platform-identity.ts';
 import {
   composeSecurityBypassEmail,
+  composeSecurityDigestEmail,
   composeSecurityFindingsEmail,
+  composeSecurityInstallationStreakEmail,
   composeSecurityNowPublicEmail,
   composeSecurityPlatformCapEmail,
   composeSecurityProjectCapEmail,
+  composeSecurityProjectStreakEmail,
   composeSecurityPublicCanceledEmail,
   composeSecurityPublicHeldEmail,
   composeSecurityReopenEmail,
   type SecurityBypassEmailData,
+  type SecurityDigestEmailData,
   type SecurityEmailContent,
   type SecurityEmailReason,
   type SecurityFindingsEmailData,
+  type SecurityInstallationStreakEmailData,
   type SecurityPlatformCapEmailData,
   type SecurityProjectCapEmailData,
+  type SecurityProjectStreakEmailData,
   type SecurityPublicEmailData,
   type SecurityPublicHeldState,
   type SecurityReopenEmailData,
@@ -414,6 +420,39 @@ export function sendSecurityBypassEmail(
 ): Promise<void> {
   return sendSecurityContent(env, to, (platform) =>
     composeSecurityBypassEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityProjectStreakEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityProjectStreakEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityProjectStreakEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityInstallationStreakEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityInstallationStreakEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityInstallationStreakEmail({ ...data, platform }, reason),
+  );
+}
+
+export function sendSecurityDigestEmail(
+  env: PlatformEmailEnv,
+  to: string,
+  data: WithoutPlatform<SecurityDigestEmailData>,
+  reason: SecurityEmailReason,
+): Promise<void> {
+  return sendSecurityContent(env, to, (platform) =>
+    composeSecurityDigestEmail({ ...data, platform }, reason),
   );
 }
 

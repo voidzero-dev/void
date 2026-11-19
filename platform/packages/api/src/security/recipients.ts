@@ -168,20 +168,33 @@ export async function resolvePublicRequestRecipients(
   return finish(db, candidates);
 }
 
-/** Platform cap and bypass emails: every installation admin. */
-export async function resolveInstallationAdminRecipients(
-  db: Db,
-): Promise<Array<SecurityRecipient>> {
+async function installationAdmins(db: Db): Promise<Array<Candidate>> {
   const admins = await db
     .select({ userId: users.id })
     .from(users)
     .where(eq(users.role, 'admin'))
     .orderBy(users.id);
-  return finish(
-    db,
-    admins.map((admin) => ({
-      userId: admin.userId,
-      reason: { kind: 'installation_admin' as const },
-    })),
-  );
+  return admins.map((admin) => ({
+    userId: admin.userId,
+    reason: { kind: 'installation_admin' as const },
+  }));
+}
+
+/** Platform cap, bypass, installation streak and digest emails: every installation admin. */
+export async function resolveInstallationAdminRecipients(
+  db: Db,
+): Promise<Array<SecurityRecipient>> {
+  return finish(db, await installationAdmins(db));
+}
+
+/**
+ * Project failure-streak email (spec §12, M26): owner + project admins, then every
+ * installation admin, one email each (a project admin who is also an installation
+ * admin gets the project footer).
+ */
+export async function resolveProjectStreakRecipients(
+  db: Db,
+  projectId: string,
+): Promise<Array<SecurityRecipient>> {
+  return finish(db, [...(await ownerAndAdmins(db, projectId)), ...(await installationAdmins(db))]);
 }

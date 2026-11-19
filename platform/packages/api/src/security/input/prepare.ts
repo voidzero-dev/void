@@ -80,7 +80,7 @@ import {
   type SecurityModuleFile,
 } from './t2.ts';
 import { assertTarEntries, tarStream } from './tar.ts';
-import { chooseSecurityTier } from './tier.ts';
+import { chooseSecurityTier, securityFallbackFullReason } from './tier.ts';
 
 export type SecurityInputEnv = Pick<
   ApiEnv['Bindings'],
@@ -113,6 +113,10 @@ type ScanContext = Readonly<{
   projectId: string;
   deploymentId: string;
   trigger: SecurityScanTrigger;
+  /** The open public request a gate scan (or a fallback of one) runs for. */
+  publicRequestId: string | null;
+  /** Set when queued for a fallback that re-runs a full scan (`securityFallbackFullReason`). */
+  coverageNotes: ReadonlyArray<string>;
   attempt: number;
   engine: NonNullable<typeof securityScans.$inferSelect.engine>;
   model: string;
@@ -195,6 +199,8 @@ async function loadContext(db: Db, scanId: string, attempt: number): Promise<Sca
       projectId: securityScans.project_id,
       deploymentId: securityScans.deployment_id,
       trigger: securityScans.trigger,
+      publicRequestId: securityScans.public_request_id,
+      coverageNotes: securityScans.coverage_notes,
       attempt: securityScans.attempt,
       status: securityScans.status,
       engine: securityScans.engine,
@@ -699,10 +705,13 @@ export async function prepareSecurityScanInputFiles(
     base === null
       ? null
       : await loadBaseSnapshot(r2, securityScanInputPrefix(scan.projectId, base.deploymentId));
+  const fallbackOf =
+    scan.trigger === 'fallback' ? securityFallbackFullReason(scan.coverageNotes) : null;
   let tier = chooseSecurityTier({
     trigger: scan.trigger,
     baseDeploymentId: base?.deploymentId ?? null,
     baseSnapshot: baseSnapshot !== null,
+    fallbackOf,
   });
   const diffBase = tier.tier === 'full' ? null : baseSnapshot;
 
@@ -778,6 +787,7 @@ export async function prepareSecurityScanInputFiles(
       engine: scan.engine,
       model: scan.model,
       trigger: scan.trigger,
+      forPublicRequest: scan.publicRequestId !== null,
       commit: scan.commit,
     },
     tier,

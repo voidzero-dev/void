@@ -196,7 +196,9 @@ async function runningScan(
   input: {
     input_prefix?: string | null;
     input_r2_key?: string | null;
-    trigger?: 'deploy' | 'recovery' | 'gate';
+    trigger?: 'deploy' | 'recovery' | 'gate' | 'fallback';
+    coverage_notes?: Array<string>;
+    public_request_id?: string | null;
   } = {},
 ) {
   await env.db.insert(securityScans).values({
@@ -212,6 +214,8 @@ async function runningScan(
     engine: 'void_loop',
     input_prefix: input.input_prefix ?? null,
     input_r2_key: input.input_r2_key ?? null,
+    coverage_notes: input.coverage_notes ?? [],
+    public_request_id: input.public_request_id ?? null,
     first_queued_at: new Date().toISOString(),
     started_at: new Date().toISOString(),
   });
@@ -384,6 +388,56 @@ describe('scan input capture', () => {
       modules: Array<{ sha256?: string }>;
     };
     expect(modules.modules.every((module) => typeof module.sha256 === 'string')).toBe(true);
+  });
+
+  it('runs a fallback of a rescan, a sweep or a gate scan of a scanned deployment in full (M26)', async () => {
+    const { project } = await setup();
+    const live = await deploy(project.id);
+    await stage(project.id, live.id, appModules('export const v = 1;'));
+    await runningScan('scan_base', project.id, live.id, {
+      input_prefix: `deployment-inputs/${project.id}/${live.id}/`,
+    });
+    expect(await prepareSecurityScanInputFiles(onEnv, env.db, 'scan_base', 1)).not.toBeNull();
+    await env.db
+      .update(securityScans)
+      .set({ status: 'succeeded', finished_at: new Date().toISOString() })
+      .where(eq(securityScans.id, 'scan_base'));
+    const stored = (await scan('scan_base')).input_r2_key;
+
+    // Each fallback re-scans the same deployment the last succeeded scan covered.
+    const fallback = async (
+      id: string,
+      input: { coverage_notes?: Array<string>; public_request_id?: string },
+    ) => {
+      await runningScan(id, project.id, live.id, {
+        trigger: 'fallback',
+        input_r2_key: stored,
+        ...input,
+      });
+      const prepared = await prepareSecurityScanInputFiles(onEnv, env.db, id, 1);
+      await env.db
+        .update(securityScans)
+        .set({ status: 'failed', finished_at: new Date().toISOString() })
+        .where(eq(securityScans.id, id));
+      return { prepared: prepared!, row: await scan(id) };
+    };
+
+    const rescan = await fallback('scan_fb_rescan', { coverage_notes: ['rescan'] });
+    expect(rescan.prepared.built.noChanges).toBe(false);
+    expect(label(rescan.row)).toContain('full scan (rescan)');
+
+    const sweep = await fallback('scan_fb_sweep', { coverage_notes: ['sweep'] });
+    expect(label(sweep.row)).toContain('full scan (sweep)');
+    expect(sweep.prepared.built.task.profile).toBe('standard');
+
+    // A gate scan is never `no changes` (edge #85), nor is its fallback.
+    const gate = await fallback('scan_fb_gate', { public_request_id: 'spr_open' });
+    expect(gate.prepared.built.noChanges).toBe(false);
+    expect(label(gate.row)).toContain('full scan (re-check)');
+
+    // A fallback of a deploy scan follows the base rule: here nothing changed.
+    const deployLike = await fallback('scan_fb_deploy', {});
+    expect(deployLike.prepared.built.noChanges).toBe(true);
   });
 
   it('reads a recovered inline deploy from the stored Worker bundle', async () => {

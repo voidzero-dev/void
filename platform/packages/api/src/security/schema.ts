@@ -137,8 +137,20 @@ export const SECURITY_NOTIFICATION_KINDS = [
   'public_now_public',
   'public_canceled',
   'scan_bypass',
+  // Phase 2 (M26): failure streaks, the weekly digest and the webhook copy of an event.
+  'streak_project',
+  'streak_installation',
+  'digest',
+  'webhook',
 ] as const;
 export type SecurityNotificationKind = (typeof SECURITY_NOTIFICATION_KINDS)[number];
+
+/** Kinds about the whole installation: their rows have no project. */
+export const SECURITY_PLATFORM_NOTIFICATION_KINDS = [
+  'cap_platform',
+  'streak_installation',
+  'digest',
+] as const satisfies ReadonlyArray<SecurityNotificationKind>;
 
 export const SECURITY_NOTIFICATION_STATUSES = ['pending', 'sent', 'failed', 'skipped'] as const;
 export type SecurityNotificationStatus = (typeof SECURITY_NOTIFICATION_STATUSES)[number];
@@ -680,7 +692,8 @@ export const securityMemoryRejected = pgTable(
 
 /**
  * Outbox for the scheduler DO. Recipients are not stored: they are worked out at
- * send time. `project_id` is `NULL` only for the platform cap email.
+ * send time. `project_id` is `NULL` only for installation-wide kinds
+ * (`SECURITY_PLATFORM_NOTIFICATION_KINDS`); a `webhook` row copies its event's project.
  */
 export const securityNotifications = pgTable(
   'security_notifications',
@@ -712,7 +725,7 @@ export const securityNotifications = pgTable(
     check('security_notifications_status', oneOf(table.status, SECURITY_NOTIFICATION_STATUSES)),
     check(
       'security_notifications_project',
-      sql`(${table.project_id} IS NULL) = (${table.kind} = 'cap_platform')`,
+      sql`${table.kind} = 'webhook' OR (${table.project_id} IS NULL) = ${oneOf(table.kind, SECURITY_PLATFORM_NOTIFICATION_KINDS)}`,
     ),
     check('security_notifications_attempts', sql`${table.attempts} >= 0`),
   ],

@@ -68,6 +68,11 @@ export type SecurityInputPlan = Readonly<{
     engine: SecurityEngine;
     model: string;
     trigger: SecurityScanTrigger;
+    /**
+     * It runs for an open public request: a fallback of a gate scan (M26) then follows
+     * the gate rules too. Only read with `trigger: fallback`.
+     */
+    forPublicRequest?: boolean;
     /** The deployment's claimed commit; `null` for a dirty tree, `--skip-build`, no git. */
     commit: string | null;
   }>;
@@ -387,8 +392,12 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
     for (const path of unreadAssetPaths.values()) {
       unscanned.push(path);
     }
-    if (focus.length === 0 && unscanned.length === 0 && plan.scan.trigger === 'gate') {
-      // A gate scan is never `no changes` (edge #85): it re-checks the claimed files.
+    const gateScan =
+      plan.scan.trigger === 'gate' ||
+      (plan.scan.trigger === 'fallback' && plan.scan.forPublicRequest === true);
+    if (focus.length === 0 && unscanned.length === 0 && gateScan) {
+      // A gate scan (or its fallback) is never `no changes` (edge #85): it re-checks the
+      // claimed files.
       focus = plan.recheckFiles.filter((path) => available.has(path));
       if (focus.length === 0) {
         tier = 'full';
@@ -532,8 +541,8 @@ export function buildSecurityScanInput(plan: SecurityInputPlan): SecurityBuiltIn
   if (noChanges) {
     task.no_changes = true;
   }
-  if (plan.scan.trigger === 'sweep') {
-    // A scheduled sweep runs the deeper profile (M25). An older runner ignores the field
+  if (plan.tier.fullReason === 'sweep') {
+    // A scheduled sweep (or its fallback, M26) runs the deeper profile (M25). An older runner ignores the field
     // and runs its deploy-diff profile over the whole app.
     task.profile = 'standard';
   }

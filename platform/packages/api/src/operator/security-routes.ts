@@ -1,3 +1,4 @@
+import { parseSecurityWebhookUrl } from '@void/platform/security-policy';
 import { Hono } from 'hono';
 import { capabilityMiddleware, getPlatformCapabilities } from '../capabilities.ts';
 import { getProject, type Db } from '../db.ts';
@@ -47,6 +48,7 @@ import {
 } from '../security/public-gate-flow.ts';
 import { checkBypassable, parseBypassReason, publicRequestView } from '../security/public-gate.ts';
 import { previewSecurityBackfill, queueSecurityBackfill } from '../security/sweeps.ts';
+import { securityWebhookView, setSecurityWebhook } from '../security/webhook.ts';
 import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
 import { operatorProjectZeroTrustState } from '../zero-trust/state.ts';
 import { dryRun, OperatorError, pagination, preview, readBody } from './common.ts';
@@ -102,6 +104,69 @@ securityOperatorRoutes.post(
     } catch (error) {
       throw securityOperatorError(error);
     }
+  },
+);
+
+/**
+ * The security webhook (M26): `{url}` sets it (a new signing secret, returned once),
+ * `{url: null}` removes it. A preview says what changes; the secret never shows again.
+ */
+securityOperatorRoutes.post(
+  '/security/webhook',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    for (const key of Object.keys(body)) {
+      if (key !== 'url' && key !== 'dryRun') {
+        throw new OperatorError(400, `Unknown webhook field: ${key}.`, 'invalid_argument');
+      }
+    }
+    if (body.url !== null && typeof body.url !== 'string') {
+      throw new OperatorError(
+        400,
+        'url must be an https URL, or null to turn the webhook off.',
+        'invalid_argument',
+      );
+    }
+    let url: string | null = null;
+    if (body.url !== null) {
+      try {
+        url = parseSecurityWebhookUrl(body.url);
+      } catch (error) {
+        throw new OperatorError(
+          400,
+          error instanceof Error ? error.message : 'Invalid webhook URL.',
+          'invalid_argument',
+        );
+      }
+    }
+    const db = context.get('db');
+    const current = await securityWebhookView(db);
+    if (dryRun(body)) {
+      const lines =
+        url === null
+          ? [
+              current
+                ? `Turn off: the security webhook to ${current.url}.`
+                : 'The security webhook is already off.',
+            ]
+          : [
+              `${current ? 'Change' : 'Turn on'}: send security events to ${url}.`,
+              '  Each event is a signed JSON body with ids and counts only (no titles, files or code).',
+              current
+                ? '  A new signing secret is made; the old one stops working at once. It is shown once.'
+                : '  A signing secret is made and shown once. Keep it to check the X-Void-Signature header.',
+            ];
+      return context.json(
+        preview('security.webhook', 'platform', { webhook: current, preview: lines }),
+      );
+    }
+    const result = await setSecurityWebhook(context.env, db, {
+      url,
+      userId: context.get('user').id,
+      now: Date.now(),
+    });
+    return context.json({ ok: true as const, ...result });
   },
 );
 

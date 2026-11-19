@@ -116,9 +116,9 @@ CREATE TABLE "security_notifications" (
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"sent_at" timestamp with time zone,
 	CONSTRAINT "security_notifications_dedupe_key" UNIQUE("dedupe_key"),
-	CONSTRAINT "security_notifications_kind" CHECK (("security_notifications"."kind" IN ('findings', 'reopen', 'cap_project', 'cap_platform', 'public_held', 'public_now_public', 'public_canceled', 'scan_bypass'))),
+	CONSTRAINT "security_notifications_kind" CHECK (("security_notifications"."kind" IN ('findings', 'reopen', 'cap_project', 'cap_platform', 'public_held', 'public_now_public', 'public_canceled', 'scan_bypass', 'streak_project', 'streak_installation', 'digest', 'webhook'))),
 	CONSTRAINT "security_notifications_status" CHECK (("security_notifications"."status" IN ('pending', 'sent', 'failed', 'skipped'))),
-	CONSTRAINT "security_notifications_project" CHECK (("security_notifications"."project_id" IS NULL) = ("security_notifications"."kind" = 'cap_platform')),
+	CONSTRAINT "security_notifications_project" CHECK ("security_notifications"."kind" = 'webhook' OR ("security_notifications"."project_id" IS NULL) = ("security_notifications"."kind" IN ('cap_platform', 'streak_installation', 'digest'))),
 	CONSTRAINT "security_notifications_attempts" CHECK ("security_notifications"."attempts" >= 0)
 );
 --> statement-breakpoint

@@ -9,6 +9,7 @@ import {
   parseSecurityMode,
   parseSecurityPolicy,
   parseSecuritySweepDays,
+  parseSecurityWebhookUrl,
   parseSecurityUsd,
   readSecurityPolicy,
   SECURITY_ENTITLEMENT_MAX_AGE_MS,
@@ -69,6 +70,8 @@ describe('security policy defaults', () => {
       entitlement: null,
       publicGate: false,
       sweeps: { on: false, everyDays: 30 },
+      fallbackToCf: false,
+      digest: false,
       revision: 0,
     });
   });
@@ -126,6 +129,8 @@ describe('security policy strict parser', () => {
       entitlement: passingEntitlement,
       publicGate: true,
       sweeps: { on: true, everyDays: 7 },
+      fallbackToCf: true,
+      digest: true,
       revision: 7,
     });
     expect(parseSecurityPolicy(policy)).toEqual(policy);
@@ -383,6 +388,46 @@ describe('scheduled sweeps setting (M25)', () => {
     // Bad data never starts paid scans.
     expect(readSecurityPolicy(stored({ sweeps: { on: 'yes' } })).sweeps.on).toBe(false);
     expect(readSecurityPolicy(stored({ sweeps: null })).sweeps.on).toBe(false);
+  });
+});
+
+describe('fallback and digest settings (M26)', () => {
+  it('reads a row saved before M26 as off', () => {
+    const { fallbackToCf: _f, digest: _d, ...old } = stored() as Record<string, unknown>;
+    for (const read of [parseSecurityPolicy, readSecurityPolicy]) {
+      expect(read(old)).toMatchObject({ fallbackToCf: false, digest: false });
+    }
+  });
+
+  it('refuses a non-boolean on write and reads it as off', () => {
+    for (const field of ['fallbackToCf', 'digest'] as const) {
+      expect(() => parseSecurityPolicy(stored({ [field]: 'yes' }))).toThrow(field);
+      expect(readSecurityPolicy(stored({ [field]: 'yes' }))[field]).toBe(false);
+      expect(readSecurityPolicy(stored({ [field]: null }))[field]).toBe(false);
+    }
+  });
+});
+
+describe('security webhook URL (M26)', () => {
+  it('takes an https URL and normalizes it', () => {
+    expect(parseSecurityWebhookUrl('https://hooks.example.com/void?x=1')).toBe(
+      'https://hooks.example.com/void?x=1',
+    );
+    expect(parseSecurityWebhookUrl('HTTPS://Hooks.Example.com')).toBe('https://hooks.example.com/');
+  });
+
+  it('refuses http, credentials, fragments, junk and very long URLs', () => {
+    for (const value of [
+      'http://hooks.example.com/',
+      'https://user:pass@hooks.example.com/',
+      'https://hooks.example.com/#x',
+      'not a url',
+      '',
+      null,
+      `https://example.com/${'a'.repeat(2048)}`,
+    ]) {
+      expect(() => parseSecurityWebhookUrl(value)).toThrow('webhook URL');
+    }
   });
 });
 

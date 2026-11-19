@@ -351,6 +351,24 @@ function auditTarget(
       limits,
       publicGate: typeof body.publicGate === 'boolean' ? body.publicGate : undefined,
       sweeps: securitySweepsTarget(body.sweeps),
+      fallbackToCf: typeof body.fallbackToCf === 'boolean' ? body.fallbackToCf : undefined,
+      digest: typeof body.digest === 'boolean' ? body.digest : undefined,
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'webhook' && segments.length === 2) {
+    // The host only: a webhook path or query can carry a token.
+    let host: string | undefined;
+    if (typeof body.url === 'string') {
+      try {
+        host = boundedString(new URL(body.url).hostname, 253);
+      } catch {
+        host = undefined;
+      }
+    }
+    return JSON.stringify({
+      installation: 'platform',
+      webhook: body.url === null ? 'off' : 'on',
+      host,
     });
   }
   if (segments[0] === 'security' && segments[1] === 'backfill' && segments.length === 2) {

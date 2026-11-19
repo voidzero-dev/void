@@ -478,6 +478,30 @@ describe('buildSecurityScanInput', () => {
     expect(gateNothing.notes).toContain('gate-recheck');
   });
 
+  it('keeps the gate rule for a fallback of a gate scan, not for other fallbacks (M26)', () => {
+    const base = {
+      modules: new Map(FRAMEWORK_BUNDLES.react!.modules.map((m) => [m.name, m.sha256])),
+      sources: null,
+    };
+    const fallback = (forPublicRequest: boolean, recheckFiles: Array<string>) =>
+      buildSecurityScanInput(
+        plan({
+          scan: { ...plan().scan, trigger: 'fallback', forPublicRequest },
+          tier: { tier: 'built_diff', fullReason: null },
+          base,
+          recheckFiles,
+        }),
+      );
+    const gate = fallback(true, ['src/routes/users.tsx']);
+    expect(gate.noChanges).toBe(false);
+    expect(gate.focus).toEqual(['src/routes/users.tsx']);
+    const gateNothing = fallback(true, []);
+    expect(gateNothing.tier).toBe('full');
+    expect(gateNothing.notes).toContain('gate-recheck');
+    // A fallback of a deploy scan of an unchanged redeploy is still `no changes`.
+    expect(fallback(false, ['src/routes/users.tsx']).noChanges).toBe(true);
+  });
+
   it('asks the runner for the standard profile on a sweep only (M25)', () => {
     const sweep = buildSecurityScanInput(
       plan({
@@ -489,6 +513,14 @@ describe('buildSecurityScanInput', () => {
     expect(sweep.notes).toContain('sweep');
     expect(parseTask(sweep.task).profile).toBe('standard');
     expect(buildSecurityScanInput(plan()).task.profile).toBeUndefined();
+    // A fallback of a sweep (M26) is a sweep too.
+    const fallback = buildSecurityScanInput(
+      plan({
+        scan: { ...plan().scan, trigger: 'fallback' },
+        tier: { tier: 'full', fullReason: 'sweep' },
+      }),
+    );
+    expect(fallback.task.profile).toBe('standard');
   });
 
   it('drops secret-like and registry files, and flags a mostly third-party drop', () => {

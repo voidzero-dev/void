@@ -145,6 +145,9 @@ const SECURITY_SAMPLES: Record<string, Array<string>> = {
   rescan: ['p1'],
   backfill: [],
   sweeps: ['on'],
+  fallback: ['on'],
+  digest: ['off'],
+  webhook: ['https://hooks.example.com/void'],
   cancel: ['scan-1'],
   'public-gate': ['on'],
   'public-requests': [],
@@ -2035,6 +2038,21 @@ describe('platform security arguments', () => {
     expect(() => parse('sweeps', 'weekly')).toThrow('on|off');
     expect(() => parse('sweeps', 'on', '--every-days', 'often')).toThrow('whole number');
     expect(parse('backfill')).toMatchObject({ method: 'POST', path: '/security/backfill' });
+    // M26: fallback and digest are policy switches; the webhook has its own route.
+    expect(parse('fallback', 'on')).toMatchObject({
+      method: 'POST',
+      path: '/security/policy',
+      body: { fallbackToCf: true },
+    });
+    expect(parse('digest', 'off').body).toEqual({ digest: false });
+    expect(() => parse('fallback', 'sometimes')).toThrow('fallback <on|off>');
+    expect(parse('webhook', 'https://hooks.example.com/void')).toMatchObject({
+      method: 'POST',
+      path: '/security/webhook',
+      body: { url: 'https://hooks.example.com/void' },
+    });
+    expect(parse('webhook', 'off').body).toEqual({ url: null });
+    expect(() => parse('webhook', 'http://hooks.example.com/')).toThrow('https-url|off');
   });
 
   it('reads --default as a switch for one project and as a value for the platform', () => {

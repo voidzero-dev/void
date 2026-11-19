@@ -55,6 +55,7 @@ import {
   securityScans,
   type SecurityScanStatus,
 } from './schema.ts';
+import { securityWebhookView } from './webhook.ts';
 
 // ---------------------------------------------------------------------------
 // Readers
@@ -176,6 +177,10 @@ export type SecurityPolicyChangeRequest = Readonly<{
   publicGate?: boolean;
   /** Scheduled full sweeps; a field left out keeps its value. */
   sweeps?: Partial<SecuritySweeps>;
+  /** M26: one re-scan on the `@cf` default after a third-party failure. */
+  fallbackToCf?: boolean;
+  /** M26: the weekly email to installation admins. */
+  digest?: boolean;
 }>;
 
 const REQUEST_KEYS = new Set([
@@ -190,6 +195,8 @@ const REQUEST_KEYS = new Set([
   'limits',
   'publicGate',
   'sweeps',
+  'fallbackToCf',
+  'digest',
 ]);
 
 function requestModel(value: unknown, label: string): SecurityModelId {
@@ -288,6 +295,14 @@ export function parseSecurityPolicyChangeRequest(
   if (body.sweeps !== undefined) {
     request.sweeps = parseSweepsRequest(body.sweeps);
   }
+  for (const key of ['fallbackToCf', 'digest'] as const) {
+    if (body[key] !== undefined) {
+      if (typeof body[key] !== 'boolean') {
+        throw SecurityApiError.invalid(`${key} must be true or false.`);
+      }
+      request[key] = body[key];
+    }
+  }
   return request;
 }
 
@@ -335,6 +350,9 @@ export type SecurityPolicyChanges = Readonly<{
   publicGateOn: boolean;
   publicGateOff: boolean;
   sweeps: Readonly<{ from: SecuritySweeps; to: SecuritySweeps }> | null;
+  /** The new value when it changes, else `null`. */
+  fallbackToCf: boolean | null;
+  digest: boolean | null;
   /** The stored row was bad data; this write replaces it. */
   repaired: boolean;
 }>;
@@ -540,6 +558,8 @@ export function proposeSecurityPolicyChange(
     // Policy Off turns the gate off in the same change.
     publicGate: mode === 'disabled' ? false : (request.publicGate ?? current.publicGate),
     sweeps: { ...current.sweeps, ...request.sweeps },
+    fallbackToCf: request.fallbackToCf ?? current.fallbackToCf,
+    digest: request.digest ?? current.digest,
   };
   const probeApplies = probeRunsOnApply(current, mode, context);
   if (request.publicGate === true) {
@@ -569,6 +589,8 @@ export function proposeSecurityPolicyChange(
       next.sweeps.on === current.sweeps.on && next.sweeps.everyDays === current.sweeps.everyDays
         ? null
         : { from: current.sweeps, to: next.sweeps },
+    fallbackToCf: next.fallbackToCf === current.fallbackToCf ? null : next.fallbackToCf,
+    digest: next.digest === current.digest ? null : next.digest,
     repaired: stored.unreadable !== null,
   };
   const changed =
@@ -581,6 +603,8 @@ export function proposeSecurityPolicyChange(
     changes.publicGateOn ||
     changes.publicGateOff ||
     changes.sweeps !== null ||
+    changes.fallbackToCf !== null ||
+    changes.digest !== null ||
     changes.repaired;
   if (!changed) {
     throw SecurityApiError.invalid('Nothing to change: the policy already has these values.');
@@ -799,6 +823,22 @@ function sweepLines(
   return lines;
 }
 
+function fallbackLines(next: SecurityPolicy): Array<string> {
+  if (!next.fallbackToCf) {
+    return [
+      'Turn off: re-scan on the @cf default. A refused, failed or timed-out third-party scan waits for the next deploy.',
+    ];
+  }
+  // The same pick as `securityCfDefaultModel` (the default is never blocked).
+  const model = isThirdPartySecurityModel(next.defaultModel)
+    ? securityFallbackModel(next.blockedModels)
+    : next.defaultModel;
+  return [
+    `Turn on: re-scan once on the @cf default (${model ?? 'none: every @cf model is blocked'}) after a third-party scan is refused, gives bad output or times out.`,
+    '  The code stays on Cloudflare for that scan. It costs one more scan; monthly caps apply.',
+  ];
+}
+
 /** The plan preview shown before saving (`dryRun`), one string per line. */
 export function securityPolicyPreviewLines(
   current: SecurityPolicy,
@@ -862,6 +902,16 @@ export function securityPolicyPreviewLines(
   }
   if (changes.sweeps) {
     lines.push(...sweepLines(next, changes.sweeps, counts.sweepProjects ?? 0));
+  }
+  if (changes.fallbackToCf !== null) {
+    lines.push(...fallbackLines(next));
+  }
+  if (changes.digest !== null) {
+    lines.push(
+      next.digest
+        ? 'Turn on: a weekly security summary email to installation admins (counts only), sent each Monday for the week before.'
+        : 'Turn off: the weekly security summary email.',
+    );
   }
   return lines;
 }
@@ -1391,6 +1441,9 @@ export async function securityStatus(db: DbOrTx, capability: boolean, now = Date
     mode: policy.mode,
     publicGate: policy.publicGate,
     defaultModel: policy.defaultModel,
+    fallbackToCf: policy.fallbackToCf,
+    digest: policy.digest,
+    webhook: await securityWebhookView(db),
     revision: policy.revision,
     probe: policy.entitlement
       ? { ...policy.entitlement, fresh: isSecurityEntitlementFresh(policy.entitlement, now) }

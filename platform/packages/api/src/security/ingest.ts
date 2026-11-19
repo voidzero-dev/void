@@ -38,6 +38,7 @@ import { deployments, projects } from '../schema.ts';
 import type { ScanResultReport } from '../security-scanner-controller-runtime.ts';
 import { releaseSecurityScanReserveIn } from './budget.ts';
 import { pokeSecurityScanScheduler, securityScanProjectPrefix } from './enqueue.ts';
+import { queueSecurityFallbackScans } from './fallback.ts';
 import { checkScanFence, judgeScanFence } from './fence.ts';
 import {
   cutUtf8,
@@ -62,6 +63,7 @@ import { parseSecurityBacklog } from './input/backlog.ts';
 import type { SecurityServerLead } from './input/phrase-check.ts';
 import { securityRawOutputPrefix } from './maintenance.ts';
 import { enqueueSecurityNotification } from './notifications.ts';
+import { readSecurityPolicyLenient } from './policy.ts';
 import { requeueSecurityScan, SECURITY_SCAN_MAX_ATTEMPTS } from './queue.ts';
 import {
   projectSecuritySettings,
@@ -680,6 +682,21 @@ export async function ingestSecurityScanResult(
       if (report.findings !== null) {
         await r2.put(`${scanPrefix}findings.json`, report.findings);
       }
+    });
+  }
+  if (
+    outcome.status === 'refused' ||
+    outcome.status === 'timed_out' ||
+    (outcome.status === 'failed' && outcome.reason === 'bad_output')
+  ) {
+    // Opt-in (M26): one more scan on the `@cf` default, queued before the poke below
+    // and before the public gate judges this result, so a held request waits for it.
+    await bestEffort('fallback', scanId, async () => {
+      const policy = await readSecurityPolicyLenient(db);
+      await queueSecurityFallbackScans(env, db, policy, {
+        now: Date.now(),
+        projectId: head.projectId,
+      });
     });
   }
   await afterAttempt(env, scanId, attempt);
