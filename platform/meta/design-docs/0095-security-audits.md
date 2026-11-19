@@ -924,6 +924,56 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests: integration `api-project-security.test.ts` (role matrix PRD §3, 404 vs 403,
   cross-project id 404, readers get no titles or dollars, CI detail).
 - Exit: role matrix test covers every row of PRD §3.
+- As built: `routes/project-security.ts` (mounted after the zero-trust routes; in `api.ts`),
+  with `security/project-view.ts` (status, policy reason, model and budget views, scan list,
+  cursor and role filter), `project-findings.ts` (list, show, comment, resolve, reopen) and
+  `project-settings.ts` (model, budget). Routes: status, findings list and show, comments,
+  resolve, reopen, scans, `PUT model`, `PUT budget`, `POST page-link`. There is no project
+  route that starts a scan: a manual rescan is operator only (spec §3), so "scans (`deploy`)"
+  is the history list. Role filter: `full` = user session with `deploy`; `counts` = readers and
+  any deploy token (`deployScope` set: CI, remote build, OIDC). `GET /projects/:id/security` is
+  on the deploy-token allowlist (`middleware/auth.ts`); nothing else under `/security` is.
+  Counts level shows F-id, severity, verdict and state of open findings; a resolved finding also
+  shows its title (spec §3). `budget` is `null` unless `full`. Severity everywhere is
+  `COALESCE(severity_override, severity)`. Finding lists page by `number` ascending (cursor =
+  the last number); the scan list pages by `(created_at, id)` descending (opaque cursor).
+  `limit` 1–100 (default 25), a bad limit, cursor, `state` or `severity` is a 400. A finding is
+  addressed by `F-12`, `12` or its id, always scoped to the project. Resolve and reopen lock the
+  project row (as ingest does), re-check `settings` with the same lock held (#22), lock the
+  finding, then compare `expectedRevision` (#21); a resolved finding cannot be resolved again and
+  an open one cannot be reopened (both 409 `finding changed`, with `state`, `resolution`,
+  `revision`, `changedAt`, `byRole`). Resolve stores `resolved_sink_hash` and
+  `resolved_severity`, clears `fix_checked_scan_id` and bumps the revision; reopen clears the
+  resolved columns, bumps `reopen_count` and the revision. Comments need `configure`, 1–4,000
+  characters, change no revision, and are events only. The route takes one finding per call:
+  bulk resolve is the CLI looping (M20). Capability off: `PUT model` and `PUT budget` answer
+  501 (after the access check, so a private project still 404s / 403s first); status, findings,
+  comments, resolve, reopen, scans and page-link stay open. Model: a pick must be a listed,
+  unblocked, priced model (422 `security model not allowed`); a third-party pick also needs the
+  host's probe check 5 (same 422, as the policy picker does) and the notice
+  (`acceptProviderNoticeVersion` = current, or accepted before; else 422 `provider notice not
+  accepted` with the notice lines). `model:null` is always allowed; with a third-party
+  default, `acceptProviderNoticeVersion` accepts it for the project. A wrong notice version is
+  refused. Without the installation notice a third-party pick is stored but the next scan
+  still falls back to `@cf` (`model.source: 'fallback'`). `model` in the status is
+  `{id, requested, source: project|default|fallback, thirdParty, noticeAccepted, pendingDefault}`
+  (`pendingDefault` is the model id or `null`). Budget: `monthlyUsd` whole cents, 0 to
+  1,000,000 or `null`; above the ceiling is 422 with `ceilingUsd` and the operator command; a
+  `cap_changed` project event is written only when the cap moves. `budget` in the status is
+  `{capUsd, capSource: own|limit|none, ceilingUsd, spentUsd, month, resetsAt}`. Policy reason
+  copy follows §11.4; a protected project in `public` mode with no open request reads
+  `applies:false`. **Deviations:** (1) `publicRequest` is `null` and the status gains no
+  request text until M16 (the table exists; the shape belongs to the gate). (2) `security/page-token.ts`
+  (mint and verify, own HMAC label, 15 minutes, user + project, key `JWT_SECRET`) was added
+  here because `page-link` needs it; M19 only adds the page route that calls
+  `verifySecurityPageToken`. The link points at the request origin
+  (`/security/projects/:slug?t=…`) and is a dead link until M19. (3) A human reopen
+  does not enqueue the "reopened" email and resolve/reopen do not re-check a public request:
+  both hook in at M15 and M16. (4) `packages/platform/dist` was stale (old model order); run
+  `vp run --filter ./packages/platform build` before the tests. (5) `GET /security/scans` answers 501
+  while the capability is off (spec §13.5); status, findings, comment and resolve stay open.
+  A comment re-checks no role inside a transaction (it never changes state); the model PUT takes
+  no lock (scan time re-checks the model).
 
 **M15 Notifications.**
 

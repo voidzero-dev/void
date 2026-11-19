@@ -6,6 +6,7 @@ import { Hono } from 'hono';
 import type { ApiEnv } from './env.ts';
 import domains from './routes/domains.ts';
 import me from './routes/me.ts';
+import projectSecurityRoutes from './routes/project-security.ts';
 import projectZeroTrustRoutes from './routes/project-zero-trust.ts';
 import projects from './routes/projects.ts';
 import secrets from './routes/secrets.ts';
@@ -17,6 +18,7 @@ const api = new Hono<ApiEnv>()
   .route('/projects', secrets)
   .route('/projects', domains)
   .route('/projects', projectZeroTrustRoutes)
+  .route('/projects', projectSecurityRoutes)
   .route('/projects', projectUsage)
   .route('/usage', accountUsage);
 

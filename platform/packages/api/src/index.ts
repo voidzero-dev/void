@@ -123,6 +123,7 @@ import internalVerifyPrerenderBuild from './routes/internal-verify-prerender-bui
 import me from './routes/me.ts';
 import oauth, { oauthMetadata } from './routes/oauth.ts';
 import platformBootstrapRoutes from './routes/platform-bootstrap.ts';
+import projectSecurityRoutes from './routes/project-security.ts';
 import {
   myProjectInvitationRoutes,
   projectInvitationResponseRoutes,
@@ -598,6 +599,7 @@ const app = new Hono<ApiEnv>()
   .route('/projects', projectTokens)
   .route('/projects', projectTeamRoutes)
   .route('/projects', projectZeroTrustRoutes)
+  .route('/projects', projectSecurityRoutes)
   .route('/projects', deploy)
   .route('/projects', deleteRoute)
   .route('/projects', revalidate)
