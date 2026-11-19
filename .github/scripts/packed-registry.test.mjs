@@ -69,25 +69,22 @@ void test('requires the license file as well as its manifest field', (t) => {
 });
 
 const imageManifest = {
-  name: '@void/image',
-  exports: { './generate': './dist/generate.mjs' },
+  name: '@void/image-renderer-takumi',
+  exports: { '.': './dist/index.mjs' },
   dependencies: { 'takumi-js': '~2.20.0' },
   peerDependencies: { void: '^1.8.0' },
 };
 const imageFiles = {
-  'dist/generate.mjs': 'import { render } from "takumi-js";\nimport("takumi-js/wasm");\n',
-  'licenses/Inter.txt': 'SIL Open Font License\n',
+  'dist/index.mjs': 'import { render } from "takumi-js";\nimport("takumi-js/wasm");\n',
+  'licenses/Roboto.txt': 'SIL Open Font License\n',
 };
 
-void test('accepts the image subpath with external Takumi and its font license', (t) => {
+void test('accepts the renderer entry with external Takumi and its font license', (t) => {
   inspectPackage(createPackage(t, imageManifest, true, imageFiles));
 });
 
-void test('rejects image packages that expose the root or omit the void peer', (t) => {
-  for (const overrides of [
-    { exports: { ...imageManifest.exports, '.': './dist/generate.mjs' } },
-    { peerDependencies: {} },
-  ]) {
+void test('rejects renderer packages that omit the root export or void peer', (t) => {
+  for (const overrides of [{ exports: {} }, { peerDependencies: {} }]) {
     assert.throws(() =>
       inspectPackage(createPackage(t, { ...imageManifest, ...overrides }, true, imageFiles)),
     );
@@ -96,8 +93,8 @@ void test('rejects image packages that expose the root or omit the void peer', (
 
 void test('rejects image packages that omit the font license or bundle Takumi', (t) => {
   for (const files of [
-    { 'dist/generate.mjs': imageFiles['dist/generate.mjs'] },
-    { ...imageFiles, 'dist/generate.mjs': 'export class ImageResponse {}\n' },
+    { 'dist/index.mjs': imageFiles['dist/index.mjs'] },
+    { ...imageFiles, 'dist/index.mjs': 'export class ImageResponse {}\n' },
   ]) {
     assert.throws(() => inspectPackage(createPackage(t, imageManifest, true, files)));
   }

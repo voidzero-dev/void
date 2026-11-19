@@ -48,16 +48,15 @@ export function inspectPackage(tarball) {
     );
   }
 
-  if (manifest.name === '@void/image') {
-    assert(files.has('package/licenses/Inter.txt'), '@void/image: missing Inter license');
-    assert.equal(manifest.exports['.'], undefined, '@void/image: root must not export generation');
-    assert(manifest.exports['./generate'], '@void/image: missing generate export');
-    assert(manifest.peerDependencies?.void, '@void/image: missing void peer dependency');
-    assert(manifest.dependencies?.['takumi-js'], '@void/image: missing Takumi dependency');
-    const output = execFileSync('tar', ['-xOf', tarball, 'package/dist/generate.mjs'], {
+  if (manifest.name === '@void/image-renderer-takumi') {
+    assert(files.has('package/licenses/Roboto.txt'), `${manifest.name}: missing Roboto license`);
+    assert(manifest.exports['.'], `${manifest.name}: missing renderer export`);
+    assert(manifest.peerDependencies?.void, `${manifest.name}: missing void peer dependency`);
+    assert(manifest.dependencies?.['takumi-js'], `${manifest.name}: missing Takumi dependency`);
+    const output = execFileSync('tar', ['-xOf', tarball, 'package/dist/index.mjs'], {
       encoding: 'utf8',
     });
-    assert.match(output, /from ["']takumi-js["']/, '@void/image: Takumi must stay external');
+    assert.match(output, /from ["']takumi-js["']/, `${manifest.name}: Takumi must stay external`);
     assert.match(output, /import\(["']takumi-js\/wasm["']\)/);
   }
 

@@ -4,29 +4,64 @@ outline: deep
 
 # Image Generation
 
-Use `ImageResponse` from `@void/image/generate` to generate PNG images from JSX or HTML in a route handler.
+Use `ImageResponse` from `void/image` to generate PNGs for favicons, badges, and banners from your app's data.
 
-It renders with [Takumi](https://takumi.kane.tw/docs/), without a headless browser. Use it for favicons, badges, banners, and other images built from your app's data.
+By default, Void renders HTML and CSS with [Cloudflare Browser Run](https://developers.cloudflare.com/browser-run/) or Chromium locally. You can also use [Takumi renderer](https://github.com/kane50613/takumi) that renders with a Wasm runtime.
 
-For Open Graph and social previews, use [`OgImageResponse`](./og-images.md) from the same module, which predefines standard Open Graph options, such as standard width and height.
+For social previews, use [`OgImageResponse`](./og-images.md).
 
 ## Setup
 
-Install alongside `void`:
+In `void.config.ts`, add a Browser Run binding named `BROWSER`:
 
-```sh
-npm install @void/image
+```ts
+import { defineConfig } from 'void/config';
+
+export default defineConfig({
+  cloudflare: {
+    browser: {
+      binding: 'BROWSER',
+      // To connect to Cloudflare Browser Run instead of local Chromium, set remote to true:
+      // remote: true
+    },
+  },
+});
 ```
+
+For local development, `remote: true` (defaults to `false`) lets `void dev` use Browser Run in your Cloudflare account.
+
+If you haven't connected the project yet, run `void connect --platform cloudflare`. Rendering uses your account's [Browser Run limits](https://developers.cloudflare.com/browser-run/limits/).
+
+### JSX Types
+
+To make TypeScript recognize Hono JSX in your project, you have two options:
+
+- **Per file:** If your app already uses another JSX runtime, keep its settings and add `/** @jsxImportSource void/jsx */` at the top of each `.tsx` file that uses Hono JSX.
+
+- **Project-wide:** Add `void/jsx` to `compilerOptions.types` in `tsconfig.json`, keeping any existing entries. Set `jsxImportSource` as well: `types` loads the declarations but does not select the JSX runtime.
+
+  ```json
+  {
+    "compilerOptions": {
+      "jsx": "react-jsx",
+      "jsxImportSource": "void/jsx",
+      "types": ["void/jsx"]
+    }
+  }
+  ```
+
+  Match the import source in your [Vite JSX settings](./server-routing.md#jsx-handlers).
+
+The examples below assume the project-wide setup.
 
 ## Usage
 
-Return an `ImageResponse` from a [`.tsx` route](./server-routing.md#jsx-handlers), passing the required `width` and `height` in pixels:
+Return an `ImageResponse` from a `.tsx` route:
 
 ```tsx
 // routes/favicon.png.tsx
-
-import { ImageResponse } from '@void/image/generate';
 import { defineHandler } from 'void';
+import { ImageResponse } from 'void/image';
 
 export const GET = defineHandler(() => {
   return new ImageResponse(
@@ -51,233 +86,121 @@ export const GET = defineHandler(() => {
 });
 ```
 
-`GET /favicon.png` now returns a 64 × 64 PNG. Add a favicon link to your page's `<head>` (with [`head()`](./pages-routing/head.md) in Pages mode):
+`GET /favicon.png` returns a 64 × 64 PNG. Add a favicon link to your page's `<head>` (with [`head()`](./pages-routing/head.md) in Pages mode):
 
 ```html
 <link rel="icon" type="image/png" sizes="64x64" href="/favicon.png" />
 ```
 
-JSX works in React apps. In Vue, Svelte, and Solid apps, use the `html` template tag from `void/html` instead, as shown below.
+### HTML templates
 
-JSX elements also accept Tailwind classes in a `tw` prop, such as `<div tw="flex h-full w-full items-center justify-center bg-white">`.
-
-### React JSX types
-
-For TypeScript support for `tw`, CSS custom properties such as `--accent`, and `textFit` in React JSX, add `@void/image/react` to `compilerOptions.types` in your `tsconfig.json`:
-
-```json
-{
-  "compilerOptions": {
-    "types": ["vite/client", "@void/image/react"]
-  }
-}
-```
-
-Keep any existing entries in `types`. This enables the additional React typings across your project.
-
-Alternatively, add a type-only import to a source file included by your `tsconfig.json`:
+In a `.ts` route, use the [`html` template tag from `void/html`](../reference/api/html.md). It escapes interpolated text automatically:
 
 ```ts
-import type {} from '@void/image/react';
-```
-
-Both approaches affect only TypeScript; neither adds runtime code. Ordinary JSX with standard CSS properties needs no opt-in. HTML templates and `ImageNode` trees also need no React typings.
-
-### Without React
-
-Use the [`html` template tag from `void/html`](../reference/api/html.md) instead of JSX. It escapes dynamic text automatically (plain strings are not accepted):
-
-```ts
-// routes/favicon.png.ts
-
-import { ImageResponse } from '@void/image/generate';
+// routes/badge.png.ts
 import { defineHandler } from 'void';
 import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
 
-export const GET = defineHandler(() => {
+export const GET = defineHandler((c) => {
+  const label = c.req.query('label') ?? 'Built with Void';
   return new ImageResponse(
-    html`<div
-      style="display: flex; align-items: center; justify-content: center; width: 100%; height: 100%; border-radius: 12px; font-size: 48px; font-weight: 700; background: #0f172a; color: white"
-    >
-      V
+    html`<div style="padding: 16px; background: #0f172a; color: white; font-size: 24px">
+      ${label}
     </div>`,
-    { width: 64, height: 64 },
+    { width: 320, height: 64 },
   );
 });
 ```
 
-Both `ImageResponse` and `OgImageResponse` accept nested and asynchronous `html` templates without an extra `await`. Import `ImageInput` from `@void/image/generate` to type reusable image content.
+The image APIs accept Hono JSX and escaped HTML templates, including asynchronous templates without an extra `await`. Use `ImageInput` from `void/image` to type reusable content. Plain strings are not accepted.
 
-### Image node trees
+### CSS and images
 
-You can also build images with typed objects, without JSX or HTML:
+Use inline styles or a `<style>` block. JavaScript does not run in the screenshot page. Use public HTTPS URLs or data URLs for image assets. Keep the markup trusted: interpolate request text as text, and validate any request values used as asset URLs.
 
-```ts
-import { ImageResponse, type ImageNode, type ImageStyle } from '@void/image/generate';
-import { defineHandler } from 'void';
-
-const style: ImageStyle = {
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  backgroundColor: '#0f172a',
-  color: 'white',
-  fontSize: 48,
-};
-
-const content: ImageNode = {
-  type: 'container',
-  style,
-  children: [{ type: 'text', text: 'Built with Void' }],
-};
-
-export const GET = defineHandler(() => new ImageResponse(content, { width: 800, height: 400 }));
-```
-
-An `ImageNode` is a `container` with optional `children`, a `text` node with a `text` string, or an `image` node with a `src`. Image sources can be URLs, data URLs, encoded image bytes (`Uint8Array` or `ArrayBuffer`), or raw pixels described by `ImageRgbaData`.
-
-Import `ImageJsxElement` to type reusable JSX elements and `ImageFont` to type custom font entries. All these types are available from `@void/image/generate`.
+Chromium renders emoji with its system fonts. To use specific artwork, put an SVG or PNG in the markup with an `<img>` element.
 
 ## Await rendering
 
-Use `renderImage(content, options)` when you need the PNG bytes, or want to handle rendering failures before returning an HTTP response. It returns a `Promise<Uint8Array>` and accepts the same content and rendering options as `ImageResponse`:
+Use `renderImage(content, options)` for PNG bytes or to catch rendering failures before sending an HTTP response:
 
 ```ts
-import { renderImage } from '@void/image/generate';
 import { defineHandler } from 'void';
 import { html } from 'void/html';
+import { renderImage } from 'void/image';
 
 export const GET = defineHandler(async (c) => {
   try {
-    const png = await renderImage(html`<div style="display: flex">Built with Void</div>`, {
+    const png = await renderImage(html`<div>Built with Void</div>`, {
       width: 800,
       height: 400,
     });
-    return new Response(png, {
-      headers: { 'Content-Type': 'image/png' },
-    });
+    return new Response(png, { headers: { 'Content-Type': 'image/png' } });
   } catch {
     return c.text('Image generation failed', 500);
   }
 });
 ```
 
-Pass response options such as `status` and `headers` to `Response`, not to `renderImage`. The byte API sets no HTTP headers or cache policy. For social previews with a default size of 1200 × 630, use [`renderOgImage`](./og-images.md#await-rendering).
+`renderImage` returns a `Promise<Uint8Array>` and sets no HTTP headers. For social previews with default dimensions, use [`renderOgImage`](./og-images.md#await-rendering).
 
-`ImageResponse` and `OgImageResponse` are convenient alternatives that render only when their body is read, such as when the server sends the response or you call `arrayBuffer()`. Constructing one does not start rendering. Rendering failures reject body consumption; to catch them inside your route before returning a response, await `renderImage` or `renderOgImage` instead.
-
-Cancelling an unread response body prevents rendering. If rendering has already started, cancellation discards the result but does not interrupt the renderer.
+`ImageResponse` and `OgImageResponse` start rendering when their body is read. Rendering failures reject body consumption. Cancelling an unread body prevents rendering; cancelling after rendering starts discards the result without interrupting the render.
 
 ## Options
 
-The second argument is required and sets the image and the response. Import `RenderImageOptions` for rendering options or `ImageResponseOptions` for rendering and response options from `@void/image/generate`.
+Use `RenderImageOptions` for rendering options and `ImageResponseOptions` for rendering and HTTP response options. Both types are exported by `void/image`.
 
-| Option                            | Default     | Description                                                                                                                                  |
-| --------------------------------- | ----------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `width`                           | Required    | Image width in pixels.                                                                                                                       |
-| `height`                          | Required    | Image height in pixels.                                                                                                                      |
-| `defaultFont`                     | `'Inter'`   | Bundled font: `'Inter'` or `'Geist'`. Neither needs a download. See [Fonts](#fonts).                                                         |
-| `fonts`                           |             | Custom fonts to use before the default font. See [Fonts](#fonts).                                                                            |
-| `fallbackFonts`                   | `true`      | Set to `false` to download no fonts from Google Fonts. See [Control font downloads](#control-font-downloads).                                |
-| `emoji`                           | `'twemoji'` | Emoji style: `twemoji`, `blobmoji`, `noto`, `openmoji`, `fluent`, or `fluentFlat`.                                                           |
-| `lang`                            |             | Language of the text, such as `'ja'` or `'zh-TW'`, for Chinese characters.                                                                   |
-| `debug`                           | `false`     | Draws a border around every box.                                                                                                             |
-| `images`                          |             | Limits for remote images and emoji: `allowUrl`, `maxBytes`, `timeout`, and `throwOnError`. Set them when the markup includes request values. |
-| `status`, `statusText`, `headers` |             | The response status and headers.                                                                                                             |
+| Option                            | Default            | Description                                                        |
+| --------------------------------- | ------------------ | ------------------------------------------------------------------ |
+| `width`, `height`                 | Required           | Positive integer dimensions in pixels.                             |
+| `font`                            | Roboto, sans-serif | A font family or an ordered list of families. See [Fonts](#fonts). |
+| `fonts`                           |                    | Custom font faces.                                                 |
+| `lang`                            |                    | Document language, such as `'ja'` or `'zh-TW'`.                    |
+| `debug`                           | `false`            | Draws outlines around elements.                                    |
+| `status`, `statusText`, `headers` |                    | HTTP options for `ImageResponse`.                                  |
 
-Responses have this header unless you set it in `headers`:
-
-```http
-Content-Type: image/png
-```
-
-`ImageResponse` does not set `Cache-Control`. Set your own policy through `headers`, or [cache generated images at the edge](#cache-generated-images). In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit.
-
-Emoji and remote images are downloaded while the image renders. An emoji that the chosen style does not have, or an image that fails to download, fails the image unless you pass `images: { throwOnError: false }`, which leaves it out; `noto` has no flags.
+`ImageResponse` sets `Content-Type: image/png` unless you override it. It does not set `Cache-Control`. In `void dev`, generated image responses use `Cache-Control: no-store` so previews refresh as you edit.
 
 ## Fonts
 
-Text uses bundled Inter by default. It supports Latin, extended Latin, Cyrillic, and Greek, including letters like Ł and ş and symbols like → and ★, without downloading fonts. Its variable weights range from 100 to 900.
-
-To use bundled Geist instead, set `defaultFont: 'Geist'`. No font URL, file, or download is needed:
+Text uses Roboto by default. Use `font` to choose a [family installed in Browser Run](https://developers.cloudflare.com/browser-run/reference/supported-fonts/) or provide an ordered list. Chromium looks for each glyph in that order, then uses system fallback:
 
 ```ts
-import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
 
-return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
-  width: 800,
-  height: 400,
-  defaultFont: 'Geist',
-});
+export const GET = () =>
+  new ImageResponse(html`<div>Hello, 世界</div>`, {
+    width: 800,
+    height: 400,
+    lang: 'ja',
+    font: ['Roboto', 'Noto Sans CJK JP', 'sans-serif'],
+  });
 ```
 
-The bundled Geist is a Latin subset with variable weights from 300 to 800. Unlike Inter, it needs fallback downloads for Cyrillic, Greek, extended Latin letters such as Ł and ş, and symbols such as → and ★.
-
-Your custom `fonts` take priority over the selected default font, which draws characters they lack.
-
-When the text includes characters the default font cannot draw, such as Japanese, Chinese, Korean, Thai, Arabic, or Hebrew, Void downloads a matching [Noto](https://fonts.google.com/noto) font from Google Fonts while rendering, such as Noto Sans JP for Japanese. With `defaultFont: 'Geist'`, its additional Cyrillic and Latin letters come from Geist's own Google Fonts subsets. Void asks for only the characters the image uses, whether or not `fonts` covers them. If neither the supplied fonts nor a downloaded font can draw a character, it appears as a box.
-
-Chinese characters are drawn in the Japanese style unless the `lang` option or the root element's `lang` attribute names the language, or the text has Korean around them. A `lang` wins over the text:
+For a custom font, add a named face to `fonts` and select its name in `font` or in your markup's CSS. `data` accepts an `ArrayBuffer`, a `Uint8Array`, or `{ url: string }` pointing to an HTTPS font file. If you use Google Fonts, pass the font file URL, not the stylesheet URL.
 
 ```ts
-import { ImageResponse } from '@void/image/generate';
 import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
 
-return new ImageResponse(html`<div lang="zh-TW" style="display: flex">台灣咖啡</div>`, {
-  width: 800,
-  height: 400,
-});
+export const GET = () =>
+  new ImageResponse(html`<div>Built with Void</div>`, {
+    width: 800,
+    height: 400,
+    fonts: [{ name: 'Brand', data: { url: 'https://example.com/fonts/brand.woff2' } }],
+    font: ['Brand', 'Roboto'],
+  });
 ```
 
-One style applies to all Chinese characters in an image, so an image cannot mix Japanese and Chinese styles through `lang` on inner elements.
-
-To use your own fonts, pass `fonts`. An entry is either a font URL or an object with the font's data:
-
-```ts
-import { ImageResponse } from '@void/image/generate';
-import { html } from 'void/html';
-
-return new ImageResponse(html`<div style="display: flex">Built with Void</div>`, {
-  width: 800,
-  height: 400,
-  fonts: [
-    'https://example.com/fonts/brand-variable.woff2',
-    { name: 'Brand', data: brandRegular, weight: 400, style: 'normal' },
-  ],
-});
-```
-
-A `weight` from 1 to 1000 makes the font draw only that weight. Leave it out for a variable font, so each element's `fontWeight` sets the weight, including values between the usual steps such as `550`.
-
-Fonts can be TTF, OTF, or WOFF2 files; on Node.js and Bun, WOFF too. A font entry's `lang` is accepted but does not choose the font for a language; use the `lang` option or attribute for Chinese characters instead.
-
-### Control font downloads
-
-Void keeps a bounded in-memory font cache on every target. Images with new text outside the default font's coverage download a small font made for that text, such as a 26 KB file for a Japanese title. Evicted fonts download again when needed. On Cloudflare Workers, these downloads count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests) and add latency to rendering.
-
-To decide which fonts load and when, pass the fonts your images need in `fonts` and set `fallbackFonts: false`. Void then downloads no fallback fonts, and characters that neither your fonts nor the selected default font can draw are drawn as boxes:
-
-```ts
-import { ImageResponse } from '@void/image/generate';
-import { html } from 'void/html';
-
-return new ImageResponse(html`<div style="display: flex">こんにちは</div>`, {
-  width: 800,
-  height: 400,
-  fonts: [{ name: 'Noto Sans JP', data: notoSansJp }],
-  fallbackFonts: false,
-});
-```
-
-A font passed as data can be reused across images without downloading it. Keep its data at module scope to avoid reading the file for every request.
+Set `weight` (1–1000) for a single weight or omit it for a variable face. Set `style: 'italic'` to register an italic face.
 
 ## Cache generated images
 
-Each request renders the image again. Rendering uses CPU time, especially with fonts, gradients, or emoji, and the first render in a new Worker instance can take more than 100 ms. [Workers Free allows 10 ms per request](../reference/config.md#worker) and fails requests from a Worker that keeps exceeding it, so on Workers Free, cache image routes with [revalidation](./edge/revalidation.md):
+Each request that reaches your handler renders a new image. To reuse renders at the edge, configure [revalidation](./edge/revalidation.md):
 
 ```ts
-// void.config.ts
 import { defineConfig } from 'void/config';
 
 export default defineConfig({
@@ -289,8 +212,70 @@ export default defineConfig({
 });
 ```
 
-Void never caches paths under `/api`, so serve images from another path, such as `/favicon.png`. The cache ignores query strings, so put values in the path, or list the query parameters in [`routing.revalidateQueryAllowlist`](../reference/config.md#routing-revalidatequeryallowlist).
+Add this setting to your existing `void.config.ts`. Void doesn't cache paths under `/api`. If query parameters affect the image, list them in [`routing.revalidateQueryAllowlist`](../reference/config.md#routing-revalidatequeryallowlist) or put those values in the path.
 
-## Worker size
+## Takumi renderer
 
-On Cloudflare, importing `@void/image/generate` adds Takumi's WebAssembly renderer and bundled Inter to your Worker. A larger Worker takes longer to upload on each deploy and to start in a new instance. Apps that do not import this module include neither the renderer nor Inter.
+[Takumi](https://takumi.kane.tw/docs/) renders images in your server runtime without a browser. It can run on Cloudflare Workers, Node.js, Bun, and Deno. Install it alongside `void`:
+
+```sh
+npm install @void/image-renderer-takumi
+```
+
+Pass `renderer: takumiRenderer` to `ImageResponse`, `OgImageResponse`, `renderImage`, or `renderOgImage`. Takumi does not require a `BROWSER` binding.
+
+```ts
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+export const GET = () =>
+  new ImageResponse(html`<div style="display: flex; font-size: 48px">Built with Void</div>`, {
+    width: 800,
+    height: 400,
+    renderer: takumiRenderer,
+  });
+```
+
+### Takumi options
+
+Pass `[takumiRenderer, options]` to configure Takumi. Shared options such as `width`, `height`, and `lang` stay outside the tuple:
+
+```ts
+import { takumiRenderer } from '@void/image-renderer-takumi';
+import { html } from 'void/html';
+import { ImageResponse } from 'void/image';
+
+export const GET = () =>
+  new ImageResponse(html`<div style="display: flex; font-size: 48px">こんにちは 👋</div>`, {
+    width: 800,
+    height: 400,
+    lang: 'ja',
+    renderer: [takumiRenderer, { emoji: 'twemoji', fallbackFonts: true }],
+  });
+```
+
+| Option                | Default             | Description                                                                                  |
+| --------------------- | ------------------- | -------------------------------------------------------------------------------------------- |
+| `fallbackFonts`       | `true`              | Downloads font subsets from Google Fonts for missing glyphs.                                 |
+| `emoji`               | `'twemoji'`         | Emoji set: `'twemoji'`, `'blobmoji'`, `'noto'`, `'openmoji'`, `'fluent'`, or `'fluentFlat'`. |
+| `images.allowUrl`     | No custom filter    | A function that returns `false` to block a remote image or emoji URL.                        |
+| `images.maxBytes`     | `33554432` (32 MiB) | Maximum response size in bytes per image download.                                           |
+| `images.timeout`      | `30000` (30 s)      | Download timeout in milliseconds.                                                            |
+| `images.throwOnError` | `true`              | Fails rendering when an image fails to load. Set to `false` to omit the failed image.        |
+
+Use [CSS properties supported by Takumi](https://takumi.kane.tw/docs/styles). On Cloudflare, the renderer's WebAssembly and bundled font add to the Worker size, and rendering uses Worker CPU time. [Cache generated images](#cache-generated-images) if the same image is requested frequently.
+
+### Takumi fonts
+
+Roboto is bundled and selected by default. It covers Latin, Cyrillic, and Greek. Set `font: 'Geist'` to use the bundled Latin Geist face. Use `font` to select a custom family or an ordered list of families. Custom `fonts` entries take font bytes (`Uint8Array` or `ArrayBuffer`); load the file before passing it to the renderer. Keep reusable font bytes at module scope when practical.
+
+Takumi can download font subsets from Google Fonts for glyphs such as Japanese, Chinese, Korean, Thai, Arabic, or Hebrew. Set `fallbackFonts: false` in the renderer tuple to skip those downloads. If no available font covers a glyph, it may render as a box. On Workers, downloads can add latency and count toward the [subrequest limit](https://developers.cloudflare.com/workers/platform/limits/#subrequests).
+
+Use `lang` in the image options or on the root element to choose how Han characters are drawn, for example `'ja'`, `'zh-CN'`, `'zh-TW'`, or `'ko'`. Use one Han glyph style per render.
+
+### Takumi emoji and remote images
+
+Takumi downloads emoji artwork as part of rendering. Sets differ in coverage; for example, `noto` does not include country flags.
+
+Use `images.allowUrl` to allow only trusted sources when image URLs come from request data.
