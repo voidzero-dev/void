@@ -736,29 +736,55 @@ const HELP_TREE: HelpTree = {
       },
       'zero-trust': {
         summary: 'Inspect and manage Zero Trust protection for a Void platform project.',
-        usage: ['void project zero-trust <status|protect|public|reconcile> [options]'],
+        usage: ['void project zero-trust <status|protect|public|bypass|reconcile> [options]'],
         commands: [
           { command: 'status', description: 'Show desired and effective protection state' },
           { command: 'protect', description: 'Protect the project' },
-          { command: 'public', description: 'Make the project public' },
+          {
+            command: 'public',
+            description: 'Make the project public (may wait for a security scan)',
+          },
+          {
+            command: 'bypass --reason "<text>"',
+            description: 'Skip the security scan for a waiting request (admin or owner)',
+          },
           { command: 'reconcile', description: 'Repair Cloudflare Access configuration drift' },
         ],
-        options: [{ command: '--project <name>', description: 'Project name override' }],
-        children: Object.fromEntries(
-          ['status', 'protect', 'public', 'reconcile'].map((action) => [
-            action,
-            withProjectOption(
-              action === 'status'
-                ? 'Show desired and effective Zero Trust protection.'
-                : action === 'protect'
-                  ? 'Protect the project with the platform Access policy.'
-                  : action === 'public'
-                    ? 'Make the project public with a managed Access bypass.'
-                    : 'Repair Cloudflare Access configuration drift for the project.',
-              `void project zero-trust ${action} [options]`,
-            ),
-          ]),
-        ),
+        options: [
+          { command: '--project <name>', description: 'Project name override' },
+          { command: '--json', description: 'Print machine-readable output' },
+          { command: '--reason <text>', description: 'bypass: why the scan is skipped (required)' },
+          { command: '--yes', description: 'bypass: skip the confirmation prompt' },
+        ],
+        children: {
+          status: zeroTrustHelp(
+            'Show desired and effective Zero Trust protection and any open public request.',
+            'void project zero-trust status [options]',
+          ),
+          protect: zeroTrustHelp(
+            'Protect the project with the platform Access policy.',
+            'void project zero-trust protect [options]',
+          ),
+          public: zeroTrustHelp(
+            'Make the project public with a managed Access bypass. When the platform scans projects before they go public, the project stays protected until the scan passes.',
+            'void project zero-trust public [options]',
+          ),
+          bypass: {
+            summary:
+              'Skip the security scan for the open public request and make the project public. Not allowed while urgent findings are open. Platform admins are emailed with your reason, and the bypass is recorded.',
+            usage: ['void project zero-trust bypass --reason "<text>" [--yes] [options]'],
+            options: [
+              { command: '--reason <text>', description: 'Why the scan is skipped (required)' },
+              { command: '--yes', description: 'Skip the confirmation prompt (needed in CI)' },
+              { command: '--project <name>', description: 'Project name override' },
+              { command: '--json', description: 'Print machine-readable output' },
+            ],
+          },
+          reconcile: zeroTrustHelp(
+            'Repair Cloudflare Access configuration drift for the project.',
+            'void project zero-trust reconcile [options]',
+          ),
+        },
       },
       security: {
         summary:
@@ -1563,6 +1589,17 @@ function basicSubcommand(summary: string, usage: string, example?: string): Help
     summary,
     usage: [usage],
     examples: example ? [{ command: example, description: summary }] : undefined,
+  };
+}
+
+function zeroTrustHelp(summary: string, usage: string): HelpPage {
+  return {
+    summary,
+    usage: [usage],
+    options: [
+      { command: '--project <name>', description: 'Project name override' },
+      { command: '--json', description: 'Print machine-readable output' },
+    ],
   };
 }
 

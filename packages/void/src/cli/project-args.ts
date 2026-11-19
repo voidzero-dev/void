@@ -26,7 +26,7 @@ export const projectSubcommands: Array<SubcommandDef> = [
   },
   {
     name: 'zero-trust',
-    hint: 'status | protect | public | reconcile',
+    hint: 'status | protect | public | bypass | reconcile',
     description: 'Inspect or override Cloudflare Zero Trust protection',
   },
   {
@@ -57,15 +57,94 @@ export const projectSubcommands: Array<SubcommandDef> = [
   { name: 'purge-cache', description: 'Purge all cached pages (Void platform)' },
 ];
 
+export type ProjectZeroTrustArgs = {
+  subcommand: 'zero-trust';
+  projectSlug: string;
+  json: boolean;
+} & (
+  | { action: '' | 'status' | 'protect' | 'public' | 'reconcile' }
+  | { action: 'bypass'; reason: string; yes: boolean }
+);
+
+const ZERO_TRUST_ACTIONS = ['status', 'protect', 'public', 'bypass', 'reconcile'];
+const BYPASS_REASON_MAX_CHARS = 4000;
+
+function parseZeroTrustArgs(rest: Array<string>): ProjectZeroTrustArgs {
+  const [action = '', ...args] = rest;
+  if (action && !ZERO_TRUST_ACTIONS.includes(action)) {
+    throw new Error(
+      'project: Usage: void project zero-trust <status|protect|public|bypass|reconcile> [--project <slug>] [--json].',
+    );
+  }
+  let projectSlug = '';
+  let reason: string | undefined;
+  let yes = false;
+  let json = false;
+  for (let index = 0; index < args.length; index++) {
+    const arg = args[index]!;
+    if (arg === '--project') {
+      const value = args[++index];
+      if (!value || value.startsWith('-')) {
+        throw new Error('project: --project requires a value.');
+      }
+      if (projectSlug) {
+        throw new Error("project: Duplicate flag '--project'.");
+      }
+      projectSlug = value;
+    } else if (arg === '--json') {
+      if (json) {
+        throw new Error("project: Duplicate flag '--json'.");
+      }
+      json = true;
+    } else if (arg === '--reason' || arg === '--yes') {
+      if (action !== 'bypass') {
+        throw new Error(`project: ${arg} is not used with zero-trust ${action || '<command>'}.`);
+      }
+      if (arg === '--yes') {
+        if (yes) {
+          throw new Error("project: Duplicate flag '--yes'.");
+        }
+        yes = true;
+        continue;
+      }
+      if (reason !== undefined) {
+        throw new Error("project: Duplicate flag '--reason'.");
+      }
+      // A reason is free text and may start with a dash.
+      const value = args[++index];
+      if (value === undefined) {
+        throw new Error('project: --reason requires a value.');
+      }
+      reason = value;
+    } else {
+      throw new Error(`project: Unexpected argument '${arg}'.`);
+    }
+  }
+  if (action === 'bypass') {
+    const text = reason?.trim() ?? '';
+    if (text === '') {
+      throw new Error(
+        'project: A reason is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."',
+      );
+    }
+    if ([...text].length > BYPASS_REASON_MAX_CHARS) {
+      throw new Error(`project: A reason can be at most ${BYPASS_REASON_MAX_CHARS} characters.`);
+    }
+    return { subcommand: 'zero-trust', projectSlug, json, action, reason: text, yes };
+  }
+  return {
+    subcommand: 'zero-trust',
+    projectSlug,
+    json,
+    action: action as '' | 'status' | 'protect' | 'public' | 'reconcile',
+  };
+}
+
 export type ProjectArgs =
   | { subcommand: 'status'; name: string }
   | { subcommand: 'link'; name: string }
   | { subcommand: 'list' }
-  | {
-      subcommand: 'zero-trust';
-      action: '' | 'status' | 'protect' | 'public' | 'reconcile';
-      projectSlug: string;
-    }
+  | ProjectZeroTrustArgs
   | ProjectSecurityArgs
   | { subcommand: 'team'; action: '' }
   | {
@@ -201,33 +280,7 @@ export function parseProjectArgs(args: Array<string>): ProjectArgs {
   }
 
   if (subcommand === 'zero-trust') {
-    const [action = '', ...args] = rest;
-    if (action && !['status', 'protect', 'public', 'reconcile'].includes(action)) {
-      throw new Error(
-        'project: Usage: void project zero-trust <status|protect|public|reconcile> [--project <slug>].',
-      );
-    }
-    let projectSlug = '';
-    for (let index = 0; index < args.length; index++) {
-      const arg = args[index]!;
-      if (arg === '--project') {
-        const value = args[++index];
-        if (!value || value.startsWith('-')) {
-          throw new Error('project: --project requires a value.');
-        }
-        if (projectSlug) {
-          throw new Error("project: Duplicate flag '--project'.");
-        }
-        projectSlug = value;
-      } else {
-        throw new Error(`project: Unexpected argument '${arg}'.`);
-      }
-    }
-    return {
-      subcommand,
-      action: action as '' | 'status' | 'protect' | 'public' | 'reconcile',
-      projectSlug,
-    };
+    return parseZeroTrustArgs(rest);
   }
 
   if (subcommand === 'security') {

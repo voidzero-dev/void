@@ -15,6 +15,7 @@ import {
 import { normalizePlatformApiUrl } from './platform-registry.ts';
 import type {
   ProjectSecurityStatus,
+  SecurityPublicRequest,
   SecurityBudgetChange,
   SecurityFindingChange,
   SecurityFindingDetail,
@@ -311,6 +312,9 @@ export type ProjectZeroTrustResponse = {
     | 'disabling'
     | 'error';
   protectNewProjects: boolean;
+  /** Present on platforms with security audits (the gate and the open public request). */
+  publicGate?: boolean;
+  publicRequest?: SecurityPublicRequest | null;
   project: ProjectZeroTrustState | null;
 };
 
@@ -318,6 +322,15 @@ export type ProjectZeroTrustResponse = {
 export type ProjectZeroTrustUpdateResponse = {
   ok: true;
   project: ProjectZeroTrustState;
+  /** Set when a public gate request exists for the project (a held request answers 202). */
+  publicRequest?: SecurityPublicRequest | null;
+  /** The platform's copy for a held request. */
+  message?: string;
+};
+
+/** `POST /projects/:id/zero-trust/public-request/bypass`. */
+export type ProjectPublicRequestBypassResponse = ProjectZeroTrustUpdateResponse & {
+  skipped: string | null;
 };
 
 export type IssuedProjectDeployCredentialResponse = ProjectDeployCredentialResponse & {
@@ -1082,6 +1095,17 @@ export class PlatformClient {
       method: 'POST',
       permission: 'read',
     });
+  }
+
+  async bypassProjectPublicRequest(
+    projectId: string,
+    reason: string,
+  ): Promise<ProjectPublicRequestBypassResponse> {
+    return this.security(
+      `${projectId}/zero-trust/public-request/bypass`,
+      'Failed to bypass the security scan',
+      { method: 'POST', body: { reason }, permission: 'settings' },
+    );
   }
 
   async reconcileProjectZeroTrust(projectId: string): Promise<ProjectZeroTrustUpdateResponse> {

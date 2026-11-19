@@ -1213,6 +1213,22 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests: `project-zero-trust-command.test.ts` (old platform unchanged; 202; bypass
   409s), `project-args.test.ts`.
 - Exit: old-platform replies print exactly as today.
+- As built: parser `parseZeroTrustArgs` in `project-args.ts` (`--json` on every action,
+  `--reason` and `--yes` only for `bypass`; reason checked locally, 1 to 4000 characters).
+  Every parsed zero-trust args object now carries `json`. A reply with an open
+  `publicRequest` (waiting_scan, held_*, needs_deploy) from `public` prints the platform
+  `message` (or the local copy), then "stays protected"; it is checked before the
+  `reconciling` branch, so the old-CLI stand-in `last_error` never prints. `--json` of a held
+  reply adds `held: true` and shows the stored state (`protected`, no `last_error`) instead
+  of the stand-in. `status` adds a `Public request:` block (and one best-effort security GET
+  for backlog and budget). `bypass` reads the request first (none → "has no public request to
+  bypass"; old platform with no field → the bypass route's 404 gives "does not support security
+  audits"), confirms unless `--yes` (no prompt in CI, non-TTY or `--json`: "Add --yes"),
+  and turns the 409 `security public request has urgent findings` body into the spec copy.
+  `held_findings` skips the prompt (nothing is skipped; the server refuses). `cli-main.ts`
+  prints `{error,message,status?}` on stderr for failed `project zero-trust|security --json`
+  runs. The `project` hint text lists `bypass`; `docs/reference/cli.md` row updated (full
+  docs wait for M24).
 
 **M22 CLI deploy notice and `project status` line.**
 

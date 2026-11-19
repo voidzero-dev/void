@@ -60,9 +60,8 @@ export async function runProjectCommand(root: string, args: ProjectArgs): Promis
       printHelpPage(['project', 'zero-trust']);
       return;
     }
-    const action = args.action;
     const { runProjectZeroTrustCommand } = await import('./project-zero-trust.ts');
-    return runProjectZeroTrustCommand(root, { ...args, action });
+    return runProjectZeroTrustCommand(root, args);
   }
   if (args.subcommand === 'security') {
     if (cloudflare) {

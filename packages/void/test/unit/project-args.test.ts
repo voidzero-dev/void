@@ -126,20 +126,63 @@ describe('parseProjectArgs', () => {
         subcommand: 'zero-trust',
         action: '',
         projectSlug: '',
+        json: false,
       });
       for (const action of ['status', 'protect', 'public', 'reconcile'] as const) {
         expect(parseProjectArgs(['zero-trust', action, '--project', 'my-app'])).toEqual({
           subcommand: 'zero-trust',
           action,
           projectSlug: 'my-app',
+          json: false,
         });
       }
+    });
+
+    it('parses --json and the bypass flags', () => {
+      expect(parseProjectArgs(['zero-trust', 'status', '--json'])).toMatchObject({ json: true });
+      expect(
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', ' Scanner down ', '--yes']),
+      ).toEqual({
+        subcommand: 'zero-trust',
+        action: 'bypass',
+        projectSlug: '',
+        json: false,
+        reason: 'Scanner down',
+        yes: true,
+      });
+      expect(
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', '- one', '--json']),
+      ).toMatchObject({ reason: '- one', yes: false, json: true });
+    });
+
+    it('requires a bypass reason and keeps bypass flags off other actions', () => {
+      expect(() => parseProjectArgs(['zero-trust', 'bypass'])).toThrow(
+        'A reason is required. Say why, for example: --reason "Launch today; scanner is down. Will re-check."',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'bypass', '--reason', '  '])).toThrow(
+        'A reason is required',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'bypass', '--reason'])).toThrow(
+        '--reason requires a value',
+      );
+      expect(() =>
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', 'x'.repeat(4001)]),
+      ).toThrow('at most 4000 characters');
+      expect(() =>
+        parseProjectArgs(['zero-trust', 'bypass', '--reason', 'a', '--reason', 'b']),
+      ).toThrow("Duplicate flag '--reason'");
+      expect(() => parseProjectArgs(['zero-trust', 'public', '--yes'])).toThrow(
+        '--yes is not used with zero-trust public',
+      );
+      expect(() => parseProjectArgs(['zero-trust', 'status', '--reason', 'x'])).toThrow(
+        '--reason is not used',
+      );
     });
 
     it('rejects unknown operations and malformed project selection', () => {
       for (const action of ['remove', 'enable', 'disable']) {
         expect(() => parseProjectArgs(['zero-trust', action])).toThrow(
-          'status|protect|public|reconcile',
+          'status|protect|public|bypass|reconcile',
         );
       }
       expect(() => parseProjectArgs(['zero-trust', 'status', '--project'])).toThrow(
