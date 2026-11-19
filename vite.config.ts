@@ -120,10 +120,12 @@ const config = defineConfig({
           untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
         },
       },
-      // Local verification without the static checks: build, then the cached test groups.
+      // Local verification without the static checks: build the packages, then the cached test
+      // groups. Tests copy and build the playgrounds they use, so the playground builds of
+      // `build:all` are only needed by the artifact and type checks in `test:all`.
       test: {
         command:
-          'vp run --cache build:all && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration',
+          "vp run --cache build && vp run --cache --filter './platform/packages/**' build && vp run test:group:platform && vp run test:group:unit && vp run test:group:integration",
         cache: {
           untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
         },

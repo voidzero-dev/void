@@ -30,7 +30,7 @@ does not need to execute their `expectTypeOf` assertions.
 
 ### Local test runs
 
-`vp run test` builds the workspace and runs the tests as three cached groups: platform, unit, and
+`vp run test` builds the packages and runs the tests as three cached groups: platform, unit, and
 integration. Vite Task records the files each group reads and replays a group when none of them
 changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
 all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
