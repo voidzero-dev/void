@@ -60,6 +60,18 @@ function shouldCopyPlaygroundPath(sourceRoot: string, path: string): boolean {
 }
 
 /**
+ * Creates a fixture directory inside a package, where the fixture resolves that package's
+ * dependencies. It lives beside the test directories instead of inside one: Vitest lists those
+ * to collect files, and a directory that appears and disappears there would invalidate the
+ * cached test task of every package.
+ */
+export function createPackageFixtureDir(packageDir: string, prefix: string): string {
+  const parent = join(packageDir.replaceAll('\\', '/'), 'test/.tmp-fixtures');
+  mkdirSync(parent, { recursive: true });
+  return mkdtempSync(join(parent, prefix));
+}
+
+/**
  * Copies a playground outside the workspace package globs so concurrent task-graph scans never
  * discover a manifest while the fixture is created or removed. Run Vite+ directly from the copy.
  * Dependencies stay linked to the installed source tree; generated state is deliberately not copied.

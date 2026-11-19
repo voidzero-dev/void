@@ -1,8 +1,9 @@
 import { execSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { expect, it } from 'vite-plus/test';
+import { createPackageFixtureDir } from './integration-helpers.ts';
 
 const MD_PLUGIN = join(import.meta.dirname, '../packages/md/dist/plugin.mjs');
 
@@ -41,7 +42,7 @@ export function buildIslandApp(app: Omit<IslandCssApp, 'expectedCss' | 'check' |
   output(dir: 'client' | 'ssr'): Map<string, string>;
   cleanup(): void;
 } {
-  const root = mkdtempSync(join(app.packageDir, 'test/integration/__tmp_island_css_'));
+  const root = createPackageFixtureDir(app.packageDir, '__tmp_island_css_');
   try {
     const plugin = pathToFileURL(join(app.packageDir, 'dist/plugin.mjs')).href;
     const files: Record<string, string> = {
