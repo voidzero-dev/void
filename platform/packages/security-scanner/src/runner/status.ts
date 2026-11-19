@@ -128,6 +128,10 @@ export type ClaudeResultSignal = {
   stopReason?: string | null;
   stopCategory?: string | null;
   structuredOutput?: unknown;
+  /** The result's `is_error`: Claude Code reports an API failure as `subtype: "success"` with this set (S2). */
+  isError?: boolean;
+  /** The result's `result` text, for example `API Error: 402 …`. */
+  resultText?: string | null;
   proxyStop?: { httpStatus: number; reason: ProxyStopReason | null } | null;
 };
 
@@ -143,6 +147,9 @@ export function classifyClaudeResult(signal: ClaudeResultSignal): OutcomeBody {
   }
   switch (signal.subtype) {
     case 'success':
+      if (signal.isError === true && signal.structuredOutput === undefined) {
+        return apiErrorOutcome(signal.resultText ?? null);
+      }
       return reportOutcome(signal.structuredOutput);
     case 'error_max_turns':
       return { kind: 'stopped', reason: 'turns' };
@@ -161,10 +168,41 @@ export function classifyClaudeResult(signal: ClaudeResultSignal): OutcomeBody {
   }
 }
 
+/** The HTTP status in an `API Error: 402 …` text, or `null`. */
+export function apiErrorStatus(text: string | null): number | null {
+  if (text === null) {
+    return null;
+  }
+  const marker = 'API Error: ';
+  const at = text.indexOf(marker);
+  if (at === -1) {
+    return null;
+  }
+  const digits = text.slice(at + marker.length, at + marker.length + 3);
+  const status = Number(digits);
+  return digits.length === 3 && Number.isInteger(status) && status >= 100 && status <= 599
+    ? status
+    : null;
+}
+
+function apiErrorOutcome(text: string | null): OutcomeBody {
+  const status = apiErrorStatus(text);
+  if (status === 402) {
+    return { kind: 'credits' };
+  }
+  return {
+    kind: 'infrastructure',
+    errorClass: status === null ? 'agent_sdk_error' : `model_http_${status}`,
+    detail: status === null ? 'agent SDK reported an error' : `model call answered ${status}`,
+  };
+}
+
 /** What a finished `codex exec` run left behind. */
 export type CodexRunSignal = {
   /** The report `submit_findings` accepted, if any. */
   submitted: ScanReport | null;
+  /** The last report `submit_findings` refused, when none was accepted. */
+  rejected?: { kind: string; message: string } | null;
   /** The `turn.failed` / `error` event, if any. */
   failure: { code?: string | null; message?: string | null } | null;
   finalMessage: string | null;
@@ -189,6 +227,13 @@ export function classifyCodexRun(signal: CodexRunSignal): OutcomeBody {
   }
   if (signal.submitted) {
     return { kind: 'submitted', report: signal.submitted, repaired: false };
+  }
+  if (signal.rejected) {
+    return {
+      kind: 'bad_output',
+      errorKind: signal.rejected.kind,
+      message: signal.rejected.message,
+    };
   }
   if (signal.failure) {
     return {

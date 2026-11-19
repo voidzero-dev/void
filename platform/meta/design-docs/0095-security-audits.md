@@ -872,6 +872,45 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   fake model: tools list only Read/Glob/Grep(/Skill) or the 4 MCP tools; planted
   `AGENTS.md`, `.codex/`, `CLAUDE.md`, `.mcp.json` never load; `codex --version` matches).
 - Exit: drift test green; models whose engine spike failed stay out of the list (blocked by default).
+- As built: `engines/{claude,codex,proxy-failure}.ts`, `mcp/{server,void-scan}.ts`,
+  `coerce.ts`, `image/{Dockerfile.claude,Dockerfile.codex,claude/,codex/,codex-wrapper.sh,NOTICE}`,
+  CI job `build-security-scanner-images`, one `Dockerfile.<engine>.dockerignore` allowlist each
+  (the root `.dockerignore` is pinned to the API build container by its own test). The SDKs are loaded
+  by a variable specifier when the first session starts, so the runner bundle stays
+  dependency-free and a managed (Engine B) image that gets an A/C task ends `failed
+  (engine_unavailable)`. `vp pack` now writes `runner.mjs` and `void-scan-mcp.mjs`.
+  Each image has its own exact-pin `package.json` and an npm `package-lock.json` (plan
+  said one pnpm lockfile; two images need two sets, and the base image has npm), installed
+  with `npm ci --ignore-scripts`; everything under `/opt/void-scanner` (the controller's
+  `RUNNER_PATH` folder). The wrapper also refuses a `codex` that is not the pinned version.
+  Engine A: `systemPrompt` is Void's own prompt (skill vendoring is still R5) plus a note
+  that the tools are Read/Glob/Grep and the end is the structured output (size keywords
+  stripped from the schema, `validate-findings` still enforces them); no plugin, no
+  `Skill` tool; cwd `/scan/input` plus `/scan/memory`; the PreToolUse hook checks realpath.
+  Both engines send `x-void-scan-session` (the proxy's per-session call cap), set the CLI
+  retry caps from spikes S2/S3 (Codex 0 and 0; Claude Code 2, since a 401 retried for
+  120 s), and after a session with no report ask the proxy `GET /v1/void/last-failure`;
+  a failure that is new since the session started decides credits or a cap stop.
+  `classifyClaudeResult` reads `is_error` + `API Error: 402` as credits (S2).
+  The proxy (M7) now takes the gateway name (`claude-sonnet-5.5`, `gpt-6.1-terra`) as the
+  scan's model and sends that name on, the form S2/S3 verified, and never passes an
+  upstream 401 on to an engine. Engine B (and the other engines) read a report sent as JSON
+  text, repair harmless slips (`coerce.ts`) and retry once with "your last output was
+  invalid: …". Not built here: the controller still answers `engine_unavailable` for A/C
+  (it needs the image copy by digest into the operator registry, spike S1b option A, and a
+  second container app per engine), the CI job does not yet push images to ghcr, the
+  `recorded-run.e2e` Docker test, and the upstream skill (R5). Without those, A/C models
+  cannot run a scan; their live quality numbers are blocked on credits (S2/S3).
+  Checked locally on an arm64 colima build of both images: they build, `import()` of the SDK
+  works, the wrapper refuses other subcommands and a missing version match, the catalog
+  holds only `gpt-6.1-terra`/`gpt-6.1-sol` with `shell_type: disabled`, and the Codex SDK
+  accepts our whole config under `--strict-config` (`http_headers` and the MCP server
+  included) and reaches the model URL. Codex still prints "Reconnecting…" on a dropped
+  connection after the retry caps are 0 (those caps cover HTTP statuses such as 402), so
+  the wall clock ends such a session. `vp pack` runs two builds: one shared chunk would
+  break the single-file `runner.mjs` the controller embeds. The Codex image keeps only the
+  `codex` binary (the platform package also carries `bwrap`, `codex-code-mode-host` and
+  LGPL voice libraries) and the Apache-2.0 `LICENSE` from the SDK package.
 
 **M14 Project API routes.**
 

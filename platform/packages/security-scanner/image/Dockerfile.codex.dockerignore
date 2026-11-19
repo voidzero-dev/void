@@ -1,0 +1,10 @@
+# Context allowlist for Dockerfile.codex (BuildKit reads <Dockerfile>.dockerignore first; the root
+# .dockerignore belongs to the API build container). Build from the repository root.
+**
+!platform/packages/security-scanner/dist/runner.mjs
+!platform/packages/security-scanner/image/NOTICE
+!platform/packages/security-scanner/dist/void-scan-mcp.mjs
+!platform/packages/security-scanner/image/codex-wrapper.sh
+!platform/packages/security-scanner/image/codex/package.json
+!platform/packages/security-scanner/image/codex/package-lock.json
+!platform/packages/security-scanner/image/codex/make-catalog.mjs

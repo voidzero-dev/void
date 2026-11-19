@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'vite-plus/test';
 import {
+  apiErrorStatus,
   classifyClaudeResult,
   classifyCodexRun,
   classifyProxyStop,
@@ -102,6 +103,30 @@ describe('Engine A (Claude Agent SDK) result mapping', () => {
     });
   });
 
+  test('an API failure reported as success with is_error is read from its text (spike S2)', () => {
+    const failure = (resultText: string) =>
+      classifyClaudeResult({ subtype: 'success', isError: true, resultText });
+    expect(failure('API Error: 402 Insufficient unified billing credits')).toEqual({
+      kind: 'credits',
+    });
+    expect(failure('API Error: 401 nope')).toMatchObject({
+      kind: 'infrastructure',
+      errorClass: 'model_http_401',
+    });
+    expect(failure('something else')).toMatchObject({ errorClass: 'agent_sdk_error' });
+    // A report that came with the flag still counts.
+    expect(
+      classifyClaudeResult({
+        subtype: 'success',
+        isError: true,
+        structuredOutput: report([confirmed()]),
+      }).kind,
+    ).toBe('submitted');
+    expect(apiErrorStatus('API Error: 4')).toBeNull();
+    expect(apiErrorStatus(null)).toBeNull();
+    expect(apiErrorStatus('x API Error: 529 overloaded')).toBe(529);
+  });
+
   test('a proxy stop wins over the SDK error', () => {
     expect(
       classifyClaudeResult({
@@ -120,6 +145,16 @@ describe('Engine C (Codex SDK) run mapping', () => {
     exitCode: 0,
     proxyStop: null,
   };
+
+  test('a report the MCP tool refused is bad output, not an outage', () => {
+    expect(
+      classifyCodexRun({
+        ...base,
+        rejected: { kind: 'shape', message: '$.findings[0].fix: is required' },
+        failure: { message: 'turn failed' },
+      }),
+    ).toMatchObject({ kind: 'bad_output', errorKind: 'shape' });
+  });
 
   test('a proxy stop is read from the proxy, not from Codex error text', () => {
     expect(

@@ -1,0 +1,33 @@
+# Engine C scanner image: Codex SDK + Codex CLI (one exact version) + the scanner runner.
+# Build from the repository root after `vp run --filter ./platform/packages/security-scanner build`:
+#   docker build --platform linux/amd64 \
+#     -f platform/packages/security-scanner/image/Dockerfile.codex -t void-scanner-codex .
+# Exact pins in codex/package.json and its lockfile; install scripts off; non-root `scanner`
+# user. Only the `codex` binary is kept: codex-code-mode-host, bwrap and the voice libraries
+# are removed (our model file sets tool_mode "direct"). The Apache-2.0 LICENSE and our NOTICE
+# stay in the image.
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+ARG TARGETARCH
+RUN useradd --create-home --uid 10001 scanner \
+  && mkdir -p /scan/input /scan/memory /scan/out /work /opt/void-scanner \
+  && chown scanner /scan/out \
+  && chmod 755 /scan /scan/input /scan/memory /work
+WORKDIR /opt/void-scanner
+COPY platform/packages/security-scanner/image/codex/package.json platform/packages/security-scanner/image/codex/package-lock.json ./
+COPY platform/packages/security-scanner/image/codex/make-catalog.mjs ./make-catalog.mjs
+RUN CPU=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
+  && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --os=linux --cpu=$CPU \
+  && npm cache clean --force \
+  && BIN=$(find node_modules/@openai -type f -name codex -path '*vendor*' | head -1) \
+  && mv "$BIN" /opt/void-scanner/codex-bin \
+  && cp node_modules/@openai/codex-sdk/LICENSE /opt/void-scanner/LICENSE \
+  && find node_modules/@openai -mindepth 1 -maxdepth 1 ! -name codex-sdk -exec rm -rf {} +
+RUN mkdir -p /var/codex-build \
+  && CODEX_HOME=/var/codex-build /opt/void-scanner/codex-bin debug models --bundled > /var/codex-build/bundled.json \
+  && node make-catalog.mjs /var/codex-build/bundled.json /opt/void-scanner/codex-models.json \
+  && rm -rf /var/codex-build
+COPY platform/packages/security-scanner/image/NOTICE ./NOTICE
+COPY platform/packages/security-scanner/image/codex-wrapper.sh ./codex-wrapper.sh
+COPY platform/packages/security-scanner/dist/runner.mjs platform/packages/security-scanner/dist/void-scan-mcp.mjs ./
+USER scanner
+CMD ["sleep", "infinity"]

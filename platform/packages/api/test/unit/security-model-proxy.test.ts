@@ -19,6 +19,7 @@ import {
   type SecurityModelProxyDeps,
   type SecurityModelScan,
   workersAiErrorStatus,
+  gatewayModelName,
 } from '../../src/security/model-proxy.ts';
 
 // The runner's own mapping, so a proxy stop is checked end to end (spec §8.4). A
@@ -409,7 +410,11 @@ describe('third-party calls through AI Gateway REST', () => {
       'cf-aig-collect-log-payload': 'false',
       'cf-aig-skip-cache': 'true',
     });
-    expect(JSON.parse(String(init.body))).toEqual({ model: OPUS, max_tokens: 4096, messages: [] });
+    expect(JSON.parse(String(init.body))).toEqual({
+      model: 'claude-opus-5.5',
+      max_tokens: 4096,
+      messages: [],
+    });
     expect(h.admit).toHaveBeenCalledWith(expect.objectContaining({ rateModel: null }));
     expect(h.settles[0]).toMatchObject({ inputTokens: 100, outputTokens: 10 });
   });
@@ -426,7 +431,7 @@ describe('third-party calls through AI Gateway REST', () => {
     const [url, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
     expect(url).toBe('https://api.cloudflare.com/client/v4/accounts/acct_1/ai/v1/responses');
     expect(JSON.parse(String(init.body))).toEqual({
-      model: TERRA,
+      model: 'gpt-6.1-terra',
       input: 'x',
       max_output_tokens: 1000,
       access_programs: { cyber: 'standard' },
@@ -572,6 +577,34 @@ describe('third-party calls through AI Gateway REST', () => {
       },
     ];
     expect((await call(h, '/v1/responses', { ...base, tools })).status).toBe(200);
+  });
+
+  it('takes the gateway name of the scan model and sends that name on', async () => {
+    h.fetch.mockResolvedValue(Response.json({ usage: { input_tokens: 1, output_tokens: 1 } }));
+    expect(
+      (await call(h, '/v1/messages', { model: 'claude-opus-5.5', max_tokens: 10, messages: [] }))
+        .status,
+    ).toBe(200);
+    const [, init] = h.fetch.mock.calls[0]! as [string, RequestInit];
+    expect(JSON.parse(String(init.body)).model).toBe('claude-opus-5.5');
+    // Another model, with or without a provider, is still refused.
+    const other = await call(h, '/v1/messages', {
+      model: 'claude-sonnet-5.5',
+      max_tokens: 10,
+      messages: [],
+    });
+    expect(other.status).toBe(422);
+    expect(gatewayModelName('@cf/zai-org/glm-5.3')).toBe('@cf/zai-org/glm-5.3');
+    expect(gatewayModelName(TERRA)).toBe('gpt-6.1-terra');
+  });
+
+  it('never passes an upstream 401 on to the engine', async () => {
+    h.fetch.mockResolvedValue(new Response('{"error":"nope"}', { status: 401 }));
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    const response = await call(h, '/v1/messages', { model: OPUS, max_tokens: 10, messages: [] });
+    spy.mockRestore();
+    expect(response.status).toBe(502);
+    expect(response.headers.get(SECURITY_STOP_HEADER)).toBeNull();
   });
 
   it('keeps the worst case charged when a 2xx answer is not JSON', async () => {

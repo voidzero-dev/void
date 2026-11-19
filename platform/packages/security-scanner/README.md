@@ -45,10 +45,21 @@ retried once, then `failed (infrastructure)`.
 
 ## Engines
 
-`src/runner/engines/types.ts` is the engine interface. Engine B (`void-loop.ts`,
-`@cf/*` models) ships now. Engines A (Claude Agent SDK) and C (Codex SDK) plug in
-through `runScan({ engineFactory })` in their own images; their SDKs are not
-workspace dependencies. `status.ts` already maps their signals.
+`src/runner/engines/types.ts` is the engine interface; `run.ts` picks the engine from
+`task.json`.
+
+- Engine B (`void-loop.ts`, `@cf/*`): our own tool loop. It ships in the managed image.
+- Engine A (`claude.ts`, `anthropic/*`): the Claude Agent SDK, three read tools, no shell.
+- Engine C (`codex.ts`, `openai/*`): the Codex SDK with only the `void-scan` MCP server
+  (`mcp/`, built to `dist/void-scan-mcp.mjs`). `image/codex-wrapper.sh` adds the lockdown flags.
+
+The SDKs are not workspace dependencies. `image/Dockerfile.claude` and
+`image/Dockerfile.codex` install exact pins (`image/*/package.json`, `package-lock.json`)
+next to `runner.mjs` in `/opt/void-scanner`; `test/unit/image-pins.test.ts` keeps them in
+step. Build the bundle first (`vp run --filter ./platform/packages/security-scanner build`),
+then `docker build --platform linux/amd64 -f platform/packages/security-scanner/image/Dockerfile.<claude|codex> .`.
+After a session that sent no report, engines A and C ask the model proxy why
+(`GET /v1/void/last-failure`); `status.ts` maps the answer.
 
 ## Tests
 

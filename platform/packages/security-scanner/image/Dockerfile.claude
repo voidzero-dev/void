@@ -1,0 +1,22 @@
+# Engine A scanner image: Claude Agent SDK + the scanner runner. Build from the repository
+# root after `vp run --filter ./platform/packages/security-scanner build`:
+#   docker build --platform linux/amd64 \
+#     -f platform/packages/security-scanner/image/Dockerfile.claude -t void-scanner-claude .
+# Cloudflare runs linux/amd64; a local arm64 build (Apple silicon) picks the arm64 binaries. Exact pins in claude/package.json and its lockfile; install
+# scripts off; non-root `scanner` user (the controller runs the runner as that user).
+FROM node:24-bookworm-slim@sha256:dc26ae92c9fb15cf6b1d63e20f0944b2efe0f115b20e00be48fb23fceb061c54
+ARG TARGETARCH
+RUN useradd --create-home --uid 10001 scanner \
+  && mkdir -p /scan/input /scan/memory /scan/out /work /opt/void-scanner \
+  && chown scanner /scan/out \
+  && chmod 755 /scan /scan/input /scan/memory /work
+WORKDIR /opt/void-scanner
+COPY platform/packages/security-scanner/image/claude/package.json platform/packages/security-scanner/image/claude/package-lock.json ./
+RUN CPU=$([ "$TARGETARCH" = "arm64" ] && echo arm64 || echo x64) \
+  && npm ci --omit=dev --ignore-scripts --no-audit --no-fund --os=linux --cpu=$CPU --libc=glibc \
+  && npm cache clean --force \
+  && rm -rf node_modules/@anthropic-ai/claude-agent-sdk-linux-*-musl
+COPY platform/packages/security-scanner/image/NOTICE ./NOTICE
+COPY platform/packages/security-scanner/dist/runner.mjs ./runner.mjs
+USER scanner
+CMD ["sleep", "infinity"]

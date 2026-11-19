@@ -6,6 +6,8 @@
 import { constants } from 'node:fs';
 import { lstat, mkdir, open, rename } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createClaudeEngine } from './engines/claude.ts';
+import { createCodexEngine } from './engines/codex.ts';
 import type { Engine, EngineId } from './engines/types.ts';
 import { createVoidLoopEngine, MODEL_BASE_URL } from './engines/void-loop.ts';
 import { runPhases, type PhasesResult } from './phases.ts';
@@ -19,7 +21,14 @@ export const RUNNER_VERSION = 'runner/1';
 
 export type EngineFactory = (
   task: ScanTask,
-  context: { tools: FsTools; baseUrl: string; fetch?: typeof fetch; retryDelayMs?: number },
+  context: {
+    tools: FsTools;
+    /** The real directory that stands for `/scan`. */
+    root: string;
+    baseUrl: string;
+    fetch?: typeof fetch;
+    retryDelayMs?: number;
+  },
 ) => Engine | null;
 
 export type RunScanOptions = {
@@ -28,7 +37,7 @@ export type RunScanOptions = {
   displayRoot?: string;
   baseUrl?: string;
   fetch?: typeof fetch;
-  /** Engines A and C plug in here (M13). Default: Engine B only. */
+  /** Tests replace the engines. Default: B everywhere; A and C where their SDK is installed. */
   engineFactory?: EngineFactory;
   signal?: AbortSignal;
   now?: () => Date;
@@ -37,16 +46,35 @@ export type RunScanOptions = {
   startError?: { errorClass: string; message: string };
 };
 
-export const defaultEngineFactory: EngineFactory = (task, context) =>
-  task.engine === 'void_loop'
-    ? createVoidLoopEngine({
+export const defaultEngineFactory: EngineFactory = (task, context) => {
+  switch (task.engine) {
+    case 'void_loop':
+      return createVoidLoopEngine({
         model: task.model,
         tools: context.tools,
         baseUrl: context.baseUrl,
         fetch: context.fetch,
         retryDelayMs: context.retryDelayMs,
-      })
-    : null;
+      });
+    case 'agent_sdk':
+      // A scanner image without the SDK ends the scan `failed (engine_unavailable)`.
+      return createClaudeEngine({
+        model: task.model,
+        root: context.root,
+        baseUrl: context.baseUrl,
+        fetch: context.fetch,
+      });
+    case 'codex_sdk':
+      return createCodexEngine({
+        model: task.model,
+        root: context.root,
+        baseUrl: `${context.baseUrl}/v1`,
+        fetch: context.fetch,
+      });
+    default:
+      return null;
+  }
+};
 
 type Identity = {
   scanId: string | null;
@@ -87,6 +115,7 @@ export async function runScan(options: RunScanOptions): Promise<StatusFile> {
       const tools = createFsTools({ root: options.root, displayRoot: options.displayRoot });
       const engine = (options.engineFactory ?? defaultEngineFactory)(task, {
         tools,
+        root: options.root,
         baseUrl: options.baseUrl ?? MODEL_BASE_URL,
         fetch: options.fetch,
         retryDelayMs: options.retryDelayMs,

@@ -272,7 +272,7 @@ export function judgeSecurityModelCall(
   if (!isSecurityModelId(model)) {
     return notAllowed('This scan has no model on the list.');
   }
-  if (input.bodyModel !== model) {
+  if (input.bodyModel !== model && input.bodyModel !== gatewayModelName(model)) {
     return notAllowed(`This scan runs ${model}; the call asked for another model.`);
   }
   const host = getSecurityModel(model).host;
@@ -392,6 +392,15 @@ export function allowedAnthropicBetas(value: string | null): string | null {
     .map((part) => part.trim())
     .filter((part) => SECURITY_ALLOWED_ANTHROPIC_BETAS.has(part));
   return kept.length > 0 ? [...new Set(kept)].join(',') : null;
+}
+
+/**
+ * The name the gateway routes by on its Messages and Responses endpoints (spikes S2/S3):
+ * `claude-sonnet-5.5` for `anthropic/claude-sonnet-5.5`. Engines A and C send it; the
+ * proxy takes it as the scan's model and sends this form on. `@cf/*` ids stay whole.
+ */
+export function gatewayModelName(model: string): string {
+  return model.startsWith('@cf/') ? model : model.slice(model.indexOf('/') + 1);
 }
 
 /** `x-void-scan-session`: a small decimal index, or absent. */
@@ -943,6 +952,9 @@ export async function handleSecurityModelRequest(
     // Always the proxy's own value (spec §15.4): Codex drops its flag without an OpenAI login.
     body.access_programs = { cyber: 'standard' };
   }
+  if (route !== 'chat') {
+    body.model = gatewayModelName(model);
+  }
   const callOutput = clampCallOutput(route, body, limits.maxOutputTokens - scan.tokensOut);
   if (callOutput === null) {
     return failed('tokens', stop('tokens', STOP_MESSAGES.tokens));
@@ -1050,10 +1062,15 @@ export async function handleSecurityModelRequest(
       detail: upstream.detail.slice(0, 500),
     });
     const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
-    // A 402 the runner would read as credits is not passed through without the header.
+    // A 402 the runner would read as credits is not passed through without the header, and
+    // a 401 never reaches an engine: Claude Code retries it for minutes (spike S2).
     return failed(
       'upstream',
-      refuse(status === 402 ? 502 : status, 'upstream_failed', 'The model call failed.'),
+      refuse(
+        status === 402 || status === 401 ? 502 : status,
+        'upstream_failed',
+        'The model call failed.',
+      ),
     );
   }
   if (upstream.kind === 'paid_unreadable') {

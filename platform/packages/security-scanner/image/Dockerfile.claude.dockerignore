@@ -1,0 +1,7 @@
+# Context allowlist for Dockerfile.claude (BuildKit reads <Dockerfile>.dockerignore first; the root
+# .dockerignore belongs to the API build container). Build from the repository root.
+**
+!platform/packages/security-scanner/dist/runner.mjs
+!platform/packages/security-scanner/image/NOTICE
+!platform/packages/security-scanner/image/claude/package.json
+!platform/packages/security-scanner/image/claude/package-lock.json

@@ -1,13 +1,15 @@
 import { defineConfig } from 'vite-plus';
 
-// One self-contained Node file. The API streams it into the managed scanner image
-// (Engine B), and the Engine A/C images copy it in. It has no runtime dependencies.
+// Self-contained Node files with no runtime dependencies, one build each so neither
+// shares a chunk with the other. `runner.mjs` is embedded in the controller (Engine B,
+// managed image) and copied into the Engine A/C images, which also get `void-scan-mcp.mjs`
+// (the MCP server Codex starts). The vendor SDKs are installed in those images and loaded
+// at run time, never bundled.
+const shared = { format: 'esm', platform: 'node', dts: false } as const;
+
 export default defineConfig({
-  pack: {
-    entry: { runner: 'src/runner/main.ts' },
-    format: 'esm',
-    platform: 'node',
-    dts: false,
-    clean: true,
-  },
+  pack: [
+    { ...shared, entry: { runner: 'src/runner/main.ts' }, clean: true },
+    { ...shared, entry: { 'void-scan-mcp': 'src/runner/mcp/void-scan.ts' }, clean: false },
+  ],
 });
