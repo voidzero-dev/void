@@ -1080,6 +1080,34 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
   the existing `pagination()` (page/limit). All writes POST + dryRun; audit targets.
 - Tests: integration `operator-security.test.ts`, `operator-audit.test.ts`.
 - Exit: every route in spec §13.5 operator row exists and is audited.
+- As built: routes in `operator/security-routes.ts`, logic in `security/operator.ts` (so the
+  admin panel can call it). Added to the M4 routes: `GET/POST /security/budget`, `GET
+  /security/{findings,scans,public-requests,bypasses}`, `POST /security/scans/:sid/cancel`
+  (DO RPC `cancelScans`, reason `operator_canceled`), and under `/projects/:id/security`:
+  `GET findings/:fid` (added for the CLI `show`), `POST findings/:fid/{resolve,reopen,comments}`,
+  `POST scans` (rescan), `POST model`, `POST budget`, `POST public-request/bypass`. Reads stay
+  open with the capability off; scans, cancel, model, budget and rescan answer 501. Lists use
+  `page`/`limit`; findings and public requests list oldest first, scans and bypasses newest
+  first. The scans list carries the month totals (metered, gateway, refused, failed, skipped
+  for budget). Budget body: `platformMonthlyUsd` and `projectDefaultMonthlyUsd`, a number
+  (cap on at that amount) or `null` (cap off), by `expectedRevision` under the policy lock
+  (same revision as the policy, so the two writers never overwrite). The project budget route
+  sets the per-project ceiling (`cap_ceiling_cents`, event `cap_kind=ceiling`, actor
+  `installation_admin`). Previews of finding, model and ceiling writes run the real write in a
+  transaction and roll it back (`previewInRollback`), so they fail wherever the write fails.
+  Finding writers take `actor: 'installation_admin'` (no project role checked or recorded).
+  Rescan: a `trigger=rescan` row, `queued`, reading the live deployment's snapshot
+  (`findLiveInput`); refuses when the capability, policy or scope is off, nothing is live, the
+  code is gone, or a scan already waits or runs (409, own codes). The preview is the cost check:
+  `alreadyScanned`, `tier: full`, the model, `worstCaseUsd` (the reserve at list price) and the
+  budget view; the CLI confirms from it. Deviation: spec §13.3 says a live deployment with no
+  succeeded scan diffs from the base as usual; `chooseSecurityTier` makes every `rescan` a full
+  scan (as the plan says), so that case also runs T3. Bypass: `gateBypass` writes its own
+  `operator_events` row only for project members now; an installation admin's bypass is audited
+  by the operator API (or the admin panel), so there is one row, not two. A Zero Trust not
+  ready refusal maps to 409 `zero trust not ready`. Audit targets (`operator/audit.ts`) are ids,
+  known values and numbers only: no comment, reason or note text; `security/probe` now records
+  `{installation:'platform'}`.
 
 **M18 Admin panel.**
 

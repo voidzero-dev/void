@@ -1,8 +1,27 @@
 import { Hono } from 'hono';
 import { capabilityMiddleware, getPlatformCapabilities } from '../capabilities.ts';
+import { getProject, type Db } from '../db.ts';
 import type { ApiEnv } from '../env.ts';
 import { pokeSecurityScanScheduler } from '../security/enqueue.ts';
 import { SecurityApiError } from '../security/errors.ts';
+import {
+  changeSecurityBudgets,
+  listOperatorBypasses,
+  listOperatorPublicRequests,
+  listOperatorSecurityFindings,
+  listOperatorSecurityScans,
+  parseOperatorFindingFilter,
+  parseOperatorRequestFilter,
+  parseOperatorScanFilter,
+  parseSecurityCeilingRequest,
+  previewInRollback,
+  previewSecurityRescan,
+  queueSecurityRescan,
+  readCancelableScan,
+  SECURITY_SCAN_CANCELABLE,
+  securityBudgetStatus,
+  setProjectSecurityCeiling,
+} from '../security/operator.ts';
 import {
   changeSecurityPolicy,
   readStoredSecurityPolicy,
@@ -10,7 +29,26 @@ import {
   securityStatus,
 } from '../security/policy.ts';
 import { probeAndRecord, runSecurityProbe } from '../security/probe.ts';
-import { dryRun, OperatorError, readBody } from './common.ts';
+import {
+  commentOnSecurityFinding,
+  parseSecurityComment,
+  parseSecurityResolution,
+  reopenSecurityFinding,
+  resolveSecurityFinding,
+  showSecurityFinding,
+} from '../security/project-findings.ts';
+import {
+  parseSecurityModelRequest,
+  setProjectSecurityModel,
+} from '../security/project-settings.ts';
+import {
+  bypassPublicRequest,
+  recheckPublicRequestBestEffort,
+} from '../security/public-gate-flow.ts';
+import { checkBypassable, parseBypassReason, publicRequestView } from '../security/public-gate.ts';
+import { ZeroTrustUnavailableError } from '../zero-trust/errors.ts';
+import { operatorProjectZeroTrustState } from '../zero-trust/state.ts';
+import { dryRun, OperatorError, pagination, preview, readBody } from './common.ts';
 
 export const securityOperatorRoutes = new Hono<ApiEnv>();
 
@@ -18,6 +56,10 @@ export const securityOperatorRoutes = new Hono<ApiEnv>();
 export function securityOperatorError(error: unknown): unknown {
   if (error instanceof SecurityApiError) {
     return new OperatorError(error.status, error.message, error.code, error.details);
+  }
+  if (error instanceof ZeroTrustUnavailableError) {
+    // Today's reply for a Zero Trust change that cannot run now; nothing was recorded.
+    return new OperatorError(409, error.message, 'zero trust not ready');
   }
   return error;
 }
@@ -69,3 +111,358 @@ securityOperatorRoutes.post(
 securityOperatorRoutes.post('/security/probe', async (context) =>
   context.json(await probeAndRecord(context.env, context.get('db'))),
 );
+
+// ---------------------------------------------------------------------------
+// Installation budget, lists, cancel (spec §13.5 operator row, design doc 0095 M17)
+// ---------------------------------------------------------------------------
+
+securityOperatorRoutes.get('/security/budget', async (context) =>
+  context.json(await securityBudgetStatus(context.get('db'))),
+);
+
+securityOperatorRoutes.post(
+  '/security/budget',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    try {
+      return context.json(
+        await changeSecurityBudgets(context.get('db'), body, { preview: dryRun(body) }),
+      );
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
+  },
+);
+
+// Reads stay open with the capability off, so old findings and records can still be seen.
+securityOperatorRoutes.get('/security/findings', async (context) =>
+  context.json(
+    await listOperatorSecurityFindings(
+      context.get('db'),
+      parseOperatorFindingFilter((name) => context.req.query(name)),
+      pagination(context),
+    ),
+  ),
+);
+
+securityOperatorRoutes.get('/security/scans', async (context) =>
+  context.json(
+    await listOperatorSecurityScans(
+      context.get('db'),
+      parseOperatorScanFilter((name) => context.req.query(name)),
+      pagination(context),
+    ),
+  ),
+);
+
+securityOperatorRoutes.get('/security/public-requests', async (context) =>
+  context.json(
+    await listOperatorPublicRequests(
+      context.get('db'),
+      parseOperatorRequestFilter((name) => context.req.query(name)),
+      pagination(context),
+    ),
+  ),
+);
+
+securityOperatorRoutes.get('/security/bypasses', async (context) =>
+  context.json(
+    await listOperatorBypasses(
+      context.get('db'),
+      { project: context.req.query('project') },
+      pagination(context),
+    ),
+  ),
+);
+
+securityOperatorRoutes.post(
+  '/security/scans/:sid/cancel',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const scanId = context.req.param('sid');
+    const scan = await readCancelableScan(context.get('db'), scanId);
+    if (!scan) {
+      throw new OperatorError(404, 'Scan not found.', 'not_found');
+    }
+    if (!SECURITY_SCAN_CANCELABLE.includes(scan.status)) {
+      throw new OperatorError(
+        409,
+        `Scan ${scan.id} is ${scan.status}; only a waiting or running scan can be canceled.`,
+        'security_scan_not_cancelable',
+        { status: scan.status },
+      );
+    }
+    if (dryRun(body)) {
+      return context.json(
+        preview('security.scan-cancel', scan.id, {
+          project: scan.slug,
+          projectId: scan.projectId,
+          status: scan.status,
+        }),
+      );
+    }
+    let canceled: number;
+    try {
+      const scheduler = context.env.SECURITY_SCAN_SCHEDULER;
+      canceled = await scheduler
+        .get(scheduler.idFromName('global'))
+        .cancelScans([scan.id], 'operator_canceled');
+    } catch (error) {
+      console.error('[security-scan] operator cancel failed', error);
+      throw new OperatorError(
+        502,
+        'The scan scheduler did not answer. Run the cancel again.',
+        'security_scheduler_unavailable',
+      );
+    }
+    return context.json({ ok: true, scanId: scan.id, project: scan.slug, canceled });
+  },
+);
+
+// ---------------------------------------------------------------------------
+// Project writes for an installation admin
+// ---------------------------------------------------------------------------
+
+async function requireProject(db: Db, projectId: string) {
+  const project = await getProject(db, projectId);
+  if (!project) {
+    throw new OperatorError(404, 'Project not found.', 'not_found');
+  }
+  return project;
+}
+
+securityOperatorRoutes.get('/projects/:id/security/findings/:fid', async (context) => {
+  const projectId = context.req.param('id');
+  await requireProject(context.get('db'), projectId);
+  try {
+    return context.json(
+      await showSecurityFinding(context.get('db'), projectId, context.req.param('fid'), 'full'),
+    );
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+});
+
+securityOperatorRoutes.post('/projects/:id/security/findings/:fid/comments', async (context) => {
+  const body = await readBody(context);
+  const projectId = context.req.param('id');
+  const db = context.get('db');
+  await requireProject(db, projectId);
+  try {
+    const input = {
+      projectId,
+      ref: context.req.param('fid'),
+      userId: context.get('user').id,
+      role: null,
+      actor: 'installation_admin' as const,
+      text: parseSecurityComment(body.text, 'text'),
+    };
+    if (dryRun(body)) {
+      const result = await previewInRollback(db, (tx) => commentOnSecurityFinding(tx, input));
+      return context.json(preview('security.finding-comment', { projectId, finding: result.id }));
+    }
+    return context.json(await commentOnSecurityFinding(db, input), 201);
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+});
+
+securityOperatorRoutes.post('/projects/:id/security/findings/:fid/resolve', async (context) => {
+  const body = await readBody(context);
+  const projectId = context.req.param('id');
+  const db = context.get('db');
+  await requireProject(db, projectId);
+  try {
+    const input = {
+      projectId,
+      ref: context.req.param('fid'),
+      userId: context.get('user').id,
+      actor: 'installation_admin' as const,
+      resolution: parseSecurityResolution(body.reason),
+      comment: parseSecurityComment(body.comment, 'comment'),
+      expectedRevision: body.expectedRevision,
+    };
+    if (dryRun(body)) {
+      const result = await previewInRollback(db, (tx) => resolveSecurityFinding(tx, input));
+      return context.json(
+        preview('security.finding-resolve', { projectId, finding: result.id }, { result }),
+      );
+    }
+    const resolved = await resolveSecurityFinding(db, input);
+    // An open public request is judged again: the last urgent finding may be gone.
+    const request = await recheckPublicRequestBestEffort(context.env, db, projectId, 'a resolve');
+    return context.json({
+      ...resolved,
+      ...(request ? { publicRequest: await publicRequestView(db, request) } : {}),
+    });
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+});
+
+securityOperatorRoutes.post('/projects/:id/security/findings/:fid/reopen', async (context) => {
+  const body = await readBody(context);
+  const projectId = context.req.param('id');
+  const db = context.get('db');
+  await requireProject(db, projectId);
+  try {
+    const input = {
+      projectId,
+      ref: context.req.param('fid'),
+      userId: context.get('user').id,
+      actor: 'installation_admin' as const,
+      comment: parseSecurityComment(body.comment, 'comment'),
+      expectedRevision: body.expectedRevision,
+    };
+    if (dryRun(body)) {
+      const result = await previewInRollback(db, (tx) => reopenSecurityFinding(tx, input));
+      return context.json(
+        preview('security.finding-reopen', { projectId, finding: result.id }, { result }),
+      );
+    }
+    const reopened = await reopenSecurityFinding(db, input);
+    // The alarm sends the "reopened" email when the finding was urgent.
+    await pokeSecurityScanScheduler(context.env);
+    const request = await recheckPublicRequestBestEffort(context.env, db, projectId, 'a reopen');
+    return context.json({
+      ...reopened,
+      ...(request ? { publicRequest: await publicRequestView(db, request) } : {}),
+    });
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+});
+
+/** Manual rescan (T3 full scan, never `no changes`). A preview is the cost check (edge #43). */
+securityOperatorRoutes.post(
+  '/projects/:id/security/scans',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const projectId = context.req.param('id');
+    const db = context.get('db');
+    if (dryRun(body)) {
+      const result = await previewSecurityRescan(context.env, db, projectId);
+      return context.json(
+        preview('security.rescan', projectId, {
+          deploymentId: result.target.deploymentId,
+          project: result.target.slug,
+          alreadyScanned: result.alreadyScanned,
+          tier: result.tier,
+          model: result.model,
+          thirdParty: result.thirdParty,
+          worstCaseUsd: result.worstCaseUsd,
+          budget: result.budget,
+        }),
+      );
+    }
+    const { preview: queued, scanId } = await queueSecurityRescan(context.env, db, projectId);
+    await pokeSecurityScanScheduler(context.env);
+    return context.json(
+      {
+        ok: true,
+        scanId,
+        project: queued.target.slug,
+        deploymentId: queued.target.deploymentId,
+        tier: queued.tier,
+        model: queued.model,
+        alreadyScanned: queued.alreadyScanned,
+      },
+      202,
+    );
+  },
+);
+
+securityOperatorRoutes.post(
+  '/projects/:id/security/model',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const projectId = context.req.param('id');
+    const db = context.get('db');
+    await requireProject(db, projectId);
+    try {
+      const input = {
+        projectId,
+        userId: context.get('user').id,
+        request: parseSecurityModelRequest(body),
+      };
+      if (dryRun(body)) {
+        const result = await previewInRollback(db, (tx) => setProjectSecurityModel(tx, input));
+        return context.json(preview('security.project-model', projectId, { model: result.model }));
+      }
+      return context.json(await setProjectSecurityModel(db, input));
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
+  },
+);
+
+/** Sets the most a project admin may give the project (the per-project limit). */
+securityOperatorRoutes.post(
+  '/projects/:id/security/budget',
+  capabilityMiddleware('securityAudits'),
+  async (context) => {
+    const body = await readBody(context);
+    const projectId = context.req.param('id');
+    const db = context.get('db');
+    await requireProject(db, projectId);
+    try {
+      const input = {
+        projectId,
+        userId: context.get('user').id,
+        cents: parseSecurityCeilingRequest(body),
+      };
+      if (dryRun(body)) {
+        const result = await previewInRollback(db, (tx) => setProjectSecurityCeiling(tx, input));
+        return context.json(
+          preview('security.project-budget', projectId, { budget: result.budget }),
+        );
+      }
+      return context.json(await setProjectSecurityCeiling(db, input));
+    } catch (error) {
+      throw securityOperatorError(error);
+    }
+  },
+);
+
+securityOperatorRoutes.post('/projects/:id/security/public-request/bypass', async (context) => {
+  const body = await readBody(context);
+  const projectId = context.req.param('id');
+  const db = context.get('db');
+  const project = await requireProject(db, projectId);
+  try {
+    const reason = parseBypassReason(body.reason);
+    if (dryRun(body)) {
+      // The same refusal rules as the real bypass, including Zero Trust readiness.
+      const { open } = await checkBypassable(db, context.env, {
+        projectId,
+        slug: project.slug,
+        requestId: null,
+      });
+      return context.json(
+        preview('security.public-request-bypass', projectId, {
+          project: project.slug,
+          publicRequest: await publicRequestView(db, open),
+        }),
+      );
+    }
+    const result = await bypassPublicRequest(context.env, db, {
+      projectId,
+      reason,
+      actor: { kind: 'installation_admin', userId: context.get('user').id, role: null },
+    });
+    return context.json({
+      ok: true,
+      project: operatorProjectZeroTrustState(result.row),
+      publicRequest: result.publicRequest
+        ? await publicRequestView(db, result.publicRequest)
+        : null,
+      skipped: result.skipped,
+    });
+  } catch (error) {
+    throw securityOperatorError(error);
+  }
+});

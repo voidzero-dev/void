@@ -354,8 +354,11 @@ export async function commentOnSecurityFinding(
     projectId: string;
     ref: string;
     userId: string;
-    role: ProjectRole;
+    /** Ignored for an installation admin, who has no project role. */
+    role: ProjectRole | null;
     text: string;
+    /** An operator acting for the installation (`operator/security-routes.ts`). */
+    actor?: SecurityFindingActor;
   }>,
 ) {
   const [row] = await db
@@ -372,9 +375,9 @@ export async function commentOnSecurityFinding(
     id: generateId('sfe'),
     finding_id: row.id,
     project_id: input.projectId,
-    actor_kind: 'user',
+    actor_kind: input.actor ?? 'user',
     actor_user_id: input.userId,
-    actor_role: input.role,
+    actor_role: input.actor ? null : input.role,
     action: 'commented',
     comment: input.text,
   });
@@ -432,10 +435,15 @@ export function parseSecurityResolution(value: unknown): SecurityResolution {
   throw SecurityApiError.invalid('reason must be fixed, false_positive or accepted_risk.');
 }
 
+/** Who changes a finding when it is not a project member. */
+export type SecurityFindingActor = 'installation_admin';
+
 type ChangeInput = Readonly<{
   projectId: string;
   ref: string;
   userId: string;
+  /** An operator: no project role is needed or recorded. */
+  actor?: SecurityFindingActor;
   comment: string;
   expectedRevision: unknown;
 }>;
@@ -448,12 +456,9 @@ type ChangeInput = Readonly<{
  */
 async function lockFindingForChange(tx: DbOrTx, input: ChangeInput) {
   await tx.execute(sql`SELECT id FROM projects WHERE id = ${input.projectId} FOR UPDATE`);
-  const access = await requireProjectCapability(
-    tx as Db,
-    input.projectId,
-    input.userId,
-    'settings',
-  );
+  const access = input.actor
+    ? { role: null }
+    : await requireProjectCapability(tx as Db, input.projectId, input.userId, 'settings');
   const parsed = parseSecurityFindingRef(input.ref);
   const [row]: ReadonlyArray<FindingRow & { sinkContentHash: string | null }> = await tx
     .select({ ...findingColumns, sinkContentHash: securityFindings.sink_content_hash })
@@ -505,7 +510,7 @@ export async function resolveSecurityFinding(
       id: generateId('sfe'),
       finding_id: row.id,
       project_id: input.projectId,
-      actor_kind: 'user',
+      actor_kind: input.actor ?? 'user',
       actor_user_id: input.userId,
       actor_role: access.role,
       action: 'resolved',
@@ -549,7 +554,7 @@ export async function reopenSecurityFinding(db: Db, input: ChangeInput) {
       id: generateId('sfe'),
       finding_id: row.id,
       project_id: input.projectId,
-      actor_kind: 'user',
+      actor_kind: input.actor ?? 'user',
       actor_user_id: input.userId,
       actor_role: access.role,
       action: 'reopened',

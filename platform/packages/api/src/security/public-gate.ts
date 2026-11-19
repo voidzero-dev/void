@@ -726,15 +726,14 @@ export function parseBypassReason(value: unknown): string {
 }
 
 /**
- * Bypass (spec §5.5), under the project lock and the Zero Trust lock. Checks items 1–2
- * and that no urgent finding is open; skips the scan and the proof of `fixed` claims.
- * The caller has already refused a Zero Trust installation that is not ready.
+ * The refusal rules of a bypass, run before it changes anything. The real bypass and
+ * the operator dry run both call this, so a preview cannot succeed where the call fails.
  */
-export async function gateBypass(
+export async function checkBypassable(
   tx: DbOrTx,
   env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
-  input: GateBypassInput,
-): Promise<GateStep> {
+  input: Pick<GateBypassInput, 'projectId' | 'slug' | 'requestId'>,
+) {
   const gate = await readGateState(tx, env);
   const open = await readOpenPublicRequest(tx, input.projectId);
   if (!open || (input.requestId !== null && open.id !== input.requestId)) {
@@ -775,6 +774,20 @@ export async function gateBypass(
     });
   }
   const unproven = await unprovenFixLabels(tx, input.projectId, open.target_deployment_id);
+  return { open, state, unproven };
+}
+
+/**
+ * Bypass (spec §5.5), under the project lock and the Zero Trust lock. Checks items 1–2
+ * and that no urgent finding is open; skips the scan and the proof of `fixed` claims.
+ * The caller has already refused a Zero Trust installation that is not ready.
+ */
+export async function gateBypass(
+  tx: DbOrTx,
+  env: Pick<ApiEnv['Bindings'], 'PLATFORM_CAPABILITIES'>,
+  input: GateBypassInput,
+): Promise<GateStep> {
+  const { open, state, unproven } = await checkBypassable(tx, env, input);
   const { actor, effects } = input;
   return {
     kind: 'go',
@@ -805,21 +818,25 @@ export async function gateBypass(
         requestId: open.id,
         state: 'bypassed',
       });
-      // Ids only: the audit row outlives the project and carries no reason text.
-      await complete.insert(operatorEvents).values({
-        id: crypto.randomUUID(),
-        user_id: actor.userId,
-        login: actor.kind === 'installation_admin' ? 'installation admin' : 'project member',
-        action: 'security.public-request.bypass',
-        target: JSON.stringify({
-          projectId: input.projectId,
-          requestId: open.id,
-          bypassId,
-          deploymentId: open.target_deployment_id,
-        }),
-        status: 'success',
-        http_status: 200,
-      });
+      // Ids only: the audit row outlives the project and carries no reason text. An
+      // installation admin's bypass is audited by the operator API or the admin panel
+      // around this call, so it writes no second row.
+      if (actor.kind !== 'installation_admin') {
+        await complete.insert(operatorEvents).values({
+          id: crypto.randomUUID(),
+          user_id: actor.userId,
+          login: 'project member',
+          action: 'security.public-request.bypass',
+          target: JSON.stringify({
+            projectId: input.projectId,
+            requestId: open.id,
+            bypassId,
+            deploymentId: open.target_deployment_id,
+          }),
+          status: 'success',
+          http_status: 200,
+        });
+      }
       const queued = await enqueueSecurityNotification(complete, {
         kind: 'scan_bypass',
         projectId: input.projectId,

@@ -294,7 +294,7 @@ export async function securityProjectBudgetView(
 // Scans
 // ---------------------------------------------------------------------------
 
-const scanColumns = {
+export const scanColumns = {
   id: securityScans.id,
   status: securityScans.status,
   statusReason: securityScans.status_reason,

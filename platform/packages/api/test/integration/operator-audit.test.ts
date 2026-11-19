@@ -486,3 +486,75 @@ test('records security policy changes as known ids and new state, nothing for pr
   );
   expect(JSON.stringify(events)).not.toContain('must-not-be-audited');
 });
+
+test('records every operator security write as ids and known values, never text', async () => {
+  const bindings = {
+    ...env,
+    PLATFORM_CAPABILITIES: JSON.stringify({
+      ...getPlatformCapabilities(env),
+      securityAudits: true,
+    }),
+  } as TestEnv;
+  const owner = await createTestUser(env.db, 'security-owner');
+  const project = await createTestProject(env.db, owner.id, 'audited');
+  const base = `/projects/${project.id}/security`;
+  const secret = 'must-not-be-audited';
+  const calls: Array<[string, Record<string, unknown>]> = [
+    ['/security/budget', { expectedRevision: 2, platformMonthlyUsd: 50, note: secret }],
+    ['/security/probe', { note: secret }],
+    ['/security/scans/ss_one/cancel', { note: secret }],
+    [
+      `${base}/findings/F-3/resolve`,
+      { reason: 'accepted_risk', comment: secret, expectedRevision: 4 },
+    ],
+    [`${base}/findings/F-3/reopen`, { comment: secret, expectedRevision: 5 }],
+    [`${base}/findings/F-3/comments`, { text: secret }],
+    [`${base}/scans`, { note: secret }],
+    [`${base}/model`, { model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017', note: secret }],
+    [`${base}/budget`, { monthlyUsd: 25, note: secret }],
+    [`${base}/public-request/bypass`, { reason: secret }],
+  ];
+  for (const [path, body] of calls) {
+    // The outcome does not matter here (most are refused); the attempt is what is recorded.
+    await request(path, { dryRun: true, ...body }, bindings);
+  }
+  expect(await env.db.select().from(operatorEvents)).toHaveLength(0);
+  for (const [path, body] of calls) {
+    await request(path, body, bindings);
+  }
+  const events = await env.db.select().from(operatorEvents);
+  const targets = new Map(events.map((event) => [event.action, JSON.parse(event.target)]));
+  expect([...targets.keys()].sort()).toEqual(calls.map(([path]) => path.replace(/^\//, '')).sort());
+  expect(targets.get('security/budget')).toEqual({ expectedRevision: 2, platformMonthlyUsd: 50 });
+  expect(targets.get('security/probe')).toEqual({ installation: 'platform' });
+  expect(targets.get('security/scans/ss_one/cancel')).toEqual({ scanId: 'ss_one' });
+  expect(targets.get(`projects/${project.id}/security/findings/F-3/resolve`)).toEqual({
+    projectId: project.id,
+    finding: 'F-3',
+    action: 'resolve',
+    reason: 'accepted_risk',
+    expectedRevision: 4,
+  });
+  expect(targets.get(`projects/${project.id}/security/findings/F-3/comments`)).toEqual({
+    projectId: project.id,
+    finding: 'F-3',
+    action: 'comments',
+  });
+  expect(targets.get(`projects/${project.id}/security/scans`)).toEqual({
+    projectId: project.id,
+    rescan: true,
+  });
+  expect(targets.get(`projects/${project.id}/security/model`)).toEqual({
+    projectId: project.id,
+    model: '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+  });
+  expect(targets.get(`projects/${project.id}/security/budget`)).toEqual({
+    projectId: project.id,
+    monthlyUsd: 25,
+  });
+  expect(targets.get(`projects/${project.id}/security/public-request/bypass`)).toEqual({
+    projectId: project.id,
+  });
+  expect(JSON.stringify(events)).not.toContain(secret);
+  expect(events.every((event) => event.status !== 'pending')).toBe(true);
+});

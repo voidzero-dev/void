@@ -48,6 +48,19 @@ function securityModelList(value: unknown) {
   return [...new Set(value.filter((entry) => isSecurityModelId(entry)))];
 }
 
+/** A dollar amount or `null`; anything else is dropped from the audit target. */
+function securityUsdTarget(value: unknown): number | null | undefined {
+  return value === null || (typeof value === 'number' && Number.isFinite(value))
+    ? value
+    : undefined;
+}
+
+function isSecurityResolution(
+  value: unknown,
+): value is 'fixed' | 'false_positive' | 'accepted_risk' {
+  return value === 'fixed' || value === 'false_positive' || value === 'accepted_risk';
+}
+
 function rollbackVersions(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     return undefined;
@@ -326,6 +339,75 @@ function auditTarget(
       limits,
       publicGate: typeof body.publicGate === 'boolean' ? body.publicGate : undefined,
     });
+  }
+  if (segments[0] === 'security' && segments[1] === 'budget' && segments.length === 2) {
+    return JSON.stringify({
+      expectedRevision: Number.isSafeInteger(body.expectedRevision)
+        ? body.expectedRevision
+        : undefined,
+      platformMonthlyUsd: securityUsdTarget(body.platformMonthlyUsd),
+      projectDefaultMonthlyUsd: securityUsdTarget(body.projectDefaultMonthlyUsd),
+    });
+  }
+  if (segments[0] === 'security' && segments[1] === 'probe' && segments.length === 2) {
+    return JSON.stringify({ installation: 'platform' });
+  }
+  if (
+    segments[0] === 'security' &&
+    segments[1] === 'scans' &&
+    segments[3] === 'cancel' &&
+    segments.length === 4
+  ) {
+    return JSON.stringify({ scanId: boundedString(segments[2], 128) });
+  }
+  if (segments[0] === 'projects' && id && segments[2] === 'security') {
+    // Ids, known values and numbers only; never a comment, a reason or a note.
+    const projectId = id;
+    if (segments[3] === 'findings' && segments[4] && segments.length === 6) {
+      const action = segments[5];
+      if (action === 'resolve') {
+        return JSON.stringify({
+          projectId,
+          finding: boundedString(segments[4], 64),
+          action,
+          reason: isSecurityResolution(body.reason) ? body.reason : undefined,
+          expectedRevision: Number.isSafeInteger(body.expectedRevision)
+            ? body.expectedRevision
+            : undefined,
+        });
+      }
+      if (action === 'reopen') {
+        return JSON.stringify({
+          projectId,
+          finding: boundedString(segments[4], 64),
+          action,
+          expectedRevision: Number.isSafeInteger(body.expectedRevision)
+            ? body.expectedRevision
+            : undefined,
+        });
+      }
+      if (action === 'comments') {
+        return JSON.stringify({ projectId, finding: boundedString(segments[4], 64), action });
+      }
+    }
+    if (segments[3] === 'scans' && segments.length === 4) {
+      return JSON.stringify({ projectId, rescan: true });
+    }
+    if (segments[3] === 'model' && segments.length === 4) {
+      return JSON.stringify({
+        projectId,
+        model: body.model === null ? null : isSecurityModelId(body.model) ? body.model : undefined,
+        acceptProviderNoticeVersion: Number.isSafeInteger(body.acceptProviderNoticeVersion)
+          ? body.acceptProviderNoticeVersion
+          : undefined,
+      });
+    }
+    if (segments[3] === 'budget' && segments.length === 4) {
+      return JSON.stringify({ projectId, monthlyUsd: securityUsdTarget(body.monthlyUsd) });
+    }
+    if (segments[3] === 'public-request' && segments[4] === 'bypass') {
+      return JSON.stringify({ projectId });
+    }
   }
   if (segments[0] === 'system' && segments[1] === 'backfill-queue-tokens') {
     return JSON.stringify({ entries: 'queue:*' });
