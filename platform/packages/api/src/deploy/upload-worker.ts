@@ -693,7 +693,9 @@ export async function uploadDeploymentWorker(input: {
     },
   );
   input.workerUploaded = true;
-  await verifyManagedDurableObjectApplicationBindings(context.env, workerName, manifest);
+  await verifyManagedDurableObjectApplicationBindings(context.env, workerName, manifest, {
+    deadline: input.deadline,
+  });
 
   await assertDeploymentCanProceed(context.get('db'), deployment.id, projectId);
 

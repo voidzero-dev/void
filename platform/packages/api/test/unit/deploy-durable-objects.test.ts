@@ -638,6 +638,7 @@ describe('validateManifestShape sandbox + static/spa rejection', () => {
 
 describe('verifyManagedDurableObjectApplicationBindings', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 
@@ -668,18 +669,15 @@ describe('verifyManagedDurableObjectApplicationBindings', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest),
     ).resolves.toBeUndefined();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
-  it('retries stale/empty binding reads after Worker upload until bindings converge', async () => {
+  it('retries empty application bindings without looking up Worker settings', async () => {
     let bindingCalls = 0;
     const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
-      const url = String(input);
-      if (url.endsWith('/settings')) {
-        return Response.json({ success: true, errors: [], result: {} });
-      }
+      expect(String(input)).toMatch(/\/scripts\/worker-1\/bindings$/);
       bindingCalls += 1;
       return Response.json({
         success: true,
@@ -693,7 +691,7 @@ describe('verifyManagedDurableObjectApplicationBindings', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, { delaysMs: [0] }),
     ).resolves.toBeUndefined();
     expect(bindingCalls).toBe(2);
   });
@@ -709,8 +707,39 @@ describe('verifyManagedDurableObjectApplicationBindings', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await expect(
-      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, [0, 0, 0]),
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, {
+        delaysMs: [0, 0, 0],
+      }),
     ).rejects.toThrow('Application custom Durable Object binding could not be verified.');
     expect(fetchMock).toHaveBeenCalledTimes(4);
+  });
+
+  it.each(['response body', 'retry delay'])('honors the deadline during a %s', async (phase) => {
+    vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] });
+    const fetchMock = vi.fn(async (_url: string, init: RequestInit) => {
+      if (phase === 'retry delay') {
+        return Response.json({ success: true, errors: [], result: [] });
+      }
+      const signal = init.signal!;
+      return new Response(
+        new ReadableStream({
+          start(controller) {
+            signal.addEventListener('abort', () => controller.error(signal.reason), { once: true });
+          },
+        }),
+      );
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const rejected = expect(
+      verifyManagedDurableObjectApplicationBindings(env, 'worker-1', manifest, {
+        deadline: Date.now() + 100,
+      }),
+    ).rejects.toThrow(
+      'The deployment reached its time limit while verifying application Durable Object bindings.',
+    );
+    await vi.advanceTimersByTimeAsync(100);
+    await rejected;
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
