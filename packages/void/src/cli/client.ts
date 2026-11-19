@@ -862,11 +862,17 @@ export class PlatformClient {
   private async call(
     url: string | URL,
     action: string,
-    options: { method?: string; body?: unknown; permission?: ProjectPermission } = {},
+    options: {
+      method?: string;
+      body?: unknown;
+      permission?: ProjectPermission;
+      signal?: AbortSignal;
+    } = {},
   ): Promise<Response> {
-    const { method, body, permission } = options;
+    const { method, body, permission, signal } = options;
     const res = await this.request(url, {
       ...(method !== undefined && { method }),
+      ...(signal !== undefined && { signal }),
       headers:
         body === undefined
           ? { ...this.authHeaders }
@@ -882,7 +888,12 @@ export class PlatformClient {
   private async json<T>(
     url: string | URL,
     action: string,
-    options?: { method?: string; body?: unknown; permission?: ProjectPermission },
+    options?: {
+      method?: string;
+      body?: unknown;
+      permission?: ProjectPermission;
+      signal?: AbortSignal;
+    },
   ): Promise<T> {
     return (await this.call(url, action, options)).json() as Promise<T>;
   }
@@ -975,7 +986,12 @@ export class PlatformClient {
   private async security<T>(
     path: string,
     action: string,
-    options: { method?: string; body?: unknown; permission: ProjectPermission },
+    options: {
+      method?: string;
+      body?: unknown;
+      permission: ProjectPermission;
+      signal?: AbortSignal;
+    },
   ): Promise<T> {
     try {
       return await this.json<T>(`${this.baseUrl}/projects/${path}`, action, options);
@@ -984,9 +1000,13 @@ export class PlatformClient {
     }
   }
 
-  async getProjectSecurity(projectId: string): Promise<ProjectSecurityStatus> {
+  async getProjectSecurity(
+    projectId: string,
+    options: { signal?: AbortSignal } = {},
+  ): Promise<ProjectSecurityStatus> {
     return this.security(`${projectId}/security`, 'Failed to read project security', {
       permission: 'read',
+      ...(options.signal !== undefined && { signal: options.signal }),
     });
   }
 

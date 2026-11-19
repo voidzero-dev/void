@@ -2,6 +2,10 @@ import { outro, log } from '@voidzero-dev/vite-plus-prompts';
 import { getToken } from './auth.ts';
 import { PlatformClient, type DeploymentResponse } from './client.ts';
 import {
+  formatProjectStatusSecurityLine,
+  readSecurityStatusQuietly,
+} from './deploy-security-notice.ts';
+import {
   dim,
   formatCount,
   formatRelativeTime,
@@ -105,6 +109,14 @@ async function showDeployments(
   if (deployments.length === 0) {
     outro(`No deployments for ${slug}.`);
     return;
+  }
+
+  const securityStatus = await readSecurityStatusQuietly(client, projectId);
+  const securityLine = securityStatus
+    ? formatProjectStatusSecurityLine(slug, securityStatus)
+    : null;
+  if (securityLine) {
+    console.log(`${tablePrefix()}${securityLine}`);
   }
 
   const latest = deployments[0];

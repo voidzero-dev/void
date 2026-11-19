@@ -36,6 +36,13 @@ export type SecurityUrgentFinding = {
   title?: string;
   file?: string | null;
   line?: number | null;
+  firstSeenAt?: string | null;
+  notSeenInLatest?: boolean;
+  possibleDuplicateOf?: {
+    id: string;
+    resolution: string | null;
+    resolvedAt?: string | null;
+  } | null;
 };
 
 export type ProjectSecurityStatus = {

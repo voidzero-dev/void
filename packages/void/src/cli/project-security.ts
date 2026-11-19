@@ -36,9 +36,9 @@ export function cleanBlock(value: unknown): string {
   return scrub(text ?? '', true);
 }
 
-const usd = (value: number) => `$${value.toFixed(2)}`;
+export const usd = (value: number) => `$${value.toFixed(2)}`;
 
-function day(iso: string | null | undefined): string {
+export function day(iso: string | null | undefined): string {
   const time = iso ? Date.parse(iso) : Number.NaN;
   return Number.isNaN(time)
     ? '-'

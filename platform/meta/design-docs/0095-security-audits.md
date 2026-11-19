@@ -1240,6 +1240,30 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests: `deploy-security-notice.test.ts`, `list-command.test.ts`, native regression
   in `cloudflare-deploy.test.ts` (no `/security`, no `/containers/`, no AI binding).
 - Exit: 404, timeout, 500 → no output, same exit code.
+- As built: `deploy-security-notice.ts` exports `printDeploySecurityNotice` (called after
+  `printDeploySuccess` in `runStaticDeploy`, `runFrameworkDeploy` and `runFullDeploy`; the
+  full-to-static redirect reaches it through the static path, so it prints once). It skips only `preview-*`.
+  `published === false` means the deploy is committed live but routing was not published, so it
+  still gets the notice (spec §11.1 excludes only failed deploys; a failed deploy never reaches the
+  call). One shared quiet reader
+  (`readSecurityStatusQuietly`: 5 s abort signal passed through `PlatformClient.getProjectSecurity`,
+  plus a hard race 250 ms later) serves the deploy notice and `list.ts`; any error or an unusable
+  reply gives `null`, and the notice logs `security_notice` / `security_notice_skipped` to the
+  cliLog. Scan lines come from the same reply: they show only when `lastScan.deploymentId` is the
+  deploy just made (queued/running/pending_input, skipped budget or protected, `no_changes`),
+  so there is no extra request. The "did not finish" warning shows for a refused, timed-out or
+  failed earlier scan. Counts-only output when the server says `counts` or `CI` /
+  `GITHUB_ACTIONS` is set. Rows: the server's findings re-sorted critical first, then
+  oldest `firstSeenAt` first (a missing date keeps the server order), 5 at most, rest as
+  "… and N more". The queued case ends with `Check it:  void project security status`. The
+  "A project admin or owner can resolve them" line always prints. Known gap: spec §11.1 wants
+  `Fixed?  void project security resolve F-12 --reason fixed --comment "…"` for a caller with
+  `settings`, but neither the `/security` reply nor the project response carries the caller's
+  role (`requestedByRole` is the requester's). Closing it needs the server to add the caller's
+  permission to the reply. `void project status` prints the `Security` line above the
+  deployment table, only for managed platforms (the direct Cloudflare listing has no security).
+  `cloudflare-deploy.test.ts` gained one regression: a native deploy makes no `/security` or
+  `/containers/` request, no `containers` Wrangler call and emits no `ai` binding.
 
 **M23 CLI operator group, installer flag, uninstall.**
 

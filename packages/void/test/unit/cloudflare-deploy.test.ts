@@ -1361,6 +1361,33 @@ describe('existing Cloudflare site handoff', () => {
     );
     expect(existsSync(join(root, '.void/cloudflare-link.json'))).toBe(false);
   });
+  it('never reads project security, touches containers or adds an AI binding on a native deploy', async () => {
+    const root = migratedSite();
+    const requested: Array<string> = [];
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (input: string | URL | Request) => {
+        requested.push(String(input instanceof Request ? input.url : input));
+        return new Response('{}', { status: 404 });
+      }),
+    );
+    const { deps, trace, wranglerArgs } = harness({
+      readExistingWorker: async () => existing,
+      runBuild: () => build(root),
+      verifyDeployConfig: verifyGeneratedDeployConfig,
+    });
+    try {
+      await runCloudflareDeploy(root, { reuseExistingWorker: true }, silentCliLog, deps);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(trace).toContain('wrangler:deploy');
+    expect(requested.filter((url) => url.includes('/security'))).toEqual([]);
+    expect(requested.filter((url) => url.includes('/containers/'))).toEqual([]);
+    expect(wranglerArgs.some((args) => args[0] === 'containers')).toBe(false);
+    expect(parseRootWranglerConfig(join(root, '.void-wrangler.jsonc')).ai).toBeUndefined();
+    expect(parseRootWranglerConfig(join(root, 'dist/ssr/wrangler.json')).ai).toBeUndefined();
+  });
   it('accepts comments in the generated config during an existing site deploy', async () => {
     const root = site();
     const { deps } = harness({
