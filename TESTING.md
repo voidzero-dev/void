@@ -35,10 +35,13 @@ integration. Vite Task records the files each group reads and replays a group wh
 changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
 all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
 
-The integration group goes further and caches every test file as its own task. After a change,
-only the integration files that read a changed file run again: a framework adapter change reruns
-the files that build with that adapter, and an edited test file reruns alone. The tasks are
-generated from the directories in `test/integration-files.ts`.
+The unit and integration groups go further. The integration group caches every test file as its
+own task, generated from the directories in `test/integration-files.ts`. After a change, only the
+integration files that read a changed file run again: a framework adapter change reruns the files
+that build with that adapter, and an edited test file reruns alone. The unit group caches chunks
+of related files, one per directory and, in a large directory, one per file name prefix such as
+`deploy-*.test.ts` (see `test/test-chunks.ts`). A change reruns the chunks whose tests import it.
+A check after each group fails when a collected test file has no task.
 
 ```sh
 vp run test                        # Build, then run or replay each test group
@@ -67,9 +70,9 @@ Integration tests never build, serve, or write files inside `playground/<name>`.
 `createIsolatedPlayground()` and run `vp` from the copy, for example through `spawnFixtureServer()`.
 Output written into a source playground changes the inputs of the workspace build and of the
 cached test groups, so the next run would rebuild and rerun them. For the same reason, create an
-app that a test writes from scratch with `createPackageFixtureDir()`, not inside a test directory:
-Vitest lists those directories, and an entry that comes and goes there reruns every integration
-file.
+app or directory that a test writes from scratch with `createPackageFixtureDir()` or
+`packageFixturePath()`, not inside a test directory or a package root: Vitest lists those
+directories, and an entry that comes and goes there reruns every cached test task.
 
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 

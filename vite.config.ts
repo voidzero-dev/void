@@ -1,8 +1,10 @@
+import { globSync } from 'node:fs';
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite-plus';
 import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
+import { chunkTestFiles } from './test/test-chunks.ts';
 
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
 const apiTimezoneTests = [
@@ -109,6 +111,28 @@ const integrationFileTasks = Object.fromEntries(
   ]),
 );
 
+// The unit group runs as cached chunks of related files. One Vitest run per file would cost more
+// than the tests themselves, so files are chunked by directory and name instead. Many chunks with
+// two workers each finish sooner than a few chunks with many workers: most chunks are small.
+const unitTestGlobs = ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'];
+const unitChunkConcurrency = Math.max(2, maxWorkers - 1);
+const unitChunkWorkers = 2;
+const unitChunkTasks = Object.fromEntries(
+  [
+    ...chunkTestFiles(
+      globSync(unitTestGlobs, { cwd: import.meta.dirname }).map((file) =>
+        file.replaceAll('\\', '/'),
+      ),
+    ),
+  ].map(([chunk, files]) => [
+    `test:unit:${chunk}`,
+    {
+      command: `${testGroupCommand('unit')} --maxWorkers ${unitChunkWorkers} ${files.join(' ')}`,
+      cache: { input: testGroupInput, output: [] },
+    },
+  ]),
+);
+
 const config = defineConfig({
   run: {
     tasks: {
@@ -125,14 +149,18 @@ const config = defineConfig({
         command: testGroupCommand('platform'),
         cache: { input: testGroupInput, output: [] },
       },
+      ...unitChunkTasks,
+      'test:unit:chunks': {
+        command: 'node test/check-test-tasks.mjs unit',
+        dependsOn: Object.keys(unitChunkTasks),
+      },
       'test:group:unit': {
-        command: testGroupCommand('unit'),
-        cache: { input: testGroupInput, output: [] },
+        command: `vp run --concurrency-limit ${unitChunkConcurrency} test:unit:chunks`,
       },
       ...integrationFileTasks,
       // The check runs after every file passed and fails when a collected file has no task.
       'test:integration:files': {
-        command: 'node test/check-integration-tasks.mjs',
+        command: 'node test/check-test-tasks.mjs integration',
         dependsOn: Object.keys(integrationFileTasks),
       },
       'test:group:integration': {
@@ -540,7 +568,7 @@ const config = defineConfig({
           name: 'unit',
           fsModuleCache: true,
           css: { include: [/starter-ui\.css(?:\?|$)/] },
-          include: ['docs/test/unit/**/*.test.ts', 'packages/*/test/unit/**/*.test.ts'],
+          include: unitTestGlobs,
           exclude: [...cliUnitTests, ...sdkPgliteUnitTests],
           sequence: { groupOrder: 2 },
           pool: 'threads',
