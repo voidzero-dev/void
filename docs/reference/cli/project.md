@@ -120,7 +120,7 @@ Every command takes `--project <slug>` (then `VOID_PROJECT`, then the linked pro
 - `model` with a third-party model prints the provider notice. Repeat the command with `--accept-provider-notice` to accept it.
 - `budget --usd` cannot exceed the platform limit. `--off` clears this project's own cap.
 - `scan` runs a full scan of the live deployment. It names the model and the most the scan can cost, then asks first; `--json` and non-interactive shells need `--yes`. Monthly caps apply.
-- `open` prints a read-only page link that works for 15 minutes and opens it in a browser when run in a terminal.
+- `open` prints a page link that works for 15 minutes and opens it in a browser when run in a terminal. On the page, members can do what the commands above allow their role: comment, resolve, pick the model, set the budget, and bypass a held public request.
 
 On a platform without security audits, these commands tell you to ask the administrator to upgrade. They do not apply to direct Cloudflare deployments.
 

@@ -4,6 +4,8 @@ import {
   isSecurityEntitlementFresh,
   isSecurityErrorCode,
   parseSecurityBudgets,
+  parseSecurityDigits,
+  parseSecurityFindingLabel,
   parseSecurityLimits,
   parseSecurityLimitsPatch,
   parseSecurityMode,
@@ -11,6 +13,7 @@ import {
   parseSecuritySweepDays,
   parseSecurityWebhookUrl,
   parseSecurityUsd,
+  parseSecurityUsdText,
   readSecurityPolicy,
   SECURITY_ENTITLEMENT_MAX_AGE_MS,
   SECURITY_ERRORS,
@@ -581,5 +584,45 @@ describe('per-plan scan caps (M27)', () => {
     expect(formatPlanSecurityCap(0)).toBe('$0.00 / month');
     expect(formatPlanSecurityCap('none')).toBe('no cap');
     expect(formatPlanSecurityCap('inherit')).toBe('policy default');
+  });
+});
+
+describe('security form text (M29)', () => {
+  it('reads whole numbers of a bounded length', () => {
+    expect(parseSecurityDigits('0', 3)).toBe(0);
+    expect(parseSecurityDigits('123', 3)).toBe(123);
+    for (const text of ['', '1234', '-1', '1.0', ' 1', '1e3', '١']) {
+      expect(parseSecurityDigits(text, 3), text).toBeNull();
+    }
+  });
+
+  it('reads finding labels as the page prints them', () => {
+    expect(parseSecurityFindingLabel('F-12')).toBe(12);
+    expect(parseSecurityFindingLabel('F-123456789')).toBe(123456789);
+    for (const text of ['F-', 'F-1234567890', 'f-1', '12', 'F-1x', 'sf_1']) {
+      expect(parseSecurityFindingLabel(text), text).toBeNull();
+    }
+  });
+
+  it('reads a typed dollar amount, empty as no cap', () => {
+    expect(parseSecurityUsdText('')).toBeNull();
+    expect(parseSecurityUsdText('  ')).toBeNull();
+    expect(parseSecurityUsdText('50')).toBe(50);
+    expect(parseSecurityUsdText(' $12.50 ')).toBe(12.5);
+    expect(parseSecurityUsdText('0.5')).toBe(0.5);
+    for (const text of [
+      '$',
+      'abc',
+      '-1',
+      '1.234',
+      '12.',
+      '.5',
+      '1.2.3',
+      '$$5',
+      '12345678',
+      '1e3',
+    ]) {
+      expect(parseSecurityUsdText(text), text).toBeUndefined();
+    }
   });
 });

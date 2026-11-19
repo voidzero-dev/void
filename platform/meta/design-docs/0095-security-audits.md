@@ -1651,6 +1651,58 @@ Dashboard: `pages/projects/index.tsx`, `pages/projects/[slug]/security.tsx` (+ `
 via typed `hc<ApiRoutes>`. Tests: `security-page.test.ts` (forms, CSRF),
 dashboard page tests in `platform/packages/dashboard/test`.
 
+As built (M29):
+
+```
+API page  /security/projects/:slug  (cookie path = page path, so posts below it carry it)
+  POST …/findings/:fid/resolve (settings) · …/findings/:fid/comment (configure)
+       …/model · …/budget (settings, capability on) · …/bypass (settings)
+  Origin, else Referer = our origin (admin CSRF rule) ─► cookie + member re-check
+  ─► requireProjectCapability(cap) ─► the API route's server operation
+  ─► 303 ?done=<key> (fixed copy)  |  refusal: page again with the reason + its status
+Dashboard /projects ─► /projects/:slug/security  named actions ?resolve ?comment ?model ?budget ?bypass
+  Origin = dashboard origin ─► API call with the session token ─► 303 ?done=  |  page again with the API reason
+```
+
+- API page: `routes/security-page.ts` (posts), forms rendered by `security/project-page.ts`.
+  Comment is open to collaborators (`configure`, as `POST …/comments`); resolve, model, budget
+  and bypass need `settings`. Resolve re-checks an open public request like the API route; the
+  bypass flow pokes the scheduler itself. Model and budget answer 501 with the capability off.
+  CSRF refusal (403) comes before the cookie is read; no cookie, an old one or another project's
+  gives "This link no longer works" (403). The CLI commands stay on the page under "Or from the CLI".
+- Model picker: `securityProjectModelChoices(policy)` (`project-settings.ts`) lists only what the
+  model PUT accepts (priced, not blocked, third-party only with its host probed ready), with each
+  provider's notice. A third-party pick needs the notice box ticked; the form sends the notice
+  version the page showed, so a changed notice is refused. `GET /projects/:id/security` now also
+  returns `modelChoices` (additive) for the dashboard.
+- Bypass form: shown under the same rule as the bypass command (no urgent finding, request in
+  `waiting_scan`, `held_no_result` or `needs_deploy`) and needs a confirm box.
+- Dashboard: `pages/projects/index.{tsx,server.ts}`, `pages/projects/[slug]/security.{tsx,server.ts}`,
+  `apiClient(context)` in `lib/api.ts` (an `hc<ApiRoutes>` client whose fetch is `fetchApi`:
+  token, Access headers, timeout, service binding). Native forms post to named actions, like the
+  account page. The slug is resolved through `GET /projects`; a project the user is not a
+  member of shows the same "does not exist" line. Readers get no scans request.
+- Deviations: (1) hc cannot type the bodies of the project security routes (their access check
+  returns a plain `Response`), so `api.ts` exports `ProjectSecurityBody`,
+  `ProjectSecurityFindingsBody` and `ProjectSecurityScansBody` (type-only) and the dashboard uses
+  hc for paths (`$url`) and these types for bodies. (2) Also changed `routes/project-security.ts`,
+  `api-project-security.test.ts`, the dashboard home page (Projects button), its README and
+  styles, and two doc lines that called the page read-only (`cli/project.md`, the security audits
+  guide). (3) Dashboard tests are unit tests with a stubbed API (`test/unit/project-security.test.ts`),
+  as the other dashboard tests are. (4) The page sends `Referrer-Policy: same-origin`, not the
+  `no-referrer` of spec §13.2 (M19). Under `no-referrer` a browser sends `Origin: null` on the
+  page's own form posts, so the origin check refused every form (as `oauth.ts` found). Other
+  sites still get no `Referer`, and the `?t=` token leaves the URL with the 303.
+- Review fixes: a bypass whose Access update fails after the bypass committed re-renders the page
+  with 502 and says the bypass is recorded, with the reconcile command (the API route's 502 line);
+  the dashboard says a bypass that timed out may still go through. The model picker selects the
+  saved choice (`modelChoices.saved`), so a project that named the default model keeps it on
+  save. A third-party default waiting for its notice shows that notice (`modelChoices.defaultNotice`),
+  so the box never asks to accept a notice the page did not show. The dashboard's "admin or owner
+  can resolve" line is for collaborators only. Form text is read by small parsers shared from
+  `@void/platform/security-policy` (`parseSecurityDigits`, `parseSecurityFindingLabel`,
+  `parseSecurityUsdText`), not regexes.
+
 **M30 Runtime checks on a throwaway copy.** Needs S13 pass. Per scan: copy bundle N into
 the dispatch namespace as `sec-copy-<scan>` with empty D1/KV/R2, migrations, fake
 secrets, stubbed AI/email/queue, outbound blocked by a dispatch outbound Worker,

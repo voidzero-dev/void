@@ -6,11 +6,15 @@
 import {
   isSecurityModelId,
   isSecurityModelPriced,
+  SECURITY_MODELS,
   SECURITY_PROVIDER_NAMES,
   SECURITY_PROVIDER_NOTICE_VERSION,
+  securityModelBadges,
   securityModelThirdPartyHost,
   securityProviderNotice,
+  type SecurityModelId,
 } from '@void/platform/security-models';
+import type { SecurityPolicy } from '@void/platform/security-policy';
 import { eq, sql } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { generateId } from '../id.ts';
@@ -57,6 +61,84 @@ export function parseSecurityModelRequest(body: unknown): SecurityModelRequest {
     throw SecurityApiError.invalid('acceptProviderNoticeVersion must be a whole number.');
   }
   return { model: record.model, acceptProviderNoticeVersion: accept ?? null };
+}
+
+/** One model a project admin may pick now: the same rules `setProjectSecurityModel` checks. */
+export type SecurityModelChoice = Readonly<{
+  id: SecurityModelId;
+  provider: string;
+  thirdParty: boolean;
+  badges: ReadonlyArray<string>;
+  /** The provider notice to read before a third-party model is used; `null` for `@cf/*`. */
+  notice: ReadonlyArray<string> | null;
+}>;
+
+export type SecurityModelChoices = Readonly<{
+  defaultModel: SecurityModelId;
+  /**
+   * The project's saved model, `null` when it follows the platform default. The picker
+   * selects this, so a project that named the default model keeps that choice on save.
+   */
+  saved: string | null;
+  /** The platform default's provider notice when it is a third-party model, else `null`. */
+  defaultNotice: Readonly<{ provider: string; notice: ReadonlyArray<string> }> | null;
+  /** The notice version a form sends back when its box is ticked. */
+  noticeVersion: number;
+  choices: ReadonlyArray<SecurityModelChoice>;
+}>;
+
+/** The page and dashboard model pickers list these; anything else would be refused. */
+export function securityProjectModelChoices(
+  policy: SecurityPolicy,
+  saved: string | null,
+): SecurityModelChoices {
+  const choices = SECURITY_MODELS.flatMap((model): Array<SecurityModelChoice> => {
+    if (!isSecurityModelPriced(model.id) || policy.blockedModels.includes(model.id)) {
+      return [];
+    }
+    const host = securityModelThirdPartyHost(model.id);
+    if (host && !policy.entitlement?.hosts[host]) {
+      return [];
+    }
+    return [
+      {
+        id: model.id,
+        provider: SECURITY_PROVIDER_NAMES[model.host],
+        thirdParty: host !== null,
+        badges: securityModelBadges(model.id),
+        notice: host ? securityProviderNotice(host) : null,
+      },
+    ];
+  });
+  const defaultHost = securityModelThirdPartyHost(policy.defaultModel);
+  return {
+    defaultModel: policy.defaultModel,
+    saved,
+    defaultNotice: defaultHost
+      ? {
+          provider: SECURITY_PROVIDER_NAMES[defaultHost],
+          notice: securityProviderNotice(defaultHost),
+        }
+      : null,
+    noticeVersion: SECURITY_PROVIDER_NOTICE_VERSION,
+    choices,
+  };
+}
+
+/** `securityProjectModelChoices` for one project, with its saved model. */
+export async function readSecurityProjectModelChoices(
+  db: Db,
+  projectId: string,
+  policy?: SecurityPolicy,
+): Promise<SecurityModelChoices> {
+  const [current, [row]] = await Promise.all([
+    policy ?? readSecurityPolicyLenient(db),
+    db
+      .select({ model: projectSecuritySettings.model })
+      .from(projectSecuritySettings)
+      .where(eq(projectSecuritySettings.project_id, projectId)),
+  ]);
+  return securityProjectModelChoices(current, row?.model ?? null);
 }
 
 /** `PUT /projects/:id/security/model`. */

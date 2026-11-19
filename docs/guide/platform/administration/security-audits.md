@@ -84,7 +84,7 @@ Open urgent findings show:
 
 - at the end of each `void deploy` to a Void platform, with titles only for a signed-in user who can deploy. CI runs and readers see counts and ids,
 - in `void project security status`, and as a `Security` line in `void project status`,
-- on the project's read-only security page, opened with `void project security open`,
+- on the project's security page, opened with `void project security open`, where project members can also comment, resolve, pick the model and set the budget,
 - in the administrator UI, with an **Urgent** filter.
 
 Every scan that does not succeed says what happened, and the next scan covers those changes. A refused, timed-out, or failed scan is never counted as clean.

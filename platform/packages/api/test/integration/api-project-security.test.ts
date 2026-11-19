@@ -826,6 +826,17 @@ describe('model', () => {
     const path = `/projects/${project.id}/security/model`;
     const put = (body: unknown) => call(path, people.admin.jwt, { method: 'PUT', body });
 
+    // The picker lists exactly what the PUT below accepts (M29 page and dashboard forms).
+    const status = await json(await call(`/projects/${project.id}/security`, people.admin.jwt));
+    expect(status.modelChoices).toMatchObject({ noticeVersion: 1 });
+    expect(status.modelChoices.choices.map((choice: { id: string }) => choice.id)).toEqual([
+      '@cf/deepseek-ai/deepseek-v4.1-flash-1017',
+      '@cf/zai-org/glm-5.3',
+      FOREIGN,
+    ]);
+    expect(status.modelChoices.choices[2].notice[0]).toContain('run by OpenAI');
+    expect(status.modelChoices.choices[0].notice).toBeNull();
+
     const picked = await put({ model: '@cf/zai-org/glm-5.3' });
     expect(picked.status).toBe(200);
     expect((await json(picked)).model).toMatchObject({

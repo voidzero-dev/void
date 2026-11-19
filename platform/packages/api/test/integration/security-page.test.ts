@@ -3,14 +3,26 @@ import {
   SECURITY_POLICY_SETTINGS_KEY,
   type SecurityPolicy,
 } from '@void/platform/security-policy';
-import { eq } from 'drizzle-orm';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { and, eq } from 'drizzle-orm';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from 'vite-plus/test';
 import { getPlatformCapabilities } from '../../src/capabilities.ts';
+import type { ApiEnv } from '../../src/env.ts';
 import app from '../../src/index.ts';
 import { setPlatformSetting } from '../../src/platform-settings.ts';
 import { projectMembers, users } from '../../src/schema.ts';
 import { mintSecurityPageToken } from '../../src/security/page-token.ts';
 import {
+  projectSecuritySettings,
+  securityFindingEvents,
   securityFindings,
   securityProjectSpend,
   securityPublicRequests,
@@ -26,6 +38,7 @@ import {
   teardownEnv,
   type TestEnv,
 } from './helpers.ts';
+import { askPublic, setupGate } from './security-gate-fixtures.ts';
 
 let env: TestEnv;
 let onEnv: TestEnv;
@@ -171,7 +184,7 @@ describe('signing in with the link', () => {
     expect(maxAge).toBeLessThanOrEqual(15 * 60);
     expect(await response.text()).toBe('');
     expect(response.headers.get('cache-control')).toBe('no-store');
-    expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+    expect(response.headers.get('referrer-policy')).toBe('same-origin');
   });
 
   it('marks the cookie Secure on https', async () => {
@@ -223,7 +236,7 @@ describe('without a valid sign-in', () => {
       const response = await get('/security/projects/acme-web', cookie ? { cookie } : {});
       expect(response.status).toBe(200);
       expect(response.headers.get('cache-control')).toBe('no-store');
-      expect(response.headers.get('referrer-policy')).toBe('no-referrer');
+      expect(response.headers.get('referrer-policy')).toBe('same-origin');
       const html = await response.text();
       expect(html).toContain('void project security open --project acme-web');
       expect(html).not.toContain('SECRET TITLE');
@@ -570,5 +583,516 @@ describe('accounts and large projects', () => {
     const reader = await view(await signIn(people.reader.id, project.id));
     expect(reader).toContain('F-102');
     expect(reader).toContain('Showing 101 of 102.');
+  });
+});
+
+describe('page forms', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  type PostOptions = {
+    cookie?: string;
+    /** `null` sends no Origin header. */
+    origin?: string | null;
+    referer?: string;
+    bindings?: TestEnv | ApiEnv['Bindings'];
+  };
+
+  function post(path: string, fields: Record<string, string>, options: PostOptions = {}) {
+    const headers: Record<string, string> = {
+      'content-type': 'application/x-www-form-urlencoded',
+    };
+    if (options.cookie) {
+      headers.Cookie = options.cookie;
+    }
+    if (options.origin !== null) {
+      headers.Origin = options.origin ?? 'http://localhost';
+    }
+    if (options.referer) {
+      headers.Referer = options.referer;
+    }
+    return app.fetch(
+      new Request(`http://localhost${path}`, {
+        method: 'POST',
+        headers,
+        body: new URLSearchParams(fields).toString(),
+        redirect: 'manual',
+      }),
+      options.bindings ?? onEnv,
+    );
+  }
+
+  async function finding(projectId: string, number = 1) {
+    const [row] = await env.db
+      .select()
+      .from(securityFindings)
+      .where(and(eq(securityFindings.project_id, projectId), eq(securityFindings.number, number)));
+    return row!;
+  }
+
+  async function comments(projectId: string) {
+    return env.db
+      .select()
+      .from(securityFindingEvents)
+      .where(
+        and(
+          eq(securityFindingEvents.project_id, projectId),
+          eq(securityFindingEvents.action, 'commented'),
+        ),
+      );
+  }
+
+  async function settingsRow(projectId: string) {
+    const [row] = await env.db
+      .select()
+      .from(projectSecuritySettings)
+      .where(eq(projectSecuritySettings.project_id, projectId));
+    return row;
+  }
+
+  const resolveForm = {
+    reason: 'fixed',
+    comment: 'patched in #12',
+    expectedRevision: '1',
+  };
+
+  it('shows each role only the forms it may use', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    const owner = await view(await signIn(people.owner.id, project.id));
+    expect(owner).toContain('action="/security/projects/acme-web/findings/F-1/resolve"');
+    expect(owner).toContain('name="expectedRevision" value="1"');
+    expect(owner).toContain('action="/security/projects/acme-web/findings/F-1/comment"');
+    expect(owner).toContain('action="/security/projects/acme-web/model"');
+    expect(owner).toContain('action="/security/projects/acme-web/budget"');
+    expect(owner).toContain('Platform default (@cf/deepseek-ai/deepseek-v4.1-flash-1017)');
+    expect(owner).toContain('<option value="@cf/zai-org/glm-5.3">');
+    // No probe passed for third-party hosts, so they are not offered.
+    expect(owner).not.toContain('openai/gpt-6.1');
+    expect(owner).not.toContain('/bypass"');
+
+    const collaborator = await view(await signIn(people.collaborator.id, project.id));
+    expect(collaborator).toContain('findings/F-1/comment"');
+    expect(collaborator).not.toContain('/resolve"');
+    expect(collaborator).not.toContain('/model"');
+    expect(collaborator).not.toContain('/budget"');
+
+    const reader = await view(await signIn(people.reader.id, project.id));
+    expect(reader).not.toContain('<form');
+  });
+
+  it('resolves a finding with the same rules as the API, then shows the outcome', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1, severity: 'critical' });
+    const cookie = await signIn(people.admin.id, project.id);
+    const response = await post('/security/projects/acme-web/findings/F-1/resolve', resolveForm, {
+      cookie,
+    });
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/security/projects/acme-web?done=resolved');
+    expect(response.headers.get('cache-control')).toBe('no-store');
+    const row = await finding(project.id);
+    expect(row.state).toBe('resolved');
+    expect(row.resolution).toBe('fixed');
+    expect(row.revision).toBe(2);
+
+    const page = await get('/security/projects/acme-web?done=resolved', { cookie });
+    const html = await page.text();
+    expect(html).toContain('Finding resolved.');
+    expect(html).toContain('Resolved: 1');
+
+    // The page read revision 1; the finding moved on, so a second post is refused.
+    const stale = await post('/security/projects/acme-web/findings/F-1/resolve', resolveForm, {
+      cookie,
+    });
+    expect(stale.status).toBe(409);
+    expect(await stale.text()).toContain('F-1 changed while you were working on it');
+  });
+
+  it('refuses a resolve from a collaborator and bad form values, changing nothing', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1 });
+    const collaborator = await signIn(people.collaborator.id, project.id);
+    const denied = await post('/security/projects/acme-web/findings/F-1/resolve', resolveForm, {
+      cookie: collaborator,
+    });
+    expect(denied.status).toBe(403);
+    expect(await denied.text()).toContain('acme-web · Security');
+
+    const owner = await signIn(people.owner.id, project.id);
+    for (const [fields, message] of [
+      [
+        { ...resolveForm, reason: 'gone' },
+        'reason must be fixed, false_positive or accepted_risk.',
+      ],
+      [{ ...resolveForm, comment: '  ' }, 'comment is required'],
+      [{ ...resolveForm, expectedRevision: 'x' }, 'expectedRevision must be the revision you read'],
+    ] as const) {
+      const response = await post('/security/projects/acme-web/findings/F-1/resolve', fields, {
+        cookie: owner,
+      });
+      expect(response.status, message).toBe(400);
+      expect(await response.text(), message).toContain(message);
+    }
+    const missing = await post('/security/projects/acme-web/findings/F-99/resolve', resolveForm, {
+      cookie: owner,
+    });
+    expect(missing.status).toBe(404);
+    expect((await finding(project.id)).state).toBe('open');
+  });
+
+  it('adds a comment for deploy roles and refuses readers', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1 });
+    const collaborator = await signIn(people.collaborator.id, project.id);
+    const response = await post(
+      '/security/projects/acme-web/findings/F-1/comment',
+      { text: 'looking at it' },
+      { cookie: collaborator },
+    );
+    expect(response.status).toBe(303);
+    expect(response.headers.get('location')).toBe('/security/projects/acme-web?done=commented');
+    const rows = await comments(project.id);
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      comment: 'looking at it',
+      actor_user_id: people.collaborator.id,
+      actor_role: 'collaborator',
+    });
+
+    const reader = await signIn(people.reader.id, project.id);
+    const denied = await post(
+      '/security/projects/acme-web/findings/F-1/comment',
+      { text: 'me too' },
+      { cookie: reader },
+    );
+    expect(denied.status).toBe(403);
+    expect(await comments(project.id)).toHaveLength(1);
+  });
+
+  it('answers with a referrer policy that keeps the Origin of its own form posts', async () => {
+    // Under `no-referrer` a browser sends `Origin: null` on a same-origin form post, which
+    // the CSRF check refuses: every form would fail. `same-origin` keeps the real Origin.
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1 });
+    const link = await get(
+      `/security/projects/acme-web?t=${await token(people.owner.id, project.id)}`,
+    );
+    const cookie = link.headers.get('set-cookie')!.split(';')[0]!;
+    const responses = [
+      ['link', link],
+      ['page', await get('/security/projects/acme-web', { cookie })],
+      ['landing', await get('/security/projects/acme-web')],
+      ['refused', await post('/security/projects/acme-web/budget', { usd: 'abc' }, { cookie })],
+      ['csrf', await post('/security/projects/acme-web/budget', {}, { cookie, origin: null })],
+      ['done', await post('/security/projects/acme-web/budget', { usd: '5' }, { cookie })],
+    ] as const;
+    for (const [name, response] of responses) {
+      expect(response.headers.get('referrer-policy'), name).toBe('same-origin');
+      expect(response.headers.get('cache-control'), name).toBe('no-store');
+    }
+    expect(responses[5][1].status).toBe(303);
+  });
+
+  it('refuses a cross-site post (CSRF) before it reads the cookie', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    await addFinding(project.id, { number: 1 });
+    const cookie = await signIn(people.owner.id, project.id);
+    const path = '/security/projects/acme-web/findings/F-1/resolve';
+    const cases: Array<[string, PostOptions]> = [
+      ['foreign Origin', { cookie, origin: 'https://evil.example' }],
+      ['bad Origin', { cookie, origin: 'null' }],
+      ['no Origin or Referer', { cookie, origin: null }],
+      ['foreign Referer', { cookie, origin: null, referer: 'https://evil.example/page' }],
+    ];
+    for (const [name, options] of cases) {
+      const response = await post(path, resolveForm, options);
+      expect(response.status, name).toBe(403);
+      const html = await response.text();
+      expect(html, name).toContain('This request could not be verified');
+      expect(html, name).not.toContain('SECRET TITLE');
+    }
+    expect((await finding(project.id)).state).toBe('open');
+
+    // A same-origin Referer without Origin passes, as in the admin panel.
+    const ok = await post(path, resolveForm, {
+      cookie,
+      origin: null,
+      referer: 'http://localhost/security/projects/acme-web',
+    });
+    expect(ok.status).toBe(303);
+  });
+
+  it('refuses a post without a valid page cookie, or with one for another project', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const other = await setup('other-web');
+    await addFinding(project.id, { number: 1 });
+    const old = await token(people.owner.id, project.id, Date.now() - 20 * 60_000);
+    for (const cookie of [
+      undefined,
+      `void_security_page=${old}`,
+      await signIn(other.people.owner.id, other.project.id, 'other-web'),
+    ]) {
+      const response = await post(
+        '/security/projects/acme-web/findings/F-1/resolve',
+        resolveForm,
+        cookie ? { cookie } : {},
+      );
+      expect(response.status).toBe(403);
+      const html = await response.text();
+      expect(html).toContain('This link no longer works');
+      expect(html).not.toContain('SECRET TITLE');
+    }
+    expect((await finding(project.id)).state).toBe('open');
+  });
+
+  it('sets the project model and refuses one the platform does not allow', async () => {
+    await savePolicy({ blockedModels: ['@cf/zai-org/glm-5.3'] });
+    const { project, people } = await setup();
+    const owner = await signIn(people.owner.id, project.id);
+    const blocked = await post(
+      '/security/projects/acme-web/model',
+      { model: '@cf/zai-org/glm-5.3' },
+      { cookie: owner },
+    );
+    expect(blocked.status).toBe(422);
+    expect(await blocked.text()).toContain('is blocked by your platform admin');
+
+    await savePolicy();
+    const third = await post(
+      '/security/projects/acme-web/model',
+      { model: 'openai/gpt-6.1-terra' },
+      { cookie: owner },
+    );
+    expect(third.status).toBe(422);
+    expect(await third.text()).toContain('not ready on this platform');
+
+    const saved = await post(
+      '/security/projects/acme-web/model',
+      { model: '@cf/zai-org/glm-5.3' },
+      { cookie: owner },
+    );
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get('location')).toBe('/security/projects/acme-web?done=model');
+    expect((await settingsRow(project.id))?.model).toBe('@cf/zai-org/glm-5.3');
+    const html = await view(owner, 'acme-web?done=model');
+    expect(html).toContain('Scan model saved.');
+    expect(html).toContain('<option value="@cf/zai-org/glm-5.3" selected>');
+
+    // An empty choice goes back to the platform default.
+    expect(
+      (await post('/security/projects/acme-web/model', { model: '' }, { cookie: owner })).status,
+    ).toBe(303);
+    expect((await settingsRow(project.id))?.model).toBeNull();
+    expect(await view(owner)).toContain('<option value="" selected>');
+
+    // The default model named on purpose stays selected, so saving the form unchanged
+    // does not turn it back into "follow the platform default".
+    const named = defaultSecurityPolicy().defaultModel;
+    expect(
+      (await post('/security/projects/acme-web/model', { model: named }, { cookie: owner })).status,
+    ).toBe(303);
+    const kept = await view(owner);
+    expect(kept).toContain(`<option value="${named}" selected>`);
+    expect(kept).not.toContain('<option value="" selected>');
+  });
+
+  it('shows the notice of a third-party default before it asks to accept it', async () => {
+    // The default's host is not probed ready, so no OpenAI model is in the picker.
+    await savePolicy({
+      defaultModel: 'openai/gpt-6.1-terra',
+      thirdPartyNotice: {
+        acceptedByUserId: 'usr_admin',
+        acceptedAt: new Date().toISOString(),
+        version: 1,
+      },
+      entitlement: {
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        missing: [],
+        hosts: { openai: false, anthropic: false },
+      },
+    });
+    const { project, people } = await setup();
+    const html = await view(await signIn(people.owner.id, project.id));
+    expect(html).not.toContain('<option value="openai/');
+    expect(html).toContain('name="acceptProviderNotice"');
+    expect(html).toContain('Provider notice: OpenAI');
+    expect(html).toContain('is run by OpenAI');
+  });
+
+  it('needs the provider notice ticked for a third-party model', async () => {
+    await savePolicy({
+      entitlement: {
+        checkedAt: new Date().toISOString(),
+        ok: true,
+        missing: [],
+        hosts: { openai: true, anthropic: true },
+      },
+    });
+    const { project, people } = await setup();
+    const owner = await signIn(people.owner.id, project.id);
+    const html = await view(owner);
+    expect(html).toContain('Provider notice: OpenAI');
+    expect(html).toContain('name="acceptProviderNotice"');
+
+    const unticked = await post(
+      '/security/projects/acme-web/model',
+      { model: 'openai/gpt-6.1-terra', noticeVersion: '1' },
+      { cookie: owner },
+    );
+    expect(unticked.status).toBe(422);
+    expect(await unticked.text()).toContain('is run by OpenAI, not by Cloudflare');
+
+    const changed = await post(
+      '/security/projects/acme-web/model',
+      { model: 'openai/gpt-6.1-terra', acceptProviderNotice: '1', noticeVersion: '0' },
+      { cookie: owner },
+    );
+    expect(changed.status).toBe(422);
+    expect(await changed.text()).toContain('The provider notice changed');
+
+    const ticked = await post(
+      '/security/projects/acme-web/model',
+      { model: 'openai/gpt-6.1-terra', acceptProviderNotice: '1', noticeVersion: '1' },
+      { cookie: owner },
+    );
+    expect(ticked.status).toBe(303);
+    const row = await settingsRow(project.id);
+    expect(row?.model).toBe('openai/gpt-6.1-terra');
+    expect(row?.provider_notice_by_user_id).toBe(people.owner.id);
+  });
+
+  it('sets and clears the project budget, and refuses a bad amount', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const owner = await signIn(people.owner.id, project.id);
+    const saved = await post(
+      '/security/projects/acme-web/budget',
+      { usd: '$12.50' },
+      { cookie: owner },
+    );
+    expect(saved.status).toBe(303);
+    expect(saved.headers.get('location')).toBe('/security/projects/acme-web?done=budget');
+    expect((await settingsRow(project.id))?.monthly_cap_cents).toBe(1250);
+
+    for (const usd of ['abc', '-1', '1.234']) {
+      const bad = await post('/security/projects/acme-web/budget', { usd }, { cookie: owner });
+      expect(bad.status, usd).toBe(400);
+      expect(await bad.text(), usd).toContain('Enter a dollar amount such as 50');
+    }
+    expect((await settingsRow(project.id))?.monthly_cap_cents).toBe(1250);
+
+    expect(
+      (await post('/security/projects/acme-web/budget', { usd: '' }, { cookie: owner })).status,
+    ).toBe(303);
+    expect((await settingsRow(project.id))?.monthly_cap_cents).toBeNull();
+
+    const collaborator = await signIn(people.collaborator.id, project.id);
+    const denied = await post(
+      '/security/projects/acme-web/budget',
+      { usd: '5' },
+      { cookie: collaborator },
+    );
+    expect(denied.status).toBe(403);
+    expect((await settingsRow(project.id))?.monthly_cap_cents).toBeNull();
+  });
+
+  it('refuses model and budget changes while the capability is off', async () => {
+    await savePolicy();
+    const { project, people } = await setup();
+    const owner = await signIn(people.owner.id, project.id);
+    for (const [path, fields] of [
+      ['/security/projects/acme-web/model', { model: '@cf/zai-org/glm-5.3' }],
+      ['/security/projects/acme-web/budget', { usd: '5' }],
+    ] as const) {
+      const response = await post(path, fields, { cookie: owner, bindings: env });
+      expect(response.status, path).toBe(501);
+      expect(await response.text(), path).toContain('does not enable securityAudits');
+    }
+    expect(await settingsRow(project.id)).toBeUndefined();
+  });
+
+  it('bypasses an open public request with a reason and a confirm', async () => {
+    const s = await setupGate(env);
+    await askPublic(s);
+    const cookie = await signIn(s.user.id, s.project.id, s.project.slug);
+    const page = await get(`/security/projects/${s.project.slug}`, { cookie });
+    expect(await page.text()).toContain(`action="/security/projects/${s.project.slug}/bypass"`);
+
+    const path = `/security/projects/${s.project.slug}/bypass`;
+    const unconfirmed = await post(
+      path,
+      { reason: 'launch day' },
+      { cookie, bindings: s.platform },
+    );
+    expect(unconfirmed.status).toBe(400);
+    expect(await unconfirmed.text()).toContain('Tick the box to confirm');
+    const noReason = await post(
+      path,
+      { reason: ' ', confirm: '1' },
+      { cookie, bindings: s.platform },
+    );
+    expect(noReason.status).toBe(422);
+    expect(await noReason.text()).toContain('A reason of 1 to');
+    expect(await env.db.select().from(securityScanBypasses)).toHaveLength(0);
+
+    const done = await post(
+      path,
+      { reason: 'launch day', confirm: '1' },
+      { cookie, bindings: s.platform },
+    );
+    expect(done.status).toBe(303);
+    expect(done.headers.get('location')).toBe(`${path.slice(0, -'/bypass'.length)}?done=bypassed`);
+    const bypasses = await env.db.select().from(securityScanBypasses);
+    expect(bypasses).toHaveLength(1);
+    expect(bypasses[0]).toMatchObject({
+      reason: 'launch day',
+      actor_user_id: s.user.id,
+      actor_role: 'owner',
+    });
+    const [request] = await env.db.select().from(securityPublicRequests);
+    expect(request!.state).toBe('bypassed');
+
+    // The request is closed: a second post is refused with the flow's reason.
+    const again = await post(
+      path,
+      { reason: 'again', confirm: '1' },
+      { cookie, bindings: s.platform },
+    );
+    expect(again.status).toBe(409);
+    expect(await env.db.select().from(securityScanBypasses)).toHaveLength(1);
+  });
+
+  it('says the bypass is recorded when Cloudflare Access fails after it', async () => {
+    const s = await setupGate(env);
+    await askPublic(s);
+    const cookie = await signIn(s.user.id, s.project.id, s.project.slug);
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    s.cloudflare.fetcher.mockImplementation(async () => {
+      throw new Error('Access API down');
+    });
+    const response = await post(
+      `/security/projects/${s.project.slug}/bypass`,
+      { reason: 'launch day', confirm: '1' },
+      { cookie, bindings: s.platform },
+    );
+    expect(response.status).toBe(502);
+    expect(response.headers.get('content-type')).toContain('text/html');
+    const html = await response.text();
+    expect(html).toContain('The bypass is recorded, but Cloudflare Access is not updated yet.');
+    expect(html).toContain('void project zero-trust reconcile');
+    expect(html).not.toContain('Access API down');
+    const [request] = await env.db.select().from(securityPublicRequests);
+    expect(request!.state).toBe('bypassed');
   });
 });

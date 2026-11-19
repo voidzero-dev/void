@@ -1,22 +1,29 @@
 /**
  * The project security page (spec §13.2): what a signed-in project member sees at
- * `/security/projects/:slug`, and the landing page everyone else gets. Read-only; the
- * commands are shown as text to copy. Role decides the detail:
+ * `/security/projects/:slug`, and the landing page everyone else gets. Role decides the
+ * detail and the forms (Phase 2, M29; `routes/security-page.ts` handles the posts):
  *
- *   settings (owner, admin)  everything, the resolve / budget / bypass commands
- *   deploy (collaborator)    everything except the resolve command
+ *   settings (owner, admin)  everything; resolve, comment, model, budget and bypass forms
+ *   deploy (collaborator)    everything; the comment form, no resolve
  *   read (reader)            counts, F-ids, titles of resolved findings, no budget or scans
  *
- * Every dynamic value goes through `esc`. Model text is plain text: no Markdown, links
- * or images. Only `loadSecurityPage` touches the database, and only to read.
+ * The CLI commands stay shown as text to copy. Every dynamic value goes through `esc`.
+ * Model text is plain text: no Markdown, links or images. Only `loadSecurityPage`
+ * touches the database, and only to read.
  */
 import { escapeBrowserHtml } from '@void/platform/browser-page';
+import { parseSecurityFindingLabel } from '@void/platform/security-policy';
 import { desc, eq } from 'drizzle-orm';
 import type { Db } from '../db.ts';
 import { hasProjectCapability } from '../project-access.ts';
 import type { ProjectRole } from '../types.ts';
 import { formatSecurityDay, formatSecurityStamp } from './notification-copy.ts';
-import { listSecurityFindings, type SecurityFindingView } from './project-findings.ts';
+import {
+  listSecurityFindings,
+  SECURITY_COMMENT_MAX_CHARS,
+  type SecurityFindingView,
+} from './project-findings.ts';
+import { readSecurityProjectModelChoices, type SecurityModelChoices } from './project-settings.ts';
 import {
   listSecurityScans,
   projectSecurityStatus,
@@ -24,7 +31,11 @@ import {
   type SecurityScanView,
 } from './project-view.ts';
 import { publicRequestCopy } from './public-gate-copy.ts';
-import { openPublicRequestView, type PublicRequestView } from './public-gate.ts';
+import {
+  openPublicRequestView,
+  SECURITY_BYPASS_REASON_MAX_CHARS,
+  type PublicRequestView,
+} from './public-gate.ts';
 import { securityScanBypasses } from './schema.ts';
 
 /** The most findings one block lists; the CLI has the rest. */
@@ -50,7 +61,12 @@ export type SecurityPageData = Readonly<{
   scans: ReadonlyArray<SecurityScanView> | null;
   request: PublicRequestView | null;
   bypass: SecurityPageBypass;
+  /** What the model form lists (the same rules the model setter checks). */
+  modelChoices: SecurityModelChoices;
 }>;
+
+/** A line at the top of the page after a form post. */
+export type SecurityPageNotice = Readonly<{ kind: 'ok' | 'error'; text: string }>;
 
 export async function loadSecurityPage(
   db: Db,
@@ -65,7 +81,7 @@ export async function loadSecurityPage(
   const viewer = { role, credential: false };
   const level = securityDetailLevel(viewer);
   const page = { limit: SECURITY_PAGE_FINDINGS_SHOWN, afterNumber: null };
-  const [status, urgentOpen, open, resolved, request, bypasses] = await Promise.all([
+  const [status, urgentOpen, open, resolved, request, bypasses, modelChoices] = await Promise.all([
     projectSecurityStatus({
       db,
       project,
@@ -105,6 +121,7 @@ export async function loadSecurityPage(
       .from(securityScanBypasses)
       .where(eq(securityScanBypasses.project_id, project.id))
       .orderBy(desc(securityScanBypasses.created_at)),
+    readSecurityProjectModelChoices(db, project.id),
   ]);
   const newest = bypasses[0];
   const scans =
@@ -134,6 +151,7 @@ export async function loadSecurityPage(
           }
         : null,
     },
+    modelChoices,
   };
 }
 
@@ -209,9 +227,75 @@ const PAGE_STYLE = `<style>
 .void-auth-page .sec-sev{font-weight:600;text-transform:uppercase;font-size:12px}
 .void-auth-page .sec-file{font:12px ui-monospace,Menlo,monospace;color:var(--auth-secondary)}
 .void-auth-page .void-auth-identity>div{grid-template-columns:96px minmax(0,1fr)}
+.void-auth-page .sec-form{border-top:1px solid var(--auth-border);padding-top:10px}
+.void-auth-page :is(select,textarea){width:100%;min-width:0;padding:8px 12px;border:1px solid var(--auth-border);border-radius:var(--auth-radius-element);background:var(--auth-body);color:var(--auth-text);font:inherit}
+.void-auth-page select{height:44px}
+.void-auth-page textarea{min-height:88px;resize:vertical}
+.void-auth-page .sec-check{display:flex;gap:8px;align-items:flex-start;font-weight:400}
+.void-auth-page .sec-check input{width:auto;height:auto;margin-top:4px}
+.void-auth-page .sec-form .void-auth-button{width:auto;justify-self:start}
 </style>`;
 
-function findingBlock(finding: SecurityFindingView, full: boolean): string {
+/** Where a page form posts: below the page path, so the path-scoped cookie is sent. */
+export function securityPageFormPath(slug: string, ...parts: ReadonlyArray<string>): string {
+  return ['/security/projects', slug, ...parts]
+    .map((part, index) => (index === 0 ? part : encodeURIComponent(part)))
+    .join('/');
+}
+
+function form(action: string, body: string, button: string): string {
+  return `<form class="sec-form" method="post" action="${esc(action)}">${body}<button class="void-auth-button" type="submit">${esc(
+    button,
+  )}</button></form>`;
+}
+
+function textArea(name: string, id: string, label: string, max: number): string {
+  return `<label for="${esc(id)}">${esc(label)}</label><textarea id="${esc(id)}" name="${esc(
+    name,
+  )}" required maxlength="${max}"></textarea>`;
+}
+
+/** Which finding forms the viewer gets: comment needs `configure`, resolve `settings`. */
+type FindingForms = Readonly<{ slug: string; comment: boolean; resolve: boolean }>;
+
+function findingForms(finding: SecurityFindingView, forms: FindingForms | null): string {
+  const id = plainText(finding.id);
+  if (!forms || parseSecurityFindingLabel(id) === null) {
+    return '';
+  }
+  const key = id.toLowerCase();
+  let html = '';
+  if (forms.resolve && finding.state === 'open' && typeof finding.revision === 'number') {
+    html += form(
+      securityPageFormPath(forms.slug, 'findings', id, 'resolve'),
+      `<label for="sec-reason-${key}">Resolve as</label><select id="sec-reason-${key}" name="reason">` +
+        '<option value="fixed">Fixed</option><option value="false_positive">False positive</option>' +
+        '<option value="accepted_risk">Accepted risk</option></select>' +
+        textArea(
+          'comment',
+          `sec-resolve-${key}`,
+          'Why (shown in the history)',
+          SECURITY_COMMENT_MAX_CHARS,
+        ) +
+        `<input type="hidden" name="expectedRevision" value="${finding.revision}">`,
+      `Resolve ${id}`,
+    );
+  }
+  if (forms.comment) {
+    html += form(
+      securityPageFormPath(forms.slug, 'findings', id, 'comment'),
+      textArea('text', `sec-comment-${key}`, 'Comment', SECURITY_COMMENT_MAX_CHARS),
+      'Add comment',
+    );
+  }
+  return html;
+}
+
+function findingBlock(
+  finding: SecurityFindingView,
+  full: boolean,
+  forms: FindingForms | null = null,
+): string {
   const id = plainText(finding.id);
   const severity = typeof finding.severity === 'string' ? finding.severity : 'lead';
   if (!full) {
@@ -240,7 +324,7 @@ function findingBlock(finding: SecurityFindingView, full: boolean): string {
   )}${detailField('Evidence', finding.evidence)}${detailField(
     'Conditions',
     finding.conditions,
-  )}${detailField('Suggested fix', finding.fix)}${resolution}</details>`;
+  )}${detailField('Suggested fix', finding.fix)}${resolution}${findingForms(finding, forms)}</details>`;
 }
 
 /** Says so when a list is cut, and where the rest is. */
@@ -257,12 +341,13 @@ function findingList(
   findings: ReadonlyArray<SecurityFindingView>,
   full: boolean,
   total: number,
+  forms: FindingForms | null = null,
 ): string {
   if (findings.length === 0) {
     return '';
   }
   return `<div class="void-auth-section"><h2>${esc(heading)}</h2><div class="sec-list">${findings
-    .map((finding) => findingBlock(finding, full))
+    .map((finding) => findingBlock(finding, full, forms))
     .join('')}</div>${cutNote(findings.length, total)}</div>`;
 }
 
@@ -403,6 +488,100 @@ function modelLine(data: SecurityPageData): string | null {
   return null;
 }
 
+/** A bypass skips the scan only; with urgent findings open, resolving is the next step. */
+function bypassOffered(data: SecurityPageData): boolean {
+  const state = data.request?.state;
+  return (
+    data.status.urgent.count === 0 &&
+    (state === 'waiting_scan' || state === 'held_no_result' || state === 'needs_deploy')
+  );
+}
+
+function modelForm(data: SecurityPageData): string {
+  const { model } = data.status;
+  const { defaultModel, saved, defaultNotice, noticeVersion, choices } = data.modelChoices;
+  // The saved choice, not the model in use: `''` only when the project follows the default.
+  const picked = saved ?? '';
+  const option = (value: string, label: string) =>
+    `<option value="${esc(value)}"${value === picked ? ' selected' : ''}>${esc(label)}</option>`;
+  let options = option('', `Platform default (${defaultModel})`);
+  for (const choice of choices) {
+    options += option(choice.id, `${choice.id} · ${choice.badges.join(' · ')}`);
+  }
+  // A saved pick that can no longer be chosen stays visible, so saving another field
+  // does not hide what is set.
+  if (picked && !choices.some((choice) => choice.id === picked)) {
+    options += option(picked, `${picked} (cannot be picked now)`);
+  }
+  const notices = new Map<string, ReadonlyArray<string>>();
+  for (const choice of choices) {
+    if (choice.notice) {
+      notices.set(choice.provider, choice.notice);
+    }
+  }
+  // A third-party default waiting for the notice: show its text too, so the box below
+  // never asks to accept a notice the page did not show.
+  if (model.pendingDefault !== null && defaultNotice) {
+    notices.set(defaultNotice.provider, defaultNotice.notice);
+  }
+  let notice = '';
+  if (notices.size > 0) {
+    notice =
+      [...notices]
+        .map(
+          ([provider, lines]) =>
+            `<details><summary>Provider notice: ${esc(provider)}</summary>${lines
+              .map((line) => `<p>${esc(line)}</p>`)
+              .join('')}</details>`,
+        )
+        .join('') +
+      '<label class="sec-check"><input type="checkbox" name="acceptProviderNotice" value="1">' +
+      '<span>I have read the provider notice. Code from this project may be sent to that provider.</span></label>' +
+      `<input type="hidden" name="noticeVersion" value="${noticeVersion}">`;
+  }
+  return form(
+    securityPageFormPath(data.slug, 'model'),
+    `<label for="sec-model">Scan model</label><select id="sec-model" name="model">${options}</select>` +
+      notice,
+    'Save model',
+  );
+}
+
+function budgetForm(data: SecurityPageData): string {
+  const budget = data.status.budget;
+  if (!budget) {
+    return '';
+  }
+  const ceiling =
+    budget.ceilingUsd === null ? '' : ` The most you can set is ${usd(budget.ceilingUsd)}.`;
+  return form(
+    securityPageFormPath(data.slug, 'budget'),
+    '<label for="sec-budget">Monthly scan budget for this project (USD)</label>' +
+      '<input id="sec-budget" name="usd" inputmode="decimal" autocomplete="off" placeholder="100">' +
+      `<p class="void-auth-note">${esc(`Leave it empty to remove this project's own cap.${ceiling}`)}</p>`,
+    'Save budget',
+  );
+}
+
+function bypassForm(data: SecurityPageData): string {
+  return form(
+    securityPageFormPath(data.slug, 'bypass'),
+    textArea('reason', 'sec-bypass-reason', 'Why skip the scan', SECURITY_BYPASS_REASON_MAX_CHARS) +
+      '<label class="sec-check"><input type="checkbox" name="confirm" value="1" required>' +
+      '<span>Make the project public without a passing security scan. The bypass and its reason are recorded, and platform admins get an email.</span></label>',
+    'Bypass the scan',
+  );
+}
+
+function noticeBlock(notice: SecurityPageNotice | null): string {
+  if (!notice) {
+    return '';
+  }
+  return `<div class="${notice.kind === 'ok' ? 'sec-ok' : 'sec-banner'}" role="status"><p>${esc(
+    notice.text,
+  )}</p></div>`;
+}
+
 // ---------------------------------------------------------------------------
 // Pages
 // ---------------------------------------------------------------------------
@@ -426,14 +605,22 @@ export function renderSecurityInvalidLink(slug: string): string {
   );
 }
 
-export function renderSecurityPage(data: SecurityPageData): string {
+export function renderSecurityPage(
+  data: SecurityPageData,
+  notice: SecurityPageNotice | null = null,
+): string {
   const { status, slug, role } = data;
   const settings = hasProjectCapability(role, 'settings');
   const full = hasProjectCapability(role, 'deploy');
-  const head = `<div class="void-auth-lead"><h1 id="void-auth-title">${esc(slug)} · Security</h1></div>`;
+  const head =
+    `<div class="void-auth-lead"><h1 id="void-auth-title">${esc(slug)} · Security</h1></div>` +
+    noticeBlock(notice);
   if (status.policy.mode === 'disabled') {
     return PAGE_STYLE + head + `<p>${esc(status.policy.reason)}</p>`;
   }
+  const forms: FindingForms | null = full
+    ? { slug, comment: hasProjectCapability(role, 'configure'), resolve: settings }
+    : null;
 
   const urgent = status.urgent;
   const openTotal = Object.values(status.counts.open).reduce((sum, value) => sum + value, 0);
@@ -507,10 +694,10 @@ export function renderSecurityPage(data: SecurityPageData): string {
   let lists: string;
   if (full) {
     lists =
-      findingList('Urgent (confirmed critical or high)', urgentRows, true, urgent.count) +
-      findingList(`Other open: ${otherTotal}`, otherRows, true, otherTotal) +
-      findingList(`Leads (need a human look): ${leadsTotal}`, leads, true, leadsTotal) +
-      findingList(`Resolved: ${resolvedTotal}`, data.resolved, true, resolvedTotal);
+      findingList('Urgent (confirmed critical or high)', urgentRows, true, urgent.count, forms) +
+      findingList(`Other open: ${otherTotal}`, otherRows, true, otherTotal, forms) +
+      findingList(`Leads (need a human look): ${leadsTotal}`, leads, true, leadsTotal, forms) +
+      findingList(`Resolved: ${resolvedTotal}`, data.resolved, true, resolvedTotal, forms);
   } else {
     const counts = status.counts.open;
     lists =
@@ -551,12 +738,7 @@ export function renderSecurityPage(data: SecurityPageData): string {
   if (settings) {
     commands.push(`void project security resolve ${firstUrgent} --reason fixed --comment "…"`);
     commands.push('void project security budget --usd 100');
-    const state = data.request?.state;
-    // A bypass skips the scan only; with urgent findings open the resolve command is the next step.
-    if (
-      urgent.count === 0 &&
-      (state === 'waiting_scan' || state === 'held_no_result' || state === 'needs_deploy')
-    ) {
+    if (bypassOffered(data)) {
       commands.push('void project zero-trust bypass --reason "…"');
     }
   } else if (full) {
@@ -564,7 +746,22 @@ export function renderSecurityPage(data: SecurityPageData): string {
   }
   const help =
     (full && !settings ? '<p>A project admin or owner can resolve these.</p>' : '') +
-    (commands.length > 0 ? code(commands.join('\n')) : '');
+    (commands.length > 0
+      ? '<p class="void-auth-note">Or from the CLI:</p>' + code(commands.join('\n'))
+      : '');
+
+  let settingsBlock = '';
+  if (settings) {
+    settingsBlock =
+      '<div class="void-auth-section"><h2>Settings</h2>' +
+      modelForm(data) +
+      budgetForm(data) +
+      '</div>';
+    if (bypassOffered(data)) {
+      settingsBlock +=
+        '<div class="void-auth-section"><h2>Public request</h2>' + bypassForm(data) + '</div>';
+    }
+  }
 
   const notes =
     '<p class="void-auth-note">AI review can be wrong. "No findings" does not mean "no bugs". ' +
@@ -577,6 +774,7 @@ export function renderSecurityPage(data: SecurityPageData): string {
     `<dl class="void-auth-identity">${rows.join('')}</dl>` +
     lists +
     scans +
+    settingsBlock +
     help +
     notes
   );

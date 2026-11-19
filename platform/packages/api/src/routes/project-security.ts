@@ -24,6 +24,7 @@ import {
 import {
   parseSecurityBudgetRequest,
   parseSecurityModelRequest,
+  readSecurityProjectModelChoices,
   setProjectSecurityBudget,
   setProjectSecurityModel,
 } from '../security/project-settings.ts';
@@ -132,6 +133,8 @@ const app = new Hono<ApiEnv>()
     return context.json({
       ...status,
       publicRequest: await openPublicRequestView(context.get('db'), projectId),
+      // What the model picker lists (page, dashboard); the PUT checks the same rules.
+      modelChoices: await readSecurityProjectModelChoices(context.get('db'), projectId),
     });
   })
   .get('/:id/security/findings', async (context) => {

@@ -11,6 +11,10 @@ import projectZeroTrustRoutes from './routes/project-zero-trust.ts';
 import projects from './routes/projects.ts';
 import secrets from './routes/secrets.ts';
 import { projectUsage, accountUsage } from './routes/usage.ts';
+import type { listSecurityFindings } from './security/project-findings.ts';
+import type { SecurityModelChoices } from './security/project-settings.ts';
+import type { listSecurityScans, projectSecurityStatus } from './security/project-view.ts';
+import type { PublicRequestView } from './security/public-gate.ts';
 
 const api = new Hono<ApiEnv>()
   .route('/me', me)
@@ -23,3 +27,21 @@ const api = new Hono<ApiEnv>()
   .route('/usage', accountUsage);
 
 export type ApiRoutes = typeof api;
+
+// The project security routes check access before they answer, which hc cannot type,
+// so their bodies are named here for the dashboard (M29).
+
+/** `GET /projects/:id/security`. */
+export type ProjectSecurityBody = Omit<
+  Awaited<ReturnType<typeof projectSecurityStatus>>,
+  'publicRequest'
+> & {
+  publicRequest: PublicRequestView | null;
+  modelChoices: SecurityModelChoices;
+};
+
+/** `GET /projects/:id/security/findings`. */
+export type ProjectSecurityFindingsBody = Awaited<ReturnType<typeof listSecurityFindings>>;
+
+/** `GET /projects/:id/security/scans`. */
+export type ProjectSecurityScansBody = Awaited<ReturnType<typeof listSecurityScans>>;

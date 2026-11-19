@@ -807,3 +807,49 @@ export function formatPlanSecurityCap(cap: SecurityPlanCap): string {
   const cents = String(cap % 100).padStart(2, '0');
   return `$${dollars.toLocaleString('en-US')}.${cents} / month`;
 }
+
+// ---------------------------------------------------------------------------
+// Form text (the project security page on the API host and the dashboard)
+// ---------------------------------------------------------------------------
+
+/** `text` as a whole number written with 1 to `maxDigits` ASCII digits, else `null`. */
+export function parseSecurityDigits(text: string, maxDigits: number): number | null {
+  if (text.length === 0 || text.length > maxDigits) {
+    return null;
+  }
+  for (const char of text) {
+    if (char < '0' || char > '9') {
+      return null;
+    }
+  }
+  return Number(text);
+}
+
+/** A finding label as the page prints it (`F-12`): its number, else `null`. */
+export function parseSecurityFindingLabel(text: string): number | null {
+  return text.startsWith('F-') ? parseSecurityDigits(text.slice(2), 9) : null;
+}
+
+/**
+ * A dollar amount typed in a budget form, such as `50`, `12.50` or `$12.50`. Empty text
+ * is `null` (no cap of its own); text that is not an amount is `undefined`. The range is
+ * checked by `parseSecurityUsd` on the server.
+ */
+export function parseSecurityUsdText(text: string): number | null | undefined {
+  let amount = text.trim();
+  if (amount === '') {
+    return null;
+  }
+  if (amount.startsWith('$')) {
+    amount = amount.slice(1);
+  }
+  const dot = amount.indexOf('.');
+  const whole = dot === -1 ? amount : amount.slice(0, dot);
+  if (parseSecurityDigits(whole, 7) === null) {
+    return undefined;
+  }
+  if (dot !== -1 && parseSecurityDigits(amount.slice(dot + 1), 2) === null) {
+    return undefined;
+  }
+  return Number(amount);
+}

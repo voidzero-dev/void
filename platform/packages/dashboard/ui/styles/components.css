@@ -194,4 +194,128 @@
       padding-inline: 6rem;
     }
   }
+  /* Project security pages (pages/projects) */
+  .security-page {
+    display: grid;
+    gap: 1.25rem;
+  }
+
+  .security-page h2 {
+    font-size: 1.125rem;
+  }
+
+  .security-notice {
+    padding: 0.75rem 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid var(--color-border);
+  }
+
+  .security-notice--error {
+    border-color: #b42332;
+  }
+
+  .security-notice--ok {
+    border-color: var(--color-zest);
+  }
+
+  .security-summary {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+  }
+
+  .security-field {
+    display: grid;
+    grid-template-columns: 6rem minmax(0, 1fr);
+    gap: 1rem;
+  }
+
+  .security-field dt {
+    color: var(--color-grey);
+  }
+
+  .security-field dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .security-section,
+  .security-detail,
+  .security-form {
+    display: grid;
+    gap: 0.75rem;
+    min-width: 0;
+  }
+
+  .security-list {
+    display: grid;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-wrap: anywhere;
+  }
+
+  .security-list details {
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+  }
+
+  .security-severity {
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+
+  .security-pre {
+    margin: 0;
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+    font-family: var(--font-mono);
+  }
+
+  .security-form {
+    padding-top: 0.75rem;
+    border-top: 1px solid var(--color-border);
+  }
+
+  .security-form label {
+    display: grid;
+    gap: 0.25rem;
+  }
+
+  .security-form .security-check {
+    display: flex;
+    gap: 0.5rem;
+    align-items: flex-start;
+  }
+
+  .security-form :is(input:not([type='checkbox']), select, textarea) {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-bg);
+    color: var(--color-text-1);
+    font: inherit;
+  }
+
+  .security-form button {
+    justify-self: start;
+    padding: 0.5rem 1rem;
+    border: 1px solid var(--color-border);
+    border-radius: 0.5rem;
+    background: var(--color-text-1);
+    color: var(--color-bg);
+    font: inherit;
+    cursor: pointer;
+  }
+
+  @media (max-width: 40rem) {
+    .security-page.dashboard-page {
+      padding: 2rem 1rem;
+    }
+  }
 }
