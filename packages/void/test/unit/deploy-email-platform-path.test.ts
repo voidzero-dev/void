@@ -1,6 +1,7 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { runDeploy } from '../../src/cli/deploy.ts';
 
 // The native Cloudflare email step belongs to `void deploy --platform cloudflare` ONLY.
@@ -83,7 +84,7 @@ vi.mock('../../src/cli/client', () => ({
   isExpiredTokenError: () => false,
 }));
 
-const tmpDir = join(import.meta.dirname, '.tmp-deploy-email-platform-path');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-deploy-email-platform-path');
 
 function makeProject(files: Record<string, string>): string {
   rmSync(tmpDir, { recursive: true, force: true });

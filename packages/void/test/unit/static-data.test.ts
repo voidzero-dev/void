@@ -1,9 +1,10 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { resolveStaticPageDataBuildOptions } from '../../src/pages/static-data.ts';
 
-const tmpDir = join(import.meta.dirname, '.tmp-static-data-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-static-data-test');
 
 function setupConfig(content: Record<string, unknown>): void {
   rmSync(tmpDir, { recursive: true, force: true });

@@ -24,6 +24,7 @@ import { log } from '@voidzero-dev/vite-plus-prompts';
 import ignore from 'ignore';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { activateCloudflareVersion as activateCloudflareVersionPrimitive } from '../../../deploy-cloudflare/src/index.ts';
 import {
   operationFixture,
@@ -122,7 +123,7 @@ vi.mock('../../src/cli/deploy-cloudflare.ts', async (importOriginal) => {
   };
 });
 
-const tmpDir = join(import.meta.dirname, '.tmp-cf-deploy-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-cf-deploy-test');
 
 function removeProjectFixture(): void {
   // Windows can briefly retain handles opened by the real env-schema probe subprocesses.

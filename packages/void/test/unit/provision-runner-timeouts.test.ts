@@ -10,6 +10,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   createDefaultRunWrangler,
   isAlreadyGoneKillError,
@@ -27,7 +28,7 @@ import {
 const { tmpDir, wranglerPath, setup } = useProvisionTestDir('runner-timeouts');
 
 describe('createDefaultRunWrangler — hard timeout kills the REAL process', () => {
-  const TIMEOUT_TMP = join(import.meta.dirname, '.tmp-timeout-kill');
+  const TIMEOUT_TMP = packageFixturePath(import.meta.dirname, '.tmp-timeout-kill');
   beforeEach(() => {
     rmSync(TIMEOUT_TMP, { recursive: true, force: true });
     mkdirSync(TIMEOUT_TMP, { recursive: true });
@@ -113,7 +114,7 @@ describe('createDefaultRunWrangler — hard timeout kills the REAL process', () 
 });
 
 describe('withListerDeadline — the deadline holds in a real process', () => {
-  const LISTER_DEADLINE_TMP = join(import.meta.dirname, '.tmp-lister-deadline');
+  const LISTER_DEADLINE_TMP = packageFixturePath(import.meta.dirname, '.tmp-lister-deadline');
   beforeEach(() => {
     rmSync(LISTER_DEADLINE_TMP, { recursive: true, force: true });
     mkdirSync(LISTER_DEADLINE_TMP, { recursive: true });
@@ -248,7 +249,7 @@ describe('createDefaultRunWrangler — confirmed child termination + kill classi
     }
   };
   beforeEach(() => {
-    killClassifyTmp = mkdtempSync(join(import.meta.dirname, '.tmp-kill-classify-'));
+    killClassifyTmp = mkdtempSync(packageFixturePath(import.meta.dirname, '.tmp-kill-classify-'));
   });
   afterEach(() => {
     rmTmp();

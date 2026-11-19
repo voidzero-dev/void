@@ -2,10 +2,11 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import ts from '../../../../test/fixtures/sveltekit-v2/compiler.ts';
 import { mergeVoidSvelteKitTsconfig, withVoidTSConfig } from '../../src/sveltekit.ts';
 
-const TMP = join(import.meta.dirname, '.tmp-sveltekit-tsconfig-test');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-sveltekit-tsconfig-test');
 const generatedPath = (...parts: Array<string>) => toSlash(join(TMP, ...parts));
 
 beforeEach(() => {

@@ -1,10 +1,11 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { definePagesPluginTests } from '../../../../test/pages-plugin-contract.ts';
 import { installedDependencies, pagesPlugin } from '../../src/plugin-pages.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };

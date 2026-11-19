@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { toSlash } from 'pathslash';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   detectPreset,
   findBackendSources,
@@ -11,7 +12,7 @@ import {
   resolveProjectCommand,
 } from '../../src/cli/preset.ts';
 
-const TMP = join(import.meta.dirname, '.tmp-preset');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-preset');
 
 function setupProject(opts: {
   pkg?: Record<string, unknown>;

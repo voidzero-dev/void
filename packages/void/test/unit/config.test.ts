@@ -2,6 +2,7 @@ import { mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { inspect } from 'node:util';
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 
 vi.mock('../../src/log', () => ({
   voidLog: vi.fn(),
@@ -53,7 +54,7 @@ describe('storage.locationHint', () => {
   });
 });
 
-const tmpDir = join(import.meta.dirname, '.tmp-config-test');
+const tmpDir = packageFixturePath(import.meta.dirname, '.tmp-config-test');
 
 function setup(content?: string) {
   rmSync(tmpDir, { recursive: true, force: true });

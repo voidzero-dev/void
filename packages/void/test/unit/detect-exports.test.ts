@@ -1,9 +1,10 @@
 import { mkdirSync, writeFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it, beforeEach, afterEach } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { detectHttpExports } from '../../src/router/detect-exports.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_detect_test__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_detect_test__');
 
 function writeRoute(filename: string, content: string): string {
   const full = join(TMP, filename);

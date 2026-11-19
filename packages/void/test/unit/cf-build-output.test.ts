@@ -33,6 +33,7 @@ import {
 import { toSlash } from 'pathslash';
 import { createBuilder } from 'vite';
 import { afterAll, afterEach, expect, it as serialIt, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   type CfBuildOutput,
   prepareCfFrameworkBuildOutput,
@@ -1172,7 +1173,9 @@ it('keeps Durable Objects, Queue triggers, and Containers in cf prebuilt output'
 }, 15_000);
 
 it('bundles a generated static Worker and staged assets into prebuilt cf output', async () => {
-  const root = mkdtempSync(join(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'));
+  const root = mkdtempSync(
+    packageFixturePath(dirname(fileURLToPath(import.meta.url)), '.tmp-cf-static-'),
+  );
   roots.push(root);
   writeFileSync(join(root, 'package.json'), '{"name":"static-app","type":"module"}');
   mkdirSync(join(root, 'node_modules'));

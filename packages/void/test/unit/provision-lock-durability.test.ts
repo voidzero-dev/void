@@ -9,6 +9,7 @@ import {
 } from 'node:fs';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   acquireProvisionLock,
   WranglerQuarantineError,
@@ -39,7 +40,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
   // mutex is gone. Poll a throwaway provision until it gets past the slot guard, so the
   // next test does not trip on a watchdog that is still resolving.
   async function drainRetentionWatchdog(timeoutMs = 20_000): Promise<void> {
-    const probeDir = join(import.meta.dirname, '.tmp-provision-drain');
+    const probeDir = packageFixturePath(import.meta.dirname, '.tmp-provision-drain');
     const probeCfg = join(probeDir, 'wrangler.jsonc');
     const deadline = Date.now() + timeoutMs;
     try {
@@ -219,7 +220,7 @@ describe('acquireProvisionLock — durable sidecar is a PRECONDITION for quarant
   it('the watchdog HOLDS the process at natural exit until the child dies, then releases and exits cleanly', async () => {
     // proper-lockfile's exit sweep removes every tracked mutex, so the watchdog must keep
     // the process alive until the child is confirmed dead.
-    const WATCHDOG_EXIT_TMP = join(import.meta.dirname, '.tmp-watchdog-exit');
+    const WATCHDOG_EXIT_TMP = packageFixturePath(import.meta.dirname, '.tmp-watchdog-exit');
     rmSync(WATCHDOG_EXIT_TMP, { recursive: true, force: true });
     mkdirSync(WATCHDOG_EXIT_TMP, { recursive: true });
     const appRoot = join(WATCHDOG_EXIT_TMP, 'app');

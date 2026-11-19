@@ -18,6 +18,8 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { stripVTControlCharacters } from 'node:util';
 import crossSpawn from 'cross-spawn';
 
+export { createPackageFixtureDir } from './fixture-dir.ts';
+
 /**
  * Timeout multiplier for Windows CI runners, which are 2–3× slower
  * for builds and server startup.
@@ -57,18 +59,6 @@ function shouldCopyPlaygroundPath(sourceRoot: string, path: string): boolean {
   const relativePath = relative(normalizedSourceRoot, normalizedPath);
   const topLevelEntry = relativePath.split('/')[0];
   return relativePath === '' || !GENERATED_PLAYGROUND_ENTRIES.has(topLevelEntry);
-}
-
-/**
- * Creates a fixture directory inside a package, where the fixture resolves that package's
- * dependencies. It lives beside the test directories instead of inside one: Vitest lists those
- * to collect files, and a directory that appears and disappears there would invalidate the
- * cached test task of every package.
- */
-export function createPackageFixtureDir(packageDir: string, prefix: string): string {
-  const parent = join(packageDir.replaceAll('\\', '/'), 'test/.tmp-fixtures');
-  mkdirSync(parent, { recursive: true });
-  return mkdtempSync(join(parent, prefix));
 }
 
 /**

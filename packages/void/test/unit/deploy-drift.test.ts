@@ -11,6 +11,7 @@ import {
 import { join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateVoidAuthDrizzleSchema } from '../../src/auth/drizzle.ts';
 import { getDeploySchemaDriftMessage, hasDeploySchemaDrift } from '../../src/cli/deploy-drift.ts';
 import { validateAuthMigrationSchema } from '../../src/cli/deploy-migrations.ts';
@@ -200,7 +201,9 @@ describe('hasDeploySchemaDrift', { timeout: driftTestTimeout }, () => {
 });
 
 function createTempApp(): string {
-  const root = mkdtempSync(join(packageRoot, '.tmp-deploy-drift-'));
+  const root = mkdtempSync(
+    packageFixturePath(join(packageRoot, 'test/unit'), '.tmp-deploy-drift-'),
+  );
   tempDirs.push(root);
   mkdirSync(join(root, 'db'), { recursive: true });
   return root;

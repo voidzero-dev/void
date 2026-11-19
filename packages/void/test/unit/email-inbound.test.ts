@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { toSlash } from 'pathslash';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import {
   EMAIL_MAX_RESPONSE_BYTES,
   encodeEmailActions,
@@ -45,7 +46,7 @@ vi.mock('cloudflare:email', () => ({
   },
 }));
 
-const TMP = join(import.meta.dirname, '.tmp-email-inbound');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-email-inbound');
 
 function setupRoot(files: Record<string, string>): string {
   rmSync(TMP, { recursive: true, force: true });

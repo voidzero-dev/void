@@ -15,6 +15,7 @@ import { join } from 'node:path';
 import { parse as parseJsoncRaw } from 'jsonc-parser';
 import { toSlash } from 'pathslash';
 import { afterEach, beforeEach, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { operationFixture } from '../../../deploy-cloudflare/test/operation-fixture.ts';
 import {
   type DesiredResourceSet,
@@ -55,7 +56,7 @@ export interface ProvisionTestDir {
  * test and remove the project, env stubs and global stubs after it.
  */
 export function useProvisionTestDir(name: string): ProvisionTestDir {
-  const tmpDir = join(import.meta.dirname, `.tmp-provision-test-${name}`);
+  const tmpDir = packageFixturePath(import.meta.dirname, `.tmp-provision-test-${name}`);
   const wranglerPath = toSlash(join(tmpDir, 'wrangler.jsonc'));
 
   beforeEach(() => {

@@ -11,13 +11,14 @@ import {
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { generateValidatedSqliteMigrations } from '../../src/drizzle/generate.ts';
 import { collectMigrations } from '../../src/migrations/collect.ts';
 import { openMigrationValidationDatabase } from '../../src/migrations/sqlite-validation.ts';
 
 const roots: Array<string> = [];
 function fixture(): string {
-  const root = mkdtempSync(join(import.meta.dirname, 'tmp-drizzle-generate-'));
+  const root = mkdtempSync(packageFixturePath(import.meta.dirname, 'tmp-drizzle-generate-'));
   roots.push(root);
   return root;
 }

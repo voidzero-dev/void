@@ -4,6 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { log, outro } from '@voidzero-dev/vite-plus-prompts';
 import { toSlash } from 'pathslash';
 import { describe, it, expect, afterEach, beforeEach, vi } from 'vite-plus/test';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import type { GenArgs } from '../../src/cli/gen-args.ts';
 import { runGenCommand, formatTimestamp, detectValidator } from '../../src/cli/gen.ts';
 import { createPagesStarterTemplate } from '../../src/cli/template.ts';
@@ -136,7 +137,7 @@ function simulateDrizzleCustom(
   }
 }
 
-const TMP = join(import.meta.dirname, '.tmp-gen-test');
+const TMP = packageFixturePath(import.meta.dirname, '.tmp-gen-test');
 
 function read(path: string): string {
   return readFileSync(join(TMP, path), 'utf-8');

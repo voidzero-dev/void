@@ -5,9 +5,10 @@ import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import * as Vue from 'vue';
 import { compileScript, parse } from 'vue/compiler-sfc';
 import { renderToString } from 'vue/server-renderer';
+import { packageFixturePath } from '../../../../test/fixture-dir.ts';
 import { pagesPlugin } from '../../src/plugin-pages.ts';
 
-const TMP = join(import.meta.dirname, '__tmp_pages_plugin__');
+const TMP = packageFixturePath(import.meta.dirname, '__tmp_pages_plugin__');
 const PAGES_DIR = join(TMP, 'pages');
 
 type HookWithHandler<T> = { handler: T };
