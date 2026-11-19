@@ -20,6 +20,7 @@ import { createGitHubWebhookIngressProof } from '../../src/github/webhook-ingres
 import { app } from '../../src/index.ts';
 import { deriveProxyInternalAuth, PROXY_INTERNAL_AUTH_HEADER } from '../../src/proxy-token.ts';
 import { platformAuthSettings, platformHumanSessions, users } from '../../src/schema.ts';
+import { mintSecurityPageToken } from '../../src/security/page-token.ts';
 import {
   clearTables,
   createTestBuild,
@@ -220,6 +221,40 @@ describe('Access-protected platform requests', () => {
     expect(
       (await request('/email/destinations/confirm/extra?token=invalid.signature')).status,
     ).toBe(403);
+  });
+
+  it('keeps the signed project security page behind the company Access identity', async () => {
+    const project = await createTestProject(env.db, user.id, 'secured-page');
+    const minted = await mintSecurityPageToken(
+      { userId: user.id, projectId: project.id },
+      env.JWT_SECRET,
+    );
+    const path = `/security/projects/secured-page?t=${encodeURIComponent(minted.token)}`;
+    // The link alone is not enough: no Access assertion, no page.
+    expect((await request(path)).status).toBe(403);
+    expect((await request('/security/projects/secured-page')).status).toBe(403);
+    // A service token is not a person.
+    expect((await request(path, await assertion({ service: true }))).status).toBe(403);
+    // A company identity redeems the link and then reads the page.
+    const access = await assertion();
+    const redeemed = await app.fetch(
+      new Request(`${origin}${path}`, {
+        headers: { 'Cf-Access-Jwt-Assertion': access },
+        redirect: 'manual',
+      }),
+      env,
+    );
+    expect(redeemed.status).toBe(303);
+    const cookie = redeemed.headers.get('set-cookie')!.split(';')[0]!;
+    const page = await app.fetch(
+      new Request(`${origin}/security/projects/secured-page`, {
+        headers: { 'Cf-Access-Jwt-Assertion': access, Cookie: cookie },
+      }),
+      env,
+    );
+    expect(page.status).toBe(200);
+    expect(page.headers.get('cache-control')).toBe('no-store');
+    expect(await page.text()).toContain('secured-page · Security');
   });
 
   it('admits the installer email probe only with both service Access and installation proof', async () => {

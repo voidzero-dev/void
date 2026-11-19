@@ -135,6 +135,7 @@ import projectZeroTrustRoutes from './routes/project-zero-trust.ts';
 import projects from './routes/projects.ts';
 import revalidate from './routes/revalidate.ts';
 import secrets from './routes/secrets.ts';
+import securityPageRoutes from './routes/security-page.ts';
 import { projectUsage, accountUsage } from './routes/usage.ts';
 import { webhookRoutes } from './routes/webhooks.ts';
 import { setProjectsRoutingSuspension } from './routing.ts';
@@ -592,6 +593,8 @@ const app = new Hono<ApiEnv>()
   // capability response.
   .use('/email/*', capabilityMiddleware('email'))
   .route('/email', emailConfirm)
+  // The signed link from `void project security open` is the credential (spec §13.2).
+  .route('/security/projects', securityPageRoutes)
   .use('/me', authMiddleware)
   .use('/me/*', authMiddleware)
   .route('/me', me)

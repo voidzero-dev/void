@@ -1167,6 +1167,21 @@ P3  M32 local check · M33 BYOK · M34 per-project policy · M35 severity edits 
 - Tests: integration `security-page.test.ts` (expired, other user, other project,
   reader view, behind platform Access — extend `platform-access-protection.test.ts`).
 - Exit: page renders for each role with no data leak.
+- As built: `page-token.ts` already existed from M14. Route in `routes/security-page.ts`, mounted
+  in `index.ts` as `/security/projects` right after `/email` (no capability middleware, so a
+  platform with audits off still shows "Security audits are off on this platform." to a signed-in
+  member); data and HTML in `security/project-page.ts` (`loadSecurityPage` reuses
+  `projectSecurityStatus`, `listSecurityFindings`, `listSecurityScans`, `openPublicRequestView`,
+  so the page and the API cannot disagree on detail level). The cookie `void_security_page`
+  holds the same signed token (Path = the clean URL, HttpOnly, Lax, Secure on https, Max-Age =
+  the token's remaining life); redeeming answers 303. Each load re-reads the user (missing or
+  suspended) and the member role; any failure, an unknown slug, a token for another project or
+  no cookie gives the same landing page. A bad `?t=` is a 400 "This link no longer works".
+  Access protection is NOT relaxed for this route: behind platform Access the company
+  identity is still required (a link alone, or a service token, gets 403). The page is
+  read-only; findings and the open lists show at most 100 each, scans at most 10. Resolve and
+  budget commands use `F-1`/`--usd 100` examples; the budget line shows only for deploy-level
+  roles. CSS is an inline `<style>` in the content that widens the shared card to 860px.
 
 **M20 CLI `void project security`.**
 
