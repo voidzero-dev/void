@@ -1,6 +1,7 @@
 import { availableParallelism } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vite-plus';
+import { integrationTestDirs, listIntegrationTestFiles } from './test/integration-files.ts';
 import { SuiteSequencer } from './test/sequencer.ts';
 
 const maxWorkers = process.env.CI ? 2 : Math.max(2, Math.floor(availableParallelism() * 0.75));
@@ -40,7 +41,6 @@ const sdkPgliteUnitTests = [
 // (packages/void/test/e2e/cloudflare-deploy-live.test.ts) needs all three, so forward them into the
 // core-markdown workers explicitly from this main config process (which has the runner's step env).
 // Absent credentials become empty strings so ordinary test runs skip the live suite.
-const testGroupInput = [{ auto: true }, '!node_modules/.cache/**'];
 const e2eWorkerEnv = {
   VOID_TEST_BROWSER: process.env.VOID_TEST_BROWSER ?? 'chromium',
   VOID_E2E_CF_TOKEN: process.env.VOID_E2E_CF_TOKEN ?? '',
@@ -87,9 +87,27 @@ const testGroups = {
   integration: ['parallel-integration'],
 };
 
+// The files a cached test task reads are its inputs. Two trees are left out: Node's compile
+// cache, which every run rewrites, and the temporary playground copies. A copy is made from
+// tracked files, and some frameworks list the directory that holds the copies of other tests.
+const testGroupInput = [{ auto: true }, '!node_modules/.cache/**', '!playground-local/**'];
+
 function testGroupCommand(group: keyof typeof testGroups): string {
   return `vp test run ${testGroups[group].map((name) => `--project ${name}`).join(' ')}`;
 }
+
+// The integration group runs one cached task per test file. Each task records the files its test
+// reads, so a change reruns only the files that depend on it and the others are replayed.
+const e2eEnvNames = ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'];
+const integrationFileTasks = Object.fromEntries(
+  listIntegrationTestFiles(import.meta.dirname).map((file) => [
+    `test:integration:${file}`,
+    {
+      command: `vp test run --project parallel-integration ${file}`,
+      cache: { input: testGroupInput, output: [], untrackedEnv: e2eEnvNames },
+    },
+  ]),
+);
 
 const config = defineConfig({
   run: {
@@ -101,7 +119,6 @@ const config = defineConfig({
       'lint:platform': {
         command: 'vp lint platform --type-aware --tsconfig platform/tsconfig.json',
       },
-      // Node's compile cache is shared and rewritten by every run, so it is not an input.
       // One cached task per test group, so `test:all` replays a group whose inputs did not change.
       // Test output is not restored on a hit.
       'test:group:platform': {
@@ -112,13 +129,15 @@ const config = defineConfig({
         command: testGroupCommand('unit'),
         cache: { input: testGroupInput, output: [] },
       },
+      ...integrationFileTasks,
+      // The check runs after every file passed and fails when a collected file has no task.
+      'test:integration:files': {
+        command: 'node test/check-integration-tasks.mjs',
+        dependsOn: Object.keys(integrationFileTasks),
+      },
       'test:group:integration': {
-        command: testGroupCommand('integration'),
-        cache: {
-          input: testGroupInput,
-          output: [],
-          untrackedEnv: ['VOID_E2E_CF_TOKEN', 'VOID_E2E_CF_ACCOUNT_ID', 'VOID_E2E_NAMESPACE'],
-        },
+        command: `vp run --concurrency-limit ${maxWorkers} test:integration:files`,
+        cache: { untrackedEnv: e2eEnvNames },
       },
       // Local verification without the static checks: build the packages, then the cached test
       // groups. Tests copy and build the playgrounds they use, so the playground builds of
@@ -624,17 +643,7 @@ const config = defineConfig({
           // existing e2e file drives playground/spa, while the other SPA integration uses an
           // isolated playground-local copy so both remain safe when credentials are present.
           env: e2eWorkerEnv,
-          include: [
-            'packages/void/test/integration/**/*.test.ts',
-            // Gated live-account e2e (test/e2e/**). Collected here so it is skipped cleanly in CI
-            // (no token) rather than silently undiscovered; runs only when its env vars are set.
-            'packages/void/test/e2e/**/*.test.ts',
-            'packages/md/test/integration/**/*.test.ts',
-            'packages/react/test/integration/**/*.test.ts',
-            'packages/vue/test/integration/**/*.test.ts',
-            'packages/svelte/test/integration/**/*.test.ts',
-            'packages/solid/test/integration/**/*.test.ts',
-          ],
+          include: integrationTestDirs.map((dir) => `${dir}/**/*.test.ts`),
           maxWorkers,
         },
       },

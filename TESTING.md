@@ -35,6 +35,11 @@ integration. Vite Task records the files each group reads and replays a group wh
 changed, so a platform-only change does not rerun the SDK groups and an unchanged checkout replays
 all three. A failed group is never replayed. `vpr test:all` adds formatting, lint, and typechecks.
 
+The integration group goes further and caches every test file as its own task. After a change,
+only the integration files that read a changed file run again: a framework adapter change reruns
+the files that build with that adapter, and an edited test file reruns alone. The tasks are
+generated from the directories in `test/integration-files.ts`.
+
 ```sh
 vp run test                        # Build, then run or replay each test group
 vp run test:group:platform         # One group; also test:group:unit, test:group:integration
@@ -61,7 +66,10 @@ there. Use `vp run test` for integration coverage and before handing off.
 Integration tests never build, serve, or write files inside `playground/<name>`. Copy the app with
 `createIsolatedPlayground()` and run `vp` from the copy, for example through `spawnFixtureServer()`.
 Output written into a source playground changes the inputs of the workspace build and of the
-cached test groups, so the next run would rebuild and rerun them.
+cached test groups, so the next run would rebuild and rerun them. For the same reason, create an
+app that a test writes from scratch with `createPackageFixtureDir()`, not inside a test directory:
+Vitest lists those directories, and an entry that comes and goes there reruns every integration
+file.
 
 For a leaf-module edit with known import-based consumers, Vitest's native related command is useful:
 
